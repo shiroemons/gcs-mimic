@@ -1,4 +1,4 @@
-use crate::object::{MapMode, ObjectConditions, ObjectMetadataUpdate};
+use crate::object::{MapMode, ObjectConditions, ObjectError, ObjectMetadataUpdate};
 use ring::digest::{Context, SHA256};
 
 /// Versioned request identity, independent of diagnostic and serialization formats.
@@ -13,7 +13,7 @@ pub(in crate::storage::catalog) struct UploadFingerprint<'a> {
 }
 
 impl UploadFingerprint<'_> {
-    pub(in crate::storage::catalog) fn digest(&self) -> Vec<u8> {
+    pub(in crate::storage::catalog) fn digest(&self) -> Result<[u8; 32], ObjectError> {
         let mut encoded = Canonical::new(b"upload-v2");
         encoded.text(self.bucket);
         encoded.text(self.name);
@@ -35,14 +35,16 @@ impl UploadFingerprint<'_> {
         }
         encoded.u64(self.size);
         encoded.bytes(&self.sha256);
-        encoded.0.finish().as_ref().to_vec()
+        encoded.finish()
     }
 }
 
-pub(in crate::storage::catalog) fn copy_fingerprint(request: &str) -> Vec<u8> {
+pub(in crate::storage::catalog) fn copy_fingerprint(
+    request: &str,
+) -> Result<[u8; 32], ObjectError> {
     let mut encoded = Canonical::new(b"copy-v2");
     encoded.text(request);
-    encoded.0.finish().as_ref().to_vec()
+    encoded.finish()
 }
 
 struct Canonical(Context);
@@ -52,6 +54,14 @@ impl Canonical {
         let mut encoded = Self(Context::new(&SHA256));
         encoded.bytes(domain);
         encoded
+    }
+
+    fn finish(self) -> Result<[u8; 32], ObjectError> {
+        self.0
+            .finish()
+            .as_ref()
+            .try_into()
+            .map_err(crate::storage::failure::object_unavailable)
     }
 
     fn u64(&mut self, value: u64) {
@@ -188,7 +198,7 @@ mod tests {
         }]);
         metadata.override_unlocked_retention =
             crate::object::retention::UnlockedOverride::Requested;
-        let expected = request(&metadata).digest();
+        let expected = request(&metadata).digest().unwrap();
         let mutations: [fn(&mut ObjectMetadataUpdate); 17] = [
             |value| value.acl = None,
             |value| value.predefined_acl = None,
@@ -214,7 +224,11 @@ mod tests {
         for (index, mutate) in mutations.into_iter().enumerate() {
             let mut changed = metadata.clone();
             mutate(&mut changed);
-            assert_ne!(request(&changed).digest(), expected, "field {index}");
+            assert_ne!(
+                request(&changed).digest().unwrap(),
+                expected,
+                "field {index}"
+            );
         }
     }
 
@@ -225,32 +239,32 @@ mod tests {
                 metadata,
                 ..Default::default()
             };
-            let default = request(&update).digest();
+            let default = request(&update).digest().unwrap();
             update.metadata_mode = MapMode::Merge;
-            assert_eq!(request(&update).digest(), default);
+            assert_eq!(request(&update).digest().unwrap(), default);
             update.metadata_mode = MapMode::Replace;
-            assert_ne!(request(&update).digest(), default);
+            assert_ne!(request(&update).digest().unwrap(), default);
         }
     }
 
     #[test]
     fn nullable_fields_and_empty_strings_have_distinct_identities() {
         let mut metadata = ObjectMetadataUpdate::default();
-        let absent = request(&metadata).digest();
+        let absent = request(&metadata).digest().unwrap();
         metadata.content_type = Some(None);
-        let removed = request(&metadata).digest();
+        let removed = request(&metadata).digest().unwrap();
         metadata.content_type = Some(Some(String::new()));
-        let empty = request(&metadata).digest();
+        let empty = request(&metadata).digest().unwrap();
         assert_ne!(absent, removed);
         assert_ne!(absent, empty);
         assert_ne!(removed, empty);
-        assert_ne!(empty, copy_fingerprint("object"));
+        assert_ne!(empty, copy_fingerprint("object").unwrap());
     }
 
     #[test]
     fn every_request_condition_contributes_to_identity() {
         let metadata = ObjectMetadataUpdate::default();
-        let expected = request(&metadata).digest();
+        let expected = request(&metadata).digest().unwrap();
         let variants = [
             ObjectConditions {
                 if_generation_match: Some(1),
@@ -272,7 +286,7 @@ mod tests {
         for conditions in variants {
             let mut changed = request(&metadata);
             changed.conditions = conditions;
-            assert_ne!(changed.digest(), expected);
+            assert_ne!(changed.digest().unwrap(), expected);
         }
     }
 }

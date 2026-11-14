@@ -118,7 +118,7 @@ impl PublishIdentity {
 
 impl UploadCommit {
     /// Identifies the request for upload replay: target, metadata, conditions and body.
-    fn fingerprint(&self, sha256: [u8; 32]) -> Vec<u8> {
+    fn fingerprint(&self, sha256: [u8; 32]) -> Result<[u8; 32], ObjectError> {
         super::super::upload_replay::UploadFingerprint {
             bucket: &self.bucket,
             name: &self.name,
@@ -166,7 +166,11 @@ impl UploadCommit {
         let replay = self
             .replay
             .as_ref()
-            .map(|replayed| (&replayed.replay, self.fingerprint(replayed.sha256)));
+            .map(|replayed| {
+                self.fingerprint(replayed.sha256)
+                    .map(|fingerprint| (&replayed.replay, fingerprint))
+            })
+            .transpose()?;
         if let Some((replay, fingerprint)) = &replay {
             replay.check_incarnation(transaction, &self.bucket)?;
             if let Some(record) = replay.replay(transaction, micros, fingerprint)? {

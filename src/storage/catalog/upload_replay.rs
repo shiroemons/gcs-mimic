@@ -82,8 +82,11 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
     Ok(())
 }
 
-fn hash(bytes: &[u8]) -> Vec<u8> {
-    digest(&SHA256, bytes).as_ref().to_vec()
+fn hash(bytes: &[u8]) -> Result<[u8; 32], ObjectError> {
+    digest(&SHA256, bytes)
+        .as_ref()
+        .try_into()
+        .map_err(objects::object_unavailable)
 }
 
 fn invalid() -> ObjectError {
@@ -92,8 +95,8 @@ fn invalid() -> ObjectError {
 
 #[derive(Clone)]
 pub(super) struct UploadReplay {
-    token: Vec<u8>,
-    request: Vec<u8>,
+    token: [u8; 32],
+    request: [u8; 32],
     incarnation: Incarnation,
     snapshot: UploadAclSnapshot,
     principals: Option<super::principals::Profile>,
@@ -102,7 +105,7 @@ pub(super) struct UploadReplay {
 #[derive(Clone)]
 pub(crate) struct CopyReplay {
     replay: UploadReplay,
-    fingerprint: Vec<u8>,
+    fingerprint: [u8; 32],
     source_bucket: String,
     source_name: String,
     source_generation: Option<i64>,
@@ -189,11 +192,11 @@ impl UploadReplay {
         &self,
         connection: &Connection,
         now: i64,
-    ) -> Result<Option<(Vec<u8>, Completion)>, ObjectError> {
+    ) -> Result<Option<([u8; 32], Completion)>, ObjectError> {
         let row = sql::row(connection,
             "SELECT request, incarnation, fingerprint, completion FROM upload_replays WHERE token = ?1 AND deadline > ?2",
             params![self.token, now],
-            |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Incarnation>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, String>(3)?)),
+            |r| Ok((r.get::<_, [u8; 32]>(0)?, r.get::<_, Incarnation>(1)?, r.get::<_, [u8; 32]>(2)?, r.get::<_, String>(3)?)),
         ).optional()?;
         row.map(|(request, incarnation, fingerprint, completion)| {
             if request != self.request || incarnation != self.incarnation {
@@ -208,11 +211,11 @@ impl UploadReplay {
         &self,
         connection: &Connection,
         now: i64,
-        fingerprint: &[u8],
+        fingerprint: &[u8; 32],
     ) -> Result<Option<ObjectRecord>, ObjectError> {
         self.cached(connection, now)?
             .map(|(original, mut completion)| {
-                if original != fingerprint {
+                if original != *fingerprint {
                     return Err(invalid());
                 }
                 if let Some(owner) = &mut completion.record.owner {
@@ -235,7 +238,7 @@ impl UploadReplay {
         &self,
         connection: &Connection,
         now: i64,
-        fingerprint: &[u8],
+        fingerprint: &[u8; 32],
         record: &ObjectRecord,
         access: &BucketAccess,
         source: Option<CopySource>,
@@ -350,7 +353,7 @@ pub(super) fn make_room(connection: &Connection, now: i64) -> Result<(), ObjectE
 fn copy_source_generation(
     connection: &Connection,
     source: CopyReplaySource<'_>,
-    token: &[u8],
+    token: &[u8; 32],
     now: i64,
 ) -> Result<Option<i64>, ObjectError> {
     let Some(check) = objects::object_acl_authority(connection, source.bucket, source.access)?
@@ -413,7 +416,7 @@ impl Catalog {
         let source_query = source_bucket.clone();
         let source_object = source_name.clone();
         let source_authority = source_access.clone();
-        let token = hash(invocation.token.unwrap_or_default().as_bytes());
+        let token = hash(invocation.token.unwrap_or_default().as_bytes())?;
         let now = unix_micros(self.0.clock.now())?;
         let (source_incarnation, source_generation): (Incarnation, Option<i64>) = self
             .run(move |connection| {
@@ -455,7 +458,7 @@ impl Catalog {
             .ok_or_else(|| objects::object_unavailable("Missing copy replay binding"))?;
         Ok(Some(CopyReplay {
             replay,
-            fingerprint: copy_fingerprint(&request),
+            fingerprint: copy_fingerprint(&request)?,
             source_bucket,
             source_name,
             source_generation,
@@ -496,7 +499,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = access.clone();
-        let token = hash(token.as_bytes());
+        let token = hash(token.as_bytes())?;
         let expected_incarnation = permit.replay.as_ref().map(|r| r.incarnation);
         let (profile, principal) = match &access {
             BucketAccess::Permissive => ("permissive", None),
@@ -511,7 +514,7 @@ impl Catalog {
             serde_json::to_vec(&(request, profile, principal))
                 .map_err(objects::object_unavailable)?
                 .as_slice(),
-        );
+        )?;
         let clock = self.0.clock.clone();
         let principals = self.0.principals.get().cloned();
         let replay = self
@@ -755,7 +758,7 @@ mod tests {
             size: 5,
             sha256: [7; 32],
         };
-        let digest = request.digest();
+        let digest = request.digest().unwrap();
         let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(
             hex,
@@ -770,6 +773,7 @@ mod tests {
                 ..request
             }
             .digest()
+            .unwrap()
         );
     }
 }
