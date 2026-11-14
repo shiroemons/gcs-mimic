@@ -1,5 +1,11 @@
 use super::PathStop;
-use crate::{storage::catalog::sql, sync::mapping::Reason};
+use crate::{
+    storage::catalog::{
+        sql,
+        sync_state::{conflicts::ConflictState, writeback::Phase},
+    },
+    sync::mapping::Reason,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PauseReason {
@@ -47,17 +53,18 @@ pub(crate) enum FindingReason {
     Mapping(Reason),
     RootStop(PauseReason),
     PathStop(PathStop),
-    Writeback(String),
-    Conflict(String),
+    Writeback(Phase),
+    Conflict(ConflictState),
 }
 
 impl FindingReason {
-    pub(crate) fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Mapping(reason) => reason.as_str(),
             Self::RootStop(reason) => reason.as_str(),
             Self::PathStop(reason) => reason.as_str(),
-            Self::Writeback(phase) | Self::Conflict(phase) => phase,
+            Self::Writeback(phase) => phase.as_str(),
+            Self::Conflict(state) => state.as_str(),
         }
     }
 }

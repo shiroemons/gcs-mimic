@@ -69,7 +69,33 @@ pub(crate) struct DeletionSet {
     pub completed_count: u64,
     pub journal_fence: DeletionFence,
     #[serde(skip)]
-    pub(crate) authorization: i64,
+    pub(crate) authorization: DeletionAuthorization,
+}
+
+/// Whether a completed deletion set may run, as stored in `sync_deletion_sets.authorization`.
+/// No release writes the third value the column check allows, so reading it fails as corrupt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DeletionAuthorization {
+    /// Not yet approved (a guarded set) or invalidated.
+    Withheld,
+    /// Approved by an operator, or never guarded.
+    Granted,
+}
+sql::integer_enum!(DeletionAuthorization, { Withheld => 0, Granted => 1 });
+
+impl DeletionAuthorization {
+    /// A guarded set waits for approval; an unguarded one is authorized when it completes.
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "forwards the stored guarded column written beside this value"
+    )]
+    pub(super) fn on_completion(guarded: bool) -> Self {
+        if guarded {
+            Self::Withheld
+        } else {
+            Self::Granted
+        }
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

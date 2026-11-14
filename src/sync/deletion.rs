@@ -10,7 +10,7 @@ use crate::{
         admin::{AdminError, BucketName, GenerationCondition, ObjectName},
         sync_state::{
             SyncBinding,
-            deletions::{Candidate, DeletionSet},
+            deletions::{Candidate, DeletionAuthorization, DeletionSet},
             observation::PathStop,
             root::{RootError, RootLease},
         },
@@ -140,7 +140,7 @@ pub(super) async fn execute_with(
     set: DeletionSet,
     interrupt: Interrupt<'_>,
 ) -> Result<u64, SyncError> {
-    if set.authorization != 1 {
+    if set.authorization != DeletionAuthorization::Granted {
         return Ok(0);
     }
     let mut after = 0;

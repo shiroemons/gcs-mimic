@@ -149,6 +149,14 @@ struct Selected {
     generation: Option<i64>,
 }
 
+/// What a resolution operation targets, as stored in `sync_conflict_operations.target_kind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TargetKind {
+    Conflict,
+    Recovery,
+}
+sql::integer_enum!(TargetKind, { Conflict => 0, Recovery => 1 });
+
 /// What an earlier request with the same operation ID has done so far.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct RecordedOperation {
@@ -192,7 +200,7 @@ struct StoredConflict {
     incarnation: Incarnation,
     name: String,
     retained: Option<Vec<u8>>,
-    state: i64,
+    state: ConflictState,
 }
 
 impl StoredConflict {
@@ -244,7 +252,7 @@ fn accept(
     root: RootId,
     request: &ResolveRequest,
     id: OpaqueId,
-    kind: i64,
+    kind: TargetKind,
     owner: &str,
 ) -> Result<(), Error> {
     #[cfg(test)]
@@ -323,8 +331,8 @@ impl RootLease {
                     .ok_or(Error::RevisionMismatch)?;
                 if prior.is_none() {
                     if row.revision != inspected
-                        || row.state == 2
-                        || (req.action == Action::Restore && row.state != 1)
+                        || row.state == ConflictState::Discarded
+                        || (req.action == Action::Restore && row.state != ConflictState::Registered)
                     {
                         return Err(Error::RevisionMismatch);
                     }
@@ -356,7 +364,7 @@ impl RootLease {
                             return Err(Error::TargetChanged);
                         }
                     }
-                    accept(&tx, root, &req, target, 0, &row.owner)?;
+                    accept(&tx, root, &req, target, TargetKind::Conflict, &row.owner)?;
                 }
                 let prior = prior.unwrap_or_default();
                 let observation = row
@@ -561,7 +569,7 @@ impl RootLease {
             operation(&tx,root,&req,&auth)?.ok_or(Error::OperationIdReused)?;
             tx.prepare_cached("UPDATE sync_conflicts SET state=2 WHERE root_id=?1 AND id=?2")?.execute(params![root,target])?;
             tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,reclaimed=1 WHERE root_id=?1 AND operation_id=?2")?.execute(params![root,req.operation_id])?;
-            settle_other_operations(&tx,root,&req,target,0)?;
+            settle_other_operations(&tx,root,&req,target,TargetKind::Conflict)?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]
@@ -652,7 +660,7 @@ pub(super) fn accept_recovery(
     id: OpaqueId,
     owner: &str,
 ) -> Result<(), Error> {
-    accept(connection, root, request, id, 1, owner)
+    accept(connection, root, request, id, TargetKind::Recovery, owner)
 }
 
 pub(super) fn settle_other_operations(
@@ -660,7 +668,7 @@ pub(super) fn settle_other_operations(
     root: RootId,
     request: &ResolveRequest,
     id: OpaqueId,
-    kind: i64,
+    kind: TargetKind,
 ) -> Result<(), Error> {
     connection.prepare_cached("UPDATE sync_conflict_operations SET error_code=CASE WHEN done=0 THEN 'target_resolved' ELSE error_code END,done=1,reclaimed=1 WHERE root_id=?1 AND target_id=?2 AND target_kind=?3 AND operation_id!=?4 AND reclaimed=0")?
         .execute(params![root,id,kind,request.operation_id])?;

@@ -636,7 +636,7 @@ async fn conflict_capturing_copy_without_registration_has_an_explicit_discard_re
             .is_err()
     );
     let page = fixture.page().await;
-    assert_eq!(page.items[0].phase, "capturing");
+    assert_eq!(page.items[0].phase.as_str(), "capturing");
     let request = ResolveRequest {
         operation_id: "partial-discard".into(),
         action: Action::Discard,

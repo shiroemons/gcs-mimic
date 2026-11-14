@@ -1,6 +1,7 @@
 //! Revision-bound observations include durable mapping findings and unfinished write-back work.
 
 use super::{
+    conflicts::RecoveryPhase,
     root::{RootError, RootId, RootLease},
     writeback,
 };
@@ -70,7 +71,7 @@ pub(crate) struct Item {
 pub(crate) struct RecoveryDetails {
     pub recovery_revision: String,
     pub target_identity: String,
-    pub phase: &'static str,
+    pub phase: RecoveryPhase,
     pub retained_bytes: u64,
     pub hashes: Option<RetainedHashes>,
 }
@@ -85,13 +86,6 @@ struct RetainedProjection {
     hashes: Option<RetainedHashes>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum RecoveryPhase {
-    Protected,
-    DiscardAccepted,
-}
-sql::integer_enum!(RecoveryPhase, { Protected => 0, DiscardAccepted => 1 });
-
 #[cfg(test)]
 mod codec_tests;
 
@@ -104,18 +98,17 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
         FindingCategory::Writeback => FindingReason::Writeback(row.get(7)?),
         FindingCategory::Conflict => FindingReason::Conflict(row.get(7)?),
     };
-    let recovery = if matches!(&reason, FindingReason::Writeback(phase) if phase == "protected") {
+    let recovery = if matches!(
+        reason,
+        FindingReason::Writeback(writeback::Phase::Protected)
+    ) {
         let bytes: Vec<u8> = row.get(12)?;
         let observed: RetainedProjection = serde_json::from_slice(&bytes)
             .map_err(|error| sql::conversion_error(12, rusqlite::types::Type::Blob, error))?;
-        let phase = match row.get::<_, RecoveryPhase>(13)? {
-            RecoveryPhase::Protected => "protected",
-            RecoveryPhase::DiscardAccepted => "discard_accepted",
-        };
         Some(RecoveryDetails {
             recovery_revision: row.get(10)?,
             target_identity: row.get(11)?,
-            phase,
+            phase: row.get(13)?,
             retained_bytes: observed.size,
             hashes: observed.hashes,
         })
@@ -305,11 +298,11 @@ impl RootLease {
 
 const PAGE:&str="SELECT kind,ordinal,category,bucket,name,incarnation,generation,reason,id,owner,recovery_revision,target_identity,observation,recovery_phase,conflict_id,conflict_revision FROM (
  SELECT 0 AS kind,ordinal,'mapping' AS category,bucket,name,incarnation,generation,reason,NULL AS id,owner_project AS owner,NULL AS recovery_revision,NULL AS target_identity,NULL AS observation,NULL AS recovery_phase,NULL AS conflict_id,NULL AS conflict_revision FROM sync_findings WHERE root_id=?1
- UNION ALL SELECT 1,w.ordinal,'writeback',w.bucket,w.name,w.incarnation,w.generation,CASE w.phase WHEN 0 THEN 'prepared' WHEN 1 THEN 'armed' WHEN 2 THEN 'protected' ELSE 'durable' END,w.id,w.owner,r.revision,r.target_identity,r.observation,r.phase,NULL,NULL FROM sync_writeback_ops w LEFT JOIN sync_recovery_workspaces r ON r.root_id=w.root_id AND r.id=w.id WHERE w.root_id=?1 AND w.phase!=4
+ UNION ALL SELECT 1,w.ordinal,'writeback',w.bucket,w.name,w.incarnation,w.generation,w.phase,w.id,w.owner,r.revision,r.target_identity,r.observation,r.phase,NULL,NULL FROM sync_writeback_ops w LEFT JOIN sync_recovery_workspaces r ON r.root_id=w.root_id AND r.id=w.id WHERE w.root_id=?1 AND w.phase!=4
  UNION ALL SELECT 2,0,'root-stop',NULL,NULL,NULL,NULL,paused_reason,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND paused_reason IS NOT NULL
  UNION ALL SELECT 2,1,'root-stop',NULL,NULL,NULL,NULL,scan_stop,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND scan_stop IS NOT NULL
  UNION ALL SELECT 3,ordinal,'path-stop',bucket,name,incarnation,generation,reason,NULL,owner_project,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_path_stops WHERE root_id=?1
- UNION ALL SELECT 4,ordinal,'conflict',bucket,name,incarnation,generation,CASE state WHEN 0 THEN 'capturing' ELSE 'registered' END,id,owner,NULL,NULL,NULL,NULL,id,revision FROM sync_conflicts WHERE root_id=?1 AND state!=2
+ UNION ALL SELECT 4,ordinal,'conflict',bucket,name,incarnation,generation,state,id,owner,NULL,NULL,NULL,NULL,id,revision FROM sync_conflicts WHERE root_id=?1 AND state!=2
 ) WHERE kind>?2 OR (kind=?2 AND ordinal>?3) ORDER BY kind,ordinal LIMIT ?4";
 
 #[cfg(all(test, unix))]

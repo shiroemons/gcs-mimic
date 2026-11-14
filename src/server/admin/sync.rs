@@ -8,7 +8,7 @@ use crate::{
     storage::sync_state::{
         OpaqueId,
         authority::ControlAuthority,
-        deletions::{Candidate, DeletionFence, DeletionSet},
+        deletions::{Candidate, DeletionAuthorization, DeletionFence, DeletionSet},
         observation::Summary,
         root::{RootError, RootLease, RootStatus},
         writeback::Stop,
@@ -679,7 +679,9 @@ fn control_state(
         stop.as_str()
     } else if !observation.baseline_complete {
         "Observing"
-    } else if set.is_some_and(|set| set.guarded && set.authorization == 0) {
+    } else if set
+        .is_some_and(|set| set.guarded && set.authorization == DeletionAuthorization::Withheld)
+    {
         "DeletionApproval"
     } else if observation.path_stops
         + observation.mapping_findings

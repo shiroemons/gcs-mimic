@@ -191,6 +191,19 @@ sql::integer_enum!(Kind, { Publish => 0, Remove => 1 });
 sql::integer_enum!(Phase, {
     Prepared => 0, Armed => 1, Protected => 2, Durable => 3, Complete => 4,
 });
+impl Phase {
+    /// The phase's spelling in findings.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Prepared => "prepared",
+            Self::Armed => "armed",
+            Self::Protected => "protected",
+            Self::Durable => "durable",
+            // Completed operations are excluded from every listing that prints a phase.
+            Self::Complete => "complete",
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Token {
     catalog: CatalogId,

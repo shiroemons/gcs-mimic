@@ -1,5 +1,24 @@
 use super::*;
 
+/// Where a retained conflict copy is in its life, as stored in `sync_conflicts.state`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConflictState {
+    Capturing,
+    Registered,
+    Discarded,
+}
+sql::integer_enum!(ConflictState, { Capturing => 0, Registered => 1, Discarded => 2 });
+impl ConflictState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Capturing => "capturing",
+            Self::Registered => "registered",
+            Self::Discarded => "discarded",
+        }
+    }
+}
+crate::serde_util::serialize_as_str!(ConflictState);
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub(crate) struct Usage {
     pub reserved_bytes: u128,
@@ -16,10 +35,10 @@ pub(in crate::storage) fn usage(connection: &Connection, root: RootId) -> Result
     let mut rows = statement.query([root])?;
     while let Some(row) = rows.next()? {
         let size = u128::from(row.get::<_, u64>(1)?);
-        if row.get::<_, i64>(0)? == 0 {
-            result.reserved_bytes += size
-        } else {
-            result.retained_bytes += size
+        // The query skips discarded copies; a registered copy is the retained charge.
+        match row.get::<_, ConflictState>(0)? {
+            ConflictState::Capturing => result.reserved_bytes += size,
+            ConflictState::Registered | ConflictState::Discarded => result.retained_bytes += size,
         }
         result.entries += 1;
     }
@@ -68,7 +87,7 @@ pub(crate) struct Conflict {
     pub generation: Option<i64>,
     pub size: u64,
     pub hashes: Option<Hashes>,
-    pub phase: &'static str,
+    pub phase: ConflictState,
     pub remedy: &'static str,
     #[serde(skip)]
     pub ordinal: i64,
@@ -110,7 +129,7 @@ impl RootLease {
                 let retained:Option<Vec<u8>>=row.get(9)?;
                 let hashes=retained.as_deref().map(Observation::decode).transpose()?.and_then(|observation|observation.hashes).map(Hashes::from);
                 let item=Conflict {ordinal:row.get(0)?,conflict_id:row.get(1)?,revision:row.get(2)?,owner_project:row.get(3)?,bucket:row.get(4)?,bucket_incarnation:row.get(5)?,name:row.get(6)?,generation:row.get(7)?,size:row.get(8)?,hashes,
-                    phase:if row.get::<_,i64>(10)?==0 {"capturing"} else {"registered"},remedy:"Inspect the current generation, then restore or explicitly discard this revision."};
+                    phase:row.get(10)?,remedy:"Inspect the current generation, then restore or explicitly discard this revision."};
                 let size=serde_json::to_vec(&item).map_err(AdminError::backend)?.len();
                 if items.len()==limit || bytes+size>240_000 {more=true;break}
                 bytes+=size;items.push(item);

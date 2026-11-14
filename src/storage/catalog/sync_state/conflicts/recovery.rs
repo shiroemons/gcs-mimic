@@ -1,6 +1,25 @@
 use super::*;
 use crate::sync::mapping::WORKSPACE;
 
+/// How far an operator's recovery decision has gone, as stored in
+/// `sync_recovery_workspaces.phase`. Phase 2 is written only together with releasing the
+/// operation, so no listing reads it back, and reading it fails as corrupt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RecoveryPhase {
+    Protected,
+    DiscardAccepted,
+}
+sql::integer_enum!(RecoveryPhase, { Protected => 0, DiscardAccepted => 1 });
+impl RecoveryPhase {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Protected => "protected",
+            Self::DiscardAccepted => "discard_accepted",
+        }
+    }
+}
+crate::serde_util::serialize_as_str!(RecoveryPhase);
+
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Recovery {
     pub recovery_id: OpaqueId,
@@ -13,7 +32,7 @@ pub(crate) struct Recovery {
     pub name: String,
     pub retained_size: u64,
     pub hashes: Option<Hashes>,
-    pub phase: &'static str,
+    pub phase: RecoveryPhase,
     pub retained_location: &'static str,
     pub over_limit: bool,
     pub remedy: &'static str,
@@ -37,7 +56,7 @@ struct StoredRecovery {
     revision: OpaqueId,
     target_identity: OpaqueId,
     observation: Vec<u8>,
-    phase: i64,
+    phase: RecoveryPhase,
 }
 
 impl StoredRecovery {
@@ -133,14 +152,14 @@ impl RootLease {
                         tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,reclaimed=1,error_code='target_changed' WHERE root_id=?1 AND target_kind=1 AND target_id=?2 AND done=0")?.execute(params![root,selected.id])?;
                         tx.prepare_cached("INSERT INTO sync_recovery_workspaces(id,root_id,revision,target_identity,observation,phase) VALUES(?1,?2,?3,?4,?5,0) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,target_identity=excluded.target_identity,observation=excluded.observation,phase=0")?
                             .execute(params![selected.id,root,revision,identity,observed.encode()?])?;
-                        (revision,identity,observed,0)
+                        (revision,identity,observed,RecoveryPhase::Protected)
                     }
                 };
                 account_workspace(&tx,root,selected.id,observed.size)?;
                 let usage=list::total_usage(&tx,root)?;
                 tx.commit()?;
                 Ok(Recovery {recovery_id:selected.id,recovery_revision:revision,target_identity,owner_project:selected.owner,bucket:selected.bucket,bucket_incarnation:selected.incarnation,name:selected.name,
-                    retained_size:observed.size,hashes:observed.hashes.map(Hashes::from),phase:if phase==0 {"protected"} else {"discard_accepted"},retained_location:"workspace",over_limit:usage.over_limit,
+                    retained_size:observed.size,hashes:observed.hashes.map(Hashes::from),phase,retained_location:"workspace",over_limit:usage.over_limit,
                     remedy:"Stop external writers and the server; copy the protected workspace entry outside both roots and verify it. Resume, inspect again, then confirm backup_verified or discard_without_backup for this exact identity.",ordinal:selected.ordinal})
             }).await?;
             let bytes = serde_json::to_vec(&item)
@@ -189,7 +208,7 @@ impl RootLease {
                     return Ok(None);
                 }
                 let selected = workspace(&tx, root, id)?;
-                // The operation is still protected here, so the row's phase is 0 or 1.
+                // The operation is still protected here, so the row is in phase 0 or 1.
                 let stored = tx
                     .prepare_cached(StoredRecovery::SELECT)?
                     .query_row(params![root, id], StoredRecovery::read)
@@ -254,7 +273,7 @@ impl RootLease {
             release_workspace(&tx,root,selected.id)?;
             tx.prepare_cached("UPDATE sync_recovery_workspaces SET phase=2 WHERE root_id=?1 AND id=?2")?.execute(params![root,selected.id])?;
             tx.prepare_cached("UPDATE sync_conflict_operations SET done=1,reclaimed=1 WHERE root_id=?1 AND operation_id=?2")?.execute(params![root,req.operation_id])?;
-            resolve::settle_other_operations(&tx,root,&req,selected.id,1)?;
+            resolve::settle_other_operations(&tx,root,&req,selected.id,resolve::TargetKind::Recovery)?;
             changed(&tx,root)?;tx.commit()?;Ok(())
         }).await?;
         #[cfg(test)]

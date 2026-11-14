@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn operation_target_kinds_keep_their_stored_integers() {
+    let connection = Connection::open_in_memory().unwrap();
+    for (kind, stored) in [(TargetKind::Conflict, 0), (TargetKind::Recovery, 1)] {
+        assert_eq!(
+            sql::scalar::<i64>(&connection, "SELECT ?1", [&kind]).unwrap(),
+            stored
+        );
+        assert_eq!(
+            sql::scalar::<TargetKind>(&connection, "SELECT ?1", [stored]).unwrap(),
+            kind
+        );
+    }
+    for stored in [-1, 2] {
+        let error = sql::scalar::<TargetKind>(&connection, "SELECT ?1", [stored]).unwrap_err();
+        assert!(matches!(unavailable(error), CatalogError::Corrupt(_)));
+    }
+}
+
+#[test]
 fn resolution_payload_keeps_the_stored_json_bytes() {
     for (target, expected) in [
         (

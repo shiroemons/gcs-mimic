@@ -221,7 +221,7 @@ impl RootLease {
         let op = request.source_op.ok_or(Error::InvalidResolution)?;
         let row = self.conflict_db(move |connection| {
             connection.prepare_cached("SELECT id,state,source FROM sync_conflicts WHERE root_id=?1 AND source_op=?2 AND state!=2")?
-                .query_row(params![root,op], |row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,i64>(1)?,row.get::<_,Vec<u8>>(2)?))).optional().map_err(Error::from)
+                .query_row(params![root,op], |row|Ok((row.get::<_,OpaqueId>(0)?,row.get::<_,ConflictState>(1)?,row.get::<_,Vec<u8>>(2)?))).optional().map_err(Error::from)
         }).await?;
         let Some((id, state, original)) = row else {
             return Ok(None);
@@ -259,7 +259,9 @@ impl RootLease {
             .await?;
             return Ok(None);
         }
-        if state == 0 && !self.resume_workspace_copy(id, observed.clone()).await? {
+        if state == ConflictState::Capturing
+            && !self.resume_workspace_copy(id, observed.clone()).await?
+        {
             self.cleanup_capture(id).await?;
             return Ok(None);
         }
