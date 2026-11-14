@@ -19,6 +19,10 @@ fn native() -> io::Error {
     )
 }
 
+fn export_failure() -> writeback::Error {
+    writeback::Error::Root(root())
+}
+
 /// Diagnostics print a failure through `Report`; carrying it typed must not change the text the
 /// `io::Error::other` wrapper produced.
 #[test]
@@ -26,6 +30,10 @@ fn typed_failures_report_the_text_of_their_former_io_wrappers() {
     for (typed, wrapped) in [
         (SyncError::Admin(admin()), io::Error::other(admin())),
         (SyncError::Root(root()), io::Error::other(root())),
+        (
+            SyncError::Writeback(export_failure()),
+            io::Error::other(export_failure()),
+        ),
         (SyncError::Io(native()), io::Error::other(native())),
     ] {
         assert_eq!(Report(&typed).to_string(), Report(&wrapped).to_string());
@@ -35,6 +43,31 @@ fn typed_failures_report_the_text_of_their_former_io_wrappers() {
         Report(&SyncError::Root(root())).to_string(),
         "synchronization root: admin operation failed: administrative operation: Io(PermissionDenied): denied fixture"
     );
+}
+
+/// Failures that had only a message keep it word for word, both alone and behind the public
+/// `io::Error` boundary.
+#[test]
+fn message_only_failures_keep_their_former_text() {
+    for (typed, message) in [
+        (
+            SyncError::WritebackUnfinished(Pass::Ingest),
+            "Unfinished write-back blocks ingestion; inspect retained conflicts and recovery findings, preserve the workspace and resolve the exact retained revision before rescanning",
+        ),
+        (
+            SyncError::Invariant("invalid sync path"),
+            "invalid sync path",
+        ),
+    ] {
+        assert_eq!(
+            Report(&typed).to_string(),
+            Report(&io::Error::other(message)).to_string()
+        );
+        assert!(Error::source(&typed).is_none());
+        let boundary = io::Error::from(typed);
+        assert_eq!(boundary.kind(), io::ErrorKind::Other);
+        assert_eq!(Report(&boundary).to_string(), message);
+    }
 }
 
 /// The public boundary hands a native failure back unchanged, so callers still see its kind and

@@ -1,7 +1,7 @@
 use super::interrupt::{Interrupt, Interrupted};
 use super::tree::{TreeEntry as Entry, TreeScan as Scan};
 use super::{
-    mapping,
+    Pass, SyncError, mapping,
     mirror::Reconciliation,
     tree::{ParentError, ParentOpen, parent},
 };
@@ -55,7 +55,7 @@ fn open_source(
     )
     .map_err(|error| match error {
         ParentError::Io(error) => AdminError::from(error),
-        _ => AdminError::Precondition,
+        ParentError::Finding(_) | ParentError::Missing => AdminError::Precondition,
     })?;
     let fsutil::RegularChild::File(file) = fsutil::child_regular(
         &directory,
@@ -91,16 +91,16 @@ fn deferred(path: &std::path::Path, reason: impl std::fmt::Display, summary: &mu
     );
 }
 
-async fn forget_missing_directories(root: &RootLease, interrupt: Interrupt<'_>) -> io::Result<()> {
+async fn forget_missing_directories(
+    root: &RootLease,
+    interrupt: Interrupt<'_>,
+) -> Result<(), SyncError> {
     let mut after = String::new();
     loop {
         if interrupt.check() != Interrupted::No {
             break;
         }
-        let page = root
-            .sync_buckets_page(after.clone(), 256)
-            .await
-            .map_err(io::Error::other)?;
+        let page = root.sync_buckets_page(after.clone(), 256).await?;
         if page.is_empty() {
             break;
         }
@@ -122,12 +122,9 @@ async fn forget_missing_directories(root: &RootLease, interrupt: Interrupt<'_>) 
                         Err(_) => Ok(false),
                     }
                 })
-                .await
-                .map_err(io::Error::other)?;
+                .await?;
             if absent {
-                root.forget_sync_bucket(name, incarnation)
-                    .await
-                    .map_err(io::Error::other)?;
+                root.forget_sync_bucket(name, incarnation).await?;
             }
         }
     }
@@ -140,8 +137,8 @@ pub(super) async fn rescan(
     root: &RootLease,
     config: &Config,
     stopping: &tokio::sync::watch::Receiver<bool>,
-) -> io::Result<Reconciliation> {
-    let writeback = root.default_writeback().await.map_err(io::Error::other)?;
+) -> Result<Reconciliation, SyncError> {
+    let writeback = root.default_writeback().await?;
     rescan_with(catalog, root, config, &writeback, Interrupt::new(stopping)).await
 }
 pub(super) async fn rescan_with(
@@ -150,13 +147,9 @@ pub(super) async fn rescan_with(
     config: &Config,
     writeback: &crate::storage::sync_state::writeback::Writeback,
     interrupt: Interrupt<'_>,
-) -> io::Result<Reconciliation> {
-    if writeback.status().await.map_err(io::Error::other)?.stop
-        != crate::storage::sync_state::writeback::Stop::Ready
-    {
-        return Err(io::Error::other(
-            "Unfinished write-back blocks ingestion; inspect retained conflicts and recovery findings, preserve the workspace and resolve the exact retained revision before rescanning",
-        ));
+) -> Result<Reconciliation, SyncError> {
+    if writeback.status().await?.stop != crate::storage::sync_state::writeback::Stop::Ready {
+        return Err(SyncError::WritebackUnfinished(Pass::Ingest));
     }
     let ingest = Ingest {
         catalog,
@@ -168,10 +161,7 @@ pub(super) async fn rescan_with(
     forget_missing_directories(root, interrupt).await?;
     let mut scan = Scan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
-        let (next, entries) = root
-            .file_job(move |root| scan.page(root))
-            .await
-            .map_err(io::Error::other)?;
+        let (next, entries) = root.file_job(move |root| scan.page(root)).await?;
         scan = next;
         let mut candidates = Vec::new();
         let mut blocked = Vec::<PathBuf>::new();
@@ -227,25 +217,24 @@ pub(super) async fn rescan_with(
     }
     if !summary.interrupted {
         root.observation_scan(summary.unrepresentable, summary.deferred)
-            .await
-            .map_err(io::Error::other)?;
+            .await?;
     }
     Ok(summary)
 }
 
-async fn clear_missing_observations(root: &RootLease, interrupt: Interrupt<'_>) -> io::Result<()> {
+async fn clear_missing_observations(
+    root: &RootLease,
+    interrupt: Interrupt<'_>,
+) -> Result<(), SyncError> {
     let mut after = 0;
     while interrupt.check() == Interrupted::No {
-        let page = root
-            .transient_stop_page(after)
-            .await
-            .map_err(io::Error::other)?;
+        let page = root.transient_stop_page(after).await?;
         if page.is_empty() {
             break;
         }
         for (ordinal, binding, name) in page {
             after = ordinal;
-            let bucket = BucketName::new(binding.bucket_name()).map_err(io::Error::other)?;
+            let bucket = BucketName::new(binding.bucket_name())?;
             if let mapping::PathMapping::File(path) = mapping::name_to_path(&bucket, &name)
                 && let Some(path) = path.to_str()
                 && super::deletion::absent(root, path.to_owned()).await?
@@ -255,8 +244,7 @@ async fn clear_missing_observations(root: &RootLease, interrupt: Interrupt<'_>) 
                     name,
                     &[PathStop::SourceChanging, PathStop::IoFailure],
                 )
-                .await
-                .map_err(io::Error::other)?;
+                .await?;
             }
         }
     }
@@ -284,7 +272,7 @@ impl Ingest<'_> {
         &self,
         entry: &Entry,
         summary: &mut Reconciliation,
-    ) -> io::Result<BucketDirectory> {
+    ) -> Result<BucketDirectory, SyncError> {
         if entry.path.components().count() != 1 {
             return Ok(BucketDirectory::Ready);
         }
@@ -299,8 +287,7 @@ impl Ingest<'_> {
         if self
             .root
             .ensure_sync_bucket(&bucket, &self.config.seed_project)
-            .await
-            .map_err(io::Error::other)?
+            .await?
         {
             return Ok(BucketDirectory::Ready);
         }
@@ -323,7 +310,7 @@ impl Ingest<'_> {
         &self,
         entry: Entry,
         summary: &mut Reconciliation,
-    ) -> io::Result<Option<Candidate>> {
+    ) -> Result<Option<Candidate>, SyncError> {
         let (bucket, name) = match mapping::path_to_name(&entry.path) {
             Ok(mapped) => mapped,
             Err(mapping::Reason::Ignored) => {
@@ -351,12 +338,12 @@ impl Ingest<'_> {
                 summary.deferred += 1;
                 return Ok(None);
             }
-            Err(error) => return Err(io::Error::other(error)),
+            Err(error) => return Err(error.into()),
         };
         let path = entry
             .path
             .to_str()
-            .ok_or_else(|| io::Error::other("invalid sync path"))?
+            .ok_or(SyncError::Invariant("invalid sync path"))?
             .to_owned();
         let tracked = match state.get_path(binding.clone(), path.clone()).await {
             Ok(tracked) => tracked,
@@ -364,7 +351,7 @@ impl Ingest<'_> {
                 summary.deferred += 1;
                 return Ok(None);
             }
-            Err(error) => return Err(io::Error::other(error)),
+            Err(error) => return Err(error.into()),
         };
         if tracked
             .as_ref()
@@ -372,7 +359,7 @@ impl Ingest<'_> {
         {
             let tracked = tracked
                 .as_ref()
-                .ok_or_else(|| io::Error::other("missing tracked source"))?;
+                .ok_or(SyncError::Invariant("missing tracked source"))?;
             if !tracked.fingerprint.racy {
                 self.clear_observation(binding, name).await?;
                 return Ok(None);
@@ -386,12 +373,9 @@ impl Ingest<'_> {
         let live = match self.admin.get_object(&bucket, &name, None).await {
             Ok(record) => Some(record),
             Err(AdminError::NotFound) => None,
-            Err(error) => return Err(io::Error::other(error)),
+            Err(error) => return Err(error.into()),
         };
-        if super::mirror::hierarchy_collision(&self.admin, &bucket, &name)
-            .await
-            .map_err(io::Error::other)?
-        {
+        if super::mirror::hierarchy_collision(&self.admin, &bucket, &name).await? {
             summary.unrepresentable += 1;
             diagnostics::emit(
                 LogLevel::Warn,
@@ -416,7 +400,7 @@ impl Ingest<'_> {
         tracked: &SyncRecord,
         binding: &SyncBinding,
         name: &ObjectName,
-    ) -> io::Result<bool> {
+    ) -> Result<bool, SyncError> {
         let Some(expected) = entry.identity else {
             return Ok(false);
         };
@@ -438,22 +422,18 @@ impl Ingest<'_> {
             Ok(_) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
                 return Ok(false);
             }
-            Err(error) => return Err(io::Error::other(error)),
+            Err(error) => return Err(error.into()),
         };
         if hashes.md5 != tracked.fingerprint.md5 || hashes.crc32c != tracked.fingerprint.crc32c {
             return Ok(false);
         }
-        let fingerprint = SyncFingerprint::observed(
-            expected,
-            hashes,
-            self.root.observation_time_ns().map_err(io::Error::other)?,
-        );
+        let fingerprint =
+            SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns()?);
         let update = SyncUpdate::new(
             binding.clone(),
             entry.path.to_string_lossy().into_owned(),
             fingerprint,
-        )
-        .map_err(io::Error::other)?;
+        )?;
         match self
             .catalog
             .sync_state()
@@ -462,7 +442,7 @@ impl Ingest<'_> {
         {
             Ok(()) => Ok(true),
             Err(AdminError::Precondition | AdminError::NotFound) => Ok(false),
-            Err(error) => Err(io::Error::other(error)),
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -520,14 +500,14 @@ impl Ingest<'_> {
         entry: &Entry,
         binding: &SyncBinding,
         summary: &mut Reconciliation,
-    ) -> io::Result<Option<(StagedObject, SyncUpdate)>> {
+    ) -> Result<Option<(StagedObject, SyncUpdate)>, SyncError> {
         let identity = entry
             .identity
-            .ok_or_else(|| io::Error::other("missing observed file identity"))?;
+            .ok_or(SyncError::Invariant("missing observed file identity"))?;
         let path = entry
             .path
             .to_str()
-            .ok_or_else(|| io::Error::other("invalid sync path"))?
+            .ok_or(SyncError::Invariant("invalid sync path"))?
             .to_owned();
         let staged = match self.stage(entry.path.clone(), identity).await {
             Ok(staged) => staged,
@@ -550,19 +530,15 @@ impl Ingest<'_> {
                     .await?;
                 return Ok(None);
             }
-            Err(error) => return Err(io::Error::other(error)),
+            Err(error) => return Err(error.into()),
         };
         let hashes = staged.hashes();
         if let Ok((_, name)) = mapping::path_to_name(&entry.path) {
             self.clear_observation(binding.clone(), name).await?;
         }
-        let fingerprint = SyncFingerprint::observed(
-            identity,
-            hashes,
-            self.root.observation_time_ns().map_err(io::Error::other)?,
-        );
-        let update =
-            SyncUpdate::new(binding.clone(), path, fingerprint).map_err(io::Error::other)?;
+        let fingerprint =
+            SyncFingerprint::observed(identity, hashes, self.root.observation_time_ns()?);
+        let update = SyncUpdate::new(binding.clone(), path, fingerprint)?;
         Ok(Some((staged, update)))
     }
 
@@ -571,9 +547,9 @@ impl Ingest<'_> {
         entry: &Entry,
         binding: &SyncBinding,
         reason: PathStop,
-    ) -> io::Result<()> {
+    ) -> Result<(), SyncError> {
         let (_, name) = mapping::path_to_name(&entry.path)
-            .map_err(|_| io::Error::other("invalid deferred synchronization target"))?;
+            .map_err(|_| SyncError::Invariant("invalid deferred synchronization target"))?;
         match self
             .root
             .record_path_stop(binding.clone(), name, reason)
@@ -582,23 +558,30 @@ impl Ingest<'_> {
             Ok(()) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
                 Ok(())
             }
-            Err(error) => Err(io::Error::other(error)),
+            Err(error) => Err(error.into()),
         }
     }
 
-    async fn clear_observation(&self, binding: SyncBinding, name: ObjectName) -> io::Result<()> {
+    async fn clear_observation(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+    ) -> Result<(), SyncError> {
         self.root
             .clear_path_stops(
                 binding,
                 name,
                 &[PathStop::SourceChanging, PathStop::IoFailure],
             )
-            .await
-            .map_err(io::Error::other)?;
+            .await?;
         Ok(())
     }
 
-    async fn ingest(&self, candidate: Candidate, summary: &mut Reconciliation) -> io::Result<()> {
+    async fn ingest(
+        &self,
+        candidate: Candidate,
+        summary: &mut Reconciliation,
+    ) -> Result<(), SyncError> {
         let Candidate {
             entry,
             bucket,
@@ -612,10 +595,10 @@ impl Ingest<'_> {
         };
         let hashes = staged.hashes();
         if let Some(live) = &live {
-            let generation = Generation::new(live.generation).map_err(io::Error::other)?;
+            let generation = Generation::new(live.generation)?;
             if live.size == staged.size() && live.md5 == hashes.md5 && live.crc32c == hashes.crc32c
             {
-                staged.discard().await.map_err(io::Error::other)?;
+                staged.discard().await?;
                 match self
                     .catalog
                     .sync_state()
@@ -624,7 +607,7 @@ impl Ingest<'_> {
                 {
                     Ok(()) => summary.identical += 1,
                     Err(AdminError::Precondition | AdminError::NotFound) => summary.deferred += 1,
-                    Err(error) => return Err(io::Error::other(error)),
+                    Err(error) => return Err(error.into()),
                 }
                 return Ok(());
             }
@@ -632,17 +615,16 @@ impl Ingest<'_> {
                 .as_ref()
                 .is_none_or(|record| record.generation != generation)
             {
-                staged.discard().await.map_err(io::Error::other)?;
+                staged.discard().await?;
                 self.root
                     .record_export_conflict(binding, name, generation)
-                    .await
-                    .map_err(io::Error::other)?;
+                    .await?;
                 summary.conflicting += 1;
                 return Ok(());
             }
         } else if let Some(tracked) = &tracked {
             let size = staged.size();
-            staged.discard().await.map_err(io::Error::other)?;
+            staged.discard().await?;
             if tracked.fingerprint.size == size
                 && tracked.fingerprint.md5 == hashes.md5
                 && tracked.fingerprint.crc32c == hashes.crc32c
@@ -653,8 +635,7 @@ impl Ingest<'_> {
             }
             self.root
                 .record_export_conflict(binding, name, tracked.generation)
-                .await
-                .map_err(io::Error::other)?;
+                .await?;
             summary.conflicting += 1;
             return Ok(());
         }
@@ -675,9 +656,8 @@ impl Ingest<'_> {
             .as_ref()
             .map_or(Ok(GenerationCondition::Absent), |record| {
                 Generation::new(record.generation).map(GenerationCondition::Is)
-            })
-            .map_err(io::Error::other)?;
-        self.root.revalidate().await.map_err(io::Error::other)?;
+            })?;
+        self.root.revalidate().await?;
         let result = self
             .admin
             .publish_objects(vec![BatchPublication {
@@ -693,15 +673,14 @@ impl Ingest<'_> {
                 },
                 staged: staged.with_sync_state(update),
             }])
-            .await
-            .map_err(io::Error::other)?;
+            .await?;
         for result in result.results {
             match result {
                 Ok(_) => summary.ingested += 1,
                 Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
                     summary.deferred += 1
                 }
-                Err(error) => return Err(io::Error::other(error)),
+                Err(error) => return Err(error.into()),
             }
         }
         Ok(())

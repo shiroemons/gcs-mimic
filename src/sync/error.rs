@@ -1,6 +1,9 @@
 //! Failures of a synchronization pass or control, typed for the decisions made on them.
 
-use crate::storage::{admin::AdminError, sync_state::root::RootError};
+use crate::storage::{
+    admin::AdminError,
+    sync_state::{root::RootError, writeback},
+};
 use std::{error::Error, fmt, io};
 
 #[cfg(test)]
@@ -12,8 +15,19 @@ mod tests;
 pub(crate) enum SyncError {
     Admin(AdminError),
     Root(RootError),
+    Writeback(writeback::Error),
     /// Native filesystem, watch and descriptor failures.
     Io(io::Error),
+    /// Unfinished write-back blocks this pass until an operator resolves it.
+    WritebackUnfinished(Pass),
+    /// A value that an earlier step checked broke the next step's assumption.
+    Invariant(&'static str),
+}
+
+/// The pass that unfinished write-back blocks. Each names its own remedy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Pass {
+    Ingest,
 }
 
 impl SyncError {
@@ -35,7 +49,12 @@ impl fmt::Display for SyncError {
         match self {
             Self::Admin(error) => fmt::Display::fmt(error, f),
             Self::Root(error) => fmt::Display::fmt(error, f),
+            Self::Writeback(error) => fmt::Display::fmt(error, f),
             Self::Io(error) => fmt::Display::fmt(error, f),
+            Self::WritebackUnfinished(Pass::Ingest) => f.write_str(
+                "Unfinished write-back blocks ingestion; inspect retained conflicts and recovery findings, preserve the workspace and resolve the exact retained revision before rescanning",
+            ),
+            Self::Invariant(message) => f.write_str(message),
         }
     }
 }
@@ -45,7 +64,9 @@ impl Error for SyncError {
         match self {
             Self::Admin(error) => Some(error),
             Self::Root(error) => Some(error),
+            Self::Writeback(error) => Some(error),
             Self::Io(error) => Some(error),
+            Self::WritebackUnfinished(_) | Self::Invariant(_) => None,
         }
     }
 }
@@ -62,6 +83,12 @@ impl From<RootError> for SyncError {
     }
 }
 
+impl From<writeback::Error> for SyncError {
+    fn from(error: writeback::Error) -> Self {
+        Self::Writeback(error)
+    }
+}
+
 impl From<io::Error> for SyncError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
@@ -74,7 +101,11 @@ impl From<SyncError> for io::Error {
         match error {
             // A native failure keeps its kind and raw OS error, as it did before.
             SyncError::Io(error) => error,
-            SyncError::Admin(_) | SyncError::Root(_) => Self::other(error),
+            SyncError::Admin(_)
+            | SyncError::Root(_)
+            | SyncError::Writeback(_)
+            | SyncError::WritebackUnfinished(_)
+            | SyncError::Invariant(_) => Self::other(error),
         }
     }
 }
