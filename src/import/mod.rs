@@ -346,6 +346,27 @@ pub struct Summary {
     pub manifest_sha256: Option<String>,
     pub stat_observations_sha256: Option<String>,
     pub body_digests_sha256: Option<String>,
+    /// The most severe blocking finding so far. The counters above are the report's view of the
+    /// same findings; this one decides how a refused import fails.
+    #[serde(skip)]
+    pub(crate) worst_blocker: Option<Blocker>,
+}
+
+/// The kind of a blocking finding. A refused import reports its most severe kind: stat drift that
+/// a retry resolves ranks below a source I/O failure, which ranks below anything that needs the
+/// source itself repaired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Blocker {
+    StatDrift,
+    Io,
+    Source,
+}
+
+impl Summary {
+    fn block(&mut self, blocker: Blocker) {
+        self.blocking_findings += 1;
+        self.worst_blocker = self.worst_blocker.max(Some(blocker));
+    }
 }
 
 pub(super) struct Reporter {
@@ -411,7 +432,7 @@ impl Reporter {
     ) -> Result<(), ImportFailure> {
         let blocking = severity == Severity::Blocking;
         if blocking {
-            self.summary.blocking_findings += 1;
+            self.summary.block(Blocker::Source);
         } else {
             self.summary.warnings += 1;
         }
@@ -463,7 +484,17 @@ impl Reporter {
             original: None,
             changed_fields: fields,
         });
-        self.summary.blocking_findings += 1;
+        let blocker = match failure {
+            ImportFailure::Io(_) => Blocker::Io,
+            ImportFailure::SourceChanged { .. } if failure.retryable_stat_drift() => {
+                Blocker::StatDrift
+            }
+            ImportFailure::SourceChanged { .. }
+            | ImportFailure::Json(_)
+            | ImportFailure::Corrupt { .. }
+            | ImportFailure::ReportClosed => Blocker::Source,
+        };
+        self.summary.block(blocker);
         self.boundary()
     }
     pub(crate) fn manifest(&mut self, kind: &str, path: &str, fields: &[&[u8]]) {

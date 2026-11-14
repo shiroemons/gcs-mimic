@@ -182,6 +182,50 @@ fn buffered_observations_are_anonymous_and_report_the_last_flush_failure() {
     assert!(failing.finish().is_err());
 }
 
+/// A refused scan fails as its most severe blocker, whatever order the findings came in: source
+/// I/O failures and stat drift alone are retried, and any finding that needs the source repaired
+/// makes the failure terminal. The journal records the text of a terminal failure.
+#[test]
+fn a_refused_scan_fails_as_its_most_severe_blocker() {
+    const UNREADABLE: &str = "source I/O failure: resolve the reported filesystem error and retry the same immutable snapshot";
+    const DRIFT: &str = "source_changed: [Inode, Ctime]";
+    const BLOCKED: &str =
+        "import preflight found blockers; restore an immutable supported snapshot and retry";
+    for (blockers, text, is_terminal) in [
+        (&[Blocker::Io][..], UNREADABLE, false),
+        (&[Blocker::Io, Blocker::Io], UNREADABLE, false),
+        (&[Blocker::StatDrift], DRIFT, false),
+        (&[Blocker::StatDrift, Blocker::StatDrift], DRIFT, false),
+        (&[Blocker::Io, Blocker::StatDrift], UNREADABLE, false),
+        (&[Blocker::StatDrift, Blocker::Io], UNREADABLE, false),
+        (&[Blocker::Source], BLOCKED, true),
+        (&[Blocker::StatDrift, Blocker::Source], BLOCKED, true),
+        (&[Blocker::Source, Blocker::Io], BLOCKED, true),
+        (
+            &[Blocker::Io, Blocker::Source, Blocker::StatDrift],
+            BLOCKED,
+            true,
+        ),
+        (&[], BLOCKED, true),
+    ] {
+        let mut summary = Summary::default();
+        for blocker in blockers {
+            summary.block(*blocker);
+        }
+        assert_eq!(summary.blocking_findings, blockers.len() as u64);
+        let error = require_eligible(&summary).unwrap_err();
+        assert_eq!(error.to_string(), text, "{blockers:?}");
+        assert_eq!(terminal(&error), is_terminal, "{blockers:?}");
+        let drift = matches!(
+            &error,
+            ImportError::Source(failure) if failure.retryable_stat_drift()
+        );
+        assert_eq!(drift, text == DRIFT, "{blockers:?}");
+        summary.eligible = true;
+        assert!(require_eligible(&summary).is_ok(), "{blockers:?}");
+    }
+}
+
 #[tokio::test]
 async fn joining_a_scanner_does_not_block_the_async_worker() {
     let (release, blocked) = std::sync::mpsc::channel();

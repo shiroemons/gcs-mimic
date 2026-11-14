@@ -1,8 +1,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    CleanupOperation, ImportError, ImportFailure, Options, Page, Record, SourceChange, Summary,
-    codec, scan_with_baseline,
+    Blocker, CleanupOperation, ImportError, ImportFailure, Options, Page, Record, SourceChange,
+    Summary, codec, scan_with_baseline,
 };
 use crate::{
     bucket::CatalogError,
@@ -356,27 +356,22 @@ async fn metadata_scan(
     Ok(summary)
 }
 
+/// Refuses a scan that found blockers, as its most severe kind: a source that needs repair is
+/// terminal, while unreadable entries and stat drift alone are retried.
 fn require_eligible(summary: &Summary) -> Result<(), ImportError> {
-    if !summary.eligible {
-        if summary.io_findings != 0
-            && summary.io_findings + summary.stat_identity_drift_findings
-                == summary.blocking_findings
-        {
-            return Err(ImportError::SourceUnreadable);
-        }
-        if summary.blocking_findings != 0
-            && summary.stat_identity_drift_findings == summary.blocking_findings
-        {
-            return Err(ImportFailure::SourceChanged {
-                fields: vec![super::ChangedField::Inode, super::ChangedField::Ctime],
-            }
-            .into());
-        }
-        return Err(invalid(
-            "import preflight found blockers; restore an immutable supported snapshot and retry",
-        ));
+    if summary.eligible {
+        return Ok(());
     }
-    Ok(())
+    Err(match summary.worst_blocker {
+        Some(Blocker::Io) => ImportError::SourceUnreadable,
+        Some(Blocker::StatDrift) => ImportFailure::SourceChanged {
+            fields: vec![super::ChangedField::Inode, super::ChangedField::Ctime],
+        }
+        .into(),
+        Some(Blocker::Source) | None => invalid(
+            "import preflight found blockers; restore an immutable supported snapshot and retry",
+        ),
+    })
 }
 
 fn same_export(before: &Summary, after: &Summary) -> Result<(), ImportError> {
