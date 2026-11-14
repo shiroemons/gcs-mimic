@@ -57,28 +57,144 @@ pub(crate) enum LiveSource {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CopyPurpose {
+impl LiveSource {
+    fn into_parts(self) -> (Purpose, Option<File>) {
+        match self {
+            Self::Observe => (Purpose::Ordinary, None),
+            Self::ApiCopy(file) => (Purpose::Ordinary, Some(file)),
+            Self::ProtectedRestore(file) => (Purpose::RestoreAbsent, Some(file)),
+            Self::ProtectedObservation => (Purpose::ObserveProtected, None),
+            Self::Preserved { source, conflict } => (Purpose::Preserved(conflict), source),
+        }
+    }
+}
+
+/// What an export writes, fixed when it begins.
+enum Body {
+    /// Copy this API body into the workspace, then install it over the target.
+    Copy {
+        source: File,
+        record: crate::object::ObjectRecord,
+    },
+    /// The target must already hold the live body; nothing is copied or installed.
+    Observe { record: crate::object::ObjectRecord },
+    /// Move the tracked target into the workspace and unlink it.
+    Remove,
+}
+
+impl Body {
+    /// Publication needs the live record; a source without one means the API object changed.
+    fn new(
+        source: Option<File>,
+        record: Option<crate::object::ObjectRecord>,
+    ) -> Result<Self, Error> {
+        match (source, record) {
+            (Some(source), Some(record)) => Ok(Self::Copy { source, record }),
+            (None, Some(record)) => Ok(Self::Observe { record }),
+            (None, None) => Ok(Self::Remove),
+            (Some(_), None) => Err(stale()),
+        }
+    }
+
+    fn kind(&self) -> Kind {
+        match self {
+            Self::Copy { .. } | Self::Observe { .. } => Kind::Publish,
+            Self::Remove => Kind::Remove,
+        }
+    }
+
+    /// An observation never copies, so it starts where a copy ends.
+    fn first_step(&self) -> Progress {
+        match self {
+            Self::Observe { .. } => Progress::Staged(None),
+            // `Remove` keeps its empty copy step: tests pin three `Pending` results and
+            // callers may cancel between steps.
+            Self::Copy { .. } | Self::Remove => Progress::Prepared,
+        }
+    }
+}
+
+/// Why the export may replace or remove a file, fixed when it begins.
+#[derive(Clone)]
+enum Purpose {
+    /// An ordinary export; the original's holds are enforced.
     Ordinary,
+    /// Restore a protected body into a target that must still be absent.
     RestoreAbsent,
+    /// Confirm that a protected target already holds the live body.
     ObserveProtected,
-    Preserved,
+    /// Export over a target whose previous body was first preserved as this conflict.
+    Preserved(Box<super::super::conflicts::CapturedConflict>),
+}
+
+impl Purpose {
+    fn conflict(&self) -> Option<&super::super::conflicts::CapturedConflict> {
+        match self {
+            Self::Preserved(conflict) => Some(conflict),
+            Self::Ordinary | Self::RestoreAbsent | Self::ObserveProtected => None,
+        }
+    }
+
+    /// Only a preserved original pins the device its replacement must stay on.
+    fn source_device(&self) -> Option<u64> {
+        self.conflict()
+            .map(super::super::conflicts::CapturedConflict::device)
+    }
+}
+
+/// How far an export has progressed; each `advance_live_export` call moves at most one step.
+enum Progress {
+    /// Nothing is in the workspace yet.
+    Prepared,
+    /// The workspace holds the durable private copy (`None` when the body copies nothing).
+    Staged(Option<fsutil::FileIdentity>),
+    /// The target holds the exported state; its fingerprint is not yet durable in SQL.
+    Installed(Option<fsutil::FileIdentity>),
+    /// Phase 3 is committed with this fingerprint (`None`: the target is absent).
+    Durable {
+        staged: Option<fsutil::FileIdentity>,
+        fingerprint: Option<SyncFingerprint>,
+    },
+    /// An abandoned export reports `result` once its cleanup commits; a failed cleanup retries.
+    Cancelling {
+        staged: Option<fsutil::FileIdentity>,
+        result: LiveResult,
+    },
+}
+
+impl Progress {
+    fn staged(&self) -> Option<fsutil::FileIdentity> {
+        match self {
+            Self::Prepared => None,
+            Self::Staged(staged) | Self::Installed(staged) => *staged,
+            Self::Durable { staged, .. } | Self::Cancelling { staged, .. } => *staged,
+        }
+    }
+
+    fn cancel(&self, result: LiveResult) -> Self {
+        Self::Cancelling {
+            staged: self.staged(),
+            result,
+        }
+    }
 }
 
 struct LiveOperation {
+    /// The `sync_writeback_ops` row as last read; its phase and revision guard every step.
     item: Pending,
-    record: Option<crate::object::ObjectRecord>,
-    source: Option<File>,
+    /// The tracked body the target must still hold before it is replaced.
+    tracked: Option<SyncRecord>,
+    body: Body,
+    purpose: Purpose,
+    progress: Progress,
+}
+
+/// What the installation job needs; it runs on a file worker, so it owns its inputs.
+struct Install {
+    item: Pending,
     tracked: Option<SyncRecord>,
     staged: Option<fsutil::FileIdentity>,
-    copied: bool,
-    installed: bool,
-    observing: bool,
-    durable: Option<Option<SyncFingerprint>>,
-    cancelling: Option<LiveResult>,
-    purpose: CopyPurpose,
-    captured: Option<super::super::conflicts::CapturedConflict>,
-    source_device: Option<u64>,
+    purpose: Purpose,
 }
 
 fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<bool, Error> {
@@ -131,25 +247,17 @@ fn matches_source(
     matches_tracked(file, expected)
 }
 
-fn api_original(
-    c: &Transaction<'_>,
-    item: &Pending,
-    purpose: CopyPurpose,
-    captured: Option<&super::super::conflicts::CapturedConflict>,
-) -> Result<(), Error> {
-    validate_capture(c, item, purpose, captured)?;
+fn api_original(c: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Result<(), Error> {
+    validate_capture(c, item, purpose)?;
     if item.kind == Kind::Publish {
         return match purpose {
-            CopyPurpose::Ordinary => original(c, item),
-            CopyPurpose::RestoreAbsent | CopyPurpose::Preserved | CopyPurpose::ObserveProtected => {
+            Purpose::Ordinary => original(c, item),
+            Purpose::RestoreAbsent | Purpose::Preserved(_) | Purpose::ObserveProtected => {
                 original_with_protection(c, item, OriginalProtection::ReadOnlyCopy)
             }
         };
     }
-    if matches!(
-        purpose,
-        CopyPurpose::RestoreAbsent | CopyPurpose::ObserveProtected
-    ) {
+    if matches!(purpose, Purpose::RestoreAbsent | Purpose::ObserveProtected) {
         return Err(stale());
     }
     let complete: bool = c
@@ -176,13 +284,8 @@ fn api_original(
     Ok(())
 }
 
-fn validate_capture(
-    tx: &Transaction<'_>,
-    item: &Pending,
-    purpose: CopyPurpose,
-    captured: Option<&super::super::conflicts::CapturedConflict>,
-) -> Result<(), Error> {
-    if purpose == CopyPurpose::Preserved {
+fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> Result<(), Error> {
+    if let Purpose::Preserved(conflict) = purpose {
         let binding = SyncBinding {
             catalog: item.token.catalog,
             bucket: item.bucket.clone(),
@@ -190,7 +293,7 @@ fn validate_capture(
             deletion: None,
             control: None,
         };
-        captured.ok_or_else(stale)?.validate(
+        conflict.validate(
             tx,
             item.token.root,
             &binding,
@@ -207,15 +310,11 @@ fn validate_capture(
 
 /// Installs the staged copy at the target path (or moves a removed file into the workspace)
 /// unless an earlier attempt already did; `Ok(false)` reports an external change.
-fn install_target(
-    root: &File,
-    workspace: &File,
-    selected: &Pending,
-    expected: Option<&SyncRecord>,
-    staged: Option<fsutil::FileIdentity>,
-    purpose: CopyPurpose,
-    source_device: Option<u64>,
-) -> Result<bool, Error> {
+fn install_target(root: &File, workspace: &File, install: &Install) -> Result<bool, Error> {
+    let selected = &install.item;
+    let expected = install.tracked.as_ref();
+    let staged = install.staged;
+    let source_device = install.purpose.source_device();
     let current = target(root, &selected.path)?;
     let parents = selected.path.rsplit_once('/').ok_or_else(stale)?.0;
     let directory = crate::sync::tree::parent(
@@ -234,7 +333,7 @@ fn install_target(
         None => retained.is_some(),
     };
     if !already_installed {
-        if purpose == CopyPurpose::RestoreAbsent && current.is_some() {
+        if matches!(install.purpose, Purpose::RestoreAbsent) && current.is_some() {
             return Ok(false);
         }
         if let Some(staged) = staged {
@@ -316,23 +415,16 @@ impl Writeback {
         source: LiveSource,
     ) -> Result<LiveExport, Error> {
         self.serial_with(move |this| async move {
-            let (purpose,source,captured)=match source {
-                LiveSource::Observe=>(CopyPurpose::Ordinary,None,None),
-                LiveSource::ApiCopy(file)=>(CopyPurpose::Ordinary,Some(file),None),
-                LiveSource::ProtectedRestore(file)=>(CopyPurpose::RestoreAbsent,Some(file),None),
-                LiveSource::ProtectedObservation=>(CopyPurpose::ObserveProtected,None,None),
-                LiveSource::Preserved {source,conflict}=>(CopyPurpose::Preserved,source,Some(*conflict)),
-            };
-            if let Some(proof)=&captured {
-                proof.verify_owned(&this.lease).await.map_err(AdminError::backend)?;
+            let (purpose, source) = source.into_parts();
+            if let Some(conflict) = purpose.conflict() {
+                conflict.verify_owned(&this.lease).await.map_err(AdminError::backend)?;
             }
             let bucket = BucketName::new(binding.bucket.clone())?;
             let path = match mapping::name_to_path(&bucket, &name) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), _ => return Err(stale()) };
             let (catalog, root) = this.identities();
-            let has_source = source.is_some();
             let selected = tracked.clone();
-            let proof_token=captured.clone();
-            let (item,record,proof) = this.db(move |c| {
+            let checked_purpose = purpose.clone();
+            let (item,body,proof) = this.db(move |c| {
                 #[cfg(test)]
                 failure(root,"prepare")?;
                 let tx = c.transaction()?;
@@ -345,37 +437,36 @@ impl Writeback {
                 if stored != selected { return Err(stale()); }
                 let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
                 let expected_generation=record.as_ref().map(|record|Generation::new(record.generation)).transpose()?;
-                let proof=proof_token.as_ref().map(|token|token.validate(&tx,root,&binding,&name,expected_generation)).transpose()?;
-                let kind = if has_source || record.is_some() { Kind::Publish } else { Kind::Remove };
-                let (size,md5,crc32c) = if kind == Kind::Publish {
-                    let record = record.as_ref().ok_or_else(stale)?;
-                    (record.size,record.md5,record.crc32c)
-                } else {
-                    let record = selected.as_ref().ok_or_else(stale)?;
-                    (record.fingerprint.size,record.fingerprint.md5,record.fingerprint.crc32c)
+                let proof=checked_purpose.conflict().map(|conflict|conflict.validate(&tx,root,&binding,&name,expected_generation)).transpose()?;
+                let body = Body::new(source, record)?;
+                let (size,md5,crc32c) = match &body {
+                    Body::Copy { record, .. } | Body::Observe { record } => (record.size,record.md5,record.crc32c),
+                    Body::Remove => {
+                        let record = selected.as_ref().ok_or_else(stale)?;
+                        (record.fingerprint.size,record.fingerprint.md5,record.fingerprint.crc32c)
+                    }
                 };
                 // A registered exact-body copy already owns its full retained charge.
                 let reservation = if proof.is_some() { 0 } else { selected.as_ref().map_or(0,|s|s.fingerprint.size) };
-                let captured_snapshot=proof_token.as_ref().map(|token|token.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
+                let captured_snapshot=checked_purpose.conflict().map(|conflict|conflict.durable_snapshot(&tx).map_err(AdminError::backend)).transpose()?;
                 if if proof.is_some() {usage.over_limit()} else {usage.would_exceed(reservation)} { return Err(Error::Capacity); }
                 let id = OpaqueId::generate().map_err(AdminError::backend)?;
-                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket,incarnation,name,path,generation,kind,fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
+                tx.prepare_cached("INSERT INTO sync_writeback_ops(id,root_id,owner,bucket,incarnation,name,path,generation,kind,phase,revision,fence_sequence,fence_epoch,reservation,size,md5,crc32c) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,0,1,?10,?11,?12,?13,?14,?15)")?.execute(params![id,root,owner,bucket,incarnation,name,path,generation,body.kind(),fence.sequence,fence.revision,reservation.to_be_bytes(),size,md5,crc32c])?;
                 if let Some(snapshot)=captured_snapshot {
                     tx.prepare_cached("UPDATE sync_writeback_ops SET snapshot=?2 WHERE id=?1")?.execute(params![id,snapshot])?;
                 }
                 let item = load(&tx,catalog,root,id)?;
-                api_original(&tx,&item,purpose,proof_token.as_ref())?;
+                api_original(&tx,&item,&checked_purpose)?;
                 usage.entries += 1;
                 usage.reserved_bytes += u128::from(reservation);
                 usage.recovery = true;
                 save_status(&tx,root,&usage)?;
                 tx.commit()?;
-                Ok((item,record,proof))
+                Ok((item,body,proof))
             }).await?;
-            let source_device=proof.as_ref().map(|proof|proof.device);
             let tracked=proof.map_or(tracked,|proof|Some(SyncRecord {name:item.name.clone(),path:item.path.clone(),generation:item.generation,fingerprint:proof.fingerprint}));
-            let observing = item.kind == Kind::Publish && source.is_none();
-            Ok(LiveExport(Arc::new(tokio::sync::Mutex::new(LiveOperation { item, record, source, tracked, staged: None, copied: observing, installed: false, observing, durable: None, cancelling: None,purpose,captured,source_device }))))
+            let progress = body.first_step();
+            Ok(LiveExport(Arc::new(tokio::sync::Mutex::new(LiveOperation { item, tracked, body, purpose, progress }))))
         }).await
     }
 
@@ -405,21 +496,23 @@ impl Writeback {
                 Ok(())
             })
             .await?;
-            if let Some(result) = operation.cancelling {
-                this.cancel_live_copy(operation).await?;
-                return Ok(result);
+            match &operation.progress {
+                Progress::Cancelling { result, .. } => {
+                    let result = *result;
+                    this.cancel_live_copy(operation).await?;
+                    Ok(result)
+                }
+                Progress::Prepared => {
+                    this.copy_live(operation).await?;
+                    Ok(LiveResult::Pending)
+                }
+                Progress::Staged(_) => this.install_live(operation).await,
+                Progress::Installed(_) => this.record_live_durable(operation).await,
+                Progress::Durable { fingerprint, .. } => {
+                    let fingerprint = fingerprint.clone();
+                    this.acknowledge_live(operation, fingerprint).await
+                }
             }
-            if !operation.copied {
-                this.copy_live(operation).await?;
-                return Ok(LiveResult::Pending);
-            }
-            if !operation.installed {
-                return this.install_live(operation).await;
-            }
-            if operation.durable.is_none() {
-                return this.record_live_durable(operation).await;
-            }
-            this.acknowledge_live(operation).await
         })
         .await
     }
@@ -428,9 +521,12 @@ impl Writeback {
     async fn copy_live(&self, operation: &mut LiveOperation) -> Result<(), Error> {
         #[cfg(test)]
         let faults = self.fault_paths();
-        let source = operation.source.as_ref().map(File::try_clone).transpose()?;
+        let source = match &operation.body {
+            Body::Copy { source, .. } => Some(source.try_clone()?),
+            Body::Observe { .. } | Body::Remove => None,
+        };
         let selected = operation.item.clone();
-        operation.staged = self
+        let staged = self
             .fs(move |_, workspace| {
                 if let Some(source) = source {
                     #[cfg(test)]
@@ -465,20 +561,19 @@ impl Writeback {
                 }
             })
             .await?;
-        operation.copied = true;
+        operation.progress = Progress::Staged(staged);
         Ok(())
     }
 
     /// Arms a prepared operation, then installs (or, when observing, checks) the target file.
     async fn install_live(&self, operation: &mut LiveOperation) -> Result<LiveResult, Error> {
-        if let Some(proof) = &operation.captured {
-            proof
+        if let Some(conflict) = operation.purpose.conflict() {
+            conflict
                 .verify_owned(&self.lease)
                 .await
                 .map_err(AdminError::backend)?;
         }
-        let purpose = operation.purpose;
-        let captured = operation.captured.clone();
+        let purpose = operation.purpose.clone();
         let mut item = operation.item.clone();
         let selected = item.clone();
         if item.phase == Phase::Prepared {
@@ -487,7 +582,7 @@ impl Writeback {
                     #[cfg(test)]
                     failure(selected.token.root, "arm")?;
                     let tx = c.transaction()?;
-                    api_original(&tx, &selected, purpose, captured.as_ref())?;
+                    api_original(&tx, &selected, &purpose)?;
                     checked(&tx, &selected.token)?;
                     tx.prepare_cached(
                         "UPDATE sync_writeback_ops SET phase=1,revision=revision+1 WHERE id=?1",
@@ -509,22 +604,26 @@ impl Writeback {
                     operation.item = item.clone();
                 }
                 Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                    operation.cancelling = Some(LiveResult::Obsolete);
+                    operation.progress = operation.progress.cancel(LiveResult::Obsolete);
                     self.cancel_live_copy(operation).await?;
                     return Ok(LiveResult::Obsolete);
                 }
                 Err(error) => return Err(error),
             }
         }
-        let selected = item.clone();
-        let expected = operation.tracked.clone();
-        let source_device = operation.source_device;
-        let staged = operation.staged;
-        let observing = operation.observing;
+        let staged = operation.progress.staged();
+        let install = Install {
+            item: item.clone(),
+            tracked: operation.tracked.clone(),
+            staged,
+            purpose: operation.purpose.clone(),
+        };
+        let observing = matches!(operation.body, Body::Observe { .. });
         #[cfg(test)]
         let faults = self.fault_paths();
         let installed = self
             .fs(move |root, workspace| {
+                let selected = &install.item;
                 #[cfg(test)]
                 failure(selected.token.root, "install")?;
                 if observing {
@@ -535,18 +634,10 @@ impl Writeback {
                         None => Ok(false),
                     };
                 }
-                let installed = install_target(
-                    root,
-                    workspace,
-                    &selected,
-                    expected.as_ref(),
-                    staged,
-                    purpose,
-                    source_device,
-                )?;
+                let installed = install_target(root, workspace, &install)?;
                 #[cfg(test)]
                 if installed {
-                    faults.installed(&selected);
+                    faults.installed(selected);
                     faults.hit(Step::SyncCopyInstalled)?;
                 }
                 Ok(installed)
@@ -554,18 +645,17 @@ impl Writeback {
             .await;
         match installed {
             Ok(false) => {
-                operation.cancelling = Some(LiveResult::Conflict);
+                operation.progress = operation.progress.cancel(LiveResult::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
-            Ok(true) => operation.installed = true,
+            Ok(true) => operation.progress = Progress::Installed(staged),
             Err(Error::Protected) => {
                 operation.item = self.inspect_inner(item.token.clone()).await?;
                 return Err(Error::Protected);
             }
             Err(error) => {
                 let selected = item.clone();
-                let staged = operation.staged;
                 let displaced = self.displaced_live(selected, staged).await?;
                 if displaced {
                     let pending = self.inspect_inner(item.token.clone()).await?;
@@ -612,8 +702,8 @@ impl Writeback {
         &self,
         operation: &mut LiveOperation,
     ) -> Result<LiveResult, Error> {
-        if let Some(proof) = &operation.captured {
-            proof
+        if let Some(conflict) = operation.purpose.conflict() {
+            conflict
                 .verify_owned(&self.lease)
                 .await
                 .map_err(AdminError::backend)?;
@@ -633,9 +723,9 @@ impl Writeback {
                 return Err(Error::Protected);
             }
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
-                if operation.observing =>
+                if matches!(operation.body, Body::Observe { .. }) =>
             {
-                operation.cancelling = Some(LiveResult::Conflict);
+                operation.progress = operation.progress.cancel(LiveResult::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
@@ -647,35 +737,39 @@ impl Writeback {
             .transpose()
             .map_err(AdminError::backend)?;
         let selected = item.clone();
-        let captured = operation.captured.clone();
-        let purpose = operation.purpose;
+        let purpose = operation.purpose.clone();
         let durable_fingerprint = fp.clone();
         operation.item = self.db(move |c| {
             let tx = c.transaction()?;
             checked(&tx,&selected.token)?;
-            validate_capture(&tx,&selected,purpose,captured.as_ref())?;
-            let snapshot=if let Some(proof)=&captured {Some(proof.durable_fingerprint(&tx,durable_fingerprint).map_err(AdminError::backend)?)} else {snapshot};
+            validate_capture(&tx,&selected,&purpose)?;
+            let snapshot=if let Some(conflict)=purpose.conflict() {Some(conflict.durable_fingerprint(&tx,durable_fingerprint).map_err(AdminError::backend)?)} else {snapshot};
             tx.prepare_cached("UPDATE sync_writeback_ops SET phase=3,revision=revision+1,snapshot=?2 WHERE id=?1")?.execute(params![selected.token.id,snapshot])?;
             let durable = load(&tx,selected.token.catalog,selected.token.root,selected.token.id)?;
             tx.commit()?;
             Ok(durable)
         }).await?;
-        operation.durable = Some(fp);
+        operation.progress = Progress::Durable {
+            staged: operation.progress.staged(),
+            fingerprint: fp,
+        };
         Ok(LiveResult::Pending)
     }
 
     /// Verifies the durable fingerprint still holds, then tracks it and finishes the operation.
-    async fn acknowledge_live(&self, operation: &mut LiveOperation) -> Result<LiveResult, Error> {
-        if let Some(proof) = &operation.captured {
-            proof
+    async fn acknowledge_live(
+        &self,
+        operation: &mut LiveOperation,
+        fp: Option<SyncFingerprint>,
+    ) -> Result<LiveResult, Error> {
+        if let Some(conflict) = operation.purpose.conflict() {
+            conflict
                 .verify_owned(&self.lease)
                 .await
                 .map_err(AdminError::backend)?;
         }
-        let purpose = operation.purpose;
-        let captured = operation.captured.clone();
+        let purpose = operation.purpose.clone();
         let item = operation.item.clone();
-        let fp = operation.durable.clone().ok_or_else(stale)?;
         let selected = item.clone();
         let expected = fp.clone();
         let verified = self
@@ -690,23 +784,32 @@ impl Writeback {
                 return Err(Error::Protected);
             }
             Err(Error::Admin(AdminError::Precondition | AdminError::NotFound))
-                if operation.observing =>
+                if matches!(operation.body, Body::Observe { .. }) =>
             {
-                operation.cancelling = Some(LiveResult::Conflict);
+                operation.progress = operation.progress.cancel(LiveResult::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
             Err(error) => return Err(error),
         }
+        // `fingerprint` reports a body exactly when one was published.
+        let tracking = match (fp, &operation.body) {
+            (Some(fp), Body::Copy { record, .. } | Body::Observe { record }) => {
+                Some((fp, record.clone()))
+            }
+            (None, Body::Remove) => None,
+            (Some(_), Body::Remove) | (None, Body::Copy { .. } | Body::Observe { .. }) => {
+                return Err(stale());
+            }
+        };
         let selected = item.clone();
-        let record = operation.record.clone();
         let scope = self.lease.control_scope();
         let result=self.db(move |c| {
             #[cfg(test)]
             failure(selected.token.root,"ack")?;
             let tx = c.transaction()?;
             let current = checked(&tx,&selected.token)?;
-            let valid = match api_original(&tx,&current,purpose,captured.as_ref()) {
+            let valid = match api_original(&tx,&current,&purpose) {
                 Ok(()) => true,
                 Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => false,
                 Err(error) => return Err(error),
@@ -718,10 +821,10 @@ impl Writeback {
                 Err(error) => return Err(error.into()),
             };
             if same_binding {
-                if let Some(fp) = fp {
+                if let Some((fp, record)) = tracking {
                     let update = SyncUpdate::new(binding,current.path.clone(),fp)?;
                     // Track the bytes actually installed even if a newer API generation won meanwhile.
-                    super::super::record_in_transaction(&tx,&update,record.as_ref().ok_or_else(stale)?)?;
+                    super::super::record_in_transaction(&tx,&update,&record)?;
                 } else {
                     tx.prepare_cached("DELETE FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?3 AND generation=?4")?.execute(params![current.bucket,current.name,current.incarnation,current.generation])?;
                     if valid {
@@ -741,7 +844,7 @@ impl Writeback {
     async fn cancel_live_copy(&self, operation: &mut LiveOperation) -> Result<(), Error> {
         let item = operation.item.clone();
         let selected = item.clone();
-        let staged = operation.staged;
+        let staged = operation.progress.staged();
         let cancelled = self
             .fs(move |root, workspace| {
                 if let Some(staged) = staged

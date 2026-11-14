@@ -155,12 +155,15 @@ pub(crate) struct CapturedConflict {
 
 pub(crate) struct CaptureProof {
     pub fingerprint: SyncFingerprint,
-    pub device: u64,
 }
 
 impl CapturedConflict {
     pub(crate) fn id(&self) -> OpaqueId {
         self.id
+    }
+    /// The device the preserved original was captured on; its replacement must stay there.
+    pub(in crate::storage) fn device(&self) -> u64 {
+        self.device
     }
     pub(in crate::storage) fn validate(
         &self,
@@ -190,7 +193,6 @@ impl CapturedConflict {
         }
         Ok(CaptureProof {
             fingerprint: self.fingerprint.clone(),
-            device: self.device,
         })
     }
 }

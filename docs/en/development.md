@@ -397,7 +397,7 @@ cannot express.
 | `clippy::indexing_slicing`, `clippy::string_slice` | Potential panics from indexing and slicing. |
 | `clippy::cast_possible_truncation`, `clippy::cast_sign_loss` | Silent truncation and sign loss. Casts do not themselves panic. |
 | `clippy::wildcard_enum_match_arm` | `_` arms on an enum, which let a new variant compile without a decision; per-file ratchet. A deliberate wildcard takes a reasoned `#[expect]` on the statement or function. |
-| `clippy::option_option` | `Option<Option<T>>`; name the three states with a type; per-file ratchet. |
+| `clippy::option_option` | `Option<Option<T>>`; name the three states with a type. |
 | `clippy::struct_excessive_bools` | Structs with more than three `bool` fields, which mix up modes. |
 | `clippy::unreachable` | `unreachable!`, which panics like `panic!`. |
 | `text::path_attribute` | `#[path]` module attributes. |

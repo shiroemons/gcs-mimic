@@ -201,7 +201,7 @@ async fn conflict_capture_owns_binary_bytes_and_discard_is_exact_and_idempotent(
                 expected,
             )?;
             assert_eq!(proof.fingerprint.size, 10);
-            assert_ne!(proof.device, 0);
+            assert_ne!(token.device(), 0);
             Ok(())
         })
         .await
