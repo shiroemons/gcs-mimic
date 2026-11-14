@@ -610,7 +610,8 @@ pub(super) fn root_error(error: &RootError) -> JsonError {
 fn admin_error(error: &AdminError) -> Option<JsonError> {
     Some(match error {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
-        AdminError::Precondition => stale(),
+        // A protected or missing target means the inspected state changed, as a stale revision.
+        AdminError::Precondition | AdminError::Hold | AdminError::NotFound => stale(),
         AdminError::Corrupt(cause) => crate::object::ObjectError::Corrupt(cause.clone()).into(),
         AdminError::DiskFull(_) => JsonError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -624,11 +625,9 @@ fn admin_error(error: &AdminError) -> Option<JsonError> {
         ),
         AdminError::Busy { .. }
         | AdminError::Closed
-        | AdminError::Hold
         | AdminError::SeedProjectMismatch
         | AdminError::SeedMetadataBudget { .. }
         | AdminError::SourceChanged { .. }
-        | AdminError::NotFound
         | AdminError::Invalid(_)
         | AdminError::Checksum
         | AdminError::TooLarge
@@ -645,10 +644,7 @@ pub(super) fn control_error(error: &ControlError) -> JsonError {
             .causes()
             .find_map(|cause| match cause {
                 Cause::Root(error) => Some(root_error(error)),
-                // A queued control met a concurrent change, as a stale revision does.
-                Cause::Admin(error) => admin_error(error).or_else(|| {
-                    matches!(error, AdminError::Hold | AdminError::NotFound).then(stale)
-                }),
+                Cause::Admin(error) => admin_error(error),
                 Cause::Writeback(_)
                 | Cause::Conflict(_)
                 | Cause::Stop(_)
