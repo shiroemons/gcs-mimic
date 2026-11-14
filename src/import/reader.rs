@@ -1,12 +1,16 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    MetadataMode, Options, Record, Reporter, ScanPurpose, Severity, SourcePlatform,
+    Checked, MetadataMode, Options, Record, Reported, Reporter, ScanPurpose, Severity,
+    SourcePlatform,
     codec::{self, BucketAttrs, ObjectAttrs},
 };
 use crate::{
+    acl::AclEntry,
+    bucket::StorageClass,
     fsutil::{SOURCE_METADATA_CAP, SourceMetadataBuffer, SourceMetadataError},
     hashing::{Hasher, Hashes},
+    object::generation::Generation,
     source_tree::{self, WalkError, Walker},
     storage::failure::BackendCause,
 };
@@ -568,11 +572,54 @@ struct ObjectInput<'a> {
     parent_eligible: bool,
 }
 
-/// Values recovered from object attributes that later checks compare against the body.
+/// What one object's attributes parse into; a field is `Err(Reported)` when its blocking
+/// finding was reported instead. Fields without a value to keep are `Checked<()>`.
 pub(super) struct ObjectChecks {
-    pub times: [i64; 2],
-    md5: Option<[u8; 16]>,
-    crc32c: Option<[u8; 4]>,
+    generation: Checked<Generation>,
+    storage_class: Checked<StorageClass>,
+    /// The content fields and custom metadata keys, which publication copies unchanged.
+    fixed_metadata: Checked<()>,
+    acl: Checked<Option<Vec<AclEntry>>>,
+    /// `None` when the source leaves it unset (empty or the zero time).
+    custom_time: Checked<Option<String>>,
+    created_micros: Checked<i64>,
+    updated_micros: Checked<i64>,
+    md5: Checked<[u8; 16]>,
+    crc32c: Checked<u32>,
+}
+
+/// The attributes of an object that every check accepted.
+pub(super) struct AcceptedAttributes {
+    pub(super) created_micros: i64,
+    pub(super) updated_micros: i64,
+}
+
+impl ObjectChecks {
+    /// The accepted attributes, or `Reported` when this object's checks, or any of `others`
+    /// (its remaining checks), reported a finding.
+    pub(super) fn accepted(self, others: &[Checked<()>]) -> Checked<AcceptedAttributes> {
+        for other in others {
+            (*other)?;
+        }
+        self.generation?;
+        self.storage_class?;
+        self.fixed_metadata?;
+        self.acl?;
+        self.custom_time?;
+        self.md5?;
+        self.crc32c?;
+        Ok(AcceptedAttributes {
+            created_micros: self.created_micros?,
+            updated_micros: self.updated_micros?,
+        })
+    }
+}
+
+/// A body read to its end: its digests, and whether they match the stored checksums.
+pub(super) struct VerifiedBody {
+    pub(super) hashes: Hashes,
+    /// `Reported` when a stored checksum differed.
+    pub(super) matches: Checked<()>,
 }
 
 fn reject(
@@ -581,46 +628,136 @@ fn reject(
     field: ObjectField,
     reason: &str,
     original: String,
-) -> Result<(), ImportFailure> {
-    report.finding(
-        relative,
-        field.name(),
-        reason,
-        field.fix(),
-        Severity::Blocking,
-        Some(original),
-    )
+) -> Result<Reported, ImportFailure> {
+    report.block(relative, field.name(), reason, field.fix(), Some(original))
 }
 
-/// Reports every object attribute this conversion cannot preserve and parses the timestamps
-/// and checksums that later steps need.
+/// A source timestamp in Unix microseconds, or the finding that reports why it has none.
+fn timestamp(
+    report: &mut Reporter,
+    relative: &str,
+    field: ObjectField,
+    value: &str,
+) -> Result<Checked<i64>, ImportFailure> {
+    Ok(match codec::parse_timestamp(value) {
+        Ok(time) => Ok(time),
+        Err(reason) => Err(reject(
+            report,
+            relative,
+            field,
+            &reason.to_string(),
+            value.to_owned(),
+        )?),
+    })
+}
+
+/// Reports every object attribute this conversion cannot preserve and parses the values that
+/// later steps need.
 pub(super) fn check_object_fields(
     report: &mut Reporter,
     relative: &str,
     attrs: &ObjectAttrs,
 ) -> Result<ObjectChecks, ImportFailure> {
-    if attrs.generation <= 0 || attrs.generation == i64::MAX {
-        reject(
+    // `Generation` refuses zero and below; the allocator needs room above the source's own.
+    let generation = match Generation::try_from(attrs.generation)
+        .ok()
+        .filter(|generation| generation.get() != i64::MAX)
+    {
+        Some(generation) => Ok(generation),
+        None => Err(reject(
             report,
             relative,
             ObjectField::Generation,
             "generation must be positive with room for the allocator to advance",
             attrs.generation.to_string(),
-        )?;
-    }
-    if let Err(error) = crate::bucket::validate_storage_class(&attrs.storage_class) {
-        let (field, reason) = match error {
-            crate::bucket::CatalogError::Metadata(error) if error.unsupported() => (
-                ObjectField::StorageClassUnsupported,
-                "object storageClass requires a region or zone",
-            ),
-            _ => (
-                ObjectField::StorageClassInvalid,
-                "invalid object storageClass",
-            ),
-        };
-        reject(report, relative, field, reason, attrs.storage_class.clone())?;
-    }
+        )?),
+    };
+    let storage_class = match crate::bucket::validate_storage_class(&attrs.storage_class) {
+        Ok(class) => Ok(class),
+        Err(error) => {
+            let (field, reason) = match error {
+                crate::bucket::CatalogError::Metadata(error) if error.unsupported() => (
+                    ObjectField::StorageClassUnsupported,
+                    "object storageClass requires a region or zone",
+                ),
+                _ => (
+                    ObjectField::StorageClassInvalid,
+                    "invalid object storageClass",
+                ),
+            };
+            Err(reject(
+                report,
+                relative,
+                field,
+                reason,
+                attrs.storage_class.clone(),
+            )?)
+        }
+    };
+    let fixed_metadata = check_fixed_metadata(report, relative, attrs)?;
+    let acl = match codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Object) {
+        Ok(entries) => Ok(entries),
+        Err(error) => Err(reject(
+            report,
+            relative,
+            ObjectField::Acl,
+            &error.to_string(),
+            serde_json::to_string(&attrs.acl)?,
+        )?),
+    };
+    let custom_time = match codec::is_unset_time(&attrs.custom_time) {
+        Ok(true) => Ok(None),
+        Ok(false) => Ok(Some(attrs.custom_time.clone())),
+        Err(reason) => Err(reject(
+            report,
+            relative,
+            ObjectField::CustomTime,
+            &reason.to_string(),
+            attrs.custom_time.clone(),
+        )?),
+    };
+    let created_micros = timestamp(report, relative, ObjectField::Created, &attrs.created)?;
+    let updated_micros = timestamp(report, relative, ObjectField::Updated, &attrs.updated)?;
+    let md5 = match crate::json::decode_hash::<16>(&attrs.md5_hash) {
+        Ok(md5) => Ok(md5),
+        Err(_) => Err(reject(
+            report,
+            relative,
+            ObjectField::Md5Hash,
+            "missing or invalid canonical base64 MD5 (16 bytes required)",
+            attrs.md5_hash.clone(),
+        )?),
+    };
+    let crc32c = match crate::json::decode_hash::<4>(&attrs.crc32c) {
+        Ok(crc32c) => Ok(u32::from_be_bytes(crc32c)),
+        Err(_) => Err(reject(
+            report,
+            relative,
+            ObjectField::Crc32c,
+            "missing or invalid canonical base64 CRC32C (4 bytes required)",
+            attrs.crc32c.clone(),
+        )?),
+    };
+    Ok(ObjectChecks {
+        generation,
+        storage_class,
+        fixed_metadata,
+        acl,
+        custom_time,
+        created_micros,
+        updated_micros,
+        md5,
+        crc32c,
+    })
+}
+
+/// Reports every content field and custom metadata key that native publication would refuse.
+fn check_fixed_metadata(
+    report: &mut Reporter,
+    relative: &str,
+    attrs: &ObjectAttrs,
+) -> Result<Checked<()>, ImportFailure> {
+    let mut fixed_metadata = Ok(());
     for (field, key, value) in [
         (ObjectField::ContentType, "contentType", &attrs.content_type),
         (
@@ -647,69 +784,25 @@ pub(super) fn check_object_fields(
         if !value.is_empty()
             && let Err(error) = crate::json::validate_fixed_metadata(key, value)
         {
-            reject(report, relative, field, &error.message, value.clone())?;
+            fixed_metadata = Err(reject(
+                report,
+                relative,
+                field,
+                &error.message,
+                value.clone(),
+            )?);
         }
     }
     if attrs.metadata.as_ref().is_some_and(|m| m.contains_key("")) {
-        reject(
+        fixed_metadata = Err(reject(
             report,
             relative,
             ObjectField::Metadata,
             "empty custom metadata key is unsupported",
             String::new(),
-        )?;
+        )?);
     }
-    if let Err(error) = codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Object) {
-        reject(
-            report,
-            relative,
-            ObjectField::Acl,
-            &error.to_string(),
-            serde_json::to_string(&attrs.acl)?,
-        )?;
-    }
-    if !attrs.custom_time.is_empty()
-        && let Err(reason) = codec::parse_timestamp(&attrs.custom_time)
-    {
-        reject(
-            report,
-            relative,
-            ObjectField::CustomTime,
-            &reason.to_string(),
-            attrs.custom_time.clone(),
-        )?;
-    }
-    let mut times = [0; 2];
-    for (slot, (field, value)) in times.iter_mut().zip([
-        (ObjectField::Created, &attrs.created),
-        (ObjectField::Updated, &attrs.updated),
-    ]) {
-        match codec::parse_timestamp(value) {
-            Ok(time) => *slot = time,
-            Err(reason) => reject(report, relative, field, &reason.to_string(), value.clone())?,
-        }
-    }
-    let md5 = crate::json::decode_hash::<16>(&attrs.md5_hash).ok();
-    let crc32c = crate::json::decode_hash::<4>(&attrs.crc32c).ok();
-    if md5.is_none() {
-        reject(
-            report,
-            relative,
-            ObjectField::Md5Hash,
-            "missing or invalid canonical base64 MD5 (16 bytes required)",
-            attrs.md5_hash.clone(),
-        )?;
-    }
-    if crc32c.is_none() {
-        reject(
-            report,
-            relative,
-            ObjectField::Crc32c,
-            "missing or invalid canonical base64 CRC32C (4 bytes required)",
-            attrs.crc32c.clone(),
-        )?;
-    }
-    Ok(ObjectChecks { times, md5, crc32c })
+    Ok(fixed_metadata)
 }
 
 /// Reports source semantics that cannot be represented by this live-filesystem adapter.
@@ -717,7 +810,8 @@ fn check_unset_semantics(
     report: &mut Reporter,
     relative: &str,
     attrs: &ObjectAttrs,
-) -> Result<(), ImportFailure> {
+) -> Result<Checked<()>, ImportFailure> {
+    let mut unset = Ok(());
     for (field, value) in [
         (ObjectField::Deleted, &attrs.deleted),
         (
@@ -725,28 +819,23 @@ fn check_unset_semantics(
             &attrs.retention_retain_until,
         ),
     ] {
-        match codec::is_unset_time(value) {
-            Ok(true) => (),
-            Ok(false) => reject(
-                report,
-                relative,
-                field,
-                "active source semantics are unsupported",
-                value.clone(),
-            )?,
-            Err(reason) => reject(report, relative, field, &reason.to_string(), value.clone())?,
-        }
+        let reason = match codec::is_unset_time(value) {
+            Ok(true) => continue,
+            Ok(false) => "active source semantics are unsupported".to_owned(),
+            Err(reason) => reason.to_string(),
+        };
+        unset = Err(reject(report, relative, field, &reason, value.clone())?);
     }
     if !attrs.retention_mode.is_empty() {
-        reject(
+        unset = Err(reject(
             report,
             relative,
             ObjectField::RetentionMode,
             "retention cannot be enforced by this conversion",
             attrs.retention_mode.clone(),
-        )?;
+        )?);
     }
-    Ok(())
+    Ok(unset)
 }
 
 /// Hashes the whole body and reports stored checksums that do not match it.
@@ -757,7 +846,7 @@ pub(super) fn verify_body(
     checks: &ObjectChecks,
     body: &mut BodyStream,
     buffer: &mut [u8; 65_536],
-) -> Result<Hashes, ImportFailure> {
+) -> Result<VerifiedBody, ImportFailure> {
     let mut hasher = Hasher::default();
     loop {
         let chunk = body.next_chunk(buffer)?;
@@ -772,29 +861,35 @@ pub(super) fn verify_body(
         });
     }
     let hashes = hasher.finish();
-    if let Some(expected) = checks.md5
-        && expected != hashes.md5
-    {
-        reject(
+    let md5 = if checks.md5.is_ok_and(|expected| expected != hashes.md5) {
+        Err(reject(
             report,
             relative,
             ObjectField::Md5Hash,
             "body checksum mismatch",
             attrs.md5_hash.clone(),
-        )?;
-    }
-    if let Some(expected) = checks.crc32c
-        && u32::from_be_bytes(expected) != hashes.crc32c
+        )?)
+    } else {
+        Ok(())
+    };
+    let crc32c = if checks
+        .crc32c
+        .is_ok_and(|expected| expected != hashes.crc32c)
     {
-        reject(
+        Err(reject(
             report,
             relative,
             ObjectField::Crc32c,
             "body checksum mismatch",
             attrs.crc32c.clone(),
-        )?;
-    }
-    Ok(hashes)
+        )?)
+    } else {
+        Ok(())
+    };
+    Ok(VerifiedBody {
+        hashes,
+        matches: md5.and(crc32c),
+    })
 }
 
 fn object(
@@ -823,18 +918,17 @@ fn object(
     let mut body = BodyStream::open(path, options.max_object_bytes)?;
     let bytes = metadata_bytes(&body, options, metadata_buffer, report, relative, xattr)?;
     let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt(CorruptField::ObjectAttrs, BackendCause::with_source(format!("invalid object metadata JSON: {e}"), e), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
-    let errors_before = report.summary.blocking_findings;
     let checks = check_object_fields(report, relative, &attrs)?;
-    check_unset_semantics(report, relative, &attrs)?;
-    let verified_hashes = match body_buffer {
+    let unset = check_unset_semantics(report, relative, &attrs)?;
+    let verified = match body_buffer {
         Some(buffer) => Some(verify_body(
             report, relative, &attrs, &checks, &mut body, buffer,
         )?),
         None => None,
     };
     report.summary.bytes_hashed += body.read;
-    if let Some(hashes) = verified_hashes {
-        report.verified_body(relative, hashes);
+    if let Some(verified) = &verified {
+        report.verified_body(relative, verified.hashes);
     }
     match options.metadata_mode {
         MetadataMode::Xattr => {
@@ -860,18 +954,21 @@ fn object(
         ],
     );
     report.observations(relative, &body.before);
-    if parent_eligible && report.summary.blocking_findings == errors_before {
+    let body_matches = verified
+        .as_ref()
+        .map_or(Ok(()), |verified| verified.matches);
+    if parent_eligible && let Ok(accepted) = checks.accepted(&[unset, body_matches]) {
         report.summary.eligible_objects += 1;
         report.record(Record::Object {
             path: relative.into(),
             bucket: bucket.into(),
             name: name.into(),
             attributes: Box::new(attrs),
-            created_micros: checks.times[0],
-            updated_micros: checks.times[1],
+            created_micros: accepted.created_micros,
+            updated_micros: accepted.updated_micros,
             deleted_micros: None,
             fingerprint: body.before.clone(),
-            verified_hashes,
+            verified_hashes: verified.map(|verified| verified.hashes),
             generated: &["native_etag", "metageneration_1"],
             source_file: (report.purpose == ScanPurpose::Publish).then_some(body.file),
             attributes_digest: super::filesystem::sha(&bytes),
@@ -1151,15 +1248,17 @@ impl Scan<'_> {
             Err(e) => return Err(e.into()),
         };
         let attrs: BucketAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt(CorruptField::BucketAttrs, BackendCause::with_source(format!("invalid bucket metadata JSON: {e}"), e), "Restore known, unique BucketAttrs fields with the pinned JSON types; an absent sidecar alone means defaults."))?;
-        let before = report.summary.blocking_findings;
-        if attrs.versioning_enabled == Some(true) {
-            report.finding(relative, "VersioningEnabled", "unsupported persisted bucket semantics", "The pinned filesystem backend cannot store history; provide a complete memory export for versioned buckets.", Severity::Blocking, None)?;
-        }
-        if let Err(error) = codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Bucket) {
-            report.finding(relative, "ACL", error.to_string(), "Restore a supported source ACL without discarding entries or auxiliary identities.", Severity::Blocking, None)?;
-        }
+        let versioning = if attrs.versioning_enabled == Some(true) {
+            Err(report.block(relative, "VersioningEnabled", "unsupported persisted bucket semantics", "The pinned filesystem backend cannot store history; provide a complete memory export for versioned buckets.", None)?)
+        } else {
+            Ok(())
+        };
+        let acl = match codec::acl(attrs.acl.as_deref(), crate::acl::AclKind::Bucket) {
+            Ok(entries) => Ok(entries),
+            Err(error) => Err(report.block(relative, "ACL", error.to_string(), "Restore a supported source ACL without discarding entries or auxiliary identities.", None)?),
+        };
         report.manifest("bucket", relative, &[name.as_bytes(), &bytes]);
-        if report.summary.blocking_findings == before {
+        if let (Ok(()), Ok(_acl)) = (versioning, acl) {
             self.buckets.insert(leaf.to_owned(), BucketState::Eligible);
             report.summary.eligible_buckets += 1;
             report.record(Record::Bucket {

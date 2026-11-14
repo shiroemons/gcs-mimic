@@ -198,7 +198,6 @@ impl Capture<'_> {
                 "body filename must be the next opaque hexadecimal ordinal",
             ));
         }
-        let before = self.report.summary.blocking_findings;
         let checks = reader::check_object_fields(self.report, &blob, &attributes)?;
         let retention = codec::retention(&attributes)
             .map_err(|error| corrupt(BackendCause::from_error(error)))?;
@@ -230,8 +229,8 @@ impl Capture<'_> {
         if body.fingerprint().size != size {
             return Err(corrupt("snapshot size differs from the selected body"));
         }
-        let hashes = if self.options.verify_bodies {
-            let hashes = reader::verify_body(
+        let verified = if self.options.verify_bodies {
+            let verified = reader::verify_body(
                 self.report,
                 &blob,
                 &attributes,
@@ -240,8 +239,8 @@ impl Capture<'_> {
                 &mut [0; 65_536],
             )?;
             self.report.summary.bytes_hashed += size;
-            self.report.verified_body(&blob, hashes);
-            Some(hashes)
+            self.report.verified_body(&blob, verified.hashes);
+            Some(verified)
         } else {
             None
         };
@@ -263,18 +262,21 @@ impl Capture<'_> {
             .checked_add(size)
             .ok_or_else(|| corrupt("body byte total overflow"))?;
         self.report.summary.objects += 1;
-        if self.report.summary.blocking_findings == before {
+        let body_matches = verified
+            .as_ref()
+            .map_or(Ok(()), |verified| verified.matches);
+        if let Ok(accepted) = checks.accepted(&[body_matches]) {
             self.report.summary.eligible_objects += 1;
             self.report.record(Record::Object {
                 path: blob,
                 bucket,
                 name,
                 attributes,
-                created_micros: checks.times[0],
-                updated_micros: checks.times[1],
+                created_micros: accepted.created_micros,
+                updated_micros: accepted.updated_micros,
                 deleted_micros: deleted,
                 fingerprint,
-                verified_hashes: hashes,
+                verified_hashes: verified.map(|verified| verified.hashes),
                 generated: &["native_etag", "metageneration_1"],
                 source_file: (self.report.purpose == ScanPurpose::Publish)
                     .then(|| body.into_file()),

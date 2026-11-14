@@ -111,6 +111,16 @@ pub(crate) enum Severity {
     Warning,
 }
 
+/// A check that reported a blocking finding instead of producing its value. The finding is
+/// already in the report; the marker only keeps the entry out of publication. Whether an entry
+/// is published follows from its own checks, never from the scan-wide counter, which every
+/// other entry raises too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Reported;
+
+/// A value parsed from source attributes, or the blocking finding reported in its place.
+pub(crate) type Checked<T> = Result<T, Reported>;
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub source: PathBuf,
@@ -413,6 +423,18 @@ impl Reporter {
             changed_fields: Vec::new(),
         });
         self.boundary()
+    }
+    /// Reports a blocking finding for one entry and returns its marker.
+    pub(crate) fn block(
+        &mut self,
+        path: &str,
+        field: &str,
+        reason: impl Into<String>,
+        fix: impl Into<String>,
+        original: Option<String>,
+    ) -> Result<Reported, ImportFailure> {
+        self.finding(path, field, reason, fix, Severity::Blocking, original)?;
+        Ok(Reported)
     }
     pub(crate) fn failure(
         &mut self,
