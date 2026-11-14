@@ -190,7 +190,7 @@ pub(super) async fn resolve(
     Ok(response)
 }
 
-pub(super) fn error(error: conflicts::Error) -> JsonError {
+pub(in crate::server::admin) fn error(error: conflicts::Error) -> JsonError {
     match error {
         conflicts::Error::Root(error) => root_error(&error),
         conflicts::Error::Admin(crate::storage::admin::AdminError::Forbidden) => {

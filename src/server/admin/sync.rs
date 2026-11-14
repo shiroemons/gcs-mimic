@@ -28,7 +28,7 @@ const RESPONSE_LIMIT: usize = 256 * 1024;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 
-mod conflicts;
+pub(super) mod conflicts;
 mod cursor;
 mod findings;
 use cursor::SyncCursor;
@@ -590,7 +590,7 @@ fn busy() -> JsonError {
         "Synchronization control is busy or closed; retry after the active operation finishes",
     )
 }
-fn root_error(error: &RootError) -> JsonError {
+pub(super) fn root_error(error: &RootError) -> JsonError {
     match error {
         RootError::Admin(error) => admin_error(error).unwrap_or_else(busy),
         RootError::InUse => busy(),
@@ -626,7 +626,7 @@ fn admin_error(error: &AdminError) -> Option<JsonError> {
     })
 }
 
-fn control_error(error: &io::Error) -> JsonError {
+pub(super) fn control_error(error: &io::Error) -> JsonError {
     for error in crate::error::causes(error) {
         if let Some(root) = error.downcast_ref::<RootError>() {
             return root_error(root);

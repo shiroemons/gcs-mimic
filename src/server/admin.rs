@@ -228,6 +228,12 @@ impl From<EndpointError> for JsonError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::{
+        admin::AdminError,
+        failure::BackendCause,
+        sync_state::{conflicts, root::RootError},
+    };
+    use std::{io, time::Duration};
 
     #[tokio::test]
     async fn config_uses_the_instance_principal_instead_of_project_roles() {
@@ -303,5 +309,321 @@ mod tests {
             }
         }
         state.catalog.close().await.unwrap();
+    }
+
+    /// A management route and the conversion it applies to a failed catalog operation.
+    #[derive(Clone, Copy, Debug)]
+    enum Route {
+        Fixtures,
+        Reset,
+        Reseed,
+        SyncRoot,
+        SyncControl,
+        Resolve,
+    }
+
+    impl Route {
+        const ALL: [Self; 6] = [
+            Self::Fixtures,
+            Self::Reset,
+            Self::Reseed,
+            Self::SyncRoot,
+            Self::SyncControl,
+            Self::Resolve,
+        ];
+
+        fn answer(self, error: AdminError) -> JsonError {
+            match self {
+                Self::Fixtures => fixtures::failure(error),
+                Self::Reset => reset::failure(&error),
+                Self::Reseed => reseed::admin_failure(&error),
+                Self::SyncRoot => sync::root_error(&RootError::Admin(error)),
+                // A queued control reports the failure inside an I/O error.
+                Self::SyncControl => sync::control_error(&io::Error::other(error)),
+                Self::Resolve => sync::conflicts::error(conflicts::Error::Admin(error)),
+            }
+        }
+    }
+
+    type Answer = (StatusCode, &'static str, &'static str);
+
+    const FIXTURE_FAILED: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Fixture publication failed; inspect local storage and retry",
+    );
+    const RESET_UNCONFIRMED: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Reset could not confirm completion; inspect local storage and instance state before retrying",
+    );
+    const RESEED_RETRY: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Reseed failed; inspect local fixture/storage diagnostics and retry",
+    );
+    const RESEED_INVALID: Answer = (
+        StatusCode::BAD_REQUEST,
+        "invalid",
+        "Invalid fixture state; reseed made no changes",
+    );
+    const SYNC_BUSY: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Synchronization control is busy or closed; retry after the active operation finishes",
+    );
+    const SYNC_STALE: Answer = (
+        StatusCode::CONFLICT,
+        "conflict",
+        "Synchronization revision changed; rescan, fetch status and inspect the new revision before approval",
+    );
+    const SYNC_DISK_FULL: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "disk_full",
+        "Free disk space without deleting synchronization data, then retry",
+    );
+    const SYNC_IO_FAILURE: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "io_failure",
+        "Restore storage access, then retry",
+    );
+    const SYNC_CORRUPT: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "backendError",
+        "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+    );
+    const RESOLVE_IO_FAILURE: Answer = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "io_failure",
+        "Preserve retained bytes, restore storage access and retry the same operation ID",
+    );
+    const FORBIDDEN: Answer = (StatusCode::FORBIDDEN, "forbidden", "Forbidden");
+
+    /// One value of every variant, in declaration order.
+    fn admin_errors() -> [AdminError; 17] {
+        [
+            AdminError::Busy {
+                retry_after: Duration::from_secs(1),
+            },
+            AdminError::DiskFull(io::ErrorKind::StorageFull.into()),
+            AdminError::Closed,
+            AdminError::Precondition,
+            AdminError::Hold,
+            AdminError::SeedProjectMismatch,
+            AdminError::SeedMetadataBudget { mib: 64 },
+            AdminError::SourceChanged {
+                fields: vec!["size".into()],
+            },
+            AdminError::Corrupt(BackendCause::new("row")),
+            AdminError::Io(io::ErrorKind::Other.into()),
+            AdminError::NotFound,
+            AdminError::Invalid("bad fixture".into()),
+            AdminError::Checksum,
+            AdminError::TooLarge,
+            AdminError::Forbidden,
+            AdminError::BodyAborted(BackendCause::new("aborted")),
+            AdminError::Backend(BackendCause::new("pool")),
+        ]
+    }
+
+    /// Each route's answer in `Route::ALL` order. The match has no wildcard arm, so a new variant
+    /// does not compile until every route's answer to it is decided here.
+    fn answers(error: &AdminError) -> [Answer; 6] {
+        match error {
+            AdminError::Busy { .. } => [
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Fixture publication waited longer than catalog_wait_timeout_ms for other catalog work and made no changes; retry after that work completes, or raise catalog_wait_timeout_ms (0 disables it)",
+                ),
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Reset made no changes because catalog work or an unpublished body is active; retry after it completes",
+                ),
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes",
+                ),
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::DiskFull(_) => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_DISK_FULL,
+                SYNC_DISK_FULL,
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "disk_full",
+                    "Free disk space without deleting pending synchronization data, then retry the same operation ID",
+                ),
+            ],
+            AdminError::Precondition => [
+                (
+                    StatusCode::CONFLICT,
+                    "conflict",
+                    "Fixture generation already exists; choose a new generation",
+                ),
+                (
+                    StatusCode::CONFLICT,
+                    "conflict",
+                    "Reset made no changes because an import is incomplete; complete or repair the import first",
+                ),
+                (
+                    StatusCode::CONFLICT,
+                    "conflict",
+                    "Reseed made no changes because import or synchronization state is active",
+                ),
+                SYNC_STALE,
+                SYNC_STALE,
+                SYNC_STALE,
+            ],
+            AdminError::Hold => [
+                (
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "Existing object is protected by a hold or retention",
+                ),
+                RESET_UNCONFIRMED,
+                (
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "Reseed made no changes because an object is protected by a hold or retention",
+                ),
+                SYNC_BUSY,
+                SYNC_STALE,
+                SYNC_STALE,
+            ],
+            AdminError::SeedProjectMismatch => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                RESEED_INVALID,
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::SeedMetadataBudget { .. } => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                (
+                    StatusCode::BAD_REQUEST,
+                    "invalid",
+                    "Reseed made no changes because fixture metadata exceeds 64 MiB; raise max_seed_entries or reduce the tree",
+                ),
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::Corrupt(_) => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_CORRUPT,
+                SYNC_CORRUPT,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::Io(_) => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_IO_FAILURE,
+                SYNC_IO_FAILURE,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::NotFound => [
+                (
+                    StatusCode::NOT_FOUND,
+                    "notFound",
+                    "Create the fixture bucket before publishing objects",
+                ),
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_BUSY,
+                SYNC_STALE,
+                SYNC_STALE,
+            ],
+            AdminError::Invalid(_) => [
+                (StatusCode::BAD_REQUEST, "invalidArgument", "bad fixture"),
+                RESET_UNCONFIRMED,
+                RESEED_INVALID,
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::Checksum => [
+                (
+                    StatusCode::BAD_REQUEST,
+                    "invalid",
+                    "Fixture checksum does not match the body",
+                ),
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::TooLarge => [
+                (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "uploadTooLarge",
+                    "Object exceeds the upload size limit",
+                ),
+                RESET_UNCONFIRMED,
+                (
+                    StatusCode::BAD_REQUEST,
+                    "invalid",
+                    "Reseed made no changes because a fixture file exceeds max_object_bytes",
+                ),
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+            AdminError::Forbidden => [
+                FORBIDDEN,
+                RESET_UNCONFIRMED,
+                (
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "Reseed made no changes because a fixture write was not authorized",
+                ),
+                FORBIDDEN,
+                FORBIDDEN,
+                FORBIDDEN,
+            ],
+            AdminError::Closed
+            | AdminError::SourceChanged { .. }
+            | AdminError::BodyAborted(_)
+            | AdminError::Backend(_) => [
+                FIXTURE_FAILED,
+                RESET_UNCONFIRMED,
+                RESEED_RETRY,
+                SYNC_BUSY,
+                SYNC_BUSY,
+                RESOLVE_IO_FAILURE,
+            ],
+        }
+    }
+
+    #[test]
+    fn every_admin_failure_keeps_each_routes_response() {
+        let mut mismatches = Vec::new();
+        for (column, route) in Route::ALL.into_iter().enumerate() {
+            for error in admin_errors() {
+                let expected = answers(&error)[column];
+                let label = format!("{route:?} {error:?}");
+                let answer = route.answer(error);
+                if (answer.status, answer.reason, answer.message.as_str()) != expected {
+                    mismatches.push(format!(
+                        "{label}: {} {} {:?}",
+                        answer.status, answer.reason, answer.message
+                    ));
+                }
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:#?}");
     }
 }

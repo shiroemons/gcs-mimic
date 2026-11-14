@@ -141,7 +141,7 @@ fn io_failure(kind: std::io::ErrorKind) -> JsonError {
     }
 }
 
-fn admin_failure(error: &AdminError) -> JsonError {
+pub(super) fn admin_failure(error: &AdminError) -> JsonError {
     match error {
         AdminError::Precondition => JsonError::new(
             StatusCode::CONFLICT,

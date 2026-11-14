@@ -303,7 +303,7 @@ fn timestamp(value: Option<&Value>, default: SystemTime) -> Result<SystemTime, J
     .ok_or_else(|| JsonError::invalid_argument("Fixture timestamp is out of range"))
 }
 
-fn failure(error: AdminError) -> JsonError {
+pub(super) fn failure(error: AdminError) -> JsonError {
     let (status, reason, message) = match error {
         AdminError::Precondition => (
             StatusCode::CONFLICT,
