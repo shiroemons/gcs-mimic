@@ -399,7 +399,7 @@ cannot express.
 | `clippy::wildcard_enum_match_arm` | `_` arms on an enum, which let a new variant compile without a decision; per-file ratchet. A deliberate wildcard takes a reasoned `#[expect]` on the statement or function. |
 | `clippy::option_option` | `Option<Option<T>>`; name the three states with a type; per-file ratchet. |
 | `clippy::struct_excessive_bools` | Structs with more than three `bool` fields, which mix up modes; per-file ratchet. |
-| `clippy::unreachable` | `unreachable!`, which panics like `panic!`; per-file ratchet. |
+| `clippy::unreachable` | `unreachable!`, which panics like `panic!`. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
 | `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types. |
