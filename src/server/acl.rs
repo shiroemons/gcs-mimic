@@ -10,7 +10,7 @@ use crate::{
         self, JsonError,
         acl::{AclAccess, AclOperation, AclOwner, AclRequest},
     },
-    storage::{AclChange, AclError, AclProjection, AclState},
+    storage::{AclChange, AclError, AclProjection, AclState, ObjectAcl},
 };
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
@@ -340,15 +340,10 @@ async fn add_objects(
     let Some(acl) = readable_object_acls(state, caller, bucket, generations).await? else {
         return Ok(());
     };
-    for (((item, entries), owner), visible) in items
-        .iter_mut()
-        .zip(&acl.objects)
-        .zip(&acl.owners)
-        .zip(&acl.visible)
-    {
-        if !visible {
+    for (item, object_acl) in items.iter_mut().zip(&acl.objects) {
+        let ObjectAcl::Visible { entries, owner } = object_acl else {
             continue;
-        }
+        };
         json::acl::add_object_acl_fields(item, base_url, entries);
         if let Some(entity) = owner.as_ref().and_then(|owner| owner.entity()) {
             item["owner"] = serde_json::json!({"entity":entity});

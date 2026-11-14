@@ -912,7 +912,12 @@ async fn verify_committed(
                     .acl_projection(bucket, vec![(name.clone(), attributes.generation)])
                     .await?
                     .ok_or_else(|| invalid("missing committed object ACL"))?;
-                if projection.objects.first() != Some(expected) {
+                if projection
+                    .objects
+                    .first()
+                    .map(crate::storage::ObjectAcl::entries)
+                    != Some(expected.as_slice())
+                {
                     return Err(invalid(
                         "committed object ACL differs from the source binding",
                     ));

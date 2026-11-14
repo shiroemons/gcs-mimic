@@ -126,16 +126,24 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                 })
                 .await
                 .unwrap();
+            let visible: Vec<bool> = projection
+                .objects
+                .iter()
+                .map(|acl| matches!(acl, ObjectAcl::Visible { .. }))
+                .collect();
             assert_eq!(
-                projection.visible,
+                visible,
                 [allowed, false, false, allowed],
                 "uniform={uniform}, prevented={prevented}"
             );
             assert_eq!(projection.objects[0], projection.objects[3]);
             if allowed {
-                assert_eq!(projection.owners[0], record.owner);
+                assert!(matches!(
+                    &projection.objects[0],
+                    ObjectAcl::Visible { owner, .. } if *owner == record.owner
+                ));
             }
-            assert!(projection.objects[1].is_empty() && projection.owners[1].is_none());
+            assert_eq!(projection.objects[1], ObjectAcl::Hidden);
             if let BucketAccess::Policy {
                 identity,
                 permission,
@@ -157,8 +165,8 @@ async fn page_projection_preserves_generation_order_owner_and_access_restriction
                         .await
                         .unwrap()
                         .unwrap()
-                        .visible,
-                    [false]
+                        .objects,
+                    [ObjectAcl::Hidden]
                 );
             }
         }
@@ -395,7 +403,11 @@ async fn replay_snapshot_rechecks_current_delegate_grants_and_binds_immutable_ow
             })
             .await
             .unwrap();
-        let snapshot = ObjectAclSnapshot::new(&record, projection.objects[0].clone(), incarnation);
+        let snapshot = ObjectAclSnapshot::new(
+            &record,
+            projection.objects[0].entries().to_vec(),
+            incarnation,
+        );
         assert!(
             !snapshot
                 .entries

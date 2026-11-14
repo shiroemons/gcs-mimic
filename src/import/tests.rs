@@ -138,9 +138,9 @@ fn filesystem_import_preserves_explicit_bucket_and_object_acls_after_restart() {
                     role: crate::acl::AclRole::Writer
                 }]
             );
-            assert!(projection.objects[0].is_empty());
+            assert!(projection.objects[0].entries().is_empty());
             assert_eq!(
-                projection.objects[1],
+                projection.objects[1].entries(),
                 vec![crate::acl::AclEntry {
                     entity: "allUsers".parse().unwrap(),
                     role: crate::acl::AclRole::Reader

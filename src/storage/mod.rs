@@ -30,7 +30,7 @@ pub(crate) use catalog::SessionId;
 pub(crate) use catalog::SourceDisposal;
 pub(crate) use catalog::StoredHashes;
 pub(crate) use catalog::UploadAclSnapshot;
-pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState};
+pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState, ObjectAcl};
 pub(crate) use catalog::{AppendError, AppendWriter, Finality};
 pub use catalog::{Catalog, DataDirState};
 pub(crate) use catalog::{ChunkEnd, ChunkWait, ResumableChunk};

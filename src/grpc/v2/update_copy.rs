@@ -2072,6 +2072,7 @@ mod tests {
             .unwrap();
         assert!(
             stored.objects[0]
+                .entries()
                 .iter()
                 .any(|e| e.entity.as_str() == "allUsers")
         );

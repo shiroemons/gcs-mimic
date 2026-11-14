@@ -207,7 +207,8 @@ impl From<crate::acl::AclError> for CatalogError {
     }
 }
 
-/// ACLs rendered by `projection=full`; `None` lists mean uniform bucket-level access hides them.
+/// ACLs rendered by `projection=full`. `uniform_access` is the stored flag: the ACLs stay stored
+/// under uniform bucket-level access, which only hides them from resources.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AclProjection {
     pub uniform_access: bool,
@@ -215,9 +216,29 @@ pub(crate) struct AclProjection {
     pub bucket: Vec<AclEntry>,
     pub default_object: Vec<AclEntry>,
     pub bucket_metageneration: i64,
-    pub objects: Vec<Vec<AclEntry>>,
-    pub owners: Vec<Option<crate::object::owner::ObjectOwner>>,
-    pub visible: Vec<bool>,
+    /// One per requested object generation, in request order.
+    pub objects: Vec<ObjectAcl>,
+}
+
+/// One requested object's ACL as `projection=full` renders it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ObjectAcl {
+    /// The generation is gone, or the caller may not read its ACL; the resource carries no `acl`.
+    Hidden,
+    Visible {
+        entries: Vec<AclEntry>,
+        owner: Option<crate::object::owner::ObjectOwner>,
+    },
+}
+
+impl ObjectAcl {
+    /// The entries a comparison sees: none for a hidden object.
+    pub(crate) fn entries(&self) -> &[AclEntry] {
+        match self {
+            Self::Hidden => &[],
+            Self::Visible { entries, .. } => entries,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -356,8 +377,6 @@ fn bucket_projection(
             .unwrap_or_else(default),
         bucket_metageneration: row.metageneration,
         objects: Vec::new(),
-        owners: Vec::new(),
-        visible: Vec::new(),
         project: row.project.clone(),
     })
 }
@@ -1054,9 +1073,7 @@ impl Catalog {
             let records = transaction.prepare_cached(
                 "SELECT o.generation IS NOT NULL, o.owner, e.entries FROM json_each(?2) j LEFT JOIN objects o ON o.bucket=?1 AND o.name=json_extract(j.value,'$[0]') AND o.generation=json_extract(j.value,'$[1]') LEFT JOIN acl_object_entries e ON e.bucket=o.bucket AND e.name=o.name AND e.generation=o.generation ORDER BY j.key"
             )?.query_map(params![bucket, page], |row| Ok((row.get::<_, bool>(0)?, super::object_owner::read(row, 1)?, row.get::<_, Option<String>>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut entries = Vec::with_capacity(objects.len());
-            let mut owners = Vec::with_capacity(objects.len());
-            let mut visible = Vec::with_capacity(objects.len());
+            let mut acls = Vec::with_capacity(objects.len());
             let mut cached_public = None;
             for (exists, owner, stored) in records {
                 let mut object_entries = stored.map(|entries| decode(&entries, AclKind::Object)).transpose()?.unwrap_or_else(default);
@@ -1073,22 +1090,17 @@ impl Catalog {
                     Some(BucketAccess::Permissive | BucketAccess::Admin(_)) => false,
                     None => true,
                 };
-                visible.push(allowed);
                 if !allowed {
-                    entries.push(Vec::new());
-                    owners.push(None);
+                    acls.push(ObjectAcl::Hidden);
                     continue;
                 }
                 if let Some(owner) = &owner {
                     owner.preserve_grant(&mut object_entries);
                 }
-                entries.push(object_entries);
-                owners.push(owner);
+                acls.push(ObjectAcl::Visible { entries: object_entries, owner });
             }
             let mut projection = bucket_projection(&transaction, &bucket, &row)?;
-            projection.objects = entries;
-            projection.owners = owners;
-            projection.visible = visible;
+            projection.objects = acls;
             Ok(Some(projection))
         })
         .await

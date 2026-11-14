@@ -196,15 +196,10 @@ impl Storage {
         else {
             return Ok(());
         };
-        for (((object, entries), owner), visible) in objects
-            .iter_mut()
-            .zip(acl.objects)
-            .zip(acl.owners)
-            .zip(acl.visible)
-        {
-            if !visible {
+        for (object, object_acl) in objects.iter_mut().zip(acl.objects) {
+            let crate::storage::ObjectAcl::Visible { entries, owner } = object_acl else {
                 continue;
-            }
+            };
             if fields.acl {
                 object.acl = convert::object_acl(object, bucket, &acl.project, &entries);
             }
