@@ -83,12 +83,6 @@ pub(crate) struct TreeEntry {
     pub(crate) directory: bool,
     pub(crate) error: Option<io::ErrorKind>,
 }
-fn identity(file: &File) -> Result<FileIdentity, AdminError> {
-    fsutil::stat_identity(file).map_err(|error| match error {
-        fsutil::FsError::Io(error) => error.into(),
-        fsutil::FsError::Unsupported => AdminError::Io(io::ErrorKind::Unsupported.into()),
-    })
-}
 impl Frame {
     fn new(path: PathBuf, identity: Option<NodeId>) -> Self {
         Self {
@@ -149,7 +143,7 @@ impl TreeScan {
                     break;
                 }
             };
-            let stat = identity(&file)?;
+            let stat = fsutil::stat_identity(&file)?;
             if frame
                 .identity
                 .is_some_and(|expected| expected != stat.node())
@@ -239,7 +233,7 @@ impl TreeScan {
                     if self.frames.len() > self.limits.deepest_directory() {
                         return Err(self.limits.too_deep());
                     }
-                    let stat = identity(&file)?;
+                    let stat = fsutil::stat_identity(&file)?;
                     self.frames.push(Frame::new(path, Some(stat.node())));
                     directories.push(file);
                     entry.directory = true;
@@ -248,7 +242,9 @@ impl TreeScan {
                 Ok(Child::Alias) => {}
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
                 Err(_) => match fsutil::child_regular(directory, &name) {
-                    Ok(fsutil::RegularChild::File(file)) => entry.identity = Some(identity(&file)?),
+                    Ok(fsutil::RegularChild::File(file)) => {
+                        entry.identity = Some(fsutil::stat_identity(&file)?)
+                    }
                     Ok(fsutil::RegularChild::Missing) => continue,
                     Ok(fsutil::RegularChild::Alias) => {}
                     Err(error) if !structural_entry_error(&error) => {

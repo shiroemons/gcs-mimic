@@ -222,15 +222,6 @@ struct ImportBatch {
     elements: Vec<ImportElement>,
 }
 
-fn fs_error(error: fsutil::FsError) -> AdminError {
-    match error {
-        fsutil::FsError::Io(error) => error.into(),
-        fsutil::FsError::Unsupported => {
-            AdminError::Invalid("unsupported filesystem operation".into())
-        }
-    }
-}
-
 fn changed(before: fsutil::FileIdentity, after: fsutil::FileIdentity) -> Result<(), AdminError> {
     let fields = [
         ("device", before.device != after.device),
@@ -267,7 +258,7 @@ fn stage_file(
         if !source.metadata()?.is_file() {
             return Err(AdminError::Invalid("expected a regular source file".into()));
         }
-        let before = fsutil::stat_identity(source).map_err(fs_error)?;
+        let before = fsutil::stat_identity(source)?;
         if before.size > max_bytes {
             return Err(AdminError::TooLarge);
         }
@@ -294,10 +285,10 @@ fn stage_file(
         let cloned = match cloned {
             Ok(()) => true,
             Err(fsutil::CloneFailure::NotCreated(fsutil::FsError::Unsupported)) => false,
-            Err(fsutil::CloneFailure::NotCreated(error)) => return Err(fs_error(error)),
+            Err(fsutil::CloneFailure::NotCreated(error)) => return Err(error.into()),
             Err(fsutil::CloneFailure::Created(error)) => {
                 created = true;
-                return Err(fs_error(error));
+                return Err(error.into());
             }
         };
         let mut target = if cloned {
@@ -365,7 +356,7 @@ fn stage_file(
         target.sync_all()?;
         #[cfg(test)]
         super::super::fault::file_synced(data_dir, &target.metadata()?);
-        changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
+        changed(before, fsutil::stat_identity(source)?)?;
         let hashes = hasher.finish();
         if expected.md5.is_some_and(|md5| md5 != hashes.md5)
             || expected.crc32c.is_some_and(|crc| crc != hashes.crc32c)
@@ -681,7 +672,7 @@ fn stage_memory(
     if !source.metadata()?.is_file() {
         return Err(AdminError::Invalid("expected a regular source file".into()));
     }
-    let before = fsutil::stat_identity(source).map_err(fs_error)?;
+    let before = fsutil::stat_identity(source)?;
     let mut stage = memory.stage()?;
     let mut hasher = Hasher::default();
     let mut size = 0u64;
@@ -704,7 +695,7 @@ fn stage_memory(
         stage.write(bytes)?;
         hasher.update(bytes);
     }
-    changed(before, fsutil::stat_identity(source).map_err(fs_error)?)?;
+    changed(before, fsutil::stat_identity(source)?)?;
     let hashes = hasher.finish();
     if expected.md5.is_some_and(|hash| hash != hashes.md5)
         || expected.crc32c.is_some_and(|hash| hash != hashes.crc32c)

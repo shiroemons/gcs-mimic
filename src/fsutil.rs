@@ -157,6 +157,16 @@ impl From<io::Error> for FsError {
     }
 }
 
+/// An unsupported operation reports the `Unsupported` kind, as `std` does.
+impl From<FsError> for io::Error {
+    fn from(error: FsError) -> Self {
+        match error {
+            FsError::Io(error) => error,
+            FsError::Unsupported => io::ErrorKind::Unsupported.into(),
+        }
+    }
+}
+
 impl std::fmt::Display for FsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -779,7 +789,7 @@ pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Option<(u64, u64)>> =
 fn sync_replace_parent(directory: &File) -> io::Result<()> {
     #[cfg(test)]
     {
-        let identity = stat_identity(directory).map_err(|e| io::Error::other(e.to_string()))?;
+        let identity = stat_identity(directory)?;
         if *FAIL_REPLACE_SYNC
             .lock()
             .map_err(|_| io::Error::other("sync injection poisoned"))?
@@ -1165,6 +1175,23 @@ pub(crate) fn read_source_metadata<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Callers that report `io::Error` see the native failure itself, and an unsupported
+    /// operation as the `Unsupported` kind.
+    #[test]
+    fn filesystem_errors_keep_their_kind_as_io_errors() {
+        let native = io::Error::from(FsError::Io(io::Error::from_raw_os_error(libc::EMFILE)));
+        assert_eq!(native.raw_os_error(), Some(libc::EMFILE));
+        let denied = io::Error::from(FsError::Io(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "denied fixture",
+        )));
+        assert_eq!(denied.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(denied.to_string(), "denied fixture");
+        let unsupported = io::Error::from(FsError::Unsupported);
+        assert_eq!(unsupported.kind(), io::ErrorKind::Unsupported);
+        assert!(unsupported.get_ref().is_none());
+    }
 
     /// The catalog stores a node as two big-endian BLOB columns; the full `u64` range survives.
     #[test]

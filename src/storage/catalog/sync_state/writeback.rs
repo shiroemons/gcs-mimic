@@ -117,12 +117,7 @@ impl From<io::Error> for Error {
 }
 impl From<fsutil::FsError> for Error {
     fn from(e: fsutil::FsError) -> Self {
-        match e {
-            fsutil::FsError::Io(e) => Self::from(e),
-            fsutil::FsError::Unsupported => {
-                Self::Admin(AdminError::Io(io::ErrorKind::Unsupported.into()))
-            }
-        }
+        Self::Admin(e.into())
     }
 }
 impl std::fmt::Display for Error {

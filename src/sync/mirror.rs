@@ -1567,16 +1567,9 @@ async fn with_retry<T, F: Future<Output = Result<T, writeback::Error>>>(
     }
 }
 
-pub(super) fn fs_error(error: fsutil::FsError) -> AdminError {
-    match error {
-        fsutil::FsError::Io(error) => error.into(),
-        fsutil::FsError::Unsupported => AdminError::Io(io::ErrorKind::Unsupported.into()),
-    }
-}
-
 fn same_inode(left: &File, right: &File) -> Result<bool, AdminError> {
-    let a = fsutil::stat_identity(left).map_err(fs_error)?;
-    let b = fsutil::stat_identity(right).map_err(fs_error)?;
+    let a = fsutil::stat_identity(left)?;
+    let b = fsutil::stat_identity(right)?;
     Ok(a.node() == b.node())
 }
 
@@ -1617,7 +1610,7 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
         }
         Err(_) => return Ok(Target::Finding(Reason::UnsafeEntry)),
     };
-    let before = fsutil::stat_identity(&file).map_err(fs_error)?;
+    let before = fsutil::stat_identity(&file)?;
     if before.size != record.size {
         return Ok(Target::Conflicting);
     }
@@ -1626,7 +1619,7 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     else {
         return Ok(Target::Conflicting);
     };
-    let after = fsutil::stat_identity(&file).map_err(fs_error)?;
+    let after = fsutil::stat_identity(&file)?;
     let reopened = fsutil::open_regular_at(&directory, name)?;
     let current_parent = parent(
         root,

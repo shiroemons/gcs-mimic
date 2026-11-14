@@ -2,7 +2,7 @@ use super::interrupt::{Interrupt, Interrupted};
 use super::tree::{TreeEntry as Entry, TreeScan as Scan};
 use super::{
     mapping,
-    mirror::{Reconciliation, fs_error},
+    mirror::Reconciliation,
     tree::{ParentError, ParentOpen, parent},
 };
 use crate::{
@@ -64,10 +64,10 @@ fn open_source(
     else {
         return Err(AdminError::Precondition);
     };
-    if fsutil::stat_identity(&file).map_err(fs_error)? != expected {
+    if fsutil::stat_identity(&file)? != expected {
         return Err(AdminError::Precondition);
     }
-    Ok((file, fsutil::stat_identity(&directory).map_err(fs_error)?))
+    Ok((file, fsutil::stat_identity(&directory)?))
 }
 
 fn same_stat(fp: &SyncFingerprint, stat: FileIdentity) -> bool {

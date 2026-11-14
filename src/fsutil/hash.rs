@@ -1,4 +1,4 @@
-use super::{FileIdentity, FsError, read_at, stat_identity};
+use super::{FileIdentity, read_at, stat_identity};
 use crate::hashing::{Hasher, Hashes};
 use std::{fs::File, io};
 
@@ -10,10 +10,7 @@ pub(crate) enum HashOutcome {
 }
 
 fn identity(file: &File) -> io::Result<FileIdentity> {
-    stat_identity(file).map_err(|error| match error {
-        FsError::Io(error) => error,
-        FsError::Unsupported => io::ErrorKind::Unsupported.into(),
-    })
+    stat_identity(file).map_err(io::Error::from)
 }
 
 pub(crate) fn hash_exact<E: From<io::Error>>(

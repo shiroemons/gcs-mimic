@@ -21,6 +21,7 @@ use crate::storage::failure::{BackendCause, IoCause};
 use crate::{
     bucket::{BucketAccess, BucketRecord, CatalogError},
     clock::Clock,
+    fsutil::FsError,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         ObjectTarget, UploadChunk,
@@ -305,6 +306,15 @@ impl std::error::Error for AdminError {
 impl From<io::Error> for AdminError {
     fn from(error: io::Error) -> Self {
         Self::from_io(error.into())
+    }
+}
+impl From<FsError> for AdminError {
+    fn from(error: FsError) -> Self {
+        match error {
+            FsError::Io(error) => error.into(),
+            // A kind-only cause: no `io::Error` source joins the reported chain, as before.
+            FsError::Unsupported => Self::Io(io::ErrorKind::Unsupported.into()),
+        }
     }
 }
 impl AdminError {

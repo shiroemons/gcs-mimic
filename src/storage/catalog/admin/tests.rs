@@ -97,6 +97,37 @@ fn administrative_failures_retain_io_and_corruption_causes() {
     }
 }
 
+/// An unsupported operation reports only its kind, so diagnostics read `Io(Unsupported)` with no
+/// further cause; a native failure is classified as any `io::Error` is.
+#[test]
+fn filesystem_failures_convert_as_io_failures() {
+    use crate::fsutil::FsError;
+    let unsupported = AdminError::from(FsError::Unsupported);
+    assert!(
+        matches!(&unsupported, AdminError::Io(cause) if cause.kind() == io::ErrorKind::Unsupported)
+    );
+    assert!(std::error::Error::source(&unsupported).is_none());
+    assert_eq!(
+        crate::error::Report(&unsupported).to_string(),
+        "administrative operation: Io(Unsupported)"
+    );
+    assert!(matches!(
+        AdminError::from(FsError::Io(io::ErrorKind::StorageFull.into())),
+        AdminError::DiskFull(_)
+    ));
+    let denied = AdminError::from(FsError::Io(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "denied fixture",
+    )));
+    assert!(
+        matches!(&denied, AdminError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied)
+    );
+    let cause = std::error::Error::source(&denied)
+        .and_then(|cause| cause.downcast_ref::<io::Error>())
+        .unwrap();
+    assert_eq!(cause.to_string(), "denied fixture");
+}
+
 #[test]
 fn synchronization_diagnostics_summarize_wrapped_causes() {
     use crate::storage::sync_state::{
