@@ -46869,6 +46869,385 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-resumable-declared-length",
+      "steps": [
+        {
+          "fingerprint": "47ef74e5c5267186",
+          "name": "start-zero",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-declared-length-1&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-resumable-declared-length-1&uploadType=resumable&upload_id=<up>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c6ef2482fc20f270",
+          "name": "zero-open-chunk",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/plain; charset=utf-8",
+              "range": "bytes=0-262143",
+              "x-goog-running-hash": "crc32c=374w4A==",
+              "x-harness-body-framing": "content-length:<ok>",
+              "x-range-md5": "c946b71bb69c07daf25470742c967e7c"
+            },
+            "status": 308
+          }
+        },
+        {
+          "fingerprint": "e001958c03b0efa5",
+          "name": "zero-status",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/plain; charset=utf-8",
+              "range": "bytes=0-262143",
+              "x-goog-running-hash": "crc32c=374w4A==",
+              "x-harness-body-framing": "content-length:<ok>",
+              "x-range-md5": "c946b71bb69c07daf25470742c967e7c"
+            },
+            "status": 308
+          }
+        },
+        {
+          "fingerprint": "e00defef3c3c6970",
+          "name": "zero-final-chunk",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "ySLq0Q==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-resumable-declared-length-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "4TuCyfwuqL+nFyAXnPLXyQ==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-resumable-declared-length-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-resumable-declared-length-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-resumable-declared-length-1",
+                "size": "262149",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e8ad27c224a067dc",
+          "name": "zero-get",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-resumable-declared-length-1?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-resumable-declared-length-1",
+                "size": "262149"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "512fc7a4cd3c13b2",
+          "name": "start-zero-one-chunk",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-declared-length-1-one-chunk&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-resumable-declared-length-1-one-chunk&uploadType=resumable&upload_id=<up1>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f7c3bb4e9f48258e",
+          "name": "zero-one-chunk",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up1>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-resumable-declared-length-1-one-chunk/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-resumable-declared-length-1-one-chunk?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-resumable-declared-length-1-one-chunk",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-resumable-declared-length-1-one-chunk",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "9ee243b2afb6753b",
+          "name": "zero-one-chunk-get",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-resumable-declared-length-1-one-chunk?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-resumable-declared-length-1-one-chunk",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a52386e62d4b070d",
+          "name": "start-five",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-resumable-declared-length-1-five&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-resumable-declared-length-1-five&uploadType=resumable&upload_id=<up5>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0ff6ad54565d39fd",
+          "name": "five-open-chunk",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up5>",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Invalid request.  There were 77840 byte(s) (or more) in the request body.  There should have been 5 byte(s) according to the Content-Range header."
+            },
+            "headers": {
+              "content-type": "text/plain; charset=utf-8",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "860147b725e874da",
+          "name": "five-status",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up5>",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Invalid request.  There were 77840 byte(s) (or more) in the request body.  There should have been 5 byte(s) according to the Content-Range header."
+            },
+            "headers": {
+              "content-type": "text/plain; charset=utf-8",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "b708ae4ca69677d3",
+          "name": "five-final-chunk",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up5>",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "Invalid request.  There were 77840 byte(s) (or more) in the request body.  There should have been 5 byte(s) according to the Content-Range header."
+            },
+            "headers": {
+              "content-type": "text/plain; charset=utf-8",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "780cbc920d93ec43",
+          "name": "five-get",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-resumable-declared-length-1-five?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-resumable-declared-length-1-five",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-resumable-declared-length-1-five"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-resumable-declared-length-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "29521b6362cb5f3b",
+          "name": "cleanup-one-chunk",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-resumable-declared-length-1-one-chunk",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "be72dbe6797a4541",
+          "name": "cleanup-five",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-resumable-declared-length-1-five",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-resumable-declared-length-1-five",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-resumable-declared-length-1-five"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -46881,7 +47260,7 @@
     "2026-11-13",
     "2026-11-15"
   ],
-  "requests": 1754,
+  "requests": 1778,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }
