@@ -15,20 +15,29 @@ sql::text_enum!(pub(super) PathStop, "invalid path stop", {
     ProtectedDeletion => "ProtectedDeletion", SourceChanging => "SourceChanging", IoFailure => "IoFailure",
 });
 
+/// A path stopped by a source that was changing or failed to read, which a complete scan clears
+/// once the file is gone.
+pub(crate) struct TransientStop {
+    /// Where the stop sits in its page; the next page starts after it.
+    pub ordinal: Ordinal,
+    pub binding: SyncBinding,
+    pub name: ObjectName,
+}
+
 impl RootLease {
     pub(crate) async fn transient_stop_page(
         &self,
-        after: i64,
-    ) -> Result<Vec<(i64, SyncBinding, ObjectName)>, RootError> {
+        after: Ordinal,
+    ) -> Result<Vec<TransientStop>, RootError> {
         let root = self.status().root_id;
         let catalog = self.status().catalog_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            let values = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure') ORDER BY ordinal LIMIT 256")
-                .and_then(|mut statement| statement.query_map(params![root,after], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,BucketName>(1)?,row.get::<_,Incarnation>(2)?,row.get::<_,ObjectName>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>())?;
-            values.into_iter().map(|(ordinal,bucket,incarnation,name)| Ok((ordinal,SyncBinding::new(catalog,bucket,incarnation).with_control(scope.clone()),name))).collect()
+            let stops = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure') ORDER BY ordinal LIMIT 256")
+                .and_then(|mut statement| statement.query_map(params![root,after], |row| Ok(TransientStop{ordinal:row.get(0)?,binding:SyncBinding::new(catalog,row.get::<_,BucketName>(1)?,row.get::<_,Incarnation>(2)?).with_control(scope.clone()),name:row.get(3)?}))?.collect::<rusqlite::Result<Vec<_>>>())?;
+            Ok(stops)
         }).await.map_err(RootError::from)
     }
 

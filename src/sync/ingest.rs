@@ -16,8 +16,8 @@ use crate::{
             ObjectName, Publication, PublishMode, StagedObject,
         },
         sync_state::{
-            SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate,
-            observation::PathStop,
+            Ordinal, SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate,
+            observation::{PathStop, TransientStop},
             root::{RootError, RootLease},
         },
     },
@@ -232,13 +232,18 @@ async fn clear_missing_observations(
     root: &RootLease,
     interrupt: Interrupt<'_>,
 ) -> Result<(), SyncError> {
-    let mut after = 0;
+    let mut after = Ordinal::START;
     while interrupt.check() == Interrupted::No {
         let page = root.transient_stop_page(after).await?;
         if page.is_empty() {
             break;
         }
-        for (ordinal, binding, name) in page {
+        for TransientStop {
+            ordinal,
+            binding,
+            name,
+        } in page
+        {
             after = ordinal;
             if let mapping::PathMapping::File(path) = mapping::name_to_path(binding.bucket(), &name)
                 && let Some(path) = path.to_str()

@@ -22,7 +22,7 @@ pub(in crate::storage) const SCHEMA: &str = include_str!("observation/schema.sql
 pub(super) mod publication;
 pub(crate) use publication::Publication;
 mod stops;
-pub(crate) use stops::PathStop;
+pub(crate) use stops::{PathStop, TransientStop};
 mod types;
 pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 
