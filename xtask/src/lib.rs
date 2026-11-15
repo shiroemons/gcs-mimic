@@ -263,27 +263,58 @@ fn evidence(root: &Path, feature: &FeatureRow<'_>, gaps: &BTreeMap<&str, &Value>
     let checks = array(row, "verification")?;
     let complete = feature.status == Status::Implemented;
     if complete {
+        implemented_row(feature, cases, &tests, checks)?;
+    }
+    let proven = verified_tests(root, checks, &tests, feature.status)?;
+    let covered = accepted_tests(cases, &tests, &proven, feature.status)?;
+    if complete {
         ensure(
-            !cases.is_empty() && !tests.is_empty() && !checks.is_empty(),
-            "IMPLEMENTED requires acceptance cases, test IDs and verification",
-        )?;
-        ensure(
-            array(row, "known_deviations")?.is_empty(),
-            "IMPLEMENTED has unresolved deviations",
-        )?;
-        ensure(
-            row["acceptance_status"] == "COMPLETE",
-            "IMPLEMENTED requires COMPLETE acceptance",
-        )?;
-        ensure(
-            date(string(row, "last_verified")?),
-            "invalid last_verified date",
-        )?;
-        ensure(
-            feature.achieved == Some(feature.target),
-            "IMPLEMENTED must meet target fidelity",
+            covered == tests && proven == tests,
+            "IMPLEMENTED has unlinked test IDs",
         )?;
     }
+    scoped_differences(row, feature.id, &proven, gaps)
+}
+
+/// What an IMPLEMENTED row states about itself besides its verification and acceptance records.
+fn implemented_row(
+    feature: &FeatureRow<'_>,
+    cases: &[Value],
+    tests: &BTreeSet<&str>,
+    checks: &[Value],
+) -> Result<()> {
+    let row = feature.value;
+    ensure(
+        !cases.is_empty() && !tests.is_empty() && !checks.is_empty(),
+        "IMPLEMENTED requires acceptance cases, test IDs and verification",
+    )?;
+    ensure(
+        array(row, "known_deviations")?.is_empty(),
+        "IMPLEMENTED has unresolved deviations",
+    )?;
+    ensure(
+        row["acceptance_status"] == "COMPLETE",
+        "IMPLEMENTED requires COMPLETE acceptance",
+    )?;
+    ensure(
+        date(string(row, "last_verified")?),
+        "invalid last_verified date",
+    )?;
+    ensure(
+        feature.achieved == Some(feature.target),
+        "IMPLEMENTED must meet target fidelity",
+    )
+}
+
+/// Validates the verification records of a row with `tests` and returns the test IDs the passing
+/// ones prove. An IMPLEMENTED row keeps a failed record only when a later one superseded it.
+fn verified_tests<'a>(
+    root: &Path,
+    checks: &'a [Value],
+    tests: &BTreeSet<&str>,
+    status: Status,
+) -> Result<BTreeSet<&'a str>> {
+    let complete = status == Status::Implemented;
     let mut proven = BTreeSet::new();
     for (index, check) in checks.iter().enumerate() {
         string(check, "command")?;
@@ -298,7 +329,7 @@ fn evidence(root: &Path, feature: &FeatureRow<'_>, gaps: &BTreeMap<&str, &Value>
         artifact(root, string(check, "artifact")?)?;
         let ids = strings(check, "test_ids")?;
         ensure(
-            !ids.is_empty() && ids.is_subset(&tests),
+            !ids.is_empty() && ids.is_subset(tests),
             "verification references unknown/empty test IDs",
         )?;
         if check["result"] == "PASS" {
@@ -312,6 +343,18 @@ fn evidence(root: &Path, feature: &FeatureRow<'_>, gaps: &BTreeMap<&str, &Value>
             )?;
         }
     }
+    Ok(proven)
+}
+
+/// Validates the acceptance cases of a row with `tests`, of which `proven` passed, and returns
+/// the test IDs the cases name.
+fn accepted_tests<'a>(
+    cases: &'a [Value],
+    tests: &BTreeSet<&str>,
+    proven: &BTreeSet<&str>,
+    status: Status,
+) -> Result<BTreeSet<&'a str>> {
+    let complete = status == Status::Implemented;
     let mut case_ids = BTreeSet::new();
     let mut covered = BTreeSet::new();
     for case in cases {
@@ -326,12 +369,12 @@ fn evidence(root: &Path, feature: &FeatureRow<'_>, gaps: &BTreeMap<&str, &Value>
         )?;
         let ids = strings(case, "test_ids")?;
         ensure(
-            ids.is_subset(&tests),
+            ids.is_subset(tests),
             "acceptance references unknown test IDs",
         )?;
         if case["result"] == "PASS" {
             ensure(
-                !ids.is_empty() && ids.is_subset(&proven),
+                !ids.is_empty() && ids.is_subset(proven),
                 "passing acceptance lacks passing evidence",
             )?;
         }
@@ -343,13 +386,7 @@ fn evidence(root: &Path, feature: &FeatureRow<'_>, gaps: &BTreeMap<&str, &Value>
         }
         covered.extend(ids);
     }
-    if complete {
-        ensure(
-            covered == tests && proven == tests,
-            "IMPLEMENTED has unlinked test IDs",
-        )?;
-    }
-    scoped_differences(row, feature.id, &proven, gaps)
+    Ok(covered)
 }
 
 /// Indexes the gap ledger only when a row records a scoped difference, so ledgers without
@@ -589,7 +626,20 @@ pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
         "Research cutoff: {as_of}. Implementation status and achieved fidelity are independent.\n\n"
     ));
     result.push_str("API operations, behaviors and project requirements have separate denominators. Parameter and schema-field inventories are not additional features. SDK evidence is recorded separately on each row.\n\n");
-    result.push_str("`Kind` groups rows by what they track: `api_operation` is an API method or operation, `behavior` is a semantic rule or workflow, and `project_requirement` is an emulator engineering or usability requirement.\n\n## Implementation status\n\nStatus tracks completion of each row's declared acceptance cases.\n\n");
+    result.push_str("`Kind` groups rows by what they track: `api_operation` is an API method or operation, `behavior` is a semantic rule or workflow, and `project_requirement` is an emulator engineering or usability requirement.\n\n");
+    result.push_str(&status_counts(&rows));
+    result.push_str(&fidelity_counts(&rows));
+    for &kind in Kind::ALL {
+        result.push_str(&kind_rows(kind, &rows, titles)?);
+    }
+    Ok(result)
+}
+
+/// The section that counts the rows of each kind by status.
+fn status_counts(rows: &[FeatureRow<'_>]) -> String {
+    let mut result = String::from(
+        "## Implementation status\n\nStatus tracks completion of each row's declared acceptance cases.\n\n",
+    );
     result.push_str("| Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
     for &kind in Kind::ALL {
         let group: Vec<_> = rows.iter().filter(|r| r.kind == kind).collect();
@@ -602,7 +652,12 @@ pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
         }
         result.push('\n');
     }
-    result.push_str(concat!(
+    result
+}
+
+/// The section that explains fidelity and counts the rows of each kind by achieved fidelity.
+fn fidelity_counts(rows: &[FeatureRow<'_>]) -> String {
+    let mut result = String::from(concat!(
         "\n## Achieved fidelity\n\n",
         "Fidelity describes how the feature is reproduced. These categories are not a completion percentage or a ranking. The counts below use achieved fidelity (`actual_fidelity`); target fidelity is the intended result.\n\n",
         "| Fidelity | Meaning |\n",
@@ -629,33 +684,37 @@ pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
         }
         result.push('\n');
     }
-    for &kind in Kind::ALL {
-        result.push_str(&format!("\n## {kind}\n"));
-        let mut categories: BTreeMap<&str, Vec<&FeatureRow<'_>>> = BTreeMap::new();
-        for row in rows.iter().filter(|r| r.kind == kind) {
-            categories.entry(row.category).or_default().push(row);
-        }
-        for (category, mut group) in categories {
-            group.sort_by_key(|r| r.id);
-            result.push_str(&format!("\n### {}\n\n| ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |\n| --- | --- | --- | --- | --- | --- | ---: |\n", escape(category)));
-            for row in group {
-                let id = row.id;
-                let title = match titles {
-                    Some(t) => t["titles"][id]
-                        .as_str()
-                        .ok_or_else(|| format!("missing companion title: {id}"))?,
-                    None => string(row.value, "title")?,
-                };
-                result.push_str(&format!(
-                    "| {id} | {} | {} | {} | {} | {} | {} |\n",
-                    escape(title),
-                    row.status,
-                    row.phase,
-                    row.target,
-                    ledger::achieved_text(row.achieved),
-                    array(row.value, "sdk_evidence")?.len()
-                ));
-            }
+    result
+}
+
+/// The section of one kind: a table per category with its rows in ID order, titled from the
+/// companion `titles` when they are given.
+fn kind_rows(kind: Kind, rows: &[FeatureRow<'_>], titles: Option<&Value>) -> Result<String> {
+    let mut result = format!("\n## {kind}\n");
+    let mut categories: BTreeMap<&str, Vec<&FeatureRow<'_>>> = BTreeMap::new();
+    for row in rows.iter().filter(|r| r.kind == kind) {
+        categories.entry(row.category).or_default().push(row);
+    }
+    for (category, mut group) in categories {
+        group.sort_by_key(|r| r.id);
+        result.push_str(&format!("\n### {}\n\n| ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |\n| --- | --- | --- | --- | --- | --- | ---: |\n", escape(category)));
+        for row in group {
+            let id = row.id;
+            let title = match titles {
+                Some(t) => t["titles"][id]
+                    .as_str()
+                    .ok_or_else(|| format!("missing companion title: {id}"))?,
+                None => string(row.value, "title")?,
+            };
+            result.push_str(&format!(
+                "| {id} | {} | {} | {} | {} | {} | {} |\n",
+                escape(title),
+                row.status,
+                row.phase,
+                row.target,
+                ledger::achieved_text(row.achieved),
+                array(row.value, "sdk_evidence")?.len()
+            ));
         }
     }
     Ok(result)
