@@ -1653,7 +1653,7 @@
     {
       "id": "SPEC-RESUMABLE-ZERO-DECLARED-LENGTH",
       "title": "A resumable session declared with X-Upload-Content-Length 0 and continued with unknown-total chunks needs provider evidence",
-      "status": "OPEN",
+      "status": "RESOLVED",
       "affected_features": [
         "BEHAVIOR-OBJECT-010",
         "BEHAVIOR-OBJECT-011"
@@ -1664,8 +1664,38 @@
       ],
       "observed_at": "2026-11-15",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "google/cloud-storage 2.6.1 for PHP writes gs:// paths through StreamableUploader, which starts the session with X-Upload-Content-Length: 0, the size of its still-empty write buffer, and then sends chunks such as bytes 0-262143/* whose total is unknown. gcs-mimic takes the declared 0 as the session's total and rejects the first chunk with 400 Inconsistent upload total, so the SDK's stream wrapper cannot write an object (scorecard sdk.stream_wrapper). The comparison emulators fake-gcs-server 1.56.1 and floci-gcp 0.12.0 accept the sequence, which is not provider evidence. No recorded Cloud Storage response shows whether a declared length of 0 is ignored or enforced when later chunks leave the total open.",
+      "observed_evidence": "google/cloud-storage 2.6.1 for PHP writes gs:// paths through StreamableUploader, which starts the session with X-Upload-Content-Length: 0, the size of its still-empty write buffer, and then sends chunks such as bytes 0-262143/* whose total is unknown. gcs-mimic takes the declared 0 as the session's total and rejects the first chunk with 400 Inconsistent upload total, so the SDK's stream wrapper cannot write an object (scorecard sdk.stream_wrapper). The comparison emulators fake-gcs-server 1.56.1 and floci-gcp 0.12.0 accept the sequence, which is not provider evidence. Differential case obj-resumable-declared-length, recorded against Cloud Storage on 2026-11-15, answers it: after a declared 0, a 256 KiB chunk with an open total gets 308 with Range bytes=0-262143 and the final chunk completes a 262149-byte object, and a single 5-byte chunk with total 5 completes too. A declared 0 therefore leaves the total open, and gcs-mimic now treats it as undeclared.",
       "required_resolution": "Record Cloud Storage's answer to a session declared with X-Upload-Content-Length: 0 whose chunks leave the total open, then accept that sequence if Cloud Storage does, or keep rejecting it with Cloud Storage's error."
+    },
+    {
+      "id": "SPEC-RESUMABLE-DECLARED-LENGTH-OVERRUN",
+      "title": "A chunk past a nonzero X-Upload-Content-Length fails the whole session on Cloud Storage",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-OBJECT-011"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
+      ],
+      "observed_at": "2026-11-15",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Differential case obj-resumable-declared-length, recorded against Cloud Storage on 2026-11-15, declares X-Upload-Content-Length: 5 and sends a 256 KiB chunk with an open total. Cloud Storage answers 400 'Invalid request.  There were 77840 byte(s) (or more) in the request body.  There should have been 5 byte(s) according to the Content-Range header.', where the count is how much it had read, and repeats that answer for a later status query and a later final chunk, so no object is created. gcs-mimic refuses the chunk with 400 Inconsistent upload total but keeps the session: a status query answers 308 and a later chunk is judged on its own. The case records the three steps without comparing them.",
+      "required_resolution": "Fail the session on a chunk past its declared length and repeat one error for later requests, then compare the recorded steps; the byte count in Cloud Storage's message depends on how much it read, so that step compares status only."
+    },
+    {
+      "id": "SPEC-RESUMABLE-RUNNING-HASH",
+      "title": "Cloud Storage's resumable 308 after data carries running CRC32C and MD5 headers",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-OBJECT-011"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
+      ],
+      "observed_at": "2026-11-15",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Differential case obj-resumable-declared-length, recorded against Cloud Storage on 2026-11-15, is the first recording of a 308 after the session holds data. Both the chunk's 308 and a later status query's 308 carry x-goog-running-hash: crc32c=374w4A== and x-range-md5: c946b71bb69c07daf25470742c967e7c, the CRC32C and hex MD5 of the 262144 bytes received. gcs-mimic hashes a session's staged bytes only at completion, so its 308 carries Range but neither header; the case ignores the two headers on those steps.",
+      "required_resolution": "Keep a running CRC32C and MD5 per session, persisted with each checkpoint so a restart resumes them without rereading the staged bytes, send both headers on every 308 after data, and compare them in the case."
     }
   ],
   "resolved_research_items": [

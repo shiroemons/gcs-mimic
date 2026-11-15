@@ -29841,9 +29841,20 @@
             "a_configured_cap_applies_only_to_active_sessions",
             "sessions_past_the_former_cap_survive_a_restart_and_stay_usable"
           ]
+        },
+        {
+          "id": "RSM-INIT-006",
+          "description": "A declared X-Upload-Content-Length of 0 leaves the total open, as Cloud Storage answered in differential case obj-resumable-declared-length (2026-11-15): a 256 KiB chunk with an open total gets 308 and the upload completes at any size, the PHP SDK's gs:// write sequence. A nonzero declared length still refuses a longer chunk.",
+          "result": "PASS",
+          "test_ids": [
+            "a_declared_length_of_zero_leaves_the_total_open",
+            "obj-resumable-declared-length"
+          ]
         }
       ],
       "test_ids": [
+        "a_declared_length_of_zero_leaves_the_total_open",
+        "obj-resumable-declared-length",
         "initiation_returns_opaque_fixed_location_and_status_without_publication",
         "initiation_preserves_encoded_names_metadata_and_query_precedence",
         "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
@@ -29869,6 +29880,16 @@
         "TestStrictAuthResumableCreatorOverwriteRace"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib (2,342 passed); cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "compatibility/differential/reference/gcs.json",
+          "test_ids": [
+            "a_declared_length_of_zero_leaves_the_total_open",
+            "obj-resumable-declared-length"
+          ]
+        },
         {
           "command": "cargo test --locked --lib -- resumable_http_tests resumable_lifecycle_tests resumable::admission::tests; cargo test --locked --test it_protocol -- upload_admission",
           "result": "PASS",
@@ -29938,7 +29959,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-15"
     },
     {
       "id": "BEHAVIOR-OBJECT-011",
