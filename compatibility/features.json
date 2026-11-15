@@ -57500,7 +57500,7 @@
         },
         {
           "id": "sync-graceful-initial-export-stop",
-          "description": "Ordinary SIGTERM during initial export stops before the next prepare, finishes the active operation and drains sync before catalog close; restart continues without a recovery stop. Fatal listener errors also drain background work while the catalog is still usable; temporary accept failures keep accepting. Existing serve_with_tls callers retain a no-op default drain. Exhaustive cancellation/kill boundaries remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "description": "Ordinary SIGTERM during initial export stops before the next prepare, finishes the active operation and drains sync before catalog close; restart continues without a recovery stop. Fatal listener errors also drain background work while the catalog is still usable; temporary accept failures keep accepting. A server stopped through Stop::on has no background work, so its background drain completes at once. Exhaustive cancellation/kill boundaries remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
           "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "fatal_listener_failure_drains_background_work_before_catalog_close"]
         },
