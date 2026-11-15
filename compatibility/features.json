@@ -21617,8 +21617,17 @@
           ]
         },
         {
+          "id": "grpc_bucket_get_unset_settings",
+          "description": "GetBucket and ListBuckets read masks may select the settings bucket creation and update refuse (billing, custom_placement_config, encryption, hierarchical_namespace, ip_filter, logging, rpo, website); they are never stored and come back unset, as Cloud Storage answered for a bucket without them (case grpc-bucket-unset-settings-mask, recorded 2026-11-15). The Java SDK's default bucket read mask, which names every field, reads what a request without a mask reads.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
+            "grpc-bucket-unset-settings-mask"
+          ]
+        },
+        {
           "id": "grpc_bucket_get_remaining",
-          "description": "Nested masks and fields absent from foundation conversion (including encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
+          "description": "Nested masks and satisfies_pzs remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21631,9 +21640,30 @@
         "grpc_buckets_acl_read_and_update",
         "grpc_buckets_acl_strict_authorization",
         "TestGRPCBuckets",
-        "TestGRPCBucketsStrict"
+        "TestGRPCBucketsStrict",
+        "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
+        "grpc-bucket-unset-settings-mask"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib grpc::v2::buckets",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
+            "grpc_buckets_crud_conditions_and_masks"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "compatibility/differential/reference/gcs.json",
+          "test_ids": [
+            "grpc-bucket-unset-settings-mask"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -21699,22 +21729,21 @@
           "toolchain": "openjdk 27.0.1",
           "sdk": "com.google.cloud:google-cloud-storage",
           "version": "2.78.0",
-          "transport": "Storage v2 gRPC; StorageOptions.grpc() create, get and delete bucket",
-          "command": "bash sdk-scorecard/run.sh",
-          "result": "FAIL",
+          "transport": "Storage v2 gRPC; StorageOptions.grpc() create, get and delete bucket with the SDK's default bucket read mask",
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-bucket-mask\" gcs-mimic",
+          "result": "PASS",
           "verified_at": "2026-11-15",
-          "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
             "sdk-scorecard grpc.bucket_create_get_delete (Java)"
           ]
         }
       ],
       "known_deviations": [
-        "Nested masks and fields absent from foundation conversion (including encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
-        "The Java SDK's default GetBucket read mask names billing, which is not modelled, so its gRPC bucket get fails with UNIMPLEMENTED (scorecard grpc.bucket_create_get_delete)."
+        "Nested masks and satisfies_pzs remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-15"
     },
     {
       "id": "RPC-STORAGE-003",

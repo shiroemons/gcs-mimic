@@ -472,14 +472,16 @@ Recorded on 2026-11-15 with the 0.22.0 source
 ([results](sdk-scorecard/results/2026-11-15-6/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-gcs-mimic fails five cases. Three are over gRPC: Java's
+gcs-mimic fails five cases in that run. Three are over gRPC: Java's
 `grpc.bucket_create_get_delete` reads the bucket with a mask that names
-billing, which gcs-mimic does not model; Python's `grpc.appendable_object`
+billing, which gcs-mimic then refused; Python's `grpc.appendable_object`
 waits for a response to the appendable open that gcs-mimic sends only at a
 flush; and Rust's `object.csek_rotation` rewrites over gRPC, where gcs-mimic
-did not yet accept customer-supplied keys at that run. Storage v2 now accepts
-them, and a later gcs-mimic-only run on 2026-11-15 passes that case; the results
-update with the next full comparison. Python's `sdk.xml_multipart_upload`
+did not yet accept customer-supplied keys. Bucket read masks now accept the
+settings gcs-mimic never stores and Storage v2 now accepts customer-supplied
+keys; a later gcs-mimic-only run on 2026-11-15 passes both Java's and Rust's
+case, and the results update with the next full comparison.
+Python's `sdk.xml_multipart_upload`
 needs an `x-goog-hash` on each multipart part response, and PHP's
 `sdk.stream_wrapper` declares an upload length of 0 before streaming the
 object, which gcs-mimic enforces.

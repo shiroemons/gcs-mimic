@@ -19,4 +19,6 @@ Storage v1、オブジェクトの転送方式間検証、project IDから番号
 
 2026-10-28に、型検査、gRPCユニット8件、Goの担当・foundationテスト、最終の`RUST_TEST_THREADS=8 just check`と`just check-sdk`が成功しました。HTTPプロファイルのため、既存のGo V2署名HTTPS専用ケースはSKIPです。台帳の6行は確認済みの範囲と未対応を分けてPARTIALとし、英日対応表を再生成しました。
 
+バケットの作成・更新で拒否する設定（`billing`・`custom_placement_config`・`encryption`・`hierarchical_namespace`・`ip_filter`・`logging`・`rpo`・`website`）は保存されないため、`read_mask`で指定でき、未設定として返します。Cloud Storageも、これらを持たないバケットには未設定として答えました（ケース`grpc-bucket-unset-settings-mask`、2026-11-15に記録）。JavaのSDKは既定のバケット読み取りマスクでこれらをすべて指定します。`satisfies_pzs`と入れ子のパスはUNIMPLEMENTEDのままです。
+
 2026-11-14に、バケットのオプションを`grpc_bucket_options_reject_only_what_is_unsupported`で固定しました。CreateBucketの`predefined_acl`・`predefined_default_object_acl`（バケットは作られない）と、GetBucketの入れ子の`read_mask`は、オプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。実機記録（UTC で 2026-11-13、ケース`grpc-unsupported-options`）で、Cloud StorageはListBucketsの`return_partial_success`を受け付け、`*`と名前を混ぜた`read_mask`をINVALID_ARGUMENTで断ると分かったので、gcs-mimicも同じ応答に揃えました。入れ子の`read_mask`もCloud Storageは受け付けますが、gcs-mimicでは記録済みのローカルな拒否として残します。RPC-STORAGE-002・003・004には成功ケース`grpc_unsupported_option_rejections`として記録し、ほかの未完了ケースは変えていません。

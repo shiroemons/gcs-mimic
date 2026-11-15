@@ -7,7 +7,7 @@ Scope: RPC-STORAGE-001–004, the bucket portion of BEHAVIOR-RPC-001 and AUDIT-0
 ## Acceptance contract
 
 - Parse `projects/_/buckets/NAME`, reject malformed names with INVALID_ARGUMENT, and decode `x-goog-request-params` routing metadata without allowing it to override the request.
-- Get existing buckets, return NOT_FOUND for missing buckets, enforce both metageneration conditions, and project supported read masks. Unsupported mask fields return UNIMPLEMENTED with ErrorInfo.
+- Get existing buckets, return NOT_FOUND for missing buckets, enforce both metageneration conditions, and project supported read masks. Unsupported mask fields return UNIMPLEMENTED with ErrorInfo. The settings bucket creation and update refuse (`billing`, `custom_placement_config`, `encryption`, `hierarchical_namespace`, `ip_filter`, `logging`, `rpo`, `website`) are never stored, so a read mask may select them and gets them unset, as Cloud Storage answered for a bucket without them (case `grpc-bucket-unset-settings-mask`, recorded 2026-11-15). The Java SDK names every one of them in its default bucket read mask. `satisfies_pzs` and nested paths stay UNIMPLEMENTED.
 - Create using empty or `projects/_` parent and `bucket.project = projects/<id>` (including `_`), with the JSON-supported metadata subset. Duplicate names return ALREADY_EXISTS. Unsupported semantics return UNIMPLEMENTED rather than being ignored.
 - List by project and prefix with bounded page size and project/prefix-bound continuation tokens.
 - Delete empty buckets with atomic metageneration conditions; nonempty buckets return FAILED_PRECONDITION and retain their contents.

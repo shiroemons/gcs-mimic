@@ -407,7 +407,8 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 ケースの通過は通常のSDKの操作が動くことを示すもので、APIの完成を意味しません。
 n/aはSDKに公開APIがないケースで、そのSDKの分母から除きます。
 gcs-mimicが通過しないケースは5件で、そのうち3件はgRPCのケースです。
-Javaの`grpc.bucket_create_get_delete`は、gcs-mimicがモデル化していないbillingを読み取りマスクに含めてバケットを読みます。
+Javaの`grpc.bucket_create_get_delete`は、billingを読み取りマスクに含めてバケットを読み、その実行の時点のgcs-mimicはこれを拒否していました。
+現在は、gcs-mimicが保存しない設定を読み取りマスクで受け付けて未設定として返し、その後2026-11-15にgcs-mimicだけで実行した結果ではこのケースが通ります。
 Pythonの`grpc.appendable_object`は、追記型を開いたときの応答を待ちますが、gcs-mimicはflushまで応答を返しません。
 Rustの`object.csek_rotation`はrewriteをgRPCで送りますが、その実行の時点のgcs-mimicはgRPCでの顧客指定の暗号鍵（CSEK）に対応していませんでした。
 現在のStorage v2は鍵を受け付け、その後2026-11-15にgcs-mimicだけで実行した結果ではこのケースが通ります。結果は次の全体比較で更新します。

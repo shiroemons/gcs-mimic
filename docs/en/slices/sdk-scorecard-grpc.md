@@ -125,7 +125,11 @@ listener, so it fails every `grpc` case, as before.
   not support gRPC bucket read_mask billing`), so Java fails
   `grpc.bucket_create_get_delete`. The former `sdk.grpc_basic_object` created
   a bucket but never read it back over gRPC, so it passed. RPC-STORAGE-002
-  records the gap.
+  records the gap. Resolved later on 2026-11-15: the default mask names
+  eight settings gcs-mimic never stores, and a read mask now returns them
+  unset, as Cloud Storage does for a bucket without them
+  ([grpc-v2-buckets.md](grpc-v2-buckets.md)); a gcs-mimic-only run passes
+  the case. The tables below keep the recorded comparison.
 - **gcs-mimic gap: Python's appendable open.** `AsyncAppendableObjectWriter`
   in google-cloud-storage 3.17.1 for Python waits for a response to its first
   BidiWriteObject message, which carries only an appendable
