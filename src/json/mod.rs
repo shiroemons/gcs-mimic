@@ -60,7 +60,8 @@ pub(crate) use derived_metadata::{
     derived_metadata_of, derived_resource,
 };
 pub(crate) use envelope::{
-    Call as EnvelopeCall, ResponseCache, apply as apply_envelope, etag_header, forbid_caching,
+    Call as EnvelopeCall, RESOURCE_CACHE_CONTROL, ResponseCache, apply as apply_envelope,
+    etag_header, forbid_caching,
 };
 pub use error::JsonError;
 pub(crate) use error::{

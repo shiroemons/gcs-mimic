@@ -2029,9 +2029,6 @@ enum QueryPrecondition {
 /// Varied on first by a publicly readable JSON media response, ahead of the CORS fields.
 const ALLOWED_RESOURCES_VARY: &str = "X-Goog-Allowed-Resources";
 
-/// The `Cache-Control` Cloud Storage sends with JSON API resources and lists.
-const JSON_RESOURCE_CACHE_CONTROL: &str = "private, max-age=0, must-revalidate, no-transform";
-
 /// The `Cache-Control` of IAM policy reads, whose provider value has not been recorded.
 const IAM_POLICY_CACHE_CONTROL: &str = "no-cache";
 
@@ -2109,7 +2106,7 @@ fn json_response_cached(
         json::ResponseCache::Resource => {
             headers.insert(
                 "cache-control",
-                hyper::header::HeaderValue::from_static(JSON_RESOURCE_CACHE_CONTROL),
+                hyper::header::HeaderValue::from_static(json::RESOURCE_CACHE_CONTROL),
             );
         }
         json::ResponseCache::NoStore => {

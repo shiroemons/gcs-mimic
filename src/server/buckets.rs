@@ -3,7 +3,7 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    JSON_RESOURCE_CACHE_CONTROL, QueryPrecondition, RESOURCE_BODY_LIMIT, State,
+    QueryPrecondition, RESOURCE_BODY_LIMIT, State,
     acl::{self, AclSubjects, BucketVersion, Rendered},
     authorize_bucket, authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
@@ -576,7 +576,7 @@ async fn get(
         resource.value,
         fields,
         query,
-        JSON_RESOURCE_CACHE_CONTROL,
+        json::RESOURCE_CACHE_CONTROL,
     )
 }
 

@@ -14,7 +14,8 @@ use hyper::{
 use serde_json::Value;
 use std::time::SystemTime;
 
-/// The `Cache-Control` of a successful JSON API read.
+/// The `Cache-Control` of a successful JSON API read, which Cloud Storage sends with resources
+/// and lists.
 pub(crate) const RESOURCE_CACHE_CONTROL: &str = "private, max-age=0, must-revalidate, no-transform";
 
 /// The cache headers of a `200 OK` JSON API resource response.

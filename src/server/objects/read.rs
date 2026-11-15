@@ -7,10 +7,9 @@ use crate::{
     json::{self, JsonError},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
-        ALLOWED_RESOURCES_VARY, JSON_RESOURCE_CACHE_CONTROL, ObjectCtx, QueryPrecondition,
-        ResponseBody, acl, body_read_ahead, boxed, empty_response, gzip, insert_content_range,
-        insert_unsatisfied_content_range, invalid_etag_header, not_modified_response, object_body,
-        read_metadata_response,
+        ALLOWED_RESOURCES_VARY, ObjectCtx, QueryPrecondition, ResponseBody, acl, body_read_ahead,
+        boxed, empty_response, gzip, insert_content_range, insert_unsatisfied_content_range,
+        invalid_etag_header, not_modified_response, object_body, read_metadata_response,
     },
 };
 use http_body_util::{BodyExt, Full};
@@ -431,7 +430,7 @@ async fn metadata(
         resource.value,
         fields,
         query,
-        JSON_RESOURCE_CACHE_CONTROL,
+        json::RESOURCE_CACHE_CONTROL,
     )?))
 }
 
