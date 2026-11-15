@@ -1,3 +1,5 @@
+#[cfg(test)]
+use super::fault::hit_io;
 use super::objects::{self, ReaderData, UploadSink};
 use super::transfer_io::{InputReader, Output};
 use crate::storage::{
@@ -467,12 +469,4 @@ fn unlink_synced(path: &Path, #[cfg(all(test, unix))] data_dir: &Path) -> io::Re
         hit_io(data_dir, super::fault::Step::SessionCleanupSynced)?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-fn hit_io(data_dir: &Path, step: super::fault::Step) -> io::Result<()> {
-    super::fault::hit(data_dir, step).map_err(|error| match error {
-        super::fault::Injected::Io(error) => error,
-        super::fault::Injected::Sqlite(error) => io::Error::other(error),
-    })
 }
