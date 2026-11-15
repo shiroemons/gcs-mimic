@@ -295,9 +295,12 @@ impl Storage {
         let OpenedWriter {
             mut writer,
             access,
-            mut acknowledgement,
+            acknowledgement,
         } = self.open_writer(&mut message, caller).await?;
-        let mut first = true;
+        // Every open is answered once, even without flush or state_lookup: a takeover learns
+        // where to resume, and a creating stream learns its generation. The Python SDK waits
+        // for that resource after a spec-only first message before it sends any data.
+        let mut opening = Some(acknowledgement);
         loop {
             let data = take_data(&mut message);
             let step = append_step(&message, data)?;
@@ -331,20 +334,23 @@ impl Storage {
             if step.flush == Flush::Yes {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
-            if step.report == Report::Yes
-                || (first && acknowledgement == Acknowledgement::PersistedSize)
-            {
+            let report = opening
+                .take()
+                .or_else(|| (step.report == Report::Yes).then_some(Acknowledgement::PersistedSize));
+            if let Some(acknowledgement) = report {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
-                acknowledgement = Acknowledgement::PersistedSize;
             }
-            first = false;
             match stream.next().await.transpose()? {
                 Some(next) => message = next,
                 None => {
                     // Closing the stream without finish_write leaves the object appendable; the
                     // service still reports the persisted size for a clean close.
                     writer.flush().await.map_err(|e| append_status(e, caller))?;
-                    return send(tx, status_response(&writer, acknowledgement)?).await;
+                    return send(
+                        tx,
+                        status_response(&writer, Acknowledgement::PersistedSize)?,
+                    )
+                    .await;
                 }
             }
         }

@@ -282,6 +282,31 @@ async fn append_creates_flushes_reads_and_finalizes_with_reserved_generation() {
     assert_code(result, Code::FailedPrecondition);
 }
 
+#[tokio::test]
+async fn append_acknowledges_a_spec_only_open_with_the_unfinalized_resource() {
+    let (_dir, storage) = setup(false).await;
+    let open = pb::BidiWriteObjectRequest {
+        data: None,
+        flush: false,
+        state_lookup: false,
+        ..create("opened", b"")
+    };
+    let (result, responses) =
+        append(&storage, vec![Ok(open), Ok(chunk(0, b"later", true))], None).await;
+    result.unwrap();
+    // Open, flush and clean close each answer once.
+    assert_eq!(responses.len(), 3);
+    let Some(WriteStatus::Resource(created)) = &responses[0].write_status else {
+        panic!("the open must be answered with the resource, got {responses:?}")
+    };
+    assert!(created.generation > 0);
+    assert_eq!((created.size, created.metageneration), (0, 1));
+    assert!(created.finalize_time.is_none());
+    assert!(responses[0].write_handle.is_some());
+    assert_eq!(persisted(&responses[1]), 5);
+    assert_eq!(read(&storage, "opened").await.unwrap().1, b"later");
+}
+
 /// The proto allows object_checksums on the finish_write message of an appendable upload,
 /// and the official Java SDK sends spec, data, finish_write and checksums in one message for
 /// a small object.
