@@ -418,7 +418,7 @@ impl Writeback {
                 super::super::matching(&tx,&binding,bucket.as_str())?;
                 let mut usage = status(&tx, root)?;
                 if usage.stop() != Stop::Ready { return Err(Error::RecoveryRequired); }
-                let (owner, incarnation): (String,String) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&bucket], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
+                let (owner, incarnation): (String,Incarnation) = tx.prepare_cached("SELECT b.project,i.incarnation FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1")?.query_row([&bucket], |r| Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(stale)?;
                 let stored = tx.prepare_cached(super::super::SELECT_BY_NAME)?.query_row(params![bucket,name,incarnation],super::super::read_record).optional()?;
                 if stored != selected { return Err(stale()); }
                 let record = objects::lookup(&tx,bucket.as_str(),name.as_str())?.map(|stored| stored.record);
