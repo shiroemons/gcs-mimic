@@ -414,7 +414,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-020 | XMLマルチパート完了 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
-| EXT-XML-023 | XMLマルチパートのパート送信 | PARTIAL | P3 | EXACT | EXACT | 0 |
+| EXT-XML-023 | XMLマルチパートのパート送信 | PARTIAL | P3 | EXACT | EXACT | 1 |
 | EXT-XML-024 | オブジェクトコピー | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-026 | オブジェクトACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |

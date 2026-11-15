@@ -1625,6 +1625,23 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The pinned fake-gcs-server reference answers legacy ListBuckets with one unpaged list. The google.storage.v1 proto defines prefix, max_results and page_token, and the emulator applies them with bounded opaque cursors shared with JSON listing (grpc::v1::tests::list_buckets_without_project_spans_projects_with_paging, TestGRPCV1Legacy).",
       "required_resolution": "Keep the proto-defined paging as the legacy migration profile's behavior; a client that reads only the first page of a large result must follow next_page_token."
+    },
+    {
+      "id": "SPEC-RESUMABLE-ZERO-DECLARED-LENGTH",
+      "title": "A resumable session declared with X-Upload-Content-Length 0 and continued with unknown-total chunks needs provider evidence",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-OBJECT-010",
+        "BEHAVIOR-OBJECT-011"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://github.com/googleapis/google-cloud-php-storage/tree/v2.6.1"
+      ],
+      "observed_at": "2026-11-15",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "google/cloud-storage 2.6.1 for PHP writes gs:// paths through StreamableUploader, which starts the session with X-Upload-Content-Length: 0, the size of its still-empty write buffer, and then sends chunks such as bytes 0-262143/* whose total is unknown. gcs-mimic takes the declared 0 as the session's total and rejects the first chunk with 400 Inconsistent upload total, so the SDK's stream wrapper cannot write an object (scorecard sdk.stream_wrapper). The comparison emulators fake-gcs-server 1.56.1 and floci-gcp 0.12.0 accept the sequence, which is not provider evidence. No recorded Cloud Storage response shows whether a declared length of 0 is ignored or enforced when later chunks leave the total open.",
+      "required_resolution": "Record Cloud Storage's answer to a session declared with X-Upload-Content-Length: 0 whose chunks leave the total open, then accept that sequence if Cloud Storage does, or keep rejecting it with Cloud Storage's error."
     }
   ],
   "resolved_research_items": [

@@ -414,7 +414,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-020 | Complete XML multipart upload | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-021 | HTML form upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
-| EXT-XML-023 | Upload XML multipart part | PARTIAL | P3 | EXACT | EXACT | 0 |
+| EXT-XML-023 | Upload XML multipart part | PARTIAL | P3 | EXACT | EXACT | 1 |
 | EXT-XML-024 | Copy Object | PARTIAL | P3 | EXACT | EXACT | 0 |
 | EXT-XML-025 | Compose Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-026 | PUT Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
