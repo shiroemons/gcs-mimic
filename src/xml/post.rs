@@ -226,12 +226,13 @@ fn decode_base64(raw: &str) -> Option<Vec<u8>> {
     )
 }
 
-/// The documented format is ISO 8601 basic; the official SDKs send RFC 3339 instead.
+/// The documented format is ISO 8601 basic; the official SDKs send RFC 3339 instead, and the
+/// C++ SDK writes nanoseconds. Flooring them to the microsecond never extends a policy.
 fn expiration(raw: &str) -> Option<SystemTime> {
     if let Ok(time) = auth::signature::parse_timestamp(raw) {
         return Some(time);
     }
-    let micros = crate::import::codec::parse_timestamp(raw).ok()?;
+    let micros = crate::import::codec::parse_deadline_timestamp(raw).ok()?;
     if micros >= 0 {
         UNIX_EPOCH.checked_add(Duration::from_micros(micros.unsigned_abs()))
     } else {
@@ -1020,6 +1021,16 @@ mod tests {
     }
 
     #[test]
+    fn policy_accepts_the_cpp_sdk_nanosecond_expiration() {
+        // google-cloud-cpp 3.13.0 writes the expiration with nanoseconds.
+        let encoded = policy("2026-10-29T00:05:00.766459053Z", sdk_conditions());
+        assert_eq!(
+            check(&encoded, &sdk_fields(), "b", at(NOW), None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
     fn verified_policy_uses_the_signed_url_validity_window() {
         let seven_days = "2026-11-05T00:00:00Z";
         let encoded = policy(seven_days, sdk_conditions());
@@ -1054,8 +1065,16 @@ mod tests {
         );
         assert!(message.contains("Policy expired"), "{message}");
         check(&encoded, &sdk_fields(), "b", at(NOW - 1), None).unwrap();
+        // Sub-microsecond digits are floored, so they cannot keep a policy alive at its instant.
+        let floored = policy("2026-10-29T00:00:00.000000999Z", sdk_conditions());
+        let (_, _, message) =
+            details(check(&floored, &sdk_fields(), "b", at(NOW), None).unwrap_err());
+        assert!(message.contains("Policy expired"), "{message}");
         for encoded in [
             "not base64".to_owned(),
+            encode(
+                &serde_json::json!({"expiration": "2026-10-30T00:00:00.0000000001Z", "conditions": []}),
+            ),
             base64(b"[]"),
             encode(&serde_json::json!({"conditions": []})),
             encode(&serde_json::json!({"expiration": "tomorrow", "conditions": []})),

@@ -594,7 +594,9 @@ is not stored; send a `Content-Type`
 field.
 
 The policy document must contain `expiration` (ISO 8601 basic or RFC 3339 with
-any UTC offset) and `conditions`. Supported conditions are `{"field": "value"}`,
+any UTC offset and up to nine fractional digits, as the C++ SDK writes; digits
+beyond the microsecond are dropped, which can only end a policy earlier) and
+`conditions`. Supported conditions are `{"field": "value"}`,
 `["eq", "$field", "value"]`, `["starts-with", "$field", "prefix"]` and one
 `["content-length-range", min, max]` (inclusive file size). A bucket condition is
 required for V4 and binds the request bucket. V2 permits a policy without a

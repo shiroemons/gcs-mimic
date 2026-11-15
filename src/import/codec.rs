@@ -268,6 +268,12 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, TimestampError> {
     parse_timestamp_parts(input, Precision::Micros).map(|(micros, _)| micros)
 }
 
+/// An instant with up to nanosecond digits, floored to the microsecond. Only for a deadline:
+/// dropping the sub-microsecond digits can end it earlier, never later.
+pub(crate) fn parse_deadline_timestamp(input: &str) -> Result<i64, TimestampError> {
+    parse_timestamp_parts(input, Precision::Nanos).map(|(micros, _)| micros)
+}
+
 /// A retention time to the nanosecond, as seconds and nanoseconds. It never passes through a
 /// `SystemTime`, so a platform that floors to 100 ns still keeps every digit.
 pub(super) fn parse_retention_timestamp(
