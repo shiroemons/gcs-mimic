@@ -800,10 +800,9 @@ impl Storage {
             )
             .await
             .map_err(super::object_io::naming_object(bucket, name))?;
-        // A metadata update never changes the stored key, so the check that passed against
-        // the pre-commit record gives the same answer for the committed one.
-        let hashes = crate::csek::check_metadata(record.customer_key_sha256, key)
-            .map_err(super::status::customer_encryption)?;
+        // A metadata update never changes the stored key, so the key the closure verified
+        // against the pre-commit record also holds for the committed one.
+        let hashes = crate::csek::StoredHashes::verified(record.customer_key_sha256, key);
         Ok(Response::new(
             self.written_object(&record, hashes, caller).await?,
         ))

@@ -232,6 +232,15 @@ impl StoredHashes {
             Self::Revealed
         }
     }
+
+    /// Visibility for a caller whose `supplied` key already passed `check_metadata` against
+    /// `stored`: a verified key reveals the hashes.
+    pub(crate) fn verified(stored: Option<[u8; 32]>, supplied: Option<CustomerKey>) -> Self {
+        match supplied {
+            Some(_) => Self::Revealed,
+            None => Self::keyless(stored),
+        }
+    }
 }
 
 /// Reading object data requires exactly the key the object was written with.
@@ -253,10 +262,10 @@ pub(crate) fn check_metadata(
     stored: Option<[u8; 32]>,
     supplied: Option<CustomerKey>,
 ) -> Result<StoredHashes, CsekError> {
-    if supplied.is_none() {
-        return Ok(StoredHashes::keyless(stored));
+    if supplied.is_some() {
+        check_data(stored, supplied)?;
     }
-    check_data(stored, supplied).map(|()| StoredHashes::Revealed)
+    Ok(StoredHashes::verified(stored, supplied))
 }
 
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the
