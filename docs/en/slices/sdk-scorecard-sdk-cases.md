@@ -101,6 +101,10 @@ objects in Java's batch, and Java's download to a stream.
   validation turned off, every check of the case, including the wire
   sequence, passed; the probe keeps the default. EXT-XML-023 records the
   gap. fake-gcs-server, gcp-storage-emulator and floci-gcp fail the case too.
+  Resolved later on 2026-11-15: a part now answers with one `x-goog-hash`
+  field each for its CRC32C and MD5, as Cloud Storage documents
+  ([xml-multipart-upload.md](xml-multipart-upload.md)), and a gcs-mimic-only
+  run passes the case. The tables below keep the recorded comparison.
 - **Open question: a declared length of 0.** google/cloud-storage 2.6.1 for
   PHP writes `gs://` paths through `StreamableUploader`, which starts the
   session with `X-Upload-Content-Length: 0` and then sends chunks whose total

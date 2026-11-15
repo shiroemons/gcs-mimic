@@ -414,6 +414,7 @@ Pythonの`grpc.appendable_object`は、追記型を開いたときの応答を�
 Rustの`object.csek_rotation`はrewriteをgRPCで送りますが、その実行の時点のgcs-mimicはgRPCでの顧客指定の暗号鍵（CSEK）に対応していませんでした。
 現在のStorage v2は鍵を受け付け、その後2026-11-15にgcs-mimicだけで実行した結果ではこのケースが通ります。結果は次の全体比較で更新します。
 Pythonの`sdk.xml_multipart_upload`は、XMLマルチパートの各パートの応答に`x-goog-hash`を求めます。
+現在は各パートの応答がそのパートのCRC32CとMD5を返し、同じ日にgcs-mimicだけで実行した結果ではこのケースも通ります。
 PHPの`sdk.stream_wrapper`は、アップロードの長さを0と宣言してから中身を送り、gcs-mimicはその0を守らせます。
 
 ## fake-gcs-serverから移行する

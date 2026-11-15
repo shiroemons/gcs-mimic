@@ -17,7 +17,7 @@ retrieved HTML; Discovery and protobuf do not define the XML request grammar.
 | Contract | Official source | SHA-256 |
 | --- | --- | --- |
 | Initiation metadata | [Initiate a multipart upload](https://docs.cloud.google.com/storage/docs/xml-api/post-object-multipart) | `412b68c74535c7f275ea0e0219d5d390e7369588a51b9845947bb424c87a6b9f` |
-| Part upload and integrity | [Object upload part](https://docs.cloud.google.com/storage/docs/xml-api/put-object-multipart) | `8161c2f7af5c2bdb9c253277724b7d5e30492a18af64eb774abb9764857614eb` |
+| Part upload and integrity | [Object upload part](https://docs.cloud.google.com/storage/docs/xml-api/put-object-multipart) | `cd8c49ceb022287eaebdd892bba780b879ee50428eb4d726e0083cac40ffb53b` |
 | Ordered assembly and errors | [Complete a multipart upload](https://docs.cloud.google.com/storage/docs/xml-api/post-object-complete) | `ca7a37bf66411db9852a43f9e157e38968917f6901e3999284debd99085b2202` |
 | Cancellation | [Abort a multipart upload](https://docs.cloud.google.com/storage/docs/xml-api/delete-multipart) | `3ba51cdf7ec84bf2f01bf88604452748ab53d6249a376ebfdaa76d9f8ca60481` |
 | Part pagination | [List object parts](https://docs.cloud.google.com/storage/docs/xml-api/get-object-multipart) | `ee4cca833dfa44d29430d4026124e152a7b7bf4529470cfa96436495fa6f701b` |
@@ -32,7 +32,11 @@ the [live framing observation](../evidence/xml-framing-provider-observations.md)
 recorded on 2026-11-04 separately checks request framing against a non-existent
 bucket without creating resources.
 The completion reference was retrieved again on 2026-10-31; its updated digest
-above replaces the previous snapshot for that operation only.
+above replaces the previous snapshot for that operation only. The part upload
+reference was retrieved again on 2026-11-15 (page last updated 2026-11-10), and
+its digest above likewise replaces the 2026-10-30 snapshot. Its response
+headers include one `x-goog-hash` field each for the CRC32C and MD5 of the
+uploaded part.
 
 ## Request and response acceptance
 
@@ -44,7 +48,7 @@ each request requires its current operation permission in strict mode.
 | Operation | Accepted request | Observable result |
 | --- | --- | --- |
 | Initiate | `POST /BUCKET/OBJECT?uploads`, empty body; supported ordinary XML upload metadata, class and CSEK headers | XML `InitiateMultipartUploadResult` with Bucket, Key and UploadId; no ordinary object is created |
-| Upload part | `PUT /BUCKET/OBJECT?uploadId=ID&partNumber=N`; bounded media body, optional Content-MD5 or x-goog-hash | Empty 200 with the part ETag; replacing N leaves only its newly committed bytes selected |
+| Upload part | `PUT /BUCKET/OBJECT?uploadId=ID&partNumber=N`; bounded media body, optional Content-MD5 or x-goog-hash | Empty 200 with the part ETag and two `x-goog-hash` fields, `crc32c=` and `md5=`, for the part's own bytes, as the provider documents; replacing N leaves only its newly committed bytes selected |
 | List parts | `GET /BUCKET/OBJECT?uploadId=ID`, optional max-parts and part-number-marker | Ordered Part records containing number, ETag, size and modification time; at most 1000 entries and continuation only when truncated |
 | List uploads | `GET /BUCKET?uploads`, optional prefix, delimiter, max-uploads, key-marker and upload-id-marker | Name/ID-ordered active uploads and deduplicated CommonPrefixes; combined page limit and continuation after the whole prefix group |
 | Complete | `POST /BUCKET/OBJECT?uploadId=ID` with CompleteMultipartUpload/Part/PartNumber/ETag XML | One new generation with ordered selected bytes, initiation metadata, completion-time timestamps, CRC32C and an opaque ETag |
@@ -157,6 +161,19 @@ a simulation (see
 [choosing the target](../compatibility-policy.md#choosing-the-target)).
 
 ## Verification
+
+The part hash fields added on 2026-11-15 passed
+`cargo test --locked --test it_xml_auth` (320 passed, 12 of them in
+`xml_multipart_http`) and `cargo test --locked --lib` (2,340 passed).
+`multipart_part_responses_carry_one_hash_field_per_algorithm` checks the
+`crc32c=` and `md5=` fields of a part, of its replacement under a verified
+`Content-MD5`, and of a part under a customer-supplied key. A gcs-mimic-only
+scorecard run the same day at `c5ec8310`, with no uncommitted change
+(`bash sdk-scorecard/run.sh --out "$TMPDIR/scorecard-part-hash" gcs-mimic`),
+passes Python's `sdk.xml_multipart_upload`:
+`transfer_manager.upload_chunks_concurrently` in google-cloud-storage 3.17.1
+checks each part's CRC32C from these fields by default. That run is not a
+recorded comparison; the scorecard tables keep the recorded results.
 
 The framing regression on 2026-11-04 passed `cargo check --locked`,
 `cargo test --locked --lib xml::put::tests::empty_request_framing_keeps_header_validation`

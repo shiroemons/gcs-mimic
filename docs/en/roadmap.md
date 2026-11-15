@@ -43,8 +43,10 @@ Storage v2 now accepts customer-supplied keys
 run on 2026-11-15 passes Java's `grpc.bucket_create_get_delete`, Python's
 `grpc.appendable_object` and Rust's `object.csek_rotation`, and the linked
 results update with the next full comparison. Python's multipart helper needs
-an `x-goog-hash` on each part response, and PHP's `gs://` writes declare an
-upload length of 0 that gcs-mimic enforces. Scope and
+an `x-goog-hash` on each part response, which parts now carry
+([scope](slices/xml-multipart-upload.md)); the same kind of run passes
+`sdk.xml_multipart_upload`. PHP's `gs://` writes declare an upload length of 0
+that gcs-mimic enforces. Scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)
 and the [C++ slice](slices/sdk-scorecard-cpp.md).
 Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)

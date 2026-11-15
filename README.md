@@ -482,10 +482,10 @@ settings gcs-mimic never stores, every appendable open is answered and
 Storage v2 now accepts customer-supplied keys; a later gcs-mimic-only run on
 2026-11-15 passes all three cases, and the results update with the next full
 comparison.
-Python's `sdk.xml_multipart_upload`
-needs an `x-goog-hash` on each multipart part response, and PHP's
-`sdk.stream_wrapper` declares an upload length of 0 before streaming the
-object, which gcs-mimic enforces.
+Python's `sdk.xml_multipart_upload` needed an `x-goog-hash` on each multipart
+part response; parts now carry their CRC32C and MD5 there, and the same kind
+of run passes it. PHP's `sdk.stream_wrapper` declares an upload length of 0
+before streaming the object, which gcs-mimic enforces.
 
 ## Coming from fake-gcs-server?
 
