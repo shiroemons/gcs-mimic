@@ -1,0 +1,57 @@
+{"sdk":"go","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.update_labels","area":"bucket","pass":false,"detail":"labels map[]"}
+{"sdk":"go","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.lifecycle","area":"bucket","pass":false,"detail":"lifecycle {Rules:[]}"}
+{"sdk":"go","id":"bucket.cors","area":"bucket","pass":false,"detail":"cors []"}
+{"sdk":"go","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"want HTTP 403, got \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.retention_lock","area":"bucket","pass":false,"detail":"googleapi: Error 404: Not Found, notFound"}
+{"sdk":"go","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":false,"detail":"UBLA not enabled"}
+{"sdk":"go","id":"bucket.public_access_prevention","area":"bucket","pass":false,"detail":"PAP "}
+{"sdk":"go","id":"bucket.iam_policy","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 404 with body: Not Found\n"}
+{"sdk":"go","id":"bucket.iam_test_permissions","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 404 with body: Not Found\n"}
+{"sdk":"go","id":"bucket.soft_delete_policy","area":"bucket","pass":false,"detail":"soft delete policy \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"autoclass \u003cnil\u003e"}
+{"sdk":"go","id":"bucket.acl","area":"bucket","pass":true}
+{"sdk":"go","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"googleapi: Error 404: Not Found, notFound"}
+{"sdk":"go","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"go","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"googleapi: Error 404: Not Found, notFound"}
+{"sdk":"go","id":"project.service_account","area":"bucket","pass":false,"detail":"googleapi: got HTTP response code 404 with body: Not Found\n"}
+{"sdk":"go","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"go","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"go","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"go","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"go","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"go","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"go","id":"object.update_metadata","area":"object","pass":false,"detail":"metadata not cleared: map[a:1 b:2 c:3]"}
+{"sdk":"go","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"go","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"go","id":"object.generation_match_precondition","area":"object","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.metageneration_match_precondition","area":"object","pass":false,"detail":"want HTTP 412, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"go","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"go","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"go","id":"object.list_match_glob","area":"object","pass":false,"detail":"list: got [x/a.txt x/b.csv y/c.txt] want [x/a.txt y/c.txt]"}
+{"sdk":"go","id":"object.copy_with_metadata","area":"object","pass":true}
+{"sdk":"go","id":"object.rewrite_storage_class","area":"object","pass":false,"detail":"storage class \"STANDARD\""}
+{"sdk":"go","id":"object.compose","area":"object","pass":false,"detail":"componentCount 0"}
+{"sdk":"go","id":"object.move","area":"object","pass":false,"detail":"googleapi: Error 400: Metadata in the request couldn't decode, invalid"}
+{"sdk":"go","id":"object.acl","area":"object","pass":true}
+{"sdk":"go","id":"object.holds","area":"object","pass":false,"detail":"want HTTP 403, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.retention","area":"object","pass":false,"detail":"want HTTP 403, got \u003cnil\u003e"}
+{"sdk":"go","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"go","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"go","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"go","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"read without key succeeded"}
+{"sdk":"go","id":"object.soft_delete_restore","area":"object","pass":false,"detail":"list: got [] want [sd.txt]"}
+{"sdk":"go","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"go","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"go","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"go","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"status 404 err \u003cnil\u003e body {\"error\":{\"code\":404,\"message\":\"Not Found\",\"errors\":[{\"domain\":\"global\",\"reason\":\"notFound\",\"message\":\"Not Found\"}]}}\n"}
+{"sdk":"go","id":"grpc.bucket_create_get_delete","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.write_read","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.list","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.update_delete","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.multi_range_downloader","area":"grpc","pass":false,"detail":"timeout"}
+{"sdk":"go","id":"grpc.appendable_object","area":"grpc","pass":false,"detail":"timeout"}

@@ -117,12 +117,15 @@ emulator and exits 0 or non-zero.
 
 None. Every shared case has a public API in 3.13.0.
 
-## Known emulator incompatibilities
+## What this SDK sends differently
 
-Against gcs-mimic two cases fail because of how the emulator treats what the
-SDK sends, not because of the probe:
+The first run against gcs-mimic failed two cases because the emulator refused
+what this SDK sends. The probe keeps the SDK defaults, and gcs-mimic now
+accepts both:
 
-| Case | Observed |
-| --- | --- |
-| `object.soft_delete_restore` | `RestoreObject` sends `POST .../restore?generation=G` with a `{}` body and `content-type: application/json`. gcs-mimic answers 400 `Use an empty body, or form parameters identical to the URL query`. |
-| `signed.post_policy_v4` | The SDK writes the policy expiration with nanoseconds (`2026-11-15T05:58:19.766459053Z`). gcs-mimic answers `InvalidPolicyDocument`: `The policy expiration must be an ISO 8601 or RFC 3339 UTC timestamp`. With the policy timestamp truncated to whole seconds the case passes. |
+| Case | SDK behavior | gcs-mimic before the fix |
+| --- | --- | --- |
+| `object.soft_delete_restore` | `RestoreObject` sends `POST .../restore?generation=G` with a `{}` body and `content-type: application/json`. | 400 `Use an empty body, or form parameters identical to the URL query`. |
+| `signed.post_policy_v4` | The policy expiration has nanoseconds (`2026-11-15T05:58:19.766459053Z`). | `InvalidPolicyDocument`: `The policy expiration must be an ISO 8601 or RFC 3339 UTC timestamp`. |
+
+Other emulators may still refuse them.
