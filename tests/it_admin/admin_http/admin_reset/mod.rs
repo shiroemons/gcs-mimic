@@ -1,6 +1,219 @@
 use super::*;
 
 const CONFIRM: &[u8] = br#"{"confirm":"gcs-mimic"}"#;
+const TO_STARTUP: &[u8] = br#"{"confirm":"gcs-mimic","state":"startup"}"#;
+
+/// A seed tree with one bucket that the buckets document configures and one it does not.
+fn startup_fixtures(source: &TestDir, document: &std::path::Path) {
+    std::fs::create_dir_all(source.0.join("configured-bucket/nested")).unwrap();
+    std::fs::write(
+        source.0.join("configured-bucket/nested/report.csv"),
+        b"seed",
+    )
+    .unwrap();
+    std::fs::create_dir(source.0.join("seed-only-bucket")).unwrap();
+    std::fs::write(source.0.join("seed-only-bucket/value"), b"other").unwrap();
+    std::fs::write(
+        document,
+        json!({"version":1,"buckets":[{"name":"configured-bucket",
+            "labels":{"team":"tests"},"versioning":{"enabled":true}}]})
+        .to_string(),
+    )
+    .unwrap();
+}
+
+/// A reset to the startup state rebuilds what startup created, on both backends: the buckets
+/// document's buckets with their settings and the seed tree in them, nothing else. Protection
+/// does not refuse it, and the document startup read wins over the file's current content.
+#[test]
+fn reset_to_the_startup_state_restores_configured_buckets_and_seed_on_both_backends() {
+    for backend in ["disk", "memory"] {
+        let (data, source, config) = (TestDir::new(), TestDir::new(), TestDir::new());
+        let document = config.0.join("buckets.json");
+        startup_fixtures(&source, &document);
+        let server = Server::start(
+            &data,
+            &[
+                "--admin-enabled",
+                "true",
+                "--backend",
+                backend,
+                "--seed-dir",
+                source.0.to_str().unwrap(),
+                "--buckets-file",
+                document.to_str().unwrap(),
+            ],
+        );
+        let seeded = "/storage/v1/b/configured-bucket/o/nested%2Freport.csv";
+        let started = server.request("GET", seeded, "", b"").json_ok();
+        server
+            .request(
+                "PATCH",
+                "/storage/v1/b/configured-bucket",
+                "",
+                br#"{"labels":{"team":"changed"}}"#,
+            )
+            .json_ok();
+        server
+            .request(
+                "POST",
+                "/upload/storage/v1/b/configured-bucket/o?uploadType=media&name=extra",
+                "",
+                b"held",
+            )
+            .json_ok();
+        server
+            .request(
+                "PATCH",
+                "/storage/v1/b/configured-bucket/o/extra",
+                "",
+                br#"{"temporaryHold":true}"#,
+            )
+            .json_ok();
+        server
+            .request("DELETE", "/storage/v1/b/seed-only-bucket/o/value", "", b"")
+            .expect(204);
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local",
+                "",
+                br#"{"name":"api-bucket"}"#,
+            )
+            .json_ok();
+        // A file edited after startup is not what startup applied.
+        std::fs::write(
+            &document,
+            json!({"version":1,"buckets":[{"name":"late-bucket"}]}).to_string(),
+        )
+        .unwrap();
+        let answer = server
+            .request("POST", "/_internal/reset", "", TO_STARTUP)
+            .json_ok();
+        // Removed: the three buckets, the seeded file the API kept and the held upload.
+        assert_eq!(
+            answer,
+            json!({"buckets":3,"objects":2,"restored":{"buckets":2,"objects":2}}),
+            "{backend}"
+        );
+        let bucket = server
+            .request("GET", "/storage/v1/b/configured-bucket", "", b"")
+            .json_ok();
+        assert_eq!(bucket["labels"], json!({"team":"tests"}), "{backend}");
+        assert_eq!(bucket["versioning"]["enabled"], true, "{backend}");
+        let restored = server.request("GET", seeded, "", b"").json_ok();
+        assert_eq!(restored["contentType"], started["contentType"]);
+        assert_eq!(restored["md5Hash"], started["md5Hash"]);
+        assert_eq!(
+            server
+                .request(
+                    "GET",
+                    "/storage/v1/b/seed-only-bucket/o/value?alt=media",
+                    "",
+                    b""
+                )
+                .body,
+            b"other"
+        );
+        for gone in [
+            "/storage/v1/b/configured-bucket/o/extra",
+            "/storage/v1/b/api-bucket",
+            "/storage/v1/b/late-bucket",
+        ] {
+            server
+                .request("GET", gone, "", b"")
+                .expect_with(404, format!("{backend} {gone}"));
+        }
+    }
+}
+
+/// A seed tree that can no longer be published refuses the whole reset before anything is
+/// cleared, and the answer names the reset rather than a reseed.
+#[test]
+fn a_reset_to_an_unpublishable_startup_state_changes_nothing() {
+    let (data, source, config) = (TestDir::new(), TestDir::new(), TestDir::new());
+    let document = config.0.join("buckets.json");
+    startup_fixtures(&source, &document);
+    let server = Server::start(
+        &data,
+        &[
+            "--admin-enabled",
+            "true",
+            "--seed-dir",
+            source.0.to_str().unwrap(),
+            "--buckets-file",
+            document.to_str().unwrap(),
+        ],
+    );
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/configured-bucket/o?uploadType=media&name=kept",
+            "",
+            b"kept",
+        )
+        .json_ok();
+    std::fs::create_dir(source.0.join("Invalid-Bucket")).unwrap();
+    std::fs::write(source.0.join("Invalid-Bucket/value"), b"invalid").unwrap();
+    let rejected = server.request("POST", "/_internal/reset", "", TO_STARTUP);
+    let message = rejected.json_reason_value(400, "invalid")["error"]["message"].clone();
+    assert!(
+        message
+            .as_str()
+            .is_some_and(|text| text.starts_with("Reset made no changes")),
+        "{message}"
+    );
+    assert!(!rejected.headers.contains_key("retry-after"));
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/configured-bucket/o/kept?alt=media",
+                "",
+                b""
+            )
+            .body,
+        b"kept"
+    );
+}
+
+/// Without a buckets document or seed tree the startup state is empty, an omitted or `empty`
+/// state keeps the plain reset, and an unknown state changes nothing.
+#[test]
+fn reset_states_are_explicit_and_an_unconfigured_startup_state_is_empty() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    server
+        .request(
+            "POST",
+            "/_internal/reset",
+            "",
+            br#"{"confirm":"gcs-mimic","state":"pristine"}"#,
+        )
+        .json_reason(400, "invalidArgument");
+    server.request("GET", OBJECT, "", b"").json_ok();
+    let empty = server
+        .request(
+            "POST",
+            "/_internal/reset",
+            "",
+            br#"{"confirm":"gcs-mimic","state":"empty"}"#,
+        )
+        .json_ok();
+    assert_eq!(empty["buckets"], 1);
+    assert_eq!(empty["cleanupPending"], false);
+    server.populate();
+    assert_eq!(
+        server
+            .request("POST", "/_internal/reset", "", TO_STARTUP)
+            .json_ok(),
+        json!({"buckets":1,"objects":1,"restored":{"buckets":0,"objects":0}})
+    );
+    server
+        .request("GET", "/storage/v1/b/test-bucket", "", b"")
+        .expect(404);
+}
 
 #[test]
 fn virtual_host_reset_lookalike_keeps_object_semantics_and_existing_instance_data() {

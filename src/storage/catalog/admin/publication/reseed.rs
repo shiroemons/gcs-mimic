@@ -1,13 +1,27 @@
 //! A prepared fixture namespace has one catalog publication boundary.
 
 use super::*;
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{admin::initialization::Initialization, sql};
 use std::num::NonZeroUsize;
 
 #[derive(Clone, Copy)]
 pub(crate) enum SeedMode {
+    /// Publishes over what the catalog holds: the startup replay and a disk reseed.
     Merge,
+    /// Clears the catalog first unless an object is protected: a RAM reseed.
     Replace,
+    /// Clears the catalog first whatever protects its objects, as a reset does, then applies
+    /// the batch's bucket initialization before publishing: a reset to the startup state.
+    Restore,
+}
+
+impl SeedMode {
+    fn clears(self) -> bool {
+        match self {
+            Self::Merge => false,
+            Self::Replace | Self::Restore => true,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -16,6 +30,14 @@ pub(crate) struct Counts {
     pub objects: usize,
     pub replaced: usize,
     pub unchanged: usize,
+    /// What a clearing commit removed before it published; zero for a merge.
+    pub removed: Removed,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub(crate) struct Removed {
+    pub buckets: i64,
+    pub objects: i64,
 }
 
 pub(crate) struct SeedBatch {
@@ -217,7 +239,25 @@ impl SeedBatch {
         Ok(())
     }
 
-    pub(crate) async fn commit(mut self, mode: SeedMode) -> Result<Counts, AdminError> {
+    pub(crate) async fn commit(self, mode: SeedMode) -> Result<Counts, AdminError> {
+        self.commit_with(mode, None).await
+    }
+
+    /// Clears the catalog whatever protects its objects, applies `initialization`, then
+    /// publishes the batch, all in one transaction: the instance returns to its startup state
+    /// with no moment in which the startup buckets are missing.
+    pub(crate) async fn restore(
+        self,
+        initialization: Option<Initialization>,
+    ) -> Result<Counts, AdminError> {
+        self.commit_with(SeedMode::Restore, initialization).await
+    }
+
+    async fn commit_with(
+        mut self,
+        mode: SeedMode,
+        initialization: Option<Initialization>,
+    ) -> Result<Counts, AdminError> {
         let catalog = self.admin.catalog.clone();
         self.entries.reverse();
         while let Some(entry) = self.entries.pop() {
@@ -245,7 +285,7 @@ impl SeedBatch {
                     serde_json::json!({}),
                 );
                 let outcome = inner
-                    .with_connection(|connection| commit(connection, &self, mode))
+                    .with_connection(|connection| commit(connection, &self, mode, initialization))
                     .unwrap_or_else(|error| Err(error.into()));
                 (outcome, self)
             })
@@ -348,37 +388,53 @@ fn check_guards(
     if importing {
         return Err(AdminError::Precondition);
     }
-    if matches!(mode, SeedMode::Replace) {
-        let syncing: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM sync_roots)", [])
-            .map_err(objects_error)?;
-        if syncing {
-            return Err(AdminError::Precondition);
-        }
-        let now = crate::storage::catalog::unix_micros(clock.now())?;
-        let held: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)", [now]).map_err(objects_error)?;
-        if held {
-            return Err(AdminError::Hold);
-        }
+    if !mode.clears() {
+        return Ok(());
     }
-    Ok(())
+    let syncing: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM sync_roots)", [])
+        .map_err(objects_error)?;
+    if syncing {
+        return Err(AdminError::Precondition);
+    }
+    match mode {
+        SeedMode::Replace => {
+            let now = crate::storage::catalog::unix_micros(clock.now())?;
+            let held: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)", [now]).map_err(objects_error)?;
+            if held {
+                return Err(AdminError::Hold);
+            }
+            Ok(())
+        }
+        // Returning to the startup state is a reset, which no protection refuses.
+        SeedMode::Merge | SeedMode::Restore => Ok(()),
+    }
 }
 
 fn commit(
     connection: &mut Connection,
     batch: &SeedBatch,
     mode: SeedMode,
+    initialization: Option<Initialization>,
 ) -> Result<Counts, AdminError> {
     let transaction = sql::immediate(connection).map_err(objects_error)?;
-    let clock = batch.admin.catalog.0.clock.as_ref();
+    let catalog = &batch.admin.catalog;
+    let clock = catalog.0.clock.as_ref();
     check_guards(&transaction, mode, clock)?;
-    let epoch = if matches!(mode, SeedMode::Replace) {
-        let reclamation =
-            super::super::reset::Reclamation::for_backend(&batch.admin.catalog.0.backend);
-        Some(super::super::reset::clear_in_transaction(&transaction, reclamation)?.epoch)
+    let mut counts = Counts::default();
+    let epoch = if mode.clears() {
+        let reclamation = super::super::reset::Reclamation::for_backend(&catalog.0.backend);
+        let cleared = super::super::reset::clear_in_transaction(&transaction, reclamation)?;
+        counts.removed = Removed {
+            buckets: cleared.buckets,
+            objects: cleared.objects,
+        };
+        Some(cleared.epoch)
     } else {
         None
     };
-    let mut counts = Counts::default();
+    if let Some(initialization) = initialization {
+        counts.buckets += initialization.apply(&transaction, catalog)?;
+    }
     for definition in &batch.buckets {
         let record = &definition.0;
         match crate::storage::catalog::select_bucket(&transaction, &record.name)
@@ -432,7 +488,7 @@ fn commit(
     {
         return Err(error.into());
     }
-    if matches!(mode, SeedMode::Replace) && batch.admin.catalog.0.backend.is_memory() {
+    if mode.clears() && batch.admin.catalog.0.backend.is_memory() {
         // Only the bounded prepared namespace is indexed; a full old catalog needs no growing deletion journal.
         let selected: Vec<_> = batch
             .entries

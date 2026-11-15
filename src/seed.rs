@@ -12,7 +12,7 @@ use crate::{
         Catalog,
         admin::{
             Admin, BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
-            SeedBatch, SeedMode,
+            Removed, SeedBatch, SeedMode, initialization::Initialization,
         },
     },
 };
@@ -59,7 +59,10 @@ pub async fn import(
         "seeding",
         serde_json::json!({}),
     );
-    let result = import_directory(&admin, config, clock, root, SeedMode::Merge, None).await;
+    let result = match stage_directory(&admin, config, clock, root, None).await {
+        Ok(staged) => staged.commit(SeedMode::Merge).await,
+        Err(error) => Err(error),
+    };
     result.map_err(|error| SeedError::Import(Box::new(error)))
 }
 
@@ -79,7 +82,59 @@ pub(crate) async fn reseed(
     let admin = admin
         .clone()
         .with_notification_mode(crate::notification::NotificationMode::Suppress);
-    import_directory(&admin, config, clock, root, mode, Some(request_deadline)).await
+    stage_directory(&admin, config, clock, root, Some(request_deadline))
+        .await?
+        .commit(mode)
+        .await
+}
+
+/// What a reset to the startup state removed, and what it published in its place.
+#[derive(Debug, Serialize)]
+pub(crate) struct Restored {
+    #[serde(flatten)]
+    removed: Removed,
+    restored: Republished,
+}
+
+#[derive(Debug, Serialize)]
+struct Republished {
+    buckets: usize,
+    objects: usize,
+}
+
+/// Clears the instance and publishes its startup state in the same transaction, in startup
+/// order: the buckets document's buckets, then the seed tree when one is configured. No
+/// protection refuses it, as none refuses a reset; waits end as [`reseed`]'s do.
+pub(crate) async fn restore(
+    admin: &Admin,
+    config: &Config,
+    clock: &dyn Clock,
+    request_deadline: tokio::time::Instant,
+    initialization: Option<Initialization>,
+) -> Result<Restored, SeedError> {
+    let admin = admin
+        .clone()
+        .with_notification_mode(crate::notification::NotificationMode::Suppress);
+    let batch = match &config.seed_dir {
+        Some(root) => {
+            stage_directory(&admin, config, clock, root, Some(request_deadline))
+                .await?
+                .batch
+        }
+        None => {
+            admin
+                .seed_batch_until(Some(request_deadline), config.max_seed_entries)
+                .await?
+        }
+    };
+    let counts = batch.restore(initialization).await?;
+    Ok(Restored {
+        removed: counts.removed,
+        restored: Republished {
+            buckets: counts.buckets,
+            objects: counts.objects,
+        },
+    })
 }
 
 impl From<WalkError> for SeedError {
@@ -144,14 +199,34 @@ fn entries(root: PathBuf, limits: TreeLimits) -> io::Result<mpsc::Receiver<Walke
     Ok(receive)
 }
 
-async fn import_directory(
+/// A fixture tree staged in a batch that has yet to commit.
+struct Staged {
+    batch: SeedBatch,
+    skipped_os_metadata: usize,
+}
+
+impl Staged {
+    async fn commit(self, mode: SeedMode) -> Result<SeedOutcome, SeedError> {
+        let committed = self.batch.commit(mode).await?;
+        Ok(SeedOutcome::Imported {
+            buckets: committed.buckets,
+            objects: committed.objects,
+            replaced: committed.replaced,
+            unchanged: committed.unchanged,
+            // Atomic replay never skips fixtures; retain the field for output compatibility.
+            blocked: 0,
+            skipped_os_metadata: self.skipped_os_metadata,
+        })
+    }
+}
+
+async fn stage_directory(
     catalog: &Admin,
     config: &Config,
     clock: &dyn Clock,
     root: &Path,
-    mode: SeedMode,
     request_deadline: Option<tokio::time::Instant>,
-) -> Result<SeedOutcome, SeedError> {
+) -> Result<Staged, SeedError> {
     let inspected = tokio::fs::symlink_metadata(root).await?;
     if !inspected.file_type().is_dir() {
         return Err(SeedError::NotDirectory);
@@ -224,14 +299,8 @@ async fn import_directory(
                 source: Box::new(error),
             })?;
     }
-    let committed = seed.batch.commit(mode).await?;
-    Ok(SeedOutcome::Imported {
-        buckets: committed.buckets,
-        objects: committed.objects,
-        replaced: committed.replaced,
-        unchanged: committed.unchanged,
-        // Atomic replay never skips fixtures; retain the field for output compatibility.
-        blocked: 0,
+    Ok(Staged {
+        batch: seed.batch,
         skipped_os_metadata: seed.skipped_os_metadata,
     })
 }

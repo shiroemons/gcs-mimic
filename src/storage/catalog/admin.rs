@@ -210,7 +210,7 @@ pub(super) use publication::FileWorkers;
 pub(in crate::storage) use publication::NestedFileJob;
 pub(super) use publication::apply_acl;
 pub(crate) use publication::{BatchPublication, ImportedPublication, StagedObject};
-pub(crate) use publication::{SeedBatch, SeedMode};
+pub(crate) use publication::{Removed, SeedBatch, SeedMode};
 
 pub struct Publication {
     pub content_type: String,

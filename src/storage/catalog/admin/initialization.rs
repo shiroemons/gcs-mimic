@@ -13,7 +13,7 @@ use crate::{
     clock::Clock,
     object::WriteMode,
     storage::catalog::{
-        BucketCreation,
+        BucketCreation, Catalog,
         bucket_update::{self, BucketChange},
         change_journal, create_bucket_in_transaction,
         policies::{self, Metageneration, PolicyWrite},
@@ -25,7 +25,7 @@ use rusqlite::{
     OptionalExtension, Transaction, params,
     types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
 };
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, sync::Arc};
 
 #[cfg(test)]
 mod tests;
@@ -177,6 +177,80 @@ struct Apply<'a> {
     principals: Option<&'a Profile>,
 }
 
+/// The authority and catalog settings one run applies its steps with.
+struct Context {
+    grant: AdminGrant,
+    clock: Arc<dyn Clock>,
+    default_retention: Option<NonZeroU64>,
+    principals: Option<Profile>,
+}
+
+impl Context {
+    fn new(catalog: &Catalog, grant: AdminGrant) -> Self {
+        Self {
+            grant,
+            clock: catalog.0.clock.clone(),
+            default_retention: catalog.default_soft_delete_retention(),
+            principals: catalog.0.principals.get().cloned(),
+        }
+    }
+}
+
+/// A bucket initialization that another administrative transaction applies. A reset to the
+/// startup state runs it right after clearing the catalog and before republishing the seed tree,
+/// all in one transaction, so no reader sees the startup buckets missing and the seed lands in
+/// buckets configured as at startup.
+pub(crate) struct Initialization {
+    grant: AdminGrant,
+    targets: Vec<InitTarget>,
+    plan: Plan,
+}
+
+/// Decides each target's step, in target order, from what the run observes.
+type Plan = Box<dyn FnOnce(Vec<Observed>) -> Result<Vec<Planned>, AdminError> + Send>;
+
+impl Initialization {
+    pub(crate) fn new(
+        admin: &Admin,
+        targets: Vec<InitTarget>,
+        plan: impl FnOnce(Vec<Observed>) -> Result<Vec<Planned>, AdminError> + Send + 'static,
+    ) -> Result<Self, AdminError> {
+        super::require_unique_names(targets.iter().map(|target| target.name.as_str()))?;
+        Ok(Self {
+            grant: admin.grant.clone(),
+            targets,
+            plan: Box::new(plan),
+        })
+    }
+
+    /// Applies the plan in `transaction`, which the caller commits, and returns how many buckets
+    /// it created.
+    pub(in crate::storage::catalog) fn apply(
+        self,
+        transaction: &Transaction<'_>,
+        catalog: &Catalog,
+    ) -> Result<usize, AdminError> {
+        let Self {
+            grant,
+            targets,
+            plan,
+        } = self;
+        initialize_in(
+            transaction,
+            Context::new(catalog, grant),
+            &targets,
+            |observed| {
+                let planned = plan(observed)?;
+                let created = planned
+                    .iter()
+                    .filter(|step| matches!(step, Planned::Create(_)))
+                    .count();
+                Ok((planned, created))
+            },
+        )
+    }
+}
+
 impl Admin {
     /// Observes every target, lets `plan` decide from that state, then applies its steps and
     /// commits, all in one transaction. An error from `plan` leaves the catalog unchanged.
@@ -190,34 +264,45 @@ impl Admin {
         E: From<AdminError> + Send + 'static,
     {
         super::require_unique_names(targets.iter().map(|target| target.name.as_str()))?;
-        let grant = self.grant.clone();
-        let clock = self.catalog.0.clock.clone();
-        let default_retention = self.catalog.default_soft_delete_retention();
-        let principals = self.catalog.0.principals.get().cloned();
+        let context = Context::new(&self.catalog, self.grant.clone());
         self.catalog
             .run_admin_with_error(move |connection| {
-                let failed = |error: CatalogError| E::from(AdminError::from(error));
-                let transaction = sql::immediate(connection).map_err(|e| failed(e.into()))?;
-                let observed = observe(&transaction, &grant, &targets).map_err(failed)?;
-                let (planned, outcome) = plan(observed)?;
-                if planned.len() != targets.len() {
-                    return Err(AdminError::Invalid("incomplete initialization plan".into()).into());
-                }
-                let apply = Apply {
-                    transaction: &transaction,
-                    access: BucketAccess::Admin(grant),
-                    clock: clock.as_ref(),
-                    default_retention,
-                    principals: principals.as_ref(),
-                };
-                for (target, step) in targets.iter().zip(planned) {
-                    apply.step(target, step).map_err(failed)?;
-                }
-                transaction.commit().map_err(|e| failed(e.into()))?;
+                let failed =
+                    |error: rusqlite::Error| E::from(AdminError::from(CatalogError::from(error)));
+                let transaction = sql::immediate(connection).map_err(failed)?;
+                let outcome = initialize_in(&transaction, context, &targets, plan)?;
+                transaction.commit().map_err(failed)?;
                 Ok(outcome)
             })
             .await
     }
+}
+
+/// Observes every target, lets `plan` decide from that state, then applies its steps in
+/// `transaction`, which the caller commits. An error from `plan` comes before any write.
+fn initialize_in<T, E: From<AdminError>>(
+    transaction: &Transaction<'_>,
+    context: Context,
+    targets: &[InitTarget],
+    plan: impl FnOnce(Vec<Observed>) -> Result<(Vec<Planned>, T), E>,
+) -> Result<T, E> {
+    let failed = |error: CatalogError| E::from(AdminError::from(error));
+    let observed = observe(transaction, &context.grant, targets).map_err(failed)?;
+    let (planned, outcome) = plan(observed)?;
+    if planned.len() != targets.len() {
+        return Err(AdminError::Invalid("incomplete initialization plan".into()).into());
+    }
+    let apply = Apply {
+        transaction,
+        access: BucketAccess::Admin(context.grant),
+        clock: context.clock.as_ref(),
+        default_retention: context.default_retention,
+        principals: context.principals.as_ref(),
+    };
+    for (target, step) in targets.iter().zip(planned) {
+        apply.step(target, step).map_err(failed)?;
+    }
+    Ok(outcome)
 }
 
 fn observe(

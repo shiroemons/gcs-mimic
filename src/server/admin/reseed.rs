@@ -70,52 +70,85 @@ async fn reseed(
     Ok(json_response(&super::encode(&outcome)?))
 }
 
-/// Classifies a reseed failure by whether another attempt can succeed. A tree that breaks a
-/// configured limit, or holds content the emulator cannot import, fails the same way every time,
-/// so it answers 400 without `Retry-After`. Only work a later attempt may finish answers 503.
-/// Messages are fixed: they never echo a fixture path or an on-disk name.
+/// The operation that republished the startup fixture tree and failed: a reseed, or a reset to
+/// the startup state, which reads the same tree and so fails in the same ways. Its name starts
+/// each answer so that a client sees which request made no changes.
+#[derive(Clone, Copy)]
+pub(super) enum Operation {
+    Reseed,
+    Reset,
+}
+
+impl Operation {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Reseed => "reseed",
+            Self::Reset => "reset",
+        }
+    }
+}
+
+impl std::fmt::Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Reseed => "Reseed",
+            Self::Reset => "Reset",
+        })
+    }
+}
+
 fn failure(error: &SeedError) -> JsonError {
+    tree_failure(error, Operation::Reseed)
+}
+
+/// Classifies a failure to republish the fixture tree by whether another attempt can succeed. A
+/// tree that breaks a configured limit, or holds content the emulator cannot import, fails the
+/// same way every time, so it answers 400 without `Retry-After`. Only work a later attempt may
+/// finish answers 503. Messages are fixed: they never echo a fixture path or an on-disk name.
+pub(super) fn tree_failure(error: &SeedError, operation: Operation) -> JsonError {
     match error {
         // The label names the fixture entry, which stays in diagnostics only.
-        SeedError::Entry { source, .. } | SeedError::Import(source) => failure(source),
-        SeedError::Admin(error) => admin_failure(error),
+        SeedError::Entry { source, .. } | SeedError::Import(source) => {
+            tree_failure(source, operation)
+        }
+        SeedError::Admin(error) => admin_failure(error, operation),
         SeedError::EntryLimit { limit } => JsonError::invalid(format!(
-            "Reseed made no changes because the fixture tree has more than {limit} entries; raise max_seed_entries or reduce the tree"
+            "{operation} made no changes because the fixture tree has more than {limit} entries; raise max_seed_entries or reduce the tree"
         )),
         SeedError::DepthLimit { limit } => JsonError::invalid(format!(
-            "Reseed made no changes because the fixture tree has more than {limit} directory levels below a bucket; raise max_seed_depth or flatten the tree"
+            "{operation} made no changes because the fixture tree has more than {limit} directory levels below a bucket; raise max_seed_depth or flatten the tree"
         )),
         SeedError::BucketLimit { limit } => JsonError::invalid(format!(
-            "Reseed made no changes because the fixture tree has more than {limit} buckets; raise max_buckets_per_batch or reduce the tree"
+            "{operation} made no changes because the fixture tree has more than {limit} buckets; raise max_buckets_per_batch or reduce the tree"
         )),
-        SeedError::BucketName(_) => JsonError::invalid(
-            "Reseed made no changes because a top-level fixture directory is not a valid bucket name",
-        ),
-        SeedError::ObjectName(_) => JsonError::invalid(
-            "Reseed made no changes because a fixture file path is not a valid object name",
-        ),
-        SeedError::NonUtf8Name => {
-            JsonError::invalid("Reseed made no changes because a fixture name is not UTF-8")
-        }
-        SeedError::UnsupportedFile => JsonError::invalid(
-            "Reseed made no changes because a fixture entry is neither a regular file nor a directory, such as a symlink",
-        ),
-        SeedError::FileLimit => JsonError::invalid(
-            "Reseed made no changes because a fixture file is not a regular file or exceeds max_object_bytes",
-        ),
-        SeedError::NotDirectory => JsonError::invalid(
-            "Reseed made no changes because seed_dir is not a directory; it must be a directory, not a symlink",
-        ),
-        SeedError::Overlap => {
-            JsonError::invalid("Reseed made no changes because seed_dir and data_dir overlap")
-        }
+        SeedError::BucketName(_) => JsonError::invalid(format!(
+            "{operation} made no changes because a top-level fixture directory is not a valid bucket name"
+        )),
+        SeedError::ObjectName(_) => JsonError::invalid(format!(
+            "{operation} made no changes because a fixture file path is not a valid object name"
+        )),
+        SeedError::NonUtf8Name => JsonError::invalid(format!(
+            "{operation} made no changes because a fixture name is not UTF-8"
+        )),
+        SeedError::UnsupportedFile => JsonError::invalid(format!(
+            "{operation} made no changes because a fixture entry is neither a regular file nor a directory, such as a symlink"
+        )),
+        SeedError::FileLimit => JsonError::invalid(format!(
+            "{operation} made no changes because a fixture file is not a regular file or exceeds max_object_bytes"
+        )),
+        SeedError::NotDirectory => JsonError::invalid(format!(
+            "{operation} made no changes because seed_dir is not a directory; it must be a directory, not a symlink"
+        )),
+        SeedError::Overlap => JsonError::invalid(format!(
+            "{operation} made no changes because seed_dir and data_dir overlap"
+        )),
         SeedError::MissingRoot => {
             JsonError::invalid("Configure seed_dir at startup before reseeding")
         }
-        SeedError::Io(error) => io_failure(error.kind()),
+        SeedError::Io(error) => io_failure(error.kind(), operation),
         // A walk stops early only on shutdown or a panic. A path outside the root is an invariant
         // the walker keeps, so it is a server fault, not the fixture's.
-        SeedError::WalkStopped | SeedError::RelativePath(_) => retry(),
+        SeedError::WalkStopped | SeedError::RelativePath(_) => retry(operation),
     }
 }
 
@@ -125,50 +158,55 @@ fn failure(error: &SeedError) -> JsonError {
     clippy::wildcard_enum_match_arm,
     reason = "io::ErrorKind is non_exhaustive, and every other kind may pass on a retry"
 )]
-fn io_failure(kind: std::io::ErrorKind) -> JsonError {
+fn io_failure(kind: std::io::ErrorKind, operation: Operation) -> JsonError {
     match kind {
-        std::io::ErrorKind::InvalidFilename => JsonError::invalid(
-            "Reseed made no changes because a fixture path exceeds this platform's path length limit",
-        ),
+        std::io::ErrorKind::InvalidFilename => JsonError::invalid(format!(
+            "{operation} made no changes because a fixture path exceeds this platform's path length limit"
+        )),
         // The container runs as uid 10001, so a bind-mounted fixture readable only by its owner
         // fails here until its permissions change.
-        std::io::ErrorKind::PermissionDenied => JsonError::invalid(
-            "Reseed made no changes because the emulator cannot read a fixture file or directory; make seed_dir and its contents readable by the emulator's user",
-        ),
-        _ => retry(),
+        std::io::ErrorKind::PermissionDenied => JsonError::invalid(format!(
+            "{operation} made no changes because the emulator cannot read a fixture file or directory; make seed_dir and its contents readable by the emulator's user"
+        )),
+        _ => retry(operation),
     }
 }
 
-pub(super) fn admin_failure(error: &AdminError) -> JsonError {
+pub(super) fn admin_failure(error: &AdminError, operation: Operation) -> JsonError {
     match error {
         AdminError::Precondition => JsonError::new(
             StatusCode::CONFLICT,
             "conflict",
-            "Reseed made no changes because import or synchronization state is active",
+            format!(
+                "{operation} made no changes because import or synchronization state is active"
+            ),
         ),
         AdminError::Hold => JsonError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
-            "Reseed made no changes because an object is protected by a hold or retention",
+            format!(
+                "{operation} made no changes because an object is protected by a hold or retention"
+            ),
         ),
-        AdminError::Invalid(_) | AdminError::SeedProjectMismatch => {
-            JsonError::invalid("Invalid fixture state; reseed made no changes")
-        }
-        AdminError::SeedMetadataBudget { mib } => JsonError::invalid(format!(
-            "Reseed made no changes because fixture metadata exceeds {mib} MiB; raise max_seed_entries or reduce the tree"
+        AdminError::Invalid(_) | AdminError::SeedProjectMismatch => JsonError::invalid(format!(
+            "Invalid fixture state; {} made no changes",
+            operation.noun()
         )),
-        AdminError::TooLarge => JsonError::invalid(
-            "Reseed made no changes because a fixture file exceeds max_object_bytes",
-        ),
+        AdminError::SeedMetadataBudget { mib } => JsonError::invalid(format!(
+            "{operation} made no changes because fixture metadata exceeds {mib} MiB; raise max_seed_entries or reduce the tree"
+        )),
+        AdminError::TooLarge => JsonError::invalid(format!(
+            "{operation} made no changes because a fixture file exceeds max_object_bytes"
+        )),
         // A retry cannot change an authorization decision.
         AdminError::Forbidden => JsonError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
-            "Reseed made no changes because a fixture write was not authorized",
+            format!("{operation} made no changes because a fixture write was not authorized"),
         ),
-        AdminError::Busy { .. } => JsonError::service_unavailable(
-            "Reseed made no changes because catalog work, an unpublished body or another publication is active; retry after it completes",
-        ),
+        AdminError::Busy { .. } => JsonError::service_unavailable(format!(
+            "{operation} made no changes because catalog work, an unpublished body or another publication is active; retry after it completes"
+        )),
         // A source that changed while it was read, a racing delete, a closing catalog and storage
         // failures are not the fixture tree's fault; another attempt can succeed once they pass.
         AdminError::SourceChanged { .. }
@@ -179,14 +217,14 @@ pub(super) fn admin_failure(error: &AdminError) -> JsonError {
         | AdminError::DiskFull(_)
         | AdminError::Io(_)
         | AdminError::Corrupt(_)
-        | AdminError::Backend(_) => retry(),
+        | AdminError::Backend(_) => retry(operation),
     }
 }
 
-fn retry() -> JsonError {
-    JsonError::service_unavailable(
-        "Reseed failed; inspect local fixture/storage diagnostics and retry",
-    )
+fn retry(operation: Operation) -> JsonError {
+    JsonError::service_unavailable(format!(
+        "{operation} failed; inspect local fixture/storage diagnostics and retry"
+    ))
 }
 
 #[cfg(test)]

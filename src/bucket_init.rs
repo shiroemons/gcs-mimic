@@ -12,7 +12,10 @@ use crate::{
     json::{parse_insert_with_profile, validate_project},
     storage::{
         Catalog,
-        admin::{AdminError, Origin},
+        admin::{
+            AdminError, Origin,
+            initialization::{InitTarget, Initialization},
+        },
         failure::MemoryBudget,
     },
 };
@@ -1173,28 +1176,42 @@ pub(crate) struct InitEntry {
     pub(crate) written: Written,
 }
 
-/// Validate once, then publish missing buckets through local administrative authority.
-pub async fn apply(
-    catalog: &Catalog,
+/// What startup initialization applied, and the document it read. A reset to the startup state
+/// re-applies this document instead of reading a file that may have changed since startup, so
+/// the server keeps it in its configuration when local administration is enabled.
+pub struct Initialized {
+    pub outcome: InitOutcome,
+    pub document: Option<ParsedDocument>,
+}
+
+/// One read of the configured document, validated and checked against the catalog's rules.
+struct Read {
+    document: ParsedDocument,
+    targets: Vec<InitTarget>,
+    prepared: Vec<plan::Prepared>,
+    setting: Setting,
+}
+
+async fn read(
+    source: DocumentSource,
     config: &crate::config::Config,
-    clock: std::sync::Arc<dyn Clock>,
-) -> Result<InitOutcome, Diagnostics> {
-    let Some(source) = config.buckets.clone() else {
-        return Ok(InitOutcome::Disabled);
-    };
+    clock: Arc<dyn Clock>,
+) -> Result<Read, Diagnostics> {
     let setting = DocumentKind::Buckets.setting(source.form());
     let project = config.seed_project.clone();
     let default_location = config.default_location.clone();
     let bucket_limit = config.max_buckets_per_batch;
-    let mode = config.buckets_mode;
-    let entries = crate::task::run_blocking("bucket-initializer", move || {
-        load(
-            &source,
+    let (document, entries) = crate::task::run_blocking("bucket-initializer", move || {
+        // Parsing first keeps the bytes, which loading the parse validates without a second read.
+        let document = parse_document(&source, bucket_limit)?;
+        let entries = load(
+            &DocumentSource::Parsed(document.clone()),
             &project,
             clock.as_ref(),
             &default_location,
             bucket_limit,
-        )
+        )?;
+        Ok::<_, Diagnostics>((document, entries))
     })
     .await
     .map_err(|_| {
@@ -1206,6 +1223,33 @@ pub async fn apply(
     })??;
     let (targets, prepared) =
         plan::prepare(entries).map_err(|error| initialization_failure(&error, setting))?;
+    Ok(Read {
+        document,
+        targets,
+        prepared,
+        setting,
+    })
+}
+
+/// Validate once, then publish missing buckets through local administrative authority.
+pub async fn apply(
+    catalog: &Catalog,
+    config: &crate::config::Config,
+    clock: Arc<dyn Clock>,
+) -> Result<Initialized, Diagnostics> {
+    let Some(source) = config.buckets.clone() else {
+        return Ok(Initialized {
+            outcome: InitOutcome::Disabled,
+            document: None,
+        });
+    };
+    let Read {
+        document,
+        targets,
+        prepared,
+        setting,
+    } = read(source, config, clock).await?;
+    let (bucket_limit, mode) = (config.max_buckets_per_batch, config.buckets_mode);
     let report = catalog
         .admin(Origin::BucketInit)
         .initialize_buckets(targets, move |observed| {
@@ -1220,7 +1264,47 @@ pub async fn apply(
         .warnings
         .write(std::io::stderr().lock())
         .map_err(|error| Diagnostics::startup_failure(&error))?;
-    Ok(report.outcome())
+    Ok(Initialized {
+        outcome: report.outcome(),
+        document: Some(document),
+    })
+}
+
+/// Plans the configured document again for a reset to the startup state, which applies it in
+/// the transaction that clears the catalog. The server configuration holds the document startup
+/// read, so this validates those bytes rather than a file that may have changed.
+pub(crate) async fn restoration(
+    catalog: &Catalog,
+    config: &crate::config::Config,
+    clock: Arc<dyn Clock>,
+) -> Result<Option<Initialization>, Diagnostics> {
+    let Some(source) = config.buckets.clone() else {
+        return Ok(None);
+    };
+    let Read {
+        targets,
+        prepared,
+        setting,
+        ..
+    } = read(source, config, clock).await?;
+    let (bucket_limit, mode) = (config.max_buckets_per_batch, config.buckets_mode);
+    let plan = move |observed| {
+        // The cleared catalog has no bucket to keep or reconcile, so the warnings a startup
+        // reports about existing buckets cannot arise.
+        plan::plan(prepared, observed, bucket_limit, mode)
+            .map(|(planned, _)| planned)
+            .map_err(|error| match error {
+                plan::PlanError::Admin(error) => error,
+                // Startup accepted this document, so only state that a reset keeps, such as a
+                // project's public access prevention, can refuse it now.
+                plan::PlanError::Rejected(diagnostics) => {
+                    AdminError::Invalid(diagnostics.to_string())
+                }
+            })
+    };
+    Initialization::new(&catalog.admin(Origin::BucketInit), targets, plan)
+        .map(Some)
+        .map_err(|error| initialization_failure(&error, setting))
 }
 
 /// `setting` is the one that supplied the document, which the diagnostic names.

@@ -349,7 +349,7 @@ mod tests {
             match self {
                 Self::Fixtures => fixtures::failure(error),
                 Self::Reset => reset::failure(&error),
-                Self::Reseed => reseed::admin_failure(&error),
+                Self::Reseed => reseed::admin_failure(&error, reseed::Operation::Reseed),
                 Self::SyncRoot => sync::root_error(&RootError::Admin(error)),
                 // A queued control reports the failure as its failed run.
                 Self::SyncControl => {

@@ -23,6 +23,8 @@ Startup replay and disk reseed preserve existing bucket settings and all objects
 
 RAM reseed replaces the namespace. It uses the reset transaction's clearing rules and preserves catalog identity and allocator high-water marks. Existing protection and unfinished import/synchronization state prevent replacement. Old immutable reader references remain readable after a successful replacement.
 
+A [reset to the startup state](local-instance-reset.md#reset-to-the-startup-state) commits the same staged tree on either backend in a third mode: it clears like a reset, which no protection refuses, applies the startup buckets document in the same transaction, and then publishes the tree, so the seed lands in buckets configured as at startup.
+
 The loader validates and stages the complete input before one immediate SQL transaction publishes its buckets, object references and seed-completion state. It never resets the catalog and then uploads objects one at a time. A malformed later fixture, checksum mismatch, capacity failure, protection failure or failed precommit operation leaves the preceding catalog and bytes intact, including any other object or empty bucket selected by that failed batch.
 
 This intentionally changes the previous startup protection behavior: a differing held/retained fixture now fails the entire replay and startup emits no ready event. It no longer increments `blocked` and continues with the rest of the tree. The diagnostic explains that the entire seed was left unapplied and directs the operator to start without `seed_dir` to release a hold, or wait for retention expiry. Successful outcomes retain the existing JSON count fields; `blocked` is zero.

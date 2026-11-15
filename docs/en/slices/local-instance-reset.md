@@ -58,6 +58,24 @@ include noncurrent and soft-deleted generations. For example:
 {"buckets":1,"objects":2,"cleanupPending":false}
 ```
 
+### Reset to the startup state
+
+An optional `state` member chooses what the reset leaves. `empty`, the default, is the reset above. `startup` returns the instance to what startup created, so a test can restore its fixtures without restarting the server:
+
+```json
+{"confirm":"gcs-mimic","state":"startup"}
+```
+
+In one transaction it clears the catalog with the reset's clearing rules, applies the startup buckets document with startup's planning and `buckets_mode`, then publishes the configured `seed_dir` tree into those buckets, as startup orders them. No reader sees the startup buckets missing, and a failure at any step commits nothing. As with an empty reset, holds, retention and object retention do not refuse it; unfinished imports and synchronization state do, and `sync_dir` still answers 409. It uses the reseed's admission and staging: the tree may take as long as its size needs, notifications are suppressed, waits for other catalog work end as a retryable 503 that made no changes, and a tree that can no longer be published answers 400 `Reset made no changes because ...` without `Retry-After`.
+
+When local management is enabled, the server keeps the buckets document it read at startup, so a `buckets_file` edited or removed later does not change what this restores. The seed tree is read again, as a reseed reads it. Without a buckets document or seed tree the startup state is empty.
+
+A successful response names what it removed, with the same counting as above, and what it published in its place. Blob reclamation of the removed bodies is the ordinary reference-checked reclamation after commit, so this state has no `cleanupPending` member:
+
+```json
+{"buckets":3,"objects":2,"restored":{"buckets":2,"objects":2}}
+```
+
 ## Quiescence and transaction
 
 One shared Tokio read/write gate protects catalog activity. A SQL job holds no lease:
@@ -169,6 +187,8 @@ existing bytes and the upload's ability to finish.
 `requests_during_a_reset_wait_and_then_see_the_cleared_state` and
 `a_disconnected_reset_gives_up_its_wait_and_changes_nothing` cover the wait on the wire.
 All execute offline on loopback.
+
+The startup state has three wire tests. `reset_to_the_startup_state_restores_configured_buckets_and_seed_on_both_backends` runs on disk and RAM: after an API label edit, a held upload, a deleted seed object, an API bucket and an edited `buckets_file`, the reset restores the document's labels and versioning as startup applied them, the seed objects with their content type and hash, and nothing else. `a_reset_to_an_unpublishable_startup_state_changes_nothing` adds an invalid top-level seed directory after startup and receives 400 without `Retry-After`, with existing bytes kept. `reset_states_are_explicit_and_an_unconfigured_startup_state_is_empty` covers an unknown state, an explicit `empty` and a startup state with neither input. Verification on 2026-11-16: `cargo test --locked --offline --test it_admin -- reset_` passed ten cases, the seed, reseed, bucket initialization and startup unit tests passed, and `cargo test --locked --offline --test it_import_seed` passed 95 cases.
 
 Verification on 2026-11-04: `cargo check --locked --tests` passed;
 `cargo test --locked --lib storage::catalog::admin::reset` passed all eleven cases.

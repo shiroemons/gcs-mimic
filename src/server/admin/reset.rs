@@ -12,6 +12,21 @@ use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 #[serde(deny_unknown_fields)]
 struct Confirmation {
     confirm: String,
+    #[serde(default)]
+    state: State,
+}
+
+/// The state a reset leaves the instance in.
+#[derive(Clone, Copy, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum State {
+    /// No buckets, objects or settings.
+    #[default]
+    Empty,
+    /// What startup created: the buckets document's buckets, then the seed tree, published in
+    /// the transaction that clears the rest, so a test can return to its fixtures without
+    /// restarting and no reader sees them missing.
+    Startup,
 }
 
 pub(super) enum Form {
@@ -66,13 +81,14 @@ async fn reset(
         }
         Confirmation {
             confirm: "gcs-mimic".into(),
+            state: State::Empty,
         }
     } else {
         serde_json::from_slice(&bytes).map_err(|_| {
-        JsonError::invalid_argument(
-            "Reset deletes this local instance's state; send exactly {\"confirm\":\"gcs-mimic\"}",
-        )
-    })?
+            JsonError::invalid_argument(
+                "Reset deletes this local instance's state; send {\"confirm\":\"gcs-mimic\"}, optionally with \"state\":\"empty\" or \"startup\"",
+            )
+        })?
     };
     if confirmation.confirm != "gcs-mimic" {
         return Err(JsonError::invalid_argument(
@@ -80,6 +96,17 @@ async fn reset(
         ));
     }
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
+    match confirmation.state {
+        State::Empty => clear(ctx, &admin, deadline).await,
+        State::Startup => restore(ctx, admin, deadline).await,
+    }
+}
+
+async fn clear(
+    ctx: RequestCtx<'_>,
+    admin: &crate::storage::admin::Admin,
+    deadline: tokio::time::Instant,
+) -> Result<Response<Full<Bytes>>, JsonError> {
     let ctx = ctx.object(None, deadline);
     // Expiry before exclusive ownership can still confirm that reset made no changes.
     let wait_deadline = deadline.min(ctx.config.catalog_wait_timeout.deadline());
@@ -88,6 +115,36 @@ async fn reset(
         .await
         .map_err(|error| failure(&error))?;
     Ok(json_response(&super::encode(&result)?))
+}
+
+/// Publishes the startup state in the reset's transaction. The fixture tree may take as long as
+/// its size needs, as a reseed's does; only waits for other work end early.
+async fn restore(
+    ctx: RequestCtx<'_>,
+    admin: crate::storage::admin::Admin,
+    deadline: tokio::time::Instant,
+) -> Result<Response<Full<Bytes>>, JsonError> {
+    let (config, clock) = (ctx.config, ctx.state.clock.clone());
+    let initialization = crate::bucket_init::restoration(&ctx.state.catalog, config, clock.clone())
+        .await
+        .map_err(|diagnostics| {
+            // Startup applied the same bytes, so only a changed project policy or clock can
+            // refuse them; another attempt fails alike until that changes.
+            JsonError::invalid(format!(
+                "Reset made no changes because the startup buckets document no longer applies: {diagnostics}"
+            ))
+        })?;
+    let ctx = ctx.object(None, deadline);
+    let outcome = ctx
+        .await_requested_work(async {
+            crate::seed::restore(&admin, config, clock.as_ref(), deadline, initialization)
+                .await
+                .map_err(|error| {
+                    super::reseed::tree_failure(&error, super::reseed::Operation::Reset)
+                })
+        })
+        .await?;
+    Ok(json_response(&super::encode(&outcome)?))
 }
 
 pub(super) fn failure(error: &AdminError) -> JsonError {

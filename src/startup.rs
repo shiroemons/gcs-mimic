@@ -242,6 +242,8 @@ struct BoundStartup {
     listeners: BoundListeners,
     seed: SeedOutcome,
     buckets: InitOutcome,
+    /// The buckets document initialization read, which a reset to the startup state re-applies.
+    buckets_document: Option<gcs_mimic::bucket_init::ParsedDocument>,
     sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
 }
 
@@ -523,7 +525,8 @@ async fn prepare_startup(
     Ok(PhaseResult::Complete(BoundStartup {
         listeners,
         seed,
-        buckets,
+        buckets: buckets.outcome,
+        buckets_document: buckets.document,
         sync_root,
     }))
 }
@@ -565,7 +568,7 @@ fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
 }
 
 pub(crate) async fn serve(
-    config: Config,
+    mut config: Config,
     auth: Auth,
     security: gcs_mimic::tls::ListenerSecurity,
     shutdown: impl std::future::Future<Output = io::Result<()>>,
@@ -583,6 +586,7 @@ pub(crate) async fn serve(
         listeners,
         seed,
         buckets,
+        buckets_document,
         sync_root,
     } = match prepare_startup(
         &catalog,
@@ -596,6 +600,11 @@ pub(crate) async fn serve(
         Ok(PhaseResult::Complete(bound)) => bound,
         result => return Ok(finish_startup(&catalog, result.map(|_| ())).await?),
     };
+    // Only a reset to the startup state reads the document again, so a server without local
+    // administration does not keep a document of up to 1 GiB for its lifetime.
+    if config.admin_enabled {
+        config.buckets = buckets_document.map(gcs_mimic::config::DocumentSource::Parsed);
+    }
     let ready = match ready_event(&config, &auth, &catalog, &listeners, seed, buckets) {
         Ok(ready) => ready,
         Err(error) => {
