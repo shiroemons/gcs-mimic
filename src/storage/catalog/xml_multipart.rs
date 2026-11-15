@@ -7,6 +7,7 @@ use crate::storage::catalog::{Incarnation, bucket_incarnation, sql};
 use crate::{
     auth::Permission,
     bucket::{BucketAccess, CatalogError},
+    hashing::Hashes,
     object::{ObjectError, ObjectRecord},
     storage::failure::object_unavailable,
 };
@@ -124,9 +125,8 @@ pub(crate) struct Part {
     pub etag: String,
     pub size: u64,
     pub updated: SystemTime,
+    pub hashes: Hashes,
     blob_id: BlobId,
-    md5: [u8; 16],
-    crc32c: u32,
 }
 
 /// One page of an upload's parts in part-number order.
@@ -200,15 +200,17 @@ fn active(
 }
 
 fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
-    let md5: [u8; 16] = row.get(3)?;
+    let hashes = Hashes {
+        md5: row.get(3)?,
+        crc32c: row.get(4)?,
+    };
     Ok(Part {
         number: row.get(0)?,
         blob_id: row.get(1)?,
         size: row.get(2)?,
-        md5,
-        crc32c: row.get(4)?,
         updated: row.get::<_, UnixMillis>(5)?.system_time()?,
-        etag: format!("\"{}\"", crate::hashing::encode_lower(&md5)),
+        etag: format!("\"{}\"", crate::hashing::encode_lower(&hashes.md5)),
+        hashes,
     })
 }
 
@@ -452,16 +454,18 @@ impl Upload {
 
 #[cfg(test)]
 impl Part {
-    /// A part as listings report it; the blob and hashes only matter to completion.
+    /// A part as listings report it; listings show neither its blob nor its hashes.
     pub(crate) fn for_test(number: u16, etag: &str, size: u64, updated: SystemTime) -> Self {
         Self {
             number,
             etag: etag.to_owned(),
             size,
             updated,
+            hashes: Hashes {
+                md5: [0; 16],
+                crc32c: 0,
+            },
             blob_id: BlobId::generate().unwrap(),
-            md5: [0; 16],
-            crc32c: 0,
         }
     }
 }

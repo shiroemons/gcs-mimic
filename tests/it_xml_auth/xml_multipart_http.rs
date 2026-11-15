@@ -225,6 +225,55 @@ fn multipart_manifest_rejects_malformed_xml_without_publication_and_accepts_chun
     server.request("GET", &path, "", b"").status(404);
 }
 
+fn hash_fields(reply: &Reply) -> Vec<&str> {
+    reply
+        .headers
+        .lines()
+        .filter_map(|line| line.strip_prefix("x-goog-hash: "))
+        .collect()
+}
+
+#[test]
+fn multipart_part_responses_carry_one_hash_field_per_algorithm() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &[]);
+    bucket(&server, "");
+    let id = begin(&server, "value", "");
+    let path = format!("/multipart-bucket/value?uploadId={id}&partNumber=1");
+    let first = server.request("PUT", &path, "", b"123456789");
+    first.status(200);
+    assert_eq!(
+        hash_fields(&first),
+        ["crc32c=4waSgw==", "md5=JfnnlDI7RTiF9RgfG2JNCw=="]
+    );
+    // A replaced part reports the bytes it now holds, and a verified declared hash changes
+    // nothing in the reply.
+    let replaced = server.request(
+        "PUT",
+        &path,
+        "Content-MD5: XUFAKrxLKna5cZ2REBfFkg==\r\n",
+        b"hello",
+    );
+    replaced.status(200);
+    assert_eq!(
+        hash_fields(&replaced),
+        ["crc32c=mnG7TA==", "md5=XUFAKrxLKna5cZ2REBfFkg=="]
+    );
+    let key = "x-goog-encryption-algorithm: AES256\r\nx-goog-encryption-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\r\nx-goog-encryption-key-sha256: Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=\r\n";
+    let id = begin(&server, "encrypted", key);
+    let encrypted = server.request(
+        "PUT",
+        &format!("/multipart-bucket/encrypted?uploadId={id}&partNumber=1"),
+        key,
+        b"123456789",
+    );
+    encrypted.status(200);
+    assert_eq!(
+        hash_fields(&encrypted),
+        ["crc32c=4waSgw==", "md5=JfnnlDI7RTiF9RgfG2JNCw=="]
+    );
+}
+
 #[test]
 fn multipart_wire_round_trip_sparse_parts_paging_restart_and_checksum_metadata() {
     let dir = TestDir::new();

@@ -479,6 +479,9 @@ async fn upload_part(
         HeaderValue::from_str(&part.etag)
             .map_err(|_| Error::invalid("Invalid stored part ETag"))?,
     );
+    // Clients check each part against these: the Python SDK's upload_chunks_concurrently fails
+    // a part whose response lacks the CRC32C field.
+    super::insert_hashes(response.headers_mut(), part.hashes);
     Ok(response)
 }
 

@@ -285,8 +285,7 @@ impl Catalog {
                     tokio::task::yield_now().await;
                 }
             }
-            let hashes = part_hash.finish();
-            if hashes.md5 != stored.md5 || hashes.crc32c != stored.crc32c {
+            if part_hash.finish() != stored.hashes {
                 return Err(object_unavailable("multipart part data is corrupt").into());
             }
         }

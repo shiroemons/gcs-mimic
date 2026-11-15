@@ -2,6 +2,7 @@
 
 use crate::{
     config::{Config, EndpointSnapshot},
+    hashing::Hashes,
     json::{self, JsonError},
     object::{ObjectConditions, ObjectRecord, ObjectTarget},
 };
@@ -1104,15 +1105,40 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
     Ok(headers)
 }
 
+/// The hashes an XML response reports: CRC32C always, MD5 only when the bytes have one.
+pub(crate) struct HashFields {
+    crc32c: u32,
+    md5: Option<[u8; 16]>,
+}
+
+/// Composite objects and completed multipart uploads have no MD5.
+impl From<&ObjectRecord> for HashFields {
+    fn from(record: &ObjectRecord) -> Self {
+        Self {
+            crc32c: record.crc32c,
+            md5: record.has_md5().then_some(record.md5),
+        }
+    }
+}
+
+/// Bytes hashed as they arrived, such as a multipart part, have both.
+impl From<Hashes> for HashFields {
+    fn from(Hashes { md5, crc32c }: Hashes) -> Self {
+        Self {
+            crc32c,
+            md5: Some(md5),
+        }
+    }
+}
+
 /// Cloud Storage's XML API sends one `x-goog-hash` field per algorithm, always for the
-/// whole object, including on a range (observed 2026-10-31). The JSON API instead combines
-/// them in one field.
-pub(crate) fn insert_hashes(headers: &mut HeaderMap, record: &ObjectRecord) {
+/// whole object, including on a range (observed 2026-10-31), and for a multipart part's own
+/// bytes (documented). The JSON API instead combines them in one field.
+pub(crate) fn insert_hashes(headers: &mut HeaderMap, hashes: impl Into<HashFields>) {
+    let HashFields { crc32c, md5 } = hashes.into();
     headers.remove("x-goog-hash");
-    let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
-    let md5 = record
-        .has_md5()
-        .then(|| format!("md5={}", json::base64(&record.md5)));
+    let crc32c = format!("crc32c={}", json::base64(&crc32c.to_be_bytes()));
+    let md5 = md5.map(|md5| format!("md5={}", json::base64(&md5)));
     // Base64 always forms a valid header value; omitting a hash is safer than panicking
     // if that ever changes.
     for value in std::iter::once(crc32c).chain(md5) {
