@@ -24,6 +24,66 @@ fn java_hotfix_builds_use_the_full_release_name() {
 }
 
 #[test]
+fn archive_checksums_are_lowercase_hex_of_their_hash_length() {
+    let sha256 = "a".repeat(64);
+    assert_eq!(
+        ArchiveHash::Sha256
+            .digest("f", &format!("{sha256}\n"))
+            .unwrap(),
+        sha256
+    );
+    for source in [
+        "a".repeat(63),
+        "A".repeat(64),
+        "g".repeat(64),
+        "a".repeat(128),
+    ] {
+        assert!(
+            ArchiveHash::Sha256.digest("f", &source).is_err(),
+            "{source}"
+        );
+    }
+    assert!(ArchiveHash::Sha512.digest("f", &"0".repeat(128)).is_ok());
+    assert!(same_digest("f", "x", &sha256, &format!("{sha256}  x.tar.gz")).is_ok());
+    assert!(same_digest("f", "x", &sha256, &"b".repeat(64)).is_err());
+    assert!(same_digest("f", "x", &sha256, "").is_err());
+}
+
+#[test]
+fn temurin_checksum_needs_exactly_one_archive() {
+    let one = json!({"binaries": [{"package": {"checksum": "abc"}}]});
+    assert_eq!(temurin_checksum(&one).unwrap(), "abc");
+    let none = json!({"binaries": []});
+    let two = json!({"binaries": [{"package": {"checksum": "a"}}, {"package": {"checksum": "b"}}]});
+    for release in [none, two, json!({"binaries": [{"package": {}}]})] {
+        assert!(temurin_checksum(&release).is_err(), "{release}");
+    }
+}
+
+#[test]
+fn the_client_tools_action_takes_both_archive_checksums_from_the_pins() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let action = read(root, ".github/actions/client-tools/action.yml").unwrap();
+    for pin in [
+        "sdk-tests/java/.java-sha256",
+        "sdk-tests/java/.maven-sha512",
+    ] {
+        assert!(action.contains(pin), "{pin}");
+    }
+    // A digest written into the action would bypass the check of the pins.
+    let longest_hex = action
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .map(str::len)
+        .max()
+        .unwrap_or_default();
+    assert!(longest_hex < 64, "the action holds a literal digest");
+    let java = read(root, "sdk-tests/java/.java-sha256").unwrap();
+    let maven = read(root, "sdk-tests/java/.maven-sha512").unwrap();
+    ArchiveHash::Sha256.digest(".java-sha256", &java).unwrap();
+    ArchiveHash::Sha512.digest(".maven-sha512", &maven).unwrap();
+}
+
+#[test]
 fn snapshots_reject_missing_duplicate_and_changed_dependencies() {
     let pins = BTreeMap::from([("x".to_owned(), "1.0.0".to_owned())]);
     assert!(

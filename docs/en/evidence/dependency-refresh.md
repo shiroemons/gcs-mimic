@@ -1147,6 +1147,13 @@ only with the SHA-512 written in the action. Both `.maven-version` files, that
 SHA-512 and the dependency status move to 3.10.1, and the Java READMEs name it.
 The first push of the pin without the action's checksum failed both jobs at the
 checksum; the downloaded 3.10.1 archive matches the published SHA-512 below.
+After 0.23.0 the Temurin and Maven checksums moved out of the action into
+`sdk-tests/java/.java-sha256` and `.maven-sha512` beside the version pins, and
+`cargo xtask dependencies check` compares each with the publisher's, so the
+same slip now fails that check before a push: with 3.10.0's SHA-512 in
+`.maven-sha512` it reports `CHECK_FAILED: .maven-sha512 does not match the
+published checksum of Maven 3.10.1`, and with the current pins it exits 0 with
+142 `CURRENT` lines. An xtask test keeps literal digests out of the action.
 The pinned plugins (maven-compiler-plugin 3.16.0, exec-maven-plugin 3.7.0,
 maven-dependency-plugin 3.11.0), the dependencies and both recorded graphs are
 unchanged.

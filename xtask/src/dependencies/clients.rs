@@ -268,6 +268,7 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
     if scope["toolchain"]["version"] != java.trim() {
         return Err("Java runtime snapshot mismatch".into());
     }
+    ci_archive_checksums(root, scope, maven.trim(), java.trim())?;
     let available = json(&fetch(
         "https://api.adoptium.net/v3/info/available_releases",
         &[],
@@ -284,6 +285,99 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
     let latest = temurin_version(&releases)?;
     drift |= compare("Temurin toolchain", java.trim(), latest);
     Ok(drift)
+}
+
+/// The hash of an archive checksum kept beside a version pin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArchiveHash {
+    Sha256,
+    Sha512,
+}
+
+impl ArchiveHash {
+    fn hex_digits(self) -> usize {
+        match self {
+            Self::Sha256 => 64,
+            Self::Sha512 => 128,
+        }
+    }
+
+    /// A checksum file's digest: one line of lowercase hex of this hash's length, as
+    /// `sha256sum -c` and `sha512sum -c` take it.
+    fn digest(self, file: &str, source: &str) -> Result<String> {
+        let digest = source.trim();
+        if digest.len() == self.hex_digits()
+            && digest
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            Ok(digest.to_owned())
+        } else {
+            Err(format!(
+                "{file} must hold {} lowercase hex digits",
+                self.hex_digits()
+            ))
+        }
+    }
+}
+
+/// CI's client-tools action downloads the scope's Temurin and Maven archives and accepts each only
+/// with the checksum beside its version pin. A version moved without its checksum would fail only
+/// in CI, at the download, so the pinned checksums are compared with the publishers' here.
+fn ci_archive_checksums(root: &Path, scope: &Value, maven: &str, java: &str) -> Result<()> {
+    if let Some(source) = optional_sibling(root, scope, ".maven-sha512")? {
+        let pinned = ArchiveHash::Sha512.digest(".maven-sha512", &source)?;
+        let published = fetch(
+            &format!(
+                "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/{maven}/apache-maven-{maven}-bin.tar.gz.sha512"
+            ),
+            &[],
+        )?;
+        same_digest(
+            ".maven-sha512",
+            &format!("Maven {maven}"),
+            &pinned,
+            &published,
+        )?;
+    }
+    if let Some(source) = optional_sibling(root, scope, ".java-sha256")? {
+        let pinned = ArchiveHash::Sha256.digest(".java-sha256", &source)?;
+        let release = json(&fetch(
+            &format!(
+                "https://api.adoptium.net/v3/assets/release_name/eclipse/jdk-{}?architecture=x64&heap_size=normal&image_type=jdk&os=linux&project=jdk",
+                java.replace('+', "%2B")
+            ),
+            &[],
+        )?)?;
+        same_digest(
+            ".java-sha256",
+            &format!("Temurin {java}"),
+            &pinned,
+            temurin_checksum(&release)?,
+        )?;
+    }
+    Ok(())
+}
+
+/// Maven Central's `.sha512` holds the digest, sometimes followed by the file name.
+fn same_digest(file: &str, archive: &str, pinned: &str, published: &str) -> Result<()> {
+    if published.split_whitespace().next() == Some(pinned) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{file} does not match the published checksum of {archive}; update it with the version pin"
+        ))
+    }
+}
+
+/// The checksum of the one Linux x64 JDK archive Adoptium lists for a release.
+fn temurin_checksum(release: &Value) -> Result<&str> {
+    match release["binaries"].as_array().map(Vec::as_slice) {
+        Some([binary]) => binary["package"]["checksum"]
+            .as_str()
+            .ok_or_else(|| "missing Temurin archive checksum".into()),
+        _ => Err("expected one Temurin Linux x64 JDK archive".into()),
+    }
 }
 
 fn temurin_version(releases: &Value) -> Result<&str> {
