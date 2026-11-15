@@ -503,11 +503,11 @@
       "checked_at_utc": "2026-10-30T05:48:19Z",
       "toolchain": {"version": "3.15.2", "pin": "sdk-scorecard/python/.python-version", "source_url": "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false"},
       "direct_dependencies": [
-        {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706},
+        {"name": "google-cloud-storage", "current": "3.17.1", "license": "Apache-2.0", "wheel_bytes": 345706, "purpose": "Pinned with its grpc extra, which the public google.cloud.storage.asyncio gRPC client needs."},
         {"name": "cryptography", "current": "50.0.2", "license": "Apache-2.0 OR BSD-3-Clause", "purpose": "Offline RSA signing using google-auth's supported cryptography backend."}
       ],
       "source_urls": ["https://pypi.org/pypi/google-cloud-storage/json", "https://pypi.org/pypi/cryptography/json", "https://github.com/googleapis/google-cloud-python/tree/main/packages/google-cloud-storage", "https://github.com/pyca/cryptography"],
-      "resolution_constraints": "Development-only scorecard; uv.lock records the complete hash-pinned graph, resolved for requires-python >=3.15; every compiled package ships cp315 or abi3 wheels. Both projects actively maintained; the former googleapis/python-storage repository is archived and the package is developed in googleapis/google-cloud-python. Daily detection checks non-yanked stable X.Y.Z releases including new majors and the .python-version pin against the newest published stable Python release."
+      "resolution_constraints": "Development-only scorecard; uv.lock records the complete hash-pinned graph, resolved for requires-python >=3.15; every compiled package ships cp315 or abi3 wheels. The grpc extra, added on 2026-11-15 for the gRPC cases, locks grpcio 1.85.1, grpcio-status 1.85.1 and grpc-google-iam-v1 0.14.6, each the newest PyPI release then and Apache-2.0; daily detection tracks the distribution, and the extra follows its release. Both projects actively maintained; the former googleapis/python-storage repository is archived and the package is developed in googleapis/google-cloud-python. Daily detection checks non-yanked stable X.Y.Z releases including new majors and the .python-version pin against the newest published stable Python release."
     },
     {
       "ecosystem": "pypi", "manifest": "sdk-tests/python/pyproject.toml",

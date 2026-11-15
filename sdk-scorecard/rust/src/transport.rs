@@ -60,9 +60,9 @@ impl SignedHttp {
     }
 }
 
-pub(crate) async fn storage(config: &Config) -> Result<Storage, BoxError> {
+pub(crate) async fn storage(endpoint: &str) -> Result<Storage, BoxError> {
     Ok(Storage::builder()
-        .with_endpoint(config.origin.as_str())
+        .with_endpoint(endpoint)
         .with_credentials(anonymous::Builder::new().build())
         .with_retry_policy(NeverRetry)
         .build()
@@ -122,7 +122,7 @@ pub(crate) async fn check(config: &Config) -> Result<(), BoxError> {
 /// proves that the TLS handshake succeeded; only a failure before a response arrives is
 /// a transport failure.
 async fn sdk_reaches_origin(config: &Config) -> Result<(), BoxError> {
-    let storage = storage(config).await?;
+    let storage = storage(config.origin.as_str()).await?;
     let result = storage
         .read_object("projects/_/buckets/transport-check", "probe")
         .send()

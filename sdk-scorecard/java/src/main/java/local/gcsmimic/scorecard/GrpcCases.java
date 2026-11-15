@@ -1,6 +1,8 @@
 package local.gcsmimic.scorecard;
 
 import com.google.api.core.ApiFuture;
+import com.google.api.gax.rpc.ApiException;
+import com.google.api.gax.rpc.StatusCode;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobAppendableUpload;
 import com.google.cloud.storage.BlobAppendableUploadConfig;
@@ -10,19 +12,27 @@ import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.BlobWriteSessionConfig;
 import com.google.cloud.storage.BlobWriteSessionConfigs;
+import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.GrpcStorageOptions;
+import com.google.cloud.ReadChannel;
+import com.google.cloud.WriteChannel;
 import com.google.cloud.storage.RangeSpec;
 import com.google.cloud.storage.ReadProjectionConfigs;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobListOption;
+import com.google.cloud.storage.Storage.BlobTargetOption;
+import com.google.cloud.storage.Storage.BlobWriteOption;
+import com.google.cloud.storage.StorageException;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ScatteringByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -37,13 +47,18 @@ final class GrpcCases extends Cases {
 
   @Override
   void register(List<Probe.Case> cases) {
-    cases.add(new Probe.Case("sdk.grpc_basic_object", () -> withGrpc(null, this::basicObject)));
-    cases.add(new Probe.Case("sdk.grpc_blob_read_session", () -> withGrpc(null, this::readSession)));
-    cases.add(new Probe.Case("sdk.grpc_write_session_bidi",
+    cases.add(new Probe.Case("grpc.bucket_create_get_delete", () -> withGrpc(null, this::bucketLifecycle)));
+    cases.add(new Probe.Case("grpc.write_read", () -> withGrpc(null, this::writeRead)));
+    cases.add(new Probe.Case("grpc.list", () -> withGrpc(null, this::list)));
+    cases.add(new Probe.Case("grpc.update_delete", () -> withGrpc(null, this::updateDelete)));
+    cases.add(new Probe.Case("grpc.multi_range_read", () -> withGrpc(null, this::readSession)));
+    cases.add(new Probe.Case("grpc.appendable_object", () -> withGrpc(null, this::appendable)));
+    cases.add(new Probe.Case("grpc.checksum_rejected", () -> withGrpc(null, this::checksumRejected)));
+    cases.add(new Probe.Case("grpc.precondition_failed", () -> withGrpc(null, this::preconditionFailed)));
+    cases.add(new Probe.Case("grpc.write_session_bidi",
         () -> withGrpc(BlobWriteSessionConfigs.bidiWrite(), this::writeSession)));
-    cases.add(new Probe.Case("sdk.grpc_write_session_journaling",
+    cases.add(new Probe.Case("grpc.write_session_journaling",
         () -> withGrpc(BlobWriteSessionConfigs.journaling(List.of(caseDir())), this::writeSession)));
-    cases.add(new Probe.Case("sdk.grpc_appendable_upload", () -> withGrpc(null, this::appendable)));
   }
 
   @FunctionalInterface
@@ -68,31 +83,138 @@ final class GrpcCases extends Cases {
 
   /**
    * Feature cases create their bucket over HTTP so they measure the feature itself; gRPC bucket
-   * creation is covered once, by sdk.grpc_basic_object.
+   * creation is covered once, by grpc.bucket_create_get_delete.
    */
   private String setupBucket() {
     return bucket().getName();
   }
 
-  private void basicObject(Storage grpc) {
-    String b = grpc.create(BucketInfo.of(unique())).getName();
-    byte[] data = pattern(300 * 1024 + 3, 20);
-    grpc.create(BlobInfo.newBuilder(b, "a/one").setContentType("application/x-one").build(), data);
-    grpc.create(BlobInfo.newBuilder(b, "a/two").build(), bytes("two"));
-    check(Arrays.equals(grpc.readAllBytes(BlobId.of(b, "a/one")), data), "bytes differ");
-    check(names(grpc.list(b, BlobListOption.prefix("a/")).iterateAll()).equals(List.of("a/one", "a/two")),
-        "listing differs");
-    Blob one = grpc.get(BlobId.of(b, "a/one"));
-    check(one != null && "application/x-one".equals(one.getContentType()) && one.getSize() == data.length,
+  private void bucketLifecycle(Storage grpc) {
+    String name = unique();
+    check(name.equals(grpc.create(BucketInfo.of(name)).getName()), "created bucket name differs");
+    Bucket found = grpc.get(name);
+    check(found != null && name.equals(found.getName()), "bucket not read back by name");
+    check(grpc.delete(name), "delete reported a missing bucket");
+    check(grpc.get(name) == null, "deleted bucket visible");
+  }
+
+  private void writeRead(Storage grpc) throws Exception {
+    String b = setupBucket();
+    byte[] data = pattern(1024 * 1024 + 5, 20);
+    BlobId id = BlobId.of(b, "chunked.bin");
+    try (WriteChannel writer = grpc.writer(BlobInfo.newBuilder(id).setContentType("application/x-one").build())) {
+      writer.setChunkSize(256 * 1024);
+      SdkCases.writeAll(writer, data, 0, data.length);
+    }
+    check(Arrays.equals(grpc.readAllBytes(id), data), "bytes differ");
+    Blob blob = grpc.get(id);
+    check(blob != null && "application/x-one".equals(blob.getContentType()) && blob.getSize() == data.length,
         "metadata on write differs");
-    grpc.update(one.toBuilder().setMetadata(Map.of("k", "v")).build());
-    check(Map.of("k", "v").equals(grpc.get(BlobId.of(b, "a/one")).getMetadata()), "update not stored");
-    check(grpc.delete(BlobId.of(b, "a/one")), "delete reported a missing object");
-    check(grpc.get(BlobId.of(b, "a/one")) == null, "deleted object visible");
+    // seek + limit is the public ranged read of a ReadChannel: the 5 bytes at offset 10.
+    ByteBuffer part = ByteBuffer.allocate(5);
+    try (ReadChannel reader = grpc.reader(id)) {
+      reader.seek(10);
+      reader.limit(15);
+      while (part.hasRemaining() && reader.read(part) >= 0) {
+        // keep reading until the range is full or the channel ends
+      }
+    }
+    check(Arrays.equals(part.array(), Arrays.copyOfRange(data, 10, 15)) && !part.hasRemaining(),
+        "ranged read differs");
+  }
+
+  private void list(Storage grpc) {
+    String b = setupBucket();
+    for (String name : List.of("a/1", "a/2", "b")) {
+      grpc.create(BlobInfo.newBuilder(b, name).build(), bytes(name));
+    }
+    List<String> top = new ArrayList<>();
+    for (Blob entry : grpc.list(b, BlobListOption.delimiter("/")).iterateAll()) {
+      top.add(entry.isDirectory() ? "prefix:" + entry.getName() : entry.getName());
+    }
+    top.sort(null);
+    check(top.equals(List.of("b", "prefix:a/")), "delimiter listing " + top);
+    check(names(grpc.list(b, BlobListOption.prefix("a/")).iterateAll()).equals(List.of("a/1", "a/2")),
+        "prefix listing differs");
+  }
+
+  private void updateDelete(Storage grpc) {
+    String b = setupBucket();
+    BlobId id = BlobId.of(b, "meta.bin");
+    Blob created = grpc.create(BlobInfo.newBuilder(id).build(), bytes("meta"));
+    grpc.update(created.toBuilder().setMetadata(Map.of("k", "v")).build());
+    Blob read = grpc.get(id);
+    check(read != null && Map.of("k", "v").equals(read.getMetadata()), "update not stored");
+    check(grpc.delete(id), "delete reported a missing object");
+    check(grpc.get(id) == null, "deleted object visible");
+  }
+
+  /**
+   * The SDK surfaces a gRPC failure as a StorageException whose cause chain holds the gax
+   * ApiException; its status code is the gRPC code itself, which getCode() would only map to HTTP.
+   */
+  private static StatusCode.Code grpcCode(Throwable failed) {
+    for (Throwable t = failed; t != null; t = t.getCause()) {
+      if (t instanceof ApiException api) {
+        return api.getStatusCode().getCode();
+      }
+    }
+    throw new AssertionError("no gRPC status in " + failed);
+  }
+
+  private static String messageChain(Throwable failed) {
+    StringBuilder chain = new StringBuilder();
+    for (Throwable t = failed; t != null; t = t.getCause()) {
+      chain.append(t.getMessage()).append('\n');
+    }
+    return chain.toString().toLowerCase(Locale.ROOT);
+  }
+
+  /** Runs a call expected to fail over gRPC; the failure may be wrapped in an IOException. */
+  private static Throwable grpcFailure(Probe.Body call) throws Exception {
+    try {
+      call.run();
+    } catch (StorageException | IOException failed) {
+      return failed;
+    }
+    throw new AssertionError("expected a gRPC failure, got success");
+  }
+
+  private void checksumRejected(Storage grpc) throws Exception {
+    String b = setupBucket();
+    // crc32cMatch() sends the BlobInfo value; create(byte[]) always computes its own, so the
+    // writer is the public path for a declared checksum.
+    BlobInfo info = BlobInfo.newBuilder(b, "crc.txt").setCrc32c("AAAAAA==").build();
+    Throwable failed = grpcFailure(() -> {
+      try (WriteChannel writer = grpc.writer(info, BlobWriteOption.crc32cMatch())) {
+        SdkCases.writeAll(writer, bytes("payload"), 0, 7);
+      }
+    });
+    String message = messageChain(failed);
+    check(grpcCode(failed) == StatusCode.Code.INVALID_ARGUMENT
+        && (message.contains("checksum") || message.contains("crc32c")), failed.toString());
+    check(grpc.get(BlobId.of(b, "crc.txt")) == null, "rejected write left an object");
+  }
+
+  private void preconditionFailed(Storage grpc) throws Exception {
+    String b = setupBucket();
+    BlobId id = BlobId.of(b, "once.txt");
+    grpc.create(BlobInfo.newBuilder(id).build(), bytes("first"), BlobTargetOption.doesNotExist());
+    Throwable failed = grpcFailure(
+        () -> grpc.create(BlobInfo.newBuilder(id).build(), bytes("second"), BlobTargetOption.doesNotExist()));
+    check(grpcCode(failed) == StatusCode.Code.FAILED_PRECONDITION, failed.toString());
+    check(Arrays.equals(grpc.readAllBytes(id), bytes("first")), "object lost its first bytes");
   }
 
   private void readSession(Storage grpc) throws Exception {
     String b = setupBucket();
+    grpc.create(BlobInfo.newBuilder(b, "digits.txt").build(), bytes("0123456789"));
+    try (BlobReadSession digits = grpc.blobReadSession(BlobId.of(b, "digits.txt")).get(30, TimeUnit.SECONDS)) {
+      ApiFuture<byte[]> head = digits.readAs(ReadProjectionConfigs.asFutureBytes().withRangeSpec(RangeSpec.of(0, 3)));
+      ApiFuture<byte[]> tail = digits.readAs(ReadProjectionConfigs.asFutureBytes().withRangeSpec(RangeSpec.of(6, 4)));
+      check(Arrays.equals(head.get(30, TimeUnit.SECONDS), bytes("012")), "range (0, 3) differs");
+      check(Arrays.equals(tail.get(30, TimeUnit.SECONDS), bytes("6789")), "range (6, 4) differs");
+    }
     byte[] data = pattern(1024 * 1024 + 9, 21);
     grpc.create(BlobInfo.newBuilder(b, "ranges.bin").build(), data);
     try (BlobReadSession session = grpc.blobReadSession(BlobId.of(b, "ranges.bin")).get(30, TimeUnit.SECONDS)) {
@@ -143,7 +265,7 @@ final class GrpcCases extends Cases {
     SdkCases.writeAll(channel, first, 0, first.length);
     channel.flush();
     // A size-only read mask keeps this case about appendable semantics; the default all-fields
-    // GetObject mask is exercised by sdk.grpc_basic_object.
+    // GetObject mask is exercised by grpc.write_read.
     Blob partial = grpc.get(id, Storage.BlobGetOption.fields(Storage.BlobField.SIZE));
     check(partial != null && partial.getSize() == first.length,
         "unfinalized size " + (partial == null ? null : partial.getSize()) + ", expected " + first.length);

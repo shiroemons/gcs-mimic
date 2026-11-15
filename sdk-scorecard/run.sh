@@ -214,7 +214,8 @@ run_probe() {
       SCORECARD_ENDPOINT=$endpoint NODE_EXTRA_CA_CERTS="$ca" SCORECARD_SIGNING_KEY="$signing_key" \
         node "$root/sdk-scorecard/node/probe.mjs" >"$file" ;;
     python)
-      SCORECARD_ENDPOINT=$endpoint SCORECARD_CA_CERT="$ca" SCORECARD_SIGNING_KEY="$signing_key" \
+      SCORECARD_ENDPOINT=$endpoint SCORECARD_GRPC_ENDPOINT=$grpc_endpoint SCORECARD_CA_CERT="$ca" \
+        SCORECARD_SIGNING_KEY="$signing_key" \
         "$root/sdk-scorecard/python/.venv/bin/python" "$root/sdk-scorecard/python/probe.py" >"$file" ;;
     php)
       docker run --rm --name "$probe_container" --add-host host.docker.internal:host-gateway -v "$root:/app:ro" -v "$ca:/scorecard-ca.pem:ro" \

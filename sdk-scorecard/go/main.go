@@ -28,6 +28,8 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type probe struct {
@@ -1447,10 +1449,20 @@ func cases() []testCase {
 			if err != nil {
 				return err
 			}
-			if _, err := b.Attrs(p.ctx); err != nil {
+			a, err := b.Attrs(p.ctx)
+			if err != nil {
 				return err
 			}
-			return b.Delete(p.ctx)
+			if a.Name != b.BucketName() {
+				return fmt.Errorf("bucket name %q, want %q", a.Name, b.BucketName())
+			}
+			if err := b.Delete(p.ctx); err != nil {
+				return err
+			}
+			if _, err := b.Attrs(p.ctx); !errors.Is(err, storage.ErrBucketNotExist) {
+				return fmt.Errorf("after delete: %v", err)
+			}
+			return nil
 		}},
 		{"grpc.write_read", "grpc", func(p *probe) error {
 			if p.grpc == nil {
@@ -1489,7 +1501,14 @@ func cases() []testCase {
 			if err := expectList(prefixes, "a/"); err != nil {
 				return err
 			}
-			return expectList(names, "b")
+			if err := expectList(names, "b"); err != nil {
+				return err
+			}
+			names, _, err = listNames(p.ctx, b, &storage.Query{Prefix: "a/"})
+			if err != nil {
+				return err
+			}
+			return expectList(names, "a/1", "a/2")
 		}},
 		{"grpc.update_delete", "grpc", func(p *probe) error {
 			if p.grpc == nil {
@@ -1507,8 +1526,16 @@ func cases() []testCase {
 			if err != nil {
 				return err
 			}
-			if a.Metadata["k"] != "v" {
-				return fmt.Errorf("metadata %v", a.Metadata)
+			if !maps.Equal(a.Metadata, map[string]string{"k": "v"}) {
+				return fmt.Errorf("update returned metadata %v", a.Metadata)
+			}
+			// Read the metadata back over a separate gRPC call, not only from the update response.
+			got, err := o.Attrs(p.ctx)
+			if err != nil {
+				return err
+			}
+			if !maps.Equal(got.Metadata, map[string]string{"k": "v"}) {
+				return fmt.Errorf("read back metadata %v", got.Metadata)
 			}
 			if err := o.Delete(p.ctx); err != nil {
 				return err
@@ -1518,7 +1545,7 @@ func cases() []testCase {
 			}
 			return nil
 		}},
-		{"grpc.multi_range_downloader", "grpc", func(p *probe) error {
+		{"grpc.multi_range_read", "grpc", func(p *probe) error {
 			if p.grpc == nil {
 				return fmt.Errorf("no gRPC endpoint")
 			}
@@ -1563,13 +1590,108 @@ func cases() []testCase {
 				return err
 			}
 			o := b.Object("append")
-			if _, err := write(p.ctx, o, []byte("appended"), func(w *storage.Writer) { w.Append = true }); err != nil {
+			data := payload(150*1024 + 3)
+			first, second := data[:100*1024+1], data[100*1024+1:]
+			w := o.NewWriter(p.ctx)
+			w.Append = true
+			if _, err := w.Write(first); err != nil {
+				w.Close()
+				return err
+			}
+			// Flush persists the appended bytes while the object stays unfinalized.
+			if _, err := w.Flush(); err != nil {
+				w.Close()
+				return err
+			}
+			a, err := o.Attrs(p.ctx)
+			if err != nil {
+				w.Close()
+				return err
+			}
+			if a.Size != int64(len(first)) {
+				w.Close()
+				return fmt.Errorf("unfinalized size %d, want %d", a.Size, len(first))
+			}
+			if _, err := w.Write(second); err != nil {
+				w.Close()
+				return err
+			}
+			w.FinalizeOnClose = true
+			if err := w.Close(); err != nil {
+				return err
+			}
+			if a, err = o.Attrs(p.ctx); err != nil {
+				return err
+			}
+			if a.Size != int64(len(data)) {
+				return fmt.Errorf("final size %d, want %d", a.Size, len(data))
+			}
+			got, err := read(p.ctx, o)
+			return expectBytes(got, data, err)
+		}},
+		{"grpc.checksum_rejected", "grpc", func(p *probe) error {
+			if p.grpc == nil {
+				return fmt.Errorf("no gRPC endpoint")
+			}
+			b, err := p.bucketWith(p.grpc, nil)
+			if err != nil {
+				return err
+			}
+			data := payload(1024)
+			o := b.Object("crc")
+			// Off by one from the real CRC32C, so only the checksum can be at fault.
+			wrong := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli)) + 1
+			_, err = write(p.ctx, o, data, func(w *storage.Writer) {
+				w.SendCRC32C = true
+				w.CRC32C = wrong
+			})
+			if err := expectGRPCCode(err, codes.InvalidArgument); err != nil {
+				return err
+			}
+			msg := strings.ToLower(err.Error())
+			if !strings.Contains(msg, "crc32c") && !strings.Contains(msg, "checksum") {
+				return fmt.Errorf("expected a checksum error: %w", err)
+			}
+			if _, err := o.Attrs(p.ctx); !errors.Is(err, storage.ErrObjectNotExist) {
+				return fmt.Errorf("rejected upload left an object: %v", err)
+			}
+			return nil
+		}},
+		{"grpc.precondition_failed", "grpc", func(p *probe) error {
+			if p.grpc == nil {
+				return fmt.Errorf("no gRPC endpoint")
+			}
+			b, err := p.bucketWith(p.grpc, nil)
+			if err != nil {
+				return err
+			}
+			o := b.Object("once")
+			if _, err := write(p.ctx, o, []byte("first"), nil); err != nil {
+				return err
+			}
+			_, err = write(p.ctx, o.If(storage.Conditions{DoesNotExist: true}), []byte("second"), nil)
+			if err := expectGRPCCode(err, codes.FailedPrecondition); err != nil {
 				return err
 			}
 			got, err := read(p.ctx, o)
-			return expectBytes(got, []byte("appended"), err)
+			return expectBytes(got, []byte("first"), err)
 		}},
 	}
+}
+
+// expectGRPCCode requires err to carry the given gRPC status code itself, not an HTTP mapping of it.
+func expectGRPCCode(err error, want codes.Code) error {
+	if err == nil {
+		return fmt.Errorf("expected gRPC code %s, got success", want)
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return fmt.Errorf("expected gRPC code %s, got a non-status error: %w", want, err)
+	}
+	if st.Code() != want {
+		return fmt.Errorf("gRPC code %s, want %s: %w", st.Code(), want, err)
+	}
+	return nil
 }
 
 func md5Sum(data []byte) []byte {

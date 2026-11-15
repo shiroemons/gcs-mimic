@@ -6,6 +6,7 @@ use google_cloud_gax::error::rpc::Code;
 use google_cloud_storage::builder::storage::ReadObject;
 use google_cloud_storage::client::{Storage, StorageControl};
 use google_cloud_storage::model::{Bucket, ListObjectsResponse, Object};
+use google_cloud_storage::read_object::ReadObjectResponse;
 use google_cloud_wkt::FieldMask;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
@@ -19,6 +20,9 @@ pub(crate) struct Ctx {
     pub(crate) project: String,
     pub(crate) storage: Storage,
     control: std::result::Result<StorageControl, String>,
+    /// A second `Storage` client on the gRPC endpoint: `open_object` streams over the
+    /// endpoint of the client that opens it, and the main client's endpoint serves HTTP.
+    grpc_storage: std::result::Result<Storage, String>,
     pub(crate) signer: Signer,
     pub(crate) http: SignedHttp,
     nonce: u64,
@@ -45,6 +49,9 @@ impl Ctx {
         let control = transport::control(grpc)
             .await
             .map_err(|error| transport::chain(error.as_ref()));
+        let grpc_storage = transport::storage(grpc)
+            .await
+            .map_err(|error| transport::chain(error.as_ref()));
         let key = std::fs::read_to_string(&config.signing_key)?;
         let signer =
             google_cloud_auth::credentials::service_account::Builder::new(serde_json::json!({
@@ -59,7 +66,8 @@ impl Ctx {
         Ok(Self {
             origin: config.origin.clone(),
             project: config.project.clone(),
-            storage: transport::storage(config).await?,
+            storage: transport::storage(config.origin.as_str()).await?,
+            grpc_storage,
             control,
             signer,
             http: SignedHttp::new(config)?,
@@ -72,6 +80,12 @@ impl Ctx {
         self.control.as_ref().map_err(|error| {
             io::Error::other(format!("StorageControl unavailable: {error}")).into()
         })
+    }
+
+    pub(crate) fn grpc_storage(&self) -> Result<&Storage> {
+        self.grpc_storage
+            .as_ref()
+            .map_err(|error| io::Error::other(format!("gRPC Storage unavailable: {error}")).into())
     }
 
     pub(crate) fn unique(&self) -> String {
@@ -233,7 +247,12 @@ pub(crate) async fn get_object(
 }
 
 pub(crate) async fn collect(reader: ReadObject) -> google_cloud_storage::Result<Vec<u8>> {
-    let mut response = reader.send().await?;
+    drain(reader.send().await?).await
+}
+
+pub(crate) async fn drain(
+    mut response: ReadObjectResponse,
+) -> google_cloud_storage::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     while let Some(chunk) = response.next().await.transpose()? {
         bytes.extend_from_slice(&chunk);

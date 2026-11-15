@@ -4,10 +4,12 @@
 
 Probes the official `com.google.cloud:google-cloud-storage` 2.78.0 against an
 emulator. It emits one JSONL line per case: the 56 shared bucket, object and
-signed cases (same IDs and order as the Python probe) plus 19 Java-specific
-cases in the `sdk` area (IDs start with `sdk.`). The area covers the SDK's
-blob handles, channels, write sessions, Transfer Manager, batch, retry and
-gRPC transport.
+signed cases (same IDs and order as the Python probe), 10 cases in the `grpc`
+area (IDs start with `grpc.`; eight are shared with the other SDKs that have
+a public gRPC API, two are Java-only write-session cases) and 14 Java-specific
+cases in the `sdk` area (IDs start with `sdk.`). The `sdk` area covers the
+SDK's blob handles, channels, write sessions, Transfer Manager, batch and
+retry.
 
 ## Build and run
 

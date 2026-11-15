@@ -3,6 +3,7 @@
 
 mod bucket;
 mod copy;
+mod grpc;
 mod listing;
 mod object;
 mod retention;
@@ -160,6 +161,7 @@ pub(crate) const CASES: &[(&str, Case)] = &[
         Case::Unsupported("google-cloud-storage 1.22.0 has no public API for V2 signed URLs"),
     ),
     ("signed.post_policy_v4", run!(signed::post_policy_v4)),
+    ("grpc.multi_range_read", run!(grpc::multi_range_read)),
 ];
 
 #[cfg(test)]
@@ -169,7 +171,7 @@ mod tests {
 
     #[test]
     fn case_list_matches_the_shared_scorecard_shape() {
-        assert_eq!(CASES.len(), 56);
+        assert_eq!(CASES.len(), 57);
         let ids: HashSet<&str> = CASES.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids.len(), CASES.len(), "duplicate case IDs");
     }

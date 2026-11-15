@@ -1,5 +1,6 @@
 """Emulator-neutral official Python SDK probes; stdout is JSONL evidence."""
 
+import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
 import gzip
@@ -14,8 +15,12 @@ import sys
 from urllib.parse import urlsplit
 
 from google.api_core import exceptions
+from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
+from google.cloud.storage.asyncio.async_appendable_object_writer import AsyncAppendableObjectWriter
+from google.cloud.storage.asyncio.async_grpc_client import AsyncGrpcClient
+from google.cloud.storage.asyncio.async_multi_range_downloader import AsyncMultiRangeDownloader
 from google.oauth2 import service_account
 import requests
 
@@ -677,6 +682,75 @@ def post_policy():
     check(200 <= response.status_code < 300, f"status {response.status_code}: {response.text[:200]}")
     check(read(b.blob("post.txt")) == b"posted", "posted bytes")
 
+
+
+GRPC_ENDPOINT = os.environ.get("SCORECARD_GRPC_ENDPOINT", "")
+
+
+def grpc_client():
+    # AnonymousCredentials make AsyncGrpcClient build a plaintext channel to exactly this
+    # host:port, so no DirectPath or Google host is reachable from the gRPC cases.
+    check(GRPC_ENDPOINT, "no gRPC endpoint: SCORECARD_GRPC_ENDPOINT is unset")
+    return AsyncGrpcClient(credentials=AnonymousCredentials(),
+                           client_options=ClientOptions(api_endpoint=GRPC_ENDPOINT))
+
+
+def run_grpc(body):
+    async def main():
+        client = grpc_client()
+        try:
+            await body(client)
+        finally:
+            await client.grpc_client.transport.close()
+    asyncio.run(main())
+
+
+@probe("grpc.multi_range_read")
+def grpc_multi_range_read():
+    b = bucket()
+    upload(b, "mrd", "0123456789")
+
+    async def body(client):
+        mrd = await AsyncMultiRangeDownloader.create_mrd(client, b.name, "mrd")
+        try:
+            head, tail = io.BytesIO(), io.BytesIO()
+            await mrd.download_ranges([(0, 3, head), (6, 4, tail)])
+        finally:
+            await mrd.close()
+        check(head.getvalue() == b"012", f"range (0, 3) returned {head.getvalue()!r}")
+        check(tail.getvalue() == b"6789", f"range (6, 4) returned {tail.getvalue()!r}")
+    run_grpc(body)
+
+
+@probe("grpc.appendable_object")
+def grpc_appendable_object():
+    b = bucket()
+    first, second = b"a" * (100 * 1024 + 1), b"b" * (50 * 1024 + 2)
+
+    async def body(client):
+        writer = AsyncAppendableObjectWriter(client, b.name, "appendable")
+        # open() sends only the write spec and waits for the service's answer; a bounded wait
+        # names that step instead of reporting the case-wide alarm.
+        try:
+            await asyncio.wait_for(writer.open(), timeout=20)
+        except TimeoutError:
+            raise AssertionError("the appendable open got no response within 20 seconds") from None
+        try:
+            await writer.append(first)
+            persisted = await writer.flush()
+            check(persisted == len(first), f"flush persisted {persisted}")
+            looked_up = await writer.state_lookup()
+            check(looked_up == len(first), f"unfinalized size {looked_up}")
+            await writer.append(second)
+            final = await writer.finalize()
+        finally:
+            if writer.is_stream_open:
+                await writer.close()
+        check(final.size == len(first) + len(second), f"finalized size {final.size}")
+    run_grpc(body)
+    blob = b.get_blob("appendable", retry=None)
+    check(blob is not None and blob.size == len(first) + len(second), "stored size")
+    check(read(blob) == first + second, "stored bytes")
 
 def timed_out(signum, frame):
     raise TimeoutError("case exceeded 60 seconds")

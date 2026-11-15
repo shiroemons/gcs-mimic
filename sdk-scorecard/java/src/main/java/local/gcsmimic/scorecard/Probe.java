@@ -127,9 +127,9 @@ public final class Probe {
       new BucketCases(context).register(cases);
       new ObjectCases(context).register(cases);
       new SignedCases(context).register(cases);
+      new GrpcCases(context).register(cases);
       new SdkCases(context).register(cases);
       new TransferCases(context).register(cases);
-      new GrpcCases(context).register(cases);
       String filter = envOr("SCORECARD_RUN", "");
       for (Case c : cases) {
         if (c.id().contains(filter)) {

@@ -27,9 +27,10 @@ A product that passes every scored case in all nine SDKs scores 100.
   points each, five SDKs 20 points each, eight SDKs 12.5 points each.
 
 The `bucket`, `object` and `signed` areas are the shared core, with identical
-IDs in every SDK. The `grpc` area (Go) and the `sdk` area (Java and .NET, IDs
-starting with `sdk.`) hold each SDK's own transports and idioms, so SDKs have
-different case counts. `summary.md` therefore reports two totals: `Score`
+IDs in every SDK. The `grpc` area (Go, Java, Python and Rust, each emitting
+the gRPC cases its SDK has a public API for) and the `sdk` area (Java and
+.NET, IDs starting with `sdk.`) hold each SDK's own transports and idioms, so
+SDKs have different case counts. `summary.md` therefore reports two totals: `Score`
 counts every case, `Core` counts only the shared core and is the figure to
 compare across SDKs.
 
@@ -89,8 +90,8 @@ scorecard.
 | bucket | 21 | 21 | 21 | 21 | 21 | 21 | 21 | 21 | 21 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, bucket soft delete/restore, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
 | object | 29 | 29 | 29 | 29 | 29 | 29 | 29 | 29 | 29 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose and its preconditions, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK and key rotation, soft delete/restore |
 | signed | 6 | 6 | 6 | 6 | 6 | 6 | 6 | 6 | 6 | V4 GET/PUT, V4 resumable start, V4 response overrides, V2 GET, V4 POST policy |
-| grpc | 6 | – | – | – | – | – | – | – | – | `storage.NewGRPCClient`: bucket CRUD, write/read, list, update/delete, MultiRangeDownloader, appendable objects |
-| sdk | – | – | – | – | – | 19 | 17 | – | – | The SDK's own idioms: blob handles, channels and write sessions, Transfer Manager, batch, retry, progress and resumable-session handling, signed-URL templates, rewrite loops, plus Java's gRPC transport |
+| grpc | 8 | – | – | – | 2 | 10 | – | 1 | – | Each SDK's public gRPC API: bucket CRUD, chunked write and ranged read, list, update/delete, multi-range bidi reads, appendable uploads, checksum and precondition failures, plus Java's write sessions |
+| sdk | – | – | – | – | – | 14 | 17 | – | – | The SDK's own idioms: blob handles, channels and write sessions, Transfer Manager, batch, retry, progress and resumable-session handling, signed-URL templates, rewrite loops |
 
 Case IDs in `bucket`, `object` and `signed` are shared between the SDKs. The
 probes live in [`go/main.go`](go/main.go), [`ruby/probe.rb`](ruby/probe.rb),
