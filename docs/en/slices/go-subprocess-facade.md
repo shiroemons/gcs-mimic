@@ -52,8 +52,10 @@ validation and failures come from the same fixture route as other adapters.
 The process start, release check, child environment, transport guard and stop
 sequence live in `go/internal/mimicproc`, so that every Go package of the module
 starts and stops its child alike; the facade passes its own profile, scheme and
-options and keeps its public API and messages. The controllable test child lives
-in `go/internal/fakechild` and serves the tests of every package.
+options and keeps its public API and messages. The native
+[`gcsmimic` package](#native-gcsmimic-package) uses the same code. The
+controllable test child lives in `go/internal/fakechild` and serves the tests
+of every package.
 
 Normal tests use the Go test binary as a child, without running Rust:
 
@@ -106,3 +108,56 @@ coordinator's final source. Original source capture is covered by the separate
 [Go memory exporter](go-source-memory-export.md). Ordinary facade backend access,
 literal in-process execution and coherent live/history export remain unsupported;
 no complete Go compatibility claim follows from wire or SDK coverage.
+
+## Native gcsmimic package
+
+`go/gcsmimic` is the module's package for new tests, with gcs-mimic's own API;
+the facade above stays for migration. [The Go README](../../../go/README.md#gcsmimic)
+documents its API and options. Its acceptance cases are the DESIGN-082 rows
+`GO-SHARED-PROCESS-CONTROL`, `GO-GCSMIMIC-LIFECYCLE`,
+`GO-GCSMIMIC-HELPER-REQUESTS`, `GO-GCSMIMIC-HELPER-RUNTIME` and
+`GO-WINDOWS-STOP`.
+
+The child runs `serve --auth-mode permissive --seed-project PROJECT
+--admin-enabled true --listen 127.0.0.1:0 --scheme http --backend memory`,
+without a compatibility profile; `WithDataDir` selects the disk backend, and
+`WithBuckets`, `WithBucketsDocument` and `WithSeedDir` add `--buckets` and
+`--seed-dir`. `WithArgs` refuses the flags the package sets. Its HTTP client
+forwards only requests to the started origin and has no overall timeout. A start
+that exits before ready reports the last 4 KiB of the child's output.
+
+The helpers call three local administration contracts:
+
+| Helper | Request | Handling |
+| --- | --- | --- |
+| `TempBucket` cleanup | `DELETE /_internal/buckets/{bucket}`, no query or body | 200 succeeds, `cleanupPending` included. 503 is retried as its `Retry-After` asks, capped at 2 seconds per wait, for at most five requests and 10 seconds of waiting. 404 succeeds only when a JSON API read confirms the bucket is gone, so a binary without the route cannot leave buckets unnoticed |
+| `Seed` of a `Dir` or `FS` | `POST /_internal/objects` with `{"bucket","name","defaults":"seed","notificationMode":"suppress"}` and the file as the media part | The server chooses the content type and owner as the startup seed does. No generation or timestamp is sent, as `defaults: seed` refuses them |
+| `Seed` of an `Object` | The same route with `{"bucket","name","notificationMode":"suppress"}` and `contentType` when set | The media part's `application/octet-stream` applies otherwise |
+| `Reset` | `POST /_internal/reset` with `{"confirm":"gcs-mimic","state":"startup"}` | 503 is retried like the purge. Every failure says that the server made no changes; a 400 with reason `invalid` names the startup fixtures, any other 400 an older binary. The counts of the answer are not used |
+
+`Seed` creates missing buckets through the JSON API in the server's project and
+walks a tree twice: once to refuse symbolic links, other special files and names
+that are not UTF-8 before any request, then to write. The tree rules follow
+`src/seed.rs`: top-level directories are buckets, created even when empty; top-level
+files are skipped and logged; `.DS_Store` and `._*` files are skipped; empty
+nested directories create nothing. `Into(bucket)` instead writes every file of
+the tree into one bucket. `TempBucket` names are
+`tmp-<test>-<8 hex digits per process>-<sequence>`, at most 63 bytes, with any
+spelling of `google` broken by a dash. The official client's create request
+drops `DefaultEventBasedHold`, so `TempBucket` sets it with a follow-up update.
+
+Verification on 2026-11-16, Go 1.27.4:
+
+- `go vet ./...`, `GOOS=windows go vet ./...`, `GOOS=linux go vet ./...` and the
+  same three with `-tags integration` passed, and `gofmt -l .` listed nothing.
+- `go test -race -count=1 ./...` passed every package. The request-level tests
+  use a local HTTP server that checks method, path, query, body and retries.
+- With `GCSM_BINARY` set to a binary built from this source,
+  `go test -race -count=1 -tags integration ./fakestorage` passed, and in
+  `./gcsmimic` `TestRustStartWritesReadsAndKeepsServersApart` passed. The other
+  three runtime tests failed, as expected before the server provides the routes:
+  the purge answered 404 `Route not found` while the bucket remained, `defaults`
+  was refused with 400, and the reset refused `state` with 400 `invalidArgument`.
+  They stay pending until they pass against a server with those contracts.
+- The Windows stop is compiled and vetted only. No Windows run has started or
+  stopped a child.

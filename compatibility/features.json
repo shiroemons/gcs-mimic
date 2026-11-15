@@ -58745,7 +58745,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Earlier pinned Go resumable, bucket metadata, IAM/public, XML/JSON, CORS and trusted HTTPS evidence retains its original versions in the linked verification records. Current manifests pin Go 1.27.3, Storage v1.70.0 and API v0.310.0. Scoped normal resumable Writer, strict conditions, signed URLs and both gRPC object adapters have independent contracts; this broad SDK row remains PARTIAL for the remaining fields/transports/provider behavior. Unreleased Go source compatibility is a separate Rust subprocess facade with constructors, client/handler/lifecycle and direct fixture/bucket helpers, plus a quiesced actual-source memory exporter. Mock/race/build checks pass; final Rust/SDK/container execution remains pending in docs/en/evidence/migration-integration.md. Ordinary Backend access, complete exported Go API parity, literal in-process execution and Windows NoListener are unsupported. See docs/en/slices/go-subprocess-facade.md and docs/en/slices/go-source-memory-export.md. SPEC-SDK-UNSUPPORTED and invocation-token/provider deviations remain explicit.",
+      "notes": "Earlier pinned Go resumable, bucket metadata, IAM/public, XML/JSON, CORS and trusted HTTPS evidence retains its original versions in the linked verification records. Current manifests pin Go 1.27.3, Storage v1.70.0 and API v0.310.0. Scoped normal resumable Writer, strict conditions, signed URLs and both gRPC object adapters have independent contracts; this broad SDK row remains PARTIAL for the remaining fields/transports/provider behavior. Unreleased Go source compatibility is a separate Rust subprocess facade with constructors, client/handler/lifecycle and direct fixture/bucket helpers, plus a quiesced actual-source memory exporter. Mock/race/build checks pass; final Rust/SDK/container execution remains pending in docs/en/evidence/migration-integration.md. Ordinary Backend access, complete exported Go API parity, literal in-process execution and Windows NoListener are unsupported. See docs/en/slices/go-subprocess-facade.md and docs/en/slices/go-source-memory-export.md. The native gcsmimic package shares that facade's process control (go/internal/mimicproc) and adds TempBucket, Seed and Reset over local administration routes; its lifecycle and request-level cases pass, its runtime cases await the purge route, the startup reset state and the fixture seed defaults in the server, and the Windows CTRL_BREAK stop is compiled but has not run. SPEC-SDK-UNSUPPORTED and invocation-token/provider deviations remain explicit.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -58925,6 +58925,65 @@
           "test_ids": [
             "TestMigrationAppScenarioGo"
           ]
+        },
+        {
+          "id": "GO-SHARED-PROCESS-CONTROL",
+          "description": "fakestorage and gcsmimic start, check and stop their child through go/internal/mimicproc: each package chooses the profile and scheme of the shared serve arguments, fakestorage keeps its arguments and messages, the release error names the refusing package, Stop reaps the child and repeats its result, and an exit before ready reports the child's last output only when the package asks. Contract: docs/en/slices/go-subprocess-facade.md.",
+          "result": "PASS",
+          "test_ids": [
+            "TestServeArgsLeaveTheProfileAndSchemeToTheCaller",
+            "TestStopEndsTheChildAndRepeatsItsResult",
+            "TestAnEarlyExitReportsTheTailOfTheChildOutputOnlyWhenAsked",
+            "TestUnsupportedBinaryErrorNamesTheRefusingPackage",
+            "TestUnsupportedBinaryMessageNamesFakestorage"
+          ]
+        },
+        {
+          "id": "GO-GCSMIMIC-LIFECYCLE",
+          "description": "gcsmimic Start/New run the native profile over loopback HTTP with the memory backend, permissive authentication and local administration; options reach the command line and managed flags are refused; Close stops the child and repeats its result; the startup context bounds only the startup; missing executable, another release, exit before ready and the renamed variable each fail with their own advice; HTTPClient refuses other origins; two real servers write, read and stay isolated. Contract: docs/en/slices/go-subprocess-facade.md.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStartRunsTheNativeProfileOverLoopbackHTTP",
+            "TestCloseStopsTheChildAndRepeatsItsResult",
+            "TestStartContextBoundsTheStartupOnly",
+            "TestOptionsReachTheCommandLine",
+            "TestOptionsRefuseManagedFlagsAndConflicts",
+            "TestStartFailuresSayWhatToDo",
+            "TestRustStartWritesReadsAndKeepsServersApart"
+          ]
+        },
+        {
+          "id": "GO-GCSMIMIC-HELPER-REQUESTS",
+          "description": "Against a test HTTP server, TempBucket creates a valid, unique, test-named bucket through the JSON API with its attributes, object retention and default hold, then purges it with DELETE /_internal/buckets/{bucket} without query or body, retrying 503 within a bound and accepting 404 only for a bucket confirmed gone; Seed sends trees with defaults=seed and suppressed notifications under the startup seed's layout rules, Into and in-code objects as written, and refuses links, special files and non-UTF-8 names before any request; Reset posts the startup state, retries 503 and reports that a failed reset changed nothing. Contract: docs/en/slices/go-subprocess-facade.md.",
+          "result": "PASS",
+          "test_ids": [
+            "TestTempBucketNamesAreValidUniqueAndNameTheTest",
+            "TestTempBucketCreatesThenPurgesAndWaitsOutABusyServer",
+            "TestTempBucketRefusesANameOfItsOwn",
+            "TestPurgeGivesUpOnAStuckServerAndChecksA404",
+            "TestRetryDelayFollowsRetryAfterWithinItsBound",
+            "TestSeedSendsTreesWithSeedDefaultsAndObjectsAsWritten",
+            "TestSeedRefusesWhatTheStartupSeedRefusesBeforeWriting",
+            "TestSeedFailsTheTestOnAWriteError",
+            "TestResetAsksForTheStartupStateAndWaitsOutABusyServer",
+            "TestAFailedResetSaysThatNothingChanged"
+          ]
+        },
+        {
+          "id": "GO-GCSMIMIC-HELPER-RUNTIME",
+          "description": "Against the Rust runtime: a TempBucket with versions, holds and locked retention is gone after its test while another bucket keeps its object; Dir, fs.FS with Into and in-code Seed inputs give the startup seed's content, content type, owner and ACL; Reset restores a startup bucket with its CORS and versioning, the startup fixtures, and removes later buckets and objects. Pending the purge route, the startup reset state and the fixture seed defaults in the server.",
+          "result": "PENDING",
+          "test_ids": [
+            "TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration",
+            "TestRustSeedMatchesTheStartupSeed",
+            "TestRustResetReturnsToTheStartupState"
+          ]
+        },
+        {
+          "id": "GO-WINDOWS-STOP",
+          "description": "On Windows both packages start the child in its own process group and stop it with CTRL_BREAK through GenerateConsoleCtrlEvent. Compiled and vetted with GOOS=windows only; no Windows run has exercised it.",
+          "result": "PENDING",
+          "test_ids": []
         }
       ],
       "test_ids": [
@@ -58932,6 +58991,31 @@
         "TestGRPCFoundationWireStatus",
         "TestGRPCFoundationStrictAuth",
         "TestMigrationAppScenarioGo",
+        "TestServeArgsLeaveTheProfileAndSchemeToTheCaller",
+        "TestStopEndsTheChildAndRepeatsItsResult",
+        "TestAnEarlyExitReportsTheTailOfTheChildOutputOnlyWhenAsked",
+        "TestUnsupportedBinaryErrorNamesTheRefusingPackage",
+        "TestUnsupportedBinaryMessageNamesFakestorage",
+        "TestStartRunsTheNativeProfileOverLoopbackHTTP",
+        "TestCloseStopsTheChildAndRepeatsItsResult",
+        "TestStartContextBoundsTheStartupOnly",
+        "TestOptionsReachTheCommandLine",
+        "TestOptionsRefuseManagedFlagsAndConflicts",
+        "TestStartFailuresSayWhatToDo",
+        "TestRustStartWritesReadsAndKeepsServersApart",
+        "TestTempBucketNamesAreValidUniqueAndNameTheTest",
+        "TestTempBucketCreatesThenPurgesAndWaitsOutABusyServer",
+        "TestTempBucketRefusesANameOfItsOwn",
+        "TestPurgeGivesUpOnAStuckServerAndChecksA404",
+        "TestRetryDelayFollowsRetryAfterWithinItsBound",
+        "TestSeedSendsTreesWithSeedDefaultsAndObjectsAsWritten",
+        "TestSeedRefusesWhatTheStartupSeedRefusesBeforeWriting",
+        "TestSeedFailsTheTestOnAWriteError",
+        "TestResetAsksForTheStartupStateAndWaitsOutABusyServer",
+        "TestAFailedResetSaysThatNothingChanged",
+        "TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration",
+        "TestRustSeedMatchesTheStartupSeed",
+        "TestRustResetReturnsToTheStartupState",
         "TestBucketCORS",
         "TestUnsupportedFailsFast",
         "unsupported_google_routes_and_inputs",
@@ -59160,6 +59244,44 @@
           "test_ids": [
             "TestBucketCORS",
             "TestStrictAuthBucketCORS"
+          ]
+        },
+        {
+          "command": "cd go && go test -race -count=1 ./...",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "docs/en/slices/go-subprocess-facade.md",
+          "test_ids": [
+            "TestServeArgsLeaveTheProfileAndSchemeToTheCaller",
+            "TestStopEndsTheChildAndRepeatsItsResult",
+            "TestAnEarlyExitReportsTheTailOfTheChildOutputOnlyWhenAsked",
+            "TestUnsupportedBinaryErrorNamesTheRefusingPackage",
+            "TestUnsupportedBinaryMessageNamesFakestorage",
+            "TestStartRunsTheNativeProfileOverLoopbackHTTP",
+            "TestCloseStopsTheChildAndRepeatsItsResult",
+            "TestStartContextBoundsTheStartupOnly",
+            "TestOptionsReachTheCommandLine",
+            "TestOptionsRefuseManagedFlagsAndConflicts",
+            "TestStartFailuresSayWhatToDo",
+            "TestTempBucketNamesAreValidUniqueAndNameTheTest",
+            "TestTempBucketCreatesThenPurgesAndWaitsOutABusyServer",
+            "TestTempBucketRefusesANameOfItsOwn",
+            "TestPurgeGivesUpOnAStuckServerAndChecksA404",
+            "TestRetryDelayFollowsRetryAfterWithinItsBound",
+            "TestSeedSendsTreesWithSeedDefaultsAndObjectsAsWritten",
+            "TestSeedRefusesWhatTheStartupSeedRefusesBeforeWriting",
+            "TestSeedFailsTheTestOnAWriteError",
+            "TestResetAsksForTheStartupStateAndWaitsOutABusyServer",
+            "TestAFailedResetSaysThatNothingChanged"
+          ]
+        },
+        {
+          "command": "cd go && GCSM_BINARY=<checkout>/target/debug/gcs-mimic go test -race -count=1 -tags integration -run TestRustStartWritesReadsAndKeepsServersApart ./gcsmimic",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "docs/en/slices/go-subprocess-facade.md",
+          "test_ids": [
+            "TestRustStartWritesReadsAndKeepsServersApart"
           ]
         }
       ],
