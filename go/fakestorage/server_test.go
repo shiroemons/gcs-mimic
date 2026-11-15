@@ -2,112 +2,25 @@ package fakestorage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/signal"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/shiroemons/gcs-mimic/go/internal/fakechild"
+	"github.com/shiroemons/gcs-mimic/go/internal/mimicproc"
 )
 
 // The test executable acts as a child so lifecycle checks need no Rust build or shell.
-func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		runTestChild()
-		return
-	}
-	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Println("gcs-mimic " + testChildVersion())
-		return
-	}
-	os.Exit(m.Run())
-}
-
-// testChildVersion is the version the test child reports: this package's own unless a test
-// sets GCSM_TEST_CHILD_VERSION, where "none" leaves it out of the ready event.
-func testChildVersion() string {
-	if version := os.Getenv("GCSM_TEST_CHILD_VERSION"); version != "" {
-		return version
-	}
-	return moduleVersion
-}
-
-func runTestChild() {
-	listen := ""
-	socketPath := ""
-	for index, arg := range os.Args {
-		if arg == "--listen" {
-			listen = os.Args[index+1]
-		}
-		if arg == "--unix-socket" {
-			socketPath = os.Args[index+1]
-		}
-	}
-	if strings.HasPrefix(listen, "exit-before-ready:") {
-		os.Exit(17)
-	}
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-	if strings.HasPrefix(listen, "never-ready:") {
-		<-signals
-		return
-	}
-	network, address := "tcp", "127.0.0.1:0"
-	if socketPath != "" {
-		network, address = "unix", socketPath
-	}
-	listener, err := net.Listen(network, address)
-	if err != nil {
-		panic(err)
-	}
-	if socketPath != "" {
-		if err := os.Chmod(socketPath, 0600); err != nil {
-			panic(err)
-		}
-	}
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(listen, "stall-fixture:") && r.URL.Path == "/_internal/objects" {
-			<-r.Context().Done()
-			return
-		}
-		if r.URL.Path == "/redirect" {
-			http.Redirect(w, r, "http://metadata.google.internal/latest/meta-data/", http.StatusFound)
-			return
-		}
-		if r.URL.Path == "/wait" {
-			<-r.Context().Done()
-			return
-		}
-		w.Header().Set("X-Test-Host", r.Host)
-		_, _ = io.Copy(w, r.Body)
-	}), ReadHeaderTimeout: time.Second}
-	go func() { _ = server.Serve(listener) }()
-	ready := map[string]string{"event": "ready", "listen": listener.Addr().String(), "transport": "tcp"}
-	if version := testChildVersion(); version != "none" {
-		ready["version"] = version
-	}
-	if socketPath != "" {
-		ready["listen"] = ""
-		ready["transport"] = "unix"
-		ready["unix_socket"] = socketPath
-	}
-	_ = json.NewEncoder(os.Stdout).Encode(ready)
-	if strings.HasPrefix(listen, "ignore-interrupt:") {
-		for range signals {
-		}
-	}
-	<-signals
-	_ = server.Close()
-}
+func TestMain(m *testing.M) { fakechild.Main(m, mimicproc.ModuleVersion) }
 
 func testOptions() Options { return Options{Executable: os.Args[0], Scheme: "http"} }
 
@@ -121,15 +34,15 @@ func TestBinaryEnvironmentAndSettingIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Stop()
-	if s.cmd.Path != os.Args[0] {
-		t.Fatalf("binary = %q, want %q", s.cmd.Path, os.Args[0])
+	if s.proc.Cmd().Path != os.Args[0] {
+		t.Fatalf("binary = %q, want %q", s.proc.Cmd().Path, os.Args[0])
 	}
-	for _, entry := range s.cmd.Env {
+	for _, entry := range s.proc.Cmd().Env {
 		if strings.HasPrefix(entry, "GCS_MIMIC_") {
 			t.Fatalf("inherited server setting: %s", entry)
 		}
 	}
-	if !slices.Contains(s.cmd.Env, "GCSM_ENDPOINT=client-only") {
+	if !slices.Contains(s.proc.Cmd().Env, "GCSM_ENDPOINT=client-only") {
 		t.Fatal("client environment was removed")
 	}
 }
@@ -156,7 +69,7 @@ func TestFacadeLifecycleAndIsolation(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			if s.URL() == "" || !strings.Contains(strings.Join(s.cmd.Args, " "), "--backend memory") {
+			if s.URL() == "" || !strings.Contains(strings.Join(s.proc.Cmd().Args, " "), "--backend memory") {
 				t.Error("missing isolated endpoint or default memory backend")
 			}
 			if err := s.Close(); err != nil {
@@ -193,9 +106,9 @@ func TestNoListenerHandlerAndTransport(t *testing.T) {
 	if info, err := os.Stat(s.socketPath); err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("socket permissions: %v %v", info, err)
 	}
-	for _, arg := range s.cmd.Args {
+	for _, arg := range s.proc.Cmd().Args {
 		if arg == "--listen" || arg == "--grpc-listen" {
-			t.Fatalf("NoListener opened a TCP path: %v", s.cmd.Args)
+			t.Fatalf("NoListener opened a TCP path: %v", s.proc.Cmd().Args)
 		}
 	}
 	response, err := s.HTTPClient().Post(s.PublicURL()+"/bucket/raw%2Fname", "text/plain", strings.NewReader("fixture"))
@@ -308,7 +221,7 @@ func TestStartupErrorsCancellationAndOwnedData(t *testing.T) {
 	}
 	cancel()
 	select {
-	case <-s.done:
+	case <-s.proc.Done():
 	case <-time.After(3 * time.Second):
 		t.Fatal("context cancellation did not reap child")
 	}
@@ -331,7 +244,7 @@ func TestCloseKillsAndReapsUnresponsiveChild(t *testing.T) {
 		t.Fatalf("forced termination was not reported: %v", err)
 	}
 	select {
-	case <-s.done:
+	case <-s.proc.Done():
 	default:
 		t.Fatal("Close returned before child was reaped")
 	}
@@ -358,8 +271,8 @@ func TestMemoryAndEventOptionsReachTheRuntimeExactly(t *testing.T) {
 			t.Fatal(err)
 		}
 		args := make(map[string]string)
-		for index := 2; index+1 < len(s.cmd.Args); index += 2 {
-			args[s.cmd.Args[index]] = s.cmd.Args[index+1]
+		for index := 2; index+1 < len(s.proc.Cmd().Args); index += 2 {
+			args[s.proc.Cmd().Args[index]] = s.proc.Cmd().Args[index+1]
 		}
 		want := map[string]string{"--backend": "memory", "--memory-max-bytes": "2097152", "--memory-catalog-max-bytes": "4194304", "--event-pubsub-project-id": "local-project", "--event-pubsub-topic": "events", "--event-bucket": "selected-bucket", "--event-object-prefix": "prefix/", "--pubsub-emulator-host": "127.0.0.1:8085", "--event-list": "finalize,delete,metadataUpdate,archive"}
 		if notify == (EventNotificationOptions{}) {

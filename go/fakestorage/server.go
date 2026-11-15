@@ -1,12 +1,12 @@
-// Package fakestorage provides a subprocess facade for selected fake-gcs-server Go APIs.
+// Package fakestorage provides a subprocess facade for selected fake-gcs-server Go APIs, for
+// tests that migrate from fake-gcs-server and keep its Go API. New tests should use the
+// gcsmimic package, whose API is gcs-mimic's own.
 // The Rust executable owns storage and HTTP semantics. NoListener uses a private
 // Unix socket without opening a TCP listener; this is not in-process execution.
 package fakestorage
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +15,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/shiroemons/gcs-mimic/go/internal/mimicproc"
 	"google.golang.org/api/option"
 )
 
@@ -61,19 +61,15 @@ type EventManagerOptions struct {
 
 // Server owns one child process and an isolated memory or caller-owned disk catalog.
 type Server struct {
-	cmd        *exec.Cmd
-	done       chan struct{}
-	exitErr    error
+	proc       *mimicproc.Process
 	endpoint   *url.URL
 	publicURL  string
 	url        string
 	socketDir  string
 	socketPath string
-	transport  *http.Transport
 	client     *http.Client
 	closeOnce  sync.Once
 	closeErr   error
-	closing    chan struct{}
 }
 
 func NewServer(objects []Object) *Server {
@@ -100,7 +96,7 @@ func NewServerWithContext(ctx context.Context, options Options) (*Server, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s := &Server{done: make(chan struct{}), closing: make(chan struct{})}
+	s := &Server{}
 	root := options.StorageRoot
 	if options.NoListener {
 		var err error
@@ -117,7 +113,7 @@ func NewServerWithContext(ctx context.Context, options Options) (*Server, error)
 		select {
 		case <-ctx.Done():
 			_ = s.Close() // Close retains its error for the caller's subsequent Close.
-		case <-s.done:
+		case <-s.proc.Done():
 		}
 	}()
 	for _, object := range options.InitialObjects {
@@ -136,10 +132,8 @@ func NewServerWithContext(ctx context.Context, options Options) (*Server, error)
 }
 
 func validateOptions(options Options) error {
-	if options.Executable == "" && os.Getenv("GCSM_BINARY") == "" {
-		if _, exists := os.LookupEnv("GCS_MIMIC_BINARY"); exists {
-			return errors.New("GCS_MIMIC_BINARY was renamed to GCSM_BINARY; rename the variable or set Options.Executable")
-		}
+	if err := mimicproc.CheckRenamedBinary(options.Executable, "Options.Executable"); err != nil {
+		return err
 	}
 	if options.Seed != "" && len(options.InitialObjects) != 0 {
 		return errors.New("provide either Seed or InitialObjects")
@@ -176,25 +170,6 @@ func validateOptions(options Options) error {
 	return nil
 }
 
-// readyEvent holds the fields of gcs-mimic's ready line that this package reads.
-type readyEvent struct {
-	Event      string `json:"event"`
-	Version    string `json:"version"`
-	Listen     string `json:"listen"`
-	Transport  string `json:"transport"`
-	UnixSocket string `json:"unix_socket"`
-}
-
-func executable(options Options) string {
-	if options.Executable != "" {
-		return options.Executable
-	}
-	if binary := os.Getenv("GCSM_BINARY"); binary != "" {
-		return binary
-	}
-	return "gcs-mimic"
-}
-
 func (s *Server) start(ctx context.Context, options Options, root string) error {
 	host := options.Host
 	if host == "" {
@@ -209,18 +184,7 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 		publicHost = "storage.googleapis.com"
 	}
 	s.publicURL = scheme + "://" + publicHost
-	args := []string{"serve", "--compat-profile", "fake-gcs-server",
-		"--auth-mode", "permissive", "--seed-project", "local-project", "--admin-enabled", "true"}
-	if options.NoListener {
-		args = append(args, "--unix-socket", s.socketPath, "--scheme", "http")
-	} else {
-		args = append(args, "--listen", net.JoinHostPort(host, strconv.Itoa(int(options.Port))), "--scheme", scheme)
-	}
-	if root == "" {
-		args = append(args, "--backend", "memory")
-	} else {
-		args = append(args, "--backend", "disk", "--data-dir", root)
-	}
+	var args []string
 	for _, budget := range []struct {
 		flag  string
 		value uint64
@@ -260,130 +224,34 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 	if options.PubSubEmulatorHost != "" {
 		args = append(args, "--pubsub-emulator-host", options.PubSubEmulatorHost)
 	}
-	binary := executable(options)
-	s.cmd = exec.Command(binary, args...)
-	s.cmd.Env = childEnvironment()
-	logs := &lockedWriter{writer: options.Writer}
-	s.cmd.Stderr = logs
-	stdout, err := s.cmd.StdoutPipe()
+	proc, err := mimicproc.Start(ctx, mimicproc.Spec{
+		Product:    "fakestorage",
+		Executable: mimicproc.Executable(options.Executable),
+		Serve: mimicproc.Serve{CompatProfile: "fake-gcs-server", Project: "local-project",
+			Listen:     net.JoinHostPort(host, strconv.Itoa(int(options.Port))),
+			SocketPath: s.socketPath, Scheme: scheme, DataDir: root},
+		Extra:           args,
+		CertificateFile: options.CertificateLocation,
+		Output:          options.Writer,
+	})
 	if err != nil {
-		return fmt.Errorf("open child output: %w", err)
-	}
-	if err := s.cmd.Start(); err != nil {
-		return fmt.Errorf("start gcs-mimic: %w", err)
-	}
-	ready := make(chan readyEvent, 1)
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 4096), 256<<10)
-		var outputErr error
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if _, outputErr = logs.Write(append(append([]byte(nil), line...), '\n')); outputErr != nil {
-				break
-			}
-			var event readyEvent
-			if json.Unmarshal(line, &event) == nil && event.Event == "ready" {
-				select {
-				case ready <- event:
-				default:
-				}
-			}
-		}
-		if scanner.Err() != nil || outputErr != nil {
-			_ = s.cmd.Process.Kill()
-		}
-		s.exitErr = errors.Join(scanner.Err(), outputErr, s.cmd.Wait())
-		close(s.done)
-	}()
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-	select {
-	case event := <-ready:
-		if err := checkBinary(binary, event.Version); err != nil {
-			return err
-		}
-		if options.NoListener {
-			if event.Transport != "unix" || event.UnixSocket != s.socketPath || event.Listen != "" {
-				return errors.New("NoListener child did not confirm the private Unix transport")
-			}
-			s.endpoint, err = url.Parse("http://localhost")
-		} else {
-			s.endpoint, err = url.Parse(scheme + "://" + event.Listen)
-		}
-		if err != nil {
-			return fmt.Errorf("invalid ready endpoint: %w", err)
-		}
-	case <-s.done:
-		exited := errors.New("gcs-mimic exited before readiness")
-		if s.exitErr != nil {
-			exited = fmt.Errorf("gcs-mimic exited before readiness: %w", s.exitErr)
-		}
-		return errors.Join(probeBinary(ctx, binary), exited)
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return errors.New("gcs-mimic startup exceeded 30 seconds")
-	}
-	if err := s.configureTransport(ctx, options); err != nil {
 		return err
 	}
+	s.proc = proc
+	s.endpoint = proc.Endpoint()
 	s.url = options.ExternalURL
 	if s.url == "" && !options.NoListener {
 		s.url = s.endpoint.String()
 	}
-	s.client = &http.Client{Transport: &localTransport{server: s}, Timeout: 30 * time.Second}
+	s.client = &http.Client{Transport: proc.RoundTripper(s.allowedURL), Timeout: 30 * time.Second}
 	return nil
-}
-
-func childEnvironment() []string {
-	// Options fully configure each isolated child; inherited server settings must not override them.
-	var env []string
-	for _, value := range os.Environ() {
-		name, _, _ := strings.Cut(value, "=")
-		if !strings.HasPrefix(name, "GCS_MIMIC_") {
-			env = append(env, value)
-		}
-	}
-	return env
-}
-
-type lockedWriter struct {
-	sync.Mutex
-	writer io.Writer
-}
-
-func (w *lockedWriter) Write(p []byte) (int, error) {
-	w.Lock()
-	defer w.Unlock()
-	if w.writer == nil {
-		return len(p), nil
-	}
-	return w.writer.Write(p)
 }
 
 // Close gracefully stops, forcibly terminates on timeout, reaps, and removes only owned data.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
-		close(s.closing)
-		if s.transport != nil {
-			s.transport.CloseIdleConnections()
-		}
-		if s.cmd != nil && s.cmd.Process != nil {
-			select {
-			case <-s.done:
-			default:
-				if err := s.cmd.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
-					s.closeErr = err
-				}
-				select {
-				case <-s.done:
-				case <-time.After(10 * time.Second):
-					s.closeErr = errors.Join(s.closeErr, errors.New("child shutdown exceeded 10 seconds"), s.cmd.Process.Kill())
-					<-s.done
-				}
-			}
-			s.closeErr = errors.Join(s.closeErr, s.exitErr)
+		if s.proc != nil {
+			s.closeErr = s.proc.Stop()
 		}
 		if s.socketDir != "" {
 			s.closeErr = errors.Join(s.closeErr, os.RemoveAll(s.socketDir))
@@ -406,10 +274,10 @@ func (s *Server) HTTPHandler() http.Handler {
 	proxy := &httputil.ReverseProxy{Rewrite: func(request *httputil.ProxyRequest) {
 		request.SetURL(s.endpoint)
 		request.Out.Host = request.In.Host
-	}, Transport: s.transport}
+	}, Transport: s.proc.Transport()}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		select {
-		case <-s.closing:
+		case <-s.proc.Closing():
 			http.Error(writer, "gcs-mimic facade is closed", http.StatusServiceUnavailable)
 		default:
 			proxy.ServeHTTP(writer, request)

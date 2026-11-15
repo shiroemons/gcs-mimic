@@ -4,60 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/shiroemons/gcs-mimic/go/internal/mimicproc"
 )
-
-func TestReleaseGrammarMatchesThePublicationGrammar(t *testing.T) {
-	for _, tc := range []struct {
-		value string
-		want  release
-		ok    bool
-	}{
-		{"0.20.0", release{0, 20, 0, 0}, true},
-		{"1.0.0-rc.1", release{1, 0, 0, 1}, true},
-		{"10.2.30-rc.12", release{10, 2, 30, 12}, true},
-		{"1.0", release{}, false},
-		{"1.0.0.0", release{}, false},
-		{"01.0.0", release{}, false},
-		{"1.0.0-rc.0", release{}, false},
-		{"1.0.0-rc.01", release{}, false},
-		{"1.0.0-beta.1", release{}, false},
-		{"1.0.0+build", release{}, false},
-		{"+1.0.0", release{}, false},
-		{"", release{}, false},
-	} {
-		t.Run(tc.value, func(t *testing.T) {
-			got, err := parseRelease(tc.value)
-			if (err == nil) != tc.ok || got != tc.want {
-				t.Fatalf("parseRelease(%q) = %+v, %v; want %+v, ok %v", tc.value, got, err, tc.want, tc.ok)
-			}
-		})
-	}
-}
-
-func TestSupportedBinaryRange(t *testing.T) {
-	for _, tc := range []struct {
-		module, binary string
-		want           bool
-	}{
-		{"0.20.0", "0.20.0", true},
-		{"0.20.0", "0.20.3", true},
-		{"0.20.1", "0.20.0", true},
-		{"0.20.0", "0.21.0", false},
-		{"0.20.0", "0.19.1", false},
-		{"0.20.0", "1.0.0", false},
-		{"1.2.0", "1.2.0-rc.1", true},
-		{"1.2.0", "1.3.0", true},
-		{"1.2.0", "1.1.9", false},
-		{"1.2.0", "2.0.0", false},
-	} {
-		t.Run(tc.module+"/"+tc.binary, func(t *testing.T) {
-			got := mustParseRelease(tc.module).supports(mustParseRelease(tc.binary))
-			if got != tc.want {
-				t.Fatalf("%s supports %s = %v, want %v", tc.module, tc.binary, got, tc.want)
-			}
-		})
-	}
-}
 
 func TestStartRefusesABinaryOfAnotherRelease(t *testing.T) {
 	for _, tc := range []struct {
@@ -84,10 +33,27 @@ func TestStartRefusesABinaryOfAnotherRelease(t *testing.T) {
 			if unsupported.Version != tc.reported || unsupported.Path != options.Executable {
 				t.Fatalf("error = %+v", unsupported)
 			}
-			if !strings.Contains(err.Error(), moduleVersion[:strings.LastIndex(moduleVersion, ".")]) {
+			version := mimicproc.ModuleVersion
+			if !strings.Contains(err.Error(), version[:strings.LastIndex(version, ".")]) {
 				t.Fatalf("error does not name the supported range: %v", err)
 			}
 		})
+	}
+}
+
+// The facade keeps the message it had before the start code was shared, word for word.
+func TestUnsupportedBinaryMessageNamesFakestorage(t *testing.T) {
+	t.Setenv("GCSM_TEST_CHILD_VERSION", "0.0.1")
+	options := testOptions()
+	_, err := NewServerWithOptions(options)
+	var unsupported *UnsupportedBinaryError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("want *UnsupportedBinaryError, got %v", err)
+	}
+	want := "gcs-mimic at " + options.Executable + " reported version 0.0.1; fakestorage " +
+		mimicproc.ModuleVersion + " supports "
+	if !strings.HasPrefix(unsupported.Error(), want) {
+		t.Fatalf("message = %q, want the prefix %q", unsupported.Error(), want)
 	}
 }
 
