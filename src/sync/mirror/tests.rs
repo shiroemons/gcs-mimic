@@ -586,6 +586,161 @@ async fn api_deletions_reach_the_tree_while_the_initial_baseline_is_incomplete()
     catalog.close().await.unwrap();
 }
 
+/// Holds the next conflict capture after it reserved its entry and before it copies the file,
+/// until the returned sender releases it.
+fn hold_conflict_capture(
+    catalog: &Catalog,
+) -> (
+    tokio::sync::oneshot::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    use crate::storage::fault::{Fault, Step};
+    let (entered, held) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    catalog.inject(
+        Step::ConflictReserved,
+        0,
+        Fault::Block {
+            entered: std::sync::Arc::new(std::sync::Mutex::new(Some(entered))),
+            release: std::sync::Arc::new(std::sync::Mutex::new(released)),
+        },
+    );
+    (held, release)
+}
+
+/// The bytes of every retained conflict.
+fn retained_conflicts(data: &TestDir) -> Vec<Vec<u8>> {
+    fs::read_dir(data.0.join("sync-conflicts"))
+        .unwrap()
+        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .collect()
+}
+
+/// A live mirror past its initial export of `object`, held while it preserves a local edit of
+/// that file before replaying the API write that replaces it.
+struct HeldPreservation {
+    data: TestDir,
+    tree: TestDir,
+    catalog: Catalog,
+    bucket: BucketName,
+    root: RootLease,
+    /// The generation the held export brings to the tree.
+    api: ObjectRecord,
+    stop: tokio::sync::watch::Sender<bool>,
+    worker: tokio::task::JoinHandle<Result<(), SyncError>>,
+    releaser: tokio::task::JoinHandle<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+impl HeldPreservation {
+    async fn start() -> Self {
+        let (data, tree, catalog, bucket, root) = live_fixture().await;
+        publish_origin(&catalog, &bucket, b"first", Origin::Api).await;
+        let (stop, mut stopping) = tokio::sync::watch::channel(false);
+        let worker_catalog = catalog.clone();
+        let worker_root = root.clone();
+        // The first idle follows the initial export, which completed the baseline.
+        let (hook, worker) = hooked_worker(&EXPORT_HOOK, "idle", async move {
+            run_live(&worker_catalog, &worker_root, &mut stopping).await
+        })
+        .await;
+        assert!(root.observation().await.unwrap().baseline_complete);
+        let path = tree.0.join("test-bucket/object");
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        fs::write(&path, b"external edit").unwrap();
+        let (held, release) = hold_conflict_capture(&catalog);
+        let api = publish_origin(&catalog, &bucket, b"second", Origin::Api).await;
+        let releaser = tokio::spawn(async move {
+            loop {
+                hook.release.notify_one();
+                hook.entered.notified().await;
+            }
+        });
+        tokio::time::timeout(HANG_GUARD, held)
+            .await
+            .unwrap()
+            .unwrap();
+        Self {
+            data,
+            tree,
+            catalog,
+            bucket,
+            root,
+            api,
+            stop,
+            worker,
+            releaser,
+            release,
+        }
+    }
+
+    fn path(&self) -> PathBuf {
+        self.tree.0.join("test-bucket/object")
+    }
+
+    fn release(&self) {
+        self.release.send(()).unwrap();
+    }
+
+    /// Waits until the tree tracks `api` (`None`: nothing), then checks the file holds `body`.
+    async fn await_export(&self, api: Option<&ObjectRecord>, body: Option<&[u8]>) {
+        let binding = self.root.sync_binding(&self.bucket).await.unwrap();
+        let expected = api.map(|record| record.generation);
+        eventually_async("the export to track the API generation", || async {
+            self.catalog
+                .sync_state()
+                .get_path(binding.clone(), "test-bucket/object".into())
+                .await
+                .unwrap()
+                .map(|record| record.generation.get())
+                == expected
+        })
+        .await;
+        match body {
+            Some(body) => assert_eq!(fs::read(self.path()).unwrap(), body),
+            None => assert!(!self.path().exists()),
+        }
+    }
+
+    async fn finish(self) {
+        self.stop.send_replace(true);
+        self.worker.await.unwrap().unwrap();
+        self.releaser.abort();
+        drop(self.root);
+        self.catalog.close().await.unwrap();
+    }
+}
+
+/// An API write that commits while a live export preserves the local edit it replaces leaves
+/// that export skipped. The write is a journal change of its own, so its replay preserves the
+/// edit once and brings the newer API state to the tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_api_write_during_conflict_preservation_is_replayed_from_the_journal() {
+    for deleted in [false, true] {
+        let held = HeldPreservation::start().await;
+        let name = ObjectName::new("object").unwrap();
+        let newer = if deleted {
+            held.catalog
+                .admin(Origin::Api)
+                .delete_object(
+                    &held.bucket,
+                    &name,
+                    GenerationCondition::Is(Generation::new(held.api.generation).unwrap()),
+                )
+                .await
+                .unwrap();
+            None
+        } else {
+            Some(publish_origin(&held.catalog, &held.bucket, b"third", Origin::Api).await)
+        };
+        held.release();
+        held.await_export(newer.as_ref(), newer.as_ref().map(|_| &b"third"[..]))
+            .await;
+        assert_eq!(retained_conflicts(&held.data), [b"external edit".to_vec()]);
+        held.finish().await;
+    }
+}
+
 #[tokio::test]
 async fn live_export_retries_identical_observation_at_prepare_arm_durable_and_ack() {
     use std::time::Duration;
