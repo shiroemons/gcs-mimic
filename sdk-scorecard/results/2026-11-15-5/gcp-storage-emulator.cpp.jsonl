@@ -1,0 +1,56 @@
+{"sdk":"cpp","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.list_prefix_paging","area":"bucket","pass":false,"detail":"bucket page exceeds 2"}
+{"sdk":"cpp","id":"bucket.update_labels","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"patch with a wrong metageneration: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"bucket.versioning_history","area":"bucket","pass":false,"detail":"version count"}
+{"sdk":"cpp","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"delete under retention: expected HTTP 403, got success"}
+{"sdk":"cpp","id":"bucket.retention_lock","area":"bucket","pass":false,"detail":"lock retention policy: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.public_access_prevention","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.soft_delete_policy","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.soft_delete_restore","area":"bucket","pass":false,"unsupported":true,"detail":"google-cloud-cpp 3.13.0 has no public API for restoring a soft-deleted bucket (Client has RestoreObject only)"}
+{"sdk":"cpp","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"autoclass not enabled"}
+{"sdk":"cpp","id":"bucket.acl","area":"bucket","pass":false,"detail":"create bucket ACL: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"create default object ACL: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"bucket.notifications","area":"bucket","pass":false,"detail":"create notification: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"create HMAC key: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"project.service_account","area":"bucket","pass":false,"detail":"get service account: NOT_FOUND (http 404): Permanent error, with a last message of Received HTTP status code: 404"}
+{"sdk":"cpp","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"cpp","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"cpp","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"cpp","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"cpp","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"cpp","id":"object.range_reads","area":"object","pass":false,"detail":"suffix range differs (10 bytes, expected 3): 0123456789"}
+{"sdk":"cpp","id":"object.update_metadata","area":"object","pass":false,"detail":"metadata differs"}
+{"sdk":"cpp","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"cpp","id":"object.does_not_exist_precondition","area":"object","pass":false,"detail":"second create-only write: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"object.generation_match_precondition","area":"object","pass":false,"detail":"delete with a wrong generation: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"object.metageneration_match_precondition","area":"object","pass":false,"detail":"patch with a wrong metageneration: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"cpp","id":"object.list_paging","area":"object","pass":false,"detail":"expected at least 3 list pages, saw 1"}
+{"sdk":"cpp","id":"object.list_offsets","area":"object","pass":false,"detail":"offset listing differs: [a,b,c,d], expected [b,c]"}
+{"sdk":"cpp","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"cpp","id":"object.copy_with_metadata","area":"object","pass":false,"detail":"copy metadata"}
+{"sdk":"cpp","id":"object.rewrite_storage_class","area":"object","pass":false,"detail":"storage class differs (8 bytes, expected 8): STANDARD"}
+{"sdk":"cpp","id":"object.compose","area":"object","pass":false,"detail":"compose: UNAVAILABLE: Retry policy exhausted, with a last message of scorecard TLS frontend rejected backend response\n"}
+{"sdk":"cpp","id":"object.compose_preconditions","area":"object","pass":false,"detail":"compose: UNAVAILABLE: Retry policy exhausted, with a last message of scorecard TLS frontend rejected backend response\n"}
+{"sdk":"cpp","id":"object.move","area":"object","pass":false,"detail":"move object: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"object.acl","area":"object","pass":false,"detail":"create object ACL: INTERNAL (http 501): Retry policy exhausted, with a last message of Received HTTP status code: 501"}
+{"sdk":"cpp","id":"object.holds","area":"object","pass":false,"detail":"delete under hold: expected HTTP 403, got success"}
+{"sdk":"cpp","id":"object.retention","area":"object","pass":false,"detail":"retention not stored"}
+{"sdk":"cpp","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"cpp","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"cpp","id":"object.gzip_transcoding","area":"object","pass":false,"detail":"decompressed bytes differs (39 bytes, expected 600): \u001f�\b"}
+{"sdk":"cpp","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"keyless read of an encrypted object succeeded"}
+{"sdk":"cpp","id":"object.csek_rotation","area":"object","pass":false,"detail":"read with the old key succeeded"}
+{"sdk":"cpp","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"cpp","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.v4_resumable_upload","area":"signed","pass":false,"detail":"start: status 501: "}
+{"sdk":"cpp","id":"signed.v4_response_overrides","area":"signed","pass":false,"detail":"Content-Type differs: [text/plain], expected [text/csv]"}
+{"sdk":"cpp","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"status 501: "}

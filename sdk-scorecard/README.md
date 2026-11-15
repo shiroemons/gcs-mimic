@@ -234,8 +234,26 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [fourth 2026-11-15 comparison](results/2026-11-15-4/summary.md) is the
-latest. It adds five shared cases (`bucket.soft_delete_restore`,
+The [fifth 2026-11-15 comparison](results/2026-11-15-5/summary.md) is the
+latest. It gives the `grpc` area SDK-neutral IDs that Go, Java, Python and
+Rust each emit where their SDK has a public gRPC API, and moves Java's
+`sdk.grpc_*` cases to them, so it executes 2,224 cases on the 0.22.0 source
+at `d208ae26`, with no uncommitted change. Every result outside the `grpc`
+area is the same as in the fourth comparison for all four products, and the
+Core scores are unchanged. gcs-mimic scores **99.5**: it passes every `grpc`
+case except two. Java's `grpc.bucket_create_get_delete` fails because the
+Java SDK's default bucket read mask names `billing`, which gcs-mimic does not
+model. Python's `grpc.appendable_object` fails because the Python SDK waits
+for a response to the appendable open that gcs-mimic sends only at a flush.
+floci-gcp scores **74.0**: it passes the bucket, object, precondition and
+write-session cases but implements neither bidi reads nor appendable objects,
+and it rejects a checksum mismatch with DATA_LOSS instead of
+INVALID_ARGUMENT. fake-gcs-server scores **38.3** and gcp-storage-emulator
+**35.3**, failing every `grpc` case. The contract and per-case results are in
+[the gRPC slice](../docs/en/slices/sdk-scorecard-grpc.md).
+
+The [fourth 2026-11-15 comparison](results/2026-11-15-4/summary.md) adds
+five shared cases (`bucket.soft_delete_restore`,
 `object.csek_rotation`, `object.compose_preconditions`,
 `signed.v4_resumable_upload` and `signed.v4_response_overrides`) and moves the
 three .NET `sdk.*` cases that measured the same behaviors to those IDs, so it

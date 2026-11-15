@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: contract, 2026-11-15. Not yet implemented.
+Status: implemented on 2026-11-15; see "Verification".
 
 Scope: the optional comparison harness under `sdk-scorecard/`. The `grpc`
 area gets SDK-neutral case IDs that every SDK with a public gRPC API for the
@@ -116,3 +116,77 @@ listener, so it fails every `grpc` case, as before.
 | GR-JAVA | Java emits the moved cases under the new IDs and keeps its additional checks; its `sdk` area has 14 cases. |
 | GR-HARNESS | `run.sh` gives Python the gRPC endpoint; the Areas table in `sdk-scorecard/README.md` counts the catalog; `test-score.sh` passes. |
 | GR-RESULTS | All four products are rerun into a new results directory. Each `grpc` case's result is reported per product, and every score change is explained. A case gcs-mimic fails stays failed and is reported with its cause. |
+
+## Found during implementation
+
+- **gcs-mimic gap: Java's bucket read mask.** google-cloud-storage 2.78.0
+  for Java sends GetBucket with a default read mask that names `billing`.
+  gcs-mimic does not model billing and answers UNIMPLEMENTED (`gcs-mimic does
+  not support gRPC bucket read_mask billing`), so Java fails
+  `grpc.bucket_create_get_delete`. The former `sdk.grpc_basic_object` created
+  a bucket but never read it back over gRPC, so it passed. RPC-STORAGE-002
+  records the gap.
+- **gcs-mimic gap: Python's appendable open.** `AsyncAppendableObjectWriter`
+  in google-cloud-storage 3.17.1 for Python waits for a response to its first
+  BidiWriteObject message, which carries only an appendable
+  `write_object_spec`. gcs-mimic answers an appendable stream only at a
+  flush, a `state_lookup` or finalization, so the open gets no response and
+  the probe stops after 20 seconds. The proto does not require that
+  response, but the official client depends on it. BEHAVIOR-RAPID-002
+  records the gap.
+- **Status code of a checksum mismatch.** floci-gcp rejects a wrong object
+  CRC32C with DATA_LOSS. `grpc.checksum_rejected` requires INVALID_ARGUMENT.
+  Cloud Storage was recorded rejecting a wrong CRC32C on JSON uploads with
+  400 (`obj-upload-hash-edges` in the
+  [provider probes](../evidence/provider-differential-gap-probes.md)), and
+  `google.rpc.Code` maps 400 to INVALID_ARGUMENT and DATA_LOSS to 500. The
+  gRPC code itself is inferred from these, not observed.
+- **Probe defect, fixed.** A failed gRPC call in the Python probe carries
+  the RPC error as its `response`, which has no body. Reading the body
+  stopped the probe at floci-gcp's first `grpc` failure, before its
+  remaining cases. The probe now records the error's message instead
+  (`d208ae26`).
+- **No gRPC service.** fake-gcs-server gets the gRPC cases on its HTTP
+  port, and nothing listens on gcp-storage-emulator's gRPC port. For both, Go
+  times out, Java, Python and Rust fail with transport errors, and Python's
+  multi-range read runs into the 60-second case limit.
+
+## Verification
+
+Verified on 2026-11-15 at `d208ae26`, linux/arm64, with no uncommitted
+change.
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| GR-CATALOG | PASS | `bash sdk-scorecard/score.sh --check-catalog sdk-scorecard/cases.json` exits 0; the catalog has the ten cases and none of the six renamed or moved IDs. |
+| GR-PROBES | PASS | Every probe emits exactly its catalog IDs; `score.sh` checked all 36 result files of [results/2026-11-15-5](../../../sdk-scorecard/results/2026-11-15-5/summary.md) against the catalog. Against gcs-mimic every `grpc` case passes except Java's `grpc.bucket_create_get_delete` and Python's `grpc.appendable_object`. |
+| GR-JAVA | PASS | Java emits ten `grpc` cases and no `sdk.grpc_*` ID; its `sdk` area has 14 cases. |
+| GR-HARNESS | PASS | `run.sh` passes `SCORECARD_GRPC_ENDPOINT` to Python; `bash sdk-scorecard/test-score.sh` passes, including the Areas table check. |
+| GR-RESULTS | PASS | All four products ran in 18 min 37 s, including the gcs-mimic release build. Every result outside the `grpc` area is the same as in [results/2026-11-15-4](../../../sdk-scorecard/results/2026-11-15-4/summary.md) for all four products. The run records 2,224 results, 2,184 before: 84 `grpc` results replace 24 Go `grpc` results and 20 Java `sdk.grpc_*` results. |
+
+Results of the `grpc` cases. Each cell counts the SDKs that pass out of the
+SDKs that emit the case.
+
+| Case | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
+| --- | --- | --- | --- | --- |
+| `grpc.bucket_create_get_delete` | 1 of 2 (Java fails: billing mask) | 0 of 2 | 0 of 2 | 2 of 2 |
+| `grpc.write_read` | 2 of 2 | 0 of 2 | 0 of 2 | 2 of 2 |
+| `grpc.list` | 2 of 2 | 0 of 2 | 0 of 2 | 2 of 2 |
+| `grpc.update_delete` | 2 of 2 | 0 of 2 | 0 of 2 | 2 of 2 |
+| `grpc.multi_range_read` | 4 of 4 | 0 of 4 | 0 of 4 | 0 of 4 (BidiReadObject is UNIMPLEMENTED) |
+| `grpc.appendable_object` | 2 of 3 (Python fails: no response to the open) | 0 of 3 | 0 of 3 | 0 of 3 (appendable objects are not supported) |
+| `grpc.checksum_rejected` | 2 of 2 | 0 of 2 | 0 of 2 | 0 of 2 (DATA_LOSS) |
+| `grpc.precondition_failed` | 2 of 2 | 0 of 2 | 0 of 2 | 2 of 2 |
+| `grpc.write_session_bidi` | 1 of 1 | 0 of 1 | 0 of 1 | 1 of 1 |
+| `grpc.write_session_journaling` | 1 of 1 | 0 of 1 | 0 of 1 | 1 of 1 |
+
+Scores, with the fourth 2026-11-15 comparison in parentheses: gcs-mimic 99.5
+(99.8), floci-gcp 74.0 (74.4), fake-gcs-server 38.3 (38.9) and
+gcp-storage-emulator 35.3 (35.9). Only the Go, Python, Java and Rust
+contributions changed, through the `grpc` cases above. The Core scores are
+unchanged: 99.8, 74.6, 38.5 and 36.3.
+
+Also passed: `go vet` and `gofmt` for the Go probe, `cargo clippy
+--all-targets -- -D warnings` and the case-count tests for the Rust probe,
+the `xtask` dependency tests including the pyproject extras, and the Python,
+Java and C++ probe builds in the scored run.
