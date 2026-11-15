@@ -276,9 +276,9 @@ signer and CI.
 
 - **Small.** One static binary on an empty base image: no shell, no package
   manager, no runtime to install.
-- **Your SDK already speaks it.** Go, Ruby, Node.js, .NET and C++ pass every
-  case in the [SDK scorecard](#sdk-scorecard), Java, PHP and Rust all but one
-  and Python all but two. Point the client
+- **Your SDK already speaks it.** Go, Ruby, Node.js, Python, Java, .NET, Rust
+  and C++ pass every case in the [SDK scorecard](#sdk-scorecard), and PHP all
+  but one. Point the client
   at it and run your code.
 - **Buckets the way you need them.** Declare as many as you like at startup,
   each with its own CORS rules, [public or private](#buckets-cors-and-public-access).
@@ -461,31 +461,19 @@ Each official SDK runs the same workflows against all four emulators
 | Ruby | 57/57 (1 n/a) | 25/57 (1 n/a) | 24/57 (1 n/a) | 44/57 (1 n/a) |
 | Node.js | 59/59 | 28/59 | 25/59 | 48/59 |
 | PHP | 59/60 | 29/60 | 22/60 | 47/60 |
-| Python | 61/63 | 23/63 | 25/63 | 42/63 |
-| Java | 78/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 57/79 (1 n/a) |
+| Python | 63/63 | 23/63 | 25/63 | 42/63 |
+| Java | 79/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 57/79 (1 n/a) |
 | .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 52/72 (1 n/a) |
-| Rust | 53/54 (5 n/a) | 0/54 (5 n/a) | 0/54 (5 n/a) | 32/54 (5 n/a) |
+| Rust | 54/54 (5 n/a) | 0/54 (5 n/a) | 0/54 (5 n/a) | 32/54 (5 n/a) |
 | C++ | 61/61 (1 n/a) | 27/61 (1 n/a) | 25/61 (1 n/a) | 49/61 (1 n/a) |
-| Score (/100) | 99.1 | 39.2 | 35.7 | 74.2 |
+| Score (/100) | 99.8 | 39.2 | 35.7 | 74.2 |
 
 Recorded on 2026-11-15 with the 0.22.0 source
-([results](sdk-scorecard/results/2026-11-15-6/summary.md)). A passing case
+([results](sdk-scorecard/results/2026-11-15-7/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-gcs-mimic fails five cases in that run. Three are over gRPC: Java's
-`grpc.bucket_create_get_delete` reads the bucket with a mask that names
-billing, which gcs-mimic then refused; Python's `grpc.appendable_object`
-waits for a response to the appendable open that gcs-mimic then sent only at a
-flush; and Rust's `object.csek_rotation` rewrites over gRPC, where gcs-mimic
-did not yet accept customer-supplied keys. Bucket read masks now accept the
-settings gcs-mimic never stores, every appendable open is answered and
-Storage v2 now accepts customer-supplied keys; a later gcs-mimic-only run on
-2026-11-15 passes all three cases, and the results update with the next full
-comparison.
-Python's `sdk.xml_multipart_upload` needed an `x-goog-hash` on each multipart
-part response; parts now carry their CRC32C and MD5 there, and the same kind
-of run passes it. PHP's `sdk.stream_wrapper` declares an upload length of 0
-before streaming the object, which gcs-mimic enforces.
+gcs-mimic fails one case: PHP's `sdk.stream_wrapper` declares an upload length
+of 0 before streaming the object, which gcs-mimic enforces.
 
 ## Coming from fake-gcs-server?
 

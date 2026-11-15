@@ -25,9 +25,9 @@ seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 
 SDKとブラウザーの検証は、宣言した範囲が対象です。
 [9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
-Go・Ruby・Node.js・.NET・C++の全ケースと、Java・PHP・Rustの1件、Pythonの2件を除く全ケースが通ります。
-そのうち3件はgRPCでの未対応です。Javaの既定のバケット読み取りマスクにはbillingが含まれ、Pythonは追記型を開いたときの応答を待ちます。RustはrewriteをgRPCで送りますが、その実行の時点ではgRPCでの顧客指定の暗号鍵に対応していませんでした。現在は、バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が鍵を受け付けます（[範囲](grpc-v2-customer-supplied-keys.md)）。その後2026-11-15にgcs-mimicだけで実行した結果では、Javaの`grpc.bucket_create_get_delete`、Pythonの`grpc.appendable_object`、Rustの`object.csek_rotation`が通ります。リンク先の結果は次の全体比較で更新します。
-残りの2件は、PythonがXMLマルチパートの各パートの応答に求める`x-goog-hash`と、PHPのgs://書き込みが開始時に宣言する長さ0です。現在は各パートの応答がそのパートのCRC32CとMD5を返し（[範囲（英語）](../en/slices/xml-multipart-upload.md)）、同じ日にgcs-mimicだけで実行した結果では`sdk.xml_multipart_upload`も通ります。範囲と残りの条件は
+Go・Ruby・Node.js・Python・Java・.NET・Rust・C++の全ケースと、PHPの1件を除く全ケースが[最新の結果](../../sdk-scorecard/results/2026-11-15-7/summary.md)で通ります。
+前回の結果のあと、バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が顧客指定の暗号鍵を受け付け（[範囲](grpc-v2-customer-supplied-keys.md)）、XMLマルチパートの各パートの応答がハッシュを返すようになりました（[範囲（英語）](../en/slices/xml-multipart-upload.md)）。
+残りの1件は、PHPのgs://書き込みが開始時に宣言する長さ0です。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
 0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。
