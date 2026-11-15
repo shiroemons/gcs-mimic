@@ -587,6 +587,30 @@
       "required_resolution": "Keep placement/size/error questions outside the frozen local acceptance scope; the ledger records EXACT fidelity only for that declared scope. Establish a supported threshold/error model or authorized provider observations before claiming cross-location/class large-copy parity, replication, exact errors/precedence or infrastructure behavior. ACLs, encryption/KMS, requester billing, contexts, retention and temporary holds remain explicitly unsupported; accepted full projection still lacks owner/ACL resources and their additional permission behavior."
     },
     {
+      "id": "SPEC-GRPC-CSEK",
+      "title": "Storage v2 customer-supplied key behavior outside the recorded gRPC calls stays local",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-OBJECT-037",
+        "RPC-STORAGE-012",
+        "RPC-STORAGE-016",
+        "RPC-STORAGE-018",
+        "RPC-STORAGE-019",
+        "RPC-STORAGE-021",
+        "RPC-STORAGE-022",
+        "RPC-STORAGE-023"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/encryption/customer-supplied-keys",
+        "https://docs.cloud.google.com/storage/docs/encryption/using-customer-supplied-keys",
+        "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto"
+      ],
+      "observed_at": "2026-11-15",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The pinned storage.proto and the official customer-supplied key pages do not say which Storage v2 RPCs use common_object_request_params, when a key must be resent, or which status a key failure returns. Case grpc-csek recorded Cloud Storage over gRPC on 2026-11-15: every key failure is INVALID_ARGUMENT with one google.rpc.BadRequest field violation repeating the message (four of six messages differ from the JSON API's); raw keys are checked key first, then algorithm, then fingerprint; GetObject, UpdateObject and ListObjects succeed without the key and hide checksums; ReadObject, RewriteObject sources and ComposeObject components need it; later write messages, resumable upload_id messages and QueryWriteStatus ignore any key once a write started with one; DeleteObject ignores a key; a key introduced after a keyless write started fails with INTERNAL and publishes nothing. gcs-mimic answers that last case with INVALID_ARGUMENT (ResourceNotEncrypted) instead, so clients do not retry. Not recorded: BidiReadObject (not allowlisted for the recording project), rewrite continuations (the recorded rewrites finished in one call), RestoreObject with a key, a malformed key on calls that ignore keys, and the order of an invalid algorithm against an invalid key. Contract: docs/en/slices/grpc-v2-customer-supplied-keys.md.",
+      "required_resolution": "Keep these local rules labelled LOCAL_SIMULATION until explicitly authorized provider observations cover them: BidiReadObject follows ReadObject and needs the key on every open and read-handle resume; rewrite continuations repeat both keys as the JSON API requires; RestoreObject rejects a key with UNIMPLEMENTED; calls that ignore a key do not parse it. Re-record grpc-csek when the proto pin changes. Do not claim provider-identical gRPC key behavior beyond the recorded steps."
+    },
+    {
       "id": "SPEC-REWRITE-EDGES",
       "title": "Rewrite token errors, replay retention and source-change timing require provider evidence",
       "status": "OPEN",

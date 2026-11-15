@@ -30,7 +30,7 @@ SetIamPolicyは共有の型付きポリシーを直接作ります。TestIamPerm
 バケットの共有検証で返るAutoclass・lifecycle・保持エラーも、gRPCではprotoのフィールド名で案内します。
 更新トランザクション内で検出するエラーも対象です。JSONの文言は維持し、gRPCの保持期間の案内にはJSON本文の例を入れません。
 
-rewriteは共有の継続セッションを使い、token単独での継続と直前tokenの再送に対応します。tokenはgRPC内で使い続けてください。JSONとのtoken共用は対象外です。composeは1〜32個で世代・前提条件を検査します。暗号化・派生オブジェクトのACL・条件付きIAM・明示チェックサム検証・派生オブジェクトのcustom time/temporary holdなどは未対応です。lifecycleは検証・保存の範囲であり、実行処理は追加しません。
+rewriteは共有の継続セッションを使い、token単独での継続と直前tokenの再送に対応します。tokenはgRPC内で使い続けてください。JSONとのtoken共用は対象外です。composeは1〜32個で世代・前提条件を検査します。KMS鍵・派生オブジェクトのACL・条件付きIAM・明示チェックサム検証・派生オブジェクトのcustom time/temporary holdなどは未対応です。lifecycleは検証・保存の範囲であり、実行処理は追加しません。
 
 同じ種類の世代にmatchとnot-matchを同時に指定するとINVALID_ARGUMENTです。JSONの複合条件の優先順位までは、この範囲では再現しません。
 
@@ -45,6 +45,6 @@ IAM設定の保持については、修正前にRustとGoの両方で失敗を�
 
 bucket・object I/Oを統合した最終ソースでjust checkも成功しました。ライブラリ528件、全統合テスト、native・Windows・Linuxのclippy、台帳591行と生成表の整合性を確認済みです。IAM設定の保持の問題は解消し、ほかの親maskは単一項目の解除・置換として正しいため変更しません。
 
-2026-11-14に、テストのなかった未対応オプションの拒否を3つのテストで固定しました。どのオプションも、状態を変える前に、オプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。UpdateBucket・UpdateObjectのpredefined ACLはメタデータとmetagenerationを変えません。ComposeObject・RewriteObjectの暗号・ACL・checksum・`storage_class`・`temporary_hold`・`custom_time`と、RestoreObjectの`restore_token`は、宛先オブジェクトを作りません。SetIamPolicyの`bindings`と`etag`以外のmaskと、managed folder・objectのIAMリソースはポリシーを変えません。`cargo test --locked --offline --lib grpc::`の168件が成功しました。RPC-STORAGE-006・007・009・010・012・017・021には成功ケース`grpc_unsupported_option_rejections`として記録し、`grpc_full_contract`は残りのフィールド・エラーの組み合わせ・実機との一致のためPENDINGのままです。
+2026-11-14に、テストのなかった未対応オプションの拒否を3つのテストで固定しました。どのオプションも、状態を変える前に、オプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。UpdateBucket・UpdateObjectのpredefined ACLはメタデータとmetagenerationを変えません。ComposeObject・RewriteObjectのKMS鍵・ACL・checksum・`storage_class`・`temporary_hold`・`custom_time`と、RestoreObjectの`restore_token`・顧客指定の暗号鍵は、宛先オブジェクトを作りません。ComposeObject・RewriteObject・UpdateObjectの顧客指定の暗号鍵は[gRPC の CSEK](grpc-v2-customer-supplied-keys.md)のとおりに扱います。SetIamPolicyの`bindings`と`etag`以外のmaskと、managed folder・objectのIAMリソースはポリシーを変えません。`cargo test --locked --offline --lib grpc::`の168件が成功しました。RPC-STORAGE-006・007・009・010・012・017・021には成功ケース`grpc_unsupported_option_rejections`として記録し、`grpc_full_contract`は残りのフィールド・エラーの組み合わせ・実機との一致のためPENDINGのままです。
 
 これらのテストが固定しているのはgcs-mimic自身の拒否で、Cloud Storageも同じ要求を断ることを示すものではありません。実機記録（UTC で 2026-11-13、ケース`grpc-unsupported-options`）では、Cloud StorageはpredefinedのACL、UpdateObjectの`*`マスク、派生書き込みの`custom_time`、ポリシーのバージョン2、オブジェクトへのTestIamPermissionsを受け付けました。誤ったchecksumはINVALID_ARGUMENT、uniform accessのないバケットのmanaged folder IAMはFAILED_PRECONDITIONで断りました。gcs-mimicはポリシーのバージョン2を受け付けるように変え、ほかの拒否はSPEC-SDK-UNSUPPORTEDの記録済みローカル選択として残します。また、ComposeObjectとMoveObjectの応答には`acl`と`owner`が含まれず、RewriteObjectには含まれると分かったので、gcs-mimicもこの2つのRPCでは省きます。

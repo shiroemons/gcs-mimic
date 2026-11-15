@@ -69,11 +69,14 @@ an invalid key never creates an object.
 - CSEK-COMPOSE: every component must be readable with the request key, which
   also encrypts the result; mixed or keyless components are rejected.
 - CSEK-REJECT: list, delete, restore and move reject key headers as unsupported
-  instead of ignoring them, as do gRPC `common_object_request_params`.
-- CSEK-GRPC: Storage v2 and legacy v1 gRPC cannot supply a key, so their reads,
-  copies, rewrites and composes of encrypted objects fail with the
-  `resourceIsEncryptedWithCustomerEncryptionKey` reason; v2 metadata reports
-  `customer_encryption` without checksums.
+  instead of ignoring them. Over Storage v2 gRPC, Cloud Storage ignores a key
+  on DeleteObject, so that RPC does too; RestoreObject rejects one.
+- CSEK-GRPC: Storage v2 gRPC carries raw keys in `common_object_request_params`
+  and RewriteObject's `copy_source_encryption_*` fields, with its own
+  validation order, status and wording: see
+  [grpc-v2-customer-supplied-keys.md](grpc-v2-customer-supplied-keys.md).
+  Legacy v1 gRPC cannot supply a key, so its reads of encrypted objects fail
+  and its metadata omits the hashes.
 - CSEK-PERSIST: catalog schema 30 adds a nullable 32-byte
   `customer_key_sha256` column. Existing objects migrate as unencrypted, and
   the fingerprint survives restart.
@@ -101,7 +104,8 @@ dependency; the SHA-256 comes from the existing `ring` dependency.
   with `resourceNotEncryptedWithCustomerEncryptionKey`.
 - A cached resumable completion response includes hashes for later status
   checks.
-- Pending: `GET ?encryption` (EXT-XML-015), customer keys on gRPC requests,
+- Pending: `GET ?encryption` (EXT-XML-015), customer keys on legacy v1 gRPC
+  requests, the unrecorded Storage v2 cases of gap SPEC-GRPC-CSEK,
   TLS-only key acceptance (keys are accepted over plain HTTP for local use),
   CMEK interaction, bucket encryption enforcement configuration, signed URL
   key headers and provider differential evidence.

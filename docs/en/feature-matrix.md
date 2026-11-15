@@ -735,7 +735,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-034 | Object retention configuration | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-035 | Temporary and event-based holds | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-036 | Bucket retention enforcement | PARTIAL | P4 | EXACT | EXACT | 2 |
-| BEHAVIOR-OBJECT-037 | Customer-supplied encryption key checks | PARTIAL | P7 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
+| BEHAVIOR-OBJECT-037 | Customer-supplied encryption key checks | PARTIAL | P7 | LOCAL_SIMULATION | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-038 | Customer-managed encryption simulation | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 
 ### RAPID

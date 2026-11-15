@@ -477,7 +477,9 @@ gcs-mimic fails five cases. Three are over gRPC: Java's
 billing, which gcs-mimic does not model; Python's `grpc.appendable_object`
 waits for a response to the appendable open that gcs-mimic sends only at a
 flush; and Rust's `object.csek_rotation` rewrites over gRPC, where gcs-mimic
-does not yet accept customer-supplied keys. Python's `sdk.xml_multipart_upload`
+did not yet accept customer-supplied keys at that run. Storage v2 now accepts
+them, and a later gcs-mimic-only run on 2026-11-15 passes that case; the results
+update with the next full comparison. Python's `sdk.xml_multipart_upload`
 needs an `x-goog-hash` on each multipart part response, and PHP's
 `sdk.stream_wrapper` declares an upload length of 0 before streaming the
 object, which gcs-mimic enforces.

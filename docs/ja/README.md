@@ -409,7 +409,8 @@ n/aはSDKに公開APIがないケースで、そのSDKの分母から除きま�
 gcs-mimicが通過しないケースは5件で、そのうち3件はgRPCのケースです。
 Javaの`grpc.bucket_create_get_delete`は、gcs-mimicがモデル化していないbillingを読み取りマスクに含めてバケットを読みます。
 Pythonの`grpc.appendable_object`は、追記型を開いたときの応答を待ちますが、gcs-mimicはflushまで応答を返しません。
-Rustの`object.csek_rotation`はrewriteをgRPCで送りますが、gcs-mimicはgRPCでの顧客指定の暗号鍵（CSEK）にまだ対応していません。
+Rustの`object.csek_rotation`はrewriteをgRPCで送りますが、その実行の時点のgcs-mimicはgRPCでの顧客指定の暗号鍵（CSEK）に対応していませんでした。
+現在のStorage v2は鍵を受け付け、その後2026-11-15にgcs-mimicだけで実行した結果ではこのケースが通ります。結果は次の全体比較で更新します。
 Pythonの`sdk.xml_multipart_upload`は、XMLマルチパートの各パートの応答に`x-goog-hash`を求めます。
 PHPの`sdk.stream_wrapper`は、アップロードの長さを0と宣言してから中身を送り、gcs-mimicはその0を守らせます。
 

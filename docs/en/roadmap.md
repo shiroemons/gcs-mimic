@@ -34,8 +34,11 @@ Node.js, .NET and C++ case, every Java, PHP and Rust case but one and every
 Python case but two in its latest
 [run](../../sdk-scorecard/results/2026-11-15-6/summary.md). Three are gRPC
 gaps: Java's default bucket read mask names billing, Python waits for a
-response to the appendable open, and Rust rewrites over gRPC, where
-customer-supplied keys are not yet accepted. Python's multipart helper needs
+response to the appendable open, and Rust rewrites over gRPC, where that run
+did not yet accept customer-supplied keys. Storage v2 now accepts them
+([scope](slices/grpc-v2-customer-supplied-keys.md)); a later gcs-mimic-only
+run on 2026-11-15 passes Rust's `object.csek_rotation`, and the linked results
+update with the next full comparison. Python's multipart helper needs
 an `x-goog-hash` on each part response, and PHP's `gs://` writes declare an
 upload length of 0 that gcs-mimic enforces. Scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)

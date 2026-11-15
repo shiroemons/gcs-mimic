@@ -22754,7 +22754,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Provider-exact status precedence and encryption-related common parameters remain unsupported or unverified.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Provider-exact status precedence remains unverified; a customer-supplied key is ignored, as Cloud Storage does (BEHAVIOR-OBJECT-037).",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -22771,7 +22771,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Provider-exact status precedence and encryption-related common parameters remain unsupported or unverified.",
+          "description": "Provider-exact status precedence remains unverified; a customer-supplied key is ignored, as Cloud Storage does (BEHAVIOR-OBJECT-037).",
           "result": "PENDING",
           "test_ids": []
         }
@@ -22820,7 +22820,7 @@
         }
       ],
       "known_deviations": [
-        "Provider-exact status precedence and encryption-related common parameters remain unsupported or unverified."
+        "Provider-exact status precedence remains unverified; a customer-supplied key is ignored, as Cloud Storage does (BEHAVIOR-OBJECT-037)."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -23185,7 +23185,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): ReadObject no longer ends with an empty trailing message. Covered by the differential replay, not by a dedicated Rust test.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): ReadObject no longer ends with an empty trailing message. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -23220,7 +23220,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified.",
+          "description": "Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23292,7 +23292,7 @@
         }
       ],
       "known_deviations": [
-        "Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified."
+        "Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"
@@ -23326,7 +23326,7 @@
         {"id": "bidi-shared-status", "description": "Reuse status::from_json for backend UNAVAILABLE and unsupported JSON 501 with ErrorInfo-bearing UNIMPLEMENTED.", "result": "PASS", "test_ids": ["bidi_shared_error_status"]},
         {"id": "bidi-unfinalized", "description": "Without a finalized object, the stream selects an unfinalized appendable generation, returns metadata without MD5 and reads its persisted prefix; see docs/en/slices/grpc-v2-rapid-append.md.", "result": "PASS", "test_ids": ["TestGRPCAppendable"]},
         {"id": "bidi-outstanding-errors", "description": "Stream failure details retain the failing read_id's status and enumerate other unfinished admitted IDs as ABORTED; provider-exact status values remain unobserved in SPEC-GRPC-PENDING-RANGES.", "result": "PASS", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"]},
-        {"id": "bidi-remaining-fields", "description": "Redirects, encryption, nondefault read masks, preconditions combined with read handles, provider error parity and reads that follow later appends remain pending.", "result": "PENDING", "test_ids": []}
+        {"id": "bidi-remaining-fields", "description": "Redirects, nondefault read masks, preconditions combined with read handles, provider error parity and reads that follow later appends remain pending.", "result": "PENDING", "test_ids": []}
       ],
       "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"],
       "verification": [
@@ -23340,7 +23340,7 @@
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}, {"language": "Java", "toolchain": "openjdk 27.0.1", "sdk": "com.google.cloud:google-cloud-storage", "version": "2.78.0", "transport": "Storage v2 gRPC; blobReadSession with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Java)"]}, {"language": "Python", "toolchain": "3.15.2", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "Storage v2 gRPC; AsyncMultiRangeDownloader with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Python)"]}, {"language": "Rust", "toolchain": "1.100.0", "sdk": "google-cloud-storage", "version": "1.22.0", "transport": "Storage v2 gRPC; Storage::open_object with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.rust.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Rust)"]}],
-      "known_deviations": ["Process-local FIFO retains at most 1024 reader-free handle descriptors for ten injected-clock minutes; eviction, expiry or restart requires reopening without a handle. Missing generations return NOT_FOUND and invalidate the handle. Provider lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, encryption, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Other unfinished admitted read_ids receive ABORTED when a range or stream fails; provider status values remain unobserved in SPEC-GRPC-PENDING-RANGES. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
+      "known_deviations": ["Process-local FIFO retains at most 1024 reader-free handle descriptors for ten injected-clock minutes; eviction, expiry or restart requires reopening without a handle. Missing generations return NOT_FOUND and invalidate the handle. Provider lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Other unfinished admitted read_ids receive ABORTED when a range or stream fails; provider status values remain unobserved in SPEC-GRPC-PENDING-RANGES. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },
@@ -23520,7 +23520,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -23537,7 +23537,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "description": "Unsupported write resource fields/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23585,7 +23585,7 @@
         }
       ],
       "known_deviations": [
-        "Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+        "Unsupported write resource fields/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -23909,7 +23909,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_unsupported_option_rejections",
-          "description": "destination_kms_key, destination_predefined_acl, the copy_source encryption fields, object_checksums, temporary_hold and custom_time return UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "description": "destination_kms_key, destination_predefined_acl, object_checksums, temporary_hold and custom_time return UNIMPLEMENTED with ErrorInfo and create no destination.",
           "result": "PASS",
           "test_ids": [
             "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
@@ -24025,7 +24025,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unhandled write metadata/encryption/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unhandled write metadata/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -24043,7 +24043,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Unhandled write metadata/encryption/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days.",
+          "description": "Unhandled write metadata/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24093,7 +24093,7 @@
         }
       ],
       "known_deviations": [
-        "Unhandled write metadata/encryption/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days."
+        "Unhandled write metadata/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -33580,7 +33580,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "SPEC_BASED",
-      "notes": "Encryption headers, key fingerprint, mismatch/missing rejection and copy source/destination keys. Keys are enforced on JSON media/multipart/resumable uploads, JSON media and XML GET/PUT, metadata reads/updates, copy, rewrite (key rotation) and compose; only the SHA-256 fingerprint is persisted. Object bytes stay unencrypted on local disk, so fidelity is LOCAL_SIMULATION. Scope: docs/en/slices/customer-supplied-keys.md.",
+      "notes": "Encryption headers, key fingerprint, mismatch/missing rejection and copy source/destination keys. Keys are enforced on JSON media/multipart/resumable uploads, JSON media and XML GET/PUT, metadata reads/updates, copy, rewrite (key rotation) and compose; only the SHA-256 fingerprint is persisted. Storage v2 gRPC accepts raw keys in common_object_request_params and RewriteObject's copy_source_encryption_* fields on GetObject, ReadObject, BidiReadObject, UpdateObject, WriteObject, BidiWriteObject, StartResumableWrite, RewriteObject and ComposeObject, with the validation order, INVALID_ARGUMENT status, BadRequest detail and wording recorded against Cloud Storage in differential case grpc-csek (2026-11-15). Object bytes stay unencrypted on local disk, so fidelity is LOCAL_SIMULATION. Scope: docs/en/slices/customer-supplied-keys.md and docs/en/slices/grpc-v2-customer-supplied-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -33644,12 +33644,79 @@
         },
         {
           "id": "CSEK-KEYLESS-TRANSPORTS",
-          "description": "Routes and transports that cannot carry a key reject key headers or refuse encrypted data; gRPC v2 metadata reports customer_encryption without checksums.",
+          "description": "Routes and transports that cannot carry a key (HTTP list, delete, restore and move; legacy v1 gRPC) reject key headers or refuse encrypted data; Storage v2 metadata without a key reports customer_encryption without checksums.",
           "result": "PASS",
           "test_ids": [
             "fingerprint_survives_restart_and_keyless_readers_are_refused",
             "grpc_record_conversion",
             "csek_media_upload_requires_its_key_for_data_but_not_metadata"
+          ]
+        },
+        {
+          "id": "CSEK-GRPC-PARSE",
+          "description": "Storage v2 raw keys: an empty field is absent; the key bytes are checked before the algorithm and the fingerprint; every key failure, directly or through a storage error, is INVALID_ARGUMENT with one BadRequest field violation and the recorded gRPC wording.",
+          "result": "PASS",
+          "test_ids": [
+            "raw_keys_keep_only_their_fingerprint",
+            "raw_keys_are_checked_key_first_as_cloud_storage_does",
+            "customer_key_failures_use_the_recorded_grpc_contract",
+            "absent_and_default_parameters_carry_no_key",
+            "raw_keys_parse_to_their_fingerprint_and_failures_use_the_grpc_contract",
+            "grpc-csek"
+          ]
+        },
+        {
+          "id": "CSEK-GRPC-READ",
+          "description": "GetObject without a key hides checksums even when the read mask names them, and reveals them with the right key; ReadObject needs the key before any data and returns object and metadata checksums for whole and ranged reads; a wrong key, a key on an unencrypted or unfinalized appendable object and a malformed key fail; an older generation reads with its own key. BidiReadObject applies the same rules on every open and read-handle resume, and a refused resume keeps the handle (local decision).",
+          "result": "PASS",
+          "test_ids": [
+            "get_object_without_a_key_shows_the_fingerprint_but_no_checksums",
+            "get_object_with_the_right_key_shows_checksums",
+            "get_object_refuses_a_wrong_key_and_a_key_on_an_unencrypted_object",
+            "a_malformed_key_fails_before_the_object_is_looked_up",
+            "read_object_returns_data_and_checksums_with_the_right_key",
+            "read_object_refuses_missing_and_wrong_keys_before_sending_data",
+            "an_older_generation_is_read_with_its_own_key",
+            "a_key_on_an_unfinalized_appendable_object_is_refused",
+            "opening_with_the_right_key_streams_data_and_shows_checksums",
+            "opening_without_or_with_the_wrong_key_is_refused",
+            "a_malformed_key_fails_with_its_parse_error",
+            "resuming_needs_the_key_again_and_a_failure_keeps_the_handle",
+            "grpc-csek"
+          ]
+        },
+        {
+          "id": "CSEK-GRPC-WRITE",
+          "description": "WriteObject, BidiWriteObject and StartResumableWrite take the key from the request that starts the write; later messages, upload_id messages and QueryWriteStatus ignore any key once a write is keyed; a key after a keyless start is refused as ResourceNotEncrypted for that message only (Cloud Storage answers INTERNAL); a malformed key stages nothing; a keyless overwrite creates an unencrypted generation; a keyed resumable session survives restart. Appendable writes keep rejecting keys.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_write_with_a_key_encrypts_and_a_keyless_overwrite_does_not",
+            "grpc_write_later_messages_cannot_change_the_first_key",
+            "grpc_write_key_after_a_keyless_start_or_malformed_publishes_nothing",
+            "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+            "grpc_keyless_session_refuses_a_key_on_one_message_and_stays_usable",
+            "grpc_resumable_key_survives_a_restart",
+            "grpc-csek"
+          ]
+        },
+        {
+          "id": "CSEK-GRPC-DERIVED",
+          "description": "RewriteObject takes the source key from copy_source_encryption_* and the destination key from common_object_request_params, so it encrypts, decrypts and rotates keys; key failures create no destination; continuations repeat both keys across a restart, and a refused continuation keeps the session (local decision). ComposeObject applies one key to every source and the result. UpdateObject hides checksums without a key and commits nothing on a wrong key. DeleteObject ignores a key; RestoreObject rejects one.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_rewrite_rotates_adds_and_removes_customer_keys",
+            "grpc_rewrite_key_failures_create_no_destination",
+            "grpc_rewrite_continuations_repeat_both_keys_across_a_restart",
+            "grpc_rewrite_continuations_of_a_keyless_session_refuse_a_key",
+            "rewrite_keys_come_from_their_own_fields_destination_first",
+            "grpc_compose_applies_one_key_to_every_source_and_the_result",
+            "grpc_compose_key_failures_create_no_destination",
+            "grpc_compose_deletes_encrypted_sources_with_the_right_key",
+            "grpc_update_object_reveals_hashes_only_to_the_key_holder",
+            "grpc_update_object_key_failures_commit_nothing",
+            "grpc_delete_ignores_a_customer_key_as_cloud_storage_does",
+            "unmodelled_rpcs_reject_a_key_without_sending_clients_to_the_json_api",
+            "grpc-csek"
           ]
         },
         {
@@ -33663,15 +33730,16 @@
         },
         {
           "id": "CSEK-SDK",
-          "description": "Go and Ruby SDK scorecard customer-supplied-key journeys: keyed upload, keyless read rejected, keyed read returns the bytes.",
+          "description": "Go and Ruby SDK scorecard customer-supplied-key journeys: keyed upload, keyless read rejected, keyed read returns the bytes. The Rust SDK rotates a key with RewriteObject over Storage v2 gRPC (object.csek_rotation).",
           "result": "PASS",
           "test_ids": [
-            "object.customer_supplied_key"
+            "object.customer_supplied_key",
+            "object.csek_rotation"
           ]
         },
         {
           "id": "CSEK-PENDING",
-          "description": "GET ?encryption (EXT-XML-015), keys on gRPC requests, TLS-only key acceptance, CMEK and bucket encryption enforcement interaction, signed URL key headers, at-rest encryption and provider differential evidence remain pending.",
+          "description": "GET ?encryption (EXT-XML-015), keys on legacy v1 gRPC requests, the unrecorded Storage v2 cases of gap SPEC-GRPC-CSEK (BidiReadObject, rewrite continuations, RestoreObject), TLS-only key acceptance, CMEK and bucket encryption enforcement interaction, signed URL key headers, at-rest encryption and HTTP provider differential evidence remain pending.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -33692,9 +33760,108 @@
         "fingerprint_survives_restart_and_keyless_readers_are_refused",
         "schema_29_catalog_migrates_with_unencrypted_objects",
         "grpc_record_conversion",
-        "object.customer_supplied_key"
+        "object.customer_supplied_key",
+        "raw_keys_keep_only_their_fingerprint",
+        "raw_keys_are_checked_key_first_as_cloud_storage_does",
+        "customer_key_failures_use_the_recorded_grpc_contract",
+        "absent_and_default_parameters_carry_no_key",
+        "raw_keys_parse_to_their_fingerprint_and_failures_use_the_grpc_contract",
+        "get_object_without_a_key_shows_the_fingerprint_but_no_checksums",
+        "get_object_with_the_right_key_shows_checksums",
+        "get_object_refuses_a_wrong_key_and_a_key_on_an_unencrypted_object",
+        "a_malformed_key_fails_before_the_object_is_looked_up",
+        "read_object_returns_data_and_checksums_with_the_right_key",
+        "read_object_refuses_missing_and_wrong_keys_before_sending_data",
+        "an_older_generation_is_read_with_its_own_key",
+        "a_key_on_an_unfinalized_appendable_object_is_refused",
+        "opening_with_the_right_key_streams_data_and_shows_checksums",
+        "opening_without_or_with_the_wrong_key_is_refused",
+        "a_malformed_key_fails_with_its_parse_error",
+        "resuming_needs_the_key_again_and_a_failure_keeps_the_handle",
+        "grpc_write_with_a_key_encrypts_and_a_keyless_overwrite_does_not",
+        "grpc_write_later_messages_cannot_change_the_first_key",
+        "grpc_write_key_after_a_keyless_start_or_malformed_publishes_nothing",
+        "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+        "grpc_keyless_session_refuses_a_key_on_one_message_and_stays_usable",
+        "grpc_resumable_key_survives_a_restart",
+        "grpc_rewrite_rotates_adds_and_removes_customer_keys",
+        "grpc_rewrite_key_failures_create_no_destination",
+        "grpc_rewrite_continuations_repeat_both_keys_across_a_restart",
+        "grpc_rewrite_continuations_of_a_keyless_session_refuse_a_key",
+        "rewrite_keys_come_from_their_own_fields_destination_first",
+        "grpc_compose_applies_one_key_to_every_source_and_the_result",
+        "grpc_compose_key_failures_create_no_destination",
+        "grpc_compose_deletes_encrypted_sources_with_the_right_key",
+        "grpc_update_object_reveals_hashes_only_to_the_key_holder",
+        "grpc_update_object_key_failures_commit_nothing",
+        "grpc_delete_ignores_a_customer_key_as_cloud_storage_does",
+        "unmodelled_rpcs_reject_a_key_without_sending_clients_to_the_json_api",
+        "grpc-csek",
+        "object.csek_rotation"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --lib",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/grpc-v2-customer-supplied-keys.md",
+          "test_ids": [
+            "raw_keys_keep_only_their_fingerprint",
+            "raw_keys_are_checked_key_first_as_cloud_storage_does",
+            "customer_key_failures_use_the_recorded_grpc_contract",
+            "absent_and_default_parameters_carry_no_key",
+            "raw_keys_parse_to_their_fingerprint_and_failures_use_the_grpc_contract",
+            "get_object_without_a_key_shows_the_fingerprint_but_no_checksums",
+            "get_object_with_the_right_key_shows_checksums",
+            "get_object_refuses_a_wrong_key_and_a_key_on_an_unencrypted_object",
+            "a_malformed_key_fails_before_the_object_is_looked_up",
+            "read_object_returns_data_and_checksums_with_the_right_key",
+            "read_object_refuses_missing_and_wrong_keys_before_sending_data",
+            "an_older_generation_is_read_with_its_own_key",
+            "a_key_on_an_unfinalized_appendable_object_is_refused",
+            "opening_with_the_right_key_streams_data_and_shows_checksums",
+            "opening_without_or_with_the_wrong_key_is_refused",
+            "a_malformed_key_fails_with_its_parse_error",
+            "resuming_needs_the_key_again_and_a_failure_keeps_the_handle",
+            "grpc_write_with_a_key_encrypts_and_a_keyless_overwrite_does_not",
+            "grpc_write_later_messages_cannot_change_the_first_key",
+            "grpc_write_key_after_a_keyless_start_or_malformed_publishes_nothing",
+            "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+            "grpc_keyless_session_refuses_a_key_on_one_message_and_stays_usable",
+            "grpc_resumable_key_survives_a_restart",
+            "grpc_rewrite_rotates_adds_and_removes_customer_keys",
+            "grpc_rewrite_key_failures_create_no_destination",
+            "grpc_rewrite_continuations_repeat_both_keys_across_a_restart",
+            "grpc_rewrite_continuations_of_a_keyless_session_refuse_a_key",
+            "rewrite_keys_come_from_their_own_fields_destination_first",
+            "grpc_compose_applies_one_key_to_every_source_and_the_result",
+            "grpc_compose_key_failures_create_no_destination",
+            "grpc_compose_deletes_encrypted_sources_with_the_right_key",
+            "grpc_update_object_reveals_hashes_only_to_the_key_holder",
+            "grpc_update_object_key_failures_commit_nothing",
+            "grpc_delete_ignores_a_customer_key_as_cloud_storage_does",
+            "unmodelled_rpcs_reject_a_key_without_sending_clients_to_the_json_api"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "compatibility/differential/reference/gcs.json",
+          "test_ids": [
+            "grpc-csek"
+          ]
+        },
+        {
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-grpc-csek\" gcs-mimic",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/grpc-v2-customer-supplied-keys.md",
+          "test_ids": [
+            "object.csek_rotation",
+            "object.customer_supplied_key"
+          ]
+        },
         {
           "command": "cargo test --locked --lib csek",
           "result": "PASS",
@@ -33764,13 +33931,27 @@
           "test_ids": [
             "object.customer_supplied_key"
           ]
+        },
+        {
+          "language": "Rust",
+          "toolchain": "1.100.0",
+          "sdk": "google-cloud-storage",
+          "version": "1.22.0",
+          "transport": "Storage v2 gRPC RewriteObject with copy_source_encryption_* and common_object_request_params (key rotation)",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-grpc-csek\" gcs-mimic",
+          "artifact": "docs/en/slices/grpc-v2-customer-supplied-keys.md",
+          "test_ids": [
+            "object.csek_rotation"
+          ]
         }
       ],
       "known_deviations": [
-        "SPEC-CSEK-LOCAL: object bytes are stored unencrypted on local disk (only the key fingerprint is persisted); XML HEAD without a key is a metadata read that omits x-goog-hash; resumable chunks may omit key headers; a key supplied for an unencrypted object's metadata returns resourceNotEncryptedWithCustomerEncryptionKey; keys are accepted over plain HTTP; gRPC requests cannot supply keys."
+        "SPEC-CSEK-LOCAL: object bytes are stored unencrypted on local disk (only the key fingerprint is persisted); XML HEAD without a key is a metadata read that omits x-goog-hash; resumable chunks may omit key headers; a key supplied for an unencrypted object's metadata returns resourceNotEncryptedWithCustomerEncryptionKey; keys are accepted over plain HTTP; legacy v1 gRPC requests cannot supply keys; on Storage v2 a key after a keyless write started fails with INVALID_ARGUMENT where Cloud Storage answers INTERNAL, and BidiReadObject, rewrite continuations and RestoreObject follow local rules (SPEC-GRPC-CSEK)."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-15"
     },
     {
       "id": "BEHAVIOR-OBJECT-038",
@@ -37043,7 +37224,7 @@
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; interleaved ranges, 600 Add calls with backpressure and generation-stable handles", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
-      "known_deviations": ["Handles are process-local, reader-free and bounded to 1024 FIFO entries with a ten-minute injected-clock expiry. Removed generations return NOT_FOUND and invalidate the handle; provider-exact lifetime and removed-generation behavior remain unobserved. Input backpressure bounds queued descriptors to 199; the protocol limit of 100 ranges applies per message, not to the number of Add calls. Go v1.70.0 can exceed that per-message limit when resending more than 100 interrupted ranges; such an invalid retry returns non-retryable INVALID_ARGUMENT. Other unfinished admitted IDs receive local ABORTED statuses; provider-exact range statuses, redirects and error parity remain pending. Unsupported encryption/masks and handle/precondition combinations fail with UNIMPLEMENTED."],
+      "known_deviations": ["Handles are process-local, reader-free and bounded to 1024 FIFO entries with a ten-minute injected-clock expiry. Removed generations return NOT_FOUND and invalidate the handle; provider-exact lifetime and removed-generation behavior remain unobserved. Input backpressure bounds queued descriptors to 199; the protocol limit of 100 ranges applies per message, not to the number of Add calls. Go v1.70.0 can exceed that per-message limit when resending more than 100 interrupted ranges; such an invalid retry returns non-retryable INVALID_ARGUMENT. Other unfinished admitted IDs receive local ABORTED statuses; provider-exact range statuses, redirects and error parity remain pending. Unsupported masks and handle/precondition combinations fail with UNIMPLEMENTED."],
       "implemented_in": null,
       "last_verified": "2026-10-28"
     },
