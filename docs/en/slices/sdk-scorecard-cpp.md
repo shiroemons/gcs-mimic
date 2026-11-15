@@ -2,16 +2,17 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: implemented on 2026-11-15. The probe passes 49 of the 51 shared cases
-against gcs-mimic; both failures are emulator defects recorded under
-"Verification". AUDIT-003 is PARTIAL.
+Status: implemented on 2026-11-15. The probe passes all 51 shared cases
+against gcs-mimic. Its first run exposed two emulator defects, fixed in
+separate commits and described under "Verification". AUDIT-003 is PARTIAL.
 
 Scope: AUDIT-003 (Official C++ SDK integration), first slice. The official
 `google-cloud-cpp` Cloud Storage client runs the 51 shared scorecard cases
 (bucket 20, object 27, signed 4) over its JSON/REST transport against every
 compared emulator. This slice changes the optional comparison harness and its
 dependency detection, not the emulator. No server behavior, configuration or
-catalog schema changes.
+catalog schema changes; the two emulator fixes its first run called for are
+their own commits.
 
 Out of scope, each a later slice: the SDK's gRPC transport (`AsyncClient`,
 `MakeGrpcClient`), C++-specific `sdk` cases, new shared cases, and a case
@@ -192,39 +193,45 @@ repository:
 
 ## Verification
 
-Verified on 2026-11-15, linux/arm64 (Docker 29.9.2), at `fec7476f` with no
-uncommitted change.
+Verified on 2026-11-15, linux/arm64 (Docker 29.9.2). The first run was at
+`fec7476f`, before the branch was rebased onto main (the hash is not on main);
+the final run is at `6652e6fa`. Both had no uncommitted change.
 
 | Case | Result | Evidence |
 | --- | --- | --- |
 | CPP-PINS | PASS on linux/arm64; linux/amd64 not built | `docker build -f sdk-scorecard/cpp/Dockerfile ... sdk-scorecard` succeeds without probe warnings. Both CMake archives are checksum-verified on every build; the linux/x86_64 one was never unpacked. |
 | CPP-TRANSPORT | PASS | `bash sdk-scorecard/test-tls.sh`: 32/32, including `cpp` with the fixture CA (passes), an unrelated CA and a wrong SAN (both fail with libcurl's certificate error). |
 | CPP-ISOLATION | PASS | With `CLOUD_STORAGE_EMULATOR_ENDPOINT`, `CLOUD_STORAGE_TESTBENCH_ENDPOINT`, proxy variables and `GOOGLE_CLOUD_UNIVERSE_DOMAIN` set to other hosts, every case result over HTTP and HTTPS was identical. A run without the scrub was not made. |
-| CPP-CORE | PASS | `bash sdk-scorecard/run.sh` wrote [results/2026-11-15](../../../sdk-scorecard/results/2026-11-15/summary.md) in 830 s for all four products and `score.sh` accepted it. The 51 IDs and areas equal the Ruby core; no case is unsupported. gcs-mimic passes 49 of them (below), which leaves the ledger's all-pass case CPP-SCORECARD at FAIL. The other eight SDKs' case results equal the 2026-11-12 run for every product. |
+| CPP-CORE | PASS | `bash sdk-scorecard/run.sh` wrote [results/2026-11-15](../../../sdk-scorecard/results/2026-11-15/summary.md) in 830 s and, after the fixes, [results/2026-11-15-2](../../../sdk-scorecard/results/2026-11-15-2/summary.md) in 988 s, each for all four products, and `score.sh` accepted both. The 51 IDs and areas equal the Ruby core; no case is unsupported. gcs-mimic passed 49 in the first run (below) and 51 in the final one, so the ledger's all-pass case CPP-SCORECARD passes. In both runs the other eight SDKs' case results equal the 2026-11-12 run for every product. |
 | CPP-SCORER | PASS | `bash sdk-scorecard/test-score.sh` passes with nine SDKs; every recorded summary from 2026-10-29 to 2026-11-12 rescores byte for byte. |
 | CPP-FRESHNESS | PASS | `cargo xtask dependencies check` exits 0 with the seven new inputs CURRENT. A changed SHA-256 fails it (exit 2) and an older google-cloud-cpp tag reports UPDATE_AVAILABLE (exit 1), both shown on a scratch copy. `cargo test -p xtask`, `cargo clippy -p xtask --all-targets -- -D warnings` and `cargo xtask lint` pass. |
 | CPP-PENDING | PENDING | As listed in the contract. |
 
-Scores with nine SDKs: gcs-mimic 99.6, floci-gcp 78.3, fake-gcs-server 40.6,
-gcp-storage-emulator 38.6. For C++: gcs-mimic 49/51, floci-gcp 43/51,
-fake-gcs-server 24/51, gcp-storage-emulator 23/51.
+Final scores with nine SDKs: gcs-mimic 100, floci-gcp 78.3, fake-gcs-server
+40.6, gcp-storage-emulator 38.6. For C++: gcs-mimic 51/51, floci-gcp 43/51,
+fake-gcs-server 24/51, gcp-storage-emulator 23/51. The first run differed only
+in gcs-mimic's two C++ failures (score 99.6).
 
-The two gcs-mimic failures are emulator defects, left recorded rather than
-hidden by changing the probe:
+Those two failures were emulator defects. The probe kept the SDK defaults
+rather than hide them:
 
 - `object.soft_delete_restore`: `RestoreObject` sends
   `POST .../restore?generation=G` with the body `{}` and
   `content-type: application/json`. The bodyless-POST rule, written for Ruby's
   form-encoded repetition of the query, answers 400 `Use an empty body, or form
   parameters identical to the URL query`. No Cloud Storage recording shows that
-  body being rejected. Recorded in JSON-OBJECTS-011.
+  body being rejected. Fixed by `fix(json): accept the empty JSON object the
+  C++ SDK sends to object restore`: restore alone accepts `{}` declared as
+  `application/json`; retention lock and HMAC key creation, where no pinned
+  client sends one, still refuse it. Recorded in JSON-OBJECTS-011.
 - `signed.post_policy_v4`: the SDK writes the policy expiration with
   nanoseconds, for example `2026-11-15T05:58:19.766459053Z`, and the POST policy
-  parser keeps microseconds, answering `InvalidPolicyDocument`. With the
-  expiration truncated to whole seconds in a throwaway build the case passed.
-  Recorded in DESIGN-041.
+  parser kept microseconds, answering `InvalidPolicyDocument`. Fixed by
+  `fix(xml): accept POST policy expirations with nanoseconds`: up to nine
+  digits are accepted and floored to the microsecond, which can only end a
+  policy earlier. Recorded in DESIGN-041.
 
-Fixing both changes server behavior and is a separate slice.
+Both fixes passed `just check` (618 s) before the final run.
 
 Deviations from the contract, kept deliberately:
 
@@ -241,6 +248,7 @@ specified: error responses carry `http_status_code` in `ErrorInfo` metadata,
 and a gunzipped download carries
 `x-guploader-response-body-transformations: gunzipped`.
 
-Not run: a linux/amd64 build, strict-profile signature verification, and the
-complete `just check`. The first build's time was not captured; with cached
-library layers a rebuild after a probe change takes seconds.
+Not run: a linux/amd64 build and strict-profile signature verification.
+`just check` ran once, on the final source with both fixes. The first build's
+time was not captured; with cached library layers a rebuild after a probe
+change takes seconds.

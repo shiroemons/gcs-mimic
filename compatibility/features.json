@@ -64569,7 +64569,7 @@
       ],
       "source_checked_at": "2026-11-15",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned google-cloud-cpp 3.13.0 storage over JSON/REST, built from checksum-pinned archives (Abseil 20260817.0, nlohmann/json 3.12.0, the opentelemetry-cpp 1.30.0 API headers, CMake 4.5.0) with GCC 16.2.0 in the digest-pinned gcc:16.2.0-trixie image; daily detection reads the Dockerfile pins as the source-archive ecosystem. The probe unsets CLOUD_STORAGE_EMULATOR_ENDPOINT and CLOUD_STORAGE_TESTBENCH_ENDPOINT, which replace an explicit RestEndpointOption for requests and signed URLs, uses insecure credentials with zero retries, signs offline as the built-in test signer with the origin's scheme, and sends signed requests unchanged and only to the scorecard origin. The permissive shared-HTTPS scorecard at fec7476f passes 49/51 with no unsupported case; both failures are gcs-mimic defects recorded in JSON-OBJECTS-011 and DESIGN-041. test-tls.sh passes all four certificate combinations for the probe. Contract and verification: docs/en/slices/sdk-scorecard-cpp.md; raw evidence: sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl. The gRPC transport (AsyncClient, MakeGrpcClient), C++-specific cases, strict authentication, native TLS and other profiles remain pending.",
+      "notes": "Pinned google-cloud-cpp 3.13.0 storage over JSON/REST, built from checksum-pinned archives (Abseil 20260817.0, nlohmann/json 3.12.0, the opentelemetry-cpp 1.30.0 API headers, CMake 4.5.0) with GCC 16.2.0 in the digest-pinned gcc:16.2.0-trixie image; daily detection reads the Dockerfile pins as the source-archive ecosystem. The probe unsets CLOUD_STORAGE_EMULATOR_ENDPOINT and CLOUD_STORAGE_TESTBENCH_ENDPOINT, which replace an explicit RestEndpointOption for requests and signed URLs, uses insecure credentials with zero retries, signs offline as the built-in test signer with the origin's scheme, and sends signed requests unchanged and only to the scorecard origin. The permissive shared-HTTPS scorecard passes 51/51 with no unsupported case at 6652e6fa (sdk-scorecard/results/2026-11-15-2/gcs-mimic.cpp.jsonl). The first run, before the branch was rebased onto main, passed 49/51 (sdk-scorecard/results/2026-11-15) and exposed two gcs-mimic defects, since fixed: restore refused the SDK's {} body (JSON-OBJECTS-011) and POST policies refused its nanosecond expiration (DESIGN-041). test-tls.sh passes all four certificate combinations for the probe. Contract and verification: docs/en/slices/sdk-scorecard-cpp.md. The gRPC transport (AsyncClient, MakeGrpcClient), C++-specific cases, strict authentication, native TLS and other profiles remain pending.",
       "dependencies": [],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -64585,7 +64585,7 @@
         {
           "id": "CPP-SCORECARD",
           "description": "All 51 shared bucket/object/signed workflows pass under the guarded permissive shared-HTTPS profile, with endpoint-overriding environment variables removed and signed URLs sent unchanged.",
-          "result": "FAIL",
+          "result": "PASS",
           "test_ids": [
             "scorecard-cpp"
           ]
@@ -64618,6 +64618,20 @@
           "artifact": "sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl",
           "test_ids": [
             "scorecard-cpp"
+          ],
+          "superseded_by": {
+            "command": "bash sdk-scorecard/run.sh",
+            "verified_at": "2026-11-15",
+            "reason": "The two failures were gcs-mimic defects, fixed by accepting restore's empty JSON object and flooring nanosecond POST policy expirations; the rerun on the rebased source at 6652e6fa (results/2026-11-15-2) passes 51/51."
+          }
+        },
+        {
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-2/gcs-mimic.cpp.jsonl",
+          "test_ids": [
+            "scorecard-cpp"
           ]
         }
       ],
@@ -64635,10 +64649,24 @@
           "test_ids": [
             "scorecard-cpp"
           ]
+        },
+        {
+          "language": "C++",
+          "toolchain": "GCC 16.2.0",
+          "sdk": "google-cloud-cpp storage",
+          "version": "3.13.0",
+          "transport": "Shared trusted-CA HTTPS JSON/XML; insecure credentials, zero retries and removed endpoint variables; offline signing with the origin's scheme and unchanged URLs; permissive server profile",
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-2/gcs-mimic.cpp.jsonl",
+          "test_ids": [
+            "scorecard-cpp"
+          ]
         }
       ],
       "known_deviations": [
-        "The scorecard scope passes 49/51: gcs-mimic rejects the SDK's object restore request because its body is {} (JSON-OBJECTS-011) and the SDK's POST policy because its expiration carries nanoseconds (DESIGN-041); the probe keeps the SDK defaults instead of hiding either. Only the JSON/REST transport is measured. Object list pages are observed through the SDK's own rpc log, because no public reader exposes them. Signed cases do not establish emulator-side cryptographic verification; gRPC, strict authorization, native TLS, other profiles and real-GCS parity remain pending."
+        "The probe keeps the SDK defaults, so the restore {} body and nanosecond POST policy expirations are accepted by local rules recorded in JSON-OBJECTS-011 and DESIGN-041. Only the JSON/REST transport is measured. Object list pages are observed through the SDK's own rpc log, because no public reader exposes them. Signed cases do not establish emulator-side cryptographic verification; gRPC, strict authorization, native TLS, other profiles and real-GCS parity remain pending."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-15"

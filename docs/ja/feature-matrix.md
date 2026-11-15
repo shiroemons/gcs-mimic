@@ -954,7 +954,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-001 | 公式Java SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 | AUDIT-002 | 公式.NET SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
-| AUDIT-003 | 公式C++ SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 1 |
+| AUDIT-003 | 公式C++ SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 2 |
 | AUDIT-004 | 公式PHP SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 2 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 13 |
