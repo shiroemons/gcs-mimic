@@ -30,6 +30,10 @@ fn helper_help_texts_keep_their_exact_bytes() {
             &["import", "fake-gcs-server", "--help"],
             "47f0bfba4486d6e61bcfb7548f7d31a11c8dd9affb6639ef2e62ca739e1cd0a2",
         ),
+        (
+            &["buckets", "new", "--help"],
+            "63cd0edc22e1793df09d0c692aea87f67e5b6b695b99e039b7c25ff3b8d11228",
+        ),
     ] {
         let output = common::server_command().args(args).output().unwrap();
         assert_eq!(output.status.code(), Some(0), "{args:?}");

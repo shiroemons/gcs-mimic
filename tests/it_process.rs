@@ -1,6 +1,7 @@
 mod common;
 
 mod it_process {
+    mod buckets_cli;
     mod foundation;
     mod grpc_foundation;
     mod healthcheck_defaults;

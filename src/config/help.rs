@@ -9,6 +9,7 @@ Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the fi
        gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|resolve|wait --endpoint URL [OPTIONS]
        gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [OPTIONS] (see import fake-gcs-server --help)
+       gcs-mimic buckets new [--name NAME [SETTINGS]]... [--format json|env|compose] (writes a buckets document; see buckets new --help)
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m [--signer ID --private-key PATH]
@@ -514,7 +515,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "4f3c61a1e4d1f08a7a00b7311c152e77e6570f4fea7482618df4f16bfdcaa0ef"
+            "f6d66ef2a34c7eb461b575a56fa1b181428fa1c7970ee23b9813b657bf4669fb"
         );
     }
 }

@@ -32,6 +32,7 @@ use std::{
     time::SystemTime,
 };
 
+pub mod generate;
 mod plan;
 mod policy;
 pub(crate) mod shorthand;

@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+mod buckets_cli;
 mod startup;
 mod sync_cli;
 // Binary tests cannot access the library's cfg(test) module.
@@ -213,6 +214,22 @@ fn run() -> Result<(), CliError> {
         }
         [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
             return gcs_mimic::import::cli(rest).map_err(CliError::from);
+        }
+        // Valueless bucket settings would read as options missing a value in the shared check.
+        [command, kind, help] if command == "buckets" && kind == "new" && help == "--help" => {
+            println!("{}", buckets_cli::HELP);
+            return Ok(());
+        }
+        [command, kind, rest @ ..] if command == "buckets" && kind == "new" => {
+            return buckets_cli::run(rest);
+        }
+        [command, ..] if command == "buckets" => {
+            return Err(Diagnostics::error(
+                DiagnosticSource::Cli,
+                "command",
+                "Invalid buckets command; use gcs-mimic buckets new, see gcs-mimic buckets new --help.",
+            )
+            .into());
         }
         _ => (),
     }
