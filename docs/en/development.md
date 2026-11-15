@@ -948,8 +948,11 @@ independently.
   bucket policy; without these bindings the measuring account is locked out and
   every later step answers 403. Build the body from the policy `iam-get` shows
   and add only the change under test.
-- `body_base64` sends binary bytes (a gzip stream); it is exclusive with `body`
-  and `body_text`.
+- `body_base64` sends binary bytes (a gzip stream). `body_repeat`,
+  `{"text": "a", "times": 262144}`, sends `text` repeated `times` times as raw
+  text, up to 8 MiB, for a body too long to write out, such as a nonfinal
+  resumable chunk, which must be a multiple of 256 KiB. `body`, `body_text`,
+  `body_base64` and `body_repeat` are exclusive.
 - `{new_bucket}` is the same name for every step of one case and a different
   name for each case, so cases never reuse a name another case just deleted.
 - Variables: `{project}`, `{bucket}`, `{new_bucket}`, `{missing_bucket}`,

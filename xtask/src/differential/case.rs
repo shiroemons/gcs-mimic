@@ -199,6 +199,35 @@ pub(crate) fn step_variables(step: &Step) -> Result<Vec<String>> {
     Ok(all)
 }
 
+/// The largest body `body_repeat` builds, so a typo in `times` cannot build a body the run
+/// cannot hold.
+const MAX_REPEATED_BODY: usize = 8 * 1024 * 1024;
+
+/// `body_repeat`, `{"text": "a", "times": 262144}`: a raw text body too long to write out, such
+/// as a resumable chunk, which must be a multiple of 256 KiB unless it is the last one.
+fn repeated(value: &Value, context: &str) -> Result<String> {
+    let map = value
+        .as_object()
+        .ok_or_else(|| format!("{context}: expected an object"))?;
+    reject_unknown(map, &["text", "times"], context)?;
+    let text = map
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| format!("{context}.text: expected a nonempty string"))?;
+    let times = map
+        .get("times")
+        .and_then(Value::as_u64)
+        .and_then(|times| usize::try_from(times).ok())
+        .filter(|times| *times > 0)
+        .ok_or_else(|| format!("{context}.times: expected a positive integer"))?;
+    text.len()
+        .checked_mul(times)
+        .filter(|length| *length <= MAX_REPEATED_BODY)
+        .ok_or_else(|| format!("{context}: the body would pass {MAX_REPEATED_BODY} bytes"))?;
+    Ok(text.repeat(times))
+}
+
 fn reject_unknown(map: &Map<String, Value>, allowed: &[&str], context: &str) -> Result<()> {
     match map.keys().find(|key| !allowed.contains(&key.as_str())) {
         Some(key) => Err(format!("{context}: unknown field {key:?}")),
@@ -387,6 +416,7 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
             "body",
             "body_text",
             "body_base64",
+            "body_repeat",
             "always",
             "pap_reset",
             "local_choice",
@@ -408,18 +438,26 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
         map.get("body"),
         map.get("body_text"),
         map.get("body_base64"),
+        map.get("body_repeat"),
     ) {
-        (Some(json), None, None) => Body::Json(json.clone()),
-        (None, Some(Value::String(text)), None) => Body::Text(text.clone()),
-        (None, Some(_), None) => return Err(format!("{context}.body_text: expected a string")),
-        (None, None, Some(Value::String(encoded))) => Body::Bytes(
+        (Some(json), None, None, None) => Body::Json(json.clone()),
+        (None, Some(Value::String(text)), None, None) => Body::Text(text.clone()),
+        (None, Some(_), None, None) => {
+            return Err(format!("{context}.body_text: expected a string"));
+        }
+        (None, None, Some(Value::String(encoded)), None) => Body::Bytes(
             super::base64::decode(encoded).map_err(|e| format!("{context}.body_base64: {e}"))?,
         ),
-        (None, None, Some(_)) => return Err(format!("{context}.body_base64: expected a string")),
-        (None, None, None) => Body::None,
+        (None, None, Some(_), None) => {
+            return Err(format!("{context}.body_base64: expected a string"));
+        }
+        (None, None, None, Some(repeat)) => {
+            Body::Text(repeated(repeat, &format!("{context}.body_repeat"))?)
+        }
+        (None, None, None, None) => Body::None,
         _ => {
             return Err(format!(
-                "{context}: body, body_text and body_base64 are exclusive"
+                "{context}: body, body_text, body_base64 and body_repeat are exclusive"
             ));
         }
     };
@@ -808,6 +846,35 @@ mod tests {
         for step in rejected {
             assert!(parse_case(&case_with(step.clone()), "x").is_err(), "{step}");
         }
+    }
+
+    #[test]
+    fn body_repeat_builds_a_long_text_body_within_its_cap() {
+        let put = |repeat: Value| json!({"name": "s", "method": "PUT", "path": "/p", "body_repeat": repeat});
+        let case = parse_case(&case_with(put(json!({"text": "ab", "times": 3}))), "x").unwrap();
+        assert!(matches!(&case.steps[0].body, Body::Text(text) if text == "ababab"));
+        let rejected = [
+            json!({"text": "", "times": 3}),
+            json!({"text": "a", "times": 0}),
+            json!({"text": "a", "times": -1}),
+            json!({"text": "a"}),
+            json!({"text": "a", "times": 3, "extra": 1}),
+            json!({"text": "a", "times": MAX_REPEATED_BODY + 1}),
+            json!("a"),
+        ];
+        for repeat in rejected {
+            assert!(
+                parse_case(&case_with(put(repeat.clone())), "x").is_err(),
+                "{repeat}"
+            );
+        }
+        let both = json!({"name": "s", "method": "PUT", "path": "/p", "body_text": "a",
+            "body_repeat": {"text": "a", "times": 1}});
+        assert!(
+            parse_case(&case_with(both), "x")
+                .unwrap_err()
+                .contains("exclusive")
+        );
     }
 
     #[test]
