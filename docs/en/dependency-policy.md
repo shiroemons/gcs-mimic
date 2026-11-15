@@ -78,6 +78,13 @@ Other targets keep their C library's allocator and do not resolve these packages
 [dependency evidence](evidence/dependency-refresh.md#musl-allocator) records the license, package
 digests, sizes and why that decision no longer holds.
 
+`gcs-mimic buckets new` asks its questions with `inquire` 0.9.4, built with only its `crossterm`
+backend; arrow-key lists need raw terminal input, which std does not offer. It adds 21 locked
+packages. The published crate omits its license text, so release notices supply the reviewed
+repository text. The
+[dependency evidence](evidence/dependency-refresh.md#terminal-prompts-for-buckets-new) records the
+license, package digests, the resolved packages and the binary size change.
+
 Sources:
 
 - <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html>

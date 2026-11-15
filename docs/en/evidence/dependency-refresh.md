@@ -1179,3 +1179,27 @@ which the check excludes.
 The two checks ran with a GitHub token, because the anonymous GitHub API limit
 had been reached. `just pre-push` and `scripts/check-cross.sh` passed on the
 same source before the Maven pins changed.
+
+## Terminal prompts for buckets new
+
+`gcs-mimic buckets new` asks on a terminal with `inquire` 0.9.4, a new direct dependency built with `default-features = false` and only its `crossterm` feature, so neither fuzzy search nor its macros are compiled. `cargo search` and `cargo info` identified 0.9.4 as the latest non-yanked stable release, published 2026-02-24, with `rust-version` 1.80.0. It declares MIT, and the [repository](https://github.com/mikaelmello/inquire) is not archived; its last push was 2026-11-09. The repository has unreleased fixes since 0.9.4; the policy selects the latest release, not a revision. `dialoguer` was the smaller alternative, but its cursor stays hidden after an interrupted prompt, which callers have to restore themselves.
+
+The resolution added 21 locked packages, 152 to 173, all MIT or MIT OR Apache-2.0: `inquire`, `crossterm` 0.29.0 and `crossterm_winapi`, `derive_more` and `derive_more-impl` 2.1.1, `convert_case`, `document-features`, `dyn-clone`, `litrs`, `lock_api`, `parking_lot`, `parking_lot_core`, `redox_syscall`, `scopeguard`, `signal-hook`, `signal-hook-mio`, `unicode-segmentation`, `unicode-width`, `winapi` and its two `windows-gnu` helper crates, which no release target resolves.
+
+| Package | Compressed archive bytes | SHA-256 |
+| --- | --- | --- |
+| `inquire` 0.9.4 | 101,235 | `6654738b8024300cf062d04a1c13c10c8e2cea598ec1c47dc9b6641159429756` |
+| `crossterm` 0.29.0 | 136,635 | `d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b` |
+
+The published `inquire` crate has no license file. `xtask release notices` now takes the license texts of crates published without one from a reviewed table, which gives `inquire` 0.9.4 the repository-root `LICENSE` at `3d5b65422a247acc773d767558e34fcb69ab04bf`, the revision its `.cargo_vcs_info.json` names; the checked-in copy has that file's git blob ID, `dcb70e308455116431c23bb976e9215c37070db6`. A later version fails the notices until it is reviewed again, as `tonic-prost` does.
+
+A release build of the commit that adds the prompts against its parent, both with the release profile on aarch64-apple-darwin, grew from 22,956,128 to 23,416,064 bytes, and from 18,677,296 to 19,050,576 bytes stripped (373,280 bytes, 2.0%). The difference also holds the prompt code itself.
+
+### Validation performed on 2026-11-16
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-15T18:00:57Z` | Exit 0 with 143 `CURRENT` lines, among them `inquire: CURRENT current=0.9.4 latest=0.9.4`; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo test --locked -p xtask` | PASS, including the supplied-license tests for both crates |
+
+`xtask release notices` itself was not run end to end: on macOS the container target needs the GCC copyright file that only the release build environment provides.
