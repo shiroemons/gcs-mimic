@@ -47,10 +47,15 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
   rewrite existing objects; a replacement generation receives the current
   default, not the replaced object's ACL. ACL rows are deleted with their bucket
   or object generation.
-- `projection=full`, including the PUT default, adds bucket `acl`,
+- `projection=full` adds bucket `acl`,
   `defaultObjectAcl` and `owner` (`project-owners-N`) and object `acl` to bucket
   get/list/insert/patch/update/restore and object get/list/insert/patch/update/copy/
-  compose/move/restore responses. Strict callers without
+  compose/move/restore responses. Without a `projection` parameter a native
+  bucket PATCH defaults to `full`, and a native bucket PUT defaults to `noAcl`
+  unless it carries `predefinedAcl` or `predefinedDefaultObjectAcl`, as recorded
+  on 2026-10-31; the fake-gcs-server profile defaults a bucket PUT to `full` and
+  a bucket PATCH to `noAcl`. Bucket insert and get default to `noAcl` in both
+  profiles. Strict callers without
   `storage.buckets.getIamPolicy` or `storage.objects.getIamPolicy` receive the
   resource without ACL fields or bucket `owner`, in both profiles.
 - Bucket PATCH/PUT `acl` and `defaultObjectAcl`, and object PATCH/PUT `acl`,

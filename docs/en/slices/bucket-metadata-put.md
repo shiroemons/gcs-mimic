@@ -63,7 +63,10 @@ rather than a behavior established by those sources. Since 2026-10-29 a supplied
 the other metadata, and an empty list clears them, as the [JSON ACL contract](json-acl.md)
 describes; earlier versions of this contract ignored `acl:[]` and rejected every
 other value.
-Projection defaults to full for PUT. Its ACL members and the permissions they
+Without a `projection` parameter a native PUT answers with `noAcl`, unless it
+carries `predefinedAcl` or `predefinedDefaultObjectAcl`, which select `full`, as
+recorded on 2026-10-31; the fake-gcs-server profile keeps its `full` default.
+The ACL members of a full response and the permissions they
 need follow the [JSON ACL contract](json-acl.md), where a changed array requires
 storage.buckets.setIamPolicy. SPEC-017 retains full-projection permission
 questions; SPEC-BUCKET-PUT explicitly retains whether getIpFilter is required

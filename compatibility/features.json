@@ -24875,7 +24875,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, including the PUT default, adds bucket acl/defaultObjectAcl/owner and object acl on get/list/insert/patch/update/copy/compose/move/restore; strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; metadata PATCH/PUT replace or clear ACLs. Object owner, resumable-completion and rewrite ACL fields remain pending.",
+      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, the default of a native bucket PATCH, of a native bucket PUT with predefinedAcl or predefinedDefaultObjectAcl and of a fake-gcs-server profile bucket PUT, adds bucket acl/defaultObjectAcl/owner and object acl on get/list/insert/patch/update/copy/compose/move/restore; strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; metadata PATCH/PUT replace or clear ACLs. Object owner, resumable-completion and rewrite ACL fields remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
