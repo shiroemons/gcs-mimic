@@ -166,6 +166,8 @@ impl Catalog {
     }
 
     /// Source NotMatch conditions are mutation conditions (412), not conditional GETs (304).
+    /// Every API resolves a source with the request's key; tests use this keyless shorthand.
+    #[cfg(test)]
     pub(crate) async fn resolve_derived_source(
         &self,
         target: ObjectTarget,
@@ -184,6 +186,7 @@ impl Catalog {
     }
 
     /// A compose request observes one catalog snapshot for all source generations and metadata.
+    #[cfg(test)]
     pub(crate) async fn resolve_derived_sources(
         &self,
         sources: Vec<DerivedSourceSpec>,

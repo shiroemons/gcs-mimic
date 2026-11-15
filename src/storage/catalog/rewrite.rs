@@ -138,7 +138,8 @@ pub(crate) struct RewriteStart {
     pub source_conditions: ObjectConditions,
     pub source_metageneration: i64,
     pub source_access: BucketAccess,
-    /// Verified when the session starts; every continuation must repeat the same source key.
+    /// Verified when the session starts; every continuation must repeat the same source key
+    /// (`RewriteSession::check_customer_keys`).
     pub source_key_sha256: Option<[u8; 32]>,
     /// Bytes one rewrite call copies at most.
     pub budget: NonZeroU64,
@@ -161,6 +162,21 @@ pub(crate) struct RewriteSession {
     pub total: u64,
     deadline: UnixMillis,
     response: Option<StoredResponse>,
+}
+
+impl RewriteSession {
+    /// A continuation must repeat the keys the session started with: the stored fingerprints
+    /// never change, so checking them outside the copying transaction cannot race.
+    pub(crate) fn check_customer_keys(
+        &self,
+        keys: crate::csek::CopyKeys,
+    ) -> Result<(), crate::csek::CsekError> {
+        crate::csek::check_data(self.source_key_sha256, keys.source)?;
+        crate::csek::check_data(
+            self.destination.metadata.customer_key_sha256,
+            keys.destination,
+        )
+    }
 }
 
 /// What a rewrite step stored for replay under its previous token. Every release has written

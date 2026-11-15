@@ -63,7 +63,7 @@ fn object_errors_keep_the_v2_unsupported_metadata_wording() {
     assert_ne!(metadata.message(), generic.message());
 }
 
-async fn setup(strict: bool) -> (TestDir, Storage) {
+pub(super) async fn setup(strict: bool) -> (TestDir, Storage) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let definition = json::parse_insert(
@@ -90,7 +90,7 @@ async fn setup(strict: bool) -> (TestDir, Storage) {
     (dir, storage)
 }
 
-fn spec(name: &str) -> pb::WriteObjectSpec {
+pub(super) fn spec(name: &str) -> pb::WriteObjectSpec {
     pb::WriteObjectSpec {
         resource: Some(pb::Object {
             bucket: "projects/_/buckets/grpc-io".into(),
@@ -102,7 +102,7 @@ fn spec(name: &str) -> pb::WriteObjectSpec {
     }
 }
 
-fn message(name: &str, data: &[u8]) -> pb::BidiWriteObjectRequest {
+pub(super) fn message(name: &str, data: &[u8]) -> pb::BidiWriteObjectRequest {
     pb::BidiWriteObjectRequest {
         first_message: Some(
             pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec(name)),
@@ -118,14 +118,14 @@ fn message(name: &str, data: &[u8]) -> pb::BidiWriteObjectRequest {
     }
 }
 
-async fn write(
+pub(super) async fn write(
     storage: &Storage,
     messages: Vec<pb::BidiWriteObjectRequest>,
 ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
     write_as(storage, messages, None).await
 }
 
-async fn write_as(
+pub(super) async fn write_as(
     storage: &Storage,
     messages: Vec<pb::BidiWriteObjectRequest>,
     caller: Option<Caller<'_>>,
@@ -1420,6 +1420,40 @@ async fn grpc_io_checksums_conditions_and_generation_preserve_data() {
     assert_code(
         storage.get_object(Request::new(get), None).await,
         tonic::Code::NotFound,
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn grpc_delete_ignores_a_customer_key_as_cloud_storage_does() {
+    let (_dir, storage) = setup(false).await;
+    write(&storage, vec![message("keyed-delete", b"data")])
+        .await
+        .unwrap();
+    // A key for an object that has none: Cloud Storage still deletes it.
+    storage
+        .delete_object(
+            Request::new(pb::DeleteObjectRequest {
+                bucket: "projects/_/buckets/grpc-io".into(),
+                object: "keyed-delete".into(),
+                common_object_request_params: fixtures::key_params(&[7; 32]),
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        storage
+            .state
+            .catalog
+            .get_object(
+                live("grpc-io", "keyed-delete"),
+                Default::default(),
+                PERMISSIVE
+            )
+            .await
+            .is_err()
     );
     storage.state.catalog.close().await.unwrap();
 }

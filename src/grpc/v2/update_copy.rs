@@ -9,6 +9,7 @@ use crate::{
         BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError,
         RetentionPolicyUpdate,
     },
+    csek::{CopyKeys, CustomerKey},
     grpc::validate::{self, NegativeGeneration, strict_bucket_conditions, strict_conditions},
     json,
     object::{
@@ -153,26 +154,25 @@ fn rewrite_error(e: RewriteError) -> Status {
     }
 }
 
-/// The rewrite options a token binds, from their proto3 integers (0 is absent).
+/// The rewrite options a token binds, from their proto3 integers (0 is absent), and the keys
+/// every call of the rewrite repeats.
 #[derive(Clone, Copy, Debug)]
 struct RewriteOptions {
     source_generation: Option<Generation>,
     max_bytes_per_call: Option<NonZeroU64>,
+    keys: CopyKeys,
 }
 
 fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<RewriteOptions, Status> {
-    common(r.common_object_request_params.as_ref())?;
+    let keys = super::customer_key::copy_keys(r)?;
     if !r.destination_kms_key.is_empty()
         || !r.destination_predefined_acl.is_empty()
-        || !r.copy_source_encryption_algorithm.is_empty()
-        || !r.copy_source_encryption_key_bytes.is_empty()
-        || !r.copy_source_encryption_key_sha256_bytes.is_empty()
         || r.object_checksums
             .as_ref()
             .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
     {
         return Err(unsupported(
-            "RewriteObject encryption/ACL/checksums; omit these options",
+            "RewriteObject destination_kms_key/destination_predefined_acl/object_checksums; omit these options",
         ));
     }
     let invalid = || {
@@ -189,6 +189,7 @@ fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<RewriteOptions,
     Ok(RewriteOptions {
         source_generation,
         max_bytes_per_call: NonZeroU64::new(max_bytes_per_call),
+        keys,
     })
 }
 
@@ -359,8 +360,9 @@ impl Storage {
             .await?;
         // A new session's guard stays armed until its first response is stored and read back;
         // returning early drops it, which cancels the session.
-        let (token, mut owner) = match binding {
-            Some(binding) => {
+        let (token, mut owner) = match &session {
+            Some(session) => {
+                let binding = &session.binding;
                 if !target.matches(binding)
                     || parameters
                         .iter()
@@ -373,6 +375,9 @@ impl Storage {
                         "rewrite_token does not match the request; repeat the original parameters",
                     ));
                 }
+                // Neither the proto nor Cloud Storage's recorded answers say whether a
+                // continuation may omit the keys; this follows the JSON API, which requires both.
+                session.check_customer_keys(options.keys)?;
                 (r.rewrite_token.clone(), None)
             }
             None => {
@@ -442,11 +447,19 @@ impl Storage {
         let source = self
             .state
             .catalog
-            .resolve_derived_source(ObjectTarget::new(sb, sn, generation), sc, read)
+            .resolve_derived_source_keyed(
+                ObjectTarget::new(sb, sn, generation),
+                sc,
+                read,
+                options.keys.source,
+            )
             .await?;
         let mut metadata = resource
             .map(super::object_update::for_write)
             .unwrap_or_else(|| super::object_update::inherited(&source.object));
+        // The destination key alone decides the new object's encryption; rewriting an object
+        // onto itself with a new key rotates it.
+        metadata.customer_key_sha256 = options.keys.destination.map(CustomerKey::sha256);
         super::object_update::validate(&metadata)?;
         if metadata.temporary_hold == Some(true) || metadata.custom_time.value().is_some() {
             return Err(unsupported(
@@ -511,7 +524,7 @@ impl Storage {
             source_conditions: sc,
             source_metageneration: source.object.metageneration,
             source_access: read.clone(),
-            source_key_sha256: None,
+            source_key_sha256: options.keys.source.map(CustomerKey::sha256),
             budget,
         };
         self.state
@@ -789,7 +802,14 @@ impl Storage {
             )
             .await
             .map_err(super::object_io::naming_object(bucket, name))?;
-        Ok(Response::new(self.written_object(&record, caller).await?))
+        Ok(Response::new(
+            self.written_object(
+                &record,
+                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+                caller,
+            )
+            .await?,
+        ))
     }
     pub(super) async fn compose_object(
         &self,
@@ -874,7 +894,10 @@ impl Storage {
             .await?;
         // Cloud Storage answers ComposeObject without acl or owner, unlike WriteObject and
         // RewriteObject (case grpc-unsupported-options).
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(convert::object(
+            &record,
+            crate::csek::StoredHashes::Revealed,
+        )?))
     }
     pub(super) async fn move_object(
         &self,
@@ -913,7 +936,10 @@ impl Storage {
             .await?;
         // As for ComposeObject, Cloud Storage answers without acl or owner (case
         // grpc-unsupported-options).
-        Ok(Response::new(convert::object(&record)?))
+        Ok(Response::new(convert::object(
+            &record,
+            crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+        )?))
     }
     pub(super) async fn restore_object(
         &self,
@@ -921,7 +947,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
+        super::customer_key::reject(r.common_object_request_params.as_ref(), "RestoreObject")?;
         if r.copy_source_acl == Some(true) || !r.restore_token.is_empty() {
             return Err(unsupported(
                 "RestoreObject ACL/token; use copy_source_acl=false and omit restore_token",
@@ -942,9 +968,19 @@ impl Storage {
             create: &create,
         };
         let record = self.state.catalog.restore_object(target, c, access).await?;
-        Ok(Response::new(self.written_object(&record, caller).await?))
+        Ok(Response::new(
+            self.written_object(
+                &record,
+                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+                caller,
+            )
+            .await?,
+        ))
     }
 }
+
+#[cfg(test)]
+mod rewrite_keys;
 
 #[cfg(test)]
 mod tests {
@@ -1001,7 +1037,7 @@ mod tests {
         }
     }
 
-    async fn setup() -> (Storage, TestDir) {
+    pub(super) async fn setup() -> (Storage, TestDir) {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
         let now = std::time::SystemTime::now();
@@ -1022,11 +1058,15 @@ mod tests {
         )
     }
 
-    async fn upload(storage: &Storage, name: &str, length: usize) -> crate::object::ObjectRecord {
+    pub(super) async fn upload(
+        storage: &Storage,
+        name: &str,
+        length: usize,
+    ) -> crate::object::ObjectRecord {
         upload_to(storage, "update-copy-bucket", name, length).await
     }
 
-    async fn upload_to(
+    pub(super) async fn upload_to(
         storage: &Storage,
         bucket: &str,
         name: &str,
@@ -1653,13 +1693,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            convert::object(&current)
-                .unwrap()
-                .retention
-                .unwrap()
-                .retain_until_time
-                .unwrap()
-                .seconds,
+            convert::object(
+                &current,
+                crate::csek::StoredHashes::keyless(current.customer_key_sha256)
+            )
+            .unwrap()
+            .retention
+            .unwrap()
+            .retain_until_time
+            .unwrap()
+            .seconds,
             now + 3600
         );
         let shortened = s
@@ -1750,10 +1793,13 @@ mod tests {
         let record = json::parse_insert(bytes, "local-project", s.state.clock.now()).unwrap();
         s.state.catalog.insert_bucket(record).await.unwrap();
         let object = upload_to(&s, "policy-ms", "kept", 3).await;
-        let expire = convert::object(&object)
-            .unwrap()
-            .retention_expire_time
-            .unwrap();
+        let expire = convert::object(
+            &object,
+            crate::csek::StoredHashes::keyless(object.customer_key_sha256),
+        )
+        .unwrap()
+        .retention_expire_time
+        .unwrap();
         assert_eq!(expire.nanos % 1_000_000, 0);
         let created = object
             .time_created
@@ -2595,7 +2641,7 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
-    const RESOURCE: &str = "projects/_/buckets/update-copy-bucket";
+    pub(super) const RESOURCE: &str = "projects/_/buckets/update-copy-bucket";
 
     async fn stored_bucket(s: &Storage) -> BucketRecord {
         s.state
@@ -2607,7 +2653,10 @@ mod tests {
     }
 
     /// The live object, or `None` once it is absent. Any other failure is a broken fixture.
-    async fn stored_object(s: &Storage, name: &str) -> Option<crate::object::ObjectRecord> {
+    pub(super) async fn stored_object(
+        s: &Storage,
+        name: &str,
+    ) -> Option<crate::object::ObjectRecord> {
         let target = live("update-copy-bucket", name);
         match s
             .state
@@ -2754,18 +2803,6 @@ mod tests {
                 ..rewrite.clone()
             },
             pb::RewriteObjectRequest {
-                copy_source_encryption_algorithm: "AES256".into(),
-                ..rewrite.clone()
-            },
-            pb::RewriteObjectRequest {
-                copy_source_encryption_key_bytes: vec![0; 32],
-                ..rewrite.clone()
-            },
-            pb::RewriteObjectRequest {
-                copy_source_encryption_key_sha256_bytes: vec![0; 32],
-                ..rewrite.clone()
-            },
-            pb::RewriteObjectRequest {
                 object_checksums: Some(crc32c.clone()),
                 ..rewrite.clone()
             },
@@ -2776,7 +2813,7 @@ mod tests {
         ] {
             assert_unsupported(
                 s.rewrite_object(Request::new(request), None).await,
-                "RewriteObject encryption/ACL/checksums",
+                "RewriteObject destination_kms_key/destination_predefined_acl/object_checksums",
             );
         }
         for destination in [
@@ -2823,11 +2860,6 @@ mod tests {
             ..compose
         };
         assert_unsupported(s.compose_object(Request::new(request), None).await, option);
-        let request = pb::RewriteObjectRequest {
-            common_object_request_params: customer_key.clone(),
-            ..rewrite
-        };
-        assert_unsupported(s.rewrite_object(Request::new(request), None).await, option);
         let request = pb::RestoreObjectRequest {
             common_object_request_params: customer_key,
             restore_token: String::new(),

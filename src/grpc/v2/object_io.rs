@@ -165,7 +165,8 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<()>, Status> {
         let r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
+        // Cloud Storage deletes an object whatever key the request carries, even a wrong one or
+        // one for an unencrypted object (recorded 2026-11-15), so the parameters are not read.
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
         let target =

@@ -30,7 +30,6 @@ pub(crate) use catalog::ResumableError;
 pub(crate) use catalog::ResumableSession;
 pub(crate) use catalog::SessionId;
 pub(crate) use catalog::SourceDisposal;
-pub(crate) use catalog::StoredHashes;
 pub(crate) use catalog::UploadAclSnapshot;
 pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState, ObjectAcl};
 pub(crate) use catalog::{AppendError, AppendWriter, Finality};

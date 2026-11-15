@@ -128,7 +128,11 @@ impl Storage {
             .get_readable(target, conditions(ObjectConditions::from(&r))?, &access)
             .await
             .map_err(named_object_status(bucket, name))?;
-        let mut object = super::super::append::object(&record, finality)?;
+        let mut object = super::super::append::object(
+            &record,
+            finality,
+            crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+        )?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
                 caller,
@@ -163,7 +167,11 @@ impl Storage {
             .set_range(range.start, range.len)
             .await
             .map_err(read_failure)?;
-        let mut object = super::super::append::object(&record, finality)?;
+        let mut object = super::super::append::object(
+            &record,
+            finality,
+            crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+        )?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
                 caller,
@@ -270,7 +278,12 @@ impl Storage {
         let mut objects = page
             .items
             .iter()
-            .map(convert::object)
+            .map(|record| {
+                convert::object(
+                    record,
+                    crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         self.add_owner_fields(
             caller,

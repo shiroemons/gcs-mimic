@@ -14,17 +14,9 @@ use super::{
 };
 use crate::{
     bucket::BucketAccess,
-    csek::{CustomerKey, check_data},
+    csek::{CustomerKey, StoredHashes, check_data},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, ReadAhead},
 };
-
-/// Whether a metadata response may show hashes of the stored bytes: an encrypted object's
-/// hashes need its key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StoredHashes {
-    Revealed,
-    Withheld,
-}
 
 /// An object opened for its metadata alone.
 pub(crate) struct KeyedMetadata {
@@ -117,13 +109,8 @@ impl Catalog {
         self.run_read(move |connection| {
             let (record, reader) =
                 objects::open_selected(connection, &catalog, &target, conditions, &access)?;
-            let hashes = if crate::csek::check_metadata(record.customer_key_sha256, key)
-                .map_err(ObjectError::CustomerEncryption)?
-            {
-                StoredHashes::Revealed
-            } else {
-                StoredHashes::Withheld
-            };
+            let hashes = crate::csek::check_metadata(record.customer_key_sha256, key)
+                .map_err(ObjectError::CustomerEncryption)?;
             Ok(KeyedMetadata {
                 record,
                 reader,

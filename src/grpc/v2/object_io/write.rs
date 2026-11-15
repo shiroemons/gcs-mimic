@@ -281,7 +281,9 @@ impl Storage {
         );
         let (sent, written) = tokio::join!(producer, write);
         let record = upload::completed(sent, written, object_status)?;
-        let resource = self.written_object(&record, caller).await?;
+        let resource = self
+            .written_object(&record, crate::csek::StoredHashes::Revealed, caller)
+            .await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
         send_status(responses, &result).await?;
         Ok(result)

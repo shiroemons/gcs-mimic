@@ -9,6 +9,7 @@ use crate::{
             BucketLifecycle, LifecycleAction, LifecycleDate, LifecycleRule, LifecycleRules,
         },
     },
+    csek::StoredHashes,
     json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
 };
@@ -396,7 +397,12 @@ impl From<ObjectConversionError> for ObjectError {
     }
 }
 
-pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversionError> {
+/// `hashes` says whether the caller may see the hashes of an encrypted object's bytes; an
+/// unencrypted object always shows them.
+pub(crate) fn object(
+    record: &ObjectRecord,
+    hashes: StoredHashes,
+) -> Result<pb::Object, ObjectConversionError> {
     let custom_time = record
         .custom_time
         .as_ref()
@@ -436,18 +442,17 @@ pub(crate) fn object(record: &ObjectRecord) -> Result<pb::Object, ObjectConversi
         delete_time: record.time_deleted.map(Into::into),
         soft_delete_time: record.soft_delete_time.map(Into::into),
         hard_delete_time: record.hard_delete_time.map(Into::into),
-        // gRPC requests cannot supply a customer key here, so encrypted objects hide their hashes.
-        checksums: record
-            .customer_key_sha256
-            .is_none()
-            .then(|| pb::ObjectChecksums {
+        // Hashes describe the plaintext, so an encrypted object shows them only with its key.
+        checksums: (record.customer_key_sha256.is_none() || hashes == StoredHashes::Revealed).then(
+            || pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
                 md5_hash: if !record.has_md5() {
                     Vec::new()
                 } else {
                     record.md5.to_vec()
                 },
-            }),
+            },
+        ),
         customer_encryption: record
             .customer_key_sha256
             .map(|sha256| pb::CustomerEncryption {
@@ -536,6 +541,11 @@ impl From<iam::Binding> for auth::policy_input::BindingInput {
 mod tests {
     use super::*;
     use crate::acl::AclKind;
+
+    /// The resource a caller without a key sees.
+    fn keyless(record: &ObjectRecord) -> Result<pb::Object, ObjectConversionError> {
+        object(record, StoredHashes::keyless(record.customer_key_sha256))
+    }
     use crate::json::{self, Projection};
     use std::{
         collections::BTreeMap,
@@ -661,7 +671,7 @@ mod tests {
                     !headers.contains_key("x-goog-event-based-hold"),
                     "{class} {hold:?}"
                 );
-                let output = object(&record).unwrap();
+                let output = keyless(&record).unwrap();
                 assert_eq!(output.storage_class, class, "{class} {hold:?}");
                 assert_eq!(output.event_based_hold, Some(grpc_hold), "{class} {hold:?}");
                 assert_eq!(output.temporary_hold, grpc_hold, "{class} {hold:?}");
@@ -846,7 +856,7 @@ mod tests {
                 ..record.clone()
             },
         ] {
-            let error = object(&invalid).unwrap_err();
+            let error = keyless(&invalid).unwrap_err();
             // The storage error is wrapped transparently: the chain continues with its cause,
             // the integer conversion, instead of repeating its message.
             let ObjectConversionError::Storage(storage) = &error else {
@@ -860,7 +870,7 @@ mod tests {
             );
             assert!(matches!(ObjectError::from(error), ObjectError::Corrupt(_)));
             assert_eq!(
-                object(&invalid)
+                keyless(&invalid)
                     .map_err(tonic::Status::from)
                     .unwrap_err()
                     .code(),
@@ -872,7 +882,7 @@ mod tests {
             ..record
         };
         // The client sees only the fixed message; the status keeps the conversion error for logs.
-        let status = tonic::Status::from(object(&corrupt_time).unwrap_err());
+        let status = tonic::Status::from(keyless(&corrupt_time).unwrap_err());
         assert_eq!(status.code(), tonic::Code::Internal);
         assert_eq!(status.message(), INVALID_CUSTOM_TIME);
         let cause = std::error::Error::source(&status).unwrap();
@@ -881,7 +891,7 @@ mod tests {
             Some(ObjectConversionError::InvalidCustomTime(_))
         ));
         assert!(matches!(
-            object(&corrupt_time).map_err(ObjectError::from),
+            keyless(&corrupt_time).map_err(ObjectError::from),
             Err(ObjectError::Corrupt(cause)) if cause.message() == INVALID_CUSTOM_TIME
         ));
     }
@@ -891,10 +901,10 @@ mod tests {
         let (original, changed) =
             crate::storage::test_fixtures::lifecycle_transitioned_object().await;
         assert_eq!(
-            object(&original).unwrap().update_storage_class_time,
+            keyless(&original).unwrap().update_storage_class_time,
             Some(millis(original.time_created))
         );
-        let result = object(&changed).unwrap();
+        let result = keyless(&changed).unwrap();
         assert_eq!(
             result.update_storage_class_time,
             Some(millis(changed.storage_class_updated()))
@@ -996,7 +1006,7 @@ mod tests {
 
         let record = crate::grpc::test_support::object_record(&bucket_record.name, now);
         let value = json::object_resource(&record, "http://localhost", Projection::NoAcl).unwrap();
-        let proto = object(&record).unwrap();
+        let proto = keyless(&record).unwrap();
         assert_eq!(proto.name, value["name"]);
         assert_eq!(proto.size.to_string(), value["size"]);
         assert_eq!(proto.generation.to_string(), value["generation"]);
@@ -1013,14 +1023,14 @@ mod tests {
         assert_eq!(proto.update_storage_class_time.unwrap().nanos, 123_000_000);
         assert_eq!(proto.finalize_time.unwrap().nanos, 123_456_000);
         assert!(proto.acl.is_empty() && proto.kms_key.is_empty());
-        let composite = object(&ObjectRecord {
+        let composite = keyless(&ObjectRecord {
             component_count: Some(i64::from(i32::MAX)),
             ..record.clone()
         })
         .unwrap();
         assert_eq!(composite.component_count, i32::MAX);
         assert!(composite.checksums.unwrap().md5_hash.is_empty());
-        let multipart = object(&ObjectRecord {
+        let multipart = keyless(&ObjectRecord {
             md5_availability: crate::object::Md5Availability::Unavailable,
             ..record.clone()
         })
@@ -1029,12 +1039,29 @@ mod tests {
         let checksums = multipart.checksums.unwrap();
         assert_eq!(checksums.crc32c, Some(record.crc32c));
         assert!(checksums.md5_hash.is_empty());
-        let encrypted = object(&ObjectRecord {
+        let encrypted_record = ObjectRecord {
             customer_key_sha256: Some([7; 32]),
             ..record.clone()
-        })
-        .unwrap();
+        };
+        let encrypted = keyless(&encrypted_record).unwrap();
         assert!(encrypted.checksums.is_none());
+        // With its verified key the same object shows both hashes.
+        let revealed = object(&encrypted_record, StoredHashes::Revealed).unwrap();
+        assert_eq!(
+            revealed.checksums,
+            Some(pb::ObjectChecksums {
+                crc32c: Some(record.crc32c),
+                md5_hash: record.md5.to_vec(),
+            })
+        );
+        assert_eq!(revealed.customer_encryption, encrypted.customer_encryption);
+        // An unencrypted object shows them whatever the caller supplied.
+        assert!(
+            object(&record, StoredHashes::Withheld)
+                .unwrap()
+                .checksums
+                .is_some()
+        );
         assert_eq!(
             encrypted.customer_encryption,
             Some(pb::CustomerEncryption {
@@ -1043,7 +1070,7 @@ mod tests {
             })
         );
         assert_eq!(
-            object(&ObjectRecord {
+            keyless(&ObjectRecord {
                 custom_time: Some("corrupt".into()),
                 ..record
             })

@@ -8,6 +8,7 @@
 //!   the rewrite catalog tells a finished response by its `resource` being a JSON object.
 
 use super::{convert, pb};
+use crate::csek::StoredHashes;
 use crate::object::{ObjectError, ObjectRecord};
 use prost::Message;
 use serde::Deserialize;
@@ -45,8 +46,11 @@ impl std::error::Error for Unreadable {
     }
 }
 
+/// Both stored forms answer the caller that created the object, with the key it supplied (or
+/// none), so they show the hashes, as Cloud Storage's completed upload status does even
+/// without a key (recorded 2026-11-15).
 fn encode(record: &ObjectRecord) -> Result<Value, ObjectError> {
-    let bytes = convert::object(record)?.encode_to_vec();
+    let bytes = convert::object(record, StoredHashes::Revealed)?.encode_to_vec();
     Ok(Value::Array(bytes.into_iter().map(Value::from).collect()))
 }
 
@@ -99,7 +103,7 @@ mod tests {
     #[test]
     fn stored_resources_keep_the_bytes_earlier_releases_wrote() {
         let record = record();
-        let proto = convert::object(&record).unwrap();
+        let proto = convert::object(&record, StoredHashes::Revealed).unwrap();
         // The encoders these columns were first written with.
         let old_completion = serde_json::to_value(proto.encode_to_vec())
             .unwrap()

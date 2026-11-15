@@ -5,7 +5,7 @@ use crate::server::RequestBody as Incoming;
 use crate::{
     auth,
     bucket::BucketAccess,
-    csek::CustomerKey,
+    csek::{CopyKeys, CustomerKey},
     json::{self, JsonError},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
@@ -27,8 +27,7 @@ pub(super) async fn copy(
         request.headers(),
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
-    let destination_key = json::request_key(request.headers())?;
-    let source_key = json::source_key(request.headers())?;
+    let keys = json::copy_keys(request.headers())?;
     let token = idempotency_token(request.headers())?;
     reject_headers(
         request.headers(),
@@ -50,8 +49,8 @@ pub(super) async fn copy(
     let request_binding = format!(
         "copy-v1:{method}|{uri}|{}|{:?}|{:?}|{:?}",
         ctx.state.api_base_url,
-        destination_key.map(CustomerKey::sha256),
-        source_key.map(CustomerKey::sha256),
+        keys.destination.map(CustomerKey::sha256),
+        keys.source.map(CustomerKey::sha256),
         ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref()
     );
     let replay = ctx
@@ -87,8 +86,7 @@ pub(super) async fn copy(
             params,
             access,
             source_access,
-            source_key,
-            destination_key,
+            keys,
             replay,
         };
         copy_object(ctx, request, &bytes).await?
@@ -97,7 +95,7 @@ pub(super) async fn copy(
         &record,
         ctx.endpoints.api_base_url(),
         projection,
-        destination_key,
+        keys.destination,
     )?;
     json::add_derived_owner(&mut value, &record);
     Ok(Written::object(value, &record, acl))
@@ -108,8 +106,7 @@ struct CopyRequest {
     params: json::ObjectCopyParams,
     access: BucketAccess,
     source_access: BucketAccess,
-    source_key: Option<CustomerKey>,
-    destination_key: Option<CustomerKey>,
+    keys: CopyKeys,
     replay: Option<CopyReplay>,
 }
 
@@ -122,8 +119,7 @@ async fn copy_object(
         params,
         access,
         source_access,
-        source_key,
-        destination_key,
+        keys,
         replay,
     } = request;
     let catalog = &ctx.state.catalog;
@@ -133,7 +129,12 @@ async fn copy_object(
         params.source_generation,
     );
     let source = catalog
-        .resolve_derived_source_keyed(target, params.source_conditions, &source_access, source_key)
+        .resolve_derived_source_keyed(
+            target,
+            params.source_conditions,
+            &source_access,
+            keys.source,
+        )
         .await
         .map_err(|failure| {
             JsonError::from(failure).naming_object(&params.source_bucket, &params.source_name)
@@ -143,7 +144,7 @@ async fn copy_object(
         storage_class,
         expected,
     } = json::derived_metadata(body, &source.object)?;
-    metadata.customer_key_sha256 = destination_key.map(CustomerKey::sha256);
+    metadata.customer_key_sha256 = keys.destination.map(CustomerKey::sha256);
     let source_location = if source.object.component_count.is_some() {
         Some(
             catalog

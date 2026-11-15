@@ -96,6 +96,51 @@ pub(super) fn assert_unsupported<T>(result: Result<T, Status>, option: &str) {
     assert!(!status.details().is_empty(), "{option}");
 }
 
+/// Storage v2 request parameters carrying `key` as raw bytes, as the SDKs send it.
+pub(super) fn key_params(
+    key: &[u8; 32],
+) -> Option<crate::grpc::generated::google::storage::v2::CommonObjectRequestParams> {
+    Some(
+        crate::grpc::generated::google::storage::v2::CommonObjectRequestParams {
+            encryption_algorithm: crate::csek::ALGORITHM.into(),
+            encryption_key_bytes: key.to_vec(),
+            encryption_key_sha256_bytes: crate::csek::key_sha256(key).to_vec(),
+        },
+    )
+}
+
+/// Stores `data` at bucket/name under `key` (or unencrypted), as an upload through any API
+/// would, so a test can address an encrypted object over gRPC.
+pub(super) async fn put_keyed(
+    catalog: &crate::storage::Catalog,
+    bucket: &str,
+    name: &str,
+    data: &[u8],
+    key: Option<&[u8; 32]>,
+) -> crate::object::ObjectRecord {
+    let mut upload = crate::storage::test_fixtures::permissive_upload(bucket, name, u64::MAX);
+    upload.metadata.customer_key_sha256 = key.map(crate::csek::key_sha256);
+    catalog
+        .put_object(
+            upload,
+            crate::storage::test_fixtures::body(vec![bytes::Bytes::copy_from_slice(data)]),
+        )
+        .await
+        .unwrap()
+}
+
+/// A customer-supplied key failure answered with the recorded gRPC status and wording.
+#[track_caller]
+pub(super) fn assert_customer_encryption<T>(
+    result: Result<T, Status>,
+    error: crate::csek::CsekError,
+) {
+    let status = assert_code(result, Code::InvalidArgument);
+    let expected = super::v2::status::customer_encryption(error);
+    assert_eq!(status.message(), expected.message(), "{error:?}");
+    assert_eq!(status.details(), expected.details(), "{error:?}");
+}
+
 pub(super) fn mask(paths: &[&str]) -> Option<prost_types::FieldMask> {
     Some(prost_types::FieldMask {
         paths: paths.iter().map(|path| (*path).into()).collect(),

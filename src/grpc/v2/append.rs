@@ -4,8 +4,7 @@
 use super::{
     Storage, convert,
     object_io::{
-        Responses, WriteSpec, common, conditions, hashes, object_status, send, take_data,
-        verify_crc32c,
+        Responses, WriteSpec, conditions, hashes, object_status, send, take_data, verify_crc32c,
     },
     pb,
     status::unsupported_for,
@@ -70,7 +69,10 @@ fn append_step(
     message: &pb::BidiWriteObjectRequest,
     data: pb::ChecksummedData,
 ) -> Result<AppendStep, Status> {
-    common(message.common_object_request_params.as_ref())?;
+    super::customer_key::reject(
+        message.common_object_request_params.as_ref(),
+        "appendable objects",
+    )?;
     if message.first_message.is_some() {
         return Err(Status::invalid_argument(
             "Only the first message may contain write_object_spec or append_object_spec",
@@ -116,8 +118,12 @@ fn append_step(
 }
 
 /// Unfinalized generations have no MD5 and no finalize time.
-pub(super) fn object(record: &ObjectRecord, finality: Finality) -> Result<pb::Object, Status> {
-    let mut object = convert::object(record)?;
+pub(super) fn object(
+    record: &ObjectRecord,
+    finality: Finality,
+    hashes: crate::csek::StoredHashes,
+) -> Result<pb::Object, Status> {
+    let mut object = convert::object(record, hashes)?;
     if finality == Finality::Unfinalized {
         object.finalize_time = None;
         if let Some(checksums) = object.checksums.as_mut() {
@@ -156,7 +162,11 @@ fn status_response(
         // The first acknowledgement of a new object carries its generation, which the client
         // needs for AppendObjectSpec on reconnect.
         Acknowledgement::Resource => (
-            WriteStatus::Resource(object(record, Finality::Unfinalized)?),
+            WriteStatus::Resource(object(
+                record,
+                Finality::Unfinalized,
+                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+            )?),
             None,
         ),
         Acknowledgement::PersistedSize => (
@@ -277,7 +287,10 @@ impl Storage {
     where
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
-        common(message.common_object_request_params.as_ref())?;
+        super::customer_key::reject(
+            message.common_object_request_params.as_ref(),
+            "appendable objects",
+        )?;
         let OpenedWriter {
             mut writer,
             access,
@@ -302,7 +315,12 @@ impl Storage {
                     tx,
                     pb::BidiWriteObjectResponse {
                         write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
-                            self.written_object(&record, caller).await?,
+                            self.written_object(
+                                &record,
+                                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+                                caller,
+                            )
+                            .await?,
                         )),
                         ..Default::default()
                     },

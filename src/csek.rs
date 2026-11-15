@@ -1,10 +1,13 @@
-//! Customer-supplied encryption keys (CSEK), shared by the JSON, XML and storage layers.
+//! Customer-supplied encryption keys (CSEK), shared by the JSON, XML, gRPC and storage layers.
 //!
 //! Contract: <https://docs.cloud.google.com/storage/docs/encryption/customer-supplied-keys>
 //! and the JSON/XML status-code references (checked 2026-10-29). Cloud Storage keeps only
 //! the SHA-256 fingerprint of a key, so parsing drops the raw key as soon as the fingerprint
 //! is verified. Object bytes are stored unencrypted on local disk: at-rest encryption is
 //! Google infrastructure that this emulator simulates only through key enforcement.
+//!
+//! HTTP headers carry the key and fingerprint as Base64 text; Storage v2 carries raw bytes and
+//! validates in another order (recorded 2026-11-15), so each transport has its own constructor.
 
 use hyper::HeaderMap;
 
@@ -104,8 +107,9 @@ impl CustomerKey {
         self.sha256
     }
 
-    /// Validate the algorithm, the 256-bit key and its declared fingerprint.
-    pub(crate) fn parse(
+    /// Validate HTTP header values: the algorithm, then the Base64 256-bit key, then its
+    /// declared Base64 fingerprint.
+    fn from_base64(
         algorithm: Option<&[u8]>,
         key: Option<&[u8]>,
         sha256: Option<&[u8]>,
@@ -116,19 +120,42 @@ impl CustomerKey {
         if algorithm != Some(ALGORITHM.as_bytes()) {
             return Err(CsekError::AlgorithmInvalid);
         }
-        let key = key
-            .and_then(|value| std::str::from_utf8(value).ok())
-            .and_then(|value| crate::json::decode_hash::<32>(value).ok())
-            .ok_or(CsekError::KeyFormatInvalid)?;
+        let key = key.and_then(base64_32).ok_or(CsekError::KeyFormatInvalid)?;
         let declared = sha256
-            .and_then(|value| std::str::from_utf8(value).ok())
-            .and_then(|value| crate::json::decode_hash::<32>(value).ok())
+            .and_then(base64_32)
             .ok_or(CsekError::KeySha256Invalid)?;
-        let digest = ring::digest::digest(&ring::digest::SHA256, &key);
+        Self::verified(&key, declared).map(Some)
+    }
+
+    /// Validate Storage v2 `CommonObjectRequestParams` values, already mapped from proto3's
+    /// empty-is-absent to `None`. Cloud Storage checks the raw key before the algorithm here: a
+    /// request with only a fingerprint fails for its missing key (recorded 2026-11-15).
+    pub(crate) fn from_raw(
+        algorithm: Option<&[u8]>,
+        key: Option<&[u8]>,
+        sha256: Option<&[u8]>,
+    ) -> Result<Option<Self>, CsekError> {
+        if algorithm.is_none() && key.is_none() && sha256.is_none() {
+            return Ok(None);
+        }
+        let key: [u8; 32] = key
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or(CsekError::KeyFormatInvalid)?;
+        if algorithm != Some(ALGORITHM.as_bytes()) {
+            return Err(CsekError::AlgorithmInvalid);
+        }
+        let declared = sha256
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or(CsekError::KeySha256Invalid)?;
+        Self::verified(&key, declared).map(Some)
+    }
+
+    fn verified(key: &[u8; 32], declared: [u8; 32]) -> Result<Self, CsekError> {
+        let digest = ring::digest::digest(&ring::digest::SHA256, key);
         if digest.as_ref() != declared {
             return Err(CsekError::KeySha256Invalid);
         }
-        Ok(Some(Self { sha256: declared }))
+        Ok(Self { sha256: declared })
     }
 
     /// Read one key from `prefix` + `algorithm` / `key` / `key-sha256`; repeated headers are invalid.
@@ -157,11 +184,53 @@ impl CustomerKey {
             }
             Ok(first.map(|value| value.as_bytes().trim_ascii()))
         };
-        Self::parse(
+        Self::from_base64(
             single(algorithm, CsekError::AlgorithmInvalid)?,
             single(key, CsekError::KeyFormatInvalid)?,
             single(sha256, CsekError::KeySha256Invalid)?,
         )
+    }
+}
+
+/// Standard padded Base64 of exactly 32 bytes, the header form of a key and its fingerprint.
+fn base64_32(text: &[u8]) -> Option<[u8; 32]> {
+    let text = std::str::from_utf8(text).ok()?;
+    if text.len() != 44 {
+        return None;
+    }
+    crate::base64::decode(
+        text,
+        crate::base64::Alphabet::Standard,
+        crate::base64::Padding::Required,
+    )?
+    .try_into()
+    .ok()
+}
+
+/// The keys of a copy or rewrite: `source` decrypts the source object and `destination`
+/// encrypts the new one. Either may be absent independently.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CopyKeys {
+    pub(crate) destination: Option<CustomerKey>,
+    pub(crate) source: Option<CustomerKey>,
+}
+
+/// Whether a response may show hashes of the stored bytes: an encrypted object's hashes need
+/// its key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StoredHashes {
+    Revealed,
+    Withheld,
+}
+
+impl StoredHashes {
+    /// Visibility for a caller that supplied no key.
+    pub(crate) fn keyless(stored: Option<[u8; 32]>) -> Self {
+        if stored.is_some() {
+            Self::Withheld
+        } else {
+            Self::Revealed
+        }
     }
 }
 
@@ -183,11 +252,11 @@ pub(crate) fn check_data(
 pub(crate) fn check_metadata(
     stored: Option<[u8; 32]>,
     supplied: Option<CustomerKey>,
-) -> Result<bool, CsekError> {
-    if stored.is_some() && supplied.is_none() {
-        return Ok(false);
+) -> Result<StoredHashes, CsekError> {
+    if supplied.is_none() {
+        return Ok(StoredHashes::keyless(stored));
     }
-    check_data(stored, supplied).map(|()| true)
+    check_data(stored, supplied).map(|()| StoredHashes::Revealed)
 }
 
 /// Whether `name` is one of the three key headers under `prefix`. Other names sharing the
@@ -212,8 +281,8 @@ pub(crate) fn key_headers(prefix: &str, key: &[u8; 32]) -> HeaderMap {
     let mut headers = HeaderMap::new();
     for (suffix, value) in [
         ("algorithm", ALGORITHM.to_owned()),
-        ("key", crate::json::base64(key)),
-        ("key-sha256", crate::json::base64(digest.as_ref())),
+        ("key", crate::base64::encode(key)),
+        ("key-sha256", crate::base64::encode(digest.as_ref())),
     ] {
         headers.insert(
             hyper::header::HeaderName::from_bytes(format!("{prefix}{suffix}").as_bytes()).unwrap(),
@@ -288,7 +357,7 @@ mod tests {
         assert_eq!(
             case(
                 "x-goog-encryption-key",
-                Some(&crate::json::base64(&[7; 31]))
+                Some(&crate::base64::encode(&[7; 31]))
             ),
             CsekError::KeyFormatInvalid
         );
@@ -304,7 +373,7 @@ mod tests {
         assert_eq!(
             case(
                 "x-goog-encryption-key-sha256",
-                Some(&crate::json::base64(other.as_ref()))
+                Some(&crate::base64::encode(other.as_ref()))
             ),
             CsekError::KeySha256Invalid
         );
@@ -334,13 +403,172 @@ mod tests {
             check_data(None, Some(key)),
             Err(CsekError::ResourceNotEncrypted)
         );
-        assert_eq!(check_metadata(Some([1; 32]), None), Ok(false));
-        assert_eq!(check_metadata(Some([1; 32]), Some(key)), Ok(true));
-        assert_eq!(check_metadata(None, None), Ok(true));
+        assert_eq!(
+            check_metadata(Some([1; 32]), None),
+            Ok(StoredHashes::Withheld)
+        );
+        assert_eq!(
+            check_metadata(Some([1; 32]), Some(key)),
+            Ok(StoredHashes::Revealed)
+        );
+        assert_eq!(check_metadata(None, None), Ok(StoredHashes::Revealed));
         assert_eq!(
             check_metadata(Some([1; 32]), Some(other)),
             Err(CsekError::KeyIncorrect)
         );
+        assert_eq!(
+            check_metadata(None, Some(key)),
+            Err(CsekError::ResourceNotEncrypted)
+        );
+    }
+
+    /// The raw form of a key and its fingerprint, as Storage v2 sends them.
+    fn raw(key: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+        (key.to_vec(), key_sha256(key).to_vec())
+    }
+
+    #[test]
+    fn raw_keys_keep_only_their_fingerprint() {
+        let (key, sha256) = raw(&[7; 32]);
+        let parsed = CustomerKey::from_raw(Some(b"AES256"), Some(&key), Some(&sha256))
+            .unwrap()
+            .unwrap();
+        assert_eq!(parsed.sha256(), key_sha256(&[7; 32]));
+        assert_eq!(CustomerKey::from_raw(None, None, None), Ok(None));
+    }
+
+    /// The three Storage v2 key fields of one request.
+    #[derive(Clone, Copy)]
+    struct RawFields<'a> {
+        algorithm: Option<&'a [u8]>,
+        key: Option<&'a [u8]>,
+        sha256: Option<&'a [u8]>,
+    }
+
+    impl RawFields<'_> {
+        fn parse(self) -> Result<Option<CustomerKey>, CsekError> {
+            CustomerKey::from_raw(self.algorithm, self.key, self.sha256)
+        }
+    }
+
+    #[test]
+    fn raw_keys_are_checked_key_first_as_cloud_storage_does() {
+        let (key, sha256) = raw(&[7; 32]);
+        let (_, other) = raw(&[8; 32]);
+        // A client that put the header form into the raw field: 44 bytes of text.
+        let text = crate::base64::encode(&[7; 32]);
+        let text_sha = ring::digest::digest(&ring::digest::SHA256, text.as_bytes());
+        let valid = RawFields {
+            algorithm: Some(b"AES256"),
+            key: Some(&key),
+            sha256: Some(&sha256),
+        };
+        let none = RawFields {
+            algorithm: None,
+            key: None,
+            sha256: None,
+        };
+        assert!(valid.parse().is_ok_and(|key| key.is_some()));
+        // Recorded against Cloud Storage over gRPC on 2026-11-15.
+        let cases = [
+            (
+                "lowercase algorithm",
+                RawFields {
+                    algorithm: Some(b"aes256"),
+                    ..valid
+                },
+                CsekError::AlgorithmInvalid,
+            ),
+            (
+                "AES128",
+                RawFields {
+                    algorithm: Some(b"AES128"),
+                    ..valid
+                },
+                CsekError::AlgorithmInvalid,
+            ),
+            (
+                "no algorithm",
+                RawFields {
+                    algorithm: None,
+                    ..valid
+                },
+                CsekError::AlgorithmInvalid,
+            ),
+            (
+                "algorithm only",
+                RawFields {
+                    algorithm: valid.algorithm,
+                    ..none
+                },
+                CsekError::KeyFormatInvalid,
+            ),
+            (
+                "key only",
+                RawFields {
+                    key: valid.key,
+                    ..none
+                },
+                CsekError::AlgorithmInvalid,
+            ),
+            (
+                "fingerprint only",
+                RawFields {
+                    sha256: valid.sha256,
+                    ..none
+                },
+                CsekError::KeyFormatInvalid,
+            ),
+            (
+                "no key",
+                RawFields { key: None, ..valid },
+                CsekError::KeyFormatInvalid,
+            ),
+            (
+                "31-byte key",
+                RawFields {
+                    key: Some(&key[..31]),
+                    ..valid
+                },
+                CsekError::KeyFormatInvalid,
+            ),
+            (
+                "Base64 text key",
+                RawFields {
+                    key: Some(text.as_bytes()),
+                    sha256: Some(text_sha.as_ref()),
+                    ..valid
+                },
+                CsekError::KeyFormatInvalid,
+            ),
+            (
+                "no fingerprint",
+                RawFields {
+                    sha256: None,
+                    ..valid
+                },
+                CsekError::KeySha256Invalid,
+            ),
+            (
+                "fingerprint mismatch",
+                RawFields {
+                    sha256: Some(&other),
+                    ..valid
+                },
+                CsekError::KeySha256Invalid,
+            ),
+            (
+                "31-byte fingerprint",
+                RawFields {
+                    sha256: Some(&other[..31]),
+                    ..valid
+                },
+                CsekError::KeySha256Invalid,
+            ),
+        ];
+        for (label, fields, expected) in cases {
+            assert_eq!(fields.parse(), Err(expected), "{label}");
+        }
     }
 
     #[test]

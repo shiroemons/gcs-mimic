@@ -78,8 +78,48 @@ impl From<crate::auth::policy_input::PolicyInputError> for Status {
     }
 }
 
+/// Cloud Storage answers every customer-supplied key failure over gRPC with `INVALID_ARGUMENT`
+/// and one `BadRequest` field violation that repeats the message (recorded 2026-11-15).
+pub(crate) fn customer_encryption(error: crate::csek::CsekError) -> Status {
+    invalid_field(customer_encryption_message(error))
+}
+
+/// The gRPC wording, which differs from the JSON API's for four of the six failures
+/// (recorded 2026-11-15).
+fn customer_encryption_message(error: crate::csek::CsekError) -> &'static str {
+    use crate::csek::CsekError;
+    match error {
+        CsekError::AlgorithmInvalid => {
+            "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+        }
+        CsekError::KeyFormatInvalid => {
+            "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+        }
+        CsekError::KeySha256Invalid => {
+            "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+        }
+        CsekError::KeyIncorrect => "The provided encryption key is incorrect.",
+        CsekError::ResourceIsEncrypted => {
+            "The target object is encrypted by a customer-supplied encryption key."
+        }
+        CsekError::ResourceNotEncrypted => {
+            "The target object is not encrypted by a customer-supplied encryption key."
+        }
+    }
+}
+
+impl From<crate::csek::CsekError> for Status {
+    fn from(error: crate::csek::CsekError) -> Self {
+        customer_encryption(error)
+    }
+}
+
 impl From<crate::json::JsonError> for Status {
     fn from(mut error: crate::json::JsonError) -> Self {
+        // Storage errors reach gRPC through the JSON mapping; keep the gRPC key contract.
+        if let crate::json::ErrorKind::Csek(error) = error.kind {
+            return customer_encryption(error);
+        }
         // Only the JSON API answers a write's matching not-match condition with 304.
         if error.kind == crate::json::ErrorKind::WriteNotModified {
             return Status::failed_precondition(crate::json::PRECONDITION_NOT_HELD);
@@ -142,7 +182,7 @@ fn unsupported_message(message: String) -> Status {
     )
 }
 
-fn unsupported_with_remedy(message: String, remedy: &str) -> Status {
+pub(super) fn unsupported_with_remedy(message: String, remedy: &str) -> Status {
     let info = ErrorInfo {
         // Preserve the existing unsupported JSON contract's reason and domain.
         reason: "badRequest".into(),
@@ -347,6 +387,57 @@ mod tests {
             not_empty.message(),
             "bucket must be empty prior to deletion"
         );
+    }
+
+    #[test]
+    fn customer_key_failures_use_the_recorded_grpc_contract() {
+        use crate::csek::CsekError;
+        // Recorded against Cloud Storage over gRPC on 2026-11-15.
+        for (error, message) in [
+            (
+                CsekError::AlgorithmInvalid,
+                "Missing an encryption algorithm, or the provided algorithm is not \"AES256\".",
+            ),
+            (
+                CsekError::KeyFormatInvalid,
+                "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm.",
+            ),
+            (
+                CsekError::KeySha256Invalid,
+                "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key.",
+            ),
+            (
+                CsekError::KeyIncorrect,
+                "The provided encryption key is incorrect.",
+            ),
+            (
+                CsekError::ResourceIsEncrypted,
+                "The target object is encrypted by a customer-supplied encryption key.",
+            ),
+            (
+                CsekError::ResourceNotEncrypted,
+                "The target object is not encrypted by a customer-supplied encryption key.",
+            ),
+        ] {
+            // Directly, and through the storage error every catalog call returns.
+            for status in [
+                Status::from(error),
+                Status::from(crate::object::ObjectError::CustomerEncryption(error)),
+            ] {
+                assert_eq!(status.code(), Code::InvalidArgument, "{error:?}");
+                assert_eq!(status.message(), message, "{error:?}");
+                let rpc = rpc_status(&status);
+                assert_eq!(rpc.details.len(), 1, "{error:?}");
+                assert_eq!(
+                    rpc.details[0].type_url,
+                    "type.googleapis.com/google.rpc.BadRequest"
+                );
+                let violations = BadRequest::decode(rpc.details[0].value.as_slice()).unwrap();
+                assert_eq!(violations.field_violations.len(), 1);
+                assert_eq!(violations.field_violations[0].description, message);
+                assert_eq!(violations.field_violations[0].field, "");
+            }
+        }
     }
 
     #[test]

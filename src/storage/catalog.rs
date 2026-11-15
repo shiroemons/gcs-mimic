@@ -65,7 +65,6 @@ pub(crate) mod rewrite;
 mod rewrite_token;
 
 mod customer_keys;
-pub(crate) use customer_keys::StoredHashes;
 mod md5_availability;
 mod object_hold;
 

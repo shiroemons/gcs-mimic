@@ -136,9 +136,10 @@ impl Storage {
     pub(in crate::grpc::v2) async fn written_object(
         &self,
         record: &ObjectRecord,
+        hashes: crate::csek::StoredHashes,
         caller: Option<Caller<'_>>,
     ) -> Result<pb::Object, Status> {
-        let mut object = convert::object(record)?;
+        let mut object = convert::object(record, hashes)?;
         self.add_written_owner_fields(caller, &record.bucket, &mut object)
             .await?;
         Ok(object)

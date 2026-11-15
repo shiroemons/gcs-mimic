@@ -8,10 +8,10 @@ use super::{
 use crate::{
     auth,
     bucket::BucketAccess,
-    csek::CustomerKey,
+    csek::{CustomerKey, StoredHashes},
     json,
     object::{ObjectConditions, ObjectRecord},
-    storage::{ObjectReader, StoredHashes},
+    storage::ObjectReader,
     xml,
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, header::HeaderValue};

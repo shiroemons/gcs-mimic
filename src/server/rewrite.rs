@@ -1,6 +1,7 @@
 use super::RequestBody as Incoming;
 use super::*;
 use crate::{
+    csek::CopyKeys,
     json::rewrite::RewriteRequest,
     object::ObjectConditions,
     storage::{
@@ -122,10 +123,7 @@ pub(super) async fn respond(
         request.headers(),
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
-    let keys = Keys {
-        destination: json::request_key(request.headers())?,
-        source: json::source_key(request.headers())?,
-    };
+    let keys = json::copy_keys(request.headers())?;
     reject_headers(
         request.headers(),
         &[
@@ -172,19 +170,12 @@ pub(super) async fn respond(
     Ok(response)
 }
 
-/// Customer-supplied keys: `source` decrypts the source, `destination` encrypts the result.
-/// A rewrite to a new destination key on the same object rotates its key.
-#[derive(Clone, Copy)]
-struct Keys {
-    destination: Option<crate::csek::CustomerKey>,
-    source: Option<crate::csek::CustomerKey>,
-}
-
-/// What one detached rewrite step owns: the request, its metadata body, keys and access.
+/// What one detached rewrite step owns: the request, its metadata body, keys and access. A
+/// rewrite to a new destination key on the same object rotates its key.
 struct RewriteJob {
     operation: RewriteRequest,
     body: Option<Value>,
-    keys: Keys,
+    keys: CopyKeys,
     source_access: BucketAccess,
     destination_access: BucketAccess,
 }
@@ -194,7 +185,7 @@ async fn resolve_source(
     catalog: &Catalog,
     operation: &RewriteRequest,
     access: &BucketAccess,
-    keys: Keys,
+    keys: CopyKeys,
 ) -> Result<crate::storage::DerivedSource, JsonError> {
     let target = operation.names.source_at(operation.source_generation);
     let conditions = operation.source_conditions;
@@ -230,12 +221,7 @@ async fn execute(
         {
             return Err(error(RewriteError::Invalid));
         }
-        // Each call must carry the keys the session started with.
-        crate::csek::check_data(session.source_key_sha256, keys.source)?;
-        crate::csek::check_data(
-            session.destination.metadata.customer_key_sha256,
-            keys.destination,
-        )?;
+        session.check_customer_keys(keys)?;
         token.clone()
     } else {
         let source = resolve_source(&catalog, &operation, &source_access, keys).await?;

@@ -287,7 +287,11 @@ impl Storage {
             metadata: if resumed {
                 None
             } else {
-                Some(super::append::object(&selected.record, selected.finality)?)
+                Some(super::append::object(
+                    &selected.record,
+                    selected.finality,
+                    crate::csek::StoredHashes::keyless(selected.record.customer_key_sha256),
+                )?)
             },
             read_handle: Some(pb::BidiReadHandle {
                 handle: token.0.to_vec(),
