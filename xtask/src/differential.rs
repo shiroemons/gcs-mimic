@@ -24,7 +24,7 @@ mod xml;
 use crate::Verdict;
 use guard::Guarded;
 use pace::Paced;
-use runner::{CaseOutcome, Names, NewBuckets, Side, run_side};
+use runner::{CaseOutcome, Names, NewBuckets, Service, run_side};
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -321,7 +321,7 @@ fn run_live(
     );
     let grpc_paced = Paced::new(&grpc);
     let grpc_guarded = Guarded { inner: &grpc_paced };
-    let side = Side {
+    let side = Service {
         transport: &guarded,
         grpc: Some(&grpc_guarded),
         project,
@@ -363,7 +363,7 @@ fn run_mimic(
         .as_deref()
         .map(|address| GrpcTransport::new(address, Channel::Plaintext, None, proto_root));
     let grpc_guarded = grpc.as_ref().map(|t| Guarded { inner: t });
-    let side = Side {
+    let side = Service {
         transport: &guarded,
         grpc: grpc_guarded.as_ref().map(|t| t as &dyn Transport),
         project: LOCAL_PROJECT,
@@ -616,7 +616,7 @@ pub fn sweep(args: &[String]) -> Result<Verdict> {
     );
     let paced = Paced::new(&curl);
     let guarded = Guarded { inner: &paced };
-    let side = Side {
+    let side = Service {
         transport: &guarded,
         grpc: None,
         project: &project,

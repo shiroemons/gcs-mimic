@@ -27,7 +27,9 @@ impl Names {
     }
 }
 
-pub(crate) struct Side<'a> {
+/// The service one side of a run sends its cases to (the live reference service or the local
+/// gcs-mimic), and how its answers are normalized.
+pub(crate) struct Service<'a> {
     pub(crate) transport: &'a dyn Transport,
     /// The `grpcurl` transport; `None` when it is unavailable, in which case
     /// the caller has already dropped the gRPC cases.
@@ -81,7 +83,7 @@ pub(crate) struct SideRun {
     pub(crate) project_numbers: Vec<String>,
 }
 
-fn base_normalizer(side: &Side<'_>, names: &Names) -> Normalizer {
+fn base_normalizer(side: &Service<'_>, names: &Names) -> Normalizer {
     let mut norm = Normalizer::default();
     norm.add_literal(&names.bucket, "<bucket>");
     norm.add_literal(&names.missing_bucket, "<missing_bucket>");
@@ -203,7 +205,7 @@ fn record_numbers(json: &Value, norm: &mut Normalizer, seen: &mut Vec<String>) {
 /// Runs one step. Returns its outcome and, when the step failed the case, the
 /// (redacted) error.
 fn run_step(
-    side: &Side<'_>,
+    side: &Service<'_>,
     step: &super::case::Step,
     vars: &mut Vars,
     norm: &mut Normalizer,
@@ -285,7 +287,7 @@ fn run_step(
 }
 
 fn run_case(
-    side: &Side<'_>,
+    side: &Service<'_>,
     case: &Case,
     buckets: &CaseBuckets<'_>,
     names: &Names,
@@ -335,7 +337,13 @@ struct CaseBuckets<'a> {
     new_bucket: &'a str,
 }
 
-fn cleanup_line(side: &Side<'_>, norm: &Normalizer, label: String, name: &str, run: &mut SideRun) {
+fn cleanup_line(
+    side: &Service<'_>,
+    norm: &Normalizer,
+    label: String,
+    name: &str,
+    run: &mut SideRun,
+) {
     match bucket::cleanup(side, norm, name) {
         Ok(note) => run.cleanup.push(format!("{label}: {note}")),
         Err(error) => {
@@ -349,7 +357,7 @@ fn cleanup_line(side: &Side<'_>, norm: &Normalizer, label: String, name: &str, r
 /// Runs one case with its own buckets and cleans them up right away, so at most
 /// one bucket per kind exists at a time.
 fn run_one(
-    side: &Side<'_>,
+    side: &Service<'_>,
     case: &Case,
     index: usize,
     names: &Names,
@@ -398,7 +406,7 @@ fn run_one(
 /// Runs every case, each with the bucket its `bucket` mode names, and always
 /// cleans up: after each case for its own buckets, at the end for the shared
 /// one, and finally by listing every bucket with the run's prefix.
-pub(crate) fn run_side(side: &Side<'_>, cases: &[Case], names: &Names) -> SideRun {
+pub(crate) fn run_side(side: &Service<'_>, cases: &[Case], names: &Names) -> SideRun {
     let mut base = base_normalizer(side, names);
     let mut run = SideRun {
         cases: Vec::new(),
@@ -508,8 +516,8 @@ mod tests {
         }
     }
 
-    fn side(transport: &Recorder) -> Side<'_> {
-        Side {
+    fn side(transport: &Recorder) -> Service<'_> {
+        Service {
             transport,
             grpc: None,
             project: "proj-x",
@@ -576,8 +584,8 @@ mod tests {
         assert!(!String::from_utf8_lossy(&echo.0.borrow()[0]).contains(bucket::LABEL));
     }
 
-    fn side_with(transport: &dyn Transport) -> Side<'_> {
-        Side {
+    fn side_with(transport: &dyn Transport) -> Service<'_> {
+        Service {
             transport,
             grpc: None,
             project: "proj-x",
@@ -660,7 +668,7 @@ mod tests {
             "steps": [{"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}"}]});
         let own = parse_case(&value, "own").unwrap();
         let denied = Denied;
-        let side = Side {
+        let side = Service {
             transport: &denied,
             grpc: None,
             project: "proj-x",

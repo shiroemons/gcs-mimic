@@ -5,7 +5,7 @@
 //! would leave the bucket (and its objects, holds and notifications) behind.
 
 use super::normalize::{Normalizer, project_numbers};
-use super::runner::Side;
+use super::runner::Service;
 use super::template::percent_encode;
 use super::transport::{Request, Response, Wire};
 use serde_json::{Value, json};
@@ -19,7 +19,7 @@ pub(crate) const LABEL: &str = "gcs-mimic-differential";
 /// The start of every bucket name the harness creates.
 pub(crate) const NAME_PREFIX: &str = "gcsmimic-diff-";
 
-fn send_retrying(side: &Side<'_>, request: &Request) -> Result<Response> {
+fn send_retrying(side: &Service<'_>, request: &Request) -> Result<Response> {
     let mut attempt = 0;
     loop {
         let response = side.transport.send(request)?;
@@ -54,7 +54,7 @@ fn describe(norm: &Normalizer, response: &Response) -> String {
 /// Creates a private us-central1 STANDARD bucket with soft delete off, labelled
 /// as the harness's. Returns the project numbers found in the response so they
 /// can be redacted later.
-pub(crate) fn create(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<Vec<String>> {
+pub(crate) fn create(side: &Service<'_>, norm: &Normalizer, name: &str) -> Result<Vec<String>> {
     let body = json!({
         "name": name,
         "location": "us-central1",
@@ -144,7 +144,7 @@ pub(crate) enum LabelFilter {
 /// the names left alone for lacking the label. A bucket whose labels a PUT or
 /// a PATCH replaced, as a case may do, looks like this too.
 pub(crate) fn list_prefixed(
-    side: &Side<'_>,
+    side: &Service<'_>,
     norm: &Normalizer,
     prefix: &str,
     filter: LabelFilter,
@@ -193,7 +193,7 @@ const FOLDERS_ABSENT: [u16; 4] = [400, 403, 404, 412];
 /// One paged GET of a listing; its `items`. A status in `absent` yields what
 /// was read so far without a problem.
 fn list_all(
-    side: &Side<'_>,
+    side: &Service<'_>,
     norm: &Normalizer,
     target: &str,
     what: &str,
@@ -236,7 +236,7 @@ fn list_all(
 
 /// Sends a request and records a failure unless the status is one of `ok`.
 fn expect(
-    side: &Side<'_>,
+    side: &Service<'_>,
     norm: &Normalizer,
     what: &str,
     req: &Request,
@@ -259,7 +259,7 @@ fn expect(
 /// Deletes one object version, first releasing a hold or an unlocked
 /// retention when the delete is refused.
 fn delete_version(
-    side: &Side<'_>,
+    side: &Service<'_>,
     norm: &Normalizer,
     name: &str,
     object: &str,
@@ -330,7 +330,7 @@ fn blocking_settings(bucket: &Value) -> Option<Value> {
 }
 
 fn clear_bucket_settings(
-    side: &Side<'_>,
+    side: &Service<'_>,
     norm: &Normalizer,
     name: &str,
     bucket: &Value,
@@ -401,7 +401,7 @@ fn clear_bucket_settings(
 /// Empties and deletes a bucket, then confirms it answers 404. A bucket that is
 /// already gone is not an error. Every failure is collected; the error holds
 /// all of them.
-pub(crate) fn cleanup(side: &Side<'_>, norm: &Normalizer, name: &str) -> Result<String> {
+pub(crate) fn cleanup(side: &Service<'_>, norm: &Normalizer, name: &str) -> Result<String> {
     let probe = request(
         "GET",
         format!("/storage/v1/b/{name}?fields=name,retentionPolicy,defaultEventBasedHold,billing"),
@@ -510,7 +510,7 @@ fn left_alone_line(norm: &Normalizer, unlabelled: &[String]) -> Option<String> {
 /// Returns one line per cleaned bucket (never its name), a line naming the labelless buckets it
 /// left alone, and whether any failed.
 pub(crate) fn sweep(
-    side: &Side<'_>,
+    side: &Service<'_>,
     norm: &Normalizer,
     prefix: &str,
     filter: LabelFilter,
@@ -661,12 +661,12 @@ mod tests {
         }
     }
 
-    fn side(transport: &FakeBucket) -> Side<'_> {
+    fn side(transport: &FakeBucket) -> Service<'_> {
         side_of(transport)
     }
 
-    fn side_of(transport: &dyn Transport) -> Side<'_> {
-        Side {
+    fn side_of(transport: &dyn Transport) -> Service<'_> {
+        Service {
             transport,
             grpc: None,
             project: "proj",
@@ -897,7 +897,7 @@ mod tests {
             ..FakeBucket::default()
         });
         let error = cleanup(
-            &Side {
+            &Service {
                 transport: &held,
                 grpc: None,
                 project: "proj",
