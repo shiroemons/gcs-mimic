@@ -4,14 +4,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/scripts" "$work/examples/strict-local" "$work/examples/full-stack" "$work/go/fakestorage"
+mkdir -p "$work/scripts" "$work/examples/strict-local" "$work/examples/full-stack" "$work/go/internal/mimicproc"
 cp scripts/check-release-recipes.sh "$work/scripts/"
 recipes=(examples/strict-local/compose.yaml examples/full-stack/compose.yaml)
 write_recipe() {
   printf "image: \${GCSM_IMAGE:-ghcr.io/shiroemons/gcs-mimic:%s}\n" "$2" > "$work/$1"
 }
 write_module() {
-  printf 'package fakestorage\n\nconst moduleVersion = "%s"\n' "$1" > "$work/go/fakestorage/version.go"
+  printf 'package mimicproc\n\nconst ModuleVersion = "%s"\n' "$1" > "$work/go/internal/mimicproc/version.go"
 }
 for version in 0.17.1 1.0.0-rc.1 1.0.0; do
   printf '[package]\nversion = "%s"\n' "$version" > "$work/Cargo.toml"
@@ -25,7 +25,7 @@ for version in 0.17.1 1.0.0-rc.1 1.0.0; do
       echo "A Go package of another release passed: $version $other" >&2
       exit 1
     fi
-    grep -F "go/fakestorage/version.go moduleVersion must equal the manifest version $version" "$work/output" > /dev/null
+    grep -F "go/internal/mimicproc/version.go ModuleVersion must equal the manifest version $version" "$work/output" > /dev/null
   done
   write_module "$version"
   for recipe in "${recipes[@]}"; do
@@ -41,4 +41,4 @@ for version in 0.17.1 1.0.0-rc.1 1.0.0; do
     write_recipe "$recipe" "$version"
   done
 done
-echo 'PASS: stable, candidate and final release recipes and the Go package must match the complete manifest version'
+echo 'PASS: stable, candidate and final release recipes and the Go packages must match the complete manifest version'

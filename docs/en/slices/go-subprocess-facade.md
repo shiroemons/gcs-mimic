@@ -25,7 +25,7 @@ identity injection is an emulator extension rather than a Google upload field.
 | Source surface | Facade behavior and explicit difference |
 | --- | --- |
 | `NewServer`, `NewServerWithOptions`, `NewServerWithHostPort` | Start one executable, wait for its structured ready event, then load InitialObjects before returning. Error-returning constructors preserve the cause; convenience constructors panic on failure. |
-| Lifecycle `Stop` | Delegates to error-returning `Close`; graceful interrupt, ten-second forced-kill bound, child reaping and owned temporary-directory cleanup. `NewServerWithContext` supports startup/lifetime cancellation. |
+| Lifecycle `Stop` | Delegates to error-returning `Close`; graceful interrupt, ten-second forced-kill bound, child reaping and owned temporary-directory cleanup. On Windows the child starts in its own process group and receives CTRL_BREAK, because Windows cannot deliver an interrupt signal to another process; an interrupt that cannot be delivered forces the kill at once instead of after the ten seconds. `NewServerWithContext` supports startup/lifetime cancellation. |
 | `Client`, `HTTPClient` | Official Go client and a transport restricted to the instance/API/public origins. Known Google SDK hostnames route locally with their original Host; arbitrary hosts fail before dialing. No OAuth or metadata lookup. |
 | `HTTPHandler` | Streams to the subprocess and preserves the incoming Host. Calls after Close return 503. Hosting the handler externally still requires an appropriate advertised endpoint. |
 | `NoListener` | HTTPClient/HTTPHandler use a private HTTP-over-Unix socket, with no TCP/gRPC listener. `URL()` is empty unless `ExternalURL` is supplied. Windows fails explicitly; this remains subprocess execution. |
@@ -48,6 +48,12 @@ holds, retention and durability controls remain active. Empty/timestamp/class
 validation and failures come from the same fixture route as other adapters.
 
 ## Acceptance and verification
+
+The process start, release check, child environment, transport guard and stop
+sequence live in `go/internal/mimicproc`, so that every Go package of the module
+starts and stops its child alike; the facade passes its own profile, scheme and
+options and keeps its public API and messages. The controllable test child lives
+in `go/internal/fakechild` and serves the tests of every package.
 
 Normal tests use the Go test binary as a child, without running Rust:
 

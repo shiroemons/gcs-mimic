@@ -9,15 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/shiroemons/gcs-mimic/go/internal/mimicproc"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 )
@@ -198,21 +196,7 @@ func fixtureBody(object StreamingObject, mode fixtureMode) (io.Reader, string, e
 	if len(encoded) > 64<<10 {
 		return nil, "", errors.New("fixture metadata exceeds 64 KiB")
 	}
-	var prefix bytes.Buffer
-	writer := multipart.NewWriter(&prefix)
-	part, err := writer.CreatePart(textproto.MIMEHeader{"Content-Type": {"application/json"}})
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := part.Write(encoded); err != nil {
-		return nil, "", err
-	}
-	if _, err := writer.CreatePart(textproto.MIMEHeader{"Content-Type": {"application/octet-stream"}}); err != nil {
-		return nil, "", err
-	}
-	boundary := writer.Boundary()
-	return io.MultiReader(bytes.NewReader(prefix.Bytes()), object.Content,
-		strings.NewReader("\r\n--"+boundary+"--\r\n")), "multipart/related; boundary=" + boundary, nil
+	return mimicproc.FixtureBody(encoded, object.Content)
 }
 
 func (s *Server) GetObject(bucketName, objectName string) (Object, error) {
