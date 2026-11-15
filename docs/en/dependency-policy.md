@@ -220,8 +220,9 @@ the newest release of that major only; `sdk-tests/node/storage-8` keeps
 major is still checked against every major.
 It fails when a table manifest has no snapshot entry, so a new suite cannot be
 skipped silently. Its intentionally small Python manifest reader requires a
-single JSON-compatible dependency array of exact `name==X.Y.Z` pins and fails
-on unsupported syntax. Each Python manifest's `.python-version` pin is compared
+single JSON-compatible dependency array of exact `name==X.Y.Z` pins, optionally
+with extras such as `name[grpc]==X.Y.Z`, whose release it checks under the bare
+name, and fails on unsupported syntax. Each Python manifest's `.python-version` pin is compared
 with the newest published stable release from the python.org release API,
 including new minor versions. The Node.js `engines` field is a lower bound, not
 a pin, and is not checked. PHP/Composer use a digest-pinned official Composer

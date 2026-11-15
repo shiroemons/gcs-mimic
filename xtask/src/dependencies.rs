@@ -869,10 +869,13 @@ fn registry_pins(source: &str, ecosystem: RegistryEcosystem) -> Result<BTreeMap<
             .map_err(|e| e.to_string())?;
             let mut pins = BTreeMap::new();
             for entry in entries {
-                let (name, pin) = entry
+                let (requirement, pin) = entry
                     .split_once("==")
                     .ok_or("Python dependency must be exact")?;
-                if pins.insert(name.to_owned(), pin.to_owned()).is_some() {
+                if pins
+                    .insert(python_distribution(requirement)?.to_owned(), pin.to_owned())
+                    .is_some()
+                {
                     return Err("duplicate Python dependency".into());
                 }
             }
@@ -891,6 +894,27 @@ fn registry_pins(source: &str, ecosystem: RegistryEcosystem) -> Result<BTreeMap<
         return Err("SDK dependencies must have valid names and exact stable pins".into());
     }
     Ok(pins)
+}
+
+/// The distribution a Python requirement names. Extras such as `[grpc]` select optional
+/// dependencies of that same release, so the registry and the snapshot track the bare name.
+fn python_distribution(requirement: &str) -> Result<&str> {
+    let Some((name, extras)) = requirement.split_once('[') else {
+        return Ok(requirement);
+    };
+    let valid = extras.strip_suffix(']').is_some_and(|extras| {
+        extras.split(',').all(|extra| {
+            !extra.is_empty()
+                && extra
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        })
+    });
+    if valid {
+        Ok(name)
+    } else {
+        Err("Python extras must be a closed, comma-separated list of names".into())
+    }
 }
 
 fn latest_registry_dependency(
@@ -1693,6 +1717,33 @@ mod tests {
         .unwrap();
         assert_eq!(python["google-cloud-storage"], "3.17.1");
         assert_eq!(python.len(), 2);
+        // An extra keeps the distribution's own release; the registry knows only the bare name.
+        let extras = registry_pins(
+            "dependencies = [\"google-cloud-storage[grpc]==3.17.1\", \"x[a,b-c]==1.0.0\"]",
+            RegistryEcosystem::Pypi,
+        )
+        .unwrap();
+        assert_eq!(extras["google-cloud-storage"], "3.17.1");
+        assert_eq!(extras["x"], "1.0.0");
+        for malformed in [
+            "x[grpc==1.0.0",
+            "x[]==1.0.0",
+            "x[a,]==1.0.0",
+            "x[a b]==1.0.0",
+        ] {
+            let manifest = format!("dependencies = [\"{malformed}\"]");
+            assert!(
+                registry_pins(&manifest, RegistryEcosystem::Pypi).is_err(),
+                "{malformed}"
+            );
+        }
+        assert!(
+            registry_pins(
+                "dependencies = [\"x[grpc]==1.0.0\", \"x==1.0.0\"]",
+                RegistryEcosystem::Pypi
+            )
+            .is_err()
+        );
         assert!(registry_pins("dependencies = [\"x>=1.0.0\"]", RegistryEcosystem::Pypi).is_err());
         assert!(
             registry_pins(
