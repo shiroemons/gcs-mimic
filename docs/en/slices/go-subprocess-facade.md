@@ -152,12 +152,14 @@ Verification on 2026-11-16, Go 1.27.4:
   same three with `-tags integration` passed, and `gofmt -l .` listed nothing.
 - `go test -race -count=1 ./...` passed every package. The request-level tests
   use a local HTTP server that checks method, path, query, body and retries.
-- With `GCSM_BINARY` set to a binary built from this source,
-  `go test -race -count=1 -tags integration ./fakestorage` passed, and in
-  `./gcsmimic` `TestRustStartWritesReadsAndKeepsServersApart` passed. The other
-  three runtime tests failed, as expected before the server provides the routes:
-  the purge answered 404 `Route not found` while the bucket remained, `defaults`
-  was refused with 400, and the reset refused `state` with 400 `invalidArgument`.
-  They stay pending until they pass against a server with those contracts.
+- With `GCSM_BINARY` set to a binary built from the same source as the purge
+  route, the startup reset state and the fixture seed defaults,
+  `go test -race -count=1 -tags integration ./...` passed every package on
+  macOS on 2026-11-16, including `TestRustStartWritesReadsAndKeepsServersApart`,
+  `TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration`,
+  `TestRustSeedMatchesTheStartupSeed` and `TestRustResetReturnsToTheStartupState`.
+  Before those routes existed the last three failed: the purge answered 404
+  `Route not found` while the bucket remained, `defaults` was refused with 400,
+  and the reset refused `state` with 400 `invalidArgument`.
 - The Windows stop is compiled and vetted only. No Windows run has started or
   stopped a child.
