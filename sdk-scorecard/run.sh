@@ -29,6 +29,15 @@ fi
 
 # Record the input tree before output files and SDK setup can change it.
 source_dirty=$(git -C "$root" status --porcelain --untracked-files=normal)
+# The catalog defines every case; a broken one would only show after the whole run, so check it first.
+catalog="$root/sdk-scorecard/cases.json"
+bash "$root/sdk-scorecard/score.sh" --check-catalog "$catalog"
+[[ $(jq -c '.sdks' "$catalog") == '["go","ruby","node","php","python","java","dotnet","rust","cpp"]' ]] || {
+  echo 'sdk-scorecard/cases.json must list the SDKs this script runs, in its order' >&2; exit 1;
+}
+# Each probe emits one line per catalog case for its SDK, unsupported ones included.
+case_counts=$(jq -c '. as $c | [$c.sdks[] as $s |
+  {key: $s, value: ([$c.cases[] | select(.sdks == "all" or (.sdks | index($s)))] | length)}] | from_entries' "$catalog")
 go_sdk=$(awk '$1 == "cloud.google.com/go/storage" {print $2}' "$root/sdk-scorecard/go/go.mod")
 [[ $go_sdk =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
   echo 'expected exactly one stable cloud.google.com/go/storage version in sdk-scorecard/go/go.mod' >&2; exit 1;
@@ -79,6 +88,8 @@ trap cleanup EXIT
 mkdir -p "$out"
 # The Ruby probe runs from its own directory, so a relative --out must be resolved first.
 out=$(cd "$out" && pwd)
+# score.sh checks every recorded case against the catalog the run used.
+cp "$catalog" "$out/cases.json"
 
 (cd "$root/sdk-scorecard/go" && GOTOOLCHAIN=auto go build -o "$work/probe-go" .)
 (cd "$root/sdk-scorecard/go" && GOTOOLCHAIN=auto go build -o "$work/tls-front" ./cmd/tls-front)
@@ -101,9 +112,8 @@ node --check "$root/sdk-scorecard/node/probe.mjs"
 "$root/sdk-scorecard/python/.venv/bin/python" -m py_compile "$root/sdk-scorecard/python/probe.py"
 docker run --rm --name "$probe_container" -v "$root:/app:ro" "$php_image" php -l /app/sdk-scorecard/php/probe.php
 docker run --rm --name "$probe_container" -v "$root:/app:ro" "$php_image" php /app/sdk-scorecard/php/test-resumable-wire.php
-# "cases" is each probe's actual output line count (51 shared cases plus SDK-specific ones).
-# It is fixed here, so update it whenever a probe adds or removes a case.
-sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
+# "cases" is each probe's output line count, taken from the catalog.
+sdks=$(jq -n --argjson counts "$case_counts" --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
   --arg ruby "$(cd "$root/sdk-scorecard/ruby" && ruby --version)" --arg node "$(node --version)" \
   --arg python "$("$root/sdk-scorecard/python/.venv/bin/python" --version)" \
   --arg php "$(docker run --rm "$php_image" php --version | sed -n '1p')" \
@@ -120,12 +130,13 @@ sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
   --arg rust_sdk "$(awk '$0 == "name = \"google-cloud-storage\"" {getline; gsub(/"/, "", $3); print $3}' "$root/sdk-scorecard/rust/Cargo.lock")" \
   --arg rust_image "$rust_image" \
   --arg cpp "$(docker run --rm "$cpp_image" g++ --version | sed -n '1p')" --arg cpp_sdk "$cpp_sdk" --arg cpp_base "$cpp_base" \
-  '{go: {version: $go_sdk, runtime: $go, cases: 57}, ruby: {version: $ruby_sdk, runtime: $ruby, cases: 51},
-    node: {version: $node_sdk, runtime: $node, cases: 51}, php: {version: $php_sdk, runtime: $php, image: $php_image, cases: 51},
-    python: {version: $python_sdk, runtime: $python, cases: 51},
-    java: {version: $java_sdk, runtime: $java, cases: 70}, dotnet: {version: $dotnet_sdk, runtime: $dotnet, cases: 71},
-    rust: {version: $rust_sdk, runtime: $rust, image: $rust_image, cases: 51},
-    cpp: {version: $cpp_sdk, runtime: $cpp, image: $cpp_base, cases: 51}}')
+  '{go: {version: $go_sdk, runtime: $go, cases: $counts.go}, ruby: {version: $ruby_sdk, runtime: $ruby, cases: $counts.ruby},
+    node: {version: $node_sdk, runtime: $node, cases: $counts.node},
+    php: {version: $php_sdk, runtime: $php, image: $php_image, cases: $counts.php},
+    python: {version: $python_sdk, runtime: $python, cases: $counts.python},
+    java: {version: $java_sdk, runtime: $java, cases: $counts.java}, dotnet: {version: $dotnet_sdk, runtime: $dotnet, cases: $counts.dotnet},
+    rust: {version: $rust_sdk, runtime: $rust, image: $rust_image, cases: $counts.rust},
+    cpp: {version: $cpp_sdk, runtime: $cpp, image: $cpp_base, cases: $counts.cpp}}')
 port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 backend_port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 grpc_port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)

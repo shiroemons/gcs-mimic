@@ -6,6 +6,38 @@
 # for every product, so it can neither raise nor lower one emulator's score.
 set -euo pipefail
 
+# The case catalog (sdk-scorecard/cases.json) defines every case: the SDKs that emit it, its area
+# and which SDKs mark it unsupported, with the exact reason. A run copies it into its results
+# directory; historical directories have none and are validated as before.
+# shellcheck disable=SC2016 # A jq program: $root, $case and $s are jq variables, not shell ones.
+catalog_errors='. as $root | [
+  (if ($root.sdks | type) == "array" and ($root.sdks | length) > 0 and ($root.sdks | unique | length) == ($root.sdks | length)
+    then empty else "sdks must list distinct SDK keys" end),
+  (if ($root.cases | map(.id) | unique | length) == ($root.cases | length) then empty else "duplicate case IDs" end),
+  (($root.notes // {}) | to_entries[] | .key as $sdk |
+    if ($root.sdks | index($sdk)) and (.value | type == "string" and length > 0) then empty
+    else "invalid SDK note: \($sdk)" end),
+  ($root.cases[] | . as $case |
+    (if (.id | type == "string" and test("^[a-z0-9_]+\\.[a-z0-9_]+$")) then empty else "invalid ID: \(.id)" end),
+    (if ["bucket", "object", "signed", "grpc", "sdk"] | index($case.area) then empty else "invalid area: \(.id)" end),
+    (if (.area == "sdk") == (.id | startswith("sdk.")) then empty else "sdk area and sdk. prefix disagree: \(.id)" end),
+    (if (.area == "grpc" or .area == "sdk") or .sdks == "all" then empty else "core case not on every SDK: \(.id)" end),
+    (if .sdks == "all" or ((.sdks | type) == "array" and (.sdks | length) > 0 and all(.sdks[]; . as $s | $root.sdks | index($s)))
+      then empty else "unknown or empty SDK list: \(.id)" end),
+    (if (.checks | type) == "array" and (.checks | length) > 0 and all(.checks[]; type == "string" and length > 0)
+      then empty else "no checks: \(.id)" end),
+    ((.unsupported // {}), (.variants // {}) | to_entries[] | .key as $sdk |
+      if ($case.sdks == "all" and ($root.sdks | index($sdk))) or (($case.sdks | type) == "array" and ($case.sdks | index($sdk)))
+        then (if .value | type == "string" and length > 0 then empty else "empty reason: \($case.id) \($sdk)" end)
+        else "unsupported or variant for an SDK that does not emit it: \($case.id) \($sdk)" end))
+]'
+if [[ ${1:-} == --check-catalog ]]; then
+  catalog=${2:?Usage: bash sdk-scorecard/score.sh --check-catalog CASES_JSON}
+  errors=$(jq -r "$catalog_errors | .[]" "$catalog") || { echo "unreadable catalog: $catalog" >&2; exit 1; }
+  [[ -z $errors ]] || { echo "$errors" >&2; exit 1; }
+  exit 0
+fi
+
 dir=${1:?Usage: bash sdk-scorecard/score.sh RESULTS_DIR}
 shopt -s nullglob
 metas=("$dir"/*.meta.json)
@@ -23,6 +55,14 @@ for sdk in go ruby node php python java dotnet rust cpp; do
   fi
 done
 [[ ${#sdks[@]} -gt 0 && ${#sdks[@]} == "$(jq length <<<"$sdk_set")" ]] || { echo 'invalid SDK set' >&2; exit 1; }
+catalog="$dir/cases.json"
+if [[ -f $catalog ]]; then
+  errors=$(jq -r "$catalog_errors | .[]" "$catalog") || { echo "unreadable catalog: $catalog" >&2; exit 1; }
+  [[ -z $errors ]] || { echo "invalid catalog: $errors" >&2; exit 1; }
+  [[ $(jq -c '.sdks | sort' "$catalog") == "$(jq -c 'keys' <<<"$sdk_set")" ]] || {
+    echo 'catalog SDKs differ from the recorded SDK set' >&2; exit 1;
+  }
+fi
 first=$(jq -er '.emulator' "${metas[0]}")
 transport=$(jq -cS '.transport // null' "${metas[0]}")
 for meta in "${metas[@]}"; do
@@ -51,6 +91,15 @@ for meta in "${metas[@]}"; do
       <(jq -sc 'map({id, area, unsupported: (.unsupported // false)}) | sort_by(.id)' "$file") >&2 || {
         echo "case sets or unsupported markers differ: $file" >&2; exit 1;
       }
+    if [[ -f $catalog ]]; then
+      # The emitted cases, areas and unsupported reasons must be exactly the catalog's for this SDK.
+      # One case per line keeps the diff readable when it fails.
+      diff -u <(jq -c --arg sdk "$sdk" '[.cases[] | select(.sdks == "all" or (.sdks | index($sdk))) |
+          {id, area, unsupported: (.unsupported[$sdk] // null)}] | sort_by(.id) | .[]' "$catalog") \
+        <(jq -sc 'map({id, area, unsupported: (if .unsupported == true then .detail else null end)}) | sort_by(.id) | .[]' "$file") >&2 || {
+          echo "cases differ from the catalog: $file" >&2; exit 1;
+        }
+    fi
   done
 done
 

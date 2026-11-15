@@ -40,6 +40,25 @@ nor raises any emulator's score. The marking comes from the probe, not the
 emulator, and the scorer rejects runs where products disagree on it. At least
 one scored case must remain per SDK.
 
+## Case catalog
+
+[`cases.json`](cases.json) defines every case: its area, the SDKs that emit
+it, the observable `checks` every one of them must assert (a probe may check
+more, never less), the SDKs that mark it unsupported with their exact reason,
+and `variants`, where an SDK reaches the same checks by a different request.
+`notes` records differences that cover a whole SDK, such as Rust's gRPC
+metadata API. The operation a case tests uses the SDK's public API; a
+non-public accessor may only read a result for an assertion when the SDK has
+no public one, and its variant says so.
+
+`run.sh` checks the catalog first, takes each SDK's case count from it and
+copies it into the results directory. With that copy, `score.sh` also requires
+each SDK's emitted IDs, areas and unsupported reasons to equal the catalog's.
+Directories recorded before the catalog are scored as before. Adding or
+changing a case starts in the catalog; `test-score.sh` fails when the Areas
+table below does not count what the catalog defines. The contract is
+[the catalog slice](../docs/en/slices/sdk-scorecard-catalog.md).
+
 Equal weighting is a deliberate simplification: an ACL round trip counts as much
 as resumable upload. Read the per-area table in each `summary.md` alongside the
 total.
@@ -83,8 +102,9 @@ and the grounds in their READMEs. The scorer
 rejects missing files, incomplete/duplicate cases, invalid pass values,
 different SDK inputs, case sets or unsupported markers across products, and
 differing shared case IDs across SDKs. The SDKs with unsupported cases are
-.NET (`object.gzip_transcoding`) and Rust (`bucket.notifications`,
-`project.hmac_keys`, `project.service_account`, `signed.v2_get`).
+Ruby (`object.list_offsets`), .NET (`object.gzip_transcoding`) and Rust
+(`bucket.notifications`, `project.hmac_keys`, `project.service_account`,
+`signed.v2_get`).
 
 ## Pinned inputs
 
@@ -329,11 +349,13 @@ ordinary compatibility failures remain recorded `pass: false` cases.
 
 ## Limitations
 
-- Shared case IDs currently cover different checks in some SDKs. Go's
-  `object.update_metadata` verifies merging and clearing the whole map;
-  the other eight SDKs verify individual-key deletion. Go's resumable
-  case explicitly compares returned CRC32C as well as size and bytes; the other
-  probes do not make that same explicit assertion.
+- A shared case ID asserts the catalog's checks in every SDK, but SDKs reach
+  them through different requests, recorded as catalog `variants`. One
+  difference remains in what is checked: Go's public API cannot delete a single
+  metadata key, so Go's `object.update_metadata` verifies merging and clearing
+  the whole map where the other eight SDKs verify individual-key deletion.
+  Checks are reviewed against each probe by reading it; no tool proves a probe
+  asserts what the catalog says.
 - Historical Go/Ruby checksum probes accepted any upload error followed by an
   absent object. Current probes in all nine SDKs require a checksum-specific 400
   and no object. Python still uses a larger resumable input for its public

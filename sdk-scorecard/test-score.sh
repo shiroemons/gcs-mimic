@@ -74,9 +74,57 @@ done
 expect_failure
 cp "$work/saved-rust" "$work/second.rust.jsonl"
 cp "$work/saved-first-rust" "$work/first.rust.jsonl"
-bash "$root/sdk-scorecard/score.sh" "$work" >/dev/null
+bash "$root/sdk-scorecard/score.sh" "$work" >"$work/without-catalog"
+# A catalog in the results directory checks every recorded case against it and changes no output.
+jq -n '{sdks: ["go", "ruby", "node", "php", "python", "java", "dotnet", "rust", "cpp"], cases: [
+  {id: "bucket.roundtrip", area: "bucket", sdks: "all", checks: ["a bucket round trips"]},
+  {id: "object.bytes", area: "object", sdks: "all", checks: ["the bytes round trip"]},
+  {id: "project.hmac_keys", area: "bucket", sdks: "all", checks: ["a key round trips"],
+   unsupported: {rust: "no public API"}},
+  {id: "grpc.roundtrip", area: "grpc", sdks: ["go"], checks: ["a gRPC round trip"]}]}' >"$work/catalog"
+cp "$work/catalog" "$work/cases.json"
+bash "$root/sdk-scorecard/score.sh" "$work" >"$work/with-catalog"
+cmp "$work/without-catalog" "$work/with-catalog"
+for change in \
+  'del(.cases[1])' \
+  '.cases[1].area = "bucket"' \
+  '.cases[2].unsupported = {}' \
+  '.cases[2].unsupported.rust = "another reason"' \
+  '.cases[2].unsupported.go = "no public API"' \
+  '.cases[3].sdks = ["go", "java"]' \
+  '.sdks |= map(select(. != "cpp"))'; do
+  jq "$change" "$work/catalog" >"$work/cases.json"
+  expect_failure
+done
+# Invalid catalogs are refused before any case is compared, and by the run's own pre-check.
+for change in \
+  '.cases += [.cases[0]]' \
+  '.cases[0].sdks = ["go"]' \
+  '.cases[0].checks = []' \
+  '.cases[3].id = "sdk.roundtrip"' \
+  '.cases[2].variants = {perl: "unknown SDK"}' \
+  '.notes = {go: ""}'; do
+  jq "$change" "$work/catalog" >"$work/cases.json"
+  expect_failure
+  if bash "$root/sdk-scorecard/score.sh" --check-catalog "$work/cases.json" 2>/dev/null; then
+    echo "invalid catalog unexpectedly accepted: $change" >&2; exit 1
+  fi
+done
+rm "$work/cases.json"
 rm "$work/second.php.jsonl"
 expect_failure
+
+# The repository catalog is valid, and the README's Areas table counts what it defines.
+catalog="$root/sdk-scorecard/cases.json"
+bash "$root/sdk-scorecard/score.sh" --check-catalog "$catalog"
+for area in bucket object signed grpc sdk; do
+  row=$(jq -r --arg area "$area" '. as $c | [$c.sdks[] as $s |
+    [$c.cases[] | select(.area == $area and (.sdks == "all" or (.sdks | index($s))))] | length |
+    if . == 0 then "–" else tostring end] | "| \($area) | " + join(" | ") + " |"' "$catalog")
+  grep -qF "$row" "$root/sdk-scorecard/README.md" || {
+    echo "sdk-scorecard/README.md Areas row differs from the catalog; expected: $row" >&2; exit 1;
+  }
+done
 
 bash "$root/sdk-scorecard/score.sh" "$root/sdk-scorecard/results/2026-10-29-2" >"$work/legacy"
 grep -F '| 24/57 | 24/51 | 44.6 |' "$work/legacy" >/dev/null
@@ -119,4 +167,4 @@ fi
 
 bash "$root/sdk-scorecard/score.sh" "$root/sdk-scorecard/results/2026-10-29-5" >"$work/five"
 cmp "$work/five" "$root/sdk-scorecard/results/2026-10-29-5/summary.md"
-echo 'PASS: nine-SDK weighting, unsupported-case exclusion, SDK-specific idioms with a shared core, incomplete/mismatched/invalid evidence rejection and historical scoring'
+echo 'PASS: nine-SDK weighting, case catalog checks and README counts, unsupported-case exclusion, SDK-specific idioms with a shared core, incomplete/mismatched/invalid evidence rejection and historical scoring'
