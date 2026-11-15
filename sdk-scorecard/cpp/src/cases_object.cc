@@ -420,6 +420,8 @@ void CustomerSuppliedKey(Ctx& c) {
   auto stream = c.sdk.ReadObject(bucket, "csek.txt");
   std::string const ignored{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
   Check(!stream.status().ok(), "keyless read of an encrypted object succeeded");
+  // Only an HTTP error response proves the key is required; a transport failure does not.
+  Check(HttpStatus(stream.status()) >= 400, "keyless read: " + Describe(stream.status()));
   CheckEqual(Download(c, bucket, "csek.txt", key), "secret", "keyed bytes");
 }
 

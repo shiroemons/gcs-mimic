@@ -354,7 +354,9 @@ final class ObjectCases extends Cases {
       read(b, "csek.txt");
       throw new AssertionError("expected an API error without the key, got success");
     } catch (StorageException expected) {
-      // Any API error proves the object is unreadable without its key.
+      // Only an HTTP error response proves the key is required; StorageException also wraps
+      // transport failures, which carry no HTTP status.
+      check(expected.getCode() >= 400, "read without key: " + expected);
     }
     check(Arrays.equals(read(b, "csek.txt", BlobSourceOption.decryptionKey(key)), bytes("secret")), "keyed bytes");
   }

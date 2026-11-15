@@ -140,7 +140,8 @@ function probe(string $id, callable $run): void { global $cases; $cases[$id] = $
 
 probe('bucket.create_get_delete', function () use ($storage) {
     $b = newBucket();
-    check($storage->bucket($b->name())->exists(), 'bucket lookup');
+    // info() fetches the bucket resource; exists() alone would not read the name back.
+    check(($storage->bucket($b->name())->info()['name'] ?? null) === $b->name(), 'bucket lookup');
     $b->delete();
     check(!$b->exists(), 'deleted bucket visible');
 });
@@ -176,12 +177,18 @@ foreach ([
     ['lifecycle', 'lifecycle', ['rule' => [['action' => ['type' => 'Delete'], 'condition' => ['age' => 30]]]]],
     ['cors', 'cors', [['origin' => ['https://app.example'], 'method' => ['GET'], 'maxAgeSeconds' => 3600]]],
     ['soft_delete_policy', 'softDeletePolicy', ['retentionDurationSeconds' => '864000']],
-    ['autoclass', 'autoclass', ['enabled' => true]],
 ] as [$id, $field, $value]) probe("bucket.$id", function () use ($field, $value) {
     $b = newBucket();
     $b->update([$field => $value]);
     $got = $b->reload()[$field];
+    // A list setting such as CORS must hold exactly the rules sent, not merely start with them.
+    if (array_is_list($value)) check(count($got ?? []) === count($value), "$field rule count differs");
     foreach ($value as $key => $want) check(($got[$key] ?? null) == $want, "$field differs");
+});
+// Autoclass is set when the bucket is created, as in the other probes.
+probe('bucket.autoclass', function () {
+    $b = newBucket(['autoclass' => ['enabled' => true]]);
+    check(($b->reload()['autoclass']['enabled'] ?? null) === true, 'autoclass not enabled');
 });
 probe('bucket.retention_policy', function () {
     $b = newBucket();

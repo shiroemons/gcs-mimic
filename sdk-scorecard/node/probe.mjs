@@ -92,17 +92,25 @@ probe('bucket.versioning_history', async () => {
   assert.equal((await list(b, {versions: true})).length, 2);
   await equalBytes(b.file('v.txt', {generation}), 'one');
 });
-for (const [id, field, value] of [
-  ['lifecycle', 'lifecycle', {rule: [{action: {type: 'Delete'}, condition: {age: 30}}]}],
-  ['cors', 'cors', [{origin: ['https://app.example'], method: ['GET'], maxAgeSeconds: 3600}]],
+// The last element counts the rules a setting must hold exactly, because a partial comparison
+// would also accept extra ones.
+for (const [id, field, value, rules] of [
+  ['lifecycle', 'lifecycle', {rule: [{action: {type: 'Delete'}, condition: {age: 30}}]}, (got) => got.rule.length],
+  ['cors', 'cors', [{origin: ['https://app.example'], method: ['GET'], maxAgeSeconds: 3600}], (got) => got.length],
   ['uniform_bucket_level_access', 'iamConfiguration', {uniformBucketLevelAccess: {enabled: true}}],
   ['public_access_prevention', 'iamConfiguration', {publicAccessPrevention: 'enforced'}],
   ['soft_delete_policy', 'softDeletePolicy', {retentionDurationSeconds: '864000'}],
-  ['autoclass', 'autoclass', {enabled: true}],
 ]) probe(`bucket.${id}`, async () => {
   const b = await bucket();
   await b.setMetadata({[field]: value});
-  assert.partialDeepStrictEqual((await metadata(b))[field], value);
+  const got = (await metadata(b))[field];
+  assert.partialDeepStrictEqual(got, value);
+  if (rules) assert.equal(rules(got), 1);
+});
+// Autoclass is set when the bucket is created, as in the other probes.
+probe('bucket.autoclass', async () => {
+  const b = await bucket({autoclass: {enabled: true}});
+  assert.equal((await metadata(b)).autoclass?.enabled, true);
 });
 probe('bucket.retention_policy', async () => {
   const b = await bucket();
@@ -167,7 +175,10 @@ probe('object.metadata_on_write', async () => {
   const want = {contentType: 'text/plain', cacheControl: 'no-cache', contentDisposition: 'attachment',
     contentLanguage: 'ja', metadata: {k: 'v'}};
   const file = await upload(await bucket(), 'meta.txt', 'x', {metadata: want});
-  assert.partialDeepStrictEqual(await metadata(file), want);
+  const got = await metadata(file);
+  assert.partialDeepStrictEqual(got, want);
+  // The partial comparison would accept extra custom keys.
+  assert.deepStrictEqual(got.metadata, want.metadata);
 });
 probe('object.checksum_rejected', async () => {
   const b = await bucket();
@@ -254,7 +265,9 @@ probe('object.copy_with_metadata', async () => {
   const source = await upload(await bucket(), 'src', 'copy me');
   const dest = (await bucket()).file('dst');
   await source.copy(dest, {contentType: 'text/plain', metadata: {copied: 'yes'}});
-  assert.partialDeepStrictEqual(await metadata(dest), {contentType: 'text/plain', metadata: {copied: 'yes'}});
+  const got = await metadata(dest);
+  assert.equal(got.contentType, 'text/plain');
+  assert.deepStrictEqual(got.metadata, {copied: 'yes'});
   await equalBytes(dest, 'copy me');
 });
 probe('object.rewrite_storage_class', async () => {
@@ -319,7 +332,8 @@ probe('object.customer_supplied_key', async () => {
   const b = await bucket();
   const file = b.file('csek.txt').setEncryptionKey(randomBytes(32));
   await file.save('secret', {resumable: false});
-  await assert.rejects(() => read(b.file('csek.txt')));
+  // Only an HTTP error response proves the key is required; a transport failure does not.
+  await assert.rejects(() => read(b.file('csek.txt')), (error) => Number.isInteger(error.code) && error.code >= 400);
   await equalBytes(file, 'secret');
 });
 probe('object.soft_delete_restore', async () => {

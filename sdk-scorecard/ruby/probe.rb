@@ -134,9 +134,14 @@ def probe(id, area, &block)
   CASES << [id, area, block]
 end
 
+# A case the SDK has no public API for; the reason must equal the catalog's.
+def unsupported(id, area, reason)
+  CASES << [id, area, reason]
+end
+
 probe "bucket.create_get_delete", "bucket" do
   bucket = new_bucket
-  check STORAGE.bucket(bucket.name), "bucket lookup failed"
+  check STORAGE.bucket(bucket.name)&.name == bucket.name, "bucket lookup failed"
   bucket.delete
   check STORAGE.bucket(bucket.name).nil?, "deleted bucket still visible"
 end
@@ -145,8 +150,15 @@ probe "bucket.list_prefix_paging", "bucket" do
   prefix = unique_name
   3.times { |i| STORAGE.create_bucket("#{prefix}-#{i}") }
   page = STORAGE.buckets(prefix: prefix, max: 2)
-  check page.size <= 2, "page size #{page.size} exceeds 2"
-  names = page.all.map(&:name).sort
+  names = []
+  loop do
+    check page.size <= 2, "page size #{page.size} exceeds 2"
+    names.concat(page.map(&:name))
+    break unless page.next?
+
+    page = page.next
+  end
+  names.sort!
   check names == (0..2).map { |i| "#{prefix}-#{i}" }, "buckets #{names}"
 end
 
@@ -393,14 +405,9 @@ probe "object.list_paging", "object" do
   check pages >= 3 && names.sort == %w[p1 p2 p3 p4 p5], "pages=#{pages} names=#{names}"
 end
 
-probe "object.list_offsets", "object" do
-  bucket = new_bucket
-  seed bucket, "a", "b", "c", "d"
-  # The Ruby SDK forwards offsets through the generated client's list options.
-  gapi = STORAGE.service.service.list_objects(bucket.name, start_offset: "b", end_offset: "d")
-  names = Array(gapi.items).map(&:name).sort
-  check names == %w[b c], "names #{names}"
-end
+# Bucket#files takes neither offset; reaching them meant calling the @private generated client.
+unsupported "object.list_offsets", "object",
+            "google-cloud-storage 1.62.2 has no public API for listing with start or end offsets (Bucket#files takes neither)"
 
 probe "object.list_match_glob", "object" do
   bucket = new_bucket
@@ -412,12 +419,14 @@ probe "object.copy_with_metadata", "object" do
   bucket = new_bucket
   destination = new_bucket
   source = upload(bucket, "src", "copy me")
-  copied = source.copy(destination.name, "dst") do |f|
+  source.copy(destination.name, "dst") do |f|
     f.content_type = "text/plain"
     f.metadata = { "copied" => "yes" }
   end
-  check copied.content_type == "text/plain" && copied.metadata["copied"] == "yes", "copy attrs"
-  check download(destination.file("dst")) == "copy me", "copy bytes"
+  # Read the stored destination back rather than trusting the rewrite response.
+  stored = destination.file("dst")
+  check stored.content_type == "text/plain" && stored.metadata == { "copied" => "yes" }, "copy attrs"
+  check download(stored) == "copy me", "copy bytes"
 end
 
 probe "object.rewrite_storage_class", "object" do
@@ -506,8 +515,9 @@ probe "object.customer_supplied_key", "object" do
   begin
     download(file)
     raise ProbeFailure, "read without key succeeded"
-  rescue Google::Cloud::Error
-    nil
+  rescue Google::Cloud::Error => e
+    # Only an HTTP error response proves the key is required; a transport failure does not.
+    check e.status_code.is_a?(Integer) && e.status_code >= 400, "read without key: #{e.class}: #{e.message}"
   end
   check download(file, encryption_key: key) == "secret", "keyed read differs"
 end
@@ -566,6 +576,11 @@ filter = ENV.fetch("SCORECARD_RUN", "")
 CASES.each do |id, area, block|
   next unless filter.empty? || id.include?(filter)
 
+  if block.is_a?(String)
+    puts JSON.generate({ sdk: "ruby", id: id, area: area, pass: false, unsupported: true, detail: block })
+    $stdout.flush
+    next
+  end
   result = { sdk: "ruby", id: id, area: area, pass: true }
   begin
     Timeout.timeout(60) { block.call }

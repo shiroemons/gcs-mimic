@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -215,6 +216,16 @@ func expectCode(err error, code int) error {
 		return nil
 	}
 	return fmt.Errorf("want HTTP %d, got %v", code, err)
+}
+
+// expectHTTPError requires a failure that an HTTP response reported, so a transport error
+// cannot pass as a rejection.
+func expectHTTPError(err error) error {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) && apiErr.Code >= 400 {
+		return nil
+	}
+	return fmt.Errorf("want an HTTP error, got %v", err)
 }
 
 func listNames(ctx context.Context, b *storage.BucketHandle, q *storage.Query) ([]string, []string, error) {
@@ -684,7 +695,7 @@ func cases() []testCase {
 				return err
 			}
 			if a.ContentType != "text/plain" || a.CacheControl != "no-cache" || a.ContentDisposition != "attachment" ||
-				a.ContentLanguage != "ja" || a.Metadata["k"] != "v" {
+				a.ContentLanguage != "ja" || !maps.Equal(a.Metadata, map[string]string{"k": "v"}) {
 				return fmt.Errorf("attrs %+v", a)
 			}
 			return nil
@@ -781,8 +792,8 @@ func cases() []testCase {
 			if err := o.Delete(p.ctx); err != nil {
 				return err
 			}
-			if _, err := read(p.ctx, o); !errors.Is(err, storage.ErrObjectNotExist) {
-				return fmt.Errorf("read after delete: %v", err)
+			if _, err := o.Attrs(p.ctx); !errors.Is(err, storage.ErrObjectNotExist) {
+				return fmt.Errorf("metadata after delete: %v", err)
 			}
 			if err := o.Delete(p.ctx); !errors.Is(err, storage.ErrObjectNotExist) {
 				return fmt.Errorf("second delete: %v", err)
@@ -933,11 +944,15 @@ func cases() []testCase {
 			c := dst.Object("dst").CopierFrom(b.Object("src"))
 			c.ContentType = "text/plain"
 			c.Metadata = map[string]string{"copied": "yes"}
-			a, err := c.Run(p.ctx)
+			if _, err := c.Run(p.ctx); err != nil {
+				return err
+			}
+			// Read the stored destination back rather than trusting the rewrite response.
+			a, err := dst.Object("dst").Attrs(p.ctx)
 			if err != nil {
 				return err
 			}
-			if a.ContentType != "text/plain" || a.Metadata["copied"] != "yes" {
+			if a.ContentType != "text/plain" || !maps.Equal(a.Metadata, map[string]string{"copied": "yes"}) {
 				return fmt.Errorf("copy attrs %+v", a)
 			}
 			got, err := read(p.ctx, dst.Object("dst"))
@@ -1133,6 +1148,8 @@ func cases() []testCase {
 			}
 			if _, err := read(p.ctx, o); err == nil {
 				return fmt.Errorf("read without key succeeded")
+			} else if err := expectHTTPError(err); err != nil {
+				return fmt.Errorf("read without key: %w", err)
 			}
 			got, err := read(p.ctx, o.Key(key))
 			return expectBytes(got, []byte("secret"), err)
