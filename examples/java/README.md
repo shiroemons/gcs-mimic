@@ -1,6 +1,6 @@
 # Java example
 
-Creates a bucket, uploads, lists, downloads and deletes an object with the official `google-cloud-storage` 2.76.0 client. Requires Java 17+ and Maven 3.10.0.
+Creates a bucket, uploads, lists, downloads and deletes an object with the official `google-cloud-storage` 2.76.0 client. Requires Java 17+ and Maven 3.10.1.
 
 ## Start gcs-mimic
 

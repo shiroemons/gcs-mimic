@@ -1,6 +1,6 @@
 # Official Java HTTP SDK and Testcontainers
 
-Use Java 17 or newer and Maven 3.10.0. Compilation/self-check verification used
+Use Java 17 or newer and Maven 3.10.1. Compilation/self-check verification used
 Temurin 27.0.1.0.2+1. Exact SDK/plugin pins live in `pom.xml`; `dependencies.lock`
 records the resolved graph and `run.sh` fails if that graph changes.
 After compilation, the pinned Exec plugin runs a separate JVM with Maven's

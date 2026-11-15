@@ -1129,3 +1129,41 @@ v2 gRPC and their catalog code, the workspace type check, Clippy, the
 production lint, the 95 import/seed tests and the library tests (now 2,339)
 passed again. SDK suites, container builds and the scorecard were not run for
 this refresh.
+
+## Refresh: 2026-11-15, before 0.23.0
+
+The full freshness check run before tagging 0.23.0 on 2026-11-15 exited 1
+with one development-only toolchain, reported for both Java projects:
+`Maven toolchain: UPDATE_AVAILABLE current=3.10.0 latest=3.10.1`. It is
+adopted. The release-scoped check, which does not cover Maven, passed.
+
+### Maven 3.10.1
+
+Maven builds only `sdk-tests/java` and `sdk-scorecard/java` on a developer's
+machine; no release input, CI job or container uses it. Both `.maven-version`
+files and the dependency status move to 3.10.1, and the Java READMEs name it.
+The pinned plugins (maven-compiler-plugin 3.16.0, exec-maven-plugin 3.7.0,
+maven-dependency-plugin 3.11.0), the dependencies and both recorded graphs are
+unchanged.
+
+The [Maven Central binary](https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.10.1/apache-maven-3.10.1-bin.tar.gz)
+was last modified `2026-11-11T22:33:36Z` and is 9,271,464 bytes, with the
+published SHA-512
+`8af2fcc48ee6b8f8fc0b21054226e14404b88500df6483cdeb3ae603408f6de27b1397ac591a9fb0d98fee64f4f624fee1383efd25b8998786cda1598fb9ea39`.
+`mvn -v` reports revision `3afd8084b5629f80b97750906a719879ed4cd283`. The
+repository metadata's newest version, 4.0.0-rc-7, is a release candidate,
+which the check excludes.
+
+### Validation performed on 2026-11-15, before 0.23.0
+
+| Command or check | Result |
+| --- | --- |
+| `bash sdk-scorecard/java/run.sh build` with Maven 3.10.1 | PASS: the recorded dependency graph is unchanged |
+| `just check-sdk` with Maven 3.10.1 | PASS, including the Java HTTP suite's multipart, PATCH override, resumable, generation, read and list scenarios |
+| `cargo test --locked -p xtask` | PASS: 260, 13, 3 and 1 tests, including the check of the actual pins against the snapshot |
+| `cargo xtask dependencies check` at `2026-11-15T14:56:34Z` | Exit 0 with 142 `CURRENT` lines, among them both `Maven toolchain: CURRENT current=3.10.1 latest=3.10.1`; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Composer `latest` and Rust `slim-trixie` differ only on linux/riscv64 |
+| `cargo xtask dependencies check --scope release` at `2026-11-15T14:57:26Z` | Exit 0 with 41 `CURRENT` lines |
+
+The two checks ran with a GitHub token, because the anonymous GitHub API limit
+had been reached. `just pre-push` and `scripts/check-cross.sh` passed on the
+same source before the Maven pins changed.
