@@ -43872,6 +43872,2854 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "grpc-csek",
+      "steps": [
+        {
+          "fingerprint": "2586570dce8d969e",
+          "name": "write-plain",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-plain",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "37d0fa98af51ac9e",
+          "name": "write-plain2",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain2/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain2/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain2/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-plain2/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-plain2",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "4c7cd8bedb991b6b",
+          "name": "write-enc",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-enc",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "3df92f106df26761",
+          "name": "write-enc2",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc2/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc2/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc2/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-enc2/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-enc2",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "87d61d5b0faa7fae",
+          "name": "write-rot",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rot",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "71f8d987d55a2739",
+          "name": "write-ow",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-ow",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "dec97311516d43a4",
+          "name": "parse-algorithm-lowercase",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "3ab3110404aa1346",
+          "name": "parse-algorithm-only",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "85f8468a0e2ae399",
+          "name": "parse-key-only",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption algorithm, or the provided algorithm is not \"AES256\"."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "b0254e0bbe887713",
+          "name": "parse-fingerprint-only",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "5a6daaf667c0af13",
+          "name": "parse-no-fingerprint",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "80c6effb729fce89",
+          "name": "parse-key-31-bytes",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "e46b6ac1ce7749b8",
+          "name": "parse-key-base64-text",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "7305972965b21907",
+          "name": "parse-fingerprint-mismatch",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "9e15c2865b5be381",
+          "name": "parse-fingerprint-31-bytes",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing a SHA256 hash of the encryption key, or it is not base64 encoded, or it does not match the encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "a52f69ca487f072b",
+          "name": "get-malformed-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Missing an encryption key, or it is not base64 encoded, or it does not meet the required length of the encryption algorithm."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "5e907e9893e43c4e",
+          "name": "get-enc-nokey",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-enc",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "9b25c2028a5f6eed",
+          "name": "get-enc-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-enc",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "be68eef3031e9e06",
+          "name": "get-enc-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The provided encryption key is incorrect."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The provided encryption key is incorrect."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "47d45987fb321b5d",
+          "name": "get-plain-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is not encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is not encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "6fa72f68ce749633",
+          "name": "get-enc-nokey-mask-checksums",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "name": "grpc-csek-1-enc"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "52455ba7389dec44",
+          "name": "read-enc-nokey",
+          "request": "GRPC google.storage.v2.Storage/ReadObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "41f512a53684134b",
+          "name": "read-enc-key",
+          "request": "GRPC google.storage.v2.Storage/ReadObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "checksummedData": {
+                  "content": "aGVsbG8=",
+                  "crc32c": 2591144780
+                },
+                "metadata": {
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-enc",
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "objectChecksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "af7a638d729b7f4b",
+          "name": "read-enc-key-range",
+          "request": "GRPC google.storage.v2.Storage/ReadObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "checksummedData": {
+                  "content": "ZWxs",
+                  "crc32c": 39662851
+                },
+                "contentRange": {
+                  "completeLength": "5",
+                  "end": "4",
+                  "start": "1"
+                },
+                "metadata": {
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-enc",
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "objectChecksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "8d915599c0fc8514",
+          "name": "read-enc-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/ReadObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The provided encryption key is incorrect."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The provided encryption key is incorrect."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "4054162597a10977",
+          "name": "read-plain-key",
+          "request": "GRPC google.storage.v2.Storage/ReadObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is not encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is not encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "595d69992881c236",
+          "name": "update-enc-nokey",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metadata": {
+                  "probe": "a"
+                },
+                "metageneration": "2",
+                "name": "grpc-csek-1-enc",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "509f54fd9df16930",
+          "name": "update-enc-key",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/grpc-csek-1-enc/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metadata": {
+                  "probe": "b"
+                },
+                "metageneration": "3",
+                "name": "grpc-csek-1-enc",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "602976a525936fa4",
+          "name": "update-enc-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The provided encryption key is incorrect."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The provided encryption key is incorrect."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "96755db86c31a236",
+          "name": "update-plain-key",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is not encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is not encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "a58c0cb53d42ca97",
+          "name": "get-enc-after-updates",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "probe": "b"
+                },
+                "metageneration": "3",
+                "name": "grpc-csek-1-enc"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "7bf4aa86d3082332",
+          "name": "list-enc",
+          "request": "GRPC google.storage.v2.Storage/ListObjects",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "objects": [
+                  {
+                    "bucket": "projects/_/buckets/<bucket>",
+                    "createTime": "<time:f3>",
+                    "customerEncryption": {
+                      "encryptionAlgorithm": "AES256",
+                      "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                    },
+                    "etag": "<etag:str>",
+                    "eventBasedHold": false,
+                    "finalizeTime": "<time:f6>",
+                    "generation": "<generation:str:16>",
+                    "metadata": {
+                      "probe": "b"
+                    },
+                    "metageneration": "3",
+                    "name": "grpc-csek-1-enc",
+                    "size": "5",
+                    "storageClass": "STANDARD",
+                    "updateStorageClassTime": "<time:f3>",
+                    "updateTime": "<time:f3>"
+                  },
+                  {
+                    "bucket": "projects/_/buckets/<bucket>",
+                    "createTime": "<time:f3>",
+                    "customerEncryption": {
+                      "encryptionAlgorithm": "AES256",
+                      "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                    },
+                    "etag": "<etag:str>",
+                    "eventBasedHold": false,
+                    "finalizeTime": "<time:f6>",
+                    "generation": "<generation:str:16>",
+                    "metageneration": "1",
+                    "name": "grpc-csek-1-enc2",
+                    "size": "5",
+                    "storageClass": "STANDARD",
+                    "updateStorageClassTime": "<time:f3>",
+                    "updateTime": "<time:f3>"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "eec51fa39217e139",
+          "name": "rewrite-enc-nokeys",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "74837ffdbcf7ca71",
+          "name": "rewrite-enc-wrong-source-key",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The provided encryption key is incorrect."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The provided encryption key is incorrect."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "9e89d462ebb381f1",
+          "name": "rewrite-plain-source-key",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is not encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is not encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "90457d10ff6be555",
+          "name": "rewrite-enc-destination-key-only",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "8e9d3f07caa26f3b",
+          "name": "rewrite-enc-to-plain",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-5/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-5/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-5/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-5/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metadata": {
+                    "probe": "b"
+                  },
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rw-5",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "3fb76c93c355d316",
+          "name": "rewrite-plain-to-enc",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-6/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-6/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-6/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rw-6/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "dYd7tB05O1+4RVzmDs2N2gAdBjFklrFN+n+JVlbuyko="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rw-6",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "20d33165f7e86c4a",
+          "name": "rewrite-rotate",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rot/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "dYd7tB05O1+4RVzmDs2N2gAdBjFklrFN+n+JVlbuyko="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rot",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "e198f55258ef7cc9",
+          "name": "get-rotated-new-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "dYd7tB05O1+4RVzmDs2N2gAdBjFklrFN+n+JVlbuyko="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-rot",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "e57dc580cb89bc12",
+          "name": "get-rotated-old-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The provided encryption key is incorrect."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The provided encryption key is incorrect."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "d91d9e9e6a33ef4a",
+          "name": "compose-key",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 4245720706
+                },
+                "componentCount": 2,
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-cmp-1",
+                "size": "10",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "3c50ddb4f3624828",
+          "name": "compose-nokey",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "354159a10f138677",
+          "name": "compose-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The provided encryption key is incorrect."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The provided encryption key is incorrect."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "dc24f298beef6083",
+          "name": "compose-mixed-key",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is not encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is not encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "005dabffcd17211a",
+          "name": "compose-plain-key",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The target object is not encrypted by a customer-supplied encryption key."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The target object is not encrypted by a customer-supplied encryption key."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "81d62ced5bc4b402",
+          "name": "stream-key-first-only",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-1/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-1/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-1/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-1/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 4245720706,
+                    "md5Hash": "I7QxrP60HhXUZtdd6CIwfA=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-st-1",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "10",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "49c920a319ae915a",
+          "name": "stream-key-changed",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-3/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-3/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-3/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-st-3/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 4245720706,
+                    "md5Hash": "I7QxrP60HhXUZtdd6CIwfA=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-st-3",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "10",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "2de7f6b2a3293ffa",
+          "name": "get-stream-changed-first-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 4245720706,
+                  "md5Hash": "I7QxrP60HhXUZtdd6CIwfA=="
+                },
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-st-3",
+                "size": "10",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "03ccc5017b9bb4b3",
+          "name": "stream-key-late",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 13,
+                "message": "We encountered an internal error. Please try again."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 13
+          }
+        },
+        {
+          "fingerprint": "bac630110b68eef0",
+          "name": "get-stream-late",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 5,
+                "message": "No such object: <bucket>/grpc-csek-1-st-4"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 5
+          }
+        },
+        {
+          "fingerprint": "f16b678de6b88352",
+          "name": "overwrite-enc-nokey",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-ow/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-ow",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "6e34642f98050830",
+          "name": "get-overwritten-nokey",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780,
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                },
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-ow",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "a8571928016b17a8",
+          "name": "resumable-start-key",
+          "request": "GRPC google.storage.v2.Storage/StartResumableWrite",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "uploadId": "<up1>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "97956544165ebae4",
+          "name": "resumable-status-open-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/QueryWriteStatus",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "persistedDataChecksums": {
+                  "crc32c": 0,
+                  "md5Hash": "1B2M2Y8AsgTpgAmY7PhCfg=="
+                },
+                "persistedSize": "0"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "6fd352f899391e20",
+          "name": "resumable-finish-nokey",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rs-1",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "1bbf5e794c47736a",
+          "name": "resumable-status-done-nokey",
+          "request": "GRPC google.storage.v2.Storage/QueryWriteStatus",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rs-1",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "97956544165ebae4",
+          "name": "resumable-status-done-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/QueryWriteStatus",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-1/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rs-1",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "72ad7e4e6a89f772",
+          "name": "resumable-start2-key",
+          "request": "GRPC google.storage.v2.Storage/StartResumableWrite",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "uploadId": "<up2>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "e8d53c94651c8cd7",
+          "name": "resumable-finish2-other-key",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-2/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-2/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-2/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-csek-1-rs-2/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "customerEncryption": {
+                    "encryptionAlgorithm": "AES256",
+                    "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                  },
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-csek-1-rs-2",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "91f7e5944b60952a",
+          "name": "get-resumable2-nokey",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "createTime": "<time:f3>",
+                "customerEncryption": {
+                  "encryptionAlgorithm": "AES256",
+                  "keySha256Bytes": "cs1uhCLEB/ttCYaQ8RMLfe1+wvf14dML2dUh8BU2N5M="
+                },
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-csek-1-rs-2",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "18f5bb93bb922f03",
+          "name": "resumable-start3-nokey",
+          "request": "GRPC google.storage.v2.Storage/StartResumableWrite",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "uploadId": "<up3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "d9575aa44112cbe3",
+          "name": "resumable-finish3-late-key",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 13,
+                "message": "We encountered an internal error. Please try again."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 13
+          }
+        },
+        {
+          "fingerprint": "a3e2e559b908a6e7",
+          "name": "get-resumable3-late",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 5,
+                "message": "No such object: <bucket>/grpc-csek-1-rs-3"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 5
+          }
+        },
+        {
+          "fingerprint": "d4ba030207668fd6",
+          "name": "delete-plain-key",
+          "request": "GRPC google.storage.v2.Storage/DeleteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "d68d9b4277af5883",
+          "name": "delete-enc-wrong-key",
+          "request": "GRPC google.storage.v2.Storage/DeleteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "60b2e677c5822d69",
+          "name": "delete-enc-nokey",
+          "request": "GRPC google.storage.v2.Storage/DeleteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -43884,7 +46732,7 @@
     "2026-11-13",
     "2026-11-15"
   ],
-  "requests": 1658,
+  "requests": 1743,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }
