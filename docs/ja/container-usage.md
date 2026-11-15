@@ -383,6 +383,10 @@ Composeはインラインの値の`${VAR}`を展開するので、`$`そのも�
 ]}
 ```
 
+文書はイメージでも作れます。`docker run --rm -it IMAGE buckets new`は、バケットとその設定を端末で順に聞き、文書、`$`を`$$`に直したComposeの`environment:`の断片、または`GCS_MIMIC_BUCKETS`の1行を出力します。
+`--name NAME`と設定を引数で渡せば何も聞かず、`-it`も要りません。
+詳しくは[文書の作成](../en/slices/bucket-initialization.md#writing-a-document-with-buckets-new)（英語）を参照してください。0.23.0までのリリースにはこのコマンドがありません。
+
 毎回、全件を検証してからseedより先に未作成バケットだけを作ります。
 バケットファイルでは以後の変更はAPIで行い、再起動時に既存設定を上書きしません。項目を消してもバケットは削除しません。
 APIで削除したバケットは次回起動時に再作成します。既存projectが異なる場合は

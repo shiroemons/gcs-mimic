@@ -103,6 +103,13 @@ for platform in "$@"; do
   [[ $(docker image inspect --format '{{.Config.User}}' "$GCSM_IMAGE") == 10001:10001 ]] || exit 1
   docker run --rm --network none --read-only "$GCSM_IMAGE" --help
   docker run --rm --network none --read-only "$GCSM_IMAGE" --version
+  # The entrypoint passes the subcommand through, and the scratch image needs no shell for it.
+  generated=$(docker run --rm --network none --read-only "$GCSM_IMAGE" \
+    buckets new --name smoke-bucket --versioning --format env)
+  [[ $generated == "GCS_MIMIC_BUCKETS='{\"version\":1,\"buckets\":[{\"name\":\"smoke-bucket\",\"versioning\":{\"enabled\":true}}]}'" ]] || {
+    echo "buckets new printed an unexpected line: $generated" >&2
+    exit 1
+  }
 
   volume="${project}-isolated"
   docker volume create "$volume" >/dev/null

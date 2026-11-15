@@ -322,6 +322,12 @@ project with default settings, as the document with one `{"name":...}` entry
 per bucket would. A value that starts with `{` is a document. Releases up to
 0.23.0 accept only a document.
 
+`gcs-mimic buckets new` writes a document for either setting: it asks for each
+bucket and its settings on a terminal, or takes `--name NAME` and settings as
+flags, and prints JSON, one `GCS_MIMIC_BUCKETS` line or a Compose
+`environment:` block after checking it as startup would. See
+[writing a document](slices/bucket-initialization.md#writing-a-document-with-buckets-new).
+
 The ready field `buckets` reports the same counts for either setting; it never
 repeats the document, and it is not the seed's `seed.buckets` count. Naming both
 settings fails startup. gcs-mimic reads the value as plain text, but Compose expands

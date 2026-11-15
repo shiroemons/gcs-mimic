@@ -446,6 +446,14 @@ file must exist before startup. The JSON shape is:
 ]}
 ```
 
+The image can also write the document. `docker run --rm -it IMAGE buckets new`
+asks for each bucket and its settings on the terminal and prints a document,
+an `environment:` block for Compose with each `$` written `$$`, or one
+`GCS_MIMIC_BUCKETS` line; with `--name NAME` and settings as flags it asks
+nothing, and `-it` is not needed. See
+[writing a document](slices/bucket-initialization.md#writing-a-document-with-buckets-new);
+releases up to 0.23.0 do not have the command.
+
 Each startup validates the entire document, then creates only missing buckets
 before seed. With a bucket file, existing settings, IAM policies, timestamps and
 objects remain unchanged; edit them through the API. Removing an entry never

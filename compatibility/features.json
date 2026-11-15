@@ -54383,9 +54383,56 @@
             "blank_and_invalid_bucket_shorthand_fail_with_the_setting",
             "bucket_names_initialize_default_buckets_from_every_source"
           ]
+        },
+        {
+          "id": "bucket-document-generator",
+          "description": "gcs-mimic buckets new builds entries from --name and the settings after it, writes json, a single-quoted env line or a Compose block with $ doubled, and checks the text the server will read with the startup parser and the entry's own public access prevention before writing; a generated document starts a server that creates its buckets from a file and from the environment. Refused options, documents and an existing --output file write nothing, and without --name or a terminal it fails before asking. Every listed prompt choice passes the parser. Scope: docs/en/slices/bucket-initialization.md.",
+          "result": "PASS",
+          "test_ids": [
+            "a_bucket_without_answers_is_a_name_only_entry",
+            "every_member_passes_the_startup_parser_in_every_format",
+            "answers_to_different_members_give_the_same_entry_in_any_order",
+            "single_valued_members_refuse_a_second_value_and_lists_accumulate",
+            "an_invalid_name_is_refused_before_any_answer",
+            "a_public_grant_under_enforced_prevention_is_refused",
+            "a_repeated_bucket_is_refused_by_the_startup_parser",
+            "env_is_one_single_quoted_line_of_the_compact_document",
+            "compose_indents_the_document_and_doubles_each_dollar",
+            "every_offered_choice_passes_the_startup_parser",
+            "another_location_is_matched_without_regard_to_case",
+            "settings_attach_to_the_preceding_bucket",
+            "refused_arguments_name_their_option_and_the_remedy",
+            "a_generated_document_initializes_its_buckets_at_startup",
+            "without_a_bucket_or_a_terminal_it_fails_before_asking",
+            "an_existing_output_file_is_kept",
+            "a_document_startup_would_refuse_is_not_written"
+          ]
+        },
+        {
+          "id": "bucket-document-prompts-on-terminals",
+          "description": "The interactive questions, arrow-key lists, Esc and Ctrl-C restoring the terminal, and docker run -it in the image without terminfo are not exercised by any automated test; each needs one recorded manual run on macOS, Linux and Windows terminals.",
+          "result": "PENDING",
+          "test_ids": []
         }
       ],
       "test_ids": [
+        "a_bucket_without_answers_is_a_name_only_entry",
+        "every_member_passes_the_startup_parser_in_every_format",
+        "answers_to_different_members_give_the_same_entry_in_any_order",
+        "single_valued_members_refuse_a_second_value_and_lists_accumulate",
+        "an_invalid_name_is_refused_before_any_answer",
+        "a_public_grant_under_enforced_prevention_is_refused",
+        "a_repeated_bucket_is_refused_by_the_startup_parser",
+        "env_is_one_single_quoted_line_of_the_compact_document",
+        "compose_indents_the_document_and_doubles_each_dollar",
+        "every_offered_choice_passes_the_startup_parser",
+        "another_location_is_matched_without_regard_to_case",
+        "settings_attach_to_the_preceding_bucket",
+        "refused_arguments_name_their_option_and_the_remedy",
+        "a_generated_document_initializes_its_buckets_at_startup",
+        "without_a_bucket_or_a_terminal_it_fails_before_asking",
+        "an_existing_output_file_is_kept",
+        "a_document_startup_would_refuse_is_not_written",
         "names_expand_to_the_canonical_document_in_order",
         "invalid_names_name_their_position_and_both_forms",
         "a_repeated_name_is_refused",
@@ -54744,6 +54791,31 @@
           "test_ids": [
             "seed_defaults_publish_the_object_a_startup_seed_publishes",
             "seed_defaults_are_opt_in_and_refuse_an_explicit_identity"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- bucket_init::generate; cargo test --locked --offline --bin gcs-mimic -- buckets_cli; cargo test --locked --offline --test it_process -- buckets_cli helper_help",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": [
+            "a_bucket_without_answers_is_a_name_only_entry",
+            "every_member_passes_the_startup_parser_in_every_format",
+            "answers_to_different_members_give_the_same_entry_in_any_order",
+            "single_valued_members_refuse_a_second_value_and_lists_accumulate",
+            "an_invalid_name_is_refused_before_any_answer",
+            "a_public_grant_under_enforced_prevention_is_refused",
+            "a_repeated_bucket_is_refused_by_the_startup_parser",
+            "env_is_one_single_quoted_line_of_the_compact_document",
+            "compose_indents_the_document_and_doubles_each_dollar",
+            "every_offered_choice_passes_the_startup_parser",
+            "another_location_is_matched_without_regard_to_case",
+            "settings_attach_to_the_preceding_bucket",
+            "refused_arguments_name_their_option_and_the_remedy",
+            "a_generated_document_initializes_its_buckets_at_startup",
+            "without_a_bucket_or_a_terminal_it_fails_before_asking",
+            "an_existing_output_file_is_kept",
+            "a_document_startup_would_refuse_is_not_written"
           ]
         },
         {

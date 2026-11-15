@@ -51,6 +51,7 @@ The inventory and the "Reason" and "Cost" entries of each candidate describe the
 | `gcs-mimic test-signer credentials`, `gcs-mimic test-signer --help` | `src/main.rs` `run`, `src/auth/test_signer.rs` | H, L, C | Yes |
 | `gcs-mimic sync status`, `findings`, `deletions`, `conflicts`, `rescan`, `approve`, `resolve`, `wait`; `gcs-mimic sync --help` | `src/sync_cli.rs` | H, S `sync-cli.md`, `docs/ja/sync-cli.md` | 11 |
 | `gcs-mimic import fake-gcs-server`, `--help` | `src/import/mod.rs` `cli`, `HELP` | H, S `import-filesystem.md`, `docs/en/migrate-from-fake-gcs-server.md` | Yes |
+| `gcs-mimic buckets new`, `--help` | `src/buckets_cli.rs` `run`, `HELP`; `src/bucket_init/generate.rs` | H, S `bucket-initialization.md` | Yes |
 
 A bare `gcs-mimic` exits 1 and names `serve`. `gcs-mimic serve --version`, `healthcheck --help`, `tls --help`, `tls ca --help`, `url --help`, `sync status --help` and `test-signer credentials --help` all exit 1 (observed).
 
@@ -177,6 +178,7 @@ The native-equivalent block is one `info` diagnostic with key `native_equivalent
 | `url sign` | The `url public` options, `--method`, `--expires`, `--signer`, `--private-key`, `--header` (repeats), `--query` (repeats), `--timestamp` | Two hyphens, space-separated | `src/main.rs`, `src/auth/signature.rs` | H, `docs/en/signed-urls.md` | 12 |
 | `sync` | `--endpoint`, `--ca-cert`, `--token-file`, `--timeout`, `--timeout-ms`, `--revision`, `--cursor`, `--limit`, `--conflict`, `--recovery`, `--action`, `--expected-generation`, `--target-identity`, `--operation-id`, `--confirm-backup-verified`, `--confirm-discard-without-backup`, `--deletion-set`, `--view` | Two hyphens, space-separated, values 1 to 8192 bytes | `src/sync_cli.rs` | H, S `sync-cli.md` | 11 |
 | `import fake-gcs-server` | `--source`, `--data-dir`, `--metadata-mode`, `--source-platform`, `--source-format`, `--max-object-bytes`, `--max-entries`, `--max-depth`, `--dry-run`, `--verify-bodies` | Two hyphens, space-separated; a value cannot start with `--` | `src/import/mod.rs` | H, S `import-filesystem.md` | Yes |
+| `buckets new` | `--name` (repeats, one per bucket), `--format`, `--output`, and bucket settings after a `--name`: `--project`, `--location`, `--storage-class`, `--public-access-prevention`, `--soft-delete-retention-seconds`, `--cors-max-age-seconds`, valueless `--versioning`, `--default-event-based-hold`, `--public-read`, and repeating `--label`, `--cors-origin`, `--cors-method`, `--cors-response-header`, `--iam-binding` | Two hyphens, space-separated. The first helper grammar in which a setting belongs to the preceding `--name`; a setting before any `--name` fails. The contract is the command and option names, exit code 1 with diagnostics on stderr, and a `json` output that startup validation accepts; the exact layout of `env` and `compose` is not | `src/buckets_cli.rs` | H, S `bucket-initialization.md` | Yes |
 
 ### Healthcheck URL selection
 
