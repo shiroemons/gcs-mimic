@@ -43,7 +43,8 @@ pub(crate) use body::{RESOURCE_BODY_LIMIT, RESOURCE_BODY_LIMIT_TEXT, read_body};
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
     BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_etag, bucket_predefined_acls,
-    http_date, reject_predefined_acl, timestamp, timestamp_nanos, validate_bucket_name_for_profile,
+    http_date, legacy_uniform_owner, reject_predefined_acl, timestamp, timestamp_nanos,
+    validate_bucket_name_for_profile,
 };
 #[cfg(test)]
 pub(crate) use buckets::{BucketPredefinedAcls, bucket_resource};

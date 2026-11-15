@@ -190,6 +190,9 @@ pub(super) async fn respond(
 pub(super) struct BucketVersion {
     name: String,
     metageneration: i64,
+    /// Whether the rendered resource reports uniform bucket-level access, under which the
+    /// fake-gcs-server profile reports an `owner` of its own.
+    pub(super) uniform_access: json::UniformAccess,
 }
 
 impl From<&BucketRecord> for BucketVersion {
@@ -197,6 +200,10 @@ impl From<&BucketRecord> for BucketVersion {
         Self {
             name: record.name.clone(),
             metageneration: record.metageneration,
+            uniform_access: json::UniformAccess::of(
+                record.uniform_bucket_level_access_locked_time,
+                None,
+            ),
         }
     }
 }

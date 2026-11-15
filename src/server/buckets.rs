@@ -124,7 +124,7 @@ pub(super) async fn respond<'a>(
     };
     if acl_full {
         acl::add_full_projection(state, caller, &mut rendered, base_url).await?;
-        add_legacy_uniform_owner(&mut rendered.value, profile);
+        add_legacy_uniform_owner(&mut rendered, profile);
     }
     Ok(json_response_selected(&mut rendered.value, &fields, cache))
 }
@@ -151,23 +151,17 @@ fn rendered_bucket(
     })
 }
 
-/// The fake-gcs-server profile keeps reporting the project owners team as `owner` for a bucket under
-/// uniform bucket-level access; Cloud Storage reports none (recorded 2026-10-31).
-fn add_legacy_uniform_owner(value: &mut Value, profile: CompatProfile) {
-    let uniform = value
-        .get("iamConfiguration")
-        .and_then(|value| value.get("uniformBucketLevelAccess"))
-        .and_then(|value| value.get("enabled"))
-        .and_then(Value::as_bool)
-        == Some(true);
-    if profile == CompatProfile::FakeGcsServer && uniform && value.get("owner").is_none() {
-        let number = value["projectNumber"].as_str().unwrap_or("0").to_owned();
-        if let Some(value) = value.as_object_mut() {
-            value.insert(
-                "owner".into(),
-                serde_json::json!({"entity": format!("project-owners-{number}")}),
-            );
-        }
+/// Appends the `owner` the profile reports for a bucket resource under uniform bucket-level
+/// access, after the ACL fields of a full projection; an `owner` those fields added stays.
+/// Listing items carry none.
+fn add_legacy_uniform_owner(rendered: &mut Rendered, profile: CompatProfile) {
+    let AclSubjects::Bucket(bucket) = &rendered.subjects else {
+        return;
+    };
+    if let Some(owner) = json::legacy_uniform_owner(profile, bucket.uniform_access)
+        && let Some(resource) = rendered.value.as_object_mut()
+    {
+        resource.entry("owner").or_insert(owner);
     }
 }
 
@@ -568,7 +562,7 @@ async fn get(
     let mut resource = rendered_bucket(&record, ctx.base_url, params.projection, profile)?;
     if params.projection == json::Projection::Full {
         acl::add_full_projection(state, caller, &mut resource, ctx.base_url).await?;
-        add_legacy_uniform_owner(&mut resource.value, profile);
+        add_legacy_uniform_owner(&mut resource, profile);
     }
     read_metadata_response(
         request.headers(),

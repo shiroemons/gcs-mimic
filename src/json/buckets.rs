@@ -1,4 +1,5 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
+use crate::acl::{Entity, ProjectTeam};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
     RETENTION_RANGE_MESSAGE, RetentionPeriod, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE,
@@ -12,6 +13,9 @@ use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
 
 const LEGACY_LOCATION: &str = "US-CENTRAL1";
+
+/// The project number the fake-gcs-server profile reports for every bucket.
+const LEGACY_PROJECT_NUMBER: &str = "0";
 
 pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "acl",
@@ -1026,7 +1030,7 @@ fn profile_fields(
             labels: Some(&bucket.labels),
         },
         CompatProfile::FakeGcsServer if bucket.metageneration == 1 => ProfileFields {
-            project_number: "0".into(),
+            project_number: LEGACY_PROJECT_NUMBER.into(),
             location,
             storage_class: StorageClass::Standard,
             etag: "RVRhZw==".into(),
@@ -1034,7 +1038,7 @@ fn profile_fields(
             labels: None,
         },
         CompatProfile::FakeGcsServer => ProfileFields {
-            project_number: "0".into(),
+            project_number: LEGACY_PROJECT_NUMBER.into(),
             location,
             storage_class: bucket.storage_class,
             etag: bucket_etag(bucket),
@@ -1042,6 +1046,26 @@ fn profile_fields(
             labels: Some(&bucket.labels),
         },
     })
+}
+
+/// The `owner` the fake-gcs-server profile keeps reporting for a bucket under uniform
+/// bucket-level access, where Cloud Storage reports none (recorded 2026-10-31): the owners team
+/// of the project number the profile reports.
+pub(crate) fn legacy_uniform_owner(
+    profile: CompatProfile,
+    uniform_access: UniformAccess,
+) -> Option<Value> {
+    match (profile, uniform_access) {
+        (CompatProfile::FakeGcsServer, UniformAccess::Enabled) => {
+            let owners = Entity::project_team(ProjectTeam::Owners, LEGACY_PROJECT_NUMBER);
+            Some(Value::Object(Map::from_iter([(
+                "entity".into(),
+                owners.as_str().into(),
+            )])))
+        }
+        (CompatProfile::FakeGcsServer, UniformAccess::Disabled)
+        | (CompatProfile::Native, UniformAccess::Enabled | UniformAccess::Disabled) => None,
+    }
 }
 
 pub(crate) fn bucket_resource_with_profile(
