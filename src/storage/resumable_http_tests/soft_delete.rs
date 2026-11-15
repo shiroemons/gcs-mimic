@@ -388,7 +388,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
         b"",
     )
     .await
-    .error(400, "invalidArgument");
+    .error(412, "conditionNotMet");
     h.request("POST", &restore, ADMIN, b"{}")
         .await
         .error(400, "invalidArgument");

@@ -1,7 +1,7 @@
 use super::{
     JsonError, ObjectRequest,
     integer::take_long,
-    objects::{ConditionKeys, match_and_not_match, take_conditions},
+    objects::{ConditionKeys, take_conditions},
     query::{
         BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode, finish,
         parse_query, projection, standard_parameters,
@@ -68,12 +68,9 @@ fn parse(
             "Missing required generation; select a generation from softDeleted=true listing",
         )
     })?;
+    // Unlike a move, Cloud Storage evaluates a Match and NotMatch pair on a restore instead of
+    // refusing it (recorded 2026-11-15).
     let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
-    if match_and_not_match(&conditions) {
-        return Err(JsonError::invalid_argument(
-            "Match and NotMatch conditions are mutually exclusive; supply one condition per generation kind",
-        ));
-    }
     finish(&query)?;
     Ok(ObjectRequest::Restore {
         target: ObjectTarget::new(bucket, name, generation),

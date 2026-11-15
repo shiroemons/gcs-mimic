@@ -18594,7 +18594,7 @@
       "acceptance_cases": [
         {
           "id": "SOFT-DELETE-RESTORE",
-          "description": "New generation, original retained, reset metadata/times, live collision and atomic conditions; false copySourceAcl only.",
+          "description": "New generation, original retained, reset metadata/times, live collision and atomic conditions, a Match and NotMatch pair evaluated rather than refused as Cloud Storage did (recorded 2026-11-15); false copySourceAcl only.",
           "result": "PASS",
           "test_ids": [
             "soft_delete_restore_conditions_collisions_and_restart",
