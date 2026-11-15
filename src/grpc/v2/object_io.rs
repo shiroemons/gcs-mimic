@@ -17,7 +17,6 @@ use crate::{
         Finality, ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState,
     },
 };
-use prost::Message;
 use tokio::sync::{mpsc, watch};
 use tonic::codegen::tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status, Streaming};

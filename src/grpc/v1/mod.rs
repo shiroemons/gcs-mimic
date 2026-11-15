@@ -34,7 +34,6 @@ use crate::{
     },
     server::State,
 };
-use prost::Message;
 use std::sync::Arc;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -242,11 +241,6 @@ fn metadata(
     write: json::WriteMode,
 ) -> Result<ObjectMetadataUpdate, Status> {
     let replace = write == json::WriteMode::Replace;
-    if object.encoded_len() > 8192 {
-        return Err(Status::resource_exhausted(
-            "Object metadata exceeds 8 KiB; reduce metadata",
-        ));
-    }
     let mut update = ObjectMetadataUpdate {
         write,
         ..Default::default()
@@ -299,6 +293,7 @@ fn metadata(
     {
         return Err(ObjectError::UnsupportedMetadata("empty custom metadata key".into()).into());
     }
+    update.check_encoded_size()?;
     Ok(update)
 }
 

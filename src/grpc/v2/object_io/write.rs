@@ -120,11 +120,6 @@ impl Storage {
             .resource
             .take()
             .ok_or_else(|| Status::invalid_argument("write_object_spec.resource is required"))?;
-        if resource.encoded_len() > 8192 {
-            return Err(Status::resource_exhausted(
-                "Object metadata exceeds the supported 8 KiB limit; reduce metadata",
-            ));
-        }
         let (bucket, name) = self.object_name(&resource.bucket, &resource.name)?;
         let bucket = bucket.to_owned();
         let name = name.to_owned();

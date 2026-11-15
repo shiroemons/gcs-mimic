@@ -9,6 +9,7 @@ use crate::grpc::test_support::{self as fixtures, assert_code, registry};
 use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
+use prost::Message;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -986,6 +987,56 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
         (sums.crc32c, true)
     );
     storage.state.catalog.close().await.unwrap();
+}
+
+/// Cloud Storage stored WriteObject values of 8192 and 40,000 bytes under a one-byte key (case
+/// grpc-custom-metadata-limit, recorded 2026-11-15); only the local bound on encoded metadata,
+/// shared with JSON and XML, refuses a write.
+#[tokio::test]
+async fn grpc_io_write_keeps_custom_metadata_past_8_kib_up_to_the_local_bound() {
+    let (_dir, storage) = setup(false).await;
+    let request = |name: &str, length: usize| {
+        let mut request = message(name, b"v1");
+        let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
+            &mut request.first_message
+        else {
+            unreachable!()
+        };
+        spec.resource.as_mut().unwrap().metadata = [("k".into(), "v".repeat(length))].into();
+        request
+    };
+    for (name, length) in [
+        ("at-8-kib", 8191),
+        ("past-8-kib", 8192),
+        ("under-40-kib", 40_000),
+    ] {
+        let pb::bidi_write_object_response::WriteStatus::Resource(object) =
+            write(&storage, vec![request(name, length)]).await.unwrap()
+        else {
+            panic!("write did not finish");
+        };
+        assert_eq!(object.metadata["k"].len(), length, "{name}");
+    }
+    let refused = write(&storage, vec![request("past-40-kib", 41_000)])
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        refused.message(),
+        "Object metadata exceeds 40 KiB once encoded as JSON; shorten its fixed and custom metadata."
+    );
+    assert!(matches!(
+        storage
+            .state
+            .catalog
+            .get_object(
+                live("grpc-io", "past-40-kib"),
+                Default::default(),
+                PERMISSIVE
+            )
+            .await,
+        Err(ObjectError::ObjectNotFound)
+    ));
 }
 
 #[tokio::test]

@@ -46,6 +46,27 @@ fn typed_object_metadata_keeps_replace_resets_and_patch_omissions() {
     assert_eq!(update.temporary_hold, Some(true));
 }
 
+/// Legacy writes share the JSON bound on encoded metadata instead of an 8 KiB cap: Cloud Storage
+/// stored custom metadata past its documented 8 KiB through JSON, XML and Storage v2 (2026-11-15).
+#[test]
+fn typed_object_metadata_takes_the_shared_bound_on_encoded_metadata() {
+    let object = |length: usize| pb::Object {
+        metadata: [("k".into(), "v".repeat(length))].into(),
+        ..Default::default()
+    };
+    let update = metadata(object(40_000), json::WriteMode::Patch).unwrap();
+    let crate::object::MapPatch::Merge(entries) = update.metadata else {
+        panic!("custom metadata is merged");
+    };
+    assert_eq!(entries["k"].as_deref().map(str::len), Some(40_000));
+    let refused = metadata(object(41_000), json::WriteMode::Patch).unwrap_err();
+    assert_eq!(refused.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        refused.message(),
+        "Object metadata exceeds 40 KiB once encoded as JSON; shorten its fixed and custom metadata."
+    );
+}
+
 fn bucket(name: &str, project: &str) -> BucketRecord {
     BucketRecord {
         time_created: UNIX_EPOCH + Duration::from_secs(1),
