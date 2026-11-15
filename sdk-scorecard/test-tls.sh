@@ -12,21 +12,24 @@ php_image=composer:2.11.2@sha256:5bcb28b8d0edc4091125f8218f9d088f998bdfc843f8fbb
 # macOS (it uses the Keychain and ignores SSL_CERT_FILE), so its check runs in this Linux image.
 rust_image=rust:1.100.0-slim-trixie@sha256:e9d95b74296f7126a83ae3d041aeaba1ff4c478f13abc5cc034fcf7c131c3d4a
 rust_volume="scorecard-rust-tls-target-$$"
+cpp_image="gcs-mimic-scorecard-cpp:tls-$$"
 server_pid=''
 cleanup() {
   if [[ -n $server_pid ]]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
   docker volume rm -f "$rust_volume" >/dev/null 2>&1 || true
+  docker image rm "$cpp_image" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
 
-# The Rust check has no host-native form, so Docker is required; failing here is deliberate,
-# because skipping would let the Rust client go unchecked while the run reports success.
-command -v docker >/dev/null || { echo 'The Rust transport check requires Docker' >&2; exit 2; }
+# The Rust and C++ checks have no host-native form, so Docker is required; failing here is
+# deliberate, because skipping would let those clients go unchecked while the run reports success.
+command -v docker >/dev/null || { echo 'The Rust and C++ transport checks require Docker' >&2; exit 2; }
 bash "$root/sdk-scorecard/java/run.sh" build
 bash "$root/sdk-scorecard/dotnet/run.sh" build
 docker run --rm -v "$root:/app:ro" -v "$rust_volume:/target" -e CARGO_TARGET_DIR=/target -w /app/sdk-scorecard/rust \
   "$rust_image" cargo build --locked --release >&2
+docker build -f "$root/sdk-scorecard/cpp/Dockerfile" -t "$cpp_image" "$root/sdk-scorecard" >&2
 
 probe() {
   local sdk=$1 ca=$2
@@ -51,6 +54,15 @@ probe() {
           socat "TCP-LISTEN:$HTTP_PORT,bind=127.0.0.1,fork,reuseaddr" "TCP:host.docker.internal:$HTTP_PORT" &
           until (echo >/dev/tcp/127.0.0.1/"$HTTP_PORT") 2>/dev/null; do sleep 0.1; done
           /target/release/gcs-mimic-scorecard-rust --transport-check' ;;
+    cpp)
+      docker run --rm --add-host host.docker.internal:host-gateway -v "$root:/app:ro" -v "$ca:/scorecard-ca.pem:ro" \
+        -e SCORECARD_ENDPOINT -e SCORECARD_CA_CERT=/scorecard-ca.pem \
+        -e SCORECARD_SIGNING_KEY=/app/fixtures/signing/test-only-private.pem -e HTTP_PORT="$port" \
+        "$cpp_image" bash -c '
+          set -euo pipefail
+          socat "TCP-LISTEN:$HTTP_PORT,bind=127.0.0.1,fork,reuseaddr" "TCP:host.docker.internal:$HTTP_PORT" &
+          until (echo >/dev/tcp/127.0.0.1/"$HTTP_PORT") 2>/dev/null; do sleep 0.1; done
+          gcs-mimic-scorecard-cpp --transport-check' ;;
   esac
 }
 
@@ -68,7 +80,7 @@ for certificate in server.pem wrong-host.pem; do
   done
   [[ $ready == true ]] || { sed -n '1,160p' "$work/server.log" >&2; exit 1; }
   for ca in ca.pem other.pem; do
-    for sdk in node python ruby php java dotnet rust; do
+    for sdk in node python ruby php java dotnet rust cpp; do
       status=0
       probe "$sdk" "$work/tls/$ca" >"$work/client.log" 2>&1 || status=$?
       if [[ $certificate == server.pem && $ca == ca.pem ]]; then
@@ -88,8 +100,8 @@ for certificate in server.pem wrong-host.pem; do
   wait "$server_pid" 2>/dev/null || true
   server_pid=''
 done
-if [[ $failed != 0 || $passed != 28 ]]; then
-  echo "FAIL: scorecard transport checks ($passed/28 passed)" >&2
+if [[ $failed != 0 || $passed != 32 ]]; then
+  echo "FAIL: scorecard transport checks ($passed/32 passed)" >&2
   exit 1
 fi
-echo 'PASS: scorecard client CA/SAN and origin transport checks (28 cases)'
+echo 'PASS: scorecard client CA/SAN and origin transport checks (32 cases)'

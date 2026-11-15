@@ -13,12 +13,12 @@ metas=("$dir"/*.meta.json)
 sdk_set=$(jq -cS '.sdks // {go: {cases: 57}, ruby: {cases: 51}}' "${metas[0]}")
 sdks=()
 labels=()
-for sdk in go ruby node php python java dotnet rust; do
+for sdk in go ruby node php python java dotnet rust cpp; do
   if jq -e --arg sdk "$sdk" 'has($sdk)' <<<"$sdk_set" >/dev/null; then
     sdks+=("$sdk")
     case "$sdk" in
       go) labels+=(Go);; ruby) labels+=(Ruby);; node) labels+=(Node.js);; php) labels+=(PHP);; python) labels+=(Python);;
-      java) labels+=(Java);; dotnet) labels+=(.NET);; rust) labels+=(Rust);;
+      java) labels+=(Java);; dotnet) labels+=(.NET);; rust) labels+=(Rust);; cpp) labels+=(C++);;
     esac
   fi
 done
@@ -74,7 +74,11 @@ echo
 # Each SDK heading repeats under both sections.
 echo '<!-- markdownlint-configure-file {"MD013": false, "MD024": {"siblings_only": true}} -->'
 echo
-echo "Each SDK contributes $(jq -nr --argjson count "${#sdks[@]}" '100 / $count') points; cases within an SDK have equal weight."
+# A share that one decimal cannot state exactly (100/9) is written as a fraction, so the
+# sentence stays true; exact shares keep their historical wording.
+weight=$(jq -nr --argjson count "${#sdks[@]}" '(100 / $count) as $share | ($share * 10 | round / 10) as $shown |
+  if $shown == $share then "\($share)" else "100/\($count) (about \($shown))" end')
+echo "Each SDK contributes $weight points; cases within an SDK have equal weight."
 if cat "$dir/$first".*.jsonl | jq -es 'any(.[]; .unsupported == true)' >/dev/null; then
   echo 'Cases the SDK has no public API for are shown as n/a and excluded from that SDK'"'"'s denominator.'
 fi

@@ -4,11 +4,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-sdks=(go ruby node php python java dotnet rust)
+sdks=(go ruby node php python java dotnet rust cpp)
 for product in first second; do
   jq -n --arg product "$product" '{emulator: $product, version: "fixture", sdks:
     {go: {cases: 4}, ruby: {cases: 3}, node: {cases: 3}, php: {cases: 3}, python: {cases: 3},
-     java: {cases: 3}, dotnet: {cases: 3}, rust: {cases: 3}}}' >"$work/$product.meta.json"
+     java: {cases: 3}, dotnet: {cases: 3}, rust: {cases: 3}, cpp: {cases: 3}}}' >"$work/$product.meta.json"
   for sdk in "${sdks[@]}"; do
     # The Rust fixture has no API for HMAC keys, so that shared case is unsupported there.
     jq -cn --arg sdk "$sdk" --arg product "$product" '
@@ -21,11 +21,16 @@ for product in first second; do
   jq -cn --arg product "$product" '{sdk: "go", id: "grpc.roundtrip", area: "grpc", pass: ($product == "first")}' >>"$work/$product.go.jsonl"
 done
 bash "$root/sdk-scorecard/score.sh" "$work" >"$work/output"
-grep -Fx "| first | \`fixture\` | 4/4 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 2/2 (1 n/a) | 100 |" "$work/output" >/dev/null
-# (2/4 + 6 × 2/3 + 1/2) / 8: the unsupported Rust case neither passes nor counts.
-grep -Fx "| second | \`fixture\` | 2/4 | 2/3 | 2/3 | 2/3 | 2/3 | 2/3 | 2/3 | 1/2 (1 n/a) | 62.5 |" "$work/output" >/dev/null
+grep -Fx "| Emulator | Version | Go | Ruby | Node.js | PHP | Python | Java | .NET | Rust | C++ | Score (/100) |" \
+  "$work/output" >/dev/null
+grep -Fx "| first | \`fixture\` | 4/4 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 2/2 (1 n/a) | 3/3 | 100 |" "$work/output" >/dev/null
+# (2/4 + 7 × 2/3 + 1/2) / 9 = 62.96: the unsupported Rust case neither passes nor counts.
+grep -Fx "| second | \`fixture\` | 2/4 | 2/3 | 2/3 | 2/3 | 2/3 | 2/3 | 2/3 | 1/2 (1 n/a) | 2/3 | 63 |" "$work/output" >/dev/null
+# 100/9 has no exact one-decimal form, so the weight is written as a fraction.
+grep -F 'Each SDK contributes 100/9 (about 11.1) points' "$work/output" >/dev/null
 test "$(grep -cFx '### Node.js' "$work/output")" = 2
 test "$(grep -cFx '### .NET' "$work/output")" = 2
+test "$(grep -cFx '### C++' "$work/output")" = 2
 grep -Fx '| grpc | 1/1 | 0/1 |' "$work/output" >/dev/null
 grep -Fx "| \`grpc.roundtrip\` | ✅ | ❌ |" "$work/output" >/dev/null
 grep -Fx "| \`project.hmac_keys\` | n/a | n/a |" "$work/output" >/dev/null
@@ -114,4 +119,4 @@ fi
 
 bash "$root/sdk-scorecard/score.sh" "$root/sdk-scorecard/results/2026-10-29-5" >"$work/five"
 cmp "$work/five" "$root/sdk-scorecard/results/2026-10-29-5/summary.md"
-echo 'PASS: eight-SDK weighting, unsupported-case exclusion, SDK-specific idioms with a shared core, incomplete/mismatched/invalid evidence rejection and historical scoring'
+echo 'PASS: nine-SDK weighting, unsupported-case exclusion, SDK-specific idioms with a shared core, incomplete/mismatched/invalid evidence rejection and historical scoring'

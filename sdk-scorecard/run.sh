@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs eight official SDK scorecard probes against each emulator with the same
+# Runs nine official SDK scorecard probes against each emulator with the same
 # inputs and records raw JSONL results, product versions and a scored summary.
 # Every probe gets a freshly started emulator, so state one SDK leaves behind
 # (for example consumed resumable sessions) cannot change another SDK's result.
@@ -37,6 +37,14 @@ ruby_sdk=$(sed -n 's/^    google-cloud-storage (\(.*\))$/\1/p' "$root/sdk-scorec
 [[ $ruby_sdk =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
   echo 'expected exactly one stable google-cloud-storage version in sdk-scorecard/ruby/Gemfile.lock' >&2; exit 1;
 }
+# The C++ SDK and its compiler image are pinned only in the probe's Dockerfile.
+cpp_dockerfile="$root/sdk-scorecard/cpp/Dockerfile"
+cpp_sdk=$(sed -n 's#^ADD --checksum=sha256:[0-9a-f]\{64\} https://github\.com/googleapis/google-cloud-cpp/archive/refs/tags/v\([0-9.]*\)\.tar\.gz .*#\1#p' "$cpp_dockerfile")
+[[ $cpp_sdk =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo 'expected exactly one checksum-pinned google-cloud-cpp release in sdk-scorecard/cpp/Dockerfile' >&2; exit 1;
+}
+cpp_base=$(sed -n 's/^FROM \(gcc:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' "$cpp_dockerfile")
+[[ -n $cpp_base && $cpp_base != *$'\n'* ]] || { echo 'expected one digest-pinned gcc image in sdk-scorecard/cpp/Dockerfile' >&2; exit 1; }
 
 # Comparison inputs are pinned so a rerun measures the same products.
 fake_image=fsouza/fake-gcs-server:1.56.1
@@ -55,12 +63,16 @@ container=''
 probe_container="scorecard-php-$$"
 rust_container="scorecard-rust-$$"
 rust_volume="scorecard-rust-target-$$"
+cpp_container="scorecard-cpp-$$"
+# A per-run tag keeps concurrent runs apart; Docker's build cache keeps the library layers.
+cpp_image="gcs-mimic-scorecard-cpp:run-$$"
 cleanup() {
   [[ -n $server_pid ]] && kill "$server_pid" 2>/dev/null || true
   [[ -n $frontend_pid ]] && kill "$frontend_pid" 2>/dev/null || true
   [[ -n $container ]] && docker rm -f "$container" >/dev/null 2>&1 || true
-  docker rm -f "$probe_container" "$rust_container" >/dev/null 2>&1 || true
+  docker rm -f "$probe_container" "$rust_container" "$cpp_container" >/dev/null 2>&1 || true
   docker volume rm -f "$rust_volume" >/dev/null 2>&1 || true
+  docker image rm "$cpp_image" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -82,6 +94,9 @@ bash "$root/sdk-scorecard/dotnet/run.sh" build
 # Build the Rust probe once in the Linux image; a volume keeps the binary for the per-emulator runs.
 docker run --rm -v "$root:/app:ro" -v "$rust_volume:/target" -e CARGO_TARGET_DIR=/target -w /app/sdk-scorecard/rust \
   "$rust_image" cargo build --locked --release >&2
+# The C++ probe is built and run in Linux for the same reason as the Rust one, and its image
+# also carries the pinned socat. The context is the scorecard directory (see Dockerfile.dockerignore).
+docker build -f "$cpp_dockerfile" -t "$cpp_image" "$root/sdk-scorecard" >&2
 node --check "$root/sdk-scorecard/node/probe.mjs"
 "$root/sdk-scorecard/python/.venv/bin/python" -m py_compile "$root/sdk-scorecard/python/probe.py"
 docker run --rm --name "$probe_container" -v "$root:/app:ro" "$php_image" php -l /app/sdk-scorecard/php/probe.php
@@ -104,11 +119,13 @@ sdks=$(jq -n --arg go "$(cd "$root/sdk-scorecard/go" && go version)" \
   --arg rust "$(docker run --rm "$rust_image" rustc --version)" \
   --arg rust_sdk "$(awk '$0 == "name = \"google-cloud-storage\"" {getline; gsub(/"/, "", $3); print $3}' "$root/sdk-scorecard/rust/Cargo.lock")" \
   --arg rust_image "$rust_image" \
+  --arg cpp "$(docker run --rm "$cpp_image" g++ --version | sed -n '1p')" --arg cpp_sdk "$cpp_sdk" --arg cpp_base "$cpp_base" \
   '{go: {version: $go_sdk, runtime: $go, cases: 57}, ruby: {version: $ruby_sdk, runtime: $ruby, cases: 51},
     node: {version: $node_sdk, runtime: $node, cases: 51}, php: {version: $php_sdk, runtime: $php, image: $php_image, cases: 51},
     python: {version: $python_sdk, runtime: $python, cases: 51},
     java: {version: $java_sdk, runtime: $java, cases: 70}, dotnet: {version: $dotnet_sdk, runtime: $dotnet, cases: 71},
-    rust: {version: $rust_sdk, runtime: $rust, image: $rust_image, cases: 51}}')
+    rust: {version: $rust_sdk, runtime: $rust, image: $rust_image, cases: 51},
+    cpp: {version: $cpp_sdk, runtime: $cpp, image: $cpp_base, cases: 51}}')
 port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 backend_port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
 grpc_port=$(cd "$root/sdk-tests/go" && GOTOOLCHAIN=auto go run ./cmd/free-port | cut -d: -f2)
@@ -220,6 +237,18 @@ run_probe() {
             until (echo >/dev/tcp/127.0.0.1/"$port") 2>/dev/null; do sleep 0.1; done
           done
           /target/release/gcs-mimic-scorecard-rust' >"$file" ;;
+    cpp)
+      # Same loopback forwarding as Rust; socat is already in the image. The probe uses only the
+      # HTTP origin in this scope, so the gRPC port is not forwarded.
+      docker run --rm --name "$cpp_container" --add-host host.docker.internal:host-gateway \
+        -v "$root:/app:ro" -v "$ca:/scorecard-ca.pem:ro" \
+        -e SCORECARD_ENDPOINT="$endpoint" -e SCORECARD_CA_CERT=/scorecard-ca.pem \
+        -e SCORECARD_SIGNING_KEY=/app/fixtures/signing/test-only-private.pem -e HTTP_PORT="${endpoint##*:}" \
+        "$cpp_image" bash -c '
+          set -euo pipefail
+          socat "TCP-LISTEN:$HTTP_PORT,bind=127.0.0.1,fork,reuseaddr" "TCP:host.docker.internal:$HTTP_PORT" &
+          until (echo >/dev/tcp/127.0.0.1/"$HTTP_PORT") 2>/dev/null; do sleep 0.1; done
+          gcs-mimic-scorecard-cpp' >"$file" ;;
   esac
 }
 
@@ -233,7 +262,7 @@ for emulator in "${emulators[@]}"; do
   first_start=true
   # A new emulator per SDK: probes consume resumable sessions, create buckets and change
   # settings, and that leftover state must not affect the next SDK's results.
-  for sdk in go ruby node python php java dotnet rust; do
+  for sdk in go ruby node python php java dotnet rust cpp; do
     echo "-- $emulator / $sdk" >&2
     start_emulator "$emulator"
     if [[ $first_start == true ]]; then
