@@ -1,12 +1,17 @@
 use super::*;
+use crate::fsutil::FileIdentity;
 use std::{
-    ffi::{CStr, c_void},
+    collections::HashMap,
+    ffi::{CStr, OsStr, c_void},
     os::{
         fd::{FromRawFd, OwnedFd, RawFd},
         unix::ffi::OsStrExt,
     },
     ptr::NonNull,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 // FSEventStreamEventFlags, as named in FSEvents.h.
@@ -19,7 +24,9 @@ const EVENT_ROOT_CHANGED: u32 = 0x0000_0020;
 const EVENT_ITEM_INODE_META_MOD: u32 = 0x0000_0400;
 const EVENT_ITEM_CHANGE_OWNER: u32 = 0x0000_4000;
 const EVENT_ITEM_XATTR_MOD: u32 = 0x0000_8000;
+const EVENT_ITEM_IS_FILE: u32 = 0x0001_0000;
 const EVENT_ITEM_IS_DIR: u32 = 0x0002_0000;
+const EVENT_ITEM_CLONED: u32 = 0x0040_0000;
 /// History this stream can no longer replay in order, or a changed root: both need a fresh stream.
 const STREAM_RESET: u32 = EVENT_MUST_SCAN_SUB_DIRS
     | EVENT_USER_DROPPED
@@ -119,7 +126,8 @@ unsafe impl Send for Stream {}
     unsafe_code,
     reason = "shared stream ownership has no mutable Rust data accessed by callbacks"
 )]
-// SAFETY: shared references never mutate the stream, and callbacks touch only atomic state and a pipe.
+// SAFETY: shared references never mutate the stream, and callbacks touch only atomic state, a
+// mutex and a pipe.
 unsafe impl Sync for Stream {}
 impl Drop for Stream {
     #[expect(
@@ -143,6 +151,54 @@ struct CallbackContext {
     root: Vec<u8>,
     structure: AtomicBool,
     failed: AtomicBool,
+    reported: Mutex<Reported>,
+}
+
+/// How many files `Reported` remembers before it starts over. Forgetting one costs at most one
+/// more notification when it is cloned again.
+const REPORTED_FILES: usize = 1024;
+
+/// The identity each regular file had when the stream last reported an event for it.
+///
+/// Staging a sync source on APFS clones it, and FSEvents reports that clone as an event of the
+/// source although nothing in it changed. The observer then ran another ingestion pass, which
+/// staged a file it could not take in, such as an unresolved conflict, again, and so on while
+/// nothing changed. The flags cannot tell such an event from a change: FSEvents keeps the cloned
+/// flag on later events of the path, and earlier flags on the clone's. The identity can, because
+/// a clone leaves it, while a write, a metadata change, a replacement or a removal changes it.
+#[derive(Default)]
+struct Reported(HashMap<Vec<u8>, FileIdentity>);
+
+impl Reported {
+    /// Whether an event with `flags` for the regular file at `path` may report a change since the
+    /// stream last reported one. Only a clone of a file whose identity is unchanged reports none.
+    fn changed(&mut self, path: &[u8], flags: u32) -> bool {
+        // A file that cannot be inspected counts as changed, so its ingestion pass still runs.
+        let Ok(metadata) = std::fs::symlink_metadata(OsStr::from_bytes(path)) else {
+            self.0.remove(path);
+            return true;
+        };
+        let identity = FileIdentity::from(&metadata);
+        if flags & EVENT_ITEM_CLONED != 0 && self.0.get(path) == Some(&identity) {
+            return false;
+        }
+        if self.0.len() >= REPORTED_FILES && !self.0.contains_key(path) {
+            self.0.clear();
+        }
+        self.0.insert(path.to_vec(), identity);
+        true
+    }
+
+    /// Adds the records of the stream this one replaces, keeping its own newer ones. That stream
+    /// reported each recorded identity to the same observer.
+    fn inherit(&mut self, earlier: Self) {
+        for (path, identity) in earlier.0 {
+            if self.0.len() >= REPORTED_FILES {
+                break;
+            }
+            self.0.entry(path).or_insert(identity);
+        }
+    }
 }
 pub(crate) struct Native {
     // Stop and drain callbacks before either end of their pipe closes.
@@ -185,6 +241,58 @@ fn directory_ownership_changes_require_access_revalidation() {
     assert!(!needs_access_check(0x20000 | 0x1000));
 }
 
+#[test]
+fn only_a_clone_of_an_unchanged_file_reports_no_change() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_support::TestDir::new();
+    let file = root.0.join("body");
+    std::fs::write(&file, b"initial").unwrap();
+    let path = file.as_os_str().as_bytes();
+    // FSEvents keeps a path's earlier flags on its later events, so the cloned flag marks no
+    // clone alone.
+    let cloned = EVENT_ITEM_IS_FILE | EVENT_ITEM_CLONED | EVENT_ITEM_INODE_META_MOD;
+    let mut reported = Reported::default();
+    // The stream may have missed a change before the first event it reports for a file.
+    assert!(reported.changed(path, cloned));
+    assert!(!reported.changed(path, cloned));
+    // Only an event with the cloned flag can report no change.
+    assert!(reported.changed(path, EVENT_ITEM_IS_FILE));
+    // The same size rewritten, a mode change and a replacement each change the identity.
+    std::fs::write(&file, b"changed").unwrap();
+    assert!(reported.changed(path, cloned));
+    assert!(!reported.changed(path, cloned));
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(reported.changed(path, cloned));
+    let replacement = root.0.join("replacement");
+    std::fs::write(&replacement, b"changed").unwrap();
+    std::fs::rename(&replacement, &file).unwrap();
+    assert!(reported.changed(path, cloned));
+    assert!(!reported.changed(path, cloned));
+    std::fs::remove_file(&file).unwrap();
+    assert!(reported.changed(path, cloned));
+    std::fs::write(&file, b"restored").unwrap();
+    assert!(reported.changed(path, cloned));
+    // Past the bound the record starts over, and a clone it forgot is reported once more.
+    for index in 1..REPORTED_FILES {
+        let other = root.0.join(format!("other-{index}"));
+        std::fs::write(&other, b"other").unwrap();
+        assert!(reported.changed(other.as_os_str().as_bytes(), cloned));
+    }
+    assert!(!reported.changed(path, cloned));
+    let last = root.0.join("last");
+    std::fs::write(&last, b"last").unwrap();
+    assert!(reported.changed(last.as_os_str().as_bytes(), cloned));
+    assert_eq!(reported.0.len(), 1);
+    assert!(reported.changed(path, cloned));
+    assert!(!reported.changed(path, cloned));
+    // A rebuilt stream keeps what the one it replaces reported, besides its own records.
+    let mut rebuilt = Reported::default();
+    assert!(rebuilt.changed(last.as_os_str().as_bytes(), EVENT_ITEM_IS_FILE));
+    rebuilt.inherit(reported);
+    assert!(!rebuilt.changed(path, cloned));
+    assert!(!rebuilt.changed(last.as_os_str().as_bytes(), cloned));
+}
+
 #[expect(
     unsafe_code,
     reason = "FSEvents supplies valid path and flag arrays for the duration of each callback"
@@ -215,6 +323,14 @@ unsafe extern "C" fn callback(
         // Overflow/root changes need a fresh stream; directory permission changes require a fresh access check.
         if needs_access_check(flags) {
             context.structure.store(true, Ordering::Release);
+        } else if flags & EVENT_ITEM_IS_FILE != 0
+            && !context
+                .reported
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .changed(path, flags)
+        {
+            continue;
         }
         notify = true;
     }
@@ -331,6 +447,7 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> Result<Nati
         root: bytes.to_vec(),
         structure: AtomicBool::new(false),
         failed: AtomicBool::new(false),
+        reported: Mutex::default(),
     });
     let mut info = Context {
         version: 0,
@@ -389,6 +506,22 @@ impl Native {
     #[cfg(test)]
     pub(super) fn duplicate_queue(&self) -> io::Result<OwnedFd> {
         self.queue.try_clone()
+    }
+    /// Takes over the file identities `previous` reported, which a rebuilt watch would otherwise
+    /// report again on the next clone of each file.
+    pub(super) fn inherit(&self, previous: &Self) {
+        let earlier = std::mem::take(
+            &mut *previous
+                .context
+                .reported
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        self.context
+            .reported
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .inherit(earlier);
     }
     #[expect(
         unsafe_code,

@@ -1390,6 +1390,91 @@ async fn live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_
     }
 }
 
+/// A local edit that ingestion cannot take in stays a candidate of every pass: one that conflicts
+/// with a newer API generation no journal replay brings to the tree, or one over an object under
+/// a temporary hold. Each pass stages it, and on macOS that staging clones the file, which
+/// FSEvents reports on the file itself. That report alone ran the pass again about every two
+/// seconds while nothing changed. Now a pass runs again only after the tree changes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_edit_ingestion_cannot_take_in_is_staged_again_only_after_the_tree_changes() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    for held in [false, true] {
+        let (_data, tree, catalog, bucket, root) = live_fixture().await;
+        publish_origin(&catalog, &bucket, b"first", Origin::Api).await;
+        if held {
+            catalog
+                .update_object_metadata(
+                    live(bucket.as_str(), "object"),
+                    Default::default(),
+                    crate::object::ObjectMetadataUpdate {
+                        temporary_hold: Some(true),
+                        ..Default::default()
+                    },
+                    |_| Ok(()),
+                    PERMISSIVE,
+                )
+                .await
+                .unwrap();
+        }
+        let stages = Arc::new(AtomicUsize::new(0));
+        let (stop, mut stopping) = tokio::sync::watch::channel(false);
+        let worker_catalog = catalog.clone();
+        let worker_root = root.clone();
+        // The first idle follows the initial export.
+        let (hook, worker) = hooked_worker(
+            &EXPORT_HOOK,
+            "idle",
+            crate::sync::ingest::STAGES.scope(stages.clone(), async move {
+                run_live(&worker_catalog, &worker_root, &mut stopping).await
+            }),
+        )
+        .await;
+        let path = tree.0.join("test-bucket/object");
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        if !held {
+            // Ingestion's own origin is never replayed, so the tree keeps tracking the first one.
+            publish(&catalog, &bucket, b"second").await;
+        }
+        fs::write(&path, b"external edit").unwrap();
+        let releaser = tokio::spawn(async move {
+            loop {
+                hook.release.notify_one();
+                hook.entered.notified().await;
+            }
+        });
+        eventually_async("a pass to stage the edit", || {
+            std::future::ready(stages.load(Ordering::SeqCst) == 1)
+        })
+        .await;
+        // A pass repeated without a change stages the edit again after one quiet interval and
+        // its own settle interval.
+        let repeated = tokio::time::timeout(
+            Duration::from_millis(3 * crate::sync::SETTLE_MS),
+            eventually_async("a repeated pass to stage the edit", || {
+                std::future::ready(stages.load(Ordering::SeqCst) > 1)
+            }),
+        )
+        .await;
+        assert!(repeated.is_err(), "a pass ran again without a change");
+        let observed = root.observation().await.unwrap();
+        assert_eq!(observed.mapping_findings, u64::from(!held));
+        fs::write(&path, b"newer external edit").unwrap();
+        eventually_async("a pass to stage the newer edit", || {
+            std::future::ready(stages.load(Ordering::SeqCst) == 2)
+        })
+        .await;
+        assert_eq!(fs::read(&path).unwrap(), b"newer external edit");
+        stop.send_replace(true);
+        worker.await.unwrap().unwrap();
+        releaser.abort();
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack() {
     use std::time::Duration;

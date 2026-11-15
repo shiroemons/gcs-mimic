@@ -125,6 +125,7 @@ impl DirectoryWatch {
             match Self::new(root).await {
                 Ok(mut watcher) => {
                     self.poll_changes()?;
+                    watcher.watch.inherit(&self.watch);
                     watcher.generation = self.generation;
                     watcher.pending = self.pending.take();
                     *self = watcher;

@@ -169,6 +169,14 @@ impl Watch {
             Err(io::ErrorKind::Unsupported.into())
         }
     }
+    /// Keeps what `previous` learned about the files it reported. Only FSEvents reports a clone
+    /// of an unchanged file, and a rebuilt watch would report that clone again.
+    pub(crate) fn inherit(&self, previous: &Self) {
+        #[cfg(target_os = "macos")]
+        self.ready.get_ref().inherit(previous.ready.get_ref());
+        #[cfg(not(target_os = "macos"))]
+        let _ = previous;
+    }
     pub(crate) async fn changed(&self) -> io::Result<Change> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         loop {

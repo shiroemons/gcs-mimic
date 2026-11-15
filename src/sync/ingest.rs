@@ -705,7 +705,7 @@ use super::Hook;
 #[cfg(test)]
 tokio::task_local! { static HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
-tokio::task_local! { static STAGES: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
+tokio::task_local! { pub(super) static STAGES: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
 #[cfg(test)]
 async fn checkpoint(phase: &str) {
     if phase == "stage" {

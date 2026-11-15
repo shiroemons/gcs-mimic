@@ -311,6 +311,22 @@ impl FileIdentity {
 }
 
 #[cfg(unix)]
+impl From<&std::fs::Metadata> for FileIdentity {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            size: metadata.len(),
+            modified_ns: i128::from(metadata.mtime()) * 1_000_000_000
+                + i128::from(metadata.mtime_nsec()),
+            changed_ns: i128::from(metadata.ctime()) * 1_000_000_000
+                + i128::from(metadata.ctime_nsec()),
+        }
+    }
+}
+
+#[cfg(unix)]
 impl FileIdentity {
     fn same_displaced_file(&self, other: &Self) -> bool {
         // Rename may change ctime, so compare the displaced inode and content observation.
@@ -430,17 +446,7 @@ thread_local! {
 pub(crate) fn stat_identity(file: &File) -> Result<FileIdentity, FsError> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = file.metadata()?;
-        Ok(FileIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            size: metadata.len(),
-            modified_ns: i128::from(metadata.mtime()) * 1_000_000_000
-                + i128::from(metadata.mtime_nsec()),
-            changed_ns: i128::from(metadata.ctime()) * 1_000_000_000
-                + i128::from(metadata.ctime_nsec()),
-        })
+        Ok(FileIdentity::from(&file.metadata()?))
     }
     #[cfg(windows)]
     {

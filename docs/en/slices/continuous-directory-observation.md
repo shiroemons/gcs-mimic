@@ -24,6 +24,15 @@ that arrives during registration or reconciliation causes another pass. Linux
 queue overflow and coalesced names follow the same full-rescan path rather than
 attempting a partial replay of unreliable event names.
 
+On APFS, staging a source clones it, and FSEvents reports that clone as an event
+of the source. Such an event causes no pass while the file keeps the identity
+(device, inode, size, modification and change times) the stream last reported
+for it, so a file that ingestion cannot take in, such as an unresolved conflict,
+is not staged again until it changes. The cloned flag alone cannot mark such an
+event, because FSEvents keeps it on the path's later events; a write, mode
+change, replacement or removal changes the identity and is still reported. A
+rebuilt stream keeps these records, which are bounded to 1024 files.
+
 Registration traverses descriptors with no-follow operations on the bounded
 file workers. A private DirectoryWatch retains a RootLease clone, closes all
 watch descriptors before releasing it, and never exposes those descriptors.
