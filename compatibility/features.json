@@ -21560,7 +21560,7 @@
         },
         {
           "id": "grpc_bucket_get_acl",
-          "description": "GetBucket without a mask, with *, or with acl/default_object_acl/owner returns the stored ACLs and owner as JSON projection=full does; ListBuckets returns them only when selected; uniform bucket-level access and strict callers without ACL read permission omit them while the read succeeds.",
+          "description": "GetBucket without a mask, with *, or with acl/default_object_acl/owner returns the stored ACLs and owner as JSON projection=full does; ListBuckets returns them only when selected; uniform bucket-level access and strict callers without ACL read permission omit the ACLs and the owner while the read succeeds. Cloud Storage answered UpdateBucket on a uniform-access bucket without all three (cases grpc-empty-iam-update and grpc-iam-config-partial-update, recorded 2026-11-13).",
           "result": "PASS",
           "test_ids": [
             "grpc_buckets_acl_read_and_update",

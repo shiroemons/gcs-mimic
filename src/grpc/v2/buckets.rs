@@ -244,8 +244,8 @@ pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, 
 }
 
 impl Storage {
-    /// Adds `owner`, `acl` and `default_object_acl` as JSON `projection=full` does. The ACL
-    /// is omitted under uniform bucket-level access and for callers that may not read it;
+    /// Adds `owner`, `acl` and `default_object_acl` as JSON `projection=full` does. All three
+    /// are omitted under uniform bucket-level access and for callers that may not read the ACL;
     /// the read itself still succeeds.
     pub(super) async fn add_bucket_acl(
         &self,
@@ -272,15 +272,17 @@ impl Storage {
 
     fn apply_bucket_acl(&self, bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
         use crate::json::acl::AclOwner;
+        // Cloud Storage answers a uniform-access bucket without its owner as well as its ACLs
+        // (recorded 2026-11-13), as JSON does.
+        if acl.uniform_access {
+            return;
+        }
         let name = &bucket.bucket_id;
         bucket.owner = Some(pb::Owner {
             entity: crate::acl::Entity::project_team(crate::acl::ProjectTeam::Owners, &acl.project)
                 .into_string(),
             entity_id: String::new(),
         });
-        if acl.uniform_access {
-            return;
-        }
         let bucket_owner = AclOwner::Bucket {
             bucket: name,
             metageneration: bucket.metageneration,
@@ -1494,7 +1496,7 @@ mod tests {
                     assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
                 }
                 "batch-uniform" => {
-                    assert!(bucket.owner.is_some());
+                    assert!(bucket.owner.is_none());
                     assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
                 }
                 other => panic!("unexpected bucket: {other}"),
@@ -1660,17 +1662,45 @@ mod tests {
             }),
             ..Default::default()
         });
-        storage
+        let created = storage
             .create_bucket(Request::new(request), None)
             .await
-            .unwrap();
+            .unwrap()
+            .into_inner();
         let uniform = storage
             .get_bucket(Request::new(get("uniform-bucket")), None)
             .await
             .unwrap()
             .into_inner();
-        assert!(uniform.acl.is_empty() && uniform.default_object_acl.is_empty());
-        assert!(uniform.owner.is_some());
+        let relabeled = storage
+            .update_bucket(
+                Request::new(update_acl(
+                    pb::Bucket {
+                        name: get("uniform-bucket").name,
+                        labels: [("k".to_owned(), "v".to_owned())].into(),
+                        ..Default::default()
+                    },
+                    "labels",
+                )),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        // Cloud Storage answered UpdateBucket on a uniform-access bucket without owner, acl and
+        // default_object_acl, and with all three on a bucket without it (cases
+        // grpc-iam-config-partial-update and grpc-empty-iam-update, recorded 2026-11-13).
+        for (rpc, bucket) in [
+            ("create", &created),
+            ("get", &uniform),
+            ("update", &relabeled),
+        ] {
+            assert!(
+                bucket.acl.is_empty() && bucket.default_object_acl.is_empty(),
+                "{rpc}"
+            );
+            assert!(bucket.owner.is_none(), "{rpc}");
+        }
         let (entry, _) = reader("allUsers");
         let error = storage
             .update_bucket(
