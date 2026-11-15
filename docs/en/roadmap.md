@@ -36,12 +36,13 @@ Python case but two in its latest
 gaps: Java's default bucket read mask names billing, Python waits for a
 response to the appendable open, and Rust rewrites over gRPC, where that run
 did not yet accept customer-supplied keys. Bucket read masks now accept the
-settings gcs-mimic never stores ([scope](slices/grpc-v2-buckets.md)) and
+settings gcs-mimic never stores ([scope](slices/grpc-v2-buckets.md)), every
+appendable open is answered ([scope](slices/grpc-v2-rapid-append.md)) and
 Storage v2 now accepts customer-supplied keys
 ([scope](slices/grpc-v2-customer-supplied-keys.md)); a later gcs-mimic-only
-run on 2026-11-15 passes Java's `grpc.bucket_create_get_delete` and Rust's
-`object.csek_rotation`, and the linked results update with the next full
-comparison. Python's multipart helper needs
+run on 2026-11-15 passes Java's `grpc.bucket_create_get_delete`, Python's
+`grpc.appendable_object` and Rust's `object.csek_rotation`, and the linked
+results update with the next full comparison. Python's multipart helper needs
 an `x-goog-hash` on each part response, and PHP's `gs://` writes declare an
 upload length of 0 that gcs-mimic enforces. Scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)

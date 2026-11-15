@@ -136,8 +136,12 @@ listener, so it fails every `grpc` case, as before.
   `write_object_spec`. gcs-mimic answers an appendable stream only at a
   flush, a `state_lookup` or finalization, so the open gets no response and
   the probe stops after 20 seconds. The proto does not require that
-  response, but the official client depends on it. BEHAVIOR-RAPID-002
-  records the gap.
+  response, but the official client depends on it. Resolved later on
+  2026-11-15: every appendable open is now answered, a creating stream with
+  its unfinalized resource ([grpc-v2-rapid-append.md](grpc-v2-rapid-append.md));
+  a gcs-mimic-only run passes the case for Go, Java and Python, and
+  BEHAVIOR-RAPID-002 records it. The tables below keep the recorded
+  comparison.
 - **Status code of a checksum mismatch.** floci-gcp rejects a wrong object
   CRC32C with DATA_LOSS. `grpc.checksum_rejected` requires INVALID_ARGUMENT.
   Cloud Storage was recorded rejecting a wrong CRC32C on JSON uploads with

@@ -36405,6 +36405,14 @@
           ]
         },
         {
+          "id": "appendable_open_acknowledgement",
+          "description": "A creating stream's opening message is answered even without flush or state_lookup, with the unfinalized resource (generation, size 0, metageneration 1, no finalize_time) and a write_handle; later data and flushes continue on the same stream. Python's AsyncAppendableObjectWriter.open waits for this response.",
+          "result": "PASS",
+          "test_ids": [
+            "append_acknowledges_a_spec_only_open_with_the_unfinalized_resource"
+          ]
+        },
+        {
           "id": "namespace_visibility",
           "description": "Early namespace visibility through JSON, XML and ListObjects, appendable generations replacing an existing object, and zonal-bucket restrictions remain pending.",
           "result": "PENDING",
@@ -36415,6 +36423,7 @@
         "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
         "append_rejects_replacement_and_invalid_messages_without_false_success",
         "append_strict_requires_create_and_allows_viewer_reads",
+        "append_acknowledges_a_spec_only_open_with_the_unfinalized_resource",
         "TestGRPCAppendable",
         "TestGRPCFoundationFailsFast"
       ],
@@ -36428,6 +36437,15 @@
             "append_creates_flushes_reads_and_finalizes_with_reserved_generation",
             "append_rejects_replacement_and_invalid_messages_without_false_success",
             "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        },
+        {
+          "command": "cargo test --locked --lib grpc::v2::append",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_acknowledges_a_spec_only_open_with_the_unfinalized_resource"
           ]
         },
         {
@@ -36476,22 +36494,21 @@
           "toolchain": "3.15.2",
           "sdk": "google-cloud-storage",
           "version": "3.17.1",
-          "transport": "Storage v2 gRPC; AsyncAppendableObjectWriter.open",
-          "command": "bash sdk-scorecard/run.sh",
-          "result": "FAIL",
+          "transport": "Storage v2 gRPC; AsyncAppendableObjectWriter.open, append, flush and finalize",
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-appendable-open\" gcs-mimic",
+          "result": "PASS",
           "verified_at": "2026-11-15",
-          "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
           "test_ids": [
             "sdk-scorecard grpc.appendable_object (Python)"
           ]
         }
       ],
       "known_deviations": [
-        "Unfinalized objects are visible only through gRPC GetObject, ReadObject, BidiReadObject and DeleteObject; JSON, XML and ListObjects see them after finalization. Creating an appendable generation over an existing object returns UNIMPLEMENTED. Appendable objects are accepted in any bucket.",
-        "A first BidiWriteObject message that carries only an appendable write_object_spec gets no response until a flush or state_lookup. The Python SDK's AsyncAppendableObjectWriter.open waits for one, so it cannot open an appendable object (scorecard grpc.appendable_object)."
+        "Unfinalized objects are visible only through gRPC GetObject, ReadObject, BidiReadObject and DeleteObject; JSON, XML and ListObjects see them after finalization. Creating an appendable generation over an existing object returns UNIMPLEMENTED. Appendable objects are accepted in any bucket."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-15"
     },
     {
       "id": "BEHAVIOR-RAPID-003",
