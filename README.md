@@ -276,9 +276,9 @@ signer and CI.
 
 - **Small.** One static binary on an empty base image: no shell, no package
   manager, no runtime to install.
-- **Your SDK already speaks it.** Go, Ruby, Node.js, PHP, .NET and C++ pass
-  every case in the [SDK scorecard](#sdk-scorecard), and Java, Python and Rust
-  all but one gRPC case each. Point the client
+- **Your SDK already speaks it.** Go, Ruby, Node.js, .NET and C++ pass every
+  case in the [SDK scorecard](#sdk-scorecard), Java, PHP and Rust all but one
+  and Python all but two. Point the client
   at it and run your code.
 - **Buckets the way you need them.** Declare as many as you like at startup,
   each with its own CORS rules, [public or private](#buckets-cors-and-public-access).
@@ -457,27 +457,30 @@ Each official SDK runs the same workflows against all four emulators
 
 | SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
 | --- | --- | --- | --- | --- |
-| Go | 63/63 (1 n/a) | 25/63 (1 n/a) | 20/63 (1 n/a) | 50/63 (1 n/a) |
-| Ruby | 55/55 (1 n/a) | 23/55 (1 n/a) | 22/55 (1 n/a) | 42/55 (1 n/a) |
-| Node.js | 56/56 | 26/56 | 22/56 | 45/56 |
-| PHP | 56/56 | 26/56 | 20/56 | 43/56 |
-| Python | 57/58 | 20/58 | 24/58 | 40/58 |
+| Go | 66/66 (1 n/a) | 28/66 (1 n/a) | 21/66 (1 n/a) | 53/66 (1 n/a) |
+| Ruby | 57/57 (1 n/a) | 25/57 (1 n/a) | 24/57 (1 n/a) | 44/57 (1 n/a) |
+| Node.js | 59/59 | 28/59 | 25/59 | 48/59 |
+| PHP | 59/60 | 29/60 | 22/60 | 47/60 |
+| Python | 61/63 | 23/63 | 25/63 | 42/63 |
 | Java | 78/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 57/79 (1 n/a) |
 | .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 52/72 (1 n/a) |
-| Rust | 51/52 (5 n/a) | 0/52 (5 n/a) | 0/52 (5 n/a) | 31/52 (5 n/a) |
-| C++ | 55/55 (1 n/a) | 25/55 (1 n/a) | 23/55 (1 n/a) | 44/55 (1 n/a) |
-| Score (/100) | 99.5 | 38.3 | 35.3 | 74.0 |
+| Rust | 53/54 (5 n/a) | 0/54 (5 n/a) | 0/54 (5 n/a) | 32/54 (5 n/a) |
+| C++ | 61/61 (1 n/a) | 27/61 (1 n/a) | 25/61 (1 n/a) | 49/61 (1 n/a) |
+| Score (/100) | 99.1 | 39.2 | 35.7 | 74.2 |
 
 Recorded on 2026-11-15 with the 0.22.0 source
-([results](sdk-scorecard/results/2026-11-15-5/summary.md)). A passing case
+([results](sdk-scorecard/results/2026-11-15-6/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-The three gcs-mimic failures are all over gRPC. Java's
+gcs-mimic fails five cases. Three are over gRPC: Java's
 `grpc.bucket_create_get_delete` reads the bucket with a mask that names
-billing, which gcs-mimic does not model. Python's `grpc.appendable_object`
+billing, which gcs-mimic does not model; Python's `grpc.appendable_object`
 waits for a response to the appendable open that gcs-mimic sends only at a
-flush. Rust's `object.csek_rotation` rewrites over gRPC, where gcs-mimic does
-not yet accept customer-supplied keys.
+flush; and Rust's `object.csek_rotation` rewrites over gRPC, where gcs-mimic
+does not yet accept customer-supplied keys. Python's `sdk.xml_multipart_upload`
+needs an `x-goog-hash` on each multipart part response, and PHP's
+`sdk.stream_wrapper` declares an upload length of 0 before streaming the
+object, which gcs-mimic enforces.
 
 ## Coming from fake-gcs-server?
 
