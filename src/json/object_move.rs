@@ -101,16 +101,14 @@ fn parse(
 }
 
 /// One side's preconditions. `storage.proto` makes each Match and NotMatch pair of
-/// MoveObjectRequest mutually exclusive.
+/// MoveObjectRequest mutually exclusive, and Cloud Storage refuses such a pair as a conflict.
 fn exclusive_conditions(
     query: &mut BTreeMap<String, String>,
     keys: ConditionKeys,
 ) -> Result<ObjectConditions, JsonError> {
     let conditions = take_conditions(query, keys)?;
     if match_and_not_match(&conditions) {
-        return Err(JsonError::invalid_argument(
-            "Match and NotMatch conditions are mutually exclusive; supply only one condition per generation kind",
-        ));
+        return Err(JsonError::conflicting_preconditions());
     }
     Ok(conditions)
 }

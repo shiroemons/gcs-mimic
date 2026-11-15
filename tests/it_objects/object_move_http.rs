@@ -122,7 +122,7 @@ fn move_checks_all_conditions_before_mutation() {
         "?ifMetagenerationMatch=1&ifMetagenerationNotMatch=2",
         "?ifSourceMetagenerationMatch=1&ifSourceMetagenerationNotMatch=2",
     ] {
-        mv(&server, "source", "target", query).json_reason(400, "invalidArgument");
+        mv(&server, "source", "target", query).json_reason(409, "conflict");
     }
     mv(&server, "source", "target", &format!("?ifSourceGenerationMatch={}&ifSourceMetagenerationMatch=1&ifGenerationMatch={}&ifMetagenerationMatch=1", source["generation"].as_str().unwrap(), target["generation"].as_str().unwrap())).json_ok();
     mv(

@@ -395,6 +395,16 @@ impl JsonError {
             .with_kind(ErrorKind::NotModified)
     }
 
+    /// A Match and NotMatch condition on the same value of a move, which Cloud Storage refuses
+    /// as a conflict before evaluating either (recorded 2026-11-15).
+    pub(crate) fn conflicting_preconditions() -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            "Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.",
+        )
+    }
+
     /// The JSON API's 304 for a write whose not-match condition named the current value. Its
     /// own kind lets the gRPC adapter keep reporting the failed precondition it always has.
     fn write_not_modified() -> Self {

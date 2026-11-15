@@ -17799,7 +17799,7 @@
         },
         {
           "id": "MOVE-PRECONDITIONS",
-          "description": "Eight atomic source/destination conditions and mutually exclusive pair validation.",
+          "description": "Eight atomic source/destination conditions; a Match and NotMatch pair answers 409 conflict, as Cloud Storage did (recorded 2026-11-15).",
           "result": "PASS",
           "test_ids": ["move_checks_all_conditions_before_mutation"]
         },
