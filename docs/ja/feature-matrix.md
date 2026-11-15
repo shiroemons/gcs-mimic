@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 97 | 10 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 79 | 42 | 0 | 0 |
-| project_requirement | 98 | 22 | 0 | 43 | 33 | 0 | 0 |
+| project_requirement | 98 | 21 | 0 | 44 | 33 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 61 | 28 | 18 | 0 | 0 |
 | behavior | 80 | 70 | 48 | 3 | 0 | 0 |
-| project_requirement | 22 | 0 | 0 | 0 | 1 | 75 |
+| project_requirement | 21 | 0 | 0 | 0 | 1 | 76 |
 
 ## api_operation
 
@@ -954,7 +954,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-001 | 公式Java SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
 | AUDIT-002 | 公式.NET SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 0 |
-| AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+| AUDIT-003 | 公式C++ SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 1 |
 | AUDIT-004 | 公式PHP SDK互換 | PARTIAL | P7 | PROJECT | PROJECT | 2 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 13 |

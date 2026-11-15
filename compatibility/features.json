@@ -18705,7 +18705,8 @@
         }
       ],
       "known_deviations": [
-        "SPEC-SOFT-DELETE: local new-bucket default disabled and retention of 1 second through 7776000 seconds (90 days) accepted, unlike Cloud Storage's seven-day default and 7-day minimum; the 90-day ceiling and its message follow Cloud Storage (case bkt-config-edges, recorded 2026-11-13); null/empty means omission and immediate policy effects. Bucket deletion without a positive policy permanently removes retained generations; with one the bucket is soft-deleted with them (SPEC-BUCKET-SOFT-DELETE). Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying and Autoclass/lifecycle remain pending; SPEC-SDK-UNSUPPORTED applies."
+        "SPEC-SOFT-DELETE: local new-bucket default disabled and retention of 1 second through 7776000 seconds (90 days) accepted, unlike Cloud Storage's seven-day default and 7-day minimum; the 90-day ceiling and its message follow Cloud Storage (case bkt-config-edges, recorded 2026-11-13); null/empty means omission and immediate policy effects. Bucket deletion without a positive policy permanently removes retained generations; with one the bucket is soft-deleted with them (SPEC-BUCKET-SOFT-DELETE). Ruby's identical URL-query form body is accepted; conflicting or extra form data is rejected. HNS, ACL copying and Autoclass/lifecycle remain pending; SPEC-SDK-UNSUPPORTED applies.",
+        "The official C++ SDK 3.13.0 RestoreObject sends POST .../restore?generation=G with a {} JSON body; the local bodyless-POST rule rejects it with 400 invalidArgument, so the C++ scorecard case object.soft_delete_restore fails (sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl). No Cloud Storage recording shows such a body being rejected; accepting it is pending."
       ],
       "implemented_in": "a5807b8",
       "last_verified": "2026-10-27",
@@ -50976,7 +50977,7 @@
         {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "transport": "HTTP XML POST Object; unchanged GenerateSignedPostPolicyV4 path-style form; permissive profile", "command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Go)"]},
         {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP XML POST Object; unchanged generate_signed_post_policy_v4 fields posted to the path-style bucket URL; permissive profile", "command": "bash sdk-scorecard/run.sh --out $TMPDIR/scorecard-post-policy gcs-mimic", "result": "PASS", "verified_at": "2026-10-29", "artifact": "sdk-scorecard/README.md", "test_ids": ["sdk-scorecard signed.post_policy_v4 (Ruby)"]}
       ],
-      "known_deviations": ["Provider error codes, wording and precedence are local choices without cloud differential evidence: condition, expiry and document failures use 400 InvalidPolicyDocument, size-range failures 400 EntityTooSmall/EntityTooLarge. V4 locally applies signed-URL early/seven-day limits without an established form-policy contract; V2 does not. Repeated conditions, V4 Content-Length eq/prefix handling and noncanonical base64 padding retain validator acceptance. The key condition matches the submitted value before ${filename} substitution. No-policy header authentication is an existing local extension with an unresolved Google form contract. Full authority, interrupted-network, strict-client, provider and field acceptance remains pending. Historical permissive SDK results do not verify the new strict variants or later source."],
+      "known_deviations": ["Provider error codes, wording and precedence are local choices without cloud differential evidence: condition, expiry and document failures use 400 InvalidPolicyDocument, size-range failures 400 EntityTooSmall/EntityTooLarge. V4 locally applies signed-URL early/seven-day limits without an established form-policy contract; V2 does not. Repeated conditions, V4 Content-Length eq/prefix handling and noncanonical base64 padding retain validator acceptance. The key condition matches the submitted value before ${filename} substitution. No-policy header authentication is an existing local extension with an unresolved Google form contract. Full authority, interrupted-network, strict-client, provider and field acceptance remains pending. Historical permissive SDK results do not verify the new strict variants or later source.", "The official C++ SDK 3.13.0 writes the V4 policy expiration with nanoseconds (for example 2026-11-15T05:58:19.766459053Z); the local parser keeps microseconds and answers 400 InvalidPolicyDocument, so the C++ scorecard case signed.post_policy_v4 fails (sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl). An expiration in whole seconds passes; accepting nanoseconds is pending."],
       "implemented_in": null,
       "last_verified": "2026-10-31"
     },
@@ -64558,25 +64559,89 @@
       "interface": "Client integration",
       "phase": "P7",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/reference/libraries"
+        "https://docs.cloud.google.com/storage/docs/reference/libraries",
+        "https://github.com/googleapis/google-cloud-cpp/releases/tag/v3.13.0",
+        "https://github.com/googleapis/google-cloud-cpp/tree/v3.13.0/google/cloud/storage"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-11-15",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pin google-cloud-cpp storage and the compiler/runtime. Verify the supported transports, endpoint override, streaming transfers, retries, pagination, preconditions and signed access. Keep client memory separate from emulator measurements.",
+      "notes": "Pinned google-cloud-cpp 3.13.0 storage over JSON/REST, built from checksum-pinned archives (Abseil 20260817.0, nlohmann/json 3.12.0, the opentelemetry-cpp 1.30.0 API headers, CMake 4.5.0) with GCC 16.2.0 in the digest-pinned gcc:16.2.0-trixie image; daily detection reads the Dockerfile pins as the source-archive ecosystem. The probe unsets CLOUD_STORAGE_EMULATOR_ENDPOINT and CLOUD_STORAGE_TESTBENCH_ENDPOINT, which replace an explicit RestEndpointOption for requests and signed URLs, uses insecure credentials with zero retries, signs offline as the built-in test signer with the origin's scheme, and sends signed requests unchanged and only to the scorecard origin. The permissive shared-HTTPS scorecard at fec7476f passes 49/51 with no unsupported case; both failures are gcs-mimic defects recorded in JSON-OBJECTS-011 and DESIGN-041. test-tls.sh passes all four certificate combinations for the probe. Contract and verification: docs/en/slices/sdk-scorecard-cpp.md; raw evidence: sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl. The gRPC transport (AsyncClient, MakeGrpcClient), C++-specific cases, strict authentication, native TLS and other profiles remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "CPP-TRANSPORT",
+          "description": "SDK and signed requests trust only the scorecard CA and hostname and refuse an external origin; an unrelated CA or a wrong SAN fails with a certificate error.",
+          "result": "PASS",
+          "test_ids": [
+            "scorecard-cpp-tls"
+          ]
+        },
+        {
+          "id": "CPP-SCORECARD",
+          "description": "All 51 shared bucket/object/signed workflows pass under the guarded permissive shared-HTTPS profile, with endpoint-overriding environment variables removed and signed URLs sent unchanged.",
+          "result": "FAIL",
+          "test_ids": [
+            "scorecard-cpp"
+          ]
+        },
+        {
+          "id": "CPP-EXTENDED",
+          "description": "Verify the gRPC transport, C++-specific idioms, strict credentials/authorization, native TLS and other profiles separately.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "scorecard-cpp",
+        "scorecard-cpp-tls"
+      ],
+      "verification": [
+        {
+          "command": "bash sdk-scorecard/test-tls.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/sdk-scorecard-cpp.md",
+          "test_ids": [
+            "scorecard-cpp-tls"
+          ]
+        },
+        {
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "FAIL",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl",
+          "test_ids": [
+            "scorecard-cpp"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "C++",
+          "toolchain": "GCC 16.2.0",
+          "sdk": "google-cloud-cpp storage",
+          "version": "3.13.0",
+          "transport": "Shared trusted-CA HTTPS JSON/XML; insecure credentials, zero retries and removed endpoint variables; offline signing with the origin's scheme and unchanged URLs; permissive server profile",
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "FAIL",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15/gcs-mimic.cpp.jsonl",
+          "test_ids": [
+            "scorecard-cpp"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "The scorecard scope passes 49/51: gcs-mimic rejects the SDK's object restore request because its body is {} (JSON-OBJECTS-011) and the SDK's POST policy because its expiration carries nanoseconds (DESIGN-041); the probe keeps the SDK defaults instead of hiding either. Only the JSON/REST transport is measured. Object list pages are observed through the SDK's own rpc log, because no public reader exposes them. Signed cases do not establish emulator-side cryptographic verification; gRPC, strict authorization, native TLS, other profiles and real-GCS parity remain pending."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-11-15"
     },
     {
       "id": "AUDIT-004",

@@ -2,8 +2,9 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Status: contract only. Nothing in this document is implemented yet; the
-"Verification" section lists what must be recorded when it is.
+Status: implemented on 2026-11-15. The probe passes 49 of the 51 shared cases
+against gcs-mimic; both failures are emulator defects recorded under
+"Verification". AUDIT-003 is PARTIAL.
 
 Scope: AUDIT-003 (Official C++ SDK integration), first slice. The official
 `google-cloud-cpp` Cloud Storage client runs the 51 shared scorecard cases
@@ -189,17 +190,57 @@ repository:
   with the matching `http_status_code` after exactly one attempt.
 - `install-socat.sh` installs the pinned socat in the image from the snapshot.
 
-## Not yet established
-
-- A linux/amd64 build.
-- TLS to the scorecard frontend with the fixture CA, and any upload, download,
-  bucket or object call against an emulator.
-- That each of the 51 cases can meet its assertions with the public API; only
-  the presence of the methods and options was read from the headers.
-- The shape of gcs-mimic's error bodies as seen through the SDK's `ErrorInfo`.
-
 ## Verification
 
-To be recorded when implemented: the commands and results for the acceptance
-cases, the results directory, the measured build time and the final
-`cargo xtask dependencies check` and `just check` outcomes.
+Verified on 2026-11-15, linux/arm64 (Docker 29.9.2), at `fec7476f` with no
+uncommitted change.
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| CPP-PINS | PASS on linux/arm64; linux/amd64 not built | `docker build -f sdk-scorecard/cpp/Dockerfile ... sdk-scorecard` succeeds without probe warnings. Both CMake archives are checksum-verified on every build; the linux/x86_64 one was never unpacked. |
+| CPP-TRANSPORT | PASS | `bash sdk-scorecard/test-tls.sh`: 32/32, including `cpp` with the fixture CA (passes), an unrelated CA and a wrong SAN (both fail with libcurl's certificate error). |
+| CPP-ISOLATION | PASS | With `CLOUD_STORAGE_EMULATOR_ENDPOINT`, `CLOUD_STORAGE_TESTBENCH_ENDPOINT`, proxy variables and `GOOGLE_CLOUD_UNIVERSE_DOMAIN` set to other hosts, every case result over HTTP and HTTPS was identical. A run without the scrub was not made. |
+| CPP-CORE | PASS | `bash sdk-scorecard/run.sh` wrote [results/2026-11-15](../../../sdk-scorecard/results/2026-11-15/summary.md) in 830 s for all four products and `score.sh` accepted it. The 51 IDs and areas equal the Ruby core; no case is unsupported. gcs-mimic passes 49 of them (below), which leaves the ledger's all-pass case CPP-SCORECARD at FAIL. The other eight SDKs' case results equal the 2026-11-12 run for every product. |
+| CPP-SCORER | PASS | `bash sdk-scorecard/test-score.sh` passes with nine SDKs; every recorded summary from 2026-10-29 to 2026-11-12 rescores byte for byte. |
+| CPP-FRESHNESS | PASS | `cargo xtask dependencies check` exits 0 with the seven new inputs CURRENT. A changed SHA-256 fails it (exit 2) and an older google-cloud-cpp tag reports UPDATE_AVAILABLE (exit 1), both shown on a scratch copy. `cargo test -p xtask`, `cargo clippy -p xtask --all-targets -- -D warnings` and `cargo xtask lint` pass. |
+| CPP-PENDING | PENDING | As listed in the contract. |
+
+Scores with nine SDKs: gcs-mimic 99.6, floci-gcp 78.3, fake-gcs-server 40.6,
+gcp-storage-emulator 38.6. For C++: gcs-mimic 49/51, floci-gcp 43/51,
+fake-gcs-server 24/51, gcp-storage-emulator 23/51.
+
+The two gcs-mimic failures are emulator defects, left recorded rather than
+hidden by changing the probe:
+
+- `object.soft_delete_restore`: `RestoreObject` sends
+  `POST .../restore?generation=G` with the body `{}` and
+  `content-type: application/json`. The bodyless-POST rule, written for Ruby's
+  form-encoded repetition of the query, answers 400 `Use an empty body, or form
+  parameters identical to the URL query`. No Cloud Storage recording shows that
+  body being rejected. Recorded in JSON-OBJECTS-011.
+- `signed.post_policy_v4`: the SDK writes the policy expiration with
+  nanoseconds, for example `2026-11-15T05:58:19.766459053Z`, and the POST policy
+  parser keeps microseconds, answering `InvalidPolicyDocument`. With the
+  expiration truncated to whole seconds in a throwaway build the case passed.
+  Recorded in DESIGN-041.
+
+Fixing both changes server behavior and is a separate slice.
+
+Deviations from the contract, kept deliberately:
+
+- `object.checksum_rejected` uses `Crc32cChecksumValue` and `DisableMD5Hash`,
+  which 3.13.0 deprecates; the replacement `PrecomputedChecksumsOption` reaches
+  only `WriteObject`. The deprecation warning is silenced for that function.
+- No public reader exposes object list pages, so `object.list_paging` counts
+  pages from the SDK's own `rpc` log. The counted items must add up to the
+  listing, so a change in the log text fails the case instead of passing it.
+- `bucket.list_prefix_paging` uses `ListBucketsExtended`, which exposes pages.
+
+The probe depends on these SDK behaviors, observed but not separately
+specified: error responses carry `http_status_code` in `ErrorInfo` metadata,
+and a gunzipped download carries
+`x-guploader-response-body-transformations: gunzipped`.
+
+Not run: a linux/amd64 build, strict-profile signature verification, and the
+complete `just check`. The first build's time was not captured; with cached
+library layers a rebuild after a probe change takes seconds.
