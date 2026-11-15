@@ -8,7 +8,16 @@ fn sdk_scopes_and_lockfiles_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 20);
+    assert_eq!(scopes.len(), 21);
+    // The C++ probe has no package manager: its Dockerfile pins every archive by SHA-256, so the
+    // manifest is its own lock.
+    let cpp = "sdk-scorecard/cpp/Dockerfile";
+    assert!(
+        scopes
+            .iter()
+            .any(|scope| scope["ecosystem"] == "source-archive" && scope["manifest"] == cpp)
+    );
+    assert!(std::fs::metadata(root.join(cpp)).unwrap().len() > 0);
     for (ecosystem, manifest, lockfile) in [
         ("go", "go/go.mod", "go/go.sum"),
         ("go", "go/sourceexport/go.mod", "go/sourceexport/go.sum"),

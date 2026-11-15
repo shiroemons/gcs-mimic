@@ -212,8 +212,8 @@
         "name": "socat", "release_input": false, "suite": "trixie", "version": "1.8.0.3-1+deb13u1",
         "snapshot": "20261104T212339Z",
         "script": "sdk-scorecard/install-socat.sh",
-        "callers": ["sdk-scorecard/run.sh", "sdk-scorecard/test-tls.sh"],
-        "purpose": "Development-only loopback forwarder inside the digest-pinned Rust image, so the Rust scorecard probe keeps loopback URLs, Host headers and signatures. apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, so socat and its dependencies are identical on every run; the daily check compares the version with Debian trixie and verifies the script records the same pin.",
+        "callers": ["sdk-scorecard/run.sh", "sdk-scorecard/test-tls.sh", "sdk-scorecard/cpp/Dockerfile"],
+        "purpose": "Development-only loopback forwarder inside the digest-pinned Rust and gcc images, so the Rust and C++ scorecard probes keep loopback URLs, Host headers and signatures. run.sh and test-tls.sh run the script in the Rust image; sdk-scorecard/cpp/Dockerfile runs it from a read-only bind mount at the same /app path while building the C++ probe image and installs no package itself. apt reads the snapshot.debian.org archive for the timestamp the Rust image itself was built from, which on 2026-11-15 is also the Debian base of the pinned gcc image (debian.sh epoch 1793827419, 20261104T212339Z, on both platforms), so socat and its dependencies are identical on every run; the daily check compares the version with Debian trixie and verifies the script records the same pin.",
         "source_url": "https://sources.debian.org/api/src/socat/"
       },
       {
@@ -286,6 +286,18 @@
         "source_url": "https://github.com/curl/curl-container",
         "purpose": "Test-only peer-container curl in scripts/smoke-containers.sh; not shipped in the runtime image.",
         "update_scope": "Registry inspection on 2026-10-29 found the curl-container 8.23.0_2 rebuild, which moves the Alpine base from 3.24.2 to 3.24.3; curl stays 8.23.0 and both 8.23.0 and latest resolve to this index."
+      },
+      {
+        "repository": "library/gcc", "reference": "gcc:16.2.0-trixie", "release_input": false,
+        "tag": "16.2.0-trixie", "latest_tag": "trixie",
+        "digest": "sha256:5c2f83335c97e233c80d2bc754bd5c46b2d9c32f236a765a4ac40a59f216c064",
+        "platforms": {
+          "linux/amd64": "sha256:531d94a9eb84cb69df20050ddde80d308bf8650c83f4cb0accf4ef39bb543ed4",
+          "linux/arm64": "sha256:7f965c5da19c3e91a5a534f85919ea9ed2af4f0383445f75973ec3980efea563"
+        },
+        "source_url": "https://github.com/docker-library/gcc",
+        "purpose": "Development-only build and run image of the official C++ SDK scorecard probe in sdk-scorecard/cpp/Dockerfile, whose source-archive pins are a separate sdk_ecosystems entry; its libcurl and OpenSSL development packages satisfy the SDK, so socat is the only apt package installed on top. Not shipped in the runtime image.",
+        "update_scope": "Registry inspection on 2026-11-15: gcc:16.2.0-trixie is the index that 16-trixie, 16, trixie and latest also name, on both declared platforms; both platform images report Debian trixie from snapshot 20261104T212339Z. The moving tag is trixie because docker-library/gcc assigns it, with latest, to the newest GCC release built on Debian trixie (official-images library/gcc, generated from docker-library/gcc ade82435010cf820e826fb74d89a4c3a7e9e6fb3), so a new GCC major or point release moves it, while 16-trixie would never leave GCC 16. It stays on the Debian generation that sdk-scorecard/install-socat.sh pins; a new Debian stable is reported by the Rust image's stable codename check."
       },
       {
         "repository": "docker/dockerfile", "reference": "docker/dockerfile:1", "release_input": true,
@@ -426,6 +438,27 @@
         {"name": "Google.Cloud.Storage.V1", "current": "5.0.0", "license": "Apache-2.0", "nupkg_bytes": 291825}
       ],
       "resolution_constraints": "Development-only scorecard probe; exact NuGet reference, requested/resolved lock graph and content hashes restored with --locked-mode; rollForward disabled. Targets net11.0 only, the runtime SDK 11.0.100 installs; the lock no longer lists Microsoft.Extensions.DependencyInjection.Abstractions, which the shared framework supplies. Daily checks discover semver2 registration resources, exclude unlisted/prerelease releases and compare the newest supported stable .NET SDK across channels."
+    },
+    {
+      "ecosystem": "source-archive", "manifest": "sdk-scorecard/cpp/Dockerfile", "source_checked_at": "2026-11-15",
+      "toolchain": {"image": "gcc:16.2.0-trixie", "version": "16.2.0", "pin": "sdk-scorecard/cpp/Dockerfile"},
+      "direct_dependencies": [
+        {"name": "google-cloud-cpp", "current": "v3.13.0", "repository": "googleapis/google-cloud-cpp", "license": "Apache-2.0",
+         "archives": [{"url": "https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.13.0.tar.gz", "sha256": "3fefa2ca821ec8dd26f2d5ffc89611e74259c76a459fce3fd3cf46013785e423", "archive_bytes": 19086263}]},
+        {"name": "abseil-cpp", "current": "20260817.0", "repository": "abseil/abseil-cpp", "license": "Apache-2.0",
+         "archives": [{"url": "https://github.com/abseil/abseil-cpp/releases/download/20260817.0/abseil-cpp-20260817.0.tar.gz", "sha256": "f7e05179df39c45434cad433f5783840bb3788ef322976f9138bc6b72b3a107d", "archive_bytes": 2430876}]},
+        {"name": "nlohmann-json", "current": "v3.12.0", "repository": "nlohmann/json", "license": "MIT",
+         "archives": [{"url": "https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz", "sha256": "42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa", "archive_bytes": 114576}]},
+        {"name": "opentelemetry-cpp", "current": "v1.30.0", "repository": "open-telemetry/opentelemetry-cpp", "license": "Apache-2.0",
+         "archives": [{"url": "https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.30.0.tar.gz", "sha256": "85aae7a42d7b71d17e510ddebc85db622d9078cc6d29cf9fb7373014b063859f", "archive_bytes": 1602595}]},
+        {"name": "cmake", "current": "v4.5.0", "repository": "Kitware/CMake", "license": "BSD-3-Clause",
+         "archives": [
+           {"url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-aarch64.tar.gz", "sha256": "0c8447e7bba9701467b5ac6155d157aa9e309e71af4981f78bd4b9176107f553", "archive_bytes": 53719606},
+           {"url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-linux-x86_64.tar.gz", "sha256": "81f0d5b0960fb6adc8197030ffc827fba937640d51e73e39e0e9e40d88c66f6f", "archive_bytes": 67002501}
+         ]}
+      ],
+      "source_urls": ["https://api.github.com/repos/googleapis/google-cloud-cpp/releases/latest", "https://api.github.com/repos/abseil/abseil-cpp/releases/latest", "https://api.github.com/repos/nlohmann/json/releases/latest", "https://api.github.com/repos/open-telemetry/opentelemetry-cpp/releases/latest", "https://api.github.com/repos/Kitware/CMake/releases/latest"],
+      "resolution_constraints": "Development-only official C++ SDK scorecard probe without a package manager: the Dockerfile is both manifest and lock. Each ADD --checksum=sha256 line downloads one archive, and each record names its release tag as current, its GitHub repository, every archive URL with its SHA-256 and the license that the repository's license file states through the GitHub license API (CMake LICENSE.rst, nlohmann/json LICENSE.MIT, the others LICENSE). Both CMake 4.5.0 binary archives are one dependency because the build verifies both and unpacks the build architecture's. On 2026-11-15 every tag is its repository's GitHub latest release; the CMake and Abseil SHA-256 values equal the release API digests, and json.tar.xz and the generated google-cloud-cpp and opentelemetry-cpp tag archives, which have no published digest, were downloaded and hashed. The daily check fails when an ADD lacks --checksum or the Dockerfile and this record disagree on a URL, tag or SHA-256, and compares each tag with the repository's GitHub latest release; a latest release older than the pin, such as a patch for an older release line, fails the check instead of passing as CURRENT. opentelemetry-cpp contributes API headers only and CMake is a build tool. libcurl and OpenSSL come from the gcc image, whose index is pinned in docker.digests; the toolchain record names that image."
     },
     {
       "ecosystem": "npm", "manifest": "sdk-tests/testcontainers/node/package.json", "source_checked_at": "2026-10-30",

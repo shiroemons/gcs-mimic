@@ -23,8 +23,14 @@ named! {
 }
 
 named! {
-    /// Standalone client graphs checked by `clients::check`.
-    pub(crate) enum ClientEcosystem { Cargo => "cargo", Maven => "maven", Nuget => "nuget" }
+    /// Standalone client graphs checked by `clients::check`. `SourceArchive` is a client without a
+    /// package manager whose Dockerfile pins GitHub release archives by SHA-256.
+    pub(crate) enum ClientEcosystem {
+        Cargo => "cargo",
+        Maven => "maven",
+        Nuget => "nuget",
+        SourceArchive => "source-archive",
+    }
 }
 
 /// `sdk_ecosystems[].ecosystem` of the dependency ledger.
@@ -1536,28 +1542,45 @@ fn check_github_actions(root: &Path, status: &Value) -> Result<bool> {
     Ok(drift)
 }
 
-/// Each pinned image digest against its registry, after the scripts and workflows that run
-/// it are checked to carry the same pin.
-fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool> {
-    // Every script that runs a pinned image must be read, or its pin could drift unnoticed.
-    let mut container_sources = String::new();
+/// Whether the sources pin `reference` to `digest` and to nothing else. A second copy of a pin,
+/// such as the frontend that both Dockerfiles name, must not stay behind when the first moves.
+fn pinned_everywhere(sources: &str, reference: &str, digest: &str) -> bool {
+    let prefix = format!("{reference}@");
+    let pins: Vec<&str> = sources
+        .match_indices(&prefix)
+        .map(|(at, _)| sources.get(at + prefix.len()..).unwrap_or_default())
+        .collect();
+    !pins.is_empty() && pins.iter().all(|pin| pin.starts_with(digest))
+}
+
+/// The Dockerfiles, scripts and workflows that run pinned images. Every one must be read, or its
+/// pin could drift unnoticed.
+fn container_sources(root: &Path) -> Result<String> {
+    let mut sources = String::new();
     for script in [
         "Dockerfile",
         "scripts/smoke-containers.sh",
         "scripts/strict-recipe-browser.sh",
+        "sdk-scorecard/cpp/Dockerfile",
         "sdk-scorecard/run.sh",
         "sdk-tests/php/run.sh",
     ] {
-        container_sources
-            .push_str(&std::fs::read_to_string(root.join(script)).map_err(|e| e.to_string())?);
-        container_sources.push('\n');
+        sources.push_str(&std::fs::read_to_string(root.join(script)).map_err(|e| e.to_string())?);
+        sources.push('\n');
     }
     for entry in std::fs::read_dir(root.join(".github/workflows")).map_err(|e| e.to_string())? {
         let path = entry.map_err(|e| e.to_string())?.path();
         if path.extension().is_some_and(|s| s == "yaml" || s == "yml") {
-            container_sources.push_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?);
+            sources.push_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?);
         }
     }
+    Ok(sources)
+}
+
+/// Each pinned image digest against its registry, after the scripts and workflows that run
+/// it are checked to carry the same pin.
+fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool> {
+    let container_sources = container_sources(root)?;
     let mut drift = false;
     for image in status["docker"]["digests"]
         .as_array()
@@ -1565,8 +1588,7 @@ fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool
     {
         let reference = text(image, "reference")?;
         let digest = text(image, "digest")?;
-        let pin = format!("{reference}@{digest}");
-        if !container_sources.contains(&pin) {
+        if !pinned_everywhere(&container_sources, reference, digest) {
             return Err(format!("container pin mismatch: {reference}"));
         }
         if !release_input(image)? && scope == Scope::Release {
@@ -1759,6 +1781,10 @@ mod tests {
             ("cargo", Ecosystem::Client(ClientEcosystem::Cargo)),
             ("maven", Ecosystem::Client(ClientEcosystem::Maven)),
             ("nuget", Ecosystem::Client(ClientEcosystem::Nuget)),
+            (
+                "source-archive",
+                Ecosystem::Client(ClientEcosystem::SourceArchive),
+            ),
         ] {
             assert_eq!(text.parse::<Ecosystem>(), Ok(ecosystem));
             assert_eq!(ecosystem.to_string(), text);
@@ -2204,6 +2230,35 @@ mod tests {
         assert!(release_input(&serde_json::json!({"reference": "x:1"})).is_err());
         let err = release_input(&serde_json::json!({"name": "pkg"})).unwrap_err();
         assert!(err.contains("pkg"), "{err}");
+    }
+
+    #[test]
+    fn every_copy_of_a_container_pin_names_the_recorded_digest() {
+        let pinned = format!("sha256:{}", "a".repeat(64));
+        let stale = format!("sha256:{}", "b".repeat(64));
+        let both = format!(
+            "# syntax=docker/dockerfile:1@{pinned}\nFROM x\n# syntax=docker/dockerfile:1@{pinned}\n"
+        );
+        assert!(pinned_everywhere(&both, "docker/dockerfile:1", &pinned));
+        let behind = format!("{both}# syntax=docker/dockerfile:1@{stale}\n");
+        assert!(!pinned_everywhere(&behind, "docker/dockerfile:1", &pinned));
+        assert!(!pinned_everywhere(&both, "gcc:16.2.0-trixie", &pinned));
+        assert!(!pinned_everywhere(&both, "docker/dockerfile:1", &stale));
+        assert!(!pinned_everywhere("", "docker/dockerfile:1", &pinned));
+    }
+
+    #[test]
+    fn committed_container_sources_pin_every_docker_input_everywhere() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let sources = container_sources(root).unwrap();
+        let status = crate::read_json(&root.join("compatibility/dependency-status.json")).unwrap();
+        for image in status["docker"]["digests"].as_array().unwrap() {
+            let reference = text(image, "reference").unwrap();
+            assert!(
+                pinned_everywhere(&sources, reference, text(image, "digest").unwrap()),
+                "{reference}"
+            );
+        }
     }
 
     #[test]

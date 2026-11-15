@@ -173,8 +173,9 @@ Since 0.8.0 the repository adds the separate `go/go.mod` facade and
 `go/sourceexport/go.mod` capture modules, standalone Rust SDK Cargo graph,
 Java Maven dependencies/plugins and Temurin/Maven pins, .NET NuGet/global.json,
 and Node Testcontainers manifest; the Go scorecard probe's `sdk-scorecard/go/go.mod`
-joined on 2026-11-11, while `examples/go` and `examples/dotnet` stay outside
-detection. All nineteen SDK manifest snapshots are read
+joined on 2026-11-11 and the C++ scorecard probe's `sdk-scorecard/cpp/Dockerfile`
+on 2026-11-15, while `examples/go` and `examples/dotnet` stay outside
+detection. All twenty-one SDK manifest snapshots are read
 by the same daily detector; an omitted declared manifest fails. Locks are checked
 against actual direct pins, and standalone Cargo metadata remains locked and
 offline after `cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml`.
@@ -221,14 +222,36 @@ with the newest published stable release from the python.org release API,
 including new minor versions. The Node.js `engines` field is a lower bound, not
 a pin, and is not checked. PHP/Composer use a digest-pinned official Composer
 container referenced by `sdk-scorecard/run.sh` and `sdk-tests/php/run.sh`; both
-scripts are read when the checker verifies container pins. The one OS package
-currently installed into a pinned image, `socat` for the Rust scorecard probe, is pinned
+scripts are read when the checker verifies container pins, as is
+`sdk-scorecard/cpp/Dockerfile`, which pins the gcc image and repeats the root
+Dockerfile's frontend pin. Every copy of a pin in the files read must name the
+recorded digest. The one OS package
+currently installed into pinned images, `socat` for the Rust and C++ scorecard probes, is pinned
 by version and by a `snapshot.debian.org` timestamp in
 `sdk-scorecard/install-socat.sh`; `docker.apt_packages` in the snapshot records
 the same values, and the checker verifies the script matches, that both
-scorecard scripts call it, and that Debian trixie still carries that version. The comparison covers trixie only, so a fix published only to trixie-security is not detected.
+scorecard scripts and the C++ probe's Dockerfile call it, and that Debian trixie still carries that version. The comparison covers trixie only, so a fix published only to trixie-security is not detected.
 
-Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, Ruby, RubyGems, Python, PyPI, npm, Packagist, GitHub, Debian and Docker metadata. It also verifies that OS packages pinned in install scripts (`docker.apt_packages`, currently socat) match the script and the snapshot record, that the callers use the script, and compares the pinned version with the Debian suite; the Debian snapshot timestamp advances together with the Rust image digest. These are development-only inputs, skipped under `--scope release`. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go, Ruby, npm, PyPI and Composer SDK scopes, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day at `03:17 UTC` without cooldown, fetching the locked Cargo graph before running the same detector. This includes the TLS and Ruby inputs automatically. Scheduled runs have been observed since 2026-10-30; they fail while an update is pending, so a run's status is not by itself a freshness result.
+The C++ scorecard probe has no package manager. `sdk-scorecard/cpp/Dockerfile`
+downloads google-cloud-cpp, Abseil, nlohmann/json, opentelemetry-cpp and CMake
+as GitHub release assets or generated tag archives with
+`ADD --checksum=sha256:<hex>`, so the Dockerfile is both manifest and lock. Its
+`source-archive` snapshot entry records each release tag, repository and license
+and every archive URL with its SHA-256; the two CMake binary archives are one
+dependency. The checker fails when an `ADD` has no `--checksum` or another form,
+when an archive URL is neither a release asset nor a tag archive, and when the
+Dockerfile and the snapshot disagree on a URL, tag or SHA-256 or one of them
+lacks an archive; `cargo test -p xtask` runs the same comparison offline. It
+then compares each tag with the repository's latest release from the GitHub
+API. GitHub marks the most recently published release latest, so a patch for an
+older release line can hold the mark; a latest release older than the pin fails
+the check instead of passing as CURRENT. The probe builds in the digest-pinned,
+development-only `gcc:16.2.0-trixie` image, whose libcurl and OpenSSL satisfy
+the SDK. Its moving tag `trixie` follows the newest GCC release on Debian trixie,
+so a new GCC major is reported, which `16-trixie` would never do; a new Debian
+stable is reported by the Rust image's stable codename check.
+
+Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, Ruby, RubyGems, Python, PyPI, npm, Packagist, GitHub, Debian and Docker metadata. It also verifies that OS packages pinned in install scripts (`docker.apt_packages`, currently socat) match the script and the snapshot record, that the callers use the script, and compares the pinned version with the Debian suite; the Debian snapshot timestamp advances together with the Rust image digest. These are development-only inputs, skipped under `--scope release`. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go, Ruby, npm, PyPI and Composer SDK scopes, the C++ probe's source archives, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day at `03:17 UTC` without cooldown, fetching the locked Cargo graph before running the same detector. This includes the TLS and Ruby inputs automatically. Scheduled runs have been observed since 2026-10-30; they fail while an update is pending, so a run's status is not by itself a freshness result.
 
 Cargo version selection follows workspace members' resolved direct dependency
 edges. An older same-named transitive package remains part of the upstream graph;
@@ -291,7 +314,7 @@ are checked independently, preserving detection when a new Debian generation
 becomes stable. The release-scope check also compares Debian packages that build
 release artifacts.
 
-The daily workflow's `propose-image-refresh` job turns one kind of drift into a change: an image rebuilt under its unchanged version tag. `cargo xtask dependencies update-images` rewrites that image's index and platform digests in every live pin and the snapshot, advances the Debian snapshot read from a new Rust image, and appends a dated record to the [refresh evidence](evidence/dependency-refresh.md); evidence, slice, release and verification records keep the digests they used. `scripts/propose-image-refresh.sh` keeps the result in one pull request on the `automation/image-digests` branch, dispatches Foundation and Documentation checks on it, and closes the pull request once main already matches the registry. The rewrite compiles and runs in a job without write access; the job that publishes starts from a clean checkout, compiles nothing, and through `scripts/apply-pin-patch.sh` accepts only digest and snapshot value swaps plus an appended evidence record. Nothing merges automatically and the freshness check stays failing until the change merges. It does not update the prose in the snapshot or the `checked_at_utc` and `freshness_check` fields, which describe a full check. The repository setting "Allow GitHub Actions to create and approve pull requests" must be on; this job only creates. A newer version behind a moving tag, images pinned in a workflow file (moby/buildkit and docker/buildkit-syft-scanner, because the workflow token cannot push workflows), every other ecosystem and latest-dependency candidate testing remain manual. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. Released images are published to GHCR and Docker Hub; see the [container distribution procedure](container-distribution.md).
+The daily workflow's `propose-image-refresh` job turns one kind of drift into a change: an image rebuilt under its unchanged version tag. `cargo xtask dependencies update-images` rewrites that image's index and platform digests in every live pin and the snapshot, advances the Debian snapshot read from a new Rust image, and appends a dated record to the [refresh evidence](evidence/dependency-refresh.md); evidence, slice, release and verification records keep the digests they used. `scripts/propose-image-refresh.sh` keeps the result in one pull request on the `automation/image-digests` branch, dispatches Foundation and Documentation checks on it, and closes the pull request once main already matches the registry. The rewrite compiles and runs in a job without write access; the job that publishes starts from a clean checkout, compiles nothing, and through `scripts/apply-pin-patch.sh` accepts only digest and snapshot value swaps plus an appended evidence record. A line with `ADD --checksum=` must stay unchanged, so an archive checksum, which selects source code rather than an image, cannot pass as a digest swap. Nothing merges automatically and the freshness check stays failing until the change merges. It does not update the prose in the snapshot or the `checked_at_utc` and `freshness_check` fields, which describe a full check. The repository setting "Allow GitHub Actions to create and approve pull requests" must be on; this job only creates. A newer version behind a moving tag, images pinned in a workflow file (moby/buildkit and docker/buildkit-syft-scanner, because the workflow token cannot push workflows), every other ecosystem and latest-dependency candidate testing remain manual. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. Released images are published to GHCR and Docker Hub; see the [container distribution procedure](container-distribution.md).
 
 Use immutable release version tags and publish the resolved image digest in release metadata. A convenience latest tag exists for published releases, but installation and reproduction examples should also show an explicit release/digest. Source builds use a locally built lowercase gcs-mimic:dev image.
 
