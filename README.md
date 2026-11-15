@@ -258,8 +258,9 @@ signer and CI.
 
 - **Small.** One static binary on an empty base image: no shell, no package
   manager, no runtime to install.
-- **Your SDK already speaks it.** Go, Ruby, Node.js, PHP, Python, Java, .NET,
-  Rust and C++ pass every case in the [SDK scorecard](#sdk-scorecard). Point the client
+- **Your SDK already speaks it.** Go, Ruby, Node.js, PHP, Python, Java, .NET
+  and C++ pass every case in the [SDK scorecard](#sdk-scorecard), and Rust all
+  but one, a key rotation over gRPC. Point the client
   at it and run your code.
 - **Buckets the way you need them.** Declare as many as you like at startup,
   each with its own CORS rules, [public or private](#buckets-cors-and-public-access).
@@ -438,21 +439,23 @@ Each official SDK runs the same workflows against all four emulators
 
 | SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
 | --- | --- | --- | --- | --- |
-| Go | 57/57 | 24/57 | 20/57 | 48/57 |
-| Ruby | 50/50 (1 n/a) | 23/50 (1 n/a) | 22/50 (1 n/a) | 41/50 (1 n/a) |
-| Node.js | 51/51 | 25/51 | 22/51 | 44/51 |
-| PHP | 51/51 | 25/51 | 20/51 | 42/51 |
-| Python | 51/51 | 19/51 | 24/51 | 39/51 |
-| Java | 70/70 | 35/70 | 35/70 | 52/70 |
-| .NET | 70/70 (1 n/a) | 31/70 (1 n/a) | 31/70 (1 n/a) | 51/70 (1 n/a) |
-| Rust | 47/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) | 29/47 (4 n/a) |
-| C++ | 51/51 | 24/51 | 23/51 | 43/51 |
-| Score (/100) | 100 | 40.5 | 38.7 | 78.3 |
+| Go | 61/61 (1 n/a) | 25/61 (1 n/a) | 20/61 (1 n/a) | 49/61 (1 n/a) |
+| Ruby | 55/55 (1 n/a) | 23/55 (1 n/a) | 22/55 (1 n/a) | 42/55 (1 n/a) |
+| Node.js | 56/56 | 26/56 | 22/56 | 45/56 |
+| PHP | 56/56 | 26/56 | 20/56 | 43/56 |
+| Python | 56/56 | 20/56 | 24/56 | 40/56 |
+| Java | 74/74 (1 n/a) | 36/74 (1 n/a) | 35/74 (1 n/a) | 53/74 (1 n/a) |
+| .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 52/72 (1 n/a) |
+| Rust | 50/51 (5 n/a) | 0/51 (5 n/a) | 0/51 (5 n/a) | 31/51 (5 n/a) |
+| C++ | 55/55 (1 n/a) | 25/55 (1 n/a) | 23/55 (1 n/a) | 44/55 (1 n/a) |
+| Score (/100) | 99.8 | 38.9 | 35.9 | 74.4 |
 
 Recorded on 2026-11-15 with the 0.22.0 source
-([results](sdk-scorecard/results/2026-11-15-3/summary.md)). A passing case
+([results](sdk-scorecard/results/2026-11-15-4/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
+The one gcs-mimic failure is Rust's `object.csek_rotation`: the Rust SDK
+rewrites over gRPC, where gcs-mimic does not yet accept customer-supplied keys.
 
 ## Coming from fake-gcs-server?
 
