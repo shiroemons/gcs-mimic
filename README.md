@@ -276,9 +276,9 @@ signer and CI.
 
 - **Small.** One static binary on an empty base image: no shell, no package
   manager, no runtime to install.
-- **Your SDK already speaks it.** Go, Ruby, Node.js, Python, Java, .NET, Rust
-  and C++ pass every case in the [SDK scorecard](#sdk-scorecard), and PHP all
-  but one. Point the client
+- **Your SDK already speaks it.** Go, Ruby, Node.js, PHP, Python, Java, .NET,
+  Rust and C++ pass every case in the [SDK scorecard](#sdk-scorecard). Point
+  the client
   at it and run your code.
 - **Buckets the way you need them.** Declare as many as you like at startup,
   each with its own CORS rules, [public or private](#buckets-cors-and-public-access).
@@ -472,8 +472,11 @@ Recorded on 2026-11-15 with the 0.22.0 source
 ([results](sdk-scorecard/results/2026-11-15-7/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-gcs-mimic fails one case: PHP's `sdk.stream_wrapper` declares an upload length
-of 0 before streaming the object, which gcs-mimic enforces.
+gcs-mimic fails one case in that run: PHP's `sdk.stream_wrapper` declares an
+upload length of 0 before streaming the object, which gcs-mimic then enforced.
+A declared 0 now leaves the total open, as Cloud Storage answered, and a later
+gcs-mimic-only run on 2026-11-15 passes every case; the results update with
+the next full comparison.
 
 ## Coming from fake-gcs-server?
 

@@ -29940,6 +29940,20 @@
       ],
       "sdk_evidence": [
         {
+          "language": "PHP",
+          "toolchain": "PHP 8.5.12",
+          "sdk": "google/cloud-storage",
+          "version": "2.6.1",
+          "transport": "HTTP JSON resumable upload through the gs:// stream wrapper's StreamableUploader, which declares X-Upload-Content-Length: 0 and streams 256 KiB chunks with an open total",
+          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-declared-length\" gcs-mimic",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/resumable-upload.md",
+          "test_ids": [
+            "sdk-scorecard sdk.stream_wrapper (PHP)"
+          ]
+        },
+        {
           "language": "Go",
           "toolchain": "1.27.3",
           "sdk": "cloud.google.com/go/storage",

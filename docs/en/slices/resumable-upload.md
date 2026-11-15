@@ -76,7 +76,7 @@ identifier to the caller, but provider diagnostic headers are not exact parity.
 | bucket and name | Existing JSON validation and single decoding; path bucket and query name override string/null metadata values as on multipart. Preserve encoded names; never turn names into file paths |
 | body and Content-Type | Empty metadata body or a JSON Object, at most 64 KiB; nonempty metadata uses application/json. Reuse fixed/custom metadata and MD5/CRC32C parsing, including the local 40 KiB bound on encoded metadata; Cloud Storage enforced no 8 KiB custom-metadata cap and stored a null value as the empty string (recorded 2026-11-15) |
 | X-Upload-Content-Type | Optional object MIME type, distinct from metadata request Content-Type; nonempty metadata contentType wins, then this header, then application/octet-stream. Conflict precedence is an explicit local rule |
-| X-Upload-Content-Length | Optional nonnegative total, including zero; omission means unknown. Reject malformed/duplicate/overflow values and known totals above max_object_bytes before staging |
+| X-Upload-Content-Length | Optional nonnegative total; omission and 0 mean unknown, as Cloud Storage answered for a declared 0 followed by open-total chunks and by a 5-byte final chunk (differential case `obj-resumable-declared-length`, recorded 2026-11-15; the PHP SDK's `gs://` writes declare 0). A nonzero value binds the total. Reject malformed/duplicate/overflow values and known totals above max_object_bytes before staging |
 | ifGenerationMatch/NotMatch | Persist signed-64-bit nonnegative conditions, including match zero for create-if-absent; recheck at finalization |
 | ifMetagenerationMatch/NotMatch | Persist existing positive signed-64-bit conditions and combine atomically with generation conditions at finalization |
 | projection and contentEncoding | Preserve the existing scoped Object projection and stored encoding behavior; full does not invent ACL/owner fields or transcoding |
@@ -443,3 +443,14 @@ SPEC-RSM-DISCOVERY-PATH, SPEC-RSM-EDGES, SPEC-RSM-AUTH-CONDITIONS and
 SPEC-RSM-LOCATION. SPEC-013 response replay remains separate and OPEN.
 No conformance, performance, container build or real-cloud result is asserted
 by this contract document.
+
+The declared length of 0 (SPEC-RESUMABLE-ZERO-DECLARED-LENGTH, resolved
+2026-11-15) follows differential case `obj-resumable-declared-length`, recorded
+against Cloud Storage, and `a_declared_length_of_zero_leaves_the_total_open`.
+A gcs-mimic-only scorecard run the same day at `dae7d641`, with no uncommitted
+change (`bash sdk-scorecard/run.sh --out "$TMPDIR/scorecard-declared-length" gcs-mimic`),
+passes PHP's `sdk.stream_wrapper` and every other case for all nine SDKs.
+The same recording leaves two gaps open: SPEC-RESUMABLE-DECLARED-LENGTH-OVERRUN
+(a chunk past a nonzero declared length fails the whole session on Cloud
+Storage) and SPEC-RESUMABLE-RUNNING-HASH (a 308 after data carries
+`x-goog-running-hash` and `x-range-md5`).

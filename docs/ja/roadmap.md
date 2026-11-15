@@ -27,7 +27,7 @@ SDKとブラウザーの検証は、宣言した範囲が対象です。
 [9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
 Go・Ruby・Node.js・Python・Java・.NET・Rust・C++の全ケースと、PHPの1件を除く全ケースが[最新の結果](../../sdk-scorecard/results/2026-11-15-7/summary.md)で通ります。
 前回の結果のあと、バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が顧客指定の暗号鍵を受け付け（[範囲](grpc-v2-customer-supplied-keys.md)）、XMLマルチパートの各パートの応答がハッシュを返すようになりました（[範囲（英語）](../en/slices/xml-multipart-upload.md)）。
-残りの1件は、PHPのgs://書き込みが開始時に宣言する長さ0です。範囲と残りの条件は
+残りの1件は、PHPのgs://書き込みが開始時に宣言する長さ0です。現在は宣言された0を合計未定として扱い（[範囲（英語）](../en/slices/resumable-upload.md)）、その後2026-11-15にgcs-mimicだけで実行した結果では全ケースが通ります。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
 0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。

@@ -38,7 +38,9 @@ the previous run, bucket read masks accept the settings gcs-mimic never stores
 customer-supplied keys ([scope](slices/grpc-v2-customer-supplied-keys.md)) and
 each XML multipart part reports its hashes
 ([scope](slices/xml-multipart-upload.md)). PHP's `gs://` writes declare an
-upload length of 0 that gcs-mimic enforces. Scope and
+upload length of 0 that gcs-mimic then enforced; a declared 0 now leaves the
+total open ([scope](slices/resumable-upload.md)), and a later gcs-mimic-only
+run on 2026-11-15 passes every case. Scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)
 and the [C++ slice](slices/sdk-scorecard-cpp.md).
 Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)

@@ -113,7 +113,11 @@ objects in Java's batch, and Java's download to a stream.
   `sdk.stream_wrapper` fails. fake-gcs-server and floci-gcp accept the
   sequence. No Cloud Storage response is recorded, so
   `SPEC-RESUMABLE-ZERO-DECLARED-LENGTH` in `compatibility/gaps.json` holds
-  the question instead of a ledger deviation.
+  the question instead of a ledger deviation. Resolved later on 2026-11-15:
+  differential case `obj-resumable-declared-length` records that Cloud
+  Storage leaves the total open after a declared 0, gcs-mimic now does the
+  same ([resumable-upload.md](resumable-upload.md)), and a gcs-mimic-only run
+  passes the case. The tables below keep the recorded comparison.
 - **Node.js multipart helper.** See "Cases": `uploadFileInChunks` cannot
   reach a custom endpoint, so Node.js does not emit `sdk.xml_multipart_upload`.
 - **Size thresholds.** Node.js `downloadFileInChunks` reads an object under
