@@ -1193,6 +1193,8 @@ The resolution added 21 locked packages, 152 to 173, all MIT or MIT OR Apache-2.
 
 The published `inquire` crate has no license file. `xtask release notices` now takes the license texts of crates published without one from a reviewed table, which gives `inquire` 0.9.4 the repository-root `LICENSE` at `3d5b65422a247acc773d767558e34fcb69ab04bf`, the revision its `.cargo_vcs_info.json` names; the checked-in copy has that file's git blob ID, `dcb70e308455116431c23bb976e9215c37070db6`. A later version fails the notices until it is reviewed again, as `tonic-prost` does.
 
+`winapi-i686-pc-windows-gnu` and `winapi-x86_64-pc-windows-gnu` 0.4.0, which `crossterm` reaches through `winapi` for windows-gnu targets only, also ship no license file. No release target links them, but the notices cover every locked package, and the first container build of this source stopped at `no license notices for winapi-i686-pc-windows-gnu`. Both declare MIT/Apache-2.0 and predate `.cargo_vcs_info.json`; their published manifests equal `i686/Cargo.toml` and `x86_64/Cargo.toml` at winapi-rs `9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa`, the commit that set 0.4.0, and the crates gained license files only in a later commit. They receive that revision's repository-root `LICENSE-MIT`, git blob `796e929aa550bcf4840b199500b7c5bf96edcb75`. With them, every locked registry package either ships a notice file or is in the reviewed table.
+
 A release build of the commit that adds the prompts against its parent, both with the release profile on aarch64-apple-darwin, grew from 22,956,128 to 23,416,064 bytes, and from 18,677,296 to 19,050,576 bytes stripped (373,280 bytes, 2.0%). The difference also holds the prompt code itself.
 
 ### Validation performed on 2026-11-16

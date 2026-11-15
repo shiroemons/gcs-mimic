@@ -25,24 +25,28 @@ const TARGETS: [&str; 8] = [
 ];
 const RUST_NOTICES: [&str; 2] = ["COPYRIGHT-library.html", "licenses"];
 const MUSL_SOURCE_SHA256: &str = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4";
-/// MIT crates published without their license text. Each is given its repository's text at the
-/// revision it was published from, which the review below pins to one version.
+/// Crates published without their license text, all under MIT or a choice that includes it.
+/// Each is given its repository's MIT text at the revision it was published from, which the
+/// review below pins to one version.
 struct SuppliedLicense {
     crates: &'static [&'static str],
     version: &'static str,
     repository: &'static str,
     revision: &'static str,
-    /// The checked-in copy of `LICENSE` at `revision`.
+    /// The repository-root file at `revision` that holds the MIT text.
+    upstream_file: &'static str,
+    /// The checked-in copy of `upstream_file`.
     path: &'static str,
 }
 
-const SUPPLIED_LICENSES: [SuppliedLicense; 2] = [
+const SUPPLIED_LICENSES: [SuppliedLicense; 3] = [
     // tonic 0.14.9 packages the same repository-root LICENSE verbatim.
     SuppliedLicense {
         crates: &["tonic-prost", "tonic-prost-build"],
         version: "0.14.9",
         repository: "grpc/grpc-rust",
         revision: "4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70",
+        upstream_file: "LICENSE",
         path: "distribution/notices/grpc-rust-4c0f455c/LICENSE",
     },
     // The revision is the one the crate's .cargo_vcs_info.json names.
@@ -51,7 +55,20 @@ const SUPPLIED_LICENSES: [SuppliedLicense; 2] = [
         version: "0.9.4",
         repository: "mikaelmello/inquire",
         revision: "3d5b65422a247acc773d767558e34fcb69ab04bf",
+        upstream_file: "LICENSE",
         path: "distribution/notices/inquire-3d5b6542/LICENSE",
+    },
+    // Import libraries for windows-gnu targets, which no release links; the notices still cover
+    // every locked package. They predate .cargo_vcs_info.json, so the revision is the commit
+    // whose i686 and x86_64 manifests equal the published ones; license files were added to these
+    // crates only after it.
+    SuppliedLicense {
+        crates: &["winapi-i686-pc-windows-gnu", "winapi-x86_64-pc-windows-gnu"],
+        version: "0.4.0",
+        repository: "retep998/winapi-rs",
+        revision: "9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa",
+        upstream_file: "LICENSE-MIT",
+        path: "distribution/notices/winapi-rs-9497609e/LICENSE",
     },
 ];
 // crc32c adapts zlib's CRC combine code, so its notices need a per-version review on top of the
@@ -475,11 +492,15 @@ fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> 
             files.insert(PathBuf::from("LICENSE"));
             license_selection = Some(json!({
                 "chosen_license": "MIT",
-                "basis": "The published crate declares MIT but omits the license text, so LICENSE is the repository-root text from the revision it was published from.",
+                "basis": format!(
+                    "The published crate declares {} but omits the license text, so LICENSE is the repository-root {} from the revision it was published from.",
+                    text(package, "license")?,
+                    supplied.upstream_file
+                ),
                 "upstream_revision": supplied.revision,
                 "upstream_source": format!(
-                    "https://raw.githubusercontent.com/{}/{}/LICENSE",
-                    supplied.repository, supplied.revision
+                    "https://raw.githubusercontent.com/{}/{}/{}",
+                    supplied.repository, supplied.revision, supplied.upstream_file
                 ),
                 "review_scope": format!(
                     "{} {} only; other versions require a fresh notice review.",
