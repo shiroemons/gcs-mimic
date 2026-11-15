@@ -439,7 +439,7 @@ Each official SDK runs the same workflows against all four emulators
 | SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
 | --- | --- | --- | --- | --- |
 | Go | 57/57 | 24/57 | 20/57 | 48/57 |
-| Ruby | 51/51 | 24/51 | 22/51 | 42/51 |
+| Ruby | 50/50 (1 n/a) | 23/50 (1 n/a) | 22/50 (1 n/a) | 41/50 (1 n/a) |
 | Node.js | 51/51 | 25/51 | 22/51 | 44/51 |
 | PHP | 51/51 | 25/51 | 20/51 | 42/51 |
 | Python | 51/51 | 19/51 | 24/51 | 39/51 |
@@ -447,10 +447,10 @@ Each official SDK runs the same workflows against all four emulators
 | .NET | 70/70 (1 n/a) | 31/70 (1 n/a) | 31/70 (1 n/a) | 51/70 (1 n/a) |
 | Rust | 47/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) | 29/47 (4 n/a) |
 | C++ | 51/51 | 24/51 | 23/51 | 43/51 |
-| Score (/100) | 100 | 40.6 | 38.6 | 78.3 |
+| Score (/100) | 100 | 40.5 | 38.7 | 78.3 |
 
 Recorded on 2026-11-15 with the 0.22.0 source
-([results](sdk-scorecard/results/2026-11-15-2/summary.md)). A passing case
+([results](sdk-scorecard/results/2026-11-15-3/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
 
