@@ -64,10 +64,12 @@ pub(crate) struct ResolutionBinding {
     owner: String,
 }
 
+/// The publication batch decides from an administrative failure whether one element fails or
+/// the whole batch stops, so the check answers in those terms.
 pub(crate) fn validate_restore(
     tx: &Transaction<'_>,
     binding: &ResolutionBinding,
-) -> Result<(), ObjectError> {
+) -> Result<(), AdminError> {
     binding
         .authority
         .authorize(tx, binding.root)
@@ -80,24 +82,27 @@ pub(crate) fn validate_restore(
     )
     .map_err(restore_check_error)?;
     if owner != binding.owner {
-        return Err(ObjectError::PreconditionFailed);
+        return Err(ObjectError::PreconditionFailed.into());
     }
-    active_restore(tx, binding)
+    Ok(active_restore(tx, binding)?)
 }
 
 /// A storage failure while checking the original stays a storage failure, so the batch stops
 /// with 503 instead of reporting a changed target and moving on to the next element.
-fn restore_check_error(error: Error) -> ObjectError {
+/// Contention and a closing catalog stop it as they do anywhere else in a publication. The check
+/// only reads the publication's own transaction, so neither reaches it today.
+fn restore_check_error(error: Error) -> AdminError {
     match error {
-        Error::Admin(AdminError::Forbidden) => ObjectError::Forbidden,
-        Error::Admin(AdminError::Backend(cause)) => ObjectError::Unavailable(cause),
-        Error::Admin(AdminError::Io(cause) | AdminError::DiskFull(cause)) => ObjectError::Io(cause),
-        Error::Admin(AdminError::Corrupt(cause)) => ObjectError::Corrupt(cause),
+        Error::Admin(error @ (AdminError::Busy { .. } | AdminError::Closed)) => error,
+        Error::Admin(AdminError::Forbidden) => ObjectError::Forbidden.into(),
+        Error::Admin(AdminError::Backend(cause)) => ObjectError::Unavailable(cause).into(),
+        Error::Admin(AdminError::Io(cause) | AdminError::DiskFull(cause)) => {
+            ObjectError::Io(cause).into()
+        }
+        Error::Admin(AdminError::Corrupt(cause)) => ObjectError::Corrupt(cause).into(),
         // Every other failure reports a changed target, and the batch moves on to the next element.
         Error::Admin(
-            AdminError::Busy { .. }
-            | AdminError::Closed
-            | AdminError::Precondition
+            AdminError::Precondition
             | AdminError::Hold
             | AdminError::SeedProjectMismatch
             | AdminError::SeedMetadataBudget { .. }
@@ -113,7 +118,7 @@ fn restore_check_error(error: Error) -> ObjectError {
         | Error::RevisionMismatch
         | Error::TargetChanged
         | Error::OperationIdReused
-        | Error::InvalidResolution => ObjectError::PreconditionFailed,
+        | Error::InvalidResolution => ObjectError::PreconditionFailed.into(),
     }
 }
 

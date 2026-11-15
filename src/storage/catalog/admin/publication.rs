@@ -10,6 +10,7 @@ use std::{
     io::{Read, Write},
     path::Path,
     sync::mpsc::TrySendError,
+    time::SystemTime,
 };
 use tokio::sync::oneshot;
 
@@ -968,7 +969,7 @@ fn commit_batch(
                 transaction.execute_batch("RELEASE publication_element")?;
                 results.push(Ok(record));
             }
-            Err(error) => match AdminError::from(error) {
+            Err(error) => match error {
                 error @ (AdminError::Precondition
                 | AdminError::Hold
                 | AdminError::NotFound
@@ -1058,20 +1059,44 @@ fn publication_record(
     Ok(record)
 }
 
+/// Publishes one element. Its failure says whether only this element fails or the batch stops,
+/// so it is an administrative failure; a restore's check of its original answers in those terms.
 fn publish_entry(
     transaction: &rusqlite::Transaction<'_>,
     entry: &BatchPublication,
     grant: &AdminGrant,
     clock: &dyn Clock,
-) -> Result<ObjectRecord, ObjectError> {
+) -> Result<ObjectRecord, AdminError> {
     let now = clock.now();
+    let micros = checked_entry_micros(entry, now)?;
+    if let Tracking::Restore(binding) = &entry.staged.tracking {
+        super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
+    }
+    Ok(publish_checked_entry(
+        transaction,
+        entry,
+        grant,
+        now,
+        micros,
+    )?)
+}
+
+/// The publication time in catalog microseconds, once the staged body passed its checks.
+fn checked_entry_micros(entry: &BatchPublication, now: SystemTime) -> Result<i64, ObjectError> {
     now.duration_since(std::time::UNIX_EPOCH)
         .map_err(objects_error)?;
     let micros = super::super::unix_micros(now)?;
     validate_staged_entry(entry)?;
-    if let Tracking::Restore(binding) = &entry.staged.tracking {
-        super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
-    }
+    Ok(micros)
+}
+
+fn publish_checked_entry(
+    transaction: &rusqlite::Transaction<'_>,
+    entry: &BatchPublication,
+    grant: &AdminGrant,
+    now: SystemTime,
+    micros: i64,
+) -> Result<ObjectRecord, ObjectError> {
     let access = grant.access();
     let bucket = entry.bucket.as_str();
     let name = entry.name.as_str();
