@@ -78,6 +78,12 @@ impl From<String> for Fix {
     }
 }
 
+impl From<crate::bucket_init::shorthand::ShorthandError> for Fix {
+    fn from(error: crate::bucket_init::shorthand::ShorthandError) -> Self {
+        Self(error.to_string())
+    }
+}
+
 impl From<crate::config::InvalidChoice> for Fix {
     fn from(error: crate::config::InvalidChoice) -> Self {
         Self(error.to_string())

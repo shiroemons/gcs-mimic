@@ -101,12 +101,24 @@ impl DocumentKind {
         form: Form,
         value: &str,
     ) -> Result<(), SettingFix> {
-        if value.is_empty() {
+        // Inline text of only whitespace can be neither a document nor a name.
+        let empty = match form {
+            Form::File => value.is_empty(),
+            Form::Inline => value.trim().is_empty(),
+        };
+        if empty {
             return Err(self.empty_fix(form).into());
         }
-        *self.source(config) = Some(match form {
-            Form::File => DocumentSource::File(PathBuf::from(value)),
-            Form::Inline => DocumentSource::Inline(Arc::from(value)),
+        *self.source(config) = Some(match (self, form) {
+            (Self::Identities | Self::Buckets, Form::File) => {
+                DocumentSource::File(PathBuf::from(value))
+            }
+            (Self::Identities, Form::Inline) => DocumentSource::Inline(Arc::from(value)),
+            // Every entrance passes here, so the shorthand expands once and later phases see only
+            // documents.
+            (Self::Buckets, Form::Inline) => DocumentSource::Inline(Arc::from(
+                crate::bucket_init::shorthand::document(value)?.as_ref(),
+            )),
         });
         Ok(())
     }
@@ -121,7 +133,7 @@ impl DocumentKind {
                 "buckets_file must not be empty; use buckets.json or omit the setting"
             }
             (Self::Buckets, Form::Inline) => {
-                "buckets must not be empty; supply the bucket initialization JSON document, for example {\"version\":1,\"buckets\":[]}, or omit the setting."
+                "buckets must not be empty; supply bucket names such as uploads,exports or the bucket initialization JSON document, for example {\"version\":1,\"buckets\":[]}, or omit the setting."
             }
         }
     }

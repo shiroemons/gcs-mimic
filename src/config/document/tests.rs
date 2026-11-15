@@ -18,40 +18,101 @@ fn inline(text: &str) -> Option<DocumentSource> {
     Some(DocumentSource::Inline(text.into()))
 }
 
-#[test]
-fn inline_documents_follow_precedence_from_every_source() {
+/// The text each source supplies for one inline setting, in precedence order: config file,
+/// environment, command line.
+struct Sources<'a> {
+    file: serde_json::Value,
+    flag: &'a str,
+    variable: &'a str,
+    values: [&'a str; 3],
+    field: fn(Config) -> Option<DocumentSource>,
+}
+
+fn assert_sources_follow_precedence(sources: Sources<'_>, expected: [&str; 3]) {
     let dir = TestDir::new();
     let file = dir.0.join("config.json");
+    std::fs::write(&file, sources.file.to_string()).unwrap();
+    let args = strings(&["--config", file.to_str().unwrap()]);
+    let env = BTreeMap::from([(sources.variable.to_owned(), sources.values[1].to_owned())]);
+    let [file_text, env_text, cli_text] = expected;
+    assert_precedence(
+        &args,
+        &env,
+        &[sources.flag, sources.values[2]],
+        [None, inline(file_text), inline(env_text), inline(cli_text)],
+        Config::load,
+        sources.field,
+    );
+}
+
+/// The document text is kept as written: its own checks run when the document loads.
+#[test]
+fn inline_documents_follow_precedence_from_every_source() {
+    let identities = ["file-text", "env-text", "cli-text"];
     // Only strict mode reads an identity registry, so its config file selects that mode too.
-    for (contents, flag, variable, field) in [
-        (
-            serde_json::json!({"auth_mode": "strict", "identities": "file-text"}),
-            "--identities",
-            "GCS_MIMIC_IDENTITIES",
-            (|config: Config| config.identities) as fn(Config) -> Option<DocumentSource>,
-        ),
-        (
-            serde_json::json!({"buckets": "file-text"}),
-            "--buckets",
-            "GCS_MIMIC_BUCKETS",
-            |config| config.buckets,
-        ),
+    assert_sources_follow_precedence(
+        Sources {
+            file: serde_json::json!({"auth_mode": "strict", "identities": identities[0]}),
+            flag: "--identities",
+            variable: "GCS_MIMIC_IDENTITIES",
+            values: identities,
+            field: |config| config.identities,
+        },
+        identities,
+    );
+    let buckets = [
+        r#"{"version":1,"buckets":[{"name":"file-bucket"}]}"#,
+        r#"{ "version":1,"buckets":[{"name":"env-bucket"}]}"#,
+        r#" {"version":1,"buckets":[{"name":"cli-bucket"}]}"#,
+    ];
+    assert_sources_follow_precedence(
+        Sources {
+            file: serde_json::json!({"buckets": buckets[0]}),
+            flag: "--buckets",
+            variable: "GCS_MIMIC_BUCKETS",
+            values: buckets,
+            field: |config| config.buckets,
+        },
+        buckets,
+    );
+}
+
+/// Bucket names from any of the three entrances expand to the same canonical document, so later
+/// phases never see the shorthand.
+#[test]
+fn bucket_names_expand_to_a_document_from_every_source() {
+    assert_sources_follow_precedence(
+        Sources {
+            file: serde_json::json!({"buckets": "file-bucket"}),
+            flag: "--buckets",
+            variable: "GCS_MIMIC_BUCKETS",
+            values: ["file-bucket", "env-bucket,shared-bucket", "cli-bucket"],
+            field: |config| config.buckets,
+        },
+        [
+            r#"{"version":1,"buckets":[{"name":"file-bucket"}]}"#,
+            r#"{"version":1,"buckets":[{"name":"env-bucket"},{"name":"shared-bucket"}]}"#,
+            r#"{"version":1,"buckets":[{"name":"cli-bucket"}]}"#,
+        ],
+    );
+}
+
+/// Whitespace alone is neither a document nor a name, so it fails as an empty value does, and an
+/// invalid name says how the value was read.
+#[test]
+fn blank_and_invalid_bucket_shorthand_fail_with_the_setting() {
+    for (value, fix) in [
+        ("   ", "buckets must not be empty"),
+        ("Uploads", "read as comma-separated bucket names"),
     ] {
-        std::fs::write(&file, contents.to_string()).unwrap();
-        let args = strings(&["--config", file.to_str().unwrap()]);
-        let env = BTreeMap::from([(variable.to_owned(), "env-text".to_owned())]);
-        assert_precedence(
-            &args,
-            &env,
-            &[flag, "cli-text"],
-            [
-                None,
-                inline("file-text"),
-                inline("env-text"),
-                inline("cli-text"),
-            ],
-            Config::load,
-            field,
+        let errors = Config::load(&strings(&["--buckets", value]), &BTreeMap::new())
+            .unwrap_err()
+            .errors;
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.key == "--buckets" && error.fix.contains(fix)),
+            "{value:?}: {errors:?}"
         );
     }
 }

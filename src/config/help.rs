@@ -239,8 +239,8 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "none (create missing buckets before seed; JSON v1, at most 1 GiB, or 1 KiB per allowed bucket and at least 32 MiB under a bucket limit)",
         ),
         Setting::Buckets => (
-            "JSON",
-            "none (the --buckets-file document itself, with the same format and limits; not with --buckets-file)",
+            "NAMES|JSON",
+            "none (comma-separated bucket names, such as uploads,exports, each created with default settings; or the --buckets-file document itself, with the same format and limits; not with --buckets-file)",
         ),
         Setting::BucketsMode => (
             "MODE",
@@ -514,7 +514,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "816049003fa72a62367e22c5d858bda86cab1fa5688df973a5b68aa7e48ad9d4"
+            "4f3c61a1e4d1f08a7a00b7311c152e77e6570f4fea7482618df4f16bfdcaa0ef"
         );
     }
 }

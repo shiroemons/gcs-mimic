@@ -374,7 +374,7 @@ curl --fail http://localhost:4443/storage/v1/b/initialized-assets
 
 別のComposeでは、[strict localレシピ](../../examples/strict-local/README.md)（英語）のように文書をサービスのenvironmentへ`GCS_MIMIC_BUCKETS`として直接書くか、
 既存のenvironmentへ`GCS_MIMIC_BUCKETS_FILE: /buckets.json`、volumesへ`./buckets.json:/buckets.json:ro`を追記します。2つの設定は同時に使えません。
-Composeはインラインの値の`${VAR}`を展開するので、`$`そのものは`$$`と書きます。マウントするファイルは起動前に作ります。
+Composeはインラインの値の`${VAR}`を展開するので、`$`そのものは`$$`と書きます。設定の要らないバケットは、`GCS_MIMIC_BUCKETS: app-uploads,app-exports`のように名前を並べても作れます。それぞれseedのプロジェクトに既定の設定で作ります（0.23.0までのリリースは文書だけを受け付けます）。マウントするファイルは起動前に作ります。
 
 ```json
 {"version":1,"project":"local-project","buckets":[

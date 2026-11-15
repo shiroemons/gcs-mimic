@@ -1712,6 +1712,42 @@ fn an_inline_document_initializes_buckets_from_every_source() {
     assert!(fix.contains("buckets and buckets_file"), "{fix}");
 }
 
+/// Bucket names stand for the document that creates each bucket with default settings, from the
+/// environment, a CLI option or a config file string alike, and an invalid name fails startup
+/// with the setting that supplied it and how its value was read.
+#[test]
+fn bucket_names_initialize_default_buckets_from_every_source() {
+    let dir = TestDir::new();
+    let server = Server::start(command(&dir.0).env("GCS_MIMIC_BUCKETS", "uploads, exports"));
+    counts(&server, 2, 0, 0);
+    let created = bucket(&server, "uploads");
+    assert_eq!(
+        created["projectNumber"],
+        bucket(&server, "exports")["projectNumber"]
+    );
+    assert_eq!(created["storageClass"], "STANDARD");
+    server.stop();
+    let server = Server::start(command(&dir.0).args(["--buckets", "uploads,exports,cache"]));
+    counts(&server, 1, 2, 0);
+    server.stop();
+    let config = dir.0.join("settings.json");
+    fs::write(&config, json!({ "buckets": "uploads" }).to_string()).unwrap();
+    let server = Server::start(command(&dir.0).arg("--config").arg(&config));
+    counts(&server, 0, 1, 0);
+    server.stop();
+
+    let failing = TestDir::new();
+    let output = command(&failing.0)
+        .env("GCS_MIMIC_BUCKETS", "uploads,Not-Valid")
+        .output()
+        .unwrap();
+    let event = diagnostic(&output);
+    assert_eq!(event["diagnostics"][0]["key"], "GCS_MIMIC_BUCKETS");
+    let fix = event["diagnostics"][0]["fix"].as_str().unwrap();
+    assert!(fix.contains("name 2 is not a valid bucket name"), "{fix}");
+    assert!(!fix.contains("Not-Valid"), "{fix}");
+}
+
 /// An edit to the buckets document applies to an existing data directory without naming the
 /// mode, inline or from a file, while an explicit create keeps waiting.
 #[test]

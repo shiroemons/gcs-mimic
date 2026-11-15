@@ -434,7 +434,10 @@ For another Compose file, write the document into the service's environment as
 does, or add `GCS_MIMIC_BUCKETS_FILE: /buckets.json` to its environment and
 `./buckets.json:/buckets.json:ro` to its volumes; the two settings cannot be
 combined. Compose expands `${VAR}` in the inline value, so write a literal `$` as
-`$$`. A mounted file must exist before startup. The JSON shape is:
+`$$`. Buckets that need no settings can be listed by name instead, as in
+`GCS_MIMIC_BUCKETS: app-uploads,app-exports`; each is created in the seed project
+with default settings (releases up to 0.23.0 accept only a document). A mounted
+file must exist before startup. The JSON shape is:
 
 ```json
 {"version":1,"project":"local-project","buckets":[

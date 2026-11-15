@@ -54370,9 +54370,28 @@
             "seed_defaults_publish_the_object_a_startup_seed_publishes",
             "seed_defaults_are_opt_in_and_refuse_an_explicit_identity"
           ]
+        },
+        {
+          "id": "inline-bucket-name-shorthand",
+          "description": "An inline buckets value that does not start with { is comma-separated bucket names, expanded once where the CLI, environment and config file string meet into the canonical document that creates each bucket with default settings; invalid, empty or repeated names and whitespace-only values fail startup for the supplying key without echoing the value. Scope: docs/en/slices/bucket-initialization.md.",
+          "result": "PASS",
+          "test_ids": [
+            "names_expand_to_the_canonical_document_in_order",
+            "invalid_names_name_their_position_and_both_forms",
+            "a_repeated_name_is_refused",
+            "bucket_names_expand_to_a_document_from_every_source",
+            "blank_and_invalid_bucket_shorthand_fail_with_the_setting",
+            "bucket_names_initialize_default_buckets_from_every_source"
+          ]
         }
       ],
       "test_ids": [
+        "names_expand_to_the_canonical_document_in_order",
+        "invalid_names_name_their_position_and_both_forms",
+        "a_repeated_name_is_refused",
+        "bucket_names_expand_to_a_document_from_every_source",
+        "blank_and_invalid_bucket_shorthand_fail_with_the_setting",
+        "bucket_names_initialize_default_buckets_from_every_source",
         "seed_defaults_publish_the_object_a_startup_seed_publishes",
         "seed_defaults_are_opt_in_and_refuse_an_explicit_identity",
         "a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart",
@@ -54725,6 +54744,20 @@
           "test_ids": [
             "seed_defaults_publish_the_object_a_startup_seed_publishes",
             "seed_defaults_are_opt_in_and_refuse_an_explicit_identity"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- shorthand config::; cargo test --locked --offline --test it_import_seed -- bucket_names",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": [
+            "names_expand_to_the_canonical_document_in_order",
+            "invalid_names_name_their_position_and_both_forms",
+            "a_repeated_name_is_refused",
+            "bucket_names_expand_to_a_document_from_every_source",
+            "blank_and_invalid_bucket_shorthand_fail_with_the_setting",
+            "bucket_names_initialize_default_buckets_from_every_source"
           ]
         }
       ],

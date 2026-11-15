@@ -104,7 +104,7 @@ Every name below is declared in `src/config/setting.rs`, and its default is in `
 | `default_soft_delete_retention_seconds` | 0 (off) | 0 to 7776000; a positive value needs the native profile | `src/config.rs`, `src/bucket.rs` | H, L, N, C, F | Yes |
 | `lifecycle_execution` | `disabled` with `sync_dir`, `enabled` otherwise | `enabled` or `disabled`; explicit enabled also deletes synchronized host files. CLI `--lifecycle-execution`, environment `GCS_MIMIC_LIFECYCLE_EXECUTION`, JSON `lifecycle_execution` | `src/config.rs`, `src/storage/catalog/lifecycle.rs` | H, N, F, S `lifecycle-execution.md` | Yes |
 | `buckets_file` | none | Path; not with `buckets` | `src/config/document.rs` | H, L, N, C, F, S `bucket-initialization.md` | Yes |
-| `buckets` | none | The document inline; not with `buckets_file` | `src/config/document.rs` | H, L, N, C, F, R, S `bucket-initialization.md` | 7 |
+| `buckets` | none | The document inline, or comma-separated bucket names (a value not starting with `{`) that expand to a document creating each with default settings; not with `buckets_file` | `src/config/document.rs`, `src/bucket_init/shorthand.rs` | H, L, N, C, F, R, S `bucket-initialization.md` | 7 |
 | `buckets_mode` | `reconcile` | `create`, `reconcile`; needs a document. `buckets_file_mode`, its name before `0.20.0`, stops startup | `src/config.rs` | H, L, N, C, F | Yes |
 | `max_buckets_per_batch` | 0 (unlimited) | 0 to 2^64-1 | `src/config.rs` | H, L, N, F | Yes |
 | `api_base_url` | Each request's Host | Absolute HTTP(S) base without credentials, query or fragment | `src/config.rs`, `src/url.rs` | H, L, N, C, F | Yes |

@@ -204,6 +204,11 @@ gcs-mimic reads the result as plain JSON and expands nothing. Write a literal `$
 as `$$`. `iamPolicy` gives a new bucket its policy, replacing the default one as
 `setIamPolicy` does; releases up to 0.13.0 reject it as unsupported.
 
+Where fake-gcs-server needed an empty directory under `-data` only to create a
+bucket, list the names instead: `GCS_MIMIC_BUCKETS: app-images,app-exports`
+creates each bucket with default settings. A value that starts with `{` is a
+document, as above. Releases up to 0.23.0 accept only a document.
+
 The named volume outlives `docker compose down`, so its buckets already exist on
 the next start. The document reconciles them: `GCS_MIMIC_BUCKETS_MODE` defaults
 to `reconcile`, so each start writes the fields an entry sets whose value differs,

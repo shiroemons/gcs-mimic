@@ -316,6 +316,12 @@ services:
          "buckets":[{"name":"app-uploads"}]}
 ```
 
+When the buckets need no settings, list their names instead of a document:
+`GCS_MIMIC_BUCKETS=app-uploads,app-exports` creates each one in the seed
+project with default settings, as the document with one `{"name":...}` entry
+per bucket would. A value that starts with `{` is a document. Releases up to
+0.23.0 accept only a document.
+
 The ready field `buckets` reports the same counts for either setting; it never
 repeats the document, and it is not the seed's `seed.buckets` count. Naming both
 settings fails startup. gcs-mimic reads the value as plain text, but Compose expands

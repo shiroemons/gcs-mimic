@@ -34,6 +34,7 @@ use std::{
 
 mod plan;
 mod policy;
+pub(crate) mod shorthand;
 mod written;
 
 use written::{Member, Written};
