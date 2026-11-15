@@ -6,10 +6,13 @@ use gcs_mimic::{
     bucket_init::generate::{Bucket, Document, Format, GenerateError, Setting},
     diagnostics::{DiagnosticSource, Diagnostics},
 };
+use inquire::InquireError;
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
 };
+
+mod prompts;
 
 pub(crate) const HELP: &str =
     "Usage: gcs-mimic buckets new [--format json|env|compose] [--output PATH]
@@ -17,7 +20,9 @@ pub(crate) const HELP: &str =
                              [--format json|env|compose] [--output PATH]
 
 Writes a bucket initialization document for --buckets-file, GCS_MIMIC_BUCKETS or a Compose
-service. With --name it asks nothing; each setting after a --name belongs to that bucket:
+service. Without --name it asks on a terminal: each bucket's name, the settings to configure,
+their values, and the format unless --format is given; questions use stderr, and Esc or Ctrl-C
+writes nothing. With --name it asks nothing; each setting after a --name belongs to that bucket:
   --project ID                  --location LOCATION        --storage-class CLASS
   --public-access-prevention inherited|enforced            --soft-delete-retention-seconds N
   --versioning                  --default-event-based-hold --public-read
@@ -38,23 +43,50 @@ No configuration, environment, data directory or network is read.";
 #[derive(Debug, PartialEq)]
 struct Request {
     buckets: Vec<Bucket>,
-    format: Format,
+    /// `None` until a flag chooses one: the questions then ask, and flags default to JSON.
+    format: Option<Format>,
     output: Option<PathBuf>,
 }
 
 pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
-    let request = parse(args)?;
-    if request.buckets.is_empty() {
+    let Request {
+        buckets,
+        format,
+        output,
+    } = parse(args)?;
+    let (buckets, format) = if buckets.is_empty() {
+        ask(format)?
+    } else {
+        (buckets, format.unwrap_or(Format::Json))
+    };
+    let text = Document::new(buckets).render(format).map_err(rejected)?;
+    write(&text, output.as_deref())
+}
+
+/// Asks on a terminal. Elsewhere nothing could answer, so it fails before asking anything.
+fn ask(format: Option<Format>) -> Result<(Vec<Bucket>, Format), Diagnostics> {
+    if !(io::stdin().is_terminal() && io::stderr().is_terminal()) {
         return Err(failure(
             "--name",
-            "No bucket given; pass --name NAME for each bucket, see gcs-mimic buckets new --help.",
-        )
-        .into());
+            "No bucket given and no terminal to ask on; pass --name NAME for each bucket, see gcs-mimic buckets new --help.",
+        ));
     }
-    let text = Document::new(request.buckets)
-        .render(request.format)
-        .map_err(rejected)?;
-    write(&text, request.output.as_deref())
+    prompts::ask(format).map_err(unanswered)
+}
+
+fn unanswered(error: InquireError) -> Diagnostics {
+    match error {
+        InquireError::OperationCanceled | InquireError::OperationInterrupted => {
+            failure("buckets", "Cancelled; nothing was written.")
+        }
+        InquireError::Custom(error) => failure("buckets", error.to_string()),
+        InquireError::NotTTY | InquireError::IO(_) | InquireError::InvalidConfiguration(_) => {
+            failure(
+                "--name",
+                "Cannot ask questions on this terminal; pass --name NAME for each bucket instead, see gcs-mimic buckets new --help.",
+            )
+        }
+    }
 }
 
 fn failure(key: &str, fix: impl Into<String>) -> Diagnostics {
@@ -107,7 +139,7 @@ fn parse(args: &[String]) -> Result<Request, Diagnostics> {
     }
     Ok(Request {
         buckets,
-        format: format.unwrap_or(Format::Json),
+        format,
         output,
     })
 }

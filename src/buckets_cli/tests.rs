@@ -74,17 +74,18 @@ fn settings_attach_to_the_preceding_bucket() {
                     }],
                 ),
             ],
-            format: Format::Compose,
+            format: Some(Format::Compose),
             output: Some(PathBuf::from("buckets.yaml")),
         }
     );
 }
 
+/// Without options nothing is chosen yet, so the questions ask for the format too.
 #[test]
-fn without_options_the_format_is_json_and_no_bucket_is_named() {
+fn without_options_no_bucket_or_format_is_chosen() {
     let request = parse(&[]).unwrap();
     assert!(request.buckets.is_empty());
-    assert_eq!(request.format, Format::Json);
+    assert_eq!(request.format, None);
     assert_eq!(request.output, None);
 }
 

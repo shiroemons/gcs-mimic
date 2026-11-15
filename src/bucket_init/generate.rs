@@ -38,6 +38,45 @@ crate::serde_util::serialize_as_str!(PublicAccessPrevention);
 /// The role that public read grants to `allUsers`.
 const PUBLIC_READ_ROLE: &str = "roles/storage.objectViewer";
 
+/// The storage classes a prompt offers. The legacy `MULTI_REGIONAL` and
+/// `DURABLE_REDUCED_AVAILABILITY` stay valid in a document but are not offered for new buckets.
+pub fn storage_classes() -> [&'static str; 4] {
+    use crate::bucket::StorageClass;
+    [
+        StorageClass::Standard,
+        StorageClass::Nearline,
+        StorageClass::Coldline,
+        StorageClass::Archive,
+    ]
+    .map(StorageClass::as_str)
+}
+
+/// The multi-regions a prompt lists before it asks for any other location.
+pub fn multi_regions() -> &'static [&'static str] {
+    crate::bucket::LocationKind::MultiRegion.names()
+}
+
+/// The canonical name of a supported location, matched without regard to case as startup does.
+pub fn location(value: &str) -> Option<&'static str> {
+    value
+        .parse::<crate::bucket::Location>()
+        .ok()
+        .map(crate::bucket::Location::as_str)
+}
+
+/// The predefined roles a bucket policy can grant; the project-level ones are left out.
+pub fn bucket_roles() -> Vec<&'static str> {
+    use crate::auth::roles::{GrantLevel, Role};
+    Role::ALL
+        .iter()
+        .filter(|role| match role.level() {
+            GrantLevel::Project => false,
+            GrantLevel::Bucket | GrantLevel::ManagedFolder => true,
+        })
+        .map(|role| role.as_str())
+        .collect()
+}
+
 /// One answer about one bucket, naming one member of its entry. Single-valued answers may be
 /// given once per bucket; labels, CORS lists and IAM bindings accumulate.
 #[derive(Clone, Debug, PartialEq, Eq)]

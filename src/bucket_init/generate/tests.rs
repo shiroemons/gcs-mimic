@@ -269,3 +269,39 @@ fn formats_parse_from_their_names() {
     }
     assert!("yaml".parse::<Format>().is_err());
 }
+
+/// Every value a question offers is one startup accepts, so no listed choice can fail later.
+#[test]
+fn every_offered_choice_passes_the_startup_parser() {
+    let mut settings: Vec<Setting> = storage_classes()
+        .iter()
+        .map(|class| Setting::StorageClass((*class).into()))
+        .collect();
+    settings.extend(
+        multi_regions()
+            .iter()
+            .map(|location| Setting::Location((*location).into())),
+    );
+    settings.extend(bucket_roles().into_iter().map(|role| Setting::IamBinding {
+        role: role.into(),
+        members: vec!["user:dev@example.com".into()],
+    }));
+    let buckets: Vec<_> = settings
+        .into_iter()
+        .enumerate()
+        .map(|(index, setting)| bucket(&format!("choice-{index}"), [setting]))
+        .collect();
+    assert_eq!(
+        parsed(&Document::new(buckets).render(Format::Json).unwrap()).len(),
+        4 + 3 + 18
+    );
+    assert_eq!(multi_regions(), ["US", "EU", "ASIA"]);
+    assert!(!bucket_roles().contains(&"roles/storage.hmacKeyAdmin"));
+}
+
+#[test]
+fn another_location_is_matched_without_regard_to_case() {
+    assert_eq!(location("europe-west1"), Some("EUROPE-WEST1"));
+    assert_eq!(location("nam4"), Some("NAM4"));
+    assert_eq!(location("moon-central1"), None);
+}

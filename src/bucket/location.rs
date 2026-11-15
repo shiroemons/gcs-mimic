@@ -77,7 +77,7 @@ impl LocationKind {
         Self::ALL.into_iter().find(|kind| kind.as_str() == value)
     }
 
-    fn names(self) -> &'static [&'static str] {
+    pub(crate) fn names(self) -> &'static [&'static str] {
         match self {
             Self::Region => REGIONS,
             Self::DualRegion => DUAL_REGIONS,
