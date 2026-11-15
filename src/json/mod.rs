@@ -121,7 +121,7 @@ pub(crate) use query::{
     BucketRequest, GetParams, InsertParams, ListParams, Projection, SoftDeletedListParams,
     route_with_profile, validate_project,
 };
-pub(crate) use query::{Decoding, MAX_QUERY_BYTES, decode, parse_query};
+pub(crate) use query::{Decoding, MAX_QUERY_BYTES, decode, decode_bucket_segment, parse_query};
 
 #[cfg(test)]
 mod tests;

@@ -38,6 +38,8 @@ pub(crate) use imported_identity::ImportedIdentity;
 
 mod import_publication;
 pub(crate) mod initialization;
+mod purge;
+pub(crate) use purge::PurgeError;
 mod reset;
 
 #[cfg(test)]

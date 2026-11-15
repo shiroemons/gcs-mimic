@@ -42,14 +42,20 @@ pub(super) fn path_bucket(
     profile: CompatProfile,
     check: BucketCheck,
 ) -> Result<String, JsonError> {
-    if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
-        return Err(JsonError::invalid_parameter("Invalid bucket name"));
-    }
-    let bucket = decode(segment, Decoding::Path)?;
+    let bucket = decode_bucket_segment(segment)?;
     if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
         validate_bucket_name_for_profile(&bucket, profile)?;
     }
     Ok(bucket)
+}
+
+/// The decoded bucket of a raw path segment of at most [`MAX_BUCKET_SEGMENT_BYTES`] encoded bytes,
+/// for a caller that checks the name by its own rules.
+pub(crate) fn decode_bucket_segment(segment: &str) -> Result<String, JsonError> {
+    if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
+        return Err(JsonError::invalid_parameter("Invalid bucket name"));
+    }
+    decode(segment, Decoding::Path)
 }
 
 /// Reads an advisory parameter with the same decoding as the validating route parser.

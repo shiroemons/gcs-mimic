@@ -133,22 +133,7 @@ impl Catalog {
             // With a soft delete policy the version and its retained objects move aside first,
             // so the permanent deletions below no longer find them.
             bucket_soft_delete::retire(&transaction, &name, unix_micros(clock.now())?)?;
-            sql::exec(&transaction,
-                "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
-                [&name],
-            )?;
-            sql::exec(&transaction, "DELETE FROM objects WHERE bucket = ?1", [&name])?;
-            change_journal::append(
-                &transaction,
-                change_journal::origin(&access),
-                change_journal::ChangeKind::BucketDelete,
-                &name,
-                None,
-            )?;
-            sql::exec(&transaction, "DELETE FROM bucket_policies WHERE bucket = ?1", [&name])?;
-            sql::exec(&transaction, "DELETE FROM bucket_incarnations WHERE bucket = ?1", [&name])?;
-            sql::exec(&transaction, "DELETE FROM sync_objects WHERE bucket = ?1", [&name])?;
-            sql::exec(&transaction, "DELETE FROM buckets WHERE name = ?1", [&name])?;
+            remove_live_bucket(&transaction, &name, change_journal::origin(&access))?;
             let result = transaction.commit().map_err(unavailable);
             // Commit failures may be ambiguous; cleanup rechecks the current bucket incarnation.
             catalog.schedule_multipart_orphan_scan();
@@ -158,6 +143,63 @@ impl Catalog {
         self.reclaim_after_commit().await;
         Ok(())
     }
+}
+
+/// Object rows one step of [`remove_objects`] deletes before journaling their blobs.
+const REMOVAL_PAGE: i64 = 128;
+
+/// Deletes every object row stored under `key`, a bucket name or a soft-deleted version's
+/// retained key, journals each blob for reclamation and returns how many rows it deleted. Each
+/// page's rows go before their journal rows, so the journal takes the pages the rows free: a RAM
+/// catalog at its page budget can still be emptied, which journaling first would refuse.
+pub(super) fn remove_objects(connection: &Connection, key: &str) -> Result<u64, CatalogError> {
+    let mut removed = 0;
+    loop {
+        let page = connection
+            .prepare_cached("SELECT blob_id FROM objects WHERE bucket = ?1 LIMIT ?2")?
+            .query_map(rusqlite::params![key, REMOVAL_PAGE], |row| {
+                row.get::<_, crate::storage::BlobId>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if page.is_empty() {
+            return Ok(removed);
+        }
+        for id in &page {
+            sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])?;
+        }
+        for id in &page {
+            objects::journal_deletion(connection, id)?;
+        }
+        removed += u64::try_from(page.len()).map_err(unavailable)?;
+    }
+}
+
+/// Removes a live bucket with the objects its name still holds, inside a deletion or purge
+/// transaction the caller commits: journals the deletion while the bucket's identity still
+/// exists, then drops its policy, incarnation, sync rows and row. ACL, notification and
+/// initialization rows cascade. Returns how many objects it removed.
+pub(super) fn remove_live_bucket(
+    transaction: &Connection,
+    name: &str,
+    origin: admin::Origin,
+) -> Result<u64, CatalogError> {
+    let removed = remove_objects(transaction, name)?;
+    change_journal::append(
+        transaction,
+        origin,
+        change_journal::ChangeKind::BucketDelete,
+        name,
+        None,
+    )?;
+    for query in [
+        "DELETE FROM bucket_policies WHERE bucket = ?1",
+        "DELETE FROM bucket_incarnations WHERE bucket = ?1",
+        "DELETE FROM sync_objects WHERE bucket = ?1",
+        "DELETE FROM buckets WHERE name = ?1",
+    ] {
+        sql::exec(transaction, query, [name])?;
+    }
+    Ok(removed)
 }
 
 /// Largest creation-time seed for a bucket generation (2255-03-14T16:00:00Z, in nanoseconds). A

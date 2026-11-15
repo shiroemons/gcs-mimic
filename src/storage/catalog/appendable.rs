@@ -228,6 +228,15 @@ enum Namespace {
     Memory(crate::storage::memory::StoreId),
 }
 
+impl Namespace {
+    fn of(catalog: &Catalog) -> Self {
+        match &catalog.0.backend {
+            super::BlobBackend::Memory(memory) => Self::Memory(memory.id()),
+            super::BlobBackend::Disk(root) => Self::Disk(root.clone()),
+        }
+    }
+}
+
 type SlotKey = (Namespace, String, String);
 
 struct SlotEntry {
@@ -254,11 +263,7 @@ struct SlotHandle {
 
 impl SlotHandle {
     fn new(catalog: &Catalog, bucket: &str, name: &str) -> Self {
-        let namespace = match &catalog.0.backend {
-            super::BlobBackend::Memory(memory) => Namespace::Memory(memory.id()),
-            super::BlobBackend::Disk(root) => Namespace::Disk(root.clone()),
-        };
-        let key = (namespace, bucket.to_owned(), name.to_owned());
+        let key = (Namespace::of(catalog), bucket.to_owned(), name.to_owned());
         // The map only counts holders, and each update completes before the lock is
         // released, so a panic elsewhere cannot leave it inconsistent.
         let mut slots = slots().lock().unwrap_or_else(PoisonError::into_inner);
@@ -786,6 +791,46 @@ pub(super) fn retire_published(
         params![record.bucket, record.name, record.generation],
     )?;
     Ok(journaled)
+}
+
+/// Whether an in-process user, a writer included, holds the slot of one of `bucket`'s appendable
+/// objects. Creating or taking over a writer registers its slot before its row commits on the
+/// writer connection, so a caller that finds none while it holds that connection meets no writer
+/// of the bucket until it commits.
+pub(super) fn bucket_in_use(catalog: &Catalog, bucket: &str) -> bool {
+    let namespace = Namespace::of(catalog);
+    slots()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keys()
+        .any(|(space, name, _)| *space == namespace && name == bucket)
+}
+
+/// Deletes the rows of `bucket`'s appendable objects in the caller's transaction. RAM data joins
+/// the deletion journal; the disk data files, which no journal names, are returned for the caller
+/// to remove once the transaction commits, and startup recovery removes any it misses.
+pub(super) fn retire_bucket(
+    connection: &Connection,
+    backend: crate::config::Backend,
+    bucket: &str,
+) -> Result<Vec<BlobId>, ObjectError> {
+    let ids = connection
+        .prepare_cached("SELECT blob_id FROM appendable_objects WHERE bucket = ?1")?
+        .query_map([bucket], |row| row.get::<_, BlobId>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    sql::exec(
+        connection,
+        "DELETE FROM appendable_objects WHERE bucket = ?1",
+        [bucket],
+    )?;
+    let mut files = Vec::new();
+    for id in &ids {
+        match unreference(connection, backend, id)? {
+            Unreferenced::Journaled => {}
+            Unreferenced::DiskFile(id) => files.push(id),
+        }
+    }
+    Ok(files)
 }
 
 /// A data file that no row references is never read, and startup recovery removes every such

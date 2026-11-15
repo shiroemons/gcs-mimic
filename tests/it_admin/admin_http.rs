@@ -1,6 +1,7 @@
 use crate::common::process::declare_server;
 mod admin_contract;
 mod admin_fixture_metadata;
+mod admin_purge;
 mod admin_reseed;
 mod admin_reset;
 use crate::common;
@@ -41,6 +42,7 @@ fn management_routes_refuse_page_initiated_requests_without_mutation() {
         ("POST", "/_internal/reset", br#"{"confirm":"gcs-mimic"}"#),
         ("POST", "/_internal/delete_all", b""),
         ("POST", "/_internal/reseed", b""),
+        ("DELETE", "/_internal/buckets/test-bucket", b""),
         ("POST", "/_internal/lifecycle/run", b""),
         ("POST", "/_internal/sync/approve", b"{}"),
     ] {

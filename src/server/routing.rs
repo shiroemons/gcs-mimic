@@ -952,6 +952,8 @@ mod tests {
         assert!(matches!(root, Target::XmlBucket));
         let (admin, _) = classify(&config, Method::POST, "/_internal/reset", host);
         assert!(matches!(admin, Target::Admin(AdminRoute::Reset)));
+        let (purge, _) = classify(&config, Method::DELETE, "/_internal/buckets/bucket", host);
+        assert!(matches!(purge, Target::Admin(AdminRoute::Bucket)));
         let (batch, _) = classify(&config, Method::POST, "/batch/storage/v1", host);
         assert!(matches!(batch, Target::Batch));
         let (json, _) = classify(&config, Method::GET, "/storage/v1/b/bucket/o", host);

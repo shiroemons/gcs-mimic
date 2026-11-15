@@ -458,6 +458,19 @@ pub(super) fn recover_due(
     transaction.commit().map_err(super::unavailable)
 }
 
+/// The rewrite sessions that read from or write to `bucket`, in any incarnation of the name. Only
+/// the stored request names the buckets, so this reads every session; a bucket purge is rare.
+pub(super) fn bucket_sessions(
+    connection: &Connection,
+    bucket: &str,
+) -> Result<Vec<BlobId>, CatalogError> {
+    connection
+        .prepare_cached("SELECT id FROM rewrite_sessions WHERE json_extract(request, '$.path[0]') = ?1 OR json_extract(request, '$.path[2]') = ?1")?
+        .query_map([bucket], |row| row.get::<_, BlobId>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(CatalogError::from)
+}
+
 /// Drops the oldest finished rewrites past the shared window, keeping the one this request just
 /// finished. A rewrite never fails over this bookkeeping, and an excess past one transaction's
 /// batch carries over to the next completion.
