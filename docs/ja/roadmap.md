@@ -25,8 +25,7 @@ seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 
 SDKとブラウザーの検証は、宣言した範囲が対象です。
 [9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
-Go・Ruby・Node.js・PHP・Python・Java・.NET・Rustの全ケースと、C++の51ケース中49ケースが通ります。
-C++の2件の失敗は、C++ SDKで見つかったgcs-mimicの不具合です。範囲と残りの条件は
+Go・Ruby・Node.js・PHP・Python・Java・.NET・Rust・C++の全ケースが通ります。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
 0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。

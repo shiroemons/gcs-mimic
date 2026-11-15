@@ -258,8 +258,8 @@ signer and CI.
 
 - **Small.** One static binary on an empty base image: no shell, no package
   manager, no runtime to install.
-- **Your SDK already speaks it.** Go, Ruby, Node.js, PHP, Python, Java, .NET and
-  Rust pass every case in the [SDK scorecard](#sdk-scorecard). Point the client
+- **Your SDK already speaks it.** Go, Ruby, Node.js, PHP, Python, Java, .NET,
+  Rust and C++ pass every case in the [SDK scorecard](#sdk-scorecard). Point the client
   at it and run your code.
 - **Buckets the way you need them.** Declare as many as you like at startup,
   each with its own CORS rules, [public or private](#buckets-cors-and-public-access).
@@ -446,16 +446,13 @@ Each official SDK runs the same workflows against all four emulators
 | Java | 70/70 | 35/70 | 35/70 | 52/70 |
 | .NET | 70/70 (1 n/a) | 31/70 (1 n/a) | 31/70 (1 n/a) | 51/70 (1 n/a) |
 | Rust | 47/47 (4 n/a) | 0/47 (4 n/a) | 0/47 (4 n/a) | 29/47 (4 n/a) |
-| C++ | 49/51 | 24/51 | 23/51 | 43/51 |
-| Score (/100) | 99.6 | 40.6 | 38.6 | 78.3 |
+| C++ | 51/51 | 24/51 | 23/51 | 43/51 |
+| Score (/100) | 100 | 40.6 | 38.6 | 78.3 |
 
 Recorded on 2026-11-15 with the 0.22.0 source
-([results](sdk-scorecard/results/2026-11-15/summary.md)). A passing case
+([results](sdk-scorecard/results/2026-11-15-2/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-The two C++ failures are gcs-mimic defects that SDK exposed: it rejects an
-object restore request with a `{}` body and a POST policy whose expiration has
-nanoseconds.
 
 ## Coming from fake-gcs-server?
 

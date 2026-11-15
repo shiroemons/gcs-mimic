@@ -30,9 +30,8 @@ See [container usage](container-usage.md) and the
 
 SDK and browser evidence covers declared subsets. The
 [nine-SDK scorecard](../../sdk-scorecard/README.md) passes every Go, Ruby,
-Node.js, PHP, Python, Java, .NET and Rust case and 49 of the 51 C++ cases in
-its latest [run](../../sdk-scorecard/results/2026-11-15/summary.md); the two
-C++ failures are gcs-mimic defects that the C++ SDK exposed. Scope and
+Node.js, PHP, Python, Java, .NET, Rust and C++ case in its latest
+[run](../../sdk-scorecard/results/2026-11-15-2/summary.md); scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)
 and the [C++ slice](slices/sdk-scorecard-cpp.md).
 Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)
