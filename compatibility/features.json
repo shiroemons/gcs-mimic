@@ -54361,9 +54361,20 @@
             "admin_ensure_full_batch_and_concurrent_creates_are_atomic",
             "seeded_http_metadata_bytes_and_strict_administrative_import"
           ]
+        },
+        {
+          "id": "runtime-fixture-seed-defaults",
+          "description": "A direct fixture with defaults seed publishes the object a startup seed of the same file publishes, in permissive and strict mode: content type from the extension table and seed_content_type ahead of the media part, project owners, ACL grants, storage class, size and checksums agree. It rejects an explicit generation or time, and omitted defaults keep the fixture behavior. Generation reuse for unchanged files, tree-wide atomicity and seed times remain startup-seed-only. Scope: docs/en/slices/local-fixture-administration.md.",
+          "result": "PASS",
+          "test_ids": [
+            "seed_defaults_publish_the_object_a_startup_seed_publishes",
+            "seed_defaults_are_opt_in_and_refuse_an_explicit_identity"
+          ]
         }
       ],
       "test_ids": [
+        "seed_defaults_publish_the_object_a_startup_seed_publishes",
+        "seed_defaults_are_opt_in_and_refuse_an_explicit_identity",
         "a_tree_past_the_former_defaults_synchronizes_warns_once_and_survives_a_restart",
         "a_file_past_the_former_default_starts_again_after_a_restart_and_a_named_limit_stops_it",
         "the_file_limit_follows_the_bucket_limit_and_never_shrinks_below_its_floor",
@@ -54705,6 +54716,16 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["ingest_strict_configuration_requires_an_identity_registry"]
+        },
+        {
+          "command": "cargo test --locked --offline --test it_admin -- seed_defaults",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "docs/en/slices/local-fixture-administration.md",
+          "test_ids": [
+            "seed_defaults_publish_the_object_a_startup_seed_publishes",
+            "seed_defaults_are_opt_in_and_refuse_an_explicit_identity"
+          ]
         }
       ],
       "sdk_evidence": [],

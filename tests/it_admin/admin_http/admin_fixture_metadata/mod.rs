@@ -1,5 +1,155 @@
 use super::*;
 
+/// The fields that must agree between a startup seed and a seed-defaults fixture of one file;
+/// names, generations and times legitimately differ.
+const SEED_PARITY_FIELDS: [&str; 6] = [
+    "contentType",
+    "owner",
+    "storageClass",
+    "size",
+    "md5Hash",
+    "crc32c",
+];
+
+/// The ACL as entity and role pairs; entry IDs and links embed the object name.
+fn acl_grants(resource: &Value) -> Vec<(Value, Value)> {
+    resource["acl"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| (entry["entity"].clone(), entry["role"].clone()))
+        .collect()
+}
+
+/// A runtime helper that loads a directory must create what a startup seed of it creates, in
+/// both authentication profiles: the extension names the type over the media part's, and the
+/// project owners own the object, as no imported identity is attached.
+#[test]
+fn seed_defaults_publish_the_object_a_startup_seed_publishes() {
+    const CSV: &[u8] = b"name,count\nseed,1\n";
+    for strict in [false, true] {
+        let (data, source) = (TestDir::new(), TestDir::new());
+        std::fs::create_dir_all(source.0.join("test-bucket/seeded")).unwrap();
+        std::fs::write(source.0.join("test-bucket/seeded/report.csv"), CSV).unwrap();
+        let registry = common::process::write_identities(
+            &data.0,
+            &json!({"identities":[
+                {"id":"manager@example.invalid", "tokens":["manager"], "project_roles":{}},
+                {"id":"reader@example.invalid", "tokens":["reader"], "project_roles":{"local":["roles/storage.admin"]}}
+            ]}),
+        );
+        let mut options = vec![
+            "--admin-enabled",
+            "true",
+            "--seed-dir",
+            source.0.to_str().unwrap(),
+        ];
+        let (manager, reader) = if strict {
+            options.extend([
+                "--admin-principal",
+                "manager@example.invalid",
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                registry.to_str().unwrap(),
+            ]);
+            (
+                "Authorization: Bearer manager\r\n",
+                "Authorization: Bearer reader\r\n",
+            )
+        } else {
+            ("", "")
+        };
+        let server = Server::start(&data, &options);
+        let read = |name: &str| {
+            server
+                .request(
+                    "GET",
+                    &format!("/storage/v1/b/test-bucket/o/{name}?projection=full"),
+                    reader,
+                    b"",
+                )
+                .json_ok()
+        };
+        server
+            .fixture(
+                json!({"bucket":"test-bucket","name":"posted/report.csv","defaults":"seed"}),
+                CSV,
+                manager,
+            )
+            .json_ok();
+        let seeded = read("seeded%2Freport.csv");
+        let posted = read("posted%2Freport.csv");
+        // Both differ from what a plain fixture gets, so equality below is not vacuous.
+        assert_ne!(seeded["contentType"], "application/octet-stream");
+        assert!(seeded["owner"]["entity"].is_string(), "{seeded}");
+        for field in SEED_PARITY_FIELDS {
+            assert_eq!(posted[field], seeded[field], "{field} (strict: {strict})");
+        }
+        assert_eq!(acl_grants(&posted), acl_grants(&seeded), "strict: {strict}");
+        let explicit = server
+            .fixture(
+                json!({"bucket":"test-bucket","name":"posted/explicit.csv",
+                    "defaults":"seed","contentType":"text/plain"}),
+                CSV,
+                manager,
+            )
+            .json_ok();
+        assert_eq!(explicit["contentType"], "text/plain");
+    }
+}
+
+/// Without seed defaults a fixture keeps its media type and has no owner, and seed defaults
+/// refuse an explicit identity instead of replacing it, creating nothing.
+#[test]
+fn seed_defaults_are_opt_in_and_refuse_an_explicit_identity() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, &["--admin-enabled", "true"]);
+    server.populate();
+    for defaults in [json!(null), json!("fixture")] {
+        let mut metadata = json!({"bucket":"test-bucket","name":"report.csv"});
+        if !defaults.is_null() {
+            metadata["defaults"] = defaults;
+        }
+        let resource = server.fixture(metadata, b"bytes", "").json_ok();
+        assert_eq!(resource["contentType"], "application/octet-stream");
+        let full = server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/report.csv?projection=full",
+                "",
+                b"",
+            )
+            .json_ok();
+        assert_eq!(full["owner"], Value::Null);
+    }
+    for (field, value) in [
+        ("generation", json!("7")),
+        ("created", json!("2026-01-01T00:00:00Z")),
+        ("timeCreated", json!("2026-01-01T00:00:00Z")),
+        ("updated", json!("2026-01-01T00:00:00Z")),
+    ] {
+        let mut metadata = json!({"bucket":"test-bucket","name":"refused.csv","defaults":"seed"});
+        metadata[field] = value;
+        let message =
+            server.fixture(metadata, b"bytes", "").expect(400).json()["error"]["message"].clone();
+        assert!(
+            message.as_str().is_some_and(|text| text.contains(field)),
+            "{field}: {message}"
+        );
+    }
+    server
+        .fixture(
+            json!({"bucket":"test-bucket","name":"refused.csv","defaults":"startup"}),
+            b"bytes",
+            "",
+        )
+        .expect(400);
+    server
+        .request("GET", "/storage/v1/b/test-bucket/o/refused.csv", "", b"")
+        .expect(404);
+}
+
 #[test]
 fn fixture_publications_past_every_slot_wait_their_turn_and_all_succeed() {
     let dir = TestDir::new();

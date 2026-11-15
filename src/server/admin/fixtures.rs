@@ -1,5 +1,6 @@
 //! Direct local fixtures share the ordinary streaming and atomic publication protocol.
 
+use crate::config::Config;
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
@@ -18,15 +19,36 @@ use hyper::{
     Method, Request, Response, StatusCode,
     body::{Body, Bytes},
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 struct Fixture {
     bucket: BucketName,
     name: ObjectName,
     publication: Publication,
-    identity: ImportedIdentity,
+    provenance: Provenance,
     notification_mode: NotificationMode,
+}
+
+/// Which publication a fixture's omitted fields imitate, chosen by its `defaults` member.
+enum Provenance {
+    /// A direct fixture names its own identity: the catalog keeps the given generation and times
+    /// and assigns no owner, and the media part's type stands in for a missing `contentType`.
+    Fixture(ImportedIdentity),
+    /// A file of the startup seed tree: no imported identity, so ownership, times, generation and
+    /// bucket default holds come from the same publication a startup seed runs, and the type
+    /// comes from the object name as the seed derives it. A helper that loads a directory at
+    /// runtime then creates the objects a startup seed of that directory would.
+    Seed,
+}
+
+impl Provenance {
+    fn into_identity(self) -> Option<ImportedIdentity> {
+        match self {
+            Self::Fixture(identity) => Some(identity),
+            Self::Seed => None,
+        }
+    }
 }
 
 pub(super) async fn insert(
@@ -52,14 +74,11 @@ pub(super) async fn insert(
     let boundary = json::multipart_boundary(request.headers())?;
     let mut multipart = json::Multipart::related(request.into_body(), &boundary);
     let metadata = multipart.metadata().await?;
-    let mut fixture = parse(
-        &metadata,
-        ctx.state.clock.now(),
-        ctx.config.max_object_bytes,
-    )?;
+    let mut fixture = parse(&metadata, ctx.state.clock.now(), ctx.config)?;
     let admin = admin.with_notification_mode(fixture.notification_mode);
     if let Some(content_type) = multipart.headers(json::PartKind::Media).await?
         && fixture.publication.metadata.content_type == Patch::Keep
+        && matches!(fixture.provenance, Provenance::Fixture(_))
     {
         fixture.publication.content_type = content_type;
     }
@@ -69,7 +88,7 @@ pub(super) async fn insert(
         &fixture.bucket,
         &fixture.name,
         fixture.publication,
-        Some(fixture.identity),
+        fixture.provenance.into_identity(),
         body,
     );
     let streaming = async {
@@ -116,7 +135,7 @@ async fn stream<B: Body<Data = Bytes> + Unpin>(
     Ok(expected)
 }
 
-fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonError> {
+fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, JsonError> {
     let mut value: Value = serde_json::from_slice(bytes)
         .map_err(|_| JsonError::invalid_argument("Fixture metadata must be a JSON object"))?;
     let fields = value
@@ -137,6 +156,76 @@ fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonE
         .and_then(Value::as_str)
         .ok_or_else(|| JsonError::invalid_argument("Fixture metadata requires bucket"))?;
     let bucket = BucketName::new(bucket).map_err(failure)?;
+    let provenance = provenance(fields, now)?;
+    for field in ["timeDeleted", "deleted", "etag", "size"] {
+        if fields.contains_key(field) {
+            return Err(JsonError::unsupported_object(field));
+        }
+    }
+    let acl = fields
+        .remove("acl")
+        .map(|acl| fixture_acl(&acl))
+        .transpose()?
+        .flatten();
+    check_fixture_members(fields)?;
+    let bytes = serde_json::to_vec(&value)
+        .map_err(|_| JsonError::invalid_argument("Invalid fixture metadata"))?;
+    let json::MultipartMetadata {
+        name,
+        update: mut metadata,
+        expected,
+    } = json::multipart_metadata(&bytes, None, ExpectedHashes::default())?;
+    metadata.acl = acl;
+    let content_type = match (metadata.content_type.value(), &provenance) {
+        (Some(content_type), _) => content_type.clone(),
+        (None, Provenance::Seed) => config.seed_content_type.for_name(&name).into(),
+        (None, Provenance::Fixture(_)) => "application/octet-stream".into(),
+    };
+    let name = ObjectName::new(name).map_err(failure)?;
+    metadata.validate()?;
+    Ok(Fixture {
+        bucket,
+        name,
+        provenance,
+        notification_mode,
+        publication: Publication {
+            content_type,
+            metadata,
+            expected,
+            condition: None,
+            max_bytes: config.max_object_bytes,
+            mode: PublishMode::Replace,
+        },
+    })
+}
+
+/// Fields a direct fixture may set because a startup seed would otherwise choose them.
+const IDENTITY_FIELDS: [&str; 4] = ["generation", "created", "timeCreated", "updated"];
+
+fn provenance(fields: &mut Map<String, Value>, now: SystemTime) -> Result<Provenance, JsonError> {
+    match fields.remove("defaults").as_ref().map(Value::as_str) {
+        None | Some(Some("fixture")) => identity(fields, now).map(Provenance::Fixture),
+        Some(Some("seed")) => match IDENTITY_FIELDS
+            .into_iter()
+            .find(|field| fields.contains_key(*field))
+        {
+            // A seed publication allocates its generation and stamps its own times, so an
+            // explicit identity would be silently replaced.
+            Some(field) => Err(JsonError::invalid_argument(format!(
+                "Fixture defaults seed assigns generation and times at publication; omit {field}"
+            ))),
+            None => Ok(Provenance::Seed),
+        },
+        Some(_) => Err(JsonError::invalid_argument(
+            "Fixture defaults must be fixture or seed",
+        )),
+    }
+}
+
+fn identity(
+    fields: &mut Map<String, Value>,
+    now: SystemTime,
+) -> Result<ImportedIdentity, JsonError> {
     let generation = fields
         .remove("generation")
         .map(|value| {
@@ -162,47 +251,7 @@ fn parse(bytes: &[u8], now: SystemTime, max_bytes: u64) -> Result<Fixture, JsonE
         .or_else(|| fields.remove("timeCreated"));
     let created = timestamp(created.as_ref(), now)?;
     let updated = timestamp(fields.remove("updated").as_ref(), now)?;
-    let identity = ImportedIdentity::fixture(generation, created, updated).map_err(failure)?;
-    for field in ["timeDeleted", "deleted", "etag", "size"] {
-        if fields.contains_key(field) {
-            return Err(JsonError::unsupported_object(field));
-        }
-    }
-    let acl = fields
-        .remove("acl")
-        .map(|acl| fixture_acl(&acl))
-        .transpose()?
-        .flatten();
-    check_fixture_members(fields)?;
-    let bytes = serde_json::to_vec(&value)
-        .map_err(|_| JsonError::invalid_argument("Invalid fixture metadata"))?;
-    let json::MultipartMetadata {
-        name,
-        update: mut metadata,
-        expected,
-    } = json::multipart_metadata(&bytes, None, ExpectedHashes::default())?;
-    metadata.acl = acl;
-    let name = ObjectName::new(name).map_err(failure)?;
-    let content_type = metadata
-        .content_type
-        .value()
-        .cloned()
-        .unwrap_or_else(|| "application/octet-stream".into());
-    metadata.validate()?;
-    Ok(Fixture {
-        bucket,
-        name,
-        identity,
-        notification_mode,
-        publication: Publication {
-            content_type,
-            metadata,
-            expected,
-            condition: None,
-            max_bytes,
-            mode: PublishMode::Replace,
-        },
-    })
+    ImportedIdentity::fixture(generation, created, updated).map_err(failure)
 }
 
 /// The JSON API ignores members it does not know and non-boolean holds; this emulator-only
@@ -240,6 +289,7 @@ fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), 
         "customTime",
         "retention",
         "notificationMode",
+        "defaults",
         "timeFinalized",
     ];
     if let Some(unknown) = fields.keys().find(|key| !KNOWN.contains(&key.as_str())) {
