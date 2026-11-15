@@ -25,28 +25,56 @@ const TARGETS: [&str; 8] = [
 ];
 const RUST_NOTICES: [&str; 2] = ["COPYRIGHT-library.html", "licenses"];
 const MUSL_SOURCE_SHA256: &str = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4";
-// These MIT crates were published from one grpc-rust revision without their license text. The
-// supplied text is that revision's repository-root LICENSE, which tonic 0.14.9 packages verbatim.
-const GRPC_RUST_REVISION: &str = "4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70";
-const GRPC_RUST_LICENSE: &str = "distribution/notices/grpc-rust-4c0f455c/LICENSE";
-const GRPC_RUST_SUPPLIED: [&str; 2] = ["tonic-prost", "tonic-prost-build"];
-const GRPC_RUST_VERSION: &str = "0.14.9";
+/// MIT crates published without their license text. Each is given its repository's text at the
+/// revision it was published from, which the review below pins to one version.
+struct SuppliedLicense {
+    crates: &'static [&'static str],
+    version: &'static str,
+    repository: &'static str,
+    revision: &'static str,
+    /// The checked-in copy of `LICENSE` at `revision`.
+    path: &'static str,
+}
+
+const SUPPLIED_LICENSES: [SuppliedLicense; 2] = [
+    // tonic 0.14.9 packages the same repository-root LICENSE verbatim.
+    SuppliedLicense {
+        crates: &["tonic-prost", "tonic-prost-build"],
+        version: "0.14.9",
+        repository: "grpc/grpc-rust",
+        revision: "4c0f455c264fe2ec9f9ab5d0cc7fd2824d5daf70",
+        path: "distribution/notices/grpc-rust-4c0f455c/LICENSE",
+    },
+    // The revision is the one the crate's .cargo_vcs_info.json names.
+    SuppliedLicense {
+        crates: &["inquire"],
+        version: "0.9.4",
+        repository: "mikaelmello/inquire",
+        revision: "3d5b65422a247acc773d767558e34fcb69ab04bf",
+        path: "distribution/notices/inquire-3d5b6542/LICENSE",
+    },
+];
 // crc32c adapts zlib's CRC combine code, so its notices need a per-version review on top of the
 // crate's own license files; ZLIB.txt keeps the original zlib terms that combine.rs points to.
 const CRC32C_REVIEWED_VERSION: &str = "0.6.9";
 const CRC32C_ZLIB_NOTICE: &str = "distribution/notices/crc32c-0.6.9/ZLIB.txt";
 
-fn grpc_rust_supplied(package: &Value) -> Result<bool> {
-    if !GRPC_RUST_SUPPLIED.contains(&text(package, "name")?) {
-        return Ok(false);
-    }
-    if package["version"] != GRPC_RUST_VERSION {
+/// The reviewed license text `package` is given, if it is one of the crates published without
+/// one. Another version of such a crate fails until its text is reviewed again.
+fn supplied_license(package: &Value) -> Result<Option<&'static SuppliedLicense>> {
+    let name = text(package, "name")?;
+    let Some(supplied) = SUPPLIED_LICENSES
+        .iter()
+        .find(|supplied| supplied.crates.contains(&name))
+    else {
+        return Ok(None);
+    };
+    if package["version"] != supplied.version {
         return Err(format!(
-            "{} notice exception requires review for this version",
-            text(package, "name")?
+            "{name} notice exception requires review for this version"
         ));
     }
-    Ok(true)
+    Ok(Some(supplied))
 }
 
 pub(crate) fn capture(command: &mut Command) -> Result<String> {
@@ -160,7 +188,7 @@ fn package_notices(package: &Value) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
         // binary is Microsoft's, whose copyright only this file states.
         notice_files(&base, Path::new("c_src/mimalloc/v3/LICENSE"), &mut files)?;
     }
-    if files.is_empty() && !grpc_rust_supplied(package)? {
+    if files.is_empty() && supplied_license(package)?.is_none() {
         return Err(format!("no license notices for {}", text(package, "name")?));
     }
     Ok((base, files))
@@ -442,15 +470,22 @@ fn write_notices(root: &Path, target: &str, metadata: &Value, output: &Path) -> 
                 "review_scope": format!("crc32c {CRC32C_REVIEWED_VERSION} only; other versions require a fresh notice review."),
             }));
         }
-        if grpc_rust_supplied(package)? {
-            copy(&root.join(GRPC_RUST_LICENSE), &destination.join("LICENSE"))?;
+        if let Some(supplied) = supplied_license(package)? {
+            copy(&root.join(supplied.path), &destination.join("LICENSE"))?;
             files.insert(PathBuf::from("LICENSE"));
             license_selection = Some(json!({
                 "chosen_license": "MIT",
                 "basis": "The published crate declares MIT but omits the license text, so LICENSE is the repository-root text from the revision it was published from.",
-                "upstream_revision": GRPC_RUST_REVISION,
-                "upstream_source": format!("https://raw.githubusercontent.com/grpc/grpc-rust/{GRPC_RUST_REVISION}/LICENSE"),
-                "review_scope": "tonic-prost and tonic-prost-build 0.14.9 only; other versions require a fresh notice review.",
+                "upstream_revision": supplied.revision,
+                "upstream_source": format!(
+                    "https://raw.githubusercontent.com/{}/{}/LICENSE",
+                    supplied.repository, supplied.revision
+                ),
+                "review_scope": format!(
+                    "{} {} only; other versions require a fresh notice review.",
+                    supplied.crates.join(" and "),
+                    supplied.version
+                ),
             }));
         }
         if package["name"] == "libsqlite3-sys" {
@@ -770,49 +805,72 @@ mod tests {
         assert!(package_notices(&package).is_err());
     }
 
+    /// Named for the first such crates; it covers every crate published without license text.
     #[test]
     fn grpc_rust_crates_without_license_text_receive_the_reviewed_upstream_text() {
-        let directory = Directory::new();
-        for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
-            fs::write(directory.0.join(name), "project terms").unwrap();
-        }
-        let supplied = directory.0.join(GRPC_RUST_LICENSE);
-        fs::create_dir_all(supplied.parent().unwrap()).unwrap();
-        fs::write(&supplied, "grpc-rust MIT text").unwrap();
-        let package_dir = directory.0.join("tonic-prost");
-        fs::create_dir(&package_dir).unwrap();
-        let mut package = json!({
-            "name": "tonic-prost", "version": "0.14.9", "license": "MIT",
-            "source": "registry+https://github.com/rust-lang/crates.io-index",
-            "manifest_path": package_dir.join("Cargo.toml"),
-        });
-        let output = directory.0.join("notices");
-        let metadata = json!({"packages": [package.clone()], "workspace_members": []});
-        write_notices(&directory.0, TARGETS[0], &metadata, &output).unwrap();
-        let crate_notices = output.join("third-party-licenses/crates/tonic-prost-0.14.9");
-        assert_eq!(
-            fs::read_to_string(crate_notices.join("LICENSE")).unwrap(),
-            "grpc-rust MIT text"
-        );
-        let index: Value = serde_json::from_slice(
-            &fs::read(output.join("third-party-licenses/INDEX.json")).unwrap(),
-        )
-        .unwrap();
-        let entry = index["packages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|entry| entry["name"] == "tonic-prost")
+        for supplied in &SUPPLIED_LICENSES {
+            let name = supplied.crates[0];
+            let directory = Directory::new();
+            for file in ["LICENSE-MIT", "LICENSE-APACHE"] {
+                fs::write(directory.0.join(file), "project terms").unwrap();
+            }
+            let text = format!("{} MIT text", supplied.repository);
+            let path = directory.0.join(supplied.path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, &text).unwrap();
+            let package_dir = directory.0.join(name);
+            fs::create_dir(&package_dir).unwrap();
+            let mut package = json!({
+                "name": name, "version": supplied.version, "license": "MIT",
+                "source": "registry+https://github.com/rust-lang/crates.io-index",
+                "manifest_path": package_dir.join("Cargo.toml"),
+            });
+            let output = directory.0.join("notices");
+            let metadata = json!({"packages": [package.clone()], "workspace_members": []});
+            write_notices(&directory.0, TARGETS[0], &metadata, &output).unwrap();
+            let crate_notices = output.join(format!(
+                "third-party-licenses/crates/{name}-{}",
+                supplied.version
+            ));
+            assert_eq!(
+                fs::read_to_string(crate_notices.join("LICENSE")).unwrap(),
+                text
+            );
+            let index: Value = serde_json::from_slice(
+                &fs::read(output.join("third-party-licenses/INDEX.json")).unwrap(),
+            )
             .unwrap();
-        assert_eq!(
-            entry["license_selection"]["upstream_revision"],
-            GRPC_RUST_REVISION
-        );
-        // An unreviewed version, or an unrelated crate without notices, still fails closed.
-        package["version"] = json!("0.14.8");
-        assert!(package_notices(&package).is_err());
-        package["name"] = json!("other");
-        package["version"] = json!("0.14.9");
-        assert!(package_notices(&package).is_err());
+            let entry = index["packages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["name"] == name)
+                .unwrap();
+            assert_eq!(
+                entry["license_selection"]["upstream_revision"],
+                supplied.revision
+            );
+            // An unreviewed version, or an unrelated crate without notices, still fails closed.
+            package["version"] = json!("0.0.1");
+            assert!(package_notices(&package).is_err(), "{name}");
+            package["name"] = json!("other");
+            package["version"] = json!(supplied.version);
+            assert!(package_notices(&package).is_err(), "{name}");
+        }
+    }
+
+    /// The checked-in texts are the reviewed upstream files: a supplied path that moved or a text
+    /// that was edited would otherwise ship unnoticed.
+    #[test]
+    fn supplied_license_texts_are_checked_in() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for supplied in &SUPPLIED_LICENSES {
+            let text = fs::read_to_string(root.join(supplied.path)).unwrap();
+            assert!(
+                text.contains("Permission is hereby granted, free of charge"),
+                "{}",
+                supplied.path
+            );
+        }
     }
 }
