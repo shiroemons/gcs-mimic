@@ -160,7 +160,7 @@ fn metadata_from_map(
             return Err(JsonError::unsupported_object(field));
         }
     }
-    let mut unchanged = unchanged_fields(body)?;
+    let mut unchanged = unchanged_fields(body);
     let metadata = custom_metadata(body)?;
     match kind {
         BodyKind::Mutation => {
@@ -207,7 +207,7 @@ fn metadata_from_map(
 /// Collects server-managed fields, which a write may repeat only unchanged. Cloud Storage
 /// ignored a member that is not part of the object resource, so the writable fields and any
 /// unknown member pass through.
-fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, JsonError> {
+fn unchanged_fields(body: &Map<String, Value>) -> Map<String, Value> {
     let mut unchanged = Map::new();
     // shortcut: changed output-only and unknown inputs need legacy service evidence; accept only identical resource values.
     for (key, value) in body {
@@ -242,7 +242,7 @@ fn unchanged_fields(body: &Map<String, Value>) -> Result<Map<String, Value>, Jso
             unchanged.insert(key.clone(), value.clone());
         }
     }
-    Ok(unchanged)
+    unchanged
 }
 
 /// A hold flag. Cloud Storage applied a boolean and left the hold alone for `null` or a value
