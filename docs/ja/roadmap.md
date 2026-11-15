@@ -1,13 +1,13 @@
 # ロードマップ
 
-0.22.0の内容を対象に更新しています。公開イメージの例は`0.22.0`です。0.8.0で追加した移行機能のSDK・ブラウザー・配布物の検証範囲と結果は[統合検証（英語）](../en/evidence/migration-integration.md)にまとめています。この結果によって未達の受入条件が変わるわけではありません。fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`として公開します。`1.0.0`は公開契約を凍結し、サポート対象の全リリースからのデータディレクトリの更新を検証した段階です。fake-gcs-serverの完全な上位互換は別の目標として続けます。以下は着手順の目安で、公開日を約束するものではありません。
+0.23.0の内容を対象に更新しています。公開イメージの例は`0.23.0`です。0.8.0で追加した移行機能のSDK・ブラウザー・配布物の検証範囲と結果は[統合検証（英語）](../en/evidence/migration-integration.md)にまとめています。この結果によって未達の受入条件が変わるわけではありません。fake-gcs-serverで使っていた用途の不足を、使える単位の`0.x`として公開します。`1.0.0`は公開契約を凍結し、サポート対象の全リリースからのデータディレクトリの更新を検証した段階です。fake-gcs-serverの完全な上位互換は別の目標として続けます。以下は着手順の目安で、公開日を約束するものではありません。
 
 [English](../en/roadmap.md) ·
 [実装状態の原本](../../compatibility/features.json)
 
 ## 現在使えること
 
-[0.22.0](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.22.0)では、ネイティブ版とLinux AMD64・ARM64イメージを提供しています。イメージはGHCRとDocker Hubから取得できます。既定で1つのポートがHTTPとHTTPSを受け付けます。HTTP/HTTPS同時待受、公開ホストのルーティング、locationの既定値、ログレベルを設定できます。[19個の元環境変数の対応表](fake-gcs-server-configuration.md)に、設定の対応と診断をまとめています。
+[0.23.0](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.23.0)では、ネイティブ版とLinux AMD64・ARM64イメージを提供しています。イメージはGHCRとDocker Hubから取得できます。既定で1つのポートがHTTPとHTTPSを受け付けます。HTTP/HTTPS同時待受、公開ホストのルーティング、locationの既定値、ログレベルを設定できます。[19個の元環境変数の対応表](fake-gcs-server-configuration.md)に、設定の対応と診断をまとめています。
 
 複数バケット、バケット別のCORS・IAM、ストリーミング転送、rewrite・compose・moveを利用できます。世代履歴、hold、バケット・オブジェクトのretention、soft delete・restoreも、宣言した範囲で実装しています。V2/V4 RSA署名転送とV4署名POST policyにも対応しています。JSON ACL、通知設定、HMACキー管理、Autoclass設定もありますが、後述の効果には制約があります。バケット・オブジェクトのPATCH・PUTでは、ACLをほかのメタデータと同じトランザクションで置き換えます。media・multipart・コピーの呼び出しトークンは、上限付きのローカル保持期間内で元の応答を再送します。JSONのmedia GETとXMLのGETは、gzipで保存したオブジェクトを展開して返します。Storage v2 gRPCは再開可能アップロード、追記、範囲読込に対応しています。旧Storage v1も参照版の12個のRPCに対応していますが、入力・応答には制限があります。0.9.0以降は、`gcloud storage`で[例の手順（英語）](../../examples/gcloud/README.md)を実行でき、[examples（英語）](../../examples/README.md)で8種類の公式クライアントの例を用意しています。0.10.0以降は、`x-goog-content-length-range`に対応したため、Rails Active Storage 8.1.4.1のダイレクトアップロードが動きます。XMLの読み取りも条件付きヘッダーを評価します。詳細は[0.17.1のリリースノート](../en/releases/0.17.1.md)、[0.16.0のリリースノート](../en/releases/0.16.0.md)、[0.15.0のリリースノート](../en/releases/0.15.0.md)、[0.14.0のリリースノート](../en/releases/0.14.0.md)、[0.13.0のリリースノート](../en/releases/0.13.0.md)、[0.12.0のリリースノート](../en/releases/0.12.0.md)、[0.11.0のリリースノート](../en/releases/0.11.0.md)、[0.10.0のリリースノート](../en/releases/0.10.0.md)、[0.9.0のリリースノート](../en/releases/0.9.0.md)、[0.8.0のリリースノート](../en/releases/0.8.0.md)、[0.5.0のリリースノート](../en/releases/0.5.0.md)と[0.4.0の機能範囲と制限](../en/releases/0.4.0.md)を参照してください。
 
@@ -25,9 +25,8 @@ seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 
 SDKとブラウザーの検証は、宣言した範囲が対象です。
 [9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
-Go・Ruby・Node.js・Python・Java・.NET・Rust・C++の全ケースと、PHPの1件を除く全ケースが[最新の結果](../../sdk-scorecard/results/2026-11-15-7/summary.md)で通ります。
-前回の結果のあと、バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が顧客指定の暗号鍵を受け付け（[範囲](grpc-v2-customer-supplied-keys.md)）、XMLマルチパートの各パートの応答がハッシュを返すようになりました（[範囲（英語）](../en/slices/xml-multipart-upload.md)）。
-残りの1件は、PHPのgs://書き込みが開始時に宣言する長さ0です。現在は宣言された0を合計未定として扱い（[範囲（英語）](../en/slices/resumable-upload.md)）、その後2026-11-15にgcs-mimicだけで実行した結果では全ケースが通ります。範囲と残りの条件は
+0.23.0のソースでの[最新の結果](../../sdk-scorecard/results/2026-11-15-8/summary.md)では、9つのSDKの全ケースが通ります。
+最後まで残っていた未対応は0.23.0で解消しました。バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が顧客指定の暗号鍵を受け付け（[範囲](grpc-v2-customer-supplied-keys.md)）、XMLマルチパートの各パートの応答がハッシュを返し（[範囲（英語）](../en/slices/xml-multipart-upload.md)）、宣言されたアップロードの長さ0を合計未定として扱います（[範囲（英語）](../en/slices/resumable-upload.md)）。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
 0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。
@@ -151,7 +150,7 @@ SQLiteは維持でき、監視後にサイズだけ更新する実装では不�
 [バージョン方針](release-policy.md#100の条件)に判定条件があります。
 `0.1.0`〜`0.7.0`は[撤回](release-policy.md#撤回したリリース)しました。
 
-初回`0.x`は公開済みで、公開イメージの例は`0.22.0`です。初回の対象は、宣言済みのJSON・公開/非公開転送・URL・永続化・seed・Go/Ruby・CORS・HTTPSでした。Rails、lifecycle、gRPC、完全互換の完成は前提にしていません。環境別CI、依存更新、リリースノート、ライセンス同梱、checksum、公開イメージ取得の検証は、各公開で必要です。
+初回`0.x`は公開済みで、公開イメージの例は`0.23.0`です。初回の対象は、宣言済みのJSON・公開/非公開転送・URL・永続化・seed・Go/Ruby・CORS・HTTPSでした。Rails、lifecycle、gRPC、完全互換の完成は前提にしていません。環境別CI、依存更新、リリースノート、ライセンス同梱、checksum、公開イメージ取得の検証は、各公開で必要です。
 台帳のDIST-001〜DIST-005は`PARTIAL`のままで、残りの受入条件や証跡の整理が必要です。
 公開物が存在することやローカル検証の成功だけで、配布要件全体を完了とはしません。
 

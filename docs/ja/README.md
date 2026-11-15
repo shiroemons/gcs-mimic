@@ -256,7 +256,7 @@ gcs_emulator:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.22.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.23.0
     ports:
       - "127.0.0.1:4443:4443"
     volumes:
@@ -395,20 +395,18 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 | Go | 66/66（1 n/a） | 28/66（1 n/a） | 21/66（1 n/a） | 53/66（1 n/a） |
 | Ruby | 57/57（1 n/a） | 25/57（1 n/a） | 24/57（1 n/a） | 44/57（1 n/a） |
 | Node.js | 59/59 | 28/59 | 25/59 | 48/59 |
-| PHP | 59/60 | 29/60 | 22/60 | 47/60 |
+| PHP | 60/60 | 29/60 | 22/60 | 47/60 |
 | Python | 63/63 | 23/63 | 25/63 | 42/63 |
 | Java | 79/79（1 n/a） | 36/79（1 n/a） | 35/79（1 n/a） | 57/79（1 n/a） |
 | .NET | 72/72（1 n/a） | 32/72（1 n/a） | 31/72（1 n/a） | 52/72（1 n/a） |
 | Rust | 54/54（5 n/a） | 0/54（5 n/a） | 0/54（5 n/a） | 32/54（5 n/a） |
 | C++ | 61/61（1 n/a） | 27/61（1 n/a） | 25/61（1 n/a） | 49/61（1 n/a） |
-| スコア（/100） | 99.8 | 39.2 | 35.7 | 74.2 |
+| スコア（/100） | 100 | 39.2 | 35.7 | 74.2 |
 
-2026-11-15に、0.22.0のソースで記録しました（[結果](../../sdk-scorecard/results/2026-11-15-7/summary.md)）。
+2026-11-15に、0.23.0のソースで記録しました（[結果](../../sdk-scorecard/results/2026-11-15-8/summary.md)）。
 ケースの通過は通常のSDKの操作が動くことを示すもので、APIの完成を意味しません。
 n/aはSDKに公開APIがないケースで、そのSDKの分母から除きます。
-この実行でgcs-mimicが通過しないケースは1件です。
-PHPの`sdk.stream_wrapper`は、アップロードの長さを0と宣言してから中身を送り、その実行の時点のgcs-mimicはその0を守らせていました。
-現在は、Cloud Storageの応答に合わせて宣言された0を合計未定として扱い、その後2026-11-15にgcs-mimicだけで実行した結果では全ケースが通ります。結果は次の全体比較で更新します。
+gcs-mimicは9つのSDKの全ケースを通過します。
 
 ## fake-gcs-serverから移行する
 
@@ -435,7 +433,7 @@ gcs-mimicは普段の使い勝手をfake-gcs-serverから受け継いでいる�
 - [ファイル保存の仕組み](storage-backends.md)、[設計（英語）](../en/design.md)、[ロードマップ](roadmap.md)
 - [開発とpush前の確認](development.md)と[バージョンと公開の方針](release-policy.md)
 - [ボトルネックの探し方](performance-investigation.md)と[性能調査の結果・採否（英語）](../en/evidence/read-optimization-summary.md)
-- [0.22.0のリリースノート（英語）](../en/releases/0.22.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.23.0のリリースノート（英語）](../en/releases/0.23.0.md)と[すべてのリリース](https://github.com/shiroemons/gcs-mimic/releases)
 - 英語ガイド: [ソースからのビルドとAPIの手順](../en/getting-started.md)、[ローカルHTTPS](../en/local-https.md)、
   [署名付きURL](../en/signed-urls.md)、[ネイティブバイナリ](../en/native-binary.md)
 - [llms.txt（英語）](../../llms.txt): コーディングエージェントがgcs-mimicをプロジェクトに組み込むときの短いガイド

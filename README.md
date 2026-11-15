@@ -296,7 +296,7 @@ The numbers are under [how it compares](#how-it-compares).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.22.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.23.0
     ports:
       - "127.0.0.1:4443:4443"
     volumes:
@@ -460,23 +460,19 @@ Each official SDK runs the same workflows against all four emulators
 | Go | 66/66 (1 n/a) | 28/66 (1 n/a) | 21/66 (1 n/a) | 53/66 (1 n/a) |
 | Ruby | 57/57 (1 n/a) | 25/57 (1 n/a) | 24/57 (1 n/a) | 44/57 (1 n/a) |
 | Node.js | 59/59 | 28/59 | 25/59 | 48/59 |
-| PHP | 59/60 | 29/60 | 22/60 | 47/60 |
+| PHP | 60/60 | 29/60 | 22/60 | 47/60 |
 | Python | 63/63 | 23/63 | 25/63 | 42/63 |
 | Java | 79/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 57/79 (1 n/a) |
 | .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 52/72 (1 n/a) |
 | Rust | 54/54 (5 n/a) | 0/54 (5 n/a) | 0/54 (5 n/a) | 32/54 (5 n/a) |
 | C++ | 61/61 (1 n/a) | 27/61 (1 n/a) | 25/61 (1 n/a) | 49/61 (1 n/a) |
-| Score (/100) | 99.8 | 39.2 | 35.7 | 74.2 |
+| Score (/100) | 100 | 39.2 | 35.7 | 74.2 |
 
-Recorded on 2026-11-15 with the 0.22.0 source
-([results](sdk-scorecard/results/2026-11-15-7/summary.md)). A passing case
+Recorded on 2026-11-15 with the 0.23.0 source
+([results](sdk-scorecard/results/2026-11-15-8/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
-gcs-mimic fails one case in that run: PHP's `sdk.stream_wrapper` declares an
-upload length of 0 before streaming the object, which gcs-mimic then enforced.
-A declared 0 now leaves the total open, as Cloud Storage answered, and a later
-gcs-mimic-only run on 2026-11-15 passes every case; the results update with
-the next full comparison.
+gcs-mimic passes every case for all nine SDKs.
 
 ## Coming from fake-gcs-server?
 
@@ -520,7 +516,7 @@ full list and what to do instead.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.22.0 release notes](docs/en/releases/0.22.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.23.0 release notes](docs/en/releases/0.23.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 - [llms.txt](llms.txt), a short guide for coding agents wiring gcs-mimic into a project
 
 ## License
