@@ -274,9 +274,10 @@ guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
 set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
 count toward this threshold across split scans. Deleting a bucket directory
 keeps the bucket, and deleting a bucket through the API keeps its directory.
-When both the API and a file changed the same object, neither overwrites the
-other; the conflict is retained and listed by `gcs-mimic sync conflicts` for
-explicit resolution. Object names containing `\` or `:`, such as
+When both the API and a file changed the same object, the API's version wins:
+the file is replaced with the API's bytes and the edit is retained as a
+conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;
+restoring it publishes the edit. Object names containing `\` or `:`, such as
 `logs/2026-10-28T12:00:00.log`, and other names that cannot be mapped to host
 file names are skipped without stopping the mirror; they stay available through
 the API.
