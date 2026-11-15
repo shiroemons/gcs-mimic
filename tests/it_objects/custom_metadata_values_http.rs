@@ -118,7 +118,16 @@ fn patch_clears_the_map_when_every_supplied_value_is_dropped() {
 #[test]
 fn the_size_limit_counts_the_stored_text_of_a_converted_value() {
     let (_dir, server) = setup();
-    let key = "k".repeat(8191);
+    // The local bound on the encoded metadata is the only limit, as Cloud Storage accepted
+    // custom metadata past its documented 8 KiB (recorded 2026-11-15). An edit of a stored
+    // object counts what a later copy inherits: the content type twice (as a session field and
+    // inside the metadata) beside `{"<key>":"1"}`. The key fills the 40 KiB exactly, and the
+    // stored text "10" of the number 10 is one byte longer.
+    let content_type = server.get("object").json_ok()["contentType"]
+        .as_str()
+        .unwrap()
+        .len();
+    let key = "k".repeat(40 * 1024 - 2 * (content_type + 2) - 8);
     write(&server, "PATCH", &json!({ &key: 1 }).to_string());
     server
         .request(
@@ -127,7 +136,7 @@ fn the_size_limit_counts_the_stored_text_of_a_converted_value() {
             "",
             json!({"metadata":{ &key: 10 }}).to_string().as_bytes(),
         )
-        .json_reason(400, "invalidArgument");
+        .json_reason(400, "invalid");
 }
 
 #[test]

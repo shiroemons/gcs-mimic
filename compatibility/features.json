@@ -17940,7 +17940,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed fields and custom keys; null deletes, final custom metadata stays within 8 KiB, conditions are atomic and persisted metadata reaches resource/media headers. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional project-plus-bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and the final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method remains PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PATCH body are ignored.",
+      "notes": "PATCH merges the five supported fixed fields and custom keys; null deletes, final custom metadata stays within the local 40 KiB bound on encoded metadata (Cloud Storage enforced no 8 KiB limit, recorded 2026-11-15), conditions are atomic and persisted metadata reaches resource/media headers. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional project-plus-bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and the final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method remains PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PATCH body are ignored.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -17966,7 +17966,7 @@
         },
         {
           "id": "JSON-OBJECTS-010-METADATA",
-          "description": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers.",
+          "description": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata stays within the local 40 KiB bound on encoded metadata, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers.",
           "result": "PASS",
           "test_ids": [
             "patch_merges_put_replaces_and_download_reflects_persistent_metadata",

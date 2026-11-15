@@ -311,11 +311,6 @@ pub(crate) fn final_options(
             }
         }
     }
-    if let MapPatch::Merge(entries) = &options.metadata.metadata
-        && crate::object::custom_metadata_exceeds(entries, crate::object::RemovedKeys::Counted)
-    {
-        return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
-    }
     Ok(options)
 }
 

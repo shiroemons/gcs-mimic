@@ -1,5 +1,5 @@
 use super::{JsonError, ObjectMetadataRequest, checksum, object_metadata_from_map};
-use crate::object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectMetadataUpdate, Patch};
+use crate::object::{ChecksumConflict, ExpectedHashes, ObjectMetadataUpdate, Patch};
 use bytes::{Buf, Bytes, BytesMut};
 use http_body_util::BodyExt;
 use hyper::{
@@ -788,14 +788,6 @@ pub(crate) fn multipart_metadata_of(
         Patch::Set(value) if !value.is_empty() => Patch::Set(value),
         Patch::Keep | Patch::Clear | Patch::Set(_) => Patch::Keep,
     };
-    // A JSON body only merges custom metadata; a replacement comes from an update mask.
-    if let MapPatch::Merge(metadata) = &update.metadata
-        && crate::object::custom_metadata_exceeds(metadata, crate::object::RemovedKeys::Ignored)
-    {
-        return Err(JsonError::invalid_argument(
-            "Custom metadata exceeds 8192 bytes",
-        ));
-    }
     let metadata_name = unchanged.remove("name").filter(|value| !value.is_null());
     if metadata_name.as_ref().is_some_and(|name| !name.is_string()) {
         return Err(JsonError::invalid_argument("name must be a string or null"));

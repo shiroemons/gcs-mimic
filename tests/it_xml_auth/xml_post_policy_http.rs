@@ -352,7 +352,8 @@ fn v4_rsa_and_hmac_policy_upload_exact_binary_on_disk_and_ram() {
 }
 
 /// The form has no limit on its number of fields, so custom metadata may arrive in many small
-/// ones; the documented 8 KiB total is what still bounds it.
+/// ones; the local bound on the encoded metadata is what still bounds it. Cloud Storage accepted
+/// custom metadata past its documented 8 KiB on every other write (recorded 2026-11-15).
 #[test]
 fn a_policy_form_may_split_its_custom_metadata_over_many_small_fields() {
     let dir = TestDir::new();
@@ -362,7 +363,7 @@ fn a_policy_form_may_split_its_custom_metadata_over_many_small_fields() {
     let names: Vec<_> = (0..1000)
         .map(|index| format!("x-goog-meta-k{index:03}"))
         .collect();
-    let mut extras: Vec<_> = names.iter().map(|name| (name.as_str(), "vvvv")).collect();
+    let extras: Vec<_> = names.iter().map(|name| (name.as_str(), "vvvv")).collect();
     let form = fields(Signer::Hmac(&key), "policy-bucket", "object", &extras, &[]);
     assert!(form.len() > 1000);
     server.post("policy-bucket", &form, b"data").expect(204);
@@ -370,13 +371,24 @@ fn a_policy_form_may_split_its_custom_metadata_over_many_small_fields() {
         .request("GET", "/storage/v1/b/policy-bucket/o/object", ADMIN, b"")
         .json_ok();
     assert_eq!(stored["metadata"].as_object().unwrap().len(), 1000);
-    // Each field adds eight bytes, so this value passes the documented total by a single byte.
-    let over = "v".repeat(8192 - 8000 - "big".len() + 1);
-    extras.push(("x-goog-meta-big", over.as_str()));
-    let form = fields(Signer::Hmac(&key), "policy-bucket", "over", &extras, &[]);
+    // `{"big":"..."}` encodes to its value plus nine bytes, so this value passes the 40 KiB bound
+    // by a single byte. It goes alone: beside the thousand fields above, its exact condition would
+    // push the policy past its own 64 KiB cap.
+    let over = "v".repeat(40 * 1024 - 9 + 1);
+    let form = fields(
+        Signer::Hmac(&key),
+        "policy-bucket",
+        "over",
+        &[("x-goog-meta-big", over.as_str())],
+        &[],
+    );
     let reply = server.post("policy-bucket", &form, b"data");
     reply.expect(400);
-    assert!(String::from_utf8_lossy(&reply.body).contains("MetadataTooLarge"));
+    assert!(
+        String::from_utf8_lossy(&reply.body).contains("Object metadata exceeds 40 KiB"),
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
 }
 
 #[test]

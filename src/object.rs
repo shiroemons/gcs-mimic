@@ -347,84 +347,18 @@ fn encoded_json_len<T: serde::Serialize + ?Sized>(value: &T) -> usize {
 /// A session's options, a stored completion and a stored rewrite response keep a copy in columns
 /// checked at 64 KiB, next to the object name in several escaped forms and a `fields` selection
 /// of up to 16 KiB. Refusing here keeps an oversized value from failing those rows' constraints as
-/// a retryable server error after the client has sent its data. Custom metadata stays well inside
-/// this at its documented 8 KiB, unless nearly every byte needs a six-byte JSON escape, and fixed
-/// metadata has no documented size but becomes response headers, whose documented XML API total
-/// is 16 KiB.
+/// a retryable server error after the client has sent its data. This local bound is the only
+/// size limit on custom metadata: Cloud Storage accepted values far past its documented 8 KiB,
+/// up to a 64 KiB value (recorded 2026-11-15). Fixed metadata has no documented size but becomes
+/// response headers, whose documented XML API total is 16 KiB.
 const ENCODED_METADATA_LIMIT: usize = 40 * 1024;
 
-/// Cloud Storage's limit on the summed bytes of custom metadata keys and values.
-pub(crate) const CUSTOM_METADATA_LIMIT: usize = 8192;
-
-/// Which entries of a custom metadata change count toward [`CUSTOM_METADATA_LIMIT`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RemovedKeys {
-    /// A removal stores nothing and counts nothing.
-    Ignored,
-    /// A removal counts its key, as the resumable completion check always has.
-    Counted,
-}
-
-/// Whether the entries of a custom metadata change pass [`CUSTOM_METADATA_LIMIT`]. Each entry
-/// counts its key and value bytes; `removed` says whether a removal (`None`) counts its key.
-pub(crate) fn custom_metadata_exceeds(
-    entries: &BTreeMap<String, Option<String>>,
-    removed: RemovedKeys,
-) -> bool {
-    entries
-        .iter()
-        .filter_map(|(key, value)| match (value, removed) {
-            (Some(value), RemovedKeys::Ignored | RemovedKeys::Counted) => {
-                Some(key.len() + value.len())
-            }
-            (None, RemovedKeys::Counted) => Some(key.len()),
-            (None, RemovedKeys::Ignored) => None,
-        })
-        .sum::<usize>()
-        > CUSTOM_METADATA_LIMIT
-}
-
-#[cfg(test)]
-mod custom_metadata_limit_tests {
-    use super::*;
-
-    #[test]
-    fn the_limit_counts_keys_and_values_and_removals_only_when_asked() {
-        let entries = |pairs: &[(&str, Option<usize>)]| {
-            pairs
-                .iter()
-                .map(|(key, value)| ((*key).to_owned(), value.map(|len| "v".repeat(len))))
-                .collect::<BTreeMap<_, _>>()
-        };
-        for removed in [RemovedKeys::Ignored, RemovedKeys::Counted] {
-            // 8192 bytes exactly are allowed; one more byte is not.
-            assert!(!custom_metadata_exceeds(
-                &entries(&[("k", Some(8191))]),
-                removed
-            ));
-            assert!(custom_metadata_exceeds(
-                &entries(&[("k", Some(8192))]),
-                removed
-            ));
-            assert!(!custom_metadata_exceeds(
-                &entries(&[("a", Some(4095)), ("b", Some(4095))]),
-                removed
-            ));
-            assert!(custom_metadata_exceeds(
-                &entries(&[("a", Some(4095)), ("bb", Some(4095))]),
-                removed
-            ));
-        }
-        // A removal adds only its key, and only where removals count.
-        let with_removal = entries(&[("k", Some(8188)), ("gone", None)]);
-        assert!(!custom_metadata_exceeds(
-            &with_removal,
-            RemovedKeys::Ignored
-        ));
-        assert!(custom_metadata_exceeds(&with_removal, RemovedKeys::Counted));
-        let at_limit = entries(&[("k", Some(8188)), ("one", None)]);
-        assert!(!custom_metadata_exceeds(&at_limit, RemovedKeys::Counted));
-    }
+/// The refusal of metadata past [`ENCODED_METADATA_LIMIT`].
+fn encoded_metadata_too_large() -> ObjectError {
+    ObjectError::InvalidFixedMetadata(format!(
+        "Object metadata exceeds {} KiB once encoded as JSON; shorten its fixed and custom metadata.",
+        ENCODED_METADATA_LIMIT / 1024
+    ))
 }
 
 impl ObjectMetadataUpdate {
@@ -457,10 +391,7 @@ impl ObjectMetadataUpdate {
     /// Fails an update too large for the rows that keep a copy of it.
     pub(crate) fn check_encoded_size(&self) -> Result<(), ObjectError> {
         if self.encoded_size() > ENCODED_METADATA_LIMIT {
-            return Err(ObjectError::InvalidFixedMetadata(format!(
-                "Object metadata exceeds {} KiB once encoded as JSON; shorten its fixed and custom metadata.",
-                ENCODED_METADATA_LIMIT / 1024
-            )));
+            return Err(encoded_metadata_too_large());
         }
         Ok(())
     }
@@ -606,14 +537,10 @@ impl ObjectMetadataUpdate {
             empty.apply(field, patch);
         }
         apply_custom_metadata(&mut record.metadata, self.metadata);
-        if record
-            .metadata
-            .iter()
-            .map(|(key, value)| key.len() + value.len())
-            .sum::<usize>()
-            > CUSTOM_METADATA_LIMIT
-        {
-            return Err(ObjectError::InvalidMetadata);
+        // Merges can grow the stored custom metadata past what any one request carried. Fixed
+        // fields replace rather than accumulate, so only the merged map needs the bound again.
+        if encoded_json_len(&record.metadata) > ENCODED_METADATA_LIMIT {
+            return Err(encoded_metadata_too_large());
         }
         for (field, value) in record.fixed_fields() {
             if let Some(value) = value

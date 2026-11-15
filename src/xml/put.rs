@@ -309,12 +309,6 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
             }
         }
     }
-    if crate::object::custom_metadata_exceeds(&custom, crate::object::RemovedKeys::Ignored) {
-        return Err(Error::new(
-            XmlCode::MetadataTooLarge,
-            "Custom metadata exceeds 8 KiB.",
-        ));
-    }
     metadata.metadata = MapPatch::Merge(custom);
     Ok(metadata)
 }

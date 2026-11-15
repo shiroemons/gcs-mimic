@@ -42,9 +42,17 @@ async fn metadata_map_modes_apply_atomically_and_validate_the_result() {
         .apply(&mut record)
         .unwrap();
     assert!(!record.metadata.contains_key("new"));
+    // Cloud Storage accepted custom metadata past its documented 8 KiB (recorded 2026-11-15), so
+    // only the local bound on the encoded map refuses a result.
+    update(MapPatch::Replace([("new".into(), "a".repeat(8192))].into()))
+        .apply(&mut record)
+        .unwrap();
     assert!(matches!(
-        update(MapPatch::Replace([("new".into(), "a".repeat(8192))].into())).apply(&mut record),
-        Err(ObjectError::InvalidMetadata)
+        update(MapPatch::Replace(
+            [("new".into(), "a".repeat(40 * 1024))].into()
+        ))
+        .apply(&mut record),
+        Err(ObjectError::InvalidFixedMetadata(_))
     ));
     update(MapPatch::Replace(Default::default()))
         .apply(&mut record)

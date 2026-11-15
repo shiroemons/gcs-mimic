@@ -2,7 +2,7 @@ use crate::{
     bucket::StorageClass,
     decimal::Grammar,
     json::{JsonError, WriteMode, object_metadata_from_map, validate_object_name},
-    object::{ComposeSource, MapPatch, ObjectMetadataUpdate, Patch},
+    object::{ComposeSource, ObjectMetadataUpdate, Patch},
 };
 use serde_json::{Map, Value};
 
@@ -238,11 +238,6 @@ fn destination_metadata(
     }
     if let Some(key) = metadata.unchanged.keys().next() {
         return Err(JsonError::unsupported_object(key));
-    }
-    if let MapPatch::Merge(entries) = &metadata.update.metadata
-        && crate::object::custom_metadata_exceeds(entries, crate::object::RemovedKeys::Ignored)
-    {
-        return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
     }
     Ok((metadata.update, storage_class))
 }

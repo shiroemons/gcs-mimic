@@ -842,7 +842,9 @@ async fn invalid_initiation_and_status_leave_no_session_or_file() {
         .status,
         413
     );
-    let metadata = json!({"metadata":{"key":"x".repeat(8192)}}).to_string();
+    // Only the local bound on the encoded metadata refuses an initiation: Cloud Storage accepted
+    // custom metadata past its documented 8 KiB (recorded 2026-11-15).
+    let metadata = json!({"metadata":{"key":"x".repeat(40 * 1024)}}).to_string();
     assert_eq!(
         h.initiate(
             "name=a",
@@ -1387,7 +1389,9 @@ async fn checksum_and_final_metadata_failures_preserve_the_previous_full_resourc
         .status,
         200
     );
-    let metadata = json!({"metadata":{"large":"x".repeat(8180)}}).to_string();
+    // The initiation fits the local bound on the encoded metadata ({"large":"..."} is 40,952
+    // bytes of 40 KiB); the final request's header entry pushes the merged map past it.
+    let metadata = json!({"metadata":{"large":"x".repeat(40_940)}}).to_string();
     let init = h
         .initiate(
             "name=object",

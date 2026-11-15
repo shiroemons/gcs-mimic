@@ -52,8 +52,10 @@ Storage writes them: plain from `0.001` up to `10^7`, scientific outside that (`
 `1.0E7`), 16 significant digits from `2^64` upward (`1.844674407370955E19`), and `"0.0E"`
 or `"-0.0E"` for a float zero.
 
-The final merged custom key/value UTF-8 size is
-limited to 8192 bytes, including retained keys. The JSON body has the existing 64 KiB cap.
+Cloud Storage enforced no 8 KiB limit on custom metadata (recorded 2026-11-15). The merged
+map, including retained keys, stays within the local 40 KiB bound on encoded metadata and
+answers 400 `invalid` past it. A null value removes its key on PATCH, while a PUT stores it as
+the empty string, as Cloud Storage did. The JSON body has the existing 64 KiB cap.
 Invalid types and control characters in fixed fields return 400 `invalidArgument`;
 malformed JSON returns 400 `parseError`. A PATCH with empty `contentLanguage`,
 `contentDisposition`, `contentEncoding` or `cacheControl` stores and returns the

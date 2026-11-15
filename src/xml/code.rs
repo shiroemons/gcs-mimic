@@ -24,7 +24,6 @@ pub(super) enum XmlCode {
     ExcessHeaderValues,
     UnexpectedContent,
     MissingContentLength,
-    MetadataTooLarge,
     CrcMismatch,
     EntityTooLarge,
     IncompleteBody,
@@ -93,7 +92,6 @@ impl XmlCode {
             | Self::BadDigest
             | Self::ExcessHeaderValues
             | Self::UnexpectedContent
-            | Self::MetadataTooLarge
             | Self::CrcMismatch
             | Self::EntityTooLarge
             | Self::IncompleteBody
@@ -127,7 +125,6 @@ impl XmlCode {
             Self::ExcessHeaderValues => "ExcessHeaderValues",
             Self::UnexpectedContent => "UnexpectedContent",
             Self::MissingContentLength => "MissingContentLength",
-            Self::MetadataTooLarge => "MetadataTooLarge",
             Self::CrcMismatch => "CrcMismatch",
             Self::EntityTooLarge => "EntityTooLarge",
             Self::IncompleteBody => "IncompleteBody",

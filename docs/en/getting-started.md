@@ -884,7 +884,8 @@ disposition values and custom keys. Both increment metageneration while preservi
 generation, checksums and bytes; a stale precondition returns 412 without mutation.
 An object PUT, like PATCH, answers without `acl` and `owner` unless it asks for
 `projection=full`, as Cloud Storage did when recorded; the example names `noAcl`
-explicitly. Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
+explicitly. Custom metadata has no 8 KiB limit, as Cloud Storage enforced none when recorded;
+fixed and custom metadata together stop at a local 40 KiB once encoded as JSON. Supplied `acl` arrays replace the stored ACL as
 described in the [ACL contract](slices/json-acl.md); IAM, advanced fields and partial
 response masks remain unsupported. JSON media and XML downloads expand gzip-encoded objects for
 clients that do not accept gzip, and upload tokens replay as described in the [SDK integration](slices/sdk-scorecard-integration.md)

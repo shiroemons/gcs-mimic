@@ -644,22 +644,25 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             .json_ok(),
         original
     );
+    // Cloud Storage accepted custom metadata past its documented 8 KiB (recorded 2026-11-15), so
+    // the local 40 KiB bound on the encoded metadata is the only limit: a merged key goes past
+    // it, a removal frees room again, and a value counts its UTF-8 bytes, not its characters.
     server
-        .update("PATCH", "", json!({"metadata":{"a":"x".repeat(8191)}}))
+        .update("PATCH", "", json!({"metadata":{"a":"x".repeat(30 * 1024)}}))
         .expect(200);
     server
-        .update("PATCH", "", json!({"metadata":{"b":""}}))
-        .metadata_error(400, "invalidArgument");
+        .update("PATCH", "", json!({"metadata":{"b":"x".repeat(11 * 1024)}}))
+        .metadata_error(400, "invalid");
     server
         .update(
             "PATCH",
             "",
-            json!({"metadata":{"a":null,"b":"x".repeat(8191)}}),
+            json!({"metadata":{"a":null,"b":"x".repeat(30 * 1024)}}),
         )
         .expect(200);
     server
-        .update("PUT", "", json!({"metadata":{"雪":"x".repeat(8190)}}))
-        .metadata_error(400, "invalidArgument");
+        .update("PUT", "", json!({"metadata":{"k":"雪".repeat(14_000)}}))
+        .metadata_error(400, "invalid");
     server
         .update("PATCH", "", json!({"contentEncoding":"gzip"}))
         .json_ok();

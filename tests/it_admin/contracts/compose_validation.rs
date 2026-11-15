@@ -135,10 +135,12 @@ fn compose_body_rejects_recognized_unsupported_and_unknown_semantics() {
 
 #[test]
 fn compose_body_checks_final_custom_metadata_size_before_transfer() {
+    // Cloud Storage accepted custom metadata past its documented 8 KiB (recorded 2026-11-15), so
+    // only the local bound on the encoded metadata refuses a destination.
     let body = |size| json!({"sourceObjects":[{"name":"source"}], "destination":{"metadata":{"k":"x".repeat(size)}}});
-    assert!(parse(body(8191)).is_ok());
+    assert!(parse(body(8192)).is_ok());
     assert_eq!(
-        parse(body(8192)).unwrap_err().status,
+        parse(body(40 * 1024)).unwrap_err().status,
         StatusCode::BAD_REQUEST
     );
     assert!(

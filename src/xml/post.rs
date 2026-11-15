@@ -650,13 +650,6 @@ fn form_metadata(fields: &BTreeMap<String, String>) -> Result<ObjectMetadataUpda
             custom.insert(key.to_owned(), Some(header_value(field, value)?));
         }
     }
-    // Every form value is stored, so no entry is a removal.
-    if crate::object::custom_metadata_exceeds(&custom, crate::object::RemovedKeys::Counted) {
-        return Err(Error::new(
-            XmlCode::MetadataTooLarge,
-            "Custom metadata exceeds 8 KiB.",
-        ));
-    }
     metadata.metadata = MapPatch::Merge(custom);
     Ok(metadata)
 }

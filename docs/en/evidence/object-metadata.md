@@ -11,8 +11,8 @@ used the first runtime commit. No real Google Cloud or metadata-server requests 
 ## Verified behavior
 
 The [slice contract](../slices/json-object-metadata.md) defines the supported subset.
-PATCH merges fixed/custom fields, null deletes custom keys, and PUT clears omitted
-writable fields. Conditions are evaluated atomically; concurrent updates with one
+PATCH merges fixed/custom fields and null deletes custom keys; PUT clears omitted
+writable fields and stores a null custom value as the empty string. Conditions are evaluated atomically; concurrent updates with one
 metageneration condition have one 200 and one 412. Generation/body/hash/creation fields
 remain unchanged, while metageneration, clock-derived updated and ETag transition.
 Metadata survives restart; previous v3 objects migrate to v4 with defaults and the
@@ -21,7 +21,7 @@ existing v1 path still works. Existing blob crash/recovery tests remain passing.
 HTTP tests cover matching and mismatching server-managed fields, full GET-to-PUT,
 all four conditions for both verbs, live/nonlive generation selectors, fixed media
 headers and nonpublic no-cache, malformed JSON/types, unsupported fields/queries, missing resources,
-exact 8 KiB custom metadata and merged/UTF-8 overflow, 64 KiB request cap, null and empty
+custom metadata past 8 KiB, merged and UTF-8 overflow of the local 40 KiB bound, 64 KiB request cap, null and empty
 values, gzip rejection and no-transform media delivery.
 
 ## Commands and results

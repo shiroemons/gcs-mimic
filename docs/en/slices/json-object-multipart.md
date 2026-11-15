@@ -31,7 +31,7 @@ fidelity before IMPLEMENTED can be claimed.
 | Preamble/epilogue and part headers | Bounded parsing; no object-size-proportional buffering |
 | Metadata/checksum JSON cap | At most 16 MiB per JSON part; oversized part returns 413 |
 | Writable metadata | Persist name, fixed content fields and custom metadata; apply the existing metadata validation rules |
-| Custom metadata size | UTF-8 key/value total <=8192 bytes; excess returns 400 without publication |
+| Custom metadata size | No 8 KiB limit, as Cloud Storage enforced none (recorded 2026-11-15); fixed and custom metadata past the local 40 KiB once encoded as JSON return 400 without publication |
 | Query name versus metadata name | Query wins; missing both returns 400; validate the selected name |
 | Path bucket versus metadata bucket | Path wins; string metadata bucket accepted without changing the target; non-string returns 400 |
 | Content type | Metadata contentType, then media-part Content-Type, then application/octet-stream; local precedence |
@@ -88,9 +88,10 @@ Unicode custom metadata and empty values survive; non-string custom values are
 stored as text or dropped as that slice describes; control characters or wrong
 fixed-field types fail 400; empty custom keys and non-ASCII fixed header values
 fail 501 locally.
-Content-Language retains the 100-character limit. The custom map is capped at
-8192 UTF-8 key/value bytes for non-null entries; null entries are absent from the
-new map. Excess is rejected after bounded metadata parsing, before media input
+Content-Language retains the 100-character limit. A null custom value is
+stored as the empty string, as Cloud Storage did (recorded 2026-11-15).
+Metadata past the local 40 KiB bound is rejected after bounded metadata
+parsing, before media input
 or staging, with a second check at publication. The JSON part has the 16 MiB cap.
 Uploads create a fresh metadata set rather than merging with a previous generation.
 
@@ -192,7 +193,8 @@ at the exact cap is accepted. Known Content-Length above the media cap plus a
 framing allowance of two JSON parts and 256 KiB returns 413 before upload
 admission. Fixed and custom metadata together stop at 40 KiB once encoded as
 JSON, answering 400, because stored session and completion rows keep a copy of
-them; custom metadata keeps its documented 8 KiB within that.
+them. Cloud Storage enforced no 8 KiB limit on custom metadata (recorded
+2026-11-15), so no smaller bound applies to it.
 These are local resource limits under SPEC-016; RFC 2046 does not prescribe them.
 
 Reuse immediate upload admission and the media deadlines. Bucket existence is
@@ -213,8 +215,8 @@ The local error map is:
 | --- | --- |
 | 400 `invalidParameter` | Invalid MIME/type/boundary/headers, malformed framing or truncation, non-object checksum JSON, checksum syntax/conflicts, empty/duplicate token |
 | 400 `parseError` | Malformed metadata or third-part checksum JSON |
-| 400 `invalidArgument` | Metadata field/name/bucket types, invalid fixed/custom metadata, custom UTF-8 key/value sum above 8192 bytes |
-| 400 `invalid` | Actual MD5/CRC32C mismatch or unknown third-part checksum keys |
+| 400 `invalidArgument` | Metadata field/name/bucket types, invalid fixed/custom metadata |
+| 400 `invalid` | Actual MD5/CRC32C mismatch, unknown third-part checksum keys, or metadata past 40 KiB once encoded as JSON |
 | 400 `required` | No query name and missing/null metadata name |
 | 413 `uploadTooLarge` | Media cap, either JSON-part cap or conservative known-length cap exceeded |
 | 501 `notImplemented` | Unsupported metadata/output/query/header semantics |

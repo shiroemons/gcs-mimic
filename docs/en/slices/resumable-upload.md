@@ -74,7 +74,7 @@ identifier to the caller, but provider diagnostic headers are not exact parity.
 | Input | Supported subset and validation |
 | --- | --- |
 | bucket and name | Existing JSON validation and single decoding; path bucket and query name override string/null metadata values as on multipart. Preserve encoded names; never turn names into file paths |
-| body and Content-Type | Empty metadata body or a JSON Object, at most 64 KiB; nonempty metadata uses application/json. Reuse fixed/custom metadata and MD5/CRC32C parsing, including the 8 KiB custom-metadata cap |
+| body and Content-Type | Empty metadata body or a JSON Object, at most 64 KiB; nonempty metadata uses application/json. Reuse fixed/custom metadata and MD5/CRC32C parsing, including the local 40 KiB bound on encoded metadata; Cloud Storage enforced no 8 KiB custom-metadata cap and stored a null value as the empty string (recorded 2026-11-15) |
 | X-Upload-Content-Type | Optional object MIME type, distinct from metadata request Content-Type; nonempty metadata contentType wins, then this header, then application/octet-stream. Conflict precedence is an explicit local rule |
 | X-Upload-Content-Length | Optional nonnegative total, including zero; omission means unknown. Reject malformed/duplicate/overflow values and known totals above max_object_bytes before staging |
 | ifGenerationMatch/NotMatch | Persist signed-64-bit nonnegative conditions, including match zero for create-if-absent; recheck at finalization |
@@ -133,7 +133,7 @@ is routed through the XML adapter.
 | Content-Range: bytes */N, Content-Length: 0 | Query persisted offset when below N; finalize if the complete persisted prefix equals N, supporting the Go empty final request and an empty object at N=0 |
 | Content-Range: bytes */*, Content-Length: 0 | Query without declaring a total; never finalize an unknown-length prefix |
 | X-Goog-Hash on final request | Optional MD5/CRC32C of the entire object, not the final chunk. Merge with initiation metadata hashes; equal declarations accepted, conflicts/malformed/mismatch fail before publication |
-| X-Goog-Meta-* on final request | Add/replace custom metadata keys from initiation as documented; apply the same final 8 KiB bound and header safety validation. Repeat these headers after an interrupted final request |
+| X-Goog-Meta-* on final request | Add/replace custom metadata keys from initiation as documented; apply the local 40 KiB bound to the merged custom metadata and header safety validation. Repeat these headers after an interrupted final request |
 | X-GUploader-No-308: yes | Return HTTP 200 plus X-HTTP-Status-Code-Override: 308 instead of actual 308 for incomplete writes/status; preserve the same Range semantics |
 | X-Goog-Gcs-Idempotency-Token on session writes | Accept one nonempty SDK per-chunk retry token without requiring a new query precondition. It neither selects the offset nor implements token-keyed response replay |
 | Authorization on session writes/status/cancel | Capability authorizes access without re-authenticating the uploader; optional SDK bearer headers do not replace or redirect the session |

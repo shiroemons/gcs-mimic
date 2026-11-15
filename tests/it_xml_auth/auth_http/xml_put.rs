@@ -427,12 +427,6 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
         400,
         "InvalidArgument",
     );
-    let header = format!("{ADMIN}x-goog-meta-k: {}\r\n", "a".repeat(8192));
-    xml_error(
-        &server.request("PUT", OBJECT, &header, b"replacement"),
-        400,
-        "MetadataTooLarge",
-    );
     let mut request = format!(
         "PUT {OBJECT} HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n{ADMIN}x-goog-meta-key: "
     )
@@ -440,6 +434,12 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
     request.extend_from_slice(b"\xff\r\n\r\nnew");
     xml_error(&server.raw(&request), 400, "InvalidArgument");
     assert_eq!(snapshot(&server, &data), before);
+    // Custom metadata past its documented 8 KiB is a valid header: Cloud Storage stored an
+    // 8193-byte value from an XML PUT (recorded 2026-11-15).
+    let header = format!("{ADMIN}x-goog-meta-k: {}\r\n", "a".repeat(8192));
+    server
+        .request("PUT", OBJECT, &header, b"replacement")
+        .expect(200);
     clean(&data, &mut server);
     let server = Server::strict(&data, &identity_file(&_config));
     server

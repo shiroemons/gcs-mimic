@@ -540,17 +540,21 @@ fn obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging() {
     let original = server
         .upload("name=existing", &wire(b"{}", None, b"old", None))
         .json_ok();
-    // Null entries are absent from the fresh metadata set; Unicode counts by UTF-8 bytes.
-    let accepted = json!({"metadata":{"k":"猫".repeat(2730) + "x", "ignored":null}});
+    // The cap is the local bound on the encoded metadata, as Cloud Storage accepted custom
+    // metadata past its documented 8 KiB (recorded 2026-11-15). A null entry is stored as the
+    // empty string, as it was there, and Unicode counts by UTF-8 bytes:
+    // `{"ignored":"","k":"..."}` fills the 40 KiB exactly, and `{"k":"..."}` below is one byte
+    // over it with far fewer characters.
+    let accepted = json!({"metadata":{"k":"猫".repeat(13_646) + "x", "ignored":null}});
     let object = server
         .upload(
             "name=exact",
             &wire(accepted.to_string().as_bytes(), None, b"", None),
         )
         .json_ok();
-    assert!(object["metadata"].get("ignored").is_none());
+    assert_eq!(object["metadata"]["ignored"], "");
     for query in ["name=existing", ""] {
-        let metadata = json!({"name":"existing", "metadata":{"k":"猫".repeat(2731)}});
+        let metadata = json!({"name":"existing", "metadata":{"k":"猫".repeat(13_651)}});
         let body = wire(metadata.to_string().as_bytes(), None, b"", None);
         let media_header = b"\r\n--boundary\r\n\r\n";
         let end = body
@@ -561,7 +565,7 @@ fn obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging() {
         let mut stream = socket(&server.address);
         write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&{query} HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", 8 * 1024 * 1024).unwrap();
         stream.write_all(&body[..end]).unwrap();
-        Reply::framed(stream).json_reason(400, "invalidArgument");
+        Reply::framed(stream).json_reason(400, "invalid");
         assert_eq!(server.get("existing").json_ok(), original);
         assert_eq!(server.get("existing?alt=media").body, b"old");
         no_leaks(&dir, 2);
@@ -634,17 +638,19 @@ fn obj_multipart_http_media_json_and_custom_metadata_caps() {
             assert_eq!(server.get("json").body, original);
         }
     }
-    for length in [8191, 8192] {
+    // `{"k":"..."}` at 40 KiB exactly is the largest accepted custom metadata (see
+    // obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging).
+    for length in [40 * 1024 - 8, 40 * 1024 - 7] {
         let original = server.get("custom").body;
         let metadata = json!({"metadata":{"k":"v".repeat(length)}});
         let reply = server.upload(
             "name=custom",
             &wire(metadata.to_string().as_bytes(), None, b"", None),
         );
-        if length == 8191 {
+        if length == 40 * 1024 - 8 {
             reply.json_ok();
         } else {
-            reply.json_reason(400, "invalidArgument");
+            reply.json_reason(400, "invalid");
             assert_eq!(server.get("custom").body, original);
         }
     }
