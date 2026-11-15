@@ -145,7 +145,9 @@ on 2026-11-05, and `google-cloud-storage` 1.62.2, checked on 2026-11-12. Commit 
 checksums and `BUNDLED WITH`; do not infer the active Bundler version from the
 host default. Run the isolated client workflow from
 [`sdk-tests/ruby/README.md`](../../sdk-tests/ruby/README.md).
-Rails Active Storage remains a separate compatibility scope.
+Rails Active Storage remains a separate compatibility scope. The scorecard
+probe's `sdk-scorecard/ruby/Gemfile` pins the same versions with its own
+lockfile and `.ruby-version`, and is checked the same way.
 
 The daily detector reads the exact Ruby pin, direct Gemfile requirements,
 resolved lockfile versions and Bundler pin. It compares Ruby with the official
@@ -173,10 +175,12 @@ Since 0.8.0 the repository adds the separate `go/go.mod` facade and
 `go/sourceexport/go.mod` capture modules, standalone Rust SDK Cargo graph,
 Java Maven dependencies/plugins and Temurin/Maven pins, .NET NuGet/global.json,
 and Node Testcontainers manifest; the Go scorecard probe's `sdk-scorecard/go/go.mod`
-joined on 2026-11-11 and the C++ scorecard probe's `sdk-scorecard/cpp/Dockerfile`
-on 2026-11-15, while `examples/go` and `examples/dotnet` stay outside
-detection. All twenty-one SDK manifest snapshots are read
-by the same daily detector; an omitted declared manifest fails. Locks are checked
+joined on 2026-11-11, and the C++ scorecard probe's `sdk-scorecard/cpp/Dockerfile`
+and the Ruby scorecard probe's `sdk-scorecard/ruby/Gemfile` on 2026-11-15, while
+`examples/go` and `examples/dotnet` stay outside detection. Until then the Ruby
+probe's lockfile had stayed on Bundler 4.0.23 unnoticed. All twenty-two SDK
+manifest snapshots are read by the same daily detector; an omitted declared
+manifest, Ruby ones included, fails. Locks are checked
 against actual direct pins, and standalone Cargo metadata remains locked and
 offline after `cargo fetch --locked --manifest-path sdk-tests/rust/Cargo.toml`.
 The capture's fake-gcs-server dependency is the fixed migration baseline: the

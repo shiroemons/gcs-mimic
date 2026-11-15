@@ -204,7 +204,7 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-scorecard/go/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-scorecard/rust/Cargo.lock", "sdk-scorecard/java/dependencies.lock", "sdk-scorecard/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/node/storage-8/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
+  "lockfiles": ["Cargo.lock", "go/go.sum", "go/sourceexport/go.sum", "sdk-scorecard/go/go.sum", "sdk-tests/rust/Cargo.lock", "sdk-tests/java/dependencies.lock", "sdk-tests/dotnet/packages.lock.json", "sdk-scorecard/rust/Cargo.lock", "sdk-scorecard/java/dependencies.lock", "sdk-scorecard/dotnet/packages.lock.json", "sdk-tests/testcontainers/node/package-lock.json", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock", "sdk-scorecard/ruby/Gemfile.lock", "sdk-scorecard/node/package-lock.json", "sdk-scorecard/php/composer.lock", "sdk-scorecard/python/uv.lock", "sdk-tests/node/package-lock.json", "sdk-tests/node/storage-8/package-lock.json", "sdk-tests/php/composer.lock", "sdk-tests/python/uv.lock"],
   "docker": {
     "status": "PINNED",
     "apt_packages": [
@@ -600,6 +600,37 @@
         }
       ],
       "resolution_constraints": "API v0.315.0, v0.314.0 and v0.313.0 change no other requirement in the three checked modules that use it. API v0.312.0 raises github.com/googleapis/enterprise-certificate-proxy to v0.3.25 and golang.org/x/sync to v0.25.0 indirectly; in the go/go.mod facade it also raises golang.org/x/oauth2 to v0.38.0 and genproto/googleapis/rpc to v0.0.0-20261104224025-d1e00e9f33ab. The 2026-11-10 genproto pseudo-version raises cloud.google.com/go/iam to v1.15.1 and genproto/googleapis/api and rpc to v0.0.0-20261104224025-d1e00e9f33ab indirectly. OAuth2 v0.38.0 changes no other requirement. Storage v1.70.0 and the Go requirement remain unchanged. API v0.311.0 and the 2026-11-04 genproto pseudo-version raise cloud.google.com/go/auth/oauth2adapt to v0.3.1, golang.org/x/net to v0.62.0 and genproto/googleapis/rpc to v0.0.0-20261026165753-2ffab32bce7e indirectly. Earlier, API v0.310.0 raised gax-go/v2 to v2.27.0, enterprise-certificate-proxy to v0.3.24 and the OpenTelemetry otel, metric, sdk, sdk/metric and trace modules to v1.47.0, and adds otel/log v1.47.0 indirectly. grpc-go v1.85.0 requires compatible cel.dev/expr, Envoy and genproto/api updates; the 2026-10-28 genproto pseudo-version raises cloud.google.com/go/iam to v1.15.0 and genproto/googleapis/api indirectly; go.mod/go.sum record the graph. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+    },
+    {
+      "ecosystem": "ruby",
+      "manifest": "sdk-scorecard/ruby/Gemfile",
+      "checked_at_utc": "2026-11-15T07:44:56Z",
+      "toolchain": {
+        "version": "4.0.9",
+        "pin": "sdk-scorecard/ruby/.ruby-version",
+        "source_url": "https://www.ruby-lang.org/en/downloads.md"
+      },
+      "bundler": {
+        "version": "4.0.24",
+        "license": "MIT",
+        "sha256": "16ca64e20816a0cf151a948fb141d788602996d2b4d73577b74388fe84fa98bc",
+        "source_urls": [
+          "https://rubygems.org/api/v1/versions/bundler.json"
+        ]
+      },
+      "direct_dependencies": [
+        {
+          "name": "google-cloud-storage",
+          "current": "1.62.2",
+          "license": "Apache-2.0",
+          "purpose": "Official Ruby client driven by the SDK scorecard probe (sdk-scorecard/ruby/probe.rb).",
+          "sha256": "4605fe7946575a0df5ce9809324b966a49c153cf305ce6e592e432219ff0bfa2",
+          "source_urls": [
+            "https://rubygems.org/api/v1/versions/google-cloud-storage.json"
+          ]
+        }
+      ],
+      "resolution_constraints": "The scorecard probe keeps its own Gemfile, Gemfile.lock and .ruby-version beside sdk-tests/ruby; the daily check reads all three like the other Ruby scopes. Until 2026-11-15 this manifest was not declared, so its lockfile stayed on Bundler 4.0.23 after sdk-tests/ruby moved to 4.0.24; adopting 4.0.24 with bundle update --bundler changed only the Bundler lines, leaving the lockfile identical to sdk-tests/ruby/Gemfile.lock. The gem artifacts and their SHA-256 values are the ones recorded for that scope."
     },
     {
       "ecosystem": "ruby",

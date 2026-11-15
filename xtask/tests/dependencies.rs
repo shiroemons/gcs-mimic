@@ -8,7 +8,7 @@ fn sdk_scopes_and_lockfiles_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 21);
+    assert_eq!(scopes.len(), 22);
     // The C++ probe has no package manager: its Dockerfile pins every archive by SHA-256, so the
     // manifest is its own lock.
     let cpp = "sdk-scorecard/cpp/Dockerfile";
@@ -52,6 +52,11 @@ fn sdk_scopes_and_lockfiles_are_declared() {
             "ruby",
             "sdk-tests/ruby/active_storage/Gemfile",
             "sdk-tests/ruby/active_storage/Gemfile.lock",
+        ),
+        (
+            "ruby",
+            "sdk-scorecard/ruby/Gemfile",
+            "sdk-scorecard/ruby/Gemfile.lock",
         ),
         (
             "npm",

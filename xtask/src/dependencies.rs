@@ -663,13 +663,22 @@ fn ruby_lock_pin(lock: &str, name: &str, current: &str) -> bool {
     found
 }
 
+/// Every Ruby manifest the daily check reads. Each keeps its own lockfile, so each needs a
+/// snapshot entry even where the pins agree; a missing one fails instead of going unchecked.
+const RUBY_MANIFESTS: &[&str] = &[
+    "sdk-tests/ruby/Gemfile",
+    "sdk-tests/ruby/active_storage/Gemfile",
+    "sdk-scorecard/ruby/Gemfile",
+];
+
 fn ruby_directory(root: &Path, manifest: &str) -> Result<std::path::PathBuf> {
-    match manifest {
-        "sdk-tests/ruby/Gemfile" | "sdk-tests/ruby/active_storage/Gemfile" => {
-            Ok(root.join(manifest).parent().unwrap().to_owned())
-        }
-        _ => Err("unsupported Ruby SDK manifest".into()),
+    if !RUBY_MANIFESTS.contains(&manifest) {
+        return Err("unsupported Ruby SDK manifest".into());
     }
+    root.join(manifest)
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "Ruby SDK manifest has no directory".into())
 }
 
 fn index_path(name: &str) -> String {
@@ -1646,6 +1655,7 @@ fn check_sdk_ecosystems(root: &Path, status: &Value) -> Result<bool> {
         "sdk-scorecard/go/go.mod",
     ]
     .into_iter()
+    .chain(RUBY_MANIFESTS.iter().copied())
     .chain(client_manifests)
     {
         if !manifests.contains(manifest) {
@@ -1903,6 +1913,11 @@ mod tests {
         assert_eq!(
             ruby_directory(root, "sdk-tests/ruby/active_storage/Gemfile").unwrap(),
             root.join("sdk-tests/ruby/active_storage")
+        );
+        // The scorecard probe keeps its own lockfile, so it is checked even where pins agree.
+        assert_eq!(
+            ruby_directory(root, "sdk-scorecard/ruby/Gemfile").unwrap(),
+            root.join("sdk-scorecard/ruby")
         );
         assert!(ruby_directory(root, "../Gemfile").is_err());
         assert!(ruby_directory(root, "sdk-tests/ruby/other/Gemfile").is_err());
