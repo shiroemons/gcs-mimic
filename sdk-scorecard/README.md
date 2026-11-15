@@ -232,8 +232,16 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [second 2026-11-15 comparison](results/2026-11-15-2/summary.md) is the
-latest. It executes the same 2,016 cases on the 0.22.0 source at `6652e6fa`,
+The [third 2026-11-15 comparison](results/2026-11-15-3/summary.md) is the
+latest and the first with the case catalog, which `score.sh` checked every
+result against. It executes the same 2,016 cases on the 0.22.0 source at
+`814c6c43`, with no uncommitted change. The only case that changed for any
+product is Ruby's `object.list_offsets`, now `n/a`, so Ruby scores 50 cases.
+None of the stricter probe checks changed a result. gcs-mimic scores **100**,
+floci-gcp **78.3**, fake-gcs-server **40.5** (it had passed that case) and
+gcp-storage-emulator **38.7** (it had failed it).
+
+The [second 2026-11-15 comparison](results/2026-11-15-2/summary.md) executes the same 2,016 cases on the 0.22.0 source at `6652e6fa`,
 with no uncommitted change, after the branch was rebased onto main and the two
 defects below were fixed. gcs-mimic scores **100**, with C++ **51/51**;
 floci-gcp **78.3**, fake-gcs-server **40.6** and gcp-storage-emulator **38.6**.

@@ -155,4 +155,20 @@ composite and ranged-request checks they make.
 
 ## Verification
 
-To be recorded with the four-product results.
+Verified on 2026-11-15 at `814c6c43`, linux/arm64, with no uncommitted change.
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| CAT-SCHEMA | PASS | `bash sdk-scorecard/score.sh --check-catalog sdk-scorecard/cases.json` exits 0. The catalog's per-SDK ID sets, areas and unsupported reasons equal the 2026-11-15-2 results for all nine SDKs except Ruby's `object.list_offsets`, the one case this slice changes. |
+| CAT-RUN | PASS | `run.sh` derives `go` 57, `ruby` 51, `node` 51, `php` 51, `python` 51, `java` 70, `dotnet` 71, `rust` 51 and `cpp` 51, the former hand-written counts, and [results/2026-11-15-3](../../../sdk-scorecard/results/2026-11-15-3/summary.md) holds `cases.json`. |
+| CAT-SCORE | PASS | `bash sdk-scorecard/test-score.sh` passes, including the seven rejected catalog changes and six rejected invalid catalogs. Every summary recorded from 2026-10-29 to 2026-11-15-2 rescores byte for byte; those directories have no catalog. |
+| CAT-ALIGN | PASS | The tables above. Every probe was reviewed against every check it emits; a gcs-mimic-only run of the changed probes passed every scored case. |
+| CAT-README | PASS | `test-score.sh` compares each Areas row of `sdk-scorecard/README.md` with the catalog's per-area counts. |
+| CAT-RESULTS | PASS | All four products ran in 822 s and `score.sh` checked every result against the catalog. Compared with 2026-11-15-2, the only case that changed for any product is Ruby's `object.list_offsets`, now unsupported: gcs-mimic, fake-gcs-server and floci-gcp had passed it, gcp-storage-emulator had failed it. None of the nine strengthened checks changed a result. Scores: gcs-mimic 100, floci-gcp 78.3, fake-gcs-server 40.5 (from 40.6), gcp-storage-emulator 38.7 (from 38.6). |
+
+Also passed: ShellCheck on `run.sh`, `score.sh` and `test-score.sh`; `go vet`
+and `go build` of the Go probe; `ruby -c`, `node --check` and the probes'
+builds inside `run.sh`; Markdown lint of the changed documents.
+
+The review that grounds CAT-ALIGN reads code; no tool proves that a probe
+asserts what its catalog checks say.
