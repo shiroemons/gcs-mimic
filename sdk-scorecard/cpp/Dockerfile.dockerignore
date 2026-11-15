@@ -1,0 +1,7 @@
+# The build context is sdk-scorecard/, which also holds other probes' dependencies and results;
+# only the files this image reads are sent.
+**
+!install-socat.sh
+!cpp/CMakeLists.txt
+!cpp/src/
+!cpp/src/**
