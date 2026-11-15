@@ -1,0 +1,80 @@
+{"sdk":"java","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.update_labels","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"AssertionError: expected HTTP 412, got success"}
+{"sdk":"java","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"AssertionError: expected HTTP 403, got success"}
+{"sdk":"java","id":"bucket.retention_lock","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":false,"detail":"NullPointerException: Cannot invoke \"com.google.cloud.storage.BucketInfo$IamConfiguration.toBuilder()\" because the return value of \"com.google.cloud.storage.Bucket.getIamConfiguration()\" is null"}
+{"sdk":"java","id":"bucket.public_access_prevention","area":"bucket","pass":false,"detail":"NullPointerException: Cannot invoke \"com.google.cloud.storage.BucketInfo$IamConfiguration.toBuilder()\" because the return value of \"com.google.cloud.storage.Bucket.getIamConfiguration()\" is null"}
+{"sdk":"java","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.soft_delete_policy","area":"bucket","pass":true}
+{"sdk":"java","id":"bucket.soft_delete_restore","area":"bucket","pass":false,"unsupported":true,"detail":"google-cloud-storage 2.78.0 has no public API for restoring a soft-deleted bucket (Storage.restore takes only a BlobId)"}
+{"sdk":"java","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"AssertionError: autoclass not enabled"}
+{"sdk":"java","id":"bucket.acl","area":"bucket","pass":false,"detail":"AssertionError: ACL missing"}
+{"sdk":"java","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"AssertionError: ACL missing"}
+{"sdk":"java","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"java","id":"project.hmac_keys","area":"bucket","pass":true}
+{"sdk":"java","id":"project.service_account","area":"bucket","pass":true}
+{"sdk":"java","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"java","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"java","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"java","id":"object.checksum_rejected","area":"object","pass":false,"detail":"AssertionError: wrong CRC32C accepted"}
+{"sdk":"java","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"java","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"java","id":"object.update_metadata","area":"object","pass":false,"detail":"AssertionError: {a=, c=3}"}
+{"sdk":"java","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"java","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"java","id":"object.generation_match_precondition","area":"object","pass":true}
+{"sdk":"java","id":"object.metageneration_match_precondition","area":"object","pass":true}
+{"sdk":"java","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"java","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"java","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"java","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"java","id":"object.copy_with_metadata","area":"object","pass":false,"detail":"AssertionError: copy metadata"}
+{"sdk":"java","id":"object.rewrite_storage_class","area":"object","pass":true}
+{"sdk":"java","id":"object.compose","area":"object","pass":true}
+{"sdk":"java","id":"object.compose_preconditions","area":"object","pass":false,"detail":"AssertionError: compose bytes"}
+{"sdk":"java","id":"object.move","area":"object","pass":true}
+{"sdk":"java","id":"object.acl","area":"object","pass":false,"detail":"AssertionError: ACL missing"}
+{"sdk":"java","id":"object.holds","area":"object","pass":true}
+{"sdk":"java","id":"object.retention","area":"object","pass":false,"detail":"AssertionError: retention not stored"}
+{"sdk":"java","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"java","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"java","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"java","id":"object.customer_supplied_key","area":"object","pass":true}
+{"sdk":"java","id":"object.csek_rotation","area":"object","pass":false,"detail":"StorageException: Missing or invalid customer-supplied encryption key"}
+{"sdk":"java","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"java","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"java","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"java","id":"signed.v4_resumable_upload","area":"signed","pass":false,"detail":"AssertionError: start status 400: <Error><Code>InvalidArgument</Code><Message>Invalid argument.</Message><Details>uploadId is required</Details></Error>"}
+{"sdk":"java","id":"signed.v4_response_overrides","area":"signed","pass":true}
+{"sdk":"java","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"java","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"AssertionError: status 405: "}
+{"sdk":"java","id":"grpc.bucket_create_get_delete","area":"grpc","pass":true}
+{"sdk":"java","id":"grpc.write_read","area":"grpc","pass":true}
+{"sdk":"java","id":"grpc.list","area":"grpc","pass":true}
+{"sdk":"java","id":"grpc.update_delete","area":"grpc","pass":true}
+{"sdk":"java","id":"grpc.multi_range_read","area":"grpc","pass":false,"detail":"ExecutionException: com.google.cloud.storage.StorageException: UNIMPLEMENTED: Method google.storage.v2.Storage/BidiReadObject is unimplemented"}
+{"sdk":"java","id":"grpc.appendable_object","area":"grpc","pass":false,"detail":"AssertionError: unfinalized size null, expected 102401"}
+{"sdk":"java","id":"grpc.checksum_rejected","area":"grpc","pass":false,"detail":"AssertionError: com.google.cloud.storage.StorageException: DATA_LOSS: Object CRC32C checksum mismatch\n\t|> x-goog-gcs-idempotency-token: a4bf4f8f-c1aa-4e5e-b88c-c35160cf29bc\n\t|> x-goog-request-params: bucket=projects/_/buckets/sc-java-abbc9a25834c\n\t|> [\n\t|> \tcom.google.storage.v2.WriteObjectRequest{\n"}
+{"sdk":"java","id":"grpc.precondition_failed","area":"grpc","pass":true}
+{"sdk":"java","id":"grpc.write_session_bidi","area":"grpc","pass":true}
+{"sdk":"java","id":"grpc.write_session_journaling","area":"grpc","pass":true}
+{"sdk":"java","id":"sdk.blob_handle_roundtrip","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.default_upload_crc32c","area":"sdk","pass":false,"detail":"AssertionError: wrong CRC32C accepted"}
+{"sdk":"java","id":"sdk.file_upload_download","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.write_channel_streaming","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.read_channel_chunked","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.list_iterate_all","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.json_batch","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.resumable_resume","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.blob_write_session_default","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.transfer_manager_upload","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.sliced_download","area":"sdk","pass":true}
+{"sdk":"java","id":"sdk.parallel_composite_upload","area":"sdk","pass":false,"detail":"AssertionError: parts left behind: [4IK7SyNMFZqA09BOOjxPKg;Zb_Nw7j3sRYH6UqAKiSoFA;0010-0010.part, 7QyfSc8q7DIy52ryA6Ed4Q;Zb_Nw7j3sRYH6UqAKiSoFA;0001-0001.part, 8gBgmcWwiP1WrfmSGOAJ5w;Zb_Nw7j3sRYH6UqAKiSoFA;0003-0003.part, BeXfunZQjsCJlmwLON7shQ;Zb_Nw7j3sRYH6UqAKiSoFA;0005-0005.part, GGfcJjNOeAIpI3kS"}
+{"sdk":"java","id":"sdk.write_session_parallel_composite","area":"sdk","pass":false,"detail":"AssertionError: parts left behind: [9u6GAYzJnD2R-B3InlLICQ;VwQ8kqcpPgOSZIgSYzq3iQ;0004-0004.part, Z8rNCYmxpkRomrMJ7BZY7A;VwQ8kqcpPgOSZIgSYzq3iQ;0002-0002.part, lvWqJDuyQE0CSs3ZUZtW6w;VwQ8kqcpPgOSZIgSYzq3iQ;0003-0003.part, pcu.bin, tWZ5Tjy1qX7abXPoiFm7HQ;VwQ8kqcpPgOSZIgSYzq3iQ;0006-0006.part, xvEiMXS"}
+{"sdk":"java","id":"sdk.write_session_buffer_to_disk","area":"sdk","pass":true}

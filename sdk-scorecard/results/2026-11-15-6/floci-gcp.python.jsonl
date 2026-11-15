@@ -1,0 +1,63 @@
+{"sdk": "python", "id": "bucket.create_get_delete", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.list_prefix_paging", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.update_labels", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.metageneration_precondition", "area": "bucket", "pass": false, "detail": "AssertionError: expected PreconditionFailed, got success"}
+{"sdk": "python", "id": "bucket.versioning_history", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.lifecycle", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.cors", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.retention_policy", "area": "bucket", "pass": false, "detail": "AssertionError: expected Forbidden, got success"}
+{"sdk": "python", "id": "bucket.retention_lock", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.uniform_bucket_level_access", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.public_access_prevention", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.iam_policy", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.iam_test_permissions", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.soft_delete_policy", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "bucket.soft_delete_restore", "area": "bucket", "pass": false, "detail": "AssertionError: bucket generation missing"}
+{"sdk": "python", "id": "bucket.autoclass", "area": "bucket", "pass": false, "detail": "AssertionError: autoclass not enabled"}
+{"sdk": "python", "id": "bucket.acl", "area": "bucket", "pass": false, "detail": "AssertionError: ACL missing"}
+{"sdk": "python", "id": "bucket.default_object_acl", "area": "bucket", "pass": false, "detail": "AssertionError: ACL missing"}
+{"sdk": "python", "id": "bucket.notifications", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "project.hmac_keys", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "project.service_account", "area": "bucket", "pass": true}
+{"sdk": "python", "id": "object.write_read_small", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.resumable_large", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.metadata_on_write", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.checksum_rejected", "area": "object", "pass": false, "detail": "AssertionError: wrong CRC32C accepted"}
+{"sdk": "python", "id": "object.md5_accepted", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.range_reads", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.update_metadata", "area": "object", "pass": false, "detail": "AssertionError: {'a': None, 'c': '3'}"}
+{"sdk": "python", "id": "object.delete_not_found", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.does_not_exist_precondition", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.generation_match_precondition", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.metageneration_match_precondition", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.list_prefix_delimiter", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.list_paging", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.list_offsets", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.list_match_glob", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.copy_with_metadata", "area": "object", "pass": false, "detail": "AssertionError: copy metadata"}
+{"sdk": "python", "id": "object.rewrite_storage_class", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.compose", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.compose_preconditions", "area": "object", "pass": false, "detail": "AssertionError: compose bytes"}
+{"sdk": "python", "id": "object.move", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.acl", "area": "object", "pass": false, "detail": "AssertionError: ACL missing"}
+{"sdk": "python", "id": "object.holds", "area": "object", "pass": false, "detail": "AssertionError: expected Forbidden, got success"}
+{"sdk": "python", "id": "object.retention", "area": "object", "pass": false, "detail": "AssertionError: retention not stored"}
+{"sdk": "python", "id": "object.custom_time", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.storage_class_on_write", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.gzip_transcoding", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.customer_supplied_key", "area": "object", "pass": true}
+{"sdk": "python", "id": "object.csek_rotation", "area": "object", "pass": false, "detail": "Forbidden: {\"error\":{\"code\":403,\"message\":\"Missing or invalid customer-supplied encryption key\",\"status\":\"PERMISSION_DENIED\",\"errors\":[{\"message\":\"Missing or invalid customer-supplied encryption key\",\"domain\":\"global\",\"reason\":\"forbidden\"}]}}"}
+{"sdk": "python", "id": "object.soft_delete_restore", "area": "object", "pass": true}
+{"sdk": "python", "id": "signed.v4_get", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.v4_put", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.v4_resumable_upload", "area": "signed", "pass": false, "detail": "AssertionError: start status 400: <Error><Code>InvalidArgument</Code><Message>Invalid argument.</Message><Details>uploadId is required</Details></Error>"}
+{"sdk": "python", "id": "signed.v4_response_overrides", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.v2_get", "area": "signed", "pass": true}
+{"sdk": "python", "id": "signed.post_policy_v4", "area": "signed", "pass": false, "detail": "AssertionError: status 405: "}
+{"sdk": "python", "id": "grpc.multi_range_read", "area": "grpc", "pass": false, "detail": "MethodNotImplemented: 501 Method google.storage.v2.Storage/BidiReadObject is unimplemented"}
+{"sdk": "python", "id": "grpc.appendable_object", "area": "grpc", "pass": false, "detail": "MethodNotImplemented: 501 Appendable objects are not supported"}
+{"sdk": "python", "id": "sdk.object_update_replace", "area": "sdk", "pass": true}
+{"sdk": "python", "id": "sdk.json_batch", "area": "sdk", "pass": false, "detail": "AssertionError: batch response metadata {'b': '2'}"}
+{"sdk": "python", "id": "sdk.sliced_download", "area": "sdk", "pass": false, "detail": "AssertionError: sliced download sent [('GET', '/storage/v1/b/sc-py-b83613dec54f/o/sliced.bin'), ('GET', '/storage/v1/b/sc-py-b83613dec54f/o/sliced.bin'), ('GET', '/storage/v1/b/sc-py-b83613dec54f/o/sliced.bin'), ('GET', '/storage/v1/b/sc-py-b83613dec54f/o/sliced.bin'), ('GET', '/storage/v1/b/sc-py-b"}
+{"sdk": "python", "id": "sdk.xml_multipart_upload", "area": "sdk", "pass": false, "detail": "AssertionError: POST /sc-py-27e5e79df03d/multipart.bin with ['uploads'] answered 406: Request failed with status code"}
+{"sdk": "python", "id": "sdk.file_upload_download", "area": "sdk", "pass": true}

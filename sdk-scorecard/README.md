@@ -235,8 +235,25 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [fifth 2026-11-15 comparison](results/2026-11-15-5/summary.md) is the
-latest. It gives the `grpc` area SDK-neutral IDs that Go, Java, Python and
+The [sixth 2026-11-15 comparison](results/2026-11-15-6/summary.md) is the
+latest. It gives Go, Ruby, Node.js, PHP, Python, Rust and C++ `sdk` cases for
+the workflows their public APIs reach beyond the shared core, and moves the
+seven Java and .NET cases that measure the same workflows to the shared IDs,
+so it executes 2,324 cases on the 0.22.0 source at `1f5268a0`, with no
+uncommitted change. Every result outside the `sdk` area, and every moved
+case's result, is the same as in the fifth comparison for all four products,
+and the Core scores are unchanged. gcs-mimic scores **99.1**: it passes every
+new case except two. Python's `sdk.xml_multipart_upload` fails because a part
+upload answers without the `x-goog-hash` the SDK validates. PHP's
+`sdk.stream_wrapper` fails because the SDK declares `X-Upload-Content-Length:
+0` before streaming chunks of unknown total, and gcs-mimic holds the session
+to that 0; Cloud Storage's answer is unrecorded. floci-gcp scores **74.2**,
+fake-gcs-server **39.2** and gcp-storage-emulator **35.7**. The contract and
+per-case results are in
+[the SDK-specific slice](../docs/en/slices/sdk-scorecard-sdk-cases.md).
+
+The [fifth 2026-11-15 comparison](results/2026-11-15-5/summary.md) gives the
+`grpc` area SDK-neutral IDs that Go, Java, Python and
 Rust each emit where their SDK has a public gRPC API, and moves Java's
 `sdk.grpc_*` cases to them, so it executes 2,224 cases on the 0.22.0 source
 at `d208ae26`, with no uncommitted change. Every result outside the `grpc`
