@@ -1,5 +1,6 @@
 use super::write::{
-    EndOfStream, MessagePosition, Reported, Responses, message_after_finish, send_status,
+    EndOfStream, MessagePosition, Reported, Responses, check_later_key, message_after_finish,
+    send_status,
 };
 use super::*;
 use crate::grpc::v2::stored;
@@ -51,17 +52,22 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::StartResumableWriteResponse>, Status> {
         let r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
         let spec = r
             .write_object_spec
             .ok_or_else(|| Status::invalid_argument("write_object_spec is required"))?;
+        // The session binds this request's key; its upload_id messages cannot change it.
         let WriteSpec {
             bucket,
             name,
             options,
             total,
         } = self
-            .write_spec(spec, r.object_checksums.as_ref(), caller)
+            .keyed_write_spec(
+                spec,
+                r.common_object_request_params.as_ref(),
+                r.object_checksums.as_ref(),
+                caller,
+            )
             .await?;
         let session = self
             .state
@@ -79,7 +85,8 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::QueryWriteStatusResponse>, Status> {
         let r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
+        // Cloud Storage answers whatever key the request carries, even a wrong one, on an open
+        // or a finished session (recorded 2026-11-15), so the parameters are not read.
         let upload = r.upload_id.parse::<UploadId>()?;
         let (bucket, id) = (upload.bucket(), upload.session());
         let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
@@ -129,6 +136,31 @@ impl Storage {
         Ok(resource)
     }
 
+    /// Completes the session's `options` (already carrying the caller's current access) for one
+    /// message of the open session `bucket`/`name`: the conditions rechecked and the message's
+    /// final checksums merged in. The key stays the one `StartResumableWrite` bound, so a
+    /// refused message stages nothing and leaves the session usable.
+    async fn message_options(
+        &self,
+        bucket: &str,
+        name: &str,
+        mut options: ResumableOptions,
+        message: &pb::BidiWriteObjectRequest,
+    ) -> Result<ResumableOptions, Status> {
+        check_later_key(
+            options.metadata.customer_key_sha256,
+            message.common_object_request_params.as_ref(),
+        )?;
+        self.state
+            .catalog
+            .check_upload(bucket, name, options.conditions, &options.access)
+            .await
+            .map_err(object_status)?;
+        options.expected =
+            merge_hashes(options.expected, hashes(message.object_checksums.as_ref())?)?;
+        Ok(options)
+    }
+
     pub(super) async fn receive_resumable_write<
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     >(
@@ -164,18 +196,9 @@ impl Storage {
             }
             let mut options = lease.session.options.clone();
             options.access = access;
-            self.state
-                .catalog
-                .check_upload(
-                    bucket,
-                    &lease.session.name,
-                    options.conditions,
-                    &options.access,
-                )
-                .await
-                .map_err(object_status)?;
-            options.expected =
-                merge_hashes(options.expected, hashes(message.object_checksums.as_ref())?)?;
+            let options = self
+                .message_options(bucket, &lease.session.name, options, &message)
+                .await?;
             let persisted = Persisted {
                 offset: lease.session.offset,
                 total: lease.session.total,
@@ -276,7 +299,6 @@ fn check_resumable_message(
     message: &pb::BidiWriteObjectRequest,
     caller: Option<Caller<'_>>,
 ) -> Result<(), Status> {
-    common(message.common_object_request_params.as_ref())?;
     if message.first_message.is_some() {
         return Err(Status::invalid_argument(
             "Only the first message may contain write_object_spec or upload_id",

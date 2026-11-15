@@ -1,4 +1,5 @@
 use super::*;
+use crate::csek::{CsekError, CustomerKey};
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
 enum TaskCaller {
@@ -38,6 +39,29 @@ pub(super) fn message_after_finish() -> Status {
     Status::invalid_argument(
         "A message followed finish_write; finish_write must be the final message",
     )
+}
+
+/// Checks the `common_object_request_params` of a write message that did not start the write,
+/// given the key the starting request chose (`chosen`, its fingerprint).
+///
+/// Cloud Storage ignores these parameters on a keyed write, even a different key, and encrypts
+/// the object with the starting key (recorded 2026-11-15), so they are not parsed. On a keyless
+/// write it answered INTERNAL ("We encountered an internal error. Please try again.") and
+/// published nothing. The emulator deviates: INTERNAL invites a retry that fails the same way,
+/// so it names the client's mistake, a key for an object that is not encrypted, and still
+/// publishes nothing.
+pub(super) fn check_later_key(
+    chosen: Option<[u8; 32]>,
+    params: Option<&pb::CommonObjectRequestParams>,
+) -> Result<(), Status> {
+    if chosen.is_none()
+        && params.is_some_and(|params| params != &pb::CommonObjectRequestParams::default())
+    {
+        return Err(super::super::status::customer_encryption(
+            CsekError::ResourceNotEncrypted,
+        ));
+    }
+    Ok(())
 }
 
 impl Storage {
@@ -182,6 +206,22 @@ impl Storage {
         })
     }
 
+    /// [`Self::write_spec`] for a request that starts a non-appendable write: the key in its
+    /// `params` encrypts the new object (or binds the resumable session), and a malformed key
+    /// fails before anything is staged.
+    pub(super) async fn keyed_write_spec(
+        &self,
+        spec: pb::WriteObjectSpec,
+        params: Option<&pb::CommonObjectRequestParams>,
+        checksums: Option<&pb::ObjectChecksums>,
+        caller: Option<Caller<'_>>,
+    ) -> Result<WriteSpec, Status> {
+        let key = super::super::customer_key::key(params)?;
+        let mut write = self.write_spec(spec, checksums, caller).await?;
+        write.options.metadata.customer_key_sha256 = key.map(CustomerKey::sha256);
+        Ok(write)
+    }
+
     pub(super) async fn receive_write<
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     >(
@@ -195,7 +235,6 @@ impl Storage {
         let mut message = stream.next().await.transpose()?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
-        common(message.common_object_request_params.as_ref())?;
         let session = match message.first_message.take() {
             Some(FirstMessage::WriteObjectSpec(spec)) => {
                 let write = SingleWrite {
@@ -240,7 +279,12 @@ impl Storage {
             options,
             total,
         } = self
-            .write_spec(spec, message.object_checksums.as_ref(), caller)
+            .keyed_write_spec(
+                spec,
+                message.common_object_request_params.as_ref(),
+                message.object_checksums.as_ref(),
+                caller,
+            )
             .await?;
         #[expect(
             clippy::wildcard_enum_match_arm,
@@ -263,6 +307,7 @@ impl Storage {
             expected: options.expected,
             total,
             max_object_bytes: self.max_object_bytes,
+            key: options.metadata.customer_key_sha256,
         };
         let producer = produce_single_write(stream, message, limits, tx, caller, end);
         let write = self.state.catalog.put_object_prechecked(
@@ -343,12 +388,14 @@ struct SingleWrite<'a> {
     end: EndOfStream,
 }
 
-/// The checksum and size limits a non-resumable write's body must satisfy.
+/// The checksum and size limits a non-resumable write's body must satisfy, and the key its
+/// first message chose, which later messages cannot change.
 #[derive(Clone, Copy)]
 struct SingleWriteLimits {
     expected: ExpectedHashes,
     total: Option<u64>,
     max_object_bytes: u64,
+    key: Option<[u8; 32]>,
 }
 
 pub(super) async fn send_status(
@@ -389,7 +436,10 @@ async fn produce_single_write<
         Resend::DiscardOverlap,
     );
     loop {
-        common(message.common_object_request_params.as_ref())?;
+        // The first message's key was parsed with its spec.
+        if position == MessagePosition::Later {
+            check_later_key(limits.key, message.common_object_request_params.as_ref())?;
+        }
         if message.first_message.is_some() {
             return Err(Status::invalid_argument(
                 "Only the first message may contain write_object_spec",
@@ -455,3 +505,6 @@ async fn produce_single_write<
         .await
         .map_err(intake_status)
 }
+
+#[cfg(test)]
+mod tests;
