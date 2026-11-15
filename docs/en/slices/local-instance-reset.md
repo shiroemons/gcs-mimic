@@ -209,3 +209,5 @@ tests exercise session invalidation, staging reclamation, restart and the busy
 boundary. Current reset also clears notification outboxes and the later shared
 synchronization state. [Atomic reseed](atomic-seed-reseed.md) reuses the same
 transaction clearing rules, while validating and staging input before any clear.
+Such a table must also be classified for the [bucket purge](bucket-purge.md), whose
+test fails until every catalog table is.

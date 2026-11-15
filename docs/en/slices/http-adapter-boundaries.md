@@ -11,6 +11,8 @@ one trailing dot only for this guard; XML routing keeps its separate contract.
 Duplicate Host headers and invalid authorities receive 400. This protects
 against browser CSRF and DNS rebinding without changing Google API permissions.
 
+The [bucket purge](bucket-purge.md) route, `DELETE /_internal/buckets/{bucket}`, takes the same guards before its method, query, bucket name and body checks.
+
 `admin_allowed_hosts` accepts up to 32 comma-separated DNS names. Configure it
 through `--admin-allowed-hosts`, `GCS_MIMIC_ADMIN_ALLOWED_HOSTS` or flat JSON.
 Kubernetes short names such as `gcs-mimic.my-namespace` and
