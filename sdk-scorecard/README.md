@@ -210,8 +210,20 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [2026-11-12 comparison](results/2026-11-12/summary.md) is the latest. It
-executes the same 1,812 cases on the 0.19.1 source at `590d9276`, with no
+The [2026-11-15 comparison](results/2026-11-15/summary.md) is the latest. It
+adds the C++ SDK (google-cloud-cpp 3.13.0 built with GCC 16.2.0) and executes
+2,016 cases (504 per product, 499 of them scored) on the 0.22.0 source at
+`fec7476f`, with no uncommitted change. With nine SDKs each contributes 100/9
+points, so the scores are not comparable with the eight-SDK runs below. Every
+case of the other eight SDKs has the same result as on 2026-11-12 for all four
+products. gcs-mimic scores **99.6**, floci-gcp **78.3**, fake-gcs-server
+**40.6** and gcp-storage-emulator **38.6**. gcs-mimic fails two C++ cases, both
+emulator defects: `object.soft_delete_restore`, because `RestoreObject` sends a
+`{}` body that gcs-mimic rejects with 400, and `signed.post_policy_v4`,
+because the SDK writes the policy expiration with nanoseconds and gcs-mimic
+parses it to the microsecond only. See [the C++ probe](cpp/README.md).
+
+The [2026-11-12 comparison](results/2026-11-12/summary.md) executes the same 1,812 cases on the 0.19.1 source at `590d9276`, with no
 uncommitted change, and with the Ruby Storage SDK 1.62.2, the Rust SDK 1.22.0, .NET SDK
 11.0.100 and Go 1.27.4. Every product scores the same as on 2026-11-09:
 gcs-mimic **100**, floci-gcp **77.6**, fake-gcs-server **39.8** and
