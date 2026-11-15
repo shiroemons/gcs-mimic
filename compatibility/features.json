@@ -8624,10 +8624,11 @@
         },
         {
           "id": "BUCKET-RESTORE-SDK",
-          "description": "Pinned .NET SDK 5.0.0 RestoreBucketAsync journey including RestoreObjectAsync and reading the restored bytes.",
+          "description": "Pinned .NET SDK 5.0.0 RestoreBucketAsync journey including RestoreObjectAsync and reading the restored bytes; the shared scorecard case bucket.soft_delete_restore, which took over that .NET case, passes with the Ruby, Node.js, PHP, Python and .NET SDKs, including Ruby's form-encoded restore body.",
           "result": "PASS",
           "test_ids": [
-            "sdk.bucket_soft_delete_restore"
+            "sdk.bucket_soft_delete_restore",
+            "sdk-scorecard bucket.soft_delete_restore (Ruby, Node.js, PHP, Python, .NET)"
           ]
         },
         {
@@ -8642,7 +8643,8 @@
         "failed_transitions_leave_the_catalog_unchanged",
         "restore_brings_back_iam_and_acl_with_a_new_policy_revision",
         "strict_soft_deleted_bucket_access_uses_project_permissions",
-        "sdk.bucket_soft_delete_restore"
+        "sdk.bucket_soft_delete_restore",
+        "sdk-scorecard bucket.soft_delete_restore (Ruby, Node.js, PHP, Python, .NET)"
       ],
       "verification": [
         {
@@ -8681,6 +8683,15 @@
           "artifact": "tests/it_json/bucket_soft_delete_http.rs",
           "test_ids": [
             "bucket_soft_delete_get_list_and_restore_round_trip"
+          ]
+        },
+        {
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-4/summary.md",
+          "test_ids": [
+            "sdk-scorecard bucket.soft_delete_restore (Ruby, Node.js, PHP, Python, .NET)"
           ]
         }
       ],
@@ -64579,7 +64590,7 @@
       ],
       "source_checked_at": "2026-11-15",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned google-cloud-cpp 3.13.0 storage over JSON/REST, built from checksum-pinned archives (Abseil 20260817.0, nlohmann/json 3.12.0, the opentelemetry-cpp 1.30.0 API headers, CMake 4.5.0) with GCC 16.2.0 in the digest-pinned gcc:16.2.0-trixie image; daily detection reads the Dockerfile pins as the source-archive ecosystem. The probe unsets CLOUD_STORAGE_EMULATOR_ENDPOINT and CLOUD_STORAGE_TESTBENCH_ENDPOINT, which replace an explicit RestEndpointOption for requests and signed URLs, uses insecure credentials with zero retries, signs offline as the built-in test signer with the origin's scheme, and sends signed requests unchanged and only to the scorecard origin. The permissive shared-HTTPS scorecard passes 51/51 with no unsupported case at 6652e6fa (sdk-scorecard/results/2026-11-15-2/gcs-mimic.cpp.jsonl). The first run, before the branch was rebased onto main, passed 49/51 (sdk-scorecard/results/2026-11-15) and exposed two gcs-mimic defects, since fixed: restore refused the SDK's {} body (JSON-OBJECTS-011) and POST policies refused its nanosecond expiration (DESIGN-041). test-tls.sh passes all four certificate combinations for the probe. Contract and verification: docs/en/slices/sdk-scorecard-cpp.md. The gRPC transport (AsyncClient, MakeGrpcClient), C++-specific cases, strict authentication, native TLS and other profiles remain pending.",
+      "notes": "Pinned google-cloud-cpp 3.13.0 storage over JSON/REST, built from checksum-pinned archives (Abseil 20260817.0, nlohmann/json 3.12.0, the opentelemetry-cpp 1.30.0 API headers, CMake 4.5.0) with GCC 16.2.0 in the digest-pinned gcc:16.2.0-trixie image; daily detection reads the Dockerfile pins as the source-archive ecosystem. The probe unsets CLOUD_STORAGE_EMULATOR_ENDPOINT and CLOUD_STORAGE_TESTBENCH_ENDPOINT, which replace an explicit RestEndpointOption for requests and signed URLs, uses insecure credentials with zero retries, signs offline as the built-in test signer with the origin's scheme, and sends signed requests unchanged and only to the scorecard origin. The permissive shared-HTTPS scorecard passes 51/51 with no unsupported case at 6652e6fa (sdk-scorecard/results/2026-11-15-2/gcs-mimic.cpp.jsonl), and, after five shared cases were added, 55/55 at 43d84560 with bucket.soft_delete_restore n/a, because the SDK has no bucket restore API (sdk-scorecard/results/2026-11-15-4/gcs-mimic.cpp.jsonl). The first run, before the branch was rebased onto main, passed 49/51 (sdk-scorecard/results/2026-11-15) and exposed two gcs-mimic defects, since fixed: restore refused the SDK's {} body (JSON-OBJECTS-011) and POST policies refused its nanosecond expiration (DESIGN-041). test-tls.sh passes all four certificate combinations for the probe. Contract and verification: docs/en/slices/sdk-scorecard-cpp.md. The gRPC transport (AsyncClient, MakeGrpcClient), C++-specific cases, strict authentication, native TLS and other profiles remain pending.",
       "dependencies": [],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",
@@ -64594,7 +64605,7 @@
         },
         {
           "id": "CPP-SCORECARD",
-          "description": "All 51 shared bucket/object/signed workflows pass under the guarded permissive shared-HTTPS profile, with endpoint-overriding environment variables removed and signed URLs sent unchanged.",
+          "description": "Every shared bucket/object/signed workflow the SDK has a public API for passes under the guarded permissive shared-HTTPS profile, with endpoint-overriding environment variables removed and signed URLs sent unchanged: 51 of 51 at 6652e6fa, and 55 of 56 with bucket.soft_delete_restore n/a at 43d84560, after five shared cases were added.",
           "result": "PASS",
           "test_ids": [
             "scorecard-cpp"
@@ -64688,6 +64699,20 @@
           "result": "PASS",
           "verified_at": "2026-11-15",
           "artifact": "sdk-scorecard/results/2026-11-15-2/gcs-mimic.cpp.jsonl",
+          "test_ids": [
+            "scorecard-cpp"
+          ]
+        },
+        {
+          "language": "C++",
+          "toolchain": "GCC 16.2.0",
+          "sdk": "google-cloud-cpp storage",
+          "version": "3.13.0",
+          "transport": "Shared trusted-CA HTTPS JSON/XML; insecure credentials, zero retries and removed endpoint variables; offline signing with the origin's scheme and unchanged URLs; permissive server profile",
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-4/gcs-mimic.cpp.jsonl",
           "test_ids": [
             "scorecard-cpp"
           ]
