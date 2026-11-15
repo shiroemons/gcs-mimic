@@ -1475,6 +1475,194 @@ async fn an_edit_ingestion_cannot_take_in_is_staged_again_only_after_the_tree_ch
     }
 }
 
+/// The metadata-only API change that meets an edit a hold deferred.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HeldEditChange {
+    /// The hold is released.
+    Release,
+    /// Another field changes while the hold stays.
+    PatchWhileHeld,
+}
+
+/// A temporary or event-based hold keeps ingestion from publishing a local edit, so the pass
+/// defers it and leaves the file as edited. The hold's release is a metadata-only API change,
+/// and its export meets the divergent file like any API change: it preserves the edit as a
+/// conflict and returns the file to the API bytes, which do not change. A metadata-only change
+/// while the hold stays does the same. The edit reaches the API only through an explicit restore
+/// of the preserved revision once the hold is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict() {
+    use crate::object::{HoldKind, ObjectMetadataUpdate};
+    use crate::storage::sync_state::{
+        PageLimit,
+        authority::ControlAuthority,
+        conflicts::{Action, ConflictPosition, ResolveRequest, ResolveTarget},
+        observation::PauseReason,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let hold = |kind: HoldKind, held: bool| match kind {
+        HoldKind::Temporary => ObjectMetadataUpdate {
+            temporary_hold: Some(held),
+            ..Default::default()
+        },
+        HoldKind::EventBased => ObjectMetadataUpdate {
+            event_based_hold: Some(held),
+            ..Default::default()
+        },
+    };
+    for (kind, change) in [
+        (HoldKind::Temporary, HeldEditChange::Release),
+        (HoldKind::EventBased, HeldEditChange::Release),
+        (HoldKind::Temporary, HeldEditChange::PatchWhileHeld),
+    ] {
+        let (data, tree, catalog, bucket, root) = live_fixture().await;
+        let name = ObjectName::new("object").unwrap();
+        let api = publish_origin(&catalog, &bucket, b"first", Origin::Api).await;
+        let update = |update| {
+            catalog.update_object_metadata(
+                live(bucket.as_str(), "object"),
+                Default::default(),
+                update,
+                |_| Ok(()),
+                PERMISSIVE,
+            )
+        };
+        let api_object = || async {
+            catalog
+                .admin(Origin::Api)
+                .get_object(&bucket, &name, None)
+                .await
+                .unwrap()
+        };
+        update(hold(kind, true)).await.unwrap();
+        let stages = Arc::new(AtomicUsize::new(0));
+        let (stop, mut stopping) = tokio::sync::watch::channel(false);
+        let worker_catalog = catalog.clone();
+        let worker_root = root.clone();
+        // The first idle follows the initial export.
+        let (hook, worker) = hooked_worker(
+            &EXPORT_HOOK,
+            "idle",
+            crate::sync::ingest::STAGES.scope(stages.clone(), async move {
+                run_live(&worker_catalog, &worker_root, &mut stopping).await
+            }),
+        )
+        .await;
+        // The mirror reaches its idle checkpoint only after the journal page or the ingestion
+        // pass it started has finished, so each step ends with that work done.
+        let step = || async {
+            hook.release.notify_one();
+            tokio::time::timeout(HANG_GUARD, hook.entered.notified())
+                .await
+                .unwrap();
+        };
+        let path = tree.0.join("test-bucket/object");
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        fs::write(&path, b"external edit").unwrap();
+        while stages.load(Ordering::SeqCst) == 0 {
+            step().await;
+        }
+        let deferred = stages.load(Ordering::SeqCst);
+        let held = api_object().await;
+        assert_eq!((held.generation, held.md5), (api.generation, api.md5));
+        assert!(held.has_hold());
+        assert_eq!(fs::read(&path).unwrap(), b"external edit");
+        let observed = root.observation().await.unwrap();
+        assert_eq!(observed.scan_stop, Some(PauseReason::SourceChanging));
+        assert_eq!(observed.mapping_findings, 0);
+        assert_eq!(observed.unresolved_conflicts, 0);
+
+        update(match change {
+            HeldEditChange::Release => hold(kind, false),
+            HeldEditChange::PatchWhileHeld => ObjectMetadataUpdate {
+                content_type: Patch::Set("text/plain".into()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+        step().await;
+        assert_eq!(
+            stages.load(Ordering::SeqCst),
+            deferred,
+            "an ingestion pass met the edit before the export"
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        assert_eq!(retained_conflicts(&data), [b"external edit".to_vec()]);
+        // The export's own file change starts the pass that finds the API bytes.
+        while root.observation().await.unwrap().scan_stop.is_some() {
+            step().await;
+        }
+        let observed = root.observation().await.unwrap();
+        assert!(observed.baseline_complete);
+        assert_eq!(observed.mapping_findings, 0);
+        assert_eq!(observed.path_stops, 0);
+        assert_eq!(observed.unresolved_conflicts, 1);
+        let exported = api_object().await;
+        assert_eq!(
+            (exported.generation, exported.md5),
+            (api.generation, api.md5)
+        );
+        assert_eq!(
+            exported.has_hold(),
+            change == HeldEditChange::PatchWhileHeld
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        assert_eq!(
+            tracked_generation(&catalog, &root, &bucket).await,
+            Some(api.generation)
+        );
+
+        if change == HeldEditChange::Release {
+            let page = root
+                .conflict_page(
+                    ConflictPosition::Start,
+                    PageLimit::LARGEST,
+                    ControlAuthority::Permissive,
+                )
+                .await
+                .unwrap();
+            let restored = root
+                .resolve_conflict(
+                    ResolveRequest {
+                        operation_id: "restore-the-released-edit".into(),
+                        action: Action::Restore,
+                        target: ResolveTarget::Conflict(ConflictTarget {
+                            conflict_id: page.items[0].conflict_id,
+                            revision: page.items[0].revision,
+                            expected_generation: api.generation,
+                        }),
+                    },
+                    ControlAuthority::Permissive,
+                    4096,
+                )
+                .await
+                .unwrap();
+            let generation = restored.result_generation.unwrap();
+            let published = api_object().await;
+            assert_eq!(published.generation, generation);
+            assert_eq!(published.crc32c, crc32c::crc32c(b"external edit"));
+            // The restore is an API write, which a journal page brings back to the tree.
+            while fs::read(&path).unwrap() != b"external edit" {
+                step().await;
+            }
+            assert_eq!(
+                tracked_generation(&catalog, &root, &bucket).await,
+                Some(generation)
+            );
+            assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+        }
+        stop.send_replace(true);
+        hook.release.notify_one();
+        worker.await.unwrap().unwrap();
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack() {
     use std::time::Duration;
