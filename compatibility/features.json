@@ -56167,7 +56167,7 @@
           "id": "sync-conflict-preservation",
           "description": "Preserve known divergent bytes before API-priority replacement; after a last-check displacement race protect the actual body in workspace until durable conflict registration or explicitly authorized recovery discard, even at/exceeding byte/entry quotas or ENOSPC, fully account retained bytes/entries and stop ingestion/destructive write-back without automatic cleanup or blind exchange-back; verify kill/restart while stopped, operator retrieval/resumption, zero-byte entries, cancellation/ambiguous commit and revision/generation-bound restore/discard without retargeting or overwriting newer API state; a 1 TiB + 1 byte sparse displaced body must have a pre-registration discard path bound to original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, while foreign-project/stale/unconfirmed requests retain bytes/quota and only durable authorized completion permits root resumption; owners sync-mirror, sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. The 1 TiB sparse-body recovery target remains PENDING.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": ["a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict"]
         },
         {
           "id": "sync-deletion-approval",
@@ -56623,7 +56623,8 @@
         "filesystem_import_foreign_options_refuse_without_poisoning_original_resume",
         "filesystem_import_rejects_destination_records_outside_its_prefix",
         "filesystem_import_source_replacement_during_publication_stays_unservable",
-        "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
+        "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit",
+        "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict"
       ],
       "verification": [
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},

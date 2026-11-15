@@ -118,12 +118,17 @@ rescan provide recovery. Backoff is interruptible by shutdown and no idle retry
 loop runs while paused. Exhaustive instruction-level kill/physical power-loss
 coverage and Linux/Windows runtime parity are not claimed.
 
-Identical-body PUTs and metadata-only changes use the same retained live-export
+Identical-body PUTs and metadata-only changes that find the file still holding
+the live body are observations. They use the same retained live-export
 operation for prepare, arm, durability and acknowledgement retries; they never
 restart a partially completed export from prepare. Observations make no copy or
 replacement. An external edit before observation durability or acknowledgement
-cancels only that non-writing intent and preserves the file. A parent directory
-removed or moved after prepare also cancels the observation, leaves no pending
+cancels only that non-writing intent and preserves the file. A metadata-only
+change that instead meets a divergent file, such as an edit that ingestion
+deferred because of a hold, is exported like any other API change: the edit is
+preserved as a conflict and the file returns to the API bytes (see
+[Ingestion, metadata and conflicts](#ingestion-metadata-and-conflicts)).
+A parent directory removed or moved after prepare also cancels the observation, leaves no pending
 intent and lets other buckets progress; observations do not require that parent
 to remain present for a replacement they never perform. File/ancestor
 permission and transient I/O failures retry inspection without recording a
@@ -583,8 +588,8 @@ mtime, inode and hash match recorded output. Journal origin `sync-ingest` skips
 body write-back, while still advancing state/cursors. Origin alone cannot mask
 an independent later API mutation.
 
-API mutations win over divergent external edits, including initial activation.
-Preserve known divergent bodies first under opaque conflict IDs in dedicated
+API mutations win over divergent external edits, including metadata-only changes
+and initial activation. Preserve known divergent bodies first under opaque conflict IDs in dedicated
 `data_dir/sync-conflicts`, never `staging/`, `blobs/` or ordinary working-tree
 paths. The reserved workspace may temporarily retain a newly displaced body
 only under the recovery boundary below; it is never an ingestible conflict file.
@@ -594,6 +599,20 @@ identity for pending recovery as well as registered conflicts; deleting the buck
 or recreating its name in another project cannot erase or retarget it. API deletion
 can therefore win without destroying the external body. Retained version history
 follows ordinary shared publication.
+
+A temporary or event-based hold, or a retention period that has not expired,
+makes the publication of a local edit fail. The pass counts the edit as
+`deferred`, reports `SourceChanging` and leaves the file as edited; a later pass,
+started by a tree change, a rescan or a wait, tries it again. A metadata-only API change of a held object,
+the release of the hold included, is an API mutation like any other: its export
+preserves the edit as a conflict and returns the file to the API bytes, whose
+generation does not change. It records no mapping finding, and the pass that
+next observes the file clears the scan stop while the baseline stays complete.
+Once the hold is released, `resolve restore` publishes the preserved edit.
+Retention expiry writes nothing to the catalog and the observer runs no timer,
+so an edit deferred by retention is ingested only on the next tree change,
+rescan or wait after the retention expires; until then the status keeps
+reporting `SourceChanging`.
 
 Reserve bytes and one entry before capturing; stream and enforce the byte cap
 even if the source grows. Exact cap usage is allowed, overflow stops ingestion
