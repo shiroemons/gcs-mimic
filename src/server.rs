@@ -1862,34 +1862,72 @@ fn object_body(
     object_body::ObjectBody::new(reader, activity.clone()).boxed_unsync()
 }
 
+/// Whether a POST that takes no body also accepts an empty JSON object as one.
+#[derive(Clone, Copy)]
+pub(crate) enum EmptyJsonBody {
+    /// An official client sends `{}` here: google-cloud-cpp 3.13.0 does on objects.restore.
+    Accepted,
+    /// No pinned client sends one here, so it stays an unknown body.
+    Refused,
+}
+
+/// The declared type of a body sent to a POST that takes none.
+#[derive(Clone, Copy)]
+enum BodylessPostType {
+    Form,
+    Json,
+    Other,
+}
+
 async fn validate_bodyless_post(
     request: Request<RequestBody>,
     expected: &std::collections::BTreeMap<String, String>,
+    empty_json: EmptyJsonBody,
 ) -> Result<(), JsonError> {
-    // Ruby's generated client repeats URL query parameters in form-encoded POST bodies.
-    let form = request
+    // Ruby's generated client repeats URL query parameters in form-encoded POST bodies, and the
+    // C++ client sends an empty JSON object to restore. Neither carries a value the URL query
+    // lacks; any other body could, so it is still refused.
+    let declared = match request
         .headers()
         .get("content-type")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.split(';').next() == Some("application/x-www-form-urlencoded"));
+        .and_then(|value| value.split(';').next())
+    {
+        Some("application/x-www-form-urlencoded") => BodylessPostType::Form,
+        Some("application/json") => BodylessPostType::Json,
+        _ => BodylessPostType::Other,
+    };
     let body = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
-    if !body.is_empty() {
-        let params = if form {
-            std::str::from_utf8(&body)
-                .ok()
-                .and_then(|body| json::parse_query(body).ok())
-        } else {
-            None
+    let accepted = body.is_empty()
+        || match declared {
+            BodylessPostType::Form => {
+                std::str::from_utf8(&body)
+                    .ok()
+                    .and_then(|body| json::parse_query(body).ok())
+                    .as_ref()
+                    == Some(expected)
+            }
+            BodylessPostType::Json => match empty_json {
+                EmptyJsonBody::Accepted => {
+                    serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&body)
+                        .is_ok_and(|members| members.is_empty())
+                }
+                EmptyJsonBody::Refused => false,
+            },
+            BodylessPostType::Other => false,
         };
-        if params.as_ref() != Some(expected) {
-            let example = expected
-                .first_key_value()
-                .map(|(key, value)| format!("{key}={value}"))
-                .unwrap_or_default();
-            return Err(JsonError::invalid_argument(format!(
-                "Use an empty body, or form parameters identical to the URL query, for example {example}"
-            )));
-        }
+    if !accepted {
+        let example = expected
+            .first_key_value()
+            .map(|(key, value)| format!("{key}={value}"))
+            .unwrap_or_default();
+        let allowed = match empty_json {
+            EmptyJsonBody::Accepted => "an empty body, an empty JSON object,",
+            EmptyJsonBody::Refused => "an empty body,",
+        };
+        return Err(JsonError::invalid_argument(format!(
+            "Use {allowed} or form parameters identical to the URL query, for example {example}"
+        )));
     }
     Ok(())
 }

@@ -138,7 +138,13 @@ Ruby's pinned generated client repeats query parameters in a form POST body.
 The adapter accepts an empty body or a form map exactly equal to the validated
 URL query; mismatched/additional parameters and non-form bodies return 400 before
 mutation. This reuses the retention-lock accommodation and is a local transport
-choice, not a provider body contract. XML DELETE now joins the same catalog path
+choice, not a provider body contract. Since 2026-11-15 restore also accepts an
+empty JSON object declared as `application/json`, which google-cloud-cpp 3.13.0
+`RestoreObject` sends; any other JSON body, and `{}` without that content type,
+still return 400. Retention lock and HMAC key creation keep refusing JSON
+bodies, because no pinned client sends one there.
+
+XML DELETE now joins the same catalog path
 for bearer/permissive calls, optional generation and existing generation-match
 headers; signed DELETE and other XML options remain unsupported.
 

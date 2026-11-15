@@ -7,7 +7,7 @@ mod upload;
 
 use super::RequestBody as Incoming;
 use super::{
-    ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody,
+    EmptyJsonBody, ObjectCtx, RESOURCE_BODY_LIMIT, ResponseBody,
     acl::{self, AclSubjects, ObjectVersion, Rendered},
     boxed, empty_response, json_response_selected, require_empty_body, response_fields, resumable,
     retention_access, validate_bodyless_post,
@@ -262,7 +262,7 @@ async fn restore(
     conditions: ObjectConditions,
 ) -> Result<Written, JsonError> {
     json::validate_object_get_headers(request.headers())?;
-    validate_bodyless_post(request, query).await?;
+    validate_bodyless_post(request, query, EmptyJsonBody::Accepted).await?;
     let create_access = ctx.authorize(auth::OBJECTS_CREATE, &target.bucket).await?;
     let record = ctx
         .state

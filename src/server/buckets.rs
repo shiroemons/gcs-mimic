@@ -3,7 +3,7 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    QueryPrecondition, RESOURCE_BODY_LIMIT, State,
+    EmptyJsonBody, QueryPrecondition, RESOURCE_BODY_LIMIT, State,
     acl::{self, AclSubjects, BucketVersion, Rendered},
     authorize_bucket, authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
@@ -262,6 +262,7 @@ async fn lock_retention_policy(
     validate_bodyless_post(
         request,
         &[("ifMetagenerationMatch".into(), metageneration.to_string())].into(),
+        EmptyJsonBody::Refused,
     )
     .await?;
     let record = ctx

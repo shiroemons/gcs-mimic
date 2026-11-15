@@ -1,7 +1,7 @@
 //! Dispatch for project-scoped JSON resources: HMAC keys and the service agent.
 use super::RequestBody as Incoming;
 use super::{
-    RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
+    EmptyJsonBody, RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
     require_empty_body, validate_bodyless_post,
 };
 use crate::auth::{AuthFailure, Caller, Permission};
@@ -69,6 +69,7 @@ pub(super) async fn respond(
             validate_bodyless_post(
                 request,
                 &[("serviceAccountEmail".into(), service_account_email.clone())].into(),
+                EmptyJsonBody::Refused,
             )
             .await?;
             let created = state

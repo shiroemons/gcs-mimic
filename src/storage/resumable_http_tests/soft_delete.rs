@@ -392,6 +392,17 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
     h.request("POST", &restore, ADMIN, b"{}")
         .await
         .error(400, "invalidArgument");
+    // A JSON body passes only as an empty object, which adds nothing to the URL query.
+    for body in [&format!(r#"{{"generation":"{generation}"}}"#), "[]", "{"] {
+        h.request(
+            "POST",
+            &restore,
+            "Content-Type: application/json\r\n",
+            body.as_bytes(),
+        )
+        .await
+        .error(400, "invalidArgument");
+    }
     for body in [
         "generation=1".to_owned(),
         format!("generation={generation}&extra=true"),
@@ -536,6 +547,36 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
         .unwrap();
     assert!(restored.generation > retained.generation);
     reopened.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn restore_accepts_the_empty_json_object_the_cpp_sdk_sends() {
+    let h = Harness::start(1024, Permissive, None).await;
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
+    policy(&h, 604800).await;
+    let uploaded = upload(&h, "item", b"restore me").await;
+    let generation = uploaded["generation"].as_str().unwrap();
+    let deleted = h
+        .request("DELETE", "/storage/v1/b/bucket/o/item", ADMIN, b"")
+        .await;
+    assert_eq!(deleted.status, 204);
+    // google-cloud-cpp 3.13.0 RestoreObject sends `{}` as application/json.
+    let restored = h
+        .request(
+            "POST",
+            &format!("/storage/v1/b/bucket/o/item/restore?generation={generation}"),
+            &format!("{ADMIN}Content-Type: application/json\r\n"),
+            b"{}",
+        )
+        .await;
+    assert_eq!(restored.status, 200, "{}", restored.json());
+    // A restored object is a new live generation, as on Cloud Storage.
+    assert_ne!(restored.json()["generation"], generation);
+    let media = h
+        .request("GET", "/storage/v1/b/bucket/o/item?alt=media", ADMIN, b"")
+        .await;
+    assert_eq!(media.body, b"restore me");
+    h.stop().await;
 }
 
 #[tokio::test]
