@@ -765,8 +765,10 @@ for id, run in CASES:
         signal.alarm(60)
         run()
     except Exception as error:
-        response = getattr(error, "response", None)
-        detail = response.text if response is not None else str(error)
+        # An HTTP error carries the response body; a gRPC error's response is
+        # the RPC error itself, which has no body, so its message stands in.
+        text = getattr(getattr(error, "response", None), "text", None)
+        detail = text if text is not None else str(error)
         result.update({"pass": False, "detail": f"{type(error).__name__}: {detail}"[:300]})
     finally:
         signal.alarm(0)
