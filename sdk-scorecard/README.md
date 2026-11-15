@@ -233,8 +233,26 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
+The [fourth 2026-11-15 comparison](results/2026-11-15-4/summary.md) is the
+latest. It adds five shared cases (`bucket.soft_delete_restore`,
+`object.csek_rotation`, `object.compose_preconditions`,
+`signed.v4_resumable_upload` and `signed.v4_response_overrides`) and moves the
+three .NET `sdk.*` cases that measured the same behaviors to those IDs, so it
+executes 2,184 cases on the 0.22.0 source at `43d84560`, with no uncommitted
+change. Every case it shares with the third comparison has the same result for
+all four products, so each score change comes from the new cases. gcs-mimic
+scores **99.8**: it passes every new case except Rust's
+`object.csek_rotation`, because the Rust SDK rewrites through gRPC, where
+gcs-mimic rejects customer-supplied keys as unsupported. floci-gcp scores
+**74.4**, fake-gcs-server **38.9** and gcp-storage-emulator **35.9**. None of the
+three restores a bucket, rotates a key or starts a signed resumable upload;
+only floci-gcp's gRPC compose, which Rust uses, honors pinned source
+generations; floci-gcp returns the response overrides in all nine SDKs and
+fake-gcs-server in seven. The contract and per-case results are in
+[the shared-case slice](../docs/en/slices/sdk-scorecard-shared-cases.md).
+
 The [third 2026-11-15 comparison](results/2026-11-15-3/summary.md) is the
-latest and the first with the case catalog, which `score.sh` checked every
+first with the case catalog, which `score.sh` checked every
 result against. It executes the same 2,016 cases on the 0.22.0 source at
 `814c6c43`, with no uncommitted change. The only case that changed for any
 product is Ruby's `object.list_offsets`, now `n/a`, so Ruby scores 50 cases.
