@@ -1,6 +1,6 @@
 // `--transport-check`: certificate, hostname and origin handling only.
-#ifndef GCS_MIMIC_SCORECARD_CPP_TRANSPORT_CHECK_H
-#define GCS_MIMIC_SCORECARD_CPP_TRANSPORT_CHECK_H
+#ifndef SCORECARD_CPP_TRANSPORT_CHECK_H
+#define SCORECARD_CPP_TRANSPORT_CHECK_H
 
 #include "config.h"
 
@@ -15,4 +15,4 @@ void CheckTransport(Config const& config);
 
 }  // namespace scorecard
 
-#endif  // GCS_MIMIC_SCORECARD_CPP_TRANSPORT_CHECK_H
+#endif  // SCORECARD_CPP_TRANSPORT_CHECK_H

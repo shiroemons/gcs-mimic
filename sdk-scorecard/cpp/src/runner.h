@@ -1,6 +1,6 @@
 // Runs the selected cases and prints one JSONL line per case.
-#ifndef GCS_MIMIC_SCORECARD_CPP_RUNNER_H
-#define GCS_MIMIC_SCORECARD_CPP_RUNNER_H
+#ifndef SCORECARD_CPP_RUNNER_H
+#define SCORECARD_CPP_RUNNER_H
 
 #include "harness.h"
 #include <string>
@@ -25,4 +25,4 @@ int RunCases(Ctx& ctx, std::vector<Case> const& cases);
 
 }  // namespace scorecard
 
-#endif  // GCS_MIMIC_SCORECARD_CPP_RUNNER_H
+#endif  // SCORECARD_CPP_RUNNER_H

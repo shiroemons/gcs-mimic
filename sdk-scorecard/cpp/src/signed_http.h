@@ -1,6 +1,6 @@
 // A libcurl handle that sends pre-signed requests to the scorecard origin only.
-#ifndef GCS_MIMIC_SCORECARD_CPP_SIGNED_HTTP_H
-#define GCS_MIMIC_SCORECARD_CPP_SIGNED_HTTP_H
+#ifndef SCORECARD_CPP_SIGNED_HTTP_H
+#define SCORECARD_CPP_SIGNED_HTTP_H
 
 #include "config.h"
 #include <stdexcept>
@@ -53,4 +53,4 @@ class SignedHttp {
 
 }  // namespace scorecard
 
-#endif  // GCS_MIMIC_SCORECARD_CPP_SIGNED_HTTP_H
+#endif  // SCORECARD_CPP_SIGNED_HTTP_H

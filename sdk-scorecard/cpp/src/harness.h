@@ -1,6 +1,6 @@
 // Shared state and helpers for every probe case.
-#ifndef GCS_MIMIC_SCORECARD_CPP_HARNESS_H
-#define GCS_MIMIC_SCORECARD_CPP_HARNESS_H
+#ifndef SCORECARD_CPP_HARNESS_H
+#define SCORECARD_CPP_HARNESS_H
 
 #include "config.h"
 #include "signed_http.h"
@@ -151,4 +151,4 @@ void CheckEqual(std::vector<std::string> const& actual, std::vector<std::string>
 
 }  // namespace scorecard
 
-#endif  // GCS_MIMIC_SCORECARD_CPP_HARNESS_H
+#endif  // SCORECARD_CPP_HARNESS_H

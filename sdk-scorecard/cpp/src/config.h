@@ -1,6 +1,6 @@
 // Environment handling for the C++ scorecard probe.
-#ifndef GCS_MIMIC_SCORECARD_CPP_CONFIG_H
-#define GCS_MIMIC_SCORECARD_CPP_CONFIG_H
+#ifndef SCORECARD_CPP_CONFIG_H
+#define SCORECARD_CPP_CONFIG_H
 
 #include <stdexcept>
 #include <string>
@@ -53,4 +53,4 @@ Config ConfigFromEnv();
 
 }  // namespace scorecard
 
-#endif  // GCS_MIMIC_SCORECARD_CPP_CONFIG_H
+#endif  // SCORECARD_CPP_CONFIG_H
