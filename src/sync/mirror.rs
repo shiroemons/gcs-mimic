@@ -469,6 +469,7 @@ async fn run_live_config(
                     Interrupt::new(stopping),
                     state.baseline.gate,
                     &writeback,
+                    &mut state.skipped,
                 )
                 .await?;
                 diagnostics::emit(LogLevel::Info, "sync_reconciled", &summary);
@@ -497,7 +498,7 @@ async fn run_live_config(
                             if *stopping.borrow() {break}
                             let history=watcher.history_scan(unsettled.quiet);
                             let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};
-                            let summary=ingest_external(scope,&mut state.baseline).await?;
+                            let summary=ingest_external(scope,&mut state.baseline,&mut state.skipped).await?;
                             history.finish(root,&summary).await;
                             unsettled.settle();
                             if unsettled.quiet==observation::Quiet::Capped {
@@ -521,7 +522,15 @@ async fn run_live_config(
             continue;
         }
         state.cursor = page.next;
-        let summary = replay_page(catalog, root, &writeback, page, stopping).await?;
+        let summary = replay_page(
+            catalog,
+            root,
+            &writeback,
+            page,
+            stopping,
+            &mut state.skipped,
+        )
+        .await?;
         diagnostics::emit(LogLevel::Info, "sync_exported", &summary);
         health.pass_succeeded();
     }
@@ -534,8 +543,17 @@ async fn replay_page(
     writeback: &Writeback,
     page: ChangePage,
     stopping: &tokio::sync::watch::Receiver<bool>,
+    skipped: &mut SkippedExports,
 ) -> Result<Reconciliation, SyncError> {
-    replay_page_with(catalog, root, writeback, page, Interrupt::new(stopping)).await
+    replay_page_with(
+        catalog,
+        root,
+        writeback,
+        page,
+        Interrupt::new(stopping),
+        skipped,
+    )
+    .await
 }
 async fn replay_page_with(
     catalog: &Catalog,
@@ -543,6 +561,7 @@ async fn replay_page_with(
     writeback: &Writeback,
     page: ChangePage,
     interrupt: Interrupt<'_>,
+    skipped: &mut SkippedExports,
 ) -> Result<Reconciliation, SyncError> {
     let mut summary = Reconciliation::default();
     // A page bounds the work set; each selected key reads current live state once.
@@ -570,16 +589,18 @@ async fn replay_page_with(
             continue;
         };
         if let Some(name) = name {
-            reconcile_live_object(
+            let name = ObjectName::new(name)?;
+            let outcome = reconcile_live_object(
                 catalog,
                 root,
                 writeback,
                 &bucket,
-                &ObjectName::new(name)?,
+                &name,
                 page.fence,
                 &mut summary,
             )
             .await?;
+            skipped.record((bucket, name), outcome);
         } else {
             if !root.remember_sync_bucket(&bucket).await? {
                 summary.deferred += 1;
@@ -628,12 +649,14 @@ async fn initialize_live(
     .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
     let ingest_complete = BaselineGate::after_ingest(&ingested);
+    let mut skipped = SkippedExports::default();
     let mut summary = reconcile_with(
         catalog,
         operation_root,
         Interrupt::new(stopping),
         ingest_complete,
         &writeback,
+        &mut skipped,
     )
     .await?;
     summary.ingested = ingested.ingested;
@@ -662,6 +685,7 @@ async fn initialize_live(
                 gate: ingest_complete,
                 complete: baseline_complete,
             },
+            skipped,
         },
         watcher,
         writeback,
@@ -681,13 +705,15 @@ async fn recover_writeback(root: &RootLease) -> Result<Writeback, SyncError> {
 async fn ingest_external(
     scope: LiveScope<'_>,
     baseline: &mut BaselineProgress,
+    skipped: &mut SkippedExports,
 ) -> Result<Reconciliation, SyncError> {
-    ingest_external_with(scope, Interrupt::new(scope.stopping), baseline).await
+    ingest_external_with(scope, Interrupt::new(scope.stopping), baseline, skipped).await
 }
 async fn ingest_external_with(
     scope: LiveScope<'_>,
     interrupt: Interrupt<'_>,
     baseline: &mut BaselineProgress,
+    skipped: &mut SkippedExports,
 ) -> Result<Reconciliation, SyncError> {
     let LiveScope {
         catalog,
@@ -711,6 +737,7 @@ async fn ingest_external_with(
             interrupt,
             BaselineGate::Allowed,
             writeback,
+            skipped,
         ))
         .await?;
         baseline.complete = merged.baseline_complete;
@@ -723,6 +750,8 @@ async fn ingest_external_with(
         return Ok(summary);
     }
     observe_deletions(catalog, root, config, &summary, interrupt).await?;
+    // Boxed like the reconciliation above, which also runs exports inside this pass.
+    Box::pin(skipped.retry(scope, interrupt)).await?;
     summary.interrupted |= interrupt.check() != Interrupted::No;
     Ok(summary)
 }
@@ -758,6 +787,7 @@ struct BaselineProgress {
 struct LiveState {
     cursor: JournalFence,
     baseline: BaselineProgress,
+    skipped: SkippedExports,
 }
 
 /// What every control of one live run borrows. Each request copies it with its own scoped root.
@@ -781,7 +811,8 @@ impl LiveControl<'_> {
             writeback: &writeback,
             ..self.scope
         };
-        let summary = ingest_external(scope, &mut self.state.baseline).await?;
+        let summary =
+            ingest_external(scope, &mut self.state.baseline, &mut self.state.skipped).await?;
         Ok(summary)
     }
 
@@ -946,6 +977,7 @@ impl LiveControl<'_> {
     }
 }
 
+/// Exports one object's live state; `Some` is an export skipped for a retry to finish.
 async fn reconcile_live_object(
     catalog: &Catalog,
     root: &RootLease,
@@ -954,7 +986,7 @@ async fn reconcile_live_object(
     name: &ObjectName,
     fence: JournalFence,
     summary: &mut Reconciliation,
-) -> Result<(), SyncError> {
+) -> Result<Option<SkippedExport>, SyncError> {
     let mut object = LiveObject {
         catalog,
         root,
@@ -963,9 +995,82 @@ async fn reconcile_live_object(
         summary,
     };
     let Some(plan) = object.plan().await? else {
-        return Ok(());
+        return Ok(None);
     };
     object.export(writeback, fence, plan).await
+}
+
+/// A live export skipped because preserving the file it would replace failed when that file or
+/// the API object changed meanwhile, by the generations it was planned with. Its journal change
+/// is already behind the cursor: a later API change is replayed, but nothing else exports it
+/// again after a changed file.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SkippedExport {
+    /// The API generation the export brings to the tree; `None` removes the tracked file.
+    api: Option<Generation>,
+    /// The generation the tree tracked.
+    tracked: Option<Generation>,
+}
+
+/// The skipped exports of a live run, by object, which it runs again once the tree settles.
+#[derive(Default)]
+struct SkippedExports(std::collections::BTreeMap<(BucketName, ObjectName), SkippedExport>);
+
+impl SkippedExports {
+    /// Keeps the outcome of an object's latest export: a skipped one to run again, or none.
+    fn record(&mut self, object: (BucketName, ObjectName), outcome: Option<SkippedExport>) {
+        match outcome {
+            Some(skipped) => {
+                self.0.insert(object, skipped);
+            }
+            None => {
+                self.0.remove(&object);
+            }
+        }
+    }
+
+    /// Runs each skipped export again while the API and the tree still hold the generations it
+    /// was planned with. Another change settled the rest: a journal replay exports a newer API
+    /// state, and an ingested edit or a finished export moves the tracked generation. An
+    /// interruption or a failure keeps the exports it did not reach for the next pass.
+    async fn retry(
+        &mut self,
+        scope: LiveScope<'_>,
+        interrupt: Interrupt<'_>,
+    ) -> Result<(), SyncError> {
+        if self.0.is_empty() {
+            return Ok(());
+        }
+        let fence = scope.catalog.current_fence().await?;
+        // Like the baseline reconciliation of an ingestion pass, a retry reports no counts.
+        let mut uncounted = Reconciliation::default();
+        let pending: Vec<_> = self
+            .0
+            .iter()
+            .map(|(object, skipped)| (object.clone(), *skipped))
+            .collect();
+        for (object, skipped) in pending {
+            if interrupt.check() != Interrupted::No {
+                break;
+            }
+            let (bucket, name) = &object;
+            let mut live = LiveObject {
+                catalog: scope.catalog,
+                root: scope.root,
+                bucket,
+                name,
+                summary: &mut uncounted,
+            };
+            let outcome = match live.plan().await? {
+                Some(plan) if plan.skipped() == Some(skipped) => {
+                    live.export(scope.writeback, fence, plan).await?
+                }
+                Some(_) | None => None,
+            };
+            self.record(object, outcome);
+        }
+        Ok(())
+    }
 }
 
 pub(super) async fn restore_from_catalog(
@@ -1038,6 +1143,24 @@ struct LivePlan {
     generation: Generation,
     source: Option<File>,
     content: Content,
+}
+
+impl LivePlan {
+    /// The API generation this export brings to the tree; `None` removes the tracked file.
+    fn api_generation(&self) -> Option<Generation> {
+        // Only a removal has neither a body to copy nor an identical one to observe.
+        (self.content == Content::Identical || self.source.is_some()).then_some(self.generation)
+    }
+
+    /// This export as a skipped one to run again; `None` when the tree already tracks the API
+    /// generation, because a divergent file there is ingestion's to publish.
+    fn skipped(&self) -> Option<SkippedExport> {
+        let skipped = SkippedExport {
+            api: self.api_generation(),
+            tracked: self.tracked.as_ref().map(|record| record.generation),
+        };
+        (skipped.api != skipped.tracked).then_some(skipped)
+    }
 }
 
 impl LiveObject<'_> {
@@ -1189,18 +1312,20 @@ impl LiveObject<'_> {
         }
     }
 
+    /// Exports `plan`; `Some` is the export, skipped because preserving the file it would replace
+    /// failed, for a retry to finish.
     async fn export(
         &mut self,
         writeback: &Writeback,
         fence: JournalFence,
         mut plan: LivePlan,
-    ) -> Result<(), SyncError> {
+    ) -> Result<Option<SkippedExport>, SyncError> {
         let (bucket, name) = (self.bucket, self.name);
         #[cfg(test)]
         export_checkpoint("after-get-path").await;
         let Some(mut operation) = self.begin_export(writeback, fence, &plan, None).await? else {
             self.summary.deferred += 1;
-            return Ok(());
+            return Ok(None);
         };
         #[cfg(test)]
         export_checkpoint("after-prepare").await;
@@ -1245,7 +1370,7 @@ impl LiveObject<'_> {
                         let Some(retry) = self.preserve_export(writeback, fence, &mut plan).await?
                         else {
                             self.summary.deferred += 1;
-                            return Ok(());
+                            return Ok(plan.skipped());
                         };
                         operation = retry;
                         preserved = true;
@@ -1263,7 +1388,7 @@ impl LiveObject<'_> {
                 }
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     async fn begin_export(
@@ -1322,8 +1447,7 @@ impl LiveObject<'_> {
         fence: JournalFence,
         plan: &mut LivePlan,
     ) -> Result<Option<LiveExport>, SyncError> {
-        let expected_generation = (plan.content == Content::Identical || plan.source.is_some())
-            .then_some(plan.generation);
+        let expected_generation = plan.api_generation();
         let captured = match self
             .root
             .capture_path(crate::storage::sync_state::conflicts::CaptureRequest {
@@ -1706,6 +1830,8 @@ struct Reconciler<'a> {
     fence: JournalFence,
     /// The counts of this pass; `reconcile_with` completes and returns them.
     summary: Reconciliation,
+    /// The live run's skipped exports, which this pass's exports update.
+    skipped: &'a mut SkippedExports,
 }
 
 async fn reconcile_until(
@@ -1715,12 +1841,14 @@ async fn reconcile_until(
     baseline: BaselineGate,
 ) -> Result<Reconciliation, SyncError> {
     let writeback = root.default_writeback().await?;
+    // A single reconciliation has no later pass to run a skipped export in.
     reconcile_with(
         catalog,
         root,
         Interrupt::new(stopping),
         baseline,
         &writeback,
+        &mut SkippedExports::default(),
     )
     .await
 }
@@ -1730,6 +1858,7 @@ async fn reconcile_with(
     interrupt: Interrupt<'_>,
     baseline: BaselineGate,
     writeback: &Writeback,
+    skipped: &mut SkippedExports,
 ) -> Result<Reconciliation, SyncError> {
     catalog.enable_change_journal().await?;
     let fence = catalog.current_fence().await?;
@@ -1744,6 +1873,7 @@ async fn reconcile_with(
         writeback: writeback.clone(),
         fence,
         summary: Reconciliation::default(),
+        skipped,
     };
     if reconciler.buckets().await? == Step::Stopped || interrupt.check() != Interrupted::No {
         reconciler.summary.interrupted = true;
@@ -1780,7 +1910,7 @@ impl Reconciler<'_> {
         bucket: &BucketName,
         name: &ObjectName,
     ) -> Result<(), SyncError> {
-        reconcile_live_object(
+        let outcome = reconcile_live_object(
             self.catalog,
             self.root,
             &self.writeback,
@@ -1789,7 +1919,9 @@ impl Reconciler<'_> {
             self.fence,
             &mut self.summary,
         )
-        .await
+        .await?;
+        self.skipped.record((bucket.clone(), name.clone()), outcome);
+        Ok(())
     }
 
     async fn buckets(&mut self) -> Result<Step, SyncError> {

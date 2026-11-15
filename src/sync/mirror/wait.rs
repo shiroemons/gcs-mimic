@@ -40,8 +40,13 @@ impl LiveControl<'_> {
             stopping: self.scope.stopping,
             deadline: Some(deadline),
         };
-        let mut summary =
-            ingest_external_with(self.scope, interrupt, &mut self.state.baseline).await?;
+        let mut summary = ingest_external_with(
+            self.scope,
+            interrupt,
+            &mut self.state.baseline,
+            &mut self.state.skipped,
+        )
+        .await?;
         if summary.interrupted {
             return Ok(WaitResult::result(self.interruption(), None, Some(summary)));
         }
@@ -77,6 +82,7 @@ impl LiveControl<'_> {
                 self.scope.writeback,
                 page,
                 interrupt,
+                &mut self.state.skipped,
             )
             .await?;
             summary.exported += replay.exported;

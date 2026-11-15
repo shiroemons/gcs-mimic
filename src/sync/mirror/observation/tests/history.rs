@@ -67,6 +67,7 @@ impl Fixture {
                 gate: BaselineGate::Allowed,
                 complete: true,
             },
+            skipped: SkippedExports::default(),
         }
     }
     async fn scan(&mut self) {
@@ -75,9 +76,13 @@ impl Fixture {
             gate: BaselineGate::Allowed,
             complete: self.root.observation().await.unwrap().baseline_complete,
         };
-        ingest_external(self.scope(&stopping), &mut baseline)
-            .await
-            .unwrap();
+        ingest_external(
+            self.scope(&stopping),
+            &mut baseline,
+            &mut SkippedExports::default(),
+        )
+        .await
+        .unwrap();
     }
     async fn quiet(&self) -> DirectoryWatch {
         let mut watcher = DirectoryWatch::new(&self.root).await.unwrap();

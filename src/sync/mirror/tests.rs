@@ -261,6 +261,7 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
             stopping: &stop.subscribe(),
         },
         &mut baseline,
+        &mut SkippedExports::default(),
     )
     .await
     .unwrap();
@@ -739,6 +740,75 @@ async fn an_api_write_during_conflict_preservation_is_replayed_from_the_journal(
         assert_eq!(retained_conflicts(&held.data), [b"external edit".to_vec()]);
         held.finish().await;
     }
+}
+
+/// A local edit that changes again, or goes away, while a live export preserves it leaves that
+/// export skipped after the journal cursor moved past its API write. Once the tree settles, the
+/// export runs again: the API generation reaches the tree, and the newer edit is preserved as
+/// a conflict. Before, nothing exported it again until a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_export_skipped_by_a_changing_edit_runs_again_once_the_tree_settles() {
+    for removed in [false, true] {
+        let held = HeldPreservation::start().await;
+        fs::write(held.path(), b"newer external edit").unwrap();
+        if removed {
+            fs::remove_file(held.path()).unwrap();
+        }
+        held.release();
+        held.await_export(Some(&held.api), Some(b"second")).await;
+        let retained: &[&[u8]] = if removed {
+            &[]
+        } else {
+            &[b"newer external edit"]
+        };
+        assert_eq!(retained_conflicts(&held.data), retained);
+        let observed = held.root.observation().await.unwrap();
+        assert_eq!(observed.mapping_findings, 0);
+        assert_eq!(observed.unresolved_conflicts, retained.len() as u64);
+        held.finish().await;
+    }
+}
+
+/// The same skip during the initial reconciliation kept the baseline from completing: the
+/// ingestion pass that follows reports the newer edit as a conflict, so it reconciles nothing.
+/// The export now runs again after that pass, and the baseline completes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_skipped_conflict_preservation_lets_the_initial_baseline_complete() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    let api = publish_origin(&catalog, &bucket, b"api", Origin::Api).await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let path = tree.0.join("test-bucket/object");
+    fs::write(&path, b"external body").unwrap();
+    let (held, release) = hold_conflict_capture(&catalog);
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let worker_catalog = catalog.clone();
+    let worker_root = root.clone();
+    let worker =
+        tokio::spawn(async move { run_live(&worker_catalog, &worker_root, &mut stopping).await });
+    tokio::time::timeout(HANG_GUARD, held)
+        .await
+        .unwrap()
+        .unwrap();
+    fs::write(&path, b"newer external body").unwrap();
+    release.send(()).unwrap();
+    eventually_async("the baseline to complete", || async {
+        root.observation().await.unwrap().baseline_complete
+    })
+    .await;
+    let binding = root.sync_binding(&bucket).await.unwrap();
+    let tracked = catalog
+        .sync_state()
+        .get_path(binding, "test-bucket/object".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(tracked.generation.get(), api.generation);
+    assert_eq!(fs::read(&path).unwrap(), b"api");
+    assert_eq!(retained_conflicts(&data), [b"newer external body".to_vec()]);
+    stop.send_replace(true);
+    worker.await.unwrap().unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -1820,6 +1890,7 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
             gate: BaselineGate::Allowed,
             complete: true,
         },
+        skipped: SkippedExports::default(),
     };
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     let mut control = LiveControl {
@@ -1893,6 +1964,7 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
             gate: BaselineGate::Allowed,
             complete: true,
         },
+        skipped: SkippedExports::default(),
     };
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     let writeback = root.default_writeback().await.unwrap();
@@ -1942,6 +2014,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
             gate: BaselineGate::Allowed,
             complete: true,
         },
+        skipped: SkippedExports::default(),
     };
     let (_sender, stopping) = tokio::sync::watch::channel(false);
     let writeback = root.default_writeback().await.unwrap();

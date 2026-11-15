@@ -151,6 +151,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
             stopping: &stopping,
         },
         &mut baseline,
+        &mut SkippedExports::default(),
     )
     .await
     .unwrap();
@@ -167,6 +168,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 stopping: &stopping,
             },
             &mut baseline,
+            &mut SkippedExports::default(),
         )
         .await
         .unwrap();
@@ -192,6 +194,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 stopping: &stopping,
             },
             &mut baseline,
+            &mut SkippedExports::default(),
         )
         .await
         .unwrap();
@@ -224,6 +227,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 stopping: &stopping,
             },
             &mut baseline,
+            &mut SkippedExports::default(),
         )
         .await
         .unwrap();
