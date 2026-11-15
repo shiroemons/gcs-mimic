@@ -96,7 +96,7 @@ pub(crate) struct UploadHeaders {
     pub(crate) mime: String,
     /// The `X-Goog-Hash` digests, which this route keeps verifying.
     pub(crate) expected: ExpectedHashes,
-    /// `X-Upload-Content-Length`.
+    /// `X-Upload-Content-Length`, which binds the session's total unless it is 0.
     pub(crate) total: Option<u64>,
 }
 
@@ -106,9 +106,13 @@ pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, Js
             return Err(JsonError::unsupported_object(name.as_str()));
         }
     }
+    // Cloud Storage leaves the total open after a declared 0: chunks may omit it and the upload
+    // may end at any size, while a declared 5 refuses a longer chunk (recorded 2026-11-15, case
+    // obj-resumable-declared-length). The PHP SDK declares the size of its still-empty buffer.
     let total = single(headers, "x-upload-content-length")?
         .map(unsigned)
-        .transpose()?;
+        .transpose()?
+        .filter(|total| *total != 0);
     if total.is_some_and(|n| n > max) {
         return Err(ObjectError::TooLarge.into());
     }

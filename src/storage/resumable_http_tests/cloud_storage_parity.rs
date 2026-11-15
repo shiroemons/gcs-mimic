@@ -129,6 +129,54 @@ async fn semantic_range_errors_and_duplicate_headers_leave_sessions_retryable() 
 }
 
 #[tokio::test]
+async fn a_declared_length_of_zero_leaves_the_total_open() {
+    // The PHP SDK's gs:// writes declare 0 and then stream chunks with an open total; Cloud
+    // Storage accepts them, while a declared 5 still refuses a longer chunk (recorded 2026-11-15).
+    let h = Harness::start(1 << 20, Permissive, None).await;
+    let declared = |length: u64| format!("X-Upload-Content-Length: {length}\r\n");
+    let chunk = vec![b'a'; 262_144];
+    let init = h.initiate("name=streamed", &declared(0), b"").await;
+    let path = h.path(&init);
+    let open = h
+        .request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &chunk)
+        .await;
+    assert_eq!(open.status, 308);
+    assert_eq!(open.headers["range"], "bytes=0-262143");
+    let done = h
+        .request(
+            "PUT",
+            &path,
+            "Content-Range: bytes 262144-262148/262149\r\n",
+            b"hello",
+        )
+        .await;
+    assert_eq!(done.status, 200);
+    assert_eq!(done.json()["size"], "262149");
+    let init = h.initiate("name=one-chunk", &declared(0), b"").await;
+    let done = h
+        .request(
+            "PUT",
+            &h.path(&init),
+            "Content-Range: bytes 0-4/5\r\n",
+            b"hello",
+        )
+        .await;
+    assert_eq!(done.status, 200);
+    assert_eq!(done.json()["size"], "5");
+    let init = h.initiate("name=declared", &declared(5), b"").await;
+    let over = h
+        .request(
+            "PUT",
+            &h.path(&init),
+            "Content-Range: bytes 0-262143/*\r\n",
+            &chunk,
+        )
+        .await;
+    assert_eq!(over.status, 400);
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn media_upload_ignores_declared_hashes_and_stores_the_computed_ones() {
     let h = Harness::start(1000, Permissive, None).await;
     for headers in [

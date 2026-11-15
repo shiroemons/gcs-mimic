@@ -769,7 +769,8 @@ async fn initiation_preserves_encoded_names_metadata_and_query_precedence() {
         session.options.metadata.content_encoding,
         gcs_mimic::object::Patch::Set("gzip".into())
     );
-    assert_eq!(session.total, Some(0));
+    // A declared 0 leaves the total open, so the empty body below ends the upload.
+    assert_eq!(session.total, None);
     let r = h.request("PUT", &h.path(&reply), "", b"").await;
     assert_eq!(r.status, 200);
     assert_eq!(r.json()["name"], "日/%");
