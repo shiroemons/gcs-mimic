@@ -30,9 +30,35 @@ pub(crate) enum EventSettingsError {
     FiltersWithoutTopic,
     /// Publishing needs the project, the topic and an explicit local emulator.
     Incomplete,
-    Invalid(NotificationError),
+    /// The project and topic do not name a valid topic.
+    Topic(NotificationError),
+    /// The object name prefix filter is not one a notification configuration accepts.
+    ObjectPrefix(NotificationError),
     BucketTooLong,
     EventList,
+}
+
+impl EventSettingsError {
+    /// The settings a diagnostic names, most specific first; it names the first one given.
+    fn settings(&self) -> &'static [Setting] {
+        match self {
+            Self::Endpoint(_) => &[Setting::PubsubEmulatorHost],
+            Self::FiltersWithoutTopic => &[
+                Setting::EventBucket,
+                Setting::EventObjectPrefix,
+                Setting::EventList,
+            ],
+            Self::Incomplete => &[
+                Setting::EventPubsubProjectId,
+                Setting::EventPubsubTopic,
+                Setting::PubsubEmulatorHost,
+            ],
+            Self::Topic(_) => &[Setting::EventPubsubTopic, Setting::EventPubsubProjectId],
+            Self::ObjectPrefix(_) => &[Setting::EventObjectPrefix],
+            Self::BucketTooLong => &[Setting::EventBucket],
+            Self::EventList => &[Setting::EventList],
+        }
+    }
 }
 
 impl fmt::Display for EventSettingsError {
@@ -45,7 +71,7 @@ impl fmt::Display for EventSettingsError {
             Self::Incomplete => f.write_str(
                 "Event publishing requires event_pubsub_project_id, event_pubsub_topic and an explicit pubsub_emulator_host (or PUBSUB_EMULATOR_HOST); production Google Pub/Sub is disabled",
             ),
-            Self::Invalid(error) => error.fmt(f),
+            Self::Topic(error) | Self::ObjectPrefix(error) => error.fmt(f),
             Self::BucketTooLong => {
                 f.write_str("event_bucket exceeds the supported bucket name length")
             }
@@ -60,7 +86,7 @@ impl std::error::Error for EventSettingsError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Endpoint(error) => Some(error),
-            Self::Invalid(error) => Some(error),
+            Self::Topic(error) | Self::ObjectPrefix(error) => Some(error),
             Self::FiltersWithoutTopic
             | Self::Incomplete
             | Self::BucketTooLong
@@ -130,9 +156,9 @@ impl Config {
             self.event_pubsub_project_id, self.event_pubsub_topic
         )
         .parse::<Topic>()
-        .map_err(EventSettingsError::Invalid)?;
+        .map_err(EventSettingsError::Topic)?;
         notification::validate_object_name_prefix(&self.event_object_prefix)
-            .map_err(EventSettingsError::Invalid)?;
+            .map_err(EventSettingsError::ObjectPrefix)?;
         if self.event_bucket.len() > MAX_BUCKET_NAME_BYTES {
             return Err(EventSettingsError::BucketTooLong);
         }
@@ -158,8 +184,8 @@ impl Config {
     }
 }
 
-/// The settings the event publishing runtime reads, in the order a diagnostic looks for the one
-/// to name.
+/// The settings the event publishing runtime reads. A diagnostic falls back to the first given in
+/// this order when none of its own settings was given.
 const EVENT_SETTINGS: [Setting; 6] = [
     Setting::PubsubEmulatorHost,
     Setting::EventPubsubProjectId,
@@ -175,8 +201,10 @@ impl ConfigurationReport {
             return;
         }
         if let Err(error) = self.config.notification_runtime() {
-            let input = EVENT_SETTINGS
+            let input = error
+                .settings()
                 .iter()
+                .chain(&EVENT_SETTINGS)
                 .find_map(|setting| settings.get(setting));
             let (source, key) = input.map_or(
                 (DiagnosticSource::Config, Setting::EventPubsubTopic.as_str()),

@@ -96,8 +96,8 @@ fn event_setting_failures_name_their_setting_and_fix() {
         pairs.push((setting, value.to_owned()));
         pairs
     };
-    // A failure the settings find together names the first given event setting in the order
-    // `check_notifications` lists them, which is the emulator host whenever it is set.
+    // A failure the settings find together names the first given setting it is about, so an
+    // invalid topic, bucket, prefix or event list names its own setting, not the emulator host.
     for (pairs, key, fix) in [
         (
             vec![(
@@ -126,22 +126,22 @@ fn event_setting_failures_name_their_setting_and_fix() {
                 ("--event-pubsub-topic", "bad topic".to_owned()),
                 ("--pubsub-emulator-host", "127.0.0.1:8085".to_owned()),
             ],
-            "--pubsub-emulator-host",
+            "--event-pubsub-topic",
             "Invalid topic \"projects/local/topics/bad topic\"; use //pubsub.googleapis.com/projects/PROJECT/topics/TOPIC (for example, //pubsub.googleapis.com/projects/local-project/topics/uploads)",
         ),
         (
             complete_with("--event-bucket", &long_bucket),
-            "--pubsub-emulator-host",
+            "--event-bucket",
             "event_bucket exceeds the supported bucket name length",
         ),
         (
             complete_with("--event-object-prefix", &long_prefix),
-            "--pubsub-emulator-host",
+            "--event-object-prefix",
             "object_name_prefix exceeds 1024 bytes",
         ),
         (
             complete_with("--event-list", "finalize,invalid"),
-            "--pubsub-emulator-host",
+            "--event-list",
             "event_list requires finalize, delete, metadataUpdate or archive, separated by commas",
         ),
     ] {
