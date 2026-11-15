@@ -231,9 +231,9 @@ impl Bucket {
         &self.name
     }
 
-    /// Whether this entry already enforces public access prevention, under which startup refuses
-    /// a public grant, so a prompt can leave public read out.
-    pub fn prevents_public_access(&self) -> bool {
+    /// Whether this entry enforces public access prevention, under which startup refuses a
+    /// public grant.
+    fn prevents_public_access(&self) -> bool {
         self.iam_configuration.is_some_and(|configuration| {
             configuration.public_access_prevention == PublicAccessPrevention::Enforced
         })
