@@ -9,7 +9,10 @@ use crate::sync::test_support::hooked_worker;
 use crate::{
     clock::SystemClock,
     object::{Patch, UploadChunk},
-    storage::admin::{BucketDefinition, GenerationCondition, Publication, PublishMode},
+    storage::{
+        admin::{BucketDefinition, GenerationCondition, Publication, PublishMode},
+        fault,
+    },
     test_support::{HANG_GUARD, TestDir, eventually_async},
 };
 use bytes::Bytes;
@@ -21,6 +24,16 @@ async fn run_live(
     stopping: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), SyncError> {
     let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    run_live_controlled(catalog, root, stopping, &mut receiver).await
+}
+
+/// Runs the live mirror like `run_live`, answering the controls that `requests` delivers.
+async fn run_live_controlled(
+    catalog: &Catalog,
+    root: &RootLease,
+    stopping: &mut tokio::sync::watch::Receiver<bool>,
+    requests: &mut tokio::sync::mpsc::Receiver<Command>,
+) -> Result<(), SyncError> {
     let health = crate::task::TaskHealth::default();
     let config = Config::default();
     run_live_config(
@@ -32,7 +45,7 @@ async fn run_live(
             resume: None,
         },
         stopping,
-        &mut receiver,
+        requests,
         &mut observation::Controls::default(),
     )
     .await
@@ -587,21 +600,22 @@ async fn api_deletions_reach_the_tree_while_the_initial_baseline_is_incomplete()
     catalog.close().await.unwrap();
 }
 
-/// Holds the next conflict capture after it reserved its entry and before it copies the file,
-/// until the returned sender releases it.
+/// Holds the next conflict capture at `step` until the returned sender releases it:
+/// `ConflictReserved` after it reserved its entry and before it copies the file,
+/// `ConflictRegistered` after it registered the copy and before the export replaces the file.
 fn hold_conflict_capture(
     catalog: &Catalog,
+    step: fault::Step,
 ) -> (
     tokio::sync::oneshot::Receiver<()>,
     std::sync::mpsc::Sender<()>,
 ) {
-    use crate::storage::fault::{Fault, Step};
     let (entered, held) = tokio::sync::oneshot::channel();
     let (release, released) = std::sync::mpsc::channel();
     catalog.inject(
-        Step::ConflictReserved,
+        step,
         0,
-        Fault::Block {
+        fault::Fault::Block {
             entered: std::sync::Arc::new(std::sync::Mutex::new(Some(entered))),
             release: std::sync::Arc::new(std::sync::Mutex::new(released)),
         },
@@ -617,8 +631,48 @@ fn retained_conflicts(data: &TestDir) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// A live mirror past its initial export of `object`, held while it preserves a local edit of
-/// that file before replaying the API write that replaces it.
+/// Runs the explicit rescan control through `commands`. The mirror answers it between two
+/// exports, so an export in progress when it is sent has ended.
+async fn rescan_control(commands: &tokio::sync::mpsc::Sender<Command>) -> Reconciliation {
+    let (reply, summary) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Rescan {
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(HANG_GUARD, summary)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+}
+
+/// The generation the tree tracks for `object` in `bucket`, if it tracks one.
+async fn tracked_generation(
+    catalog: &Catalog,
+    root: &RootLease,
+    bucket: &BucketName,
+) -> Option<i64> {
+    let binding = root.sync_binding(bucket).await.unwrap();
+    catalog
+        .sync_state()
+        .get_path(binding, "test-bucket/object".into())
+        .await
+        .unwrap()
+        .map(|record| record.generation.get())
+}
+
+/// The bytes of every retained conflict, sorted.
+fn sorted_conflicts(data: &TestDir) -> Vec<Vec<u8>> {
+    let mut retained = retained_conflicts(data);
+    retained.sort();
+    retained
+}
+
+/// A live mirror past its initial export of `object`, held at a conflict capture `step` while
+/// it preserves a local edit of that file before replaying the API write that replaces it.
 struct HeldPreservation {
     data: TestDir,
     tree: TestDir,
@@ -628,28 +682,30 @@ struct HeldPreservation {
     /// The generation the held export brings to the tree.
     api: ObjectRecord,
     stop: tokio::sync::watch::Sender<bool>,
+    commands: tokio::sync::mpsc::Sender<Command>,
     worker: tokio::task::JoinHandle<Result<(), SyncError>>,
     releaser: tokio::task::JoinHandle<()>,
     release: std::sync::mpsc::Sender<()>,
 }
 
 impl HeldPreservation {
-    async fn start() -> Self {
+    async fn start(step: fault::Step) -> Self {
         let (data, tree, catalog, bucket, root) = live_fixture().await;
         publish_origin(&catalog, &bucket, b"first", Origin::Api).await;
         let (stop, mut stopping) = tokio::sync::watch::channel(false);
+        let (commands, mut requests) = tokio::sync::mpsc::channel(1);
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
         // The first idle follows the initial export, which completed the baseline.
         let (hook, worker) = hooked_worker(&EXPORT_HOOK, "idle", async move {
-            run_live(&worker_catalog, &worker_root, &mut stopping).await
+            run_live_controlled(&worker_catalog, &worker_root, &mut stopping, &mut requests).await
         })
         .await;
         assert!(root.observation().await.unwrap().baseline_complete);
         let path = tree.0.join("test-bucket/object");
         assert_eq!(fs::read(&path).unwrap(), b"first");
         fs::write(&path, b"external edit").unwrap();
-        let (held, release) = hold_conflict_capture(&catalog);
+        let (held, release) = hold_conflict_capture(&catalog, step);
         let api = publish_origin(&catalog, &bucket, b"second", Origin::Api).await;
         let releaser = tokio::spawn(async move {
             loop {
@@ -669,6 +725,7 @@ impl HeldPreservation {
             root,
             api,
             stop,
+            commands,
             worker,
             releaser,
             release,
@@ -718,7 +775,7 @@ impl HeldPreservation {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_api_write_during_conflict_preservation_is_replayed_from_the_journal() {
     for deleted in [false, true] {
-        let held = HeldPreservation::start().await;
+        let held = HeldPreservation::start(fault::Step::ConflictReserved).await;
         let name = ObjectName::new("object").unwrap();
         let newer = if deleted {
             held.catalog
@@ -749,7 +806,7 @@ async fn an_api_write_during_conflict_preservation_is_replayed_from_the_journal(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_export_skipped_by_a_changing_edit_runs_again_once_the_tree_settles() {
     for removed in [false, true] {
-        let held = HeldPreservation::start().await;
+        let held = HeldPreservation::start(fault::Step::ConflictReserved).await;
         fs::write(held.path(), b"newer external edit").unwrap();
         if removed {
             fs::remove_file(held.path()).unwrap();
@@ -769,6 +826,78 @@ async fn a_live_export_skipped_by_a_changing_edit_runs_again_once_the_tree_settl
     }
 }
 
+/// A local edit that changes again after a live export preserved it makes that export record an
+/// export conflict and log the remedy: stop the writer and rescan. The export now runs again
+/// after the next ingestion pass, so once the writer stops, the rescan answers with the API
+/// generation in the tree and the newer edit preserved next to the first. Before, every later
+/// pass, the rescan's included, reported the edit as a conflict and exported nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rescan_exports_an_api_write_whose_preserved_edit_changed_again() {
+    let held = HeldPreservation::start(fault::Step::ConflictRegistered).await;
+    fs::write(held.path(), b"newer external edit").unwrap();
+    held.release();
+    assert!(rescan_control(&held.commands).await.baseline_complete);
+    assert_eq!(
+        tracked_generation(&held.catalog, &held.root, &held.bucket).await,
+        Some(held.api.generation)
+    );
+    assert_eq!(fs::read(held.path()).unwrap(), b"second");
+    assert_eq!(
+        sorted_conflicts(&held.data),
+        [b"external edit".to_vec(), b"newer external edit".to_vec()]
+    );
+    let observed = held.root.observation().await.unwrap();
+    assert!(observed.baseline_complete);
+    assert_eq!(observed.mapping_findings, 0);
+    assert_eq!(observed.unresolved_conflicts, 2);
+    held.finish().await;
+}
+
+/// The same newer edit during the initial reconciliation also kept the baseline from
+/// completing, since every later pass reported it as a conflict. After the rescan, the API
+/// generation is in the tree, and the pass that next finds it there completes the baseline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rescan_lets_the_initial_baseline_complete_after_a_preserved_edit_changed_again() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    let api = publish_origin(&catalog, &bucket, b"api", Origin::Api).await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let path = tree.0.join("test-bucket/object");
+    fs::write(&path, b"external body").unwrap();
+    let (held, release) = hold_conflict_capture(&catalog, fault::Step::ConflictRegistered);
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let (commands, mut requests) = tokio::sync::mpsc::channel(1);
+    let worker_catalog = catalog.clone();
+    let worker_root = root.clone();
+    let worker = tokio::spawn(async move {
+        run_live_controlled(&worker_catalog, &worker_root, &mut stopping, &mut requests).await
+    });
+    tokio::time::timeout(HANG_GUARD, held)
+        .await
+        .unwrap()
+        .unwrap();
+    fs::write(&path, b"newer external body").unwrap();
+    release.send(()).unwrap();
+    rescan_control(&commands).await;
+    assert_eq!(
+        tracked_generation(&catalog, &root, &bucket).await,
+        Some(api.generation)
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"api");
+    assert_eq!(
+        sorted_conflicts(&data),
+        [b"external body".to_vec(), b"newer external body".to_vec()]
+    );
+    eventually_async("the baseline to complete", || async {
+        root.observation().await.unwrap().baseline_complete
+    })
+    .await;
+    assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
+    stop.send_replace(true);
+    worker.await.unwrap().unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// The same skip during the initial reconciliation kept the baseline from completing: the
 /// ingestion pass that follows reports the newer edit as a conflict, so it reconciles nothing.
 /// The export now runs again after that pass, and the baseline completes.
@@ -779,7 +908,7 @@ async fn a_skipped_conflict_preservation_lets_the_initial_baseline_complete() {
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     let path = tree.0.join("test-bucket/object");
     fs::write(&path, b"external body").unwrap();
-    let (held, release) = hold_conflict_capture(&catalog);
+    let (held, release) = hold_conflict_capture(&catalog, fault::Step::ConflictReserved);
     let (stop, mut stopping) = tokio::sync::watch::channel(false);
     let worker_catalog = catalog.clone();
     let worker_root = root.clone();

@@ -1001,9 +1001,9 @@ async fn reconcile_live_object(
 }
 
 /// A live export skipped because preserving the file it would replace failed when that file or
-/// the API object changed meanwhile, by the generations it was planned with. Its journal change
-/// is already behind the cursor: a later API change is replayed, but nothing else exports it
-/// again after a changed file.
+/// the API object changed meanwhile, or because that file changed again after preservation, by
+/// the generations it was planned with. Its journal change is already behind the cursor: a later
+/// API change is replayed, but nothing else exports it again after a changed file.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SkippedExport {
     /// The API generation the export brings to the tree; `None` removes the tracked file.
@@ -1313,7 +1313,7 @@ impl LiveObject<'_> {
     }
 
     /// Exports `plan`; `Some` is the export, skipped because preserving the file it would replace
-    /// failed, for a retry to finish.
+    /// failed or that file changed again after preservation, for a retry to finish.
     async fn export(
         &mut self,
         writeback: &Writeback,
@@ -1384,7 +1384,9 @@ impl LiveObject<'_> {
                         "sync_external_conflict",
                         serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":"A newer external edit arrived after preservation; stop the writer and rescan. Inspect retained conflicts before restoring or discarding a revision"}),
                     );
-                    break;
+                    // Ingestion publishes the newer edit only while the tree tracks the API
+                    // generation; otherwise the rescan the remedy names runs this export again.
+                    return Ok(plan.skipped());
                 }
             }
         }

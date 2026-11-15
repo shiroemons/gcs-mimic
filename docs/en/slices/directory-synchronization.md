@@ -601,9 +601,10 @@ and any write-back that would discard external bytes. Disk-full/sync failures
 leave the source intact and expose a stop. Never evict old conflicts automatically.
 If capture of an already observed divergence cannot complete, do not overwrite the
 external file to finish mirroring. When the file changed or went away during capture,
-the live observer runs that export again, with a new capture, once the tree settles,
-unless a journal replay or an ingested edit has moved the API or tracked generation
-since. Persist conflict registration before replacing
+or changed again after it was preserved, the live observer runs that export again,
+with a new capture, once the tree settles, unless a journal replay or an ingested
+edit has moved the API or tracked generation since; a rescan runs it too.
+Persist conflict registration before replacing
 that known divergent file. A last-check race can instead reveal divergence only
 after exchange/removal has displaced the actual inode: the independent displaced-body
 recovery boundary below applies, without claiming registration preceded that race.
