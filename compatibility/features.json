@@ -19001,7 +19001,7 @@
         }
       ],
       "known_deviations": [
-        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, contexts/retention and advanced metadata are explicitly rejected, not silently accepted; the userProject billing query is ignored. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
+        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS, contexts/retention and advanced metadata are explicitly rejected, not silently accepted; customer-supplied source and destination keys, including key rotation, have been supported since docs/en/slices/customer-supplied-keys.md (CSEK-COPY). The userProject billing query is ignored. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
       ],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-11-13",
@@ -31486,7 +31486,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Retained-version listing and query-bound keyset paging pass; soft-delete/restore listing remains unavailable.",
+      "notes": "Retained-version listing and query-bound keyset paging pass. softDeleted=true listing, and its 400 together with versions=true, are delivered and tested under JSON-OBJECTS-011; the scorecard's object.soft_delete_restore lists soft-deleted objects in all nine SDKs (sdk-scorecard/results/2026-11-15-2). Restore tokens remain unsupported.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",

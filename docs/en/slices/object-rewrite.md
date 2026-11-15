@@ -72,7 +72,7 @@ validators extend the frozen profile. Other methods return 405 with `Allow: POST
 | `fields` | Validate against the rewrite response schema; nested `resource(...)` uses Object fields. Filter the final response only, without changing byte counts, publication or stored completion. Invalid selectors fail before side effects. Errors remain unfiltered. A continuation cannot replace an initially supplied selector with another value. |
 | `dropContextGroups` | Recognized but unavailable: 501, including `custom`; no accepted-and-ignored context deletion. |
 | Common queries | `alt=json`, compact output and `prettyPrint=false` extend existing parsing. Other common queries use existing 400/501 distinctions. No query bearer tokens, quota behavior or JSONP. |
-| Headers | Strict authentication on every rewrite request. Reject unsupported source/destination CSEK headers, KMS/billing headers, write ETag/date validators and method override consistently with the existing profile. No media body or upload-checksum header reinterpretation. |
+| Headers | Strict authentication on every rewrite request. Reject unsupported KMS/billing headers, write ETag/date validators and method override consistently with the existing profile. No media body or upload-checksum header reinterpretation. This slice also rejected source/destination CSEK headers; [customer-supplied keys](customer-supplied-keys.md) added them later (CSEK-COPY). |
 
 ## Metadata acceptance
 

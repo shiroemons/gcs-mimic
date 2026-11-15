@@ -473,7 +473,9 @@ local 410. Changed unqualified sources fail 412; explicitly selected retained
 generations can continue. The [contract](slices/object-rewrite.md) records these
 local choices and provider questions. Strict calls require source read,
 destination create and delete for overwrite; each call rechecks grants.
-KMS/CSEK, requester billing and context/retention remain unsupported. The response
+KMS, requester billing and context/retention remain unsupported. Customer-supplied
+encryption keys work, and rewriting an object onto itself with a new key rotates
+it ([details](slices/customer-supplied-keys.md)). The response
 names the destination's creator as `owner`, as Cloud Storage does.
 
 ## Select response fields and validate cached reads

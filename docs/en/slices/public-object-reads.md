@@ -303,7 +303,8 @@ In `storage/v1.70.0`, default HTTP reads use XML unless JSON reads are explicitl
 selected. The reader builds a path-style URL with `url.PathEscape(object)` and
 uses HEAD for length zero. `generation` pins explicit or resumed reads. Range
 requests cover closed, open and suffix forms. Options can add billing, CSEK,
-gzip and generation/metageneration match headers; billing/CSEK stay unsupported.
+gzip and generation/metageneration match headers; billing stays unsupported, and
+CSEK reads were added later by [customer-supplied keys](customer-supplied-keys.md).
 
 The reader validates 206 `Content-Range`, pins `x-goog-generation` for reopen,
 parses metageneration and HTTP `Last-Modified`, and exposes content type/encoding,
