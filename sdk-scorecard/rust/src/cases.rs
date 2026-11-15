@@ -7,6 +7,7 @@ mod grpc;
 mod listing;
 mod object;
 mod retention;
+mod sdk;
 mod signed;
 
 use crate::harness::{Ctx, Result};
@@ -162,6 +163,8 @@ pub(crate) const CASES: &[(&str, Case)] = &[
     ),
     ("signed.post_policy_v4", run!(signed::post_policy_v4)),
     ("grpc.multi_range_read", run!(grpc::multi_range_read)),
+    ("sdk.rewrite_token_loop", run!(sdk::rewrite_token_loop)),
+    ("sdk.write_unbuffered", run!(sdk::write_unbuffered)),
 ];
 
 #[cfg(test)]
@@ -171,7 +174,7 @@ mod tests {
 
     #[test]
     fn case_list_matches_the_shared_scorecard_shape() {
-        assert_eq!(CASES.len(), 57);
+        assert_eq!(CASES.len(), 59);
         let ids: HashSet<&str> = CASES.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids.len(), CASES.len(), "duplicate case IDs");
     }

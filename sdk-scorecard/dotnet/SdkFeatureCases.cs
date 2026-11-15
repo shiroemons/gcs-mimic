@@ -11,7 +11,7 @@ internal static partial class Probe
     [
         new("sdk.signed_request_template_headers", SignedTemplateHeaders),
         new("sdk.signed_query_generation", SignedQueryGeneration),
-        new("sdk.service_rewrite_token_loop", ServiceRewriteTokenLoop),
+        new("sdk.rewrite_token_loop", RewriteTokenLoop),
         new("sdk.upload_predefined_acl", UploadPredefinedAcl),
     ];
 
@@ -50,7 +50,7 @@ internal static partial class Probe
         Check(body.SequenceEqual(Bytes("one")), $"got '{Preview(body)}' instead of the first generation");
     }
 
-    private static async Task ServiceRewriteTokenLoop(CancellationToken token)
+    private static async Task RewriteTokenLoop(CancellationToken token)
     {
         var bucket = await NewBucket(token);
         var data = RandomBytes(3 * 1024 * 1024 + 9);
@@ -60,15 +60,18 @@ internal static partial class Probe
         var request = Client.Service.Objects.Rewrite(new Object { StorageClass = "NEARLINE" }, bucket.Name, "src", bucket.Name, "dst");
         request.MaxBytesRewrittenPerCall = 1024 * 1024;
         var calls = 0;
+        var withToken = 0;
         RewriteResponse response;
         do
         {
+            if (!string.IsNullOrEmpty(request.RewriteToken)) withToken++;
             response = await request.ExecuteAsync(token);
             calls++;
             request.RewriteToken = response.RewriteToken;
         } while (response.Done != true && calls < 20);
-        Check(response.Done == true && calls >= 2, $"done={response.Done} after {calls} calls");
+        Check(response.Done == true && withToken >= 2, $"done={response.Done} after {calls} calls, {withToken} with the rewrite token");
         Check(response.TotalBytesRewritten == data.Length, $"totalBytesRewritten {response.TotalBytesRewritten}");
+        Check(response.Resource?.StorageClass == "NEARLINE", $"destination storage class {response.Resource?.StorageClass}");
         Check((await Read(bucket.Name, "dst", token)).SequenceEqual(data), "rewrite bytes");
     }
 

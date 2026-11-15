@@ -8,6 +8,7 @@ require "net/http"
 require "securerandom"
 require "stringio"
 require "timeout"
+require "tmpdir"
 require "uri"
 require "zlib"
 
@@ -654,6 +655,33 @@ probe "signed.post_policy_v4", "signed" do
                             open_timeout: 10, read_timeout: 20) { |client| client.request(request) }
   check response.code.to_i.between?(200, 299), "status #{response.code} body #{response.body.to_s[0, 200]}"
   check download(bucket.file("post.txt")) == "posted", "posted bytes differ"
+end
+
+probe "sdk.file_upload_download", "sdk" do
+  bucket = new_bucket
+  data = SecureRandom.random_bytes(1024 * 1024 + 3)
+  Dir.mktmpdir("sc-rb-") do |dir|
+    source = File.join(dir, "source.bin")
+    target = File.join(dir, "downloaded.bin")
+    File.binwrite(source, data)
+    file = bucket.create_file(source, "file.bin")
+    check file.size == data.bytesize, "size #{file.size}"
+    bucket.file("file.bin").download(target)
+    check File.binread(target) == data, "downloaded file bytes differ"
+  end
+end
+
+probe "sdk.download_to_io", "sdk" do
+  bucket = new_bucket
+  data = SecureRandom.random_bytes(1024 * 1024 + 3)
+  upload(bucket, "io.bin", data)
+  file = bucket.file("io.bin")
+  whole = StringIO.new.binmode
+  check file.download(whole).equal?(whole), "download did not return the given StringIO"
+  check whole.string == data, "downloaded bytes differ"
+  part = StringIO.new.binmode
+  file.download(part, range: 10..19)
+  check part.string == data.byteslice(10, 10), "range bytes #{part.string.inspect}"
 end
 
 filter = ENV.fetch("SCORECARD_RUN", "")

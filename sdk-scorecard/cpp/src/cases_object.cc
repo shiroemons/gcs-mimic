@@ -1,6 +1,6 @@
 // Object cases: the 29 shared `object.*` IDs.
 #include "harness.h"
-#include "google/cloud/log.h"
+#include "sdk_log.h"
 #include <zlib.h>
 
 #include <chrono>
@@ -214,29 +214,6 @@ class ListResponseLog : public gc::LogBackend {
   std::vector<int> page_sizes_;
 };
 
-// Installs a log backend for one scope and restores the sink afterwards, even
-// when the case throws.
-class ScopedLogBackend {
- public:
-  explicit ScopedLogBackend(std::shared_ptr<gc::LogBackend> backend)
-      : sink_(gc::LogSink::Instance()),
-        id_(sink_.AddBackend(std::move(backend))),
-        severity_(sink_.minimum_severity()) {
-    sink_.set_minimum_severity(gc::Severity::GCP_LS_DEBUG);
-  }
-  ~ScopedLogBackend() {
-    sink_.set_minimum_severity(severity_);
-    sink_.RemoveBackend(id_);
-  }
-  ScopedLogBackend(ScopedLogBackend const&) = delete;
-  ScopedLogBackend& operator=(ScopedLogBackend const&) = delete;
-
- private:
-  gc::LogSink& sink_;
-  gc::LogSink::BackendId id_;
-  gc::Severity severity_;
-};
-
 void ListPaging(Ctx& c) {
   auto const bucket = NewBucket(c);
   std::vector<std::string> const all = {"p1", "p2", "p3", "p4", "p5"};
@@ -245,10 +222,7 @@ void ListPaging(Ctx& c) {
   std::vector<std::string> names;
   {
     ScopedLogBackend const scope(log);
-    auto options = EndpointOptions(c.config);
-    options.set<gc::UnifiedCredentialsOption>(gc::MakeInsecureCredentials())
-        .set<gc::LoggingComponentsOption>({"rpc"});
-    gcs::Client traced(std::move(options));
+    auto traced = LoggingClient(c.config, {"rpc"});
     for (auto& object : traced.ListObjects(bucket, gcs::MaxResults(2))) {
       names.push_back(Require(std::move(object), "list objects").name());
     }

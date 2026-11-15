@@ -38,12 +38,12 @@ final class SdkCases extends Cases {
   void register(List<Probe.Case> cases) {
     cases.add(new Probe.Case("sdk.blob_handle_roundtrip", this::blobHandle));
     cases.add(new Probe.Case("sdk.default_upload_crc32c", this::defaultCrc32c));
-    cases.add(new Probe.Case("sdk.create_from_path_download_to", this::createFromPath));
+    cases.add(new Probe.Case("sdk.file_upload_download", this::createFromPath));
     cases.add(new Probe.Case("sdk.write_channel_streaming", this::writeChannel));
     cases.add(new Probe.Case("sdk.read_channel_chunked", this::readChannel));
     cases.add(new Probe.Case("sdk.list_iterate_all", this::iterateAll));
-    cases.add(new Probe.Case("sdk.storage_batch", this::batch));
-    cases.add(new Probe.Case("sdk.default_retry_resumable_recovery", this::resumableRecovery));
+    cases.add(new Probe.Case("sdk.json_batch", this::batch));
+    cases.add(new Probe.Case("sdk.resumable_resume", this::resumableResume));
     cases.add(new Probe.Case("sdk.blob_write_session_default", this::writeSessionDefault));
   }
 
@@ -93,7 +93,7 @@ final class SdkCases extends Cases {
   private void createFromPath() throws IOException {
     String b = bucket().getName();
     Path dir = caseDir();
-    byte[] data = pattern(5 * 1024 * 1024 + 3, 4);
+    byte[] data = pattern(1024 * 1024 + 3, 4);
     Path source = Files.write(dir.resolve("source.bin"), data);
     storage.createFrom(BlobInfo.newBuilder(b, "file.bin").build(), source);
     Blob blob = reload(BlobId.of(b, "file.bin"));
@@ -185,32 +185,61 @@ final class SdkCases extends Cases {
     seed(b, "x", "y", "z");
     StorageBatch batch = storage.batch();
     StorageBatchResult<Blob> got = batch.get(b, "x");
-    StorageBatchResult<Blob> updated = batch.update(BlobInfo.newBuilder(b, "y").setContentType("text/x-batch").build());
+    // StorageBatch.update queues an objects.patch, so the batch carries a metadata PATCH.
+    Map<String, String> patched = Map.of("k", "batched");
+    StorageBatchResult<Blob> updated = batch.update(
+        BlobInfo.newBuilder(b, "y").setContentType("text/x-batch").setMetadata(patched).build());
     StorageBatchResult<Boolean> deleted = batch.delete(b, "z");
     StorageBatchResult<Blob> missing = batch.get(b, "missing");
     StorageBatchResult<Boolean> missingDelete = batch.delete(b, "missing");
+    int mark = context.http.openedCount();
     batch.submit();
+    List<String> sent = context.http.openedSince(mark);
+    check(sent.size() == 1 && sent.get(0).endsWith("/batch/storage/v1"), "batch sent " + sent);
     check(got.get() != null && got.get().getSize() == 1, "batch get");
-    check("text/x-batch".equals(updated.get().getContentType()), "batch update result");
+    check("text/x-batch".equals(updated.get().getContentType()) && patched.equals(updated.get().getMetadata()),
+        "batch update result " + updated.get().getContentType() + " " + updated.get().getMetadata());
     check(Boolean.TRUE.equals(deleted.get()), "batch delete result");
     check(missing.get() == null, "batch get of a missing object");
     check(Boolean.FALSE.equals(missingDelete.get()), "batch delete of a missing object");
-    check("text/x-batch".equals(reload(BlobId.of(b, "y")).getContentType()), "batch update not stored");
+    Blob stored = reload(BlobId.of(b, "y"));
+    check("text/x-batch".equals(stored.getContentType()) && patched.equals(stored.getMetadata()),
+        "batch update not stored: " + stored.getContentType() + " " + stored.getMetadata());
     check(storage.get(BlobId.of(b, "z")) == null, "batch delete not applied");
   }
 
-  private void resumableRecovery() throws IOException {
-    Storage defaults = context.httpOptions(Probe.Retries.SDK_DEFAULT).build().getService();
+  /** Body bytes of the PUTs in {@code requests}; a status query and the session start carry none. */
+  private static long putBytes(List<RequestLog.Entry> requests) {
+    return requests.stream().filter(entry -> entry.method().equals("PUT")).mapToLong(RequestLog.Entry::contentLength)
+        .sum();
+  }
+
+  // The first writer stops after its first chunk, as if its process had died; a channel restored
+  // from the captured state finishes the same session with the SDK's default retries.
+  private void resumableResume() throws IOException {
+    RequestLog log = new RequestLog();
+    Storage defaults = context.httpOptions(Probe.Retries.SDK_DEFAULT, log).build().getService();
     String b = bucket().getName();
-    byte[] data = pattern(3 * CHUNK + 99, 6);
-    int split = 2 * CHUNK + 7;
+    byte[] data = pattern(1024 * 1024 + 17, 6);
+    // One byte past the chunk makes the channel send the full first chunk and buffer the byte.
+    int split = CHUNK + 1;
     WriteChannel first = defaults.writer(BlobInfo.newBuilder(b, "resumed.bin").build());
     first.setChunkSize(CHUNK);
     writeAll(first, data, 0, split);
     RestorableState<WriteChannel> state = first.capture();
+    List<RequestLog.Entry> before = log.since(0);
+    List<String> session = before.stream().filter(entry -> entry.method().equals("PUT")).map(RequestLog.Entry::url)
+        .distinct().toList();
+    check(putBytes(before) == CHUNK && session.size() == 1, "first writer sent " + before);
+    int mark = log.size();
     try (WriteChannel resumed = state.restore()) {
       writeAll(resumed, data, split, data.length);
     }
+    List<RequestLog.Entry> after = log.since(mark);
+    check(!after.isEmpty() && after.stream().allMatch(entry -> entry.url().equals(session.get(0))),
+        "resumed requests left the session: " + after);
+    check(putBytes(after) == data.length - CHUNK,
+        "resume sent " + putBytes(after) + " bytes, not the remaining " + (data.length - CHUNK) + ": " + after);
     check(Arrays.equals(read(b, "resumed.bin"), data), "resumed bytes differ");
     check(names(storage.list(b).iterateAll()).equals(List.of("resumed.bin")), "unexpected objects");
   }

@@ -82,10 +82,12 @@ struct Case {
   char const* unsupported = nullptr;
 };
 
-// Registers each file's cases in the order of the shared case list.
+// Registers each file's cases in the order of the shared case list, then the
+// SDK cases in catalog order.
 void AddBucketCases(std::vector<Case>& cases);
 void AddObjectCases(std::vector<Case>& cases);
 void AddSignedCases(std::vector<Case>& cases);
+void AddSdkCases(std::vector<Case>& cases);
 
 // Creates a bucket with the given name and returns the name.
 template <typename... Options>

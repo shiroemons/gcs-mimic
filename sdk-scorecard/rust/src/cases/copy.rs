@@ -10,7 +10,11 @@ use google_cloud_storage::model::{Bucket, CommonObjectRequestParams, Object};
 
 /// A rewrite of `source` into `target`. The API requires the destination's bucket and
 /// name in their own fields, not in the destination properties.
-fn rewrite_request(ctx: &Ctx, source: (&str, &str), target: (&str, &str)) -> Result<RewriteObject> {
+pub(super) fn rewrite_request(
+    ctx: &Ctx,
+    source: (&str, &str),
+    target: (&str, &str),
+) -> Result<RewriteObject> {
     Ok(ctx
         .control()?
         .rewrite_object()

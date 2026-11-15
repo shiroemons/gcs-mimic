@@ -23,7 +23,7 @@ internal static partial class Probe
         new("sdk.update_object_implicit_preconditions", UpdateObjectPreconditions),
         new("sdk.update_bucket_etag_ignored", UpdateBucketEtagIgnored),
         new("sdk.iam_policy_etag", IamPolicyEtag),
-        new("sdk.resumable_resume_from_uri", ResumeFromUri),
+        new("sdk.resumable_resume", ResumableResume),
         new("sdk.object_uploader_session", ObjectUploaderSession),
         new("sdk.upload_progress", UploadProgress),
         new("sdk.download_gzip_default", DownloadGzipDefault),
@@ -129,23 +129,24 @@ internal static partial class Probe
         Check(members.Contains("user:first@example.invalid") && !members.Contains("user:stale@example.invalid"), string.Join(",", members));
     }
 
-    private static async Task ResumeFromUri(CancellationToken token)
+    private static async Task ResumableResume(CancellationToken token)
     {
         var bucket = await NewBucket(token);
-        var data = RandomBytes(4 * Chunk);
+        var data = RandomBytes(1024 * 1024 + 17);
         var uri = await Client.InitiateUploadSessionAsync(bucket.Name, "resume.bin", "application/octet-stream", data.Length, null, token);
         Transport.RequireOrigin(Origin, uri);
 
-        // The first attempt dies after two chunks, as if the process had crashed mid-upload.
+        // The first attempt dies after its first chunk, as if the process had crashed mid-upload.
         var firstLog = new Transport.RequestLog();
         using (var firstClient = Factory.Client(firstLog))
         {
-            var first = ResumableUpload.CreateFromUploadUri(uri, new FailingStream(data, 2 * Chunk), new ResumableUploadOptions { HttpClient = firstClient });
+            var first = ResumableUpload.CreateFromUploadUri(uri, new FailingStream(data, Chunk), new ResumableUploadOptions { HttpClient = firstClient });
             first.ChunkSize = Chunk;
             var failed = await first.UploadAsync(token);
             Check(failed.Status == UploadStatus.Failed, $"interrupted upload ended {failed.Status}");
         }
-        Check(firstLog.Entries.Count(entry => entry.Method == HttpMethod.Put) >= 2, "first attempt sent no chunks through the guarded client");
+        var sent = firstLog.Entries.Where(entry => entry.Method == HttpMethod.Put).Sum(entry => entry.ContentLength ?? 0);
+        Check(sent == Chunk, $"first attempt sent {sent} bytes through the guarded client: {firstLog}");
 
         var secondLog = new Transport.RequestLog();
         using var secondClient = Factory.Client(secondLog);
@@ -157,7 +158,7 @@ internal static partial class Probe
         Check(requests.Count > 0 && requests[0].ContentRange == $"bytes */{data.Length}", $"first resumed request {requests.FirstOrDefault()?.ContentRange}");
         Check(requests.All(entry => entry.Uri.AbsolutePath == uri.AbsolutePath), "resumed request left the session URI");
         var resent = requests.Sum(entry => entry.ContentLength ?? 0);
-        Check(resent > 0 && resent < data.Length, $"resume resent {resent} of {data.Length} bytes");
+        Check(resent == data.Length - Chunk, $"resume sent {resent} bytes, not the remaining {data.Length - Chunk}: {secondLog}");
         Check((await Read(bucket.Name, "resume.bin", token)).SequenceEqual(data), "bytes differ");
     }
 

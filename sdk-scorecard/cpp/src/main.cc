@@ -26,6 +26,7 @@ int Run(bool transport_check) {
   scorecard::AddBucketCases(cases);
   scorecard::AddObjectCases(cases);
   scorecard::AddSignedCases(cases);
+  scorecard::AddSdkCases(cases);
   auto ctx = scorecard::MakeContext(std::move(config));
   return scorecard::RunCases(ctx, cases);
 }

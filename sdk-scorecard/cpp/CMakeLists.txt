@@ -17,11 +17,13 @@ find_package(ZLIB REQUIRED)
 add_executable(gcs-mimic-scorecard-cpp
   src/cases_bucket.cc
   src/cases_object.cc
+  src/cases_sdk.cc
   src/cases_signed.cc
   src/config.cc
   src/harness.cc
   src/main.cc
   src/runner.cc
+  src/sdk_log.cc
   src/signed_http.cc
   src/transport_check.cc)
 target_compile_options(gcs-mimic-scorecard-cpp PRIVATE -Wall -Wextra -Wpedantic)

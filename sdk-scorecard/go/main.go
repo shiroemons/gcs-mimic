@@ -322,7 +322,7 @@ func httpDoHeader(ctx context.Context, method, target string, body io.Reader, he
 }
 
 func cases() []testCase {
-	return []testCase{
+	return append([]testCase{
 		// Buckets.
 		{"bucket.create_get_delete", "bucket", func(p *probe) error {
 			b, err := p.bucket(nil)
@@ -1676,7 +1676,7 @@ func cases() []testCase {
 			got, err := read(p.ctx, o)
 			return expectBytes(got, []byte("first"), err)
 		}},
-	}
+	}, sdkCases()...)
 }
 
 // expectGRPCCode requires err to carry the given gRPC status code itself, not an HTTP mapping of it.

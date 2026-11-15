@@ -4,9 +4,13 @@
 
 Probes the official `Google.Cloud.Storage.V1` 5.0.0 against an emulator. It
 emits one JSONL line per case: the 56 shared bucket, object and signed cases
-(same IDs and order as the Python probe) plus 17 .NET-specific cases in the
-`sdk` area (IDs start with `sdk.`): progress reporting, resumable sessions,
-signed-URL templates, rewrite loops and similar idioms.
+(same IDs and order as the Python probe) plus 17 cases in the `sdk` area (IDs
+start with `sdk.`): progress reporting, resumable sessions, signed-URL
+templates, rewrite loops and similar idioms. Two of them are shared with the
+other SDKs that reach the same workflow: `sdk.resumable_resume` (a
+`ResumableUpload` resumed from its session URI, whose requests the guarded
+client records) and `sdk.rewrite_token_loop` (the generated
+`Service.Objects.Rewrite` request with `MaxBytesRewrittenPerCall`).
 
 ## Build and run
 

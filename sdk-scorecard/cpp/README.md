@@ -3,11 +3,13 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Probes the official `google-cloud-cpp` Cloud Storage client 3.13.0 over its
-JSON/REST transport against an emulator. It emits one JSONL line per case: the
-56 shared bucket, object and signed cases, with the same IDs, areas and order as
-the Python probe. It has no SDK-specific (`sdk` area) cases and does not use the
-SDK's gRPC transport, so `SCORECARD_GRPC_ENDPOINT` is ignored. Contract:
-[the C++ slice](../../docs/en/slices/sdk-scorecard-cpp.md).
+JSON/REST transport against an emulator. It emits one JSONL line per case, 62
+in all: the 56 shared bucket, object and signed cases, with the same IDs, areas
+and order as the Python probe, then the six `sdk` cases the catalog lists for
+C++, in catalog order. It does not use the SDK's gRPC transport, so
+`SCORECARD_GRPC_ENDPOINT` is ignored. Contracts:
+[the C++ slice](../../docs/en/slices/sdk-scorecard-cpp.md) and
+[the SDK-specific cases](../../docs/en/slices/sdk-scorecard-sdk-cases.md).
 
 ## Pins
 
@@ -123,6 +125,24 @@ emulator and exits 0 or non-zero.
   signs with `WithResponseContentDisposition` and `WithResponseContentType`; the
   handle records the final response's headers so the case can require exactly
   one value of each.
+
+## SDK cases
+
+The probe observes the wire through the SDK's own `http` log component: a
+client with `LoggingComponentsOption({"http"})` logs libcurl's trace of every
+request, and a log backend rebuilds each request's method, target, headers and
+body size from it. Like `object.list_paging`, this depends on the SDK's log
+text; a change to it parses no requests and fails the cases instead of passing
+them.
+
+| Case | SDK API | Checks beyond the catalog |
+| --- | --- | --- |
+| `sdk.resumable_resume` | `WriteObject` with `NewResumableUploadSession()` and `UploadBufferSize(256 KiB)`; one 256 KiB write sends the first chunk, then `Suspend()`. A new `WriteObject` with `RestoreResumableUploadSession(id)` writes from its `next_expected_byte()`. | No object exists after the interruption. The first writer sent one session start and 262144 bytes from offset 0; the restored writer reports `next_expected_byte()` 262144, starts no session and sends exactly the remaining 786449 bytes, the first data `Content-Range` starting at 262144. |
+| `sdk.resumable_cancel` | A suspended session with one 256 KiB chunk, `DeleteResumableUpload(id)`, then `WriteObject` with `RestoreResumableUploadSession(id)`. | The restored stream is born closed and its `metadata()` carries the HTTP error; the bucket lists no object. |
+| `sdk.object_update_replace` | `UpdateObject` with the fetched metadata whose map is set to {c: 3}. | The wire shows exactly one `PUT`; the update response also carries exactly {c: 3}. |
+| `sdk.rewrite_token_loop` | `RewriteObject` with `MaxBytesRewrittenPerCall(1 MiB)` and NEARLINE destination metadata, driven by `Iterate()`; `token()` is the token the next call sends. | No call advances more than 1 MiB; every progress report gives the object size. The wire shows one rewrite `POST` per `Iterate()`, each with `maxBytesRewrittenPerCall=1048576`, and the token-carrying calls also carry `rewriteToken` there. The result and the stored object are NEARLINE. |
+| `sdk.parallel_composite_upload` | `ParallelUploadFile` with `MaxStreams(3)` and `MinStreamSize(1 MiB)`; the default 32 MiB minimum would make one shard. | componentCount is exactly 3 in the result and the stored object; the bucket lists only the composite object. |
+| `sdk.file_upload_download` | `UploadFile` and `DownloadToFile`, with both files under the OS temporary directory and removed afterwards. | The upload result reports the file size. |
 
 ## Unsupported cases
 

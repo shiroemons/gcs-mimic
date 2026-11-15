@@ -9,18 +9,22 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import sys
-from urllib.parse import urlsplit
+import tempfile
+from urllib.parse import parse_qs, urlsplit
 
 from google.api_core import exceptions
 from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
+from google.cloud.storage import transfer_manager
 from google.cloud.storage.asyncio.async_appendable_object_writer import AsyncAppendableObjectWriter
 from google.cloud.storage.asyncio.async_grpc_client import AsyncGrpcClient
 from google.cloud.storage.asyncio.async_multi_range_downloader import AsyncMultiRangeDownloader
+from google.cloud.storage.exceptions import InvalidResponse
 from google.oauth2 import service_account
 import requests
 
@@ -37,24 +41,34 @@ SIGNER = service_account.Credentials.from_service_account_info({
 
 
 class LocalHTTP(requests.Session):
-    def __init__(self):
+    def __init__(self, log=None):
         super().__init__()
         self.trust_env = False
         self.verify = os.environ.get("SCORECARD_CA_CERT", True)
+        # A case that observes the wire gives its own session a list that collects the requests sent.
+        self.log = log
 
     def send(self, request, **kwargs):
         parts = urlsplit(request.url)
         if (parts.scheme, parts.netloc) != (PARTS.scheme, PARTS.netloc):
             raise ValueError("request escaped emulator")
+        # The SDK looks a bucket up from a background thread to label its telemetry; that GET belongs to
+        # none of the recorded workflows and may land at any time, so it is not recorded.
+        if self.log is not None and not (request.method == "GET" and re.fullmatch(r"/storage/v1/b/[^/]+", parts.path)):
+            self.log.append(request)
         kwargs["timeout"] = 20
         kwargs["allow_redirects"] = False
         return super().send(request, **kwargs)
 
 
+def new_client(http):
+    return storage.Client(project=PROJECT, credentials=AnonymousCredentials(), _http=http,
+                          client_options={"api_endpoint": ORIGIN})
+
+
 HTTP = LocalHTTP()
 os.environ["STORAGE_EMULATOR_HOST"] = ORIGIN
-CLIENT = storage.Client(project=PROJECT, credentials=AnonymousCredentials(), _http=HTTP,
-                        client_options={"api_endpoint": ORIGIN})
+CLIENT = new_client(HTTP)
 if sys.argv[1:] == ["--transport-check"]:
     try:
         HTTP.get("https://storage.googleapis.com/")
@@ -751,6 +765,147 @@ def grpc_appendable_object():
     blob = b.get_blob("appendable", retry=None)
     check(blob is not None and blob.size == len(first) + len(second), "stored size")
     check(read(blob) == first + second, "stored bytes")
+
+
+def recording():
+    """A client with its own session, which records each request for the checks observed on the wire."""
+    log = []
+    return new_client(LocalHTTP(log)), log
+
+
+def sent(log):
+    return [(request.method, urlsplit(request.url).path) for request in log]
+
+
+def query(request):
+    return parse_qs(urlsplit(request.url).query, keep_blank_values=True)
+
+
+def body_text(request):
+    return request.body.decode() if isinstance(request.body, bytes) else request.body
+
+
+def byte_range(request):
+    header = request.headers.get("Range", "")
+    match = re.fullmatch(r"bytes=(\d+)-(\d+)", header)
+    check(match is not None, f"request without a closed byte range: {header!r}")
+    return int(match[1]), int(match[2])
+
+
+@probe("sdk.object_update_replace")
+def object_update_replace():
+    b = bucket()
+    blob = b.blob("replace.txt")
+    blob.metadata = {"a": "1", "b": "2"}
+    blob.upload_from_string("x", retry=None)
+    client, log = recording()
+    replaced = client.bucket(b.name).get_blob("replace.txt", retry=None)
+    replaced.metadata = {"c": "3"}
+    log.clear()
+    replaced.update(retry=None)
+    check(sent(log) == [("PUT", f"/storage/v1/b/{b.name}/o/replace.txt")], f"update sent {sent(log)}")
+    check(replaced.metadata == {"c": "3"}, f"update returned metadata {replaced.metadata}")
+    blob.reload(retry=None)
+    check(blob.metadata == {"c": "3"}, f"stored metadata {blob.metadata}")
+
+
+@probe("sdk.json_batch")
+def json_batch():
+    b = bucket()
+    upload(b, "deleted.txt", "delete me")
+    stored = b.blob("patched.txt")
+    stored.metadata = {"a": "1"}
+    stored.upload_from_string("patch me", retry=None)
+    client, log = recording()
+    handles = client.bucket(b.name)
+    patched = handles.blob("patched.txt")
+    patched.metadata = {"b": "2"}
+    with client.batch():
+        handles.blob("deleted.txt").delete()
+        patched.patch()
+    check(sent(log) == [("POST", "/batch/storage/v1")], f"batch sent {sent(log)}")
+    # Each deferred call travels as one embedded request line in the multipart/mixed body.
+    lines = [line.split(" ") for line in body_text(log[0]).splitlines() if line.endswith(" HTTP/1.1")]
+    calls = [(method, urlsplit(uri).path) for method, uri, _ in lines]
+    want = [("DELETE", f"/storage/v1/b/{b.name}/o/deleted.txt"), ("PATCH", f"/storage/v1/b/{b.name}/o/patched.txt")]
+    check(calls == want, f"batch carried {calls}")
+    check(b.get_blob("deleted.txt", retry=None) is None, "batched delete left the object")
+    check(patched.metadata == {"a": "1", "b": "2"}, f"batch response metadata {patched.metadata}")
+    stored.reload(retry=None)
+    check(stored.metadata == {"a": "1", "b": "2"}, f"stored metadata {stored.metadata}")
+
+
+@probe("sdk.sliced_download")
+def sliced_download():
+    b = bucket()
+    data = secrets.token_bytes(1024 * 1024 + 7)
+    upload(b, "sliced.bin", data)
+    client, log = recording()
+    blob = client.bucket(b.name).get_blob("sliced.bin", retry=None)
+    slice_size = 256 * 1024
+    log.clear()
+    with tempfile.TemporaryDirectory() as directory:
+        target = Path(directory) / "sliced.bin"
+        # Thread workers share this client and its recording session; process workers would build new clients.
+        transfer_manager.download_chunks_concurrently(blob, str(target), chunk_size=slice_size,
+                                                      download_kwargs={"retry": None}, worker_type=transfer_manager.THREAD)
+        check(target.read_bytes() == data, "downloaded file bytes differ")
+    media = ("GET", f"/download/storage/v1/b/{b.name}/o/sliced.bin")
+    check(all(call == media for call in sent(log)), f"sliced download sent {sent(log)}")
+    check(all(query(request).get("alt") == ["media"] for request in log), "sliced download left the media endpoint")
+    ranges = sorted(byte_range(request) for request in log)
+    want = [(start, min(start + slice_size, len(data)) - 1) for start in range(0, len(data), slice_size)]
+    check(len(ranges) > 1 and ranges == want, f"ranged requests {ranges}")
+
+
+@probe("sdk.xml_multipart_upload")
+def xml_multipart_upload():
+    b = bucket()
+    part = 5 * 1024 * 1024
+    data = secrets.token_bytes(2 * part + 1)
+    client, log = recording()
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "multipart.bin"
+        source.write_bytes(data)
+        target = client.bucket(b.name).blob("multipart.bin")
+        # Thread workers upload the parts through this client's recording session.
+        try:
+            transfer_manager.upload_chunks_concurrently(str(source), target, chunk_size=part,
+                                                        worker_type=transfer_manager.THREAD, retry=None)
+        except InvalidResponse as error:
+            # The SDK states why it rejected a response in its arguments; the response body is often empty.
+            failed = error.response.request
+            raise AssertionError(f"{failed.method} {urlsplit(failed.url).path} with {sorted(query(failed))} answered "
+                                 f"{error.response.status_code}: {error.args[0]}") from error
+    path = f"/{b.name}/multipart.bin"
+    check(len(log) == 5 and all(call[1] == path for call in sent(log)), f"multipart upload sent {sent(log)}")
+    initiate, *parts, complete = log
+    check((initiate.method, query(initiate)) == ("POST", {"uploads": [""]}), "first request is not the initiate")
+    upload_id = query(complete).get("uploadId", [""])[0]
+    check(complete.method == "POST" and upload_id != "", "last request is not the complete")
+    # Parts go out concurrently, so they are compared in part-number order.
+    uploaded = sorted((query(request).get("partNumber"), request.method, query(request).get("uploadId"), len(request.body))
+                      for request in parts)
+    want = [([number], "PUT", [upload_id], size) for number, size in (("1", part), ("2", part), ("3", 1))]
+    check(uploaded == want, f"part uploads {[(entry[0], entry[1], entry[3]) for entry in uploaded]}")
+    listed = re.findall(r"<PartNumber>(\d+)</PartNumber>", body_text(complete))
+    check(listed == ["1", "2", "3"], f"complete lists parts {listed}")
+    check(read(b.blob("multipart.bin")) == data, "multipart bytes differ")
+
+
+@probe("sdk.file_upload_download")
+def file_upload_download():
+    b = bucket()
+    data = secrets.token_bytes(1024 * 1024 + 3)
+    with tempfile.TemporaryDirectory() as directory:
+        source, target = Path(directory) / "upload.bin", Path(directory) / "download.bin"
+        source.write_bytes(data)
+        blob = b.blob("file.bin")
+        blob.upload_from_filename(str(source), retry=None)
+        check(blob.size == len(data), f"uploaded size {blob.size}")
+        b.blob("file.bin").download_to_filename(str(target), retry=None)
+        check(target.read_bytes() == data, "downloaded file bytes differ")
+
 
 def timed_out(signum, frame):
     raise TimeoutError("case exceeded 60 seconds")

@@ -6,10 +6,19 @@ Probes the official `com.google.cloud:google-cloud-storage` 2.78.0 against an
 emulator. It emits one JSONL line per case: the 56 shared bucket, object and
 signed cases (same IDs and order as the Python probe), 10 cases in the `grpc`
 area (IDs start with `grpc.`; eight are shared with the other SDKs that have
-a public gRPC API, two are Java-only write-session cases) and 14 Java-specific
-cases in the `sdk` area (IDs start with `sdk.`). The `sdk` area covers the
-SDK's blob handles, channels, write sessions, Transfer Manager, batch and
-retry.
+a public gRPC API, two are Java-only write-session cases) and 14 cases in the
+`sdk` area (IDs start with `sdk.`). Five of those are shared with the other
+SDKs that reach the same workflow: `sdk.resumable_resume` (a `WriteChannel`
+restored from its captured state), `sdk.json_batch` (`StorageBatch`),
+`sdk.sliced_download` and `sdk.parallel_composite_upload` (Transfer Manager)
+and `sdk.file_upload_download` (`createFrom` and `downloadTo`). The other nine
+cover the SDK's blob handles, channels, write sessions and Transfer Manager
+uploads.
+
+Which bytes a resumed upload sends and how a download is sliced are observed
+on the wire: those cases build their client with transport options that
+record each request's `Content-Range`, `Range` and body length just before it
+is sent (`RequestLog`).
 
 ## Build and run
 

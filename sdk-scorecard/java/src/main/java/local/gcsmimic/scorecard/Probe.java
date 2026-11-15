@@ -79,15 +79,21 @@ public final class Probe {
      * surfaces as the case result; cases about the SDK's default behavior keep its retry settings.
      */
     HttpStorageOptions.Builder httpOptions(Retries retries) {
+      return httpOptions(retries, null);
+    }
+
+    /** As {@link #httpOptions(Retries)}, recording every request of the clients built into {@code log}. */
+    HttpStorageOptions.Builder httpOptions(Retries retries, RequestLog log) {
+      HttpTransportOptions transport = HttpTransportOptions.newBuilder()
+          .setHttpTransportFactory(http::transport)
+          .setConnectTimeout(5000)
+          .setReadTimeout(20000)
+          .build();
       HttpStorageOptions.Builder builder = HttpStorageOptions.newBuilder()
           .setHost(http.origin().toString())
           .setProjectId(project)
           .setCredentials(NoCredentials.getInstance())
-          .setTransportOptions(HttpTransportOptions.newBuilder()
-              .setHttpTransportFactory(http::transport)
-              .setConnectTimeout(5000)
-              .setReadTimeout(20000)
-              .build());
+          .setTransportOptions(log == null ? transport : log.attach(transport));
       return retries == Retries.NONE ? builder.setRetrySettings(ServiceOptions.getNoRetrySettings()) : builder;
     }
 

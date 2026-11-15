@@ -14,8 +14,13 @@ use Google\Cloud\Core\AnonymousCredentials;
 use Google\Cloud\Core\Exception\ServiceException;
 use Google\Cloud\Storage\StorageClient;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\CurlHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
+use GuzzleHttp\Promise\Create;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\StreamInterface;
 
 function check(bool $condition, string $message = 'unexpected result'): void {
     if (!$condition) throw new RuntimeException($message);
@@ -59,6 +64,18 @@ function seed($bucket, array $names): void {
 function bytes($object, string $want, array $options = []): void {
     check($object->downloadAsString($options) === $want, 'bytes differ');
 }
+// Returns $run's result and the requests the guarded client sent meanwhile; a request $refuse picks
+// fails before it is sent, as on a dropped connection, and is not recorded.
+function observeWire(callable $run, ?callable $refuse = null): array {
+    global $wire;
+    $wire = ['log' => [], 'refuse' => $refuse ?? fn() => false];
+    try {
+        $result = $run();
+        return [$result, $wire['log']];
+    } finally {
+        $wire = null;
+    }
+}
 function v4MatchesRequest(string $url, string $method, string $publicKey): bool {
     $parts = parse_url($url);
     parse_str($parts['query'], $query);
@@ -99,12 +116,27 @@ $stack->push(Middleware::mapRequest(function ($request) use ($origin) {
     check($uri->getScheme() . '://' . $uri->getAuthority() === $origin, 'request escaped emulator');
     return $request;
 }));
+// Set only while a case runs observeWire().
+$wire = null;
+$stack->push(function (callable $handler) use (&$wire) {
+    return function (RequestInterface $request, array $options) use ($handler, &$wire) {
+        if ($wire !== null) {
+            if (($wire['refuse'])($request)) return Create::rejectionFor(new ConnectException('simulated interruption', $request));
+            $wire['log'][] = ['method' => $request->getMethod(), 'uri' => (string)$request->getUri(),
+                'range' => $request->getHeaderLine('Content-Range'), 'length' => $request->getBody()->getSize()];
+        }
+        return $handler($request, $options);
+    };
+});
 $config = ['handler' => $stack, 'timeout' => 20, 'allow_redirects' => false, 'proxy' => ''];
 if (getenv('SCORECARD_CA_CERT')) $config['verify'] = getenv('SCORECARD_CA_CERT');
 if (getenv('SCORECARD_DOCKER_GATEWAY')) {
     // Route loopback through Docker's gateway without changing signed URLs or Host.
     $port = $parts['port'] ?? ($parts['scheme'] === 'https' ? 443 : 80);
     $config['curl'] = [CURLOPT_CONNECT_TO => ["{$parts['host']}:$port:host.docker.internal:$port"]];
+    // The route is a cURL option, so streamed responses (the gs:// wrapper's reads) also go through cURL,
+    // which buffers them, instead of Guzzle's stream handler, which refuses cURL options.
+    $stack->setHandler(new CurlHandler());
 }
 $http = new Client($config);
 $storage = new StorageClient(['projectId' => $project, 'apiEndpoint' => $origin,
@@ -547,6 +579,89 @@ probe('signed.post_policy_v4', function () use ($http, $origin, $signer) {
     $response = $http->post("$origin/{$b->name()}", ['multipart' => $form]);
     check($response->getStatusCode() >= 200 && $response->getStatusCode() < 300, 'POST status');
     bytes($b->object('post.txt'), 'posted');
+});
+probe('sdk.resumable_resume', function () use ($origin) {
+    $b = newBucket();
+    $chunk = 256 * 1024;
+    $data = random_bytes(1024 * 1024 + 17);
+    $size = strlen($data);
+    $options = ['name' => 'resume.bin', 'chunkSize' => $chunk];
+    $first = $b->getResumableUploader($data, $options);
+    $session = $first->getResumeUri();
+    $sessionUri = new GuzzleHttp\Psr7\Uri($session);
+    check($sessionUri->getScheme() . '://' . $sessionUri->getAuthority() === $origin, 'session URI leaves the origin');
+    // The guarded transport drops the second chunk, as a lost connection would.
+    $puts = 0;
+    [$failure, $sent] = observeWire(function () use ($first) {
+        try { $first->upload(); }
+        catch (ServiceException $e) { return $e; }
+        return null;
+    }, function (RequestInterface $request) use (&$puts) { return $request->getMethod() === 'PUT' && ++$puts === 2; });
+    check($failure !== null, 'interrupted upload succeeded');
+    check(str_contains($failure->getMessage(), $session), 'interrupted upload did not name its session URI');
+    $ranges = array_column($sent, 'range');
+    check($ranges === ["bytes 0-262143/$size"], 'interrupted upload sent ' . json_encode($ranges));
+    check(!$b->object('resume.bin')->exists(), 'interrupted upload stored the object');
+    // A new uploader over the same bytes resumes from the saved session URI alone.
+    [$resumed, $sent] = observeWire(fn() => $b->getResumableUploader($data, $options)->resume($session));
+    check(array_unique(array_map(fn($r) => "{$r['method']} {$r['uri']}", $sent)) === ['PUT ' . $sessionUri],
+        'resume sent a request other than a PUT to the session URI');
+    check(($sent[0]['range'] ?? '') === "bytes */$size" && $sent[0]['length'] === 0, 'resume did not start with a status query');
+    $want = [];
+    for ($start = $chunk; $start < $size; $start += $chunk) {
+        $want[] = sprintf('bytes %d-%d/%d', $start, min($start + $chunk, $size) - 1, $size);
+    }
+    $chunks = array_column(array_slice($sent, 1), 'range');
+    check($chunks === $want, 'resumed chunks ' . json_encode($chunks));
+    $resent = array_sum(array_column($sent, 'length'));
+    check($resent === $size - $chunk, "resume sent $resent of $size bytes");
+    check((int)($resumed['size'] ?? -1) === $size, 'resumed object size');
+    bytes($b->object('resume.bin'), $data);
+});
+probe('sdk.file_upload_download', function () {
+    $b = newBucket();
+    $data = random_bytes(1024 * 1024 + 3);
+    $source = tempnam(sys_get_temp_dir(), 'scorecard-upload-');
+    $target = tempnam(sys_get_temp_dir(), 'scorecard-download-');
+    try {
+        file_put_contents($source, $data);
+        // Given a file handle and no name, upload() names the object after the file; the SDK closes the handle.
+        $object = $b->upload(fopen($source, 'r'));
+        check($object->name() === basename($source), 'object not named after the uploaded file');
+        // downloadToFile() returns the destination stream still open, so it is closed before the file is read.
+        $b->object($object->name())->downloadToFile($target)->close();
+        check(file_get_contents($target) === $data, 'downloaded file bytes differ');
+    } finally {
+        unlink($source);
+        unlink($target);
+    }
+});
+probe('sdk.stream_wrapper', function () use ($storage) {
+    $b = newBucket();
+    $data = random_bytes(256 * 1024 + 7);
+    // The gs:// protocol is registered process-wide, so only for the length of this case.
+    check($storage->registerStreamWrapper() === true, 'gs:// was already registered');
+    try {
+        $path = "gs://{$b->name()}/wrapped.bin";
+        check(file_put_contents($path, $data) === strlen($data), 'file_put_contents length');
+        bytes($b->object('wrapped.bin'), $data);
+        check(file_get_contents($path) === $data, 'file_get_contents bytes');
+        $listed = scandir("gs://{$b->name()}");
+        check($listed === ['wrapped.bin'], 'scandir listed ' . json_encode($listed));
+        check(unlink($path) === true, 'unlink reported failure');
+        check(!$b->object('wrapped.bin')->exists(), 'unlinked object remains');
+        check(!file_exists($path), 'unlinked path still exists');
+    } finally {
+        $storage->unregisterStreamWrapper();
+    }
+});
+probe('sdk.download_as_stream', function () {
+    $data = random_bytes(1024 * 1024 + 3);
+    $stream = upload(newBucket(), 'stream.bin', $data)->downloadAsStream();
+    check($stream instanceof StreamInterface, 'downloadAsStream returned no stream');
+    $got = '';
+    while (!$stream->eof()) $got .= $stream->read(64 * 1024);
+    check($got === $data, 'stream bytes differ');
 });
 
 foreach ($cases as $id => $run) {

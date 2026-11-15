@@ -38,15 +38,19 @@ final class TransferCases extends Cases {
   @Override
   void register(List<Probe.Case> cases) {
     cases.add(new Probe.Case("sdk.transfer_manager_upload", this::tmUpload));
-    cases.add(new Probe.Case("sdk.transfer_manager_download", this::tmDownload));
-    cases.add(new Probe.Case("sdk.transfer_manager_parallel_composite", this::tmParallelComposite));
+    cases.add(new Probe.Case("sdk.sliced_download", this::tmDownload));
+    cases.add(new Probe.Case("sdk.parallel_composite_upload", this::tmParallelComposite));
     cases.add(new Probe.Case("sdk.write_session_parallel_composite", this::sessionParallelComposite));
     cases.add(new Probe.Case("sdk.write_session_buffer_to_disk", this::sessionBufferToDisk));
   }
 
   private TransferManagerConfig.Builder manager() {
+    return manager(null);
+  }
+
+  private TransferManagerConfig.Builder manager(RequestLog log) {
     return TransferManagerConfig.newBuilder()
-        .setStorageOptions(context.httpOptions(Probe.Retries.NONE).build())
+        .setStorageOptions(context.httpOptions(Probe.Retries.NONE, log).build())
         .setMaxWorkers(WORKERS);
   }
 
@@ -107,9 +111,9 @@ final class TransferCases extends Cases {
     upload(b, "small.txt", "small");
     List<BlobInfo> blobs = List.of(reload(BlobId.of(b, "big.bin")), reload(BlobId.of(b, "small.txt")));
     Path target = Files.createDirectory(dir.resolve("out"));
-    int mark = context.http.openedCount();
+    RequestLog log = new RequestLog();
     List<DownloadResult> results;
-    try (TransferManager manager = manager().setAllowDivideAndConquerDownload(true)
+    try (TransferManager manager = manager(log).setAllowDivideAndConquerDownload(true)
         .setPerWorkerBufferSize(16 * MIB).build().getService()) {
       results = manager.downloadBlobs(blobs, ParallelDownloadConfig.newBuilder().setBucketName(b)
           .setDownloadDirectory(target).build()).getDownloadResults();
@@ -120,9 +124,10 @@ final class TransferCases extends Cases {
     }
     check(Files.mismatch(big, target.resolve("big.bin")) == -1, "big.bin bytes differ");
     check("small".equals(Files.readString(target.resolve("small.txt"))), "small.txt bytes differ");
-    long ranged = context.http.openedSince(mark).stream()
-        .filter(url -> url.contains("/o/big.bin") && url.contains("alt=media")).count();
-    check(ranged > 1, "big.bin was fetched in " + ranged + " request(s), not divided");
+    List<RequestLog.Entry> media = log.since(0).stream()
+        .filter(entry -> entry.url().contains("/o/big.bin") && entry.url().contains("alt=media")).toList();
+    long ranged = media.stream().filter(entry -> entry.range() != null).count();
+    check(ranged > 1, "big.bin was fetched in " + media.size() + " request(s), " + ranged + " ranged, not divided");
   }
 
   // Parallel composite upload starts above 4 x perWorkerBufferSize when more than two workers run.

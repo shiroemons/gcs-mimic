@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import {createHash, randomBytes} from 'node:crypto';
+import {subscribe, unsubscribe} from 'node:diagnostics_channel';
 import {readFileSync} from 'node:fs';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {finished} from 'node:stream/promises';
 import {gzipSync} from 'node:zlib';
-import {Storage} from '@google-cloud/storage';
+import {Storage, TransferManager} from '@google-cloud/storage';
 import {PassThroughClient} from 'google-auth-library';
 import {guardLocalConnections} from './local-http.mjs';
 
@@ -42,6 +47,35 @@ const probe = (id, run) => cases.push({id, run});
 const http = async (url, options = {}) => {
   assert.equal(new URL(url).origin, origin.origin, 'request escaped emulator');
   return fetch(url, {...options, redirect: 'error', signal: AbortSignal.timeout(20000)});
+};
+// Records the requests `run` sends, as sent: gaxios sends every SDK request through node-fetch
+// over node:https, whose client channels publish each request and its response.
+const recordWire = async run => {
+  const sent = [];
+  const onStart = ({request}) => sent.push({request, method: request.method, path: request.path,
+    headers: request.getHeaders()});
+  const onResponse = ({request, response}) => {
+    const entry = sent.find(e => e.request === request);
+    if (entry) Object.assign(entry, {status: response.statusCode, responseHeaders: response.headers});
+  };
+  subscribe('http.client.request.start', onStart);
+  subscribe('http.client.response.finish', onResponse);
+  try { await run(); }
+  finally {
+    unsubscribe('http.client.request.start', onStart);
+    unsubscribe('http.client.response.finish', onResponse);
+  }
+  return sent;
+};
+const withTempDir = async run => {
+  const dir = await mkdtemp(join(tmpdir(), 'sc-node-'));
+  try { return await run(dir); }
+  finally { await rm(dir, {recursive: true, force: true}); }
+};
+// Parses a resumable chunk's `Content-Range: bytes first-last/total`; a status query has no range.
+const contentRange = value => {
+  const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(value ?? '');
+  return match && {first: Number(match[1]), last: Number(match[2]), total: match[3]};
 };
 if (process.argv.includes('--transport-check')) {
   await assert.rejects(() => http('https://storage.googleapis.com/'), /request escaped emulator/);
@@ -444,6 +478,80 @@ probe('signed.post_policy_v4', async () => {
   const response = await http(`${origin.origin}/${b.name}`, {method: 'POST', body: form});
   assert(response.ok, `POST status ${response.status}: ${await response.text()}`);
   await equalBytes(b.file('post.txt'), 'posted');
+});
+
+probe('sdk.resumable_resume', async () => {
+  const b = await bucket();
+  const data = randomBytes(1024 * 1024 + 17);
+  const chunkSize = 256 * 1024;
+  let uri;
+  // With one chunk and a byte written, the upload sends the chunk and then waits for the rest,
+  // so destroying the stream after the chunk's 308 interrupts it with no request in flight.
+  const first = await recordWire(() => new Promise((resolve, reject) => {
+    const stream = b.file('resume.bin').createWriteStream({chunkSize});
+    stream.on('uri', link => { uri = link; });
+    stream.on('response', response => {
+      if (response.status !== 308) return;
+      stream.destroy();
+      resolve();
+    });
+    stream.on('error', reject);
+    stream.on('close', () => reject(new Error('the first upload closed before a chunk was acknowledged')));
+    stream.write(data.subarray(0, chunkSize + 1));
+  }));
+  assert(uri, 'the first upload reported no session URI');
+  const acknowledged = /^bytes=0-(\d+)$/.exec(first.findLast(e => e.status === 308)?.responseHeaders.range ?? '');
+  const persisted = acknowledged && Number(acknowledged[1]) + 1;
+  assert.equal(persisted, chunkSize, 'the interrupted upload did not persist exactly its first chunk');
+  const session = new URL(uri);
+  // A new stream given only the saved URI asks the session for its offset and skips the bytes
+  // it already holds; the whole source is written again, so the CRC32C covers the whole object.
+  const resumed = await recordWire(async () => {
+    const stream = b.file('resume.bin').createWriteStream({uri, chunkSize});
+    stream.end(data);
+    await finished(stream);
+  });
+  const outside = resumed.filter(e => e.method !== 'PUT' || e.path !== session.pathname + session.search);
+  assert.deepEqual(outside.map(e => `${e.method} ${e.path}`), [], 'the resumed upload left its session');
+  const chunks = resumed.filter(e => contentRange(e.headers['content-range']));
+  const ranges = chunks.map(e => contentRange(e.headers['content-range']));
+  assert.equal(ranges[0]?.first, persisted, `resumed ranges ${chunks.map(e => e.headers['content-range'])}`);
+  assert(ranges.every((r, i) => i === 0 || r.first === ranges[i - 1].last + 1), 'resumed ranges are not contiguous');
+  assert.deepEqual([ranges.at(-1).last, ranges.at(-1).total], [data.length - 1, String(data.length)]);
+  const sentBytes = chunks.reduce((n, e) => n + Number(e.headers['content-length']), 0);
+  assert.equal(sentBytes, data.length - persisted, 'the resumed upload did not send only the remaining bytes');
+  await equalBytes(b.file('resume.bin'), data);
+});
+probe('sdk.sliced_download', async () => {
+  const b = await bucket();
+  // downloadFileInChunks reads an object under 32 MiB in one request whatever the slice size.
+  const data = randomBytes(32 * 1024 * 1024 + 5);
+  const file = await upload(b, 'sliced.bin', data);
+  await withTempDir(async dir => {
+    const destination = join(dir, 'sliced.bin');
+    const sent = await recordWire(() => new TransferManager(b).downloadFileInChunks(file,
+      {chunkSizeBytes: 8 * 1024 * 1024, destination}));
+    const ranged = sent.filter(e => e.method === 'GET' && e.headers.range);
+    assert(ranged.length > 1, `${ranged.length} ranged GET requests, want more than one`);
+    for (const e of ranged) {
+      const url = new URL(e.path, origin);
+      assert.equal(`${url.pathname}?alt=${url.searchParams.get('alt')}`, `/storage/v1/b/${b.name}/o/sliced.bin?alt=media`);
+    }
+    assert.deepEqual(await readFile(destination), data);
+  });
+});
+probe('sdk.file_upload_download', async () => {
+  const b = await bucket();
+  const data = randomBytes(1024 * 1024 + 3);
+  await withTempDir(async dir => {
+    const source = join(dir, 'source.bin');
+    const destination = join(dir, 'downloaded.bin');
+    await writeFile(source, data);
+    const [file] = await b.upload(source, {destination: 'file.bin'});
+    assert.equal(Number((await metadata(file)).size), data.length);
+    await b.file('file.bin').download({destination});
+    assert.deepEqual(await readFile(destination), data);
+  });
 });
 
 for (const {id, run} of cases) {

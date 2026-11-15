@@ -5,8 +5,12 @@
 Probes the official `google-cloud-storage` 1.22.0 crate against an emulator.
 It emits one JSONL line per case: the 56 shared bucket, object and signed
 cases, in the same IDs and order as the Python probe, plus the `grpc` area's
-`grpc.multi_range_read`. It has no SDK-specific (`sdk` area) cases.
-`SCORECARD_GRPC_ENDPOINT` is required because the SDK's `StorageControl` client
+`grpc.multi_range_read` and two cases in the `sdk` area:
+`sdk.rewrite_token_loop` (`StorageControl::rewrite_object` with
+`max_bytes_rewritten_per_call`, called again with each returned rewrite token)
+and `sdk.write_unbuffered` (`write_object(...).send_unbuffered()` from a
+`StreamingSource` that generates the payload piece by piece and gives no size
+hint). `SCORECARD_GRPC_ENDPOINT` is required because the SDK's `StorageControl` client
 (used for bucket operations) speaks gRPC, and because `grpc.multi_range_read`
 opens the object with `Storage::open_object` on a second `Storage` client whose
 endpoint is that address; the HTTP `Storage` client keeps the HTTPS origin.

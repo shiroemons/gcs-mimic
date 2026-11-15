@@ -96,8 +96,8 @@ final class LocalTransport {
   }
 
   /**
-   * URLs of the requests opened after {@code mark}. SDK-internal request fan-out (for example
-   * ranged downloads) is otherwise invisible through the public API.
+   * URLs of the requests opened after {@code mark}. How many requests an SDK call sends (for
+   * example one batch request for several operations) is otherwise invisible through the public API.
    */
   List<String> openedSince(int mark) {
     return List.copyOf(opened.subList(mark, opened.size()));
