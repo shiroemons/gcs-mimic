@@ -1059,3 +1059,73 @@ The Java scorecard pins google-auth-library-oauth2-http for offline RSA signing.
 | `cargo test -p xtask --locked` | PASS: 234, 13, 3 and 1 tests, including the check of the actual pins against the snapshot |
 | `cargo xtask dependencies check` at `2026-11-14T14:01:53Z` | Exit 0 with 132 `CURRENT` lines; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Composer `latest` and Rust `slim-trixie` differ only on linux/riscv64 |
 | `cargo xtask dependencies check --scope release` at `2026-11-14T14:01:26Z` | Exit 0 with 41 `CURRENT` lines |
+
+## Refresh: 2026-11-15
+
+The scheduled freshness check on 2026-11-15 ([run 43706923390](https://github.com/shiroemons/gcs-mimic/actions/runs/43706923390)) exited 1 with one release input, `rusqlite: UPDATE_AVAILABLE current=0.42.0 latest=0.43.0`. It is adopted.
+
+### rusqlite 0.43.0
+
+The refresh adopts rusqlite 0.43.0. Only its package record changes in
+Cargo.lock; libsqlite3-sys stays 0.40.0, and no dependency or enabled feature
+is added. Application code, SQL, catalog schema and feature statuses are
+unchanged.
+
+The official [Cargo index](https://index.crates.io/ru/sq/rusqlite) selected
+0.43.0 as the highest non-yanked stable release at `2026-11-15T12:22:15Z`,
+with libsqlite3-sys 0.40.0 still the latest binding. The
+[publisher release](https://github.com/rusqlite/rusqlite/releases/tag/v0.43.0)
+was published at `2026-11-15T09:45:02Z`; the tag and the archive's
+`.cargo_vcs_info.json` both record revision
+`43326c07c018323d9c0ed0b7cd68c35f5b9a3c28`. The publisher repository remains
+unarchived, with its last push at `2026-11-15T09:45:02Z`. The downloaded
+[archive](https://static.crates.io/crates/rusqlite/rusqlite-0.43.0.crate)
+matches the index checksum and Cargo's cached archive.
+
+| Package | Previous | Adopted | License | Compressed bytes | Declared Rust | SHA-256 |
+| --- | --- | --- | --- | --- | --- | --- |
+| rusqlite | 0.42.0 | 0.43.0 | MIT | 184,812 | 1.89.0 | `f172c4812a19b26d1c23cdb0070e69db335503dfa378b910eb857386e5b8beba` |
+
+#### Upstream changes
+
+The release notes list five changes:
+
+| Change | Effect on gcs-mimic |
+| --- | --- |
+| Preparing empty or comment-only SQL fails with the new `Error::Empty` ([#1956](https://github.com/rusqlite/rusqlite/pull/1956)) | None. Production code prepares only static statements, which `text::format_sql` keeps from being built at run time, and none is empty. `execute_batch`, which runs the catalog schema, still skips empty and comment-only parts. |
+| Use-after-free fixes in `ChangesetIter::start_strm`, `Connection::column_metadata` and `Filter::in_values` | None. The `session`, `column_metadata` and `vtab` features stay disabled. |
+| `time::OffsetDateTime` panicked on TEXT shorter than 8 characters | None. The `time` feature stays disabled. |
+
+Comparing the distributed sources of 0.42.0 and 0.43.0, the `[features]`
+table of `Cargo.toml.orig` and every dependency are unchanged, as are
+`src/types/to_sql.rs` and `src/types/from_sql.rs`, so `fallible_uint` still
+rejects unsigned writes above `i64::MAX` and negative unsigned reads. In
+`src/cache.rs` only the branch that returned an empty statement to the cache
+is gone, because `prepare_cached` now fails for empty SQL first. The packaged
+MIT text keeps SHA-256
+`c10c1f27337546471e5f7e4e97fdd398b35b9d4e126115dcd22de8d8e65abf6f`. The SQLite
+amalgamation, build options and durability settings come from the unchanged
+libsqlite3-sys 0.40.0, so SQLite remains 3.54.1.
+
+### Validation performed on 2026-11-15
+
+| Command or check | Result |
+| --- | --- |
+| `cargo update -p rusqlite --precise 0.43.0` | PASS: only the rusqlite record changes in Cargo.lock |
+| `cargo check --locked --workspace --all-targets` | PASS |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS |
+| `cargo xtask lint` | PASS: 0 new production violations; 0 ratcheted findings |
+| `cargo test --locked --lib` | PASS: 2,303 passed, 0 failed, 0 ignored |
+| `cargo test --locked --test it_import_seed` | PASS: 95 passed, 0 failed, 0 ignored, including the upgrade of every supported release's data directory |
+| `cargo test -p xtask --locked` | PASS: 259, 13, 3 and 1 tests, including the check of the actual pins against the snapshot |
+| Native `cargo xtask release prepare aarch64-apple-darwin target/debug/gcs-mimic <output>` | PASS: the notice index lists rusqlite 0.43.0 (MIT) and libsqlite3-sys 0.40.0 (MIT, with SQLite's public-domain text) |
+| `cargo xtask dependencies check` at `2026-11-15T12:20:06Z` | Exit 0 with 142 `CURRENT` lines, among them `rusqlite: CURRENT current=0.43.0 latest=0.43.0`; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Composer `latest` and Rust `slim-trixie` differ only on linux/riscv64 |
+| `cargo xtask dependencies check --scope release` at `2026-11-15T12:21:17Z` | Exit 0 with 41 `CURRENT` lines |
+
+`<output>` stands for an external temporary directory; the notice check
+packages a debug binary only. `just check` exited 0 at the refresh commit.
+After rebasing onto `11d8a8c1`, which adds customer-supplied keys over Storage
+v2 gRPC and their catalog code, the workspace type check, Clippy, the
+production lint, the 95 import/seed tests and the library tests (now 2,339)
+passed again. SDK suites, container builds and the scorecard were not run for
+this refresh.

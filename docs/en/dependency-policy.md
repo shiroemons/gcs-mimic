@@ -365,11 +365,13 @@ Its [historical freshness check](evidence/rusqlite-dependencies.txt) exited 1
 for a distroless digest update adopted later. The 2026-10-27 refresh retains
 rusqlite 0.41.0 and advances the binding to 0.39.1, bundling SQLite 3.54.1;
 see the [refresh evidence](evidence/dependency-refresh.md). The current pin is
-rusqlite 0.42.0 with libsqlite3-sys 0.40.0, verified on 2026-11-11; bundled
+rusqlite 0.43.0 with libsqlite3-sys 0.40.0, verified on 2026-11-15; bundled
 SQLite remains 3.54.1. The enabled `bundled`, `cache` and `fallible_uint`
 features retain their meaning, and the SQLite source and build options are
-unchanged. The [dependency snapshot](../../compatibility/dependency-status.json)
-and [refresh evidence](evidence/dependency-refresh.md#rusqlite-0420) record it.
+unchanged. 0.43.0 rejects preparing empty or comment-only SQL with
+`Error::Empty`; production code prepares only static, non-empty statements, and
+`execute_batch` still skips empty and comment-only parts. The [dependency snapshot](../../compatibility/dependency-status.json)
+and [refresh evidence](evidence/dependency-refresh.md#rusqlite-0430) record it.
 On 2026-10-29 rusqlite also enables its `cache` feature so request paths reuse
 prepared statements through `prepare_cached`; the connection cache holds at most
 64 statements. Cargo.lock adds hashlink 0.12.2 (MIT OR Apache-2.0, 33,361
