@@ -6,7 +6,7 @@ use super::{
 };
 use crate::auth::Caller;
 use crate::{
-    bucket::{BucketConditions, CatalogError},
+    bucket::{BucketConditions, CatalogError, name::MAX_BUCKET_NAME_BYTES},
     json,
 };
 use serde_json::{Map, Value, json};
@@ -429,7 +429,7 @@ impl Storage {
             )
         };
         let limit = crate::grpc::validate::page_size(request.page_size).ok_or_else(invalid_list)?;
-        if request.prefix.len() > 222 {
+        if request.prefix.len() > MAX_BUCKET_NAME_BYTES {
             return Err(invalid_list());
         }
         let mask = BucketMask::parse(request.read_mask.as_ref())?;

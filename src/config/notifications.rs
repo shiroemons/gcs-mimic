@@ -1,6 +1,7 @@
 use super::{
     Config, ConfigurationReport, Diagnostic, DiagnosticSource, Setting, SettingFix, Settings,
 };
+use crate::bucket::name::MAX_BUCKET_NAME_BYTES;
 use crate::notification::{
     self, Endpoint, Event, EventTypes, GlobalConfig, NotificationConfig, NotificationError,
     PayloadFormat, Runtime, Topic, publisher::InvalidEndpoint,
@@ -132,7 +133,7 @@ impl Config {
         .map_err(EventSettingsError::Invalid)?;
         notification::validate_object_name_prefix(&self.event_object_prefix)
             .map_err(EventSettingsError::Invalid)?;
-        if self.event_bucket.len() > 222 {
+        if self.event_bucket.len() > MAX_BUCKET_NAME_BYTES {
             return Err(EventSettingsError::BucketTooLong);
         }
         let Some(event_types) = event_list(&self.event_list)? else {
