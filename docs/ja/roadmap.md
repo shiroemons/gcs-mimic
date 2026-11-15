@@ -25,7 +25,8 @@ seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 
 SDKとブラウザーの検証は、宣言した範囲が対象です。
 [9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
-Go・Ruby・Node.js・PHP・Python・Java・.NET・C++の全ケースと、Rustの1件を除く全ケースが通ります。RustはrewriteをgRPCで送りますが、gRPCでの顧客指定の暗号鍵にはまだ対応していません。範囲と残りの条件は
+Go・Ruby・Node.js・PHP・.NET・C++の全ケースと、Java・Python・Rustのそれぞれ1件を除く全ケースが通ります。
+3件はどれもgRPCでの未対応です。Javaの既定のバケット読み取りマスクにはbillingが含まれ、Pythonは追記型を開いたときの応答を待ちます。RustはrewriteをgRPCで送りますが、gRPCでの顧客指定の暗号鍵にはまだ対応していません。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
 0.8.0では登録したローカルJWTと最終originの署名アダプターも追加しています。

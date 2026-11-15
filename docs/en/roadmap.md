@@ -30,9 +30,11 @@ See [container usage](container-usage.md) and the
 
 SDK and browser evidence covers declared subsets. The
 [nine-SDK scorecard](../../sdk-scorecard/README.md) passes every Go, Ruby,
-Node.js, PHP, Python, Java, .NET and C++ case and every Rust case but one in
-its latest [run](../../sdk-scorecard/results/2026-11-15-4/summary.md): Rust
-rewrites over gRPC, where customer-supplied keys are not yet accepted. Scope and
+Node.js, PHP, .NET and C++ case and every Java, Python and Rust case but one in
+its latest [run](../../sdk-scorecard/results/2026-11-15-5/summary.md). All
+three are gRPC gaps: Java's default bucket read mask names billing, Python
+waits for a response to the appendable open, and Rust rewrites over gRPC,
+where customer-supplied keys are not yet accepted. Scope and
 remaining profiles are tracked in [SDK integration](slices/sdk-scorecard-integration.md)
 and the [C++ slice](slices/sdk-scorecard-cpp.md).
 Rails Active Storage has a [working storage.yml recipe](rails-active-storage.md)
