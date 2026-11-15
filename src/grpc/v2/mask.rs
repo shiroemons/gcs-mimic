@@ -102,6 +102,18 @@ bucket_fields!(
     acl => Acl,
     default_object_acl => DefaultObjectAcl,
     owner => Owner,
+    // Bucket creation and update reject these settings, so a stored bucket never has them and
+    // selecting one returns it unset, as Cloud Storage answers for a bucket without the setting
+    // and as a read without a mask already does. The Java SDK names every field in its default
+    // mask, so refusing them would break every GetBucket.
+    rpo => Rpo,
+    website => Website,
+    logging => Logging,
+    encryption => Encryption,
+    billing => Billing,
+    custom_placement_config => CustomPlacementConfig,
+    hierarchical_namespace => HierarchicalNamespace,
+    ip_filter => IpFilter,
 );
 
 /// A path that is no top-level `Bucket` field gcs-mimic selects (nested paths included).

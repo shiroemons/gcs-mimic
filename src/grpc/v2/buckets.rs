@@ -785,7 +785,9 @@ mod tests {
         assert_eq!(masked.name, "projects/_/buckets/test-bucket");
         assert_eq!(masked.location, "ASIA-NORTHEAST1");
         assert!(masked.project.is_empty() && masked.labels.is_empty());
-        request.read_mask.as_mut().unwrap().paths = vec!["encryption".into()];
+        // satisfies_pzs is no stored setting the emulator can answer for: Cloud Storage may
+        // report true by location, so a selected value would be a guess.
+        request.read_mask.as_mut().unwrap().paths = vec!["satisfies_pzs".into()];
         let error = storage
             .get_bucket(Request::new(request), None)
             .await
@@ -897,6 +899,102 @@ mod tests {
         assert_eq!(partial, complete);
         assert!(partial.unreachable.is_empty());
         assert_eq!(partial.buckets.len(), 1);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    /// The read mask google-cloud-storage 2.78.0 for Java sends on every GetBucket and
+    /// ListBuckets: the gRPC name of every `Storage.BucketField`, sorted.
+    const JAVA_DEFAULT_BUCKET_MASK: &[&str] = &[
+        "acl",
+        "autoclass",
+        "billing",
+        "bucket_id",
+        "cors",
+        "create_time",
+        "custom_placement_config",
+        "default_event_based_hold",
+        "default_object_acl",
+        "encryption",
+        "etag",
+        "hierarchical_namespace",
+        "iam_config",
+        "ip_filter",
+        "labels",
+        "lifecycle",
+        "location",
+        "location_type",
+        "logging",
+        "metageneration",
+        "name",
+        "object_retention",
+        "owner",
+        "project",
+        "retention_policy",
+        "rpo",
+        "soft_delete_policy",
+        "storage_class",
+        "update_time",
+        "versioning",
+        "website",
+    ];
+
+    #[tokio::test]
+    async fn grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset() {
+        let (_dir, storage) = storage(false).await;
+        let mut request = create("java-mask");
+        let bucket = request.bucket.as_mut().unwrap();
+        bucket.labels.insert("team".into(), "dev".into());
+        bucket.versioning = Some(pb::bucket::Versioning { enabled: true });
+        storage
+            .create_bucket(Request::new(request), None)
+            .await
+            .unwrap();
+        let unmasked = storage
+            .get_bucket(Request::new(get("java-mask")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        // Naming every field reads what a request without a mask reads: the settings bucket
+        // creation and update refuse are never stored, so they stay unset either way.
+        let masked = storage
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    read_mask: fixtures::mask(JAVA_DEFAULT_BUCKET_MASK),
+                    ..get("java-mask")
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(masked, unmasked);
+        assert!(masked.billing.is_none() && masked.website.is_none() && masked.rpo.is_empty());
+        // Selecting only an unstored setting returns nothing else.
+        let billing_only = storage
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    read_mask: fixtures::mask(&["billing", "ip_filter"]),
+                    ..get("java-mask")
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(billing_only, pb::Bucket::default());
+        let listed = storage
+            .list_buckets(
+                Request::new(pb::ListBucketsRequest {
+                    parent: "projects/p".into(),
+                    read_mask: fixtures::mask(JAVA_DEFAULT_BUCKET_MASK),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(listed.buckets, vec![unmasked]);
         storage.state.catalog.close().await.unwrap();
     }
 
