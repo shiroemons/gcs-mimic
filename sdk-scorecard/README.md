@@ -235,8 +235,16 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [seventh 2026-11-15 comparison](results/2026-11-15-7/summary.md) is the
-latest. It runs the same 2,324 cases as the sixth on the 0.22.0 source at
+The [eighth 2026-11-15 comparison](results/2026-11-15-8/summary.md) is the
+latest. It runs the same 2,324 cases on the released 0.23.0 source at
+`2e482376`, with no uncommitted change, in 22 min 4 s. The only result that
+changes is PHP's `sdk.stream_wrapper` on gcs-mimic, which passes now that a
+declared upload length of 0 leaves the total open, as Cloud Storage answered.
+gcs-mimic scores **100** and Core **100**: it passes every case for all nine
+SDKs. floci-gcp (**74.2**), fake-gcs-server (**39.2**) and
+gcp-storage-emulator (**35.7**) match the seventh comparison case for case.
+
+The [seventh 2026-11-15 comparison](results/2026-11-15-7/summary.md) runs the same 2,324 cases as the sixth on the 0.22.0 source at
 `bf92697d`, with no uncommitted change, in 23 min 32 s. Only four gcs-mimic
 results change, each from fail to pass: Java's
 `grpc.bucket_create_get_delete`, now that bucket read masks accept the

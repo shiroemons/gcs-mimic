@@ -29945,10 +29945,10 @@
           "sdk": "google/cloud-storage",
           "version": "2.6.1",
           "transport": "HTTP JSON resumable upload through the gs:// stream wrapper's StreamableUploader, which declares X-Upload-Content-Length: 0 and streams 256 KiB chunks with an open total",
-          "command": "bash sdk-scorecard/run.sh --out \"$TMPDIR/scorecard-declared-length\" gcs-mimic",
+          "command": "bash sdk-scorecard/run.sh",
           "result": "PASS",
           "verified_at": "2026-11-15",
-          "artifact": "docs/en/slices/resumable-upload.md",
+          "artifact": "sdk-scorecard/results/2026-11-15-8/gcs-mimic.php.jsonl",
           "test_ids": [
             "sdk-scorecard sdk.stream_wrapper (PHP)"
           ]

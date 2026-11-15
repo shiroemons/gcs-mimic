@@ -1,0 +1,62 @@
+{"sdk":"cpp","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.update_labels","area":"bucket","pass":false,"detail":"labels differ: 0 entries"}
+{"sdk":"cpp","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"patch with a wrong metageneration: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.lifecycle","area":"bucket","pass":false,"detail":"lifecycle rule differs"}
+{"sdk":"cpp","id":"bucket.cors","area":"bucket","pass":false,"detail":"CORS differs"}
+{"sdk":"cpp","id":"bucket.retention_policy","area":"bucket","pass":false,"detail":"delete under retention: expected HTTP 403, got success"}
+{"sdk":"cpp","id":"bucket.retention_lock","area":"bucket","pass":false,"detail":"lock retention policy: NOT_FOUND (http 404): Permanent error, with a last message of Not Found"}
+{"sdk":"cpp","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":false,"detail":"UBLA not enabled"}
+{"sdk":"cpp","id":"bucket.public_access_prevention","area":"bucket","pass":false,"detail":"PAP not enforced"}
+{"sdk":"cpp","id":"bucket.iam_policy","area":"bucket","pass":false,"detail":"get IAM policy: NOT_FOUND: Permanent error, with a last message of Not Found\n"}
+{"sdk":"cpp","id":"bucket.iam_test_permissions","area":"bucket","pass":false,"detail":"test IAM permissions: NOT_FOUND: Permanent error, with a last message of Not Found\n"}
+{"sdk":"cpp","id":"bucket.soft_delete_policy","area":"bucket","pass":false,"detail":"soft delete policy differs"}
+{"sdk":"cpp","id":"bucket.soft_delete_restore","area":"bucket","pass":false,"unsupported":true,"detail":"google-cloud-cpp 3.13.0 has no public API for restoring a soft-deleted bucket (Client has RestoreObject only)"}
+{"sdk":"cpp","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"autoclass not enabled"}
+{"sdk":"cpp","id":"bucket.acl","area":"bucket","pass":true}
+{"sdk":"cpp","id":"bucket.default_object_acl","area":"bucket","pass":false,"detail":"create default object ACL: NOT_FOUND (http 404): Permanent error, with a last message of Not Found"}
+{"sdk":"cpp","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"cpp","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"create HMAC key: NOT_FOUND (http 404): Permanent error, with a last message of Not Found"}
+{"sdk":"cpp","id":"project.service_account","area":"bucket","pass":false,"detail":"get service account: NOT_FOUND: Permanent error, with a last message of Not Found\n"}
+{"sdk":"cpp","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"cpp","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"cpp","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"cpp","id":"object.checksum_rejected","area":"object","pass":true}
+{"sdk":"cpp","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"cpp","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"cpp","id":"object.update_metadata","area":"object","pass":false,"detail":"metadata differs"}
+{"sdk":"cpp","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"cpp","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"cpp","id":"object.generation_match_precondition","area":"object","pass":false,"detail":"delete with a wrong generation: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"object.metageneration_match_precondition","area":"object","pass":false,"detail":"patch with a wrong metageneration: expected HTTP 412, got success"}
+{"sdk":"cpp","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"cpp","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"cpp","id":"object.list_offsets","area":"object","pass":true}
+{"sdk":"cpp","id":"object.list_match_glob","area":"object","pass":false,"detail":"glob listing differs: [x/a.txt,x/b.csv,y/c.txt], expected [x/a.txt,y/c.txt]"}
+{"sdk":"cpp","id":"object.copy_with_metadata","area":"object","pass":true}
+{"sdk":"cpp","id":"object.rewrite_storage_class","area":"object","pass":false,"detail":"storage class differs (8 bytes, expected 8): STANDARD"}
+{"sdk":"cpp","id":"object.compose","area":"object","pass":false,"detail":"component count"}
+{"sdk":"cpp","id":"object.compose_preconditions","area":"object","pass":false,"detail":"compose bytes differs (6 bytes, expected 6): ONEtwo"}
+{"sdk":"cpp","id":"object.move","area":"object","pass":false,"detail":"move object: NOT_FOUND (http 404): Permanent error, with a last message of Object not found to be updated"}
+{"sdk":"cpp","id":"object.acl","area":"object","pass":true}
+{"sdk":"cpp","id":"object.holds","area":"object","pass":false,"detail":"delete under hold: expected HTTP 403, got success"}
+{"sdk":"cpp","id":"object.retention","area":"object","pass":false,"detail":"delete under retention: expected HTTP 403, got success"}
+{"sdk":"cpp","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"cpp","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"cpp","id":"object.gzip_transcoding","area":"object","pass":false,"detail":"N6google5cloud7storage5v3_1317HashMismatchErrorE: underflow(): mismatched hashes in download, computed=el8bFQ==, received=BaDkpw==: iostream error"}
+{"sdk":"cpp","id":"object.customer_supplied_key","area":"object","pass":false,"detail":"keyless read of an encrypted object succeeded"}
+{"sdk":"cpp","id":"object.csek_rotation","area":"object","pass":false,"detail":"read with the old key succeeded"}
+{"sdk":"cpp","id":"object.soft_delete_restore","area":"object","pass":false,"detail":"soft-deleted listing differs: [], expected [sd.txt]"}
+{"sdk":"cpp","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.v4_resumable_upload","area":"signed","pass":false,"detail":"start: status 200: {\"kind\":\"storage#object\",\"name\":\"\",\"id\":\"sc-cpp-a63a3b9513de/\",\"bucket\":\"sc-cpp-a63a3b9513de\",\"size\":\"0\",\"acl\":[{\"bucket\":\"sc-cpp-a63a3b9513de\",\"entity\":\"projectOwner-test-project\",\"etag\":\"RVRhZw==\",\"kind\":\"storage#objectAccessControl\",\"projectTeam\":"}
+{"sdk":"cpp","id":"signed.v4_response_overrides","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"cpp","id":"signed.post_policy_v4","area":"signed","pass":true}
+{"sdk":"cpp","id":"sdk.resumable_resume","area":"sdk","pass":false,"detail":"restored session is already closed"}
+{"sdk":"cpp","id":"sdk.resumable_cancel","area":"sdk","pass":false,"detail":"restoring the cancelled session returned object cancel.bin"}
+{"sdk":"cpp","id":"sdk.object_update_replace","area":"sdk","pass":true}
+{"sdk":"cpp","id":"sdk.rewrite_token_loop","area":"sdk","pass":false,"detail":"1 rewrite calls, 0 with a token"}
+{"sdk":"cpp","id":"sdk.parallel_composite_upload","area":"sdk","pass":false,"detail":"componentCount 0, expected 3 shards"}
+{"sdk":"cpp","id":"sdk.file_upload_download","area":"sdk","pass":true}
