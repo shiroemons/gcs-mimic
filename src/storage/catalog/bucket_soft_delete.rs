@@ -9,8 +9,8 @@
 
 use super::{
     Catalog, UnixMicros, acl::reconcile_bucket_policy, bucket_columns, bucket_metadata_charge,
-    change_journal, policies::next_revision, principals::Profile, read_bucket, select_bucket,
-    system_time_micros, unavailable, unix_micros,
+    change_journal, policies::next_revision, principals::Profile, read_bucket, remove_objects,
+    select_bucket, system_time_micros, unavailable, unix_micros,
 };
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError, SoftDeletedBucket};
 use crate::storage::catalog::sql;
@@ -281,21 +281,40 @@ fn purge_batch(connection: &mut Connection, now: UnixMicros) -> Result<i64, Cata
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (name, generation) in &expired {
-        let key = retained_key(name, *generation);
-        for query in [
-            "INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = ?1",
-            "DELETE FROM objects WHERE bucket = ?1",
-        ] {
-            sql::exec(&transaction, query, [&key])?;
-        }
-        sql::exec(
-            &transaction,
-            "DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
-            params![name, generation],
-        )?;
+        remove_version(&transaction, name, *generation)?;
     }
     transaction.commit()?;
     i64::try_from(expired.len()).map_err(unavailable)
+}
+
+/// Permanently removes one soft-deleted version and its retained objects, whose blobs the
+/// deletion journal then reclaims; returns how many objects it removed. The caller commits.
+fn remove_version(
+    connection: &Connection,
+    name: &str,
+    generation: i64,
+) -> Result<u64, CatalogError> {
+    let removed = remove_objects(connection, &retained_key(name, generation))?;
+    sql::exec(
+        connection,
+        "DELETE FROM soft_deleted_buckets WHERE name = ?1 AND generation = ?2",
+        params![name, generation],
+    )?;
+    Ok(removed)
+}
+
+/// Permanently removes every soft-deleted version of `name`, expired or not, with its retained
+/// objects; returns how many objects it removed. The caller commits.
+pub(super) fn remove_versions(connection: &Connection, name: &str) -> Result<u64, CatalogError> {
+    let generations = connection
+        .prepare_cached("SELECT generation FROM soft_deleted_buckets WHERE name = ?1")?
+        .query_map([name], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut removed = 0;
+    for generation in generations {
+        removed += remove_version(connection, name, generation)?;
+    }
+    Ok(removed)
 }
 
 fn earliest_hard_delete(connection: &Connection) -> Result<Option<UnixMicros>, CatalogError> {

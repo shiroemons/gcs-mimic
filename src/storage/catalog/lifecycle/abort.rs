@@ -172,7 +172,7 @@ impl Catalog {
                     outcome.skipped += 1;
                     continue;
                 };
-                Self::retire_lifecycle_multipart(&transaction, &lease)?;
+                Self::retire_held_multipart(&transaction, &lease)?;
                 leases.push(lease);
                 outcome.aborted += 1;
                 if outcome.aborted == limit {

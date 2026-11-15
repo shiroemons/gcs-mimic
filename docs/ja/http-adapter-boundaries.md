@@ -11,6 +11,9 @@ Kubernetesの短縮名（`gcs-mimic.my-namespace`、`gcs-mimic.my-namespace.svc`
 独自のクラスタードメインは明示的な追加が必要です。
 例: `--admin-allowed-hosts gcs-mimic.my-namespace.svc`。
 
+バケットを中身ごと消す`DELETE /_internal/buckets/{bucket}`も、メソッド、問い合わせ、バケット名、本文の検査より前に同じ確認を受けます。
+[英語の契約](../en/slices/bucket-purge.md)も参照してください。
+
 permissiveでは認証がなく、JSON APIのCORSは任意のOriginを許可します。
 ループバックだけで待ち受けても、ブラウザーで開いた悪意あるページから
 ローカルのデータを読み取れます。秘密を含むfixtureにはstrictを使ってください。

@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 mod fixtures;
 mod guard;
+mod purge;
 mod reseed;
 mod reset;
 mod sync;
@@ -25,6 +26,8 @@ pub(super) enum AdminRoute {
     DeleteAll,
     Reseed,
     Lifecycle,
+    /// `/_internal/buckets/{bucket}`; the handler reads the name from the path.
+    Bucket,
     Sync,
 }
 
@@ -37,6 +40,7 @@ impl AdminRoute {
             "/_internal/delete_all" => Self::DeleteAll,
             "/_internal/reseed" => Self::Reseed,
             "/_internal/lifecycle/run" => Self::Lifecycle,
+            path if path.starts_with(purge::PREFIX) => Self::Bucket,
             "/_internal/sync" => Self::Sync,
             path if path.starts_with("/_internal/sync/") => Self::Sync,
             _ => return None,
@@ -53,7 +57,7 @@ impl Authorized {
     }
 }
 
-/// Tells a client to retry a reset or reseed that answered 503 after one second.
+/// Tells a client to retry a reset, reseed or purge that answered 503 after one second.
 fn retry_soon(mut response: Response<Full<Bytes>>) -> Response<Full<Bytes>> {
     if response.status() == StatusCode::SERVICE_UNAVAILABLE {
         response
@@ -69,6 +73,7 @@ enum LocalRoute {
     Reset(reset::Form),
     Reseed,
     Lifecycle,
+    Bucket,
 }
 
 struct SyncRoute;
@@ -83,6 +88,7 @@ impl TryFrom<AdminRoute> for LocalRoute {
             AdminRoute::DeleteAll => Self::Reset(reset::Form::SourceAlias),
             AdminRoute::Reseed => Self::Reseed,
             AdminRoute::Lifecycle => Self::Lifecycle,
+            AdminRoute::Bucket => Self::Bucket,
             AdminRoute::Sync => return Err(SyncRoute),
         })
     }
@@ -146,6 +152,7 @@ pub(super) async fn respond(
         LocalRoute::Lifecycle => run_lifecycle(request, ctx, authorized)
             .await
             .unwrap_or_else(JsonError::into_response),
+        LocalRoute::Bucket => purge::respond(request, ctx, authorized).await,
     })
 }
 

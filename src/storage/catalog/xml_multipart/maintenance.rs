@@ -205,8 +205,9 @@ pub(super) fn recover(
 }
 
 impl Catalog {
-    /// The lifecycle caller holds the whole-upload lease and the retirement transaction.
-    pub(in crate::storage::catalog) fn retire_lifecycle_multipart(
+    /// The caller, a lifecycle abort or a bucket purge, holds the whole-upload lease and the
+    /// retirement transaction.
+    pub(in crate::storage::catalog) fn retire_held_multipart(
         connection: &Connection,
         lease: &resumable::WriterGuard,
     ) -> Result<(), ObjectError> {
@@ -217,7 +218,9 @@ impl Catalog {
     }
 
     /// Journal rows survive failed file work; owned cleanup settles before releasing its slot.
-    pub(super) async fn drain_xml_multipart(&self) -> Result<bool, ObjectError> {
+    pub(in crate::storage::catalog) async fn drain_xml_multipart(
+        &self,
+    ) -> Result<bool, ObjectError> {
         // A part or a completion drains under its own lease; the sweep has none to wait for.
         let activity = self.await_activity(Work::UnderWay).await?;
         let permit = self

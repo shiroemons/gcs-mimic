@@ -124,6 +124,7 @@ use bucket_list::bucket_metadata_charge;
 pub(super) use buckets::select_bucket;
 use buckets::{
     BucketCreation, Cors, create_bucket_in_transaction, insert_bucket_in_transaction, read_bucket,
+    remove_live_bucket, remove_objects,
 };
 pub(in crate::storage) use connection::{ConnectionUnavailable, RollbackError};
 pub(in crate::storage) use executor::ExecutorError;
