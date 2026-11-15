@@ -668,11 +668,11 @@ async fn failed_purge_cleanup_answers_pending_and_maintenance_or_restart_finishe
     // A staging file of a deleted session is named by no journal, so the next open removes it.
     generations(&catalog).await;
     start_session(&catalog, TARGET).await;
-    let step = if cfg!(unix) {
-        Step::SessionCleanupSync
-    } else {
-        Step::ReclaimUnlink
-    };
+    // Only unix syncs the staging directory, so elsewhere the failure is the blob unlink.
+    #[cfg(unix)]
+    let step = Step::SessionCleanupSync;
+    #[cfg(not(unix))]
+    let step = Step::ReclaimUnlink;
     catalog.inject(step, 0, Fault::Io(io::ErrorKind::Other));
     assert!(admin.purge_bucket(&target()).await.unwrap().cleanup_pending);
     catalog.close().await.unwrap();
@@ -685,24 +685,24 @@ async fn failed_purge_cleanup_answers_pending_and_maintenance_or_restart_finishe
 
 #[tokio::test]
 async fn purge_crash_and_power_loss_snapshots_recover_the_bucket_whole_or_not_at_all() {
-    let steps: &[Step] = if cfg!(unix) {
-        &[
-            Step::BeforeCommit,
-            Step::AfterCommit,
-            Step::SessionCleanupSync,
-            Step::SessionCleanupSynced,
-            Step::ReclaimUnlink,
-            Step::ReclaimSync,
-            Step::ReclaimForget,
-        ]
-    } else {
-        &[
-            Step::BeforeCommit,
-            Step::AfterCommit,
-            Step::ReclaimUnlink,
-            Step::ReclaimForget,
-        ]
-    };
+    // The directory syncs exist only on unix, where the fault seam models them.
+    #[cfg(unix)]
+    let steps: &[Step] = &[
+        Step::BeforeCommit,
+        Step::AfterCommit,
+        Step::SessionCleanupSync,
+        Step::SessionCleanupSynced,
+        Step::ReclaimUnlink,
+        Step::ReclaimSync,
+        Step::ReclaimForget,
+    ];
+    #[cfg(not(unix))]
+    let steps: &[Step] = &[
+        Step::BeforeCommit,
+        Step::AfterCommit,
+        Step::ReclaimUnlink,
+        Step::ReclaimForget,
+    ];
     for &step in steps {
         for &crash in Crash::ALL {
             let dir = TestDir::new();
