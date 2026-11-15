@@ -35,6 +35,56 @@ pub(crate) enum Error {
         expect(dead_code, reason = "only the Linux and macOS watches list the tree")
     )]
     Tree(AdminError),
+    /// The tree has more directories than the watch may add.
+    #[cfg_attr(
+        all(not(target_os = "linux"), not(test)),
+        expect(
+            dead_code,
+            reason = "only the Linux watch adds one watch per directory"
+        )
+    )]
+    Limit(WatchLimit),
+}
+
+/// The limit that refused a directory's watch, so the directory would go unobserved. No retry
+/// can lift either one: the operator raises the limit or reduces the tree.
+#[derive(Debug)]
+#[cfg_attr(
+    all(not(target_os = "linux"), not(test)),
+    expect(
+        dead_code,
+        reason = "only the Linux watch adds one watch per directory"
+    )
+)]
+pub(crate) enum WatchLimit {
+    /// `max_sync_entries` allows this many watched directories, and all of them are in use.
+    Configured { directories: usize },
+    /// The kernel refused the watch with `ENOSPC`: its inotify watch budget is spent, not the
+    /// disk.
+    Kernel(io::Error),
+}
+
+impl fmt::Display for WatchLimit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Configured { directories } => write!(
+                f,
+                "sync native watch limit ({directories} directories) exceeded; raise max_sync_entries or reduce the tree instead of leaving directories unobserved"
+            ),
+            Self::Kernel(_) => f.write_str(
+                "the kernel's inotify watch limit is exhausted; raise fs.inotify.max_user_watches on the host or reduce the tree",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for WatchLimit {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Configured { .. } => None,
+            Self::Kernel(error) => Some(error),
+        }
+    }
 }
 
 impl fmt::Display for Error {
@@ -42,6 +92,7 @@ impl fmt::Display for Error {
         match self {
             Self::Io(error) => fmt::Display::fmt(error, f),
             Self::Tree(error) => fmt::Display::fmt(error, f),
+            Self::Limit(limit) => fmt::Display::fmt(limit, f),
         }
     }
 }
@@ -51,6 +102,7 @@ impl std::error::Error for Error {
         match self {
             Self::Io(error) => Some(error),
             Self::Tree(error) => Some(error),
+            Self::Limit(limit) => Some(limit),
         }
     }
 }

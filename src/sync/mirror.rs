@@ -97,11 +97,8 @@ impl DirectoryWatch {
         let native = root
             .file_job(move |root| {
                 // A backend cause prints as the failure it holds and leaves that failure below
-                // it for the retry decision, so both kinds keep the same wrapping.
-                watch::build(root, &path, limits).map_err(|error| match error {
-                    watch::Error::Io(error) => AdminError::backend(error),
-                    watch::Error::Tree(error) => AdminError::backend(error),
-                })
+                // it for the retry decision, so every kind keeps the same wrapping.
+                watch::build(root, &path, limits).map_err(AdminError::backend)
             })
             .await?;
         Ok(Self {

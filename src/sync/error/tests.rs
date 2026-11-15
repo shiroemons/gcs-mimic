@@ -318,6 +318,54 @@ fn tree_listing_failures_inside_native_watch_errors_keep_their_retry_decisions()
     assert!(!invalid.is_watch_retryable(), "{invalid:?}");
 }
 
+/// A native watch that reaches `max_sync_entries` or the kernel's watch budget names the limit to
+/// raise, word for word as the `io::Error::other` wrapper it replaced, with the kernel's error
+/// below it. No rebuild lifts a limit, so the mirror pauses as an observer failure.
+#[test]
+fn native_watch_limits_keep_their_text_and_pause_without_retrying() {
+    use crate::source_tree::watch::{self, WatchLimit};
+    use crate::storage::failure::BackendCause;
+    let watch = |error: watch::Error| SyncError::Root(RootError::from(AdminError::backend(error)));
+    let former = |error: io::Error| SyncError::Root(RootError::from(AdminError::backend(error)));
+    let configured = "sync native watch limit (1 directories) exceeded; raise max_sync_entries or reduce the tree instead of leaving directories unobserved";
+    let kernel = "the kernel's inotify watch limit is exhausted; raise fs.inotify.max_user_watches on the host or reduce the tree";
+    let exhausted = || io::Error::from_raw_os_error(libc::ENOSPC);
+    for (typed, wrapped, report) in [
+        (
+            watch(watch::Error::Limit(WatchLimit::Configured {
+                directories: 1,
+            })),
+            former(io::Error::other(configured)),
+            format!(
+                "synchronization root: admin operation failed: administrative operation: Backend({configured:?}): {configured}"
+            ),
+        ),
+        (
+            watch(watch::Error::Limit(WatchLimit::Kernel(exhausted()))),
+            former(io::Error::other(BackendCause::with_source(
+                kernel,
+                exhausted(),
+            ))),
+            format!(
+                "synchronization root: admin operation failed: administrative operation: Backend({kernel:?}): {kernel}: {}",
+                exhausted()
+            ),
+        ),
+    ] {
+        assert_eq!(Report(&typed).to_string(), report);
+        assert_eq!(Report(&wrapped).to_string(), report);
+        for error in [&typed, &wrapped] {
+            assert!(!error.is_transient(), "{error:?}");
+            assert!(!error.is_watch_retryable(), "{error:?}");
+            assert_eq!(
+                error.pause_reason(),
+                PauseReason::ObserverFailure,
+                "{error:?}"
+            );
+        }
+    }
+}
+
 /// A write-back summary that fails while the observation is read travels inside the catalog's
 /// I/O cause. Contention inside it still makes the pass transient, and the I/O cause that
 /// carries it names the pause.

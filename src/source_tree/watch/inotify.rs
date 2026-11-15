@@ -104,13 +104,11 @@ impl Native {
         unsafe_code,
         reason = "inotify watches must be registered through libc"
     )]
-    pub(super) fn register(&mut self, file: &File) -> io::Result<()> {
-        if let Some(limit) = self.max_watches
-            && self.count == limit
+    pub(super) fn register(&mut self, file: &File) -> Result<(), Error> {
+        if let Some(directories) = self.max_watches
+            && self.count == directories
         {
-            return Err(io::Error::other(format!(
-                "sync native watch limit ({limit} directories) exceeded; raise max_sync_entries or reduce the tree instead of leaving directories unobserved"
-            )));
+            return Err(Error::Limit(WatchLimit::Configured { directories }));
         }
         let path = std::ffi::CString::new(format!("/proc/self/fd/{}", file.as_raw_fd()))
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -128,13 +126,9 @@ impl Native {
         if unsafe { libc::inotify_add_watch(self.queue.as_raw_fd(), path.as_ptr(), mask) } < 0 {
             let error = io::Error::last_os_error();
             return Err(if error.raw_os_error() == Some(libc::ENOSPC) {
-                // ENOSPC here is the kernel's watch budget, not disk space.
-                io::Error::other(crate::storage::failure::BackendCause::with_source(
-                    "the kernel's inotify watch limit is exhausted; raise fs.inotify.max_user_watches on the host or reduce the tree",
-                    error,
-                ))
+                Error::Limit(WatchLimit::Kernel(error))
             } else {
-                error
+                Error::Io(error)
             });
         }
         self.count += 1;

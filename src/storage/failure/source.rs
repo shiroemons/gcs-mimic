@@ -9,6 +9,7 @@ use super::{BackendCause, BackendFailure, MemoryBudget, MemoryExhausted};
 use crate::{
     bucket::CatalogError,
     object::ObjectError,
+    source_tree::watch,
     storage::{
         admin::AdminError,
         catalog::{ConnectionUnavailable, ExecutorError, RollbackError},
@@ -229,6 +230,18 @@ impl From<BlobError> for Source {
     }
 }
 
+/// A native watch that could not be built keeps the I/O error or the tree listing failure it met,
+/// so the mirror's retry decision still reads them; a watch limit is a leaf.
+impl From<watch::Error> for Source {
+    fn from(error: watch::Error) -> Self {
+        match error {
+            watch::Error::Io(error) => Self::Io(error),
+            watch::Error::Tree(error) => Self::Admin(error),
+            watch::Error::Limit(limit) => limit.into(),
+        }
+    }
+}
+
 macro_rules! leaf_sources {
     ($($error:ty),* $(,)?) => {
         $(impl From<$error> for Source {
@@ -263,6 +276,7 @@ leaf_sources!(
     crate::import::codec::TimestampError,
     crate::json::JsonError,
     crate::notification::NotificationDecodeError,
+    crate::source_tree::watch::WatchLimit,
     crate::storage::opaque_id::InvalidOpaqueId,
     crate::storage::admin::NestedFileJob,
     crate::storage::catalog::resumable::InvalidOptions,
