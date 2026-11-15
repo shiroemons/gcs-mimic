@@ -309,17 +309,11 @@ pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
             })
 }
 
-/// Refuses a declared body on a JSON method that takes none: any `Transfer-Encoding`, or a
-/// `Content-Length` other than the literal `0`.
-///
-/// Stricter than [`has_body`], which reads the length as a number: `Content-Length: 00` passes
-/// `has_body` but is refused here, as these routes have always refused it.
+/// Refuses a declared body on a JSON method that takes none, read as [`has_body`] reads it.
+/// Cloud Storage accepted `Content-Length: 00` on a bucket read, an object read and an object
+/// delete (recorded 2026-11-15).
 fn require_empty_body(headers: &hyper::HeaderMap) -> Result<(), JsonError> {
-    if headers.contains_key(hyper::header::TRANSFER_ENCODING)
-        || headers
-            .get(hyper::header::CONTENT_LENGTH)
-            .is_some_and(|length| length != "0")
-    {
+    if has_body(headers) {
         return Err(JsonError::invalid_argument(
             "This method requires an empty body",
         ));
