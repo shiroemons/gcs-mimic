@@ -1,5 +1,32 @@
 # Local release gates on the integrated source
 
+## Published 0.22.0 source
+
+Recorded **2026-11-15** for tag `v0.22.0`, commit `9cfc73a6ee3bf3efb75039dcf03c389b87abcab6`, tree `ce9cc724bde8c6e28474450f63cc839b833d512a`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete local `just pre-push` | Exit 0; 15m15s; 3695 Rust tests passed with Rust 1.100.0 | Recorded below |
+| Foundation checks | `success`, including the reference comparison | [Run 43672608458](https://github.com/shiroemons/gcs-mimic/actions/runs/43672608458) |
+| Documentation checks | `success` | [Run 43672608444](https://github.com/shiroemons/gcs-mimic/actions/runs/43672608444) |
+| Release binaries dry run | `success`; all eight native build and test targets passed, and the publish job checked eight archives and their checksums and selected `--latest=true` | [Run 43672646650](https://github.com/shiroemons/gcs-mimic/actions/runs/43672646650) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43675266902](https://github.com/shiroemons/gcs-mimic/actions/runs/43675266902) |
+
+The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.22.0) is the latest Release and has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`. `ghcr.io/shiroemons/gcs-mimic:0.22.0`, `0.22` and `latest`, and `shiroemons/gcs-mimic:0.22.0`, `0.22` and `latest`, resolve anonymously to the same index digest `sha256:8a166cdcee7b040c924e4061501c0aeb500b37d85d6ef1ed3858e7aea1449c50` for `linux/amd64` and `linux/arm64`. The `aarch64-apple-darwin` archive matches its `SHA256SUMS` entry and its binary reports `gcs-mimic 0.22.0`.
+
+## Local gates on the 0.22.0 source
+
+Recorded **2026-11-15** on macOS (Apple Silicon) with Rust 1.100.0 for commit `9cfc73a6ee3bf3efb75039dcf03c389b87abcab6` (package version 0.22.0).
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 15m15s`. Rust: 3695 tests in 16 binaries, 0 failed, 1 ignored, including library tests `2300 passed` and `it_process` `110 passed`. SDK suites passed: Go, Ruby, Node.js (two lanes), PHP, Python, Java, .NET and Rust. Containers: seven `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `scripts/check-cross.sh` | 0 | `0 new production Clippy violations; 0 ratcheted findings` for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` |
+| `cargo xtask dependencies check --scope release` | 0 | 41 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 0 | 132 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+
+`just pre-push`, `scripts/check-cross.sh` and the full dependency check ran on the release source before the tag was pushed; the release-scoped check ran after publication on the same dependency inputs.
+
 ## Published 0.21.0 source
 
 Recorded **2026-11-13** for tag `v0.21.0`, commit `5beab6e4f018036ba79133370e55579b788a8b67`, tree `e28d12c1bf165fcc3e5a47031cb829b3bb321169`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
