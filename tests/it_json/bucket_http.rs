@@ -4391,4 +4391,80 @@ fn satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others() {
     }
 }
 
+/// The fake-gcs-server profile keeps reporting the owners team of project number `0` as the
+/// `owner` of a bucket under uniform bucket-level access. A full projection appends it after
+/// every other field, before the field selection applies, and leaves listing items without it.
+#[test]
+fn legacy_profile_reports_an_owner_under_uniform_access() {
+    fn keys(value: &Value) -> Vec<&str> {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+    let dir = TestDir::new();
+    let server = profile_server(&dir, "fake-gcs-server");
+    let path = "/storage/v1/b/uniform-owner";
+    let inserted = server.request(
+        "POST",
+        "/storage/v1/b?project=00042&projection=full",
+        &json!({"name":"uniform-owner","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}})
+            .to_string(),
+    );
+    let patched = server.request(
+        "PATCH",
+        &format!("{path}?projection=full"),
+        r#"{"labels":{"changed":"yes"}}"#,
+    );
+    // The profile's PUT defaults to the full projection and keeps the access settings it omits.
+    let replaced = server.request("PUT", path, r#"{"labels":{"replaced":"yes"}}"#);
+    let full = server.request("GET", &format!("{path}?projection=full"), "");
+    for (operation, reply) in [
+        ("insert", &inserted),
+        ("patch", &patched),
+        ("put", &replaced),
+        ("get", &full),
+    ] {
+        let resource = reply.json_ok();
+        assert_eq!(
+            resource["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"], true,
+            "{operation}"
+        );
+        assert_eq!(
+            resource["owner"],
+            json!({"entity":"project-owners-0"}),
+            "{operation}"
+        );
+        assert!(
+            resource.get("acl").is_none() && resource.get("defaultObjectAcl").is_none(),
+            "{operation}"
+        );
+        assert_eq!(keys(&resource).last(), Some(&"owner"), "{operation}");
+    }
+    let plain = server.request("GET", path, "").json_ok();
+    assert!(plain.get("owner").is_none());
+    let full = full.json();
+    let mut appended = keys(&plain);
+    appended.push("owner");
+    assert_eq!(keys(&full), appended);
+    let selected = server
+        .request(
+            "GET",
+            &format!("{path}?projection=full&fields=name,owner"),
+            "",
+        )
+        .json_ok();
+    assert_eq!(
+        selected,
+        json!({"name":"uniform-owner","owner":{"entity":"project-owners-0"}})
+    );
+    let listed = server
+        .request("GET", "/storage/v1/b?project=00042&projection=full", "")
+        .json_ok();
+    assert_eq!(listed["items"][0]["name"], "uniform-owner");
+    assert!(listed["items"][0].get("owner").is_none());
+}
+
 declare_server!();
