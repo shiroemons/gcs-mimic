@@ -249,7 +249,10 @@ const CASCADED: &[&str] = &[
     "bucket_file_entries",
 ];
 
-fn reclaim(connection: &mut Connection, data_dir: &Path) -> Result<(), CatalogError> {
+/// Removes each journaled ID's blob, staging and appendable files, then forgets it. Only a job
+/// that holds exclusive ownership past the commit that journaled them may call this: it does
+/// not check references, because nothing can have reused the IDs since.
+pub(super) fn reclaim(connection: &mut Connection, data_dir: &Path) -> Result<(), CatalogError> {
     loop {
         let ids = connection
             .prepare_cached(

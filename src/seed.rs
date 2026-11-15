@@ -88,11 +88,14 @@ pub(crate) async fn reseed(
         .await
 }
 
-/// What a reset to the startup state removed, and what it published in its place.
+/// What a reset to the startup state removed, and what it published in its place. The first
+/// three members are those of an empty reset.
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Restored {
     #[serde(flatten)]
     removed: Removed,
+    cleanup_pending: bool,
     restored: Republished,
 }
 
@@ -130,6 +133,7 @@ pub(crate) async fn restore(
     let counts = batch.restore(initialization).await?;
     Ok(Restored {
         removed: counts.removed,
+        cleanup_pending: counts.cleanup_pending,
         restored: Republished {
             buckets: counts.buckets,
             objects: counts.objects,

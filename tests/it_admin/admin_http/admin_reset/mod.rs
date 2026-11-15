@@ -93,7 +93,8 @@ fn reset_to_the_startup_state_restores_configured_buckets_and_seed_on_both_backe
         // Removed: the three buckets, the seeded file the API kept and the held upload.
         assert_eq!(
             answer,
-            json!({"buckets":3,"objects":2,"restored":{"buckets":2,"objects":2}}),
+            json!({"buckets":3,"objects":2,"cleanupPending":false,
+                "restored":{"buckets":2,"objects":2}}),
             "{backend}"
         );
         let bucket = server
@@ -125,6 +126,56 @@ fn reset_to_the_startup_state_restores_configured_buckets_and_seed_on_both_backe
                 .expect_with(404, format!("{backend} {gone}"));
         }
     }
+}
+
+/// On disk the reset to the startup state removes an unfinished upload's staged bytes with the
+/// rest, as an empty reset does, instead of leaving them for the next start.
+#[test]
+fn a_reset_to_the_startup_state_removes_unfinished_upload_bytes_on_disk() {
+    let (data, source, config) = (TestDir::new(), TestDir::new(), TestDir::new());
+    let document = config.0.join("buckets.json");
+    startup_fixtures(&source, &document);
+    let server = Server::start(
+        &data,
+        &[
+            "--admin-enabled",
+            "true",
+            "--seed-dir",
+            source.0.to_str().unwrap(),
+            "--buckets-file",
+            document.to_str().unwrap(),
+        ],
+    );
+    let session = server.request(
+        "POST",
+        "/upload/storage/v1/b/configured-bucket/o?uploadType=resumable&name=pending",
+        "",
+        b"{}",
+    );
+    session.expect(200);
+    let location = session.headers["location"].parse::<Uri>().unwrap();
+    server
+        .request(
+            "PUT",
+            location.path_and_query().unwrap().as_str(),
+            "Content-Range: bytes 0-262143/524288\r\n",
+            &vec![b'a'; 256 * 1024],
+        )
+        .expect(308);
+    assert!(common::process::staging_count(&data) > 0);
+    let answer = server
+        .request("POST", "/_internal/reset", "", TO_STARTUP)
+        .json_ok();
+    assert_eq!(answer["cleanupPending"], false);
+    assert_eq!(common::process::staging_count(&data), 0);
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/configured-bucket/o/nested%2Freport.csv",
+            "",
+            b"",
+        )
+        .json_ok();
 }
 
 /// A seed tree that can no longer be published refuses the whole reset before anything is
@@ -208,7 +259,8 @@ fn reset_states_are_explicit_and_an_unconfigured_startup_state_is_empty() {
         server
             .request("POST", "/_internal/reset", "", TO_STARTUP)
             .json_ok(),
-        json!({"buckets":1,"objects":1,"restored":{"buckets":0,"objects":0}})
+        json!({"buckets":1,"objects":1,"cleanupPending":false,
+            "restored":{"buckets":0,"objects":0}})
     );
     server
         .request("GET", "/storage/v1/b/test-bucket", "", b"")

@@ -32,6 +32,8 @@ pub(crate) struct Counts {
     pub unchanged: usize,
     /// What a clearing commit removed before it published; zero for a merge.
     pub removed: Removed,
+    /// Whether a clearing commit left the bodies it removed for maintenance to reclaim.
+    pub cleanup_pending: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
@@ -488,28 +490,52 @@ fn commit(
     {
         return Err(error.into());
     }
-    if mode.clears() && batch.admin.catalog.0.backend.is_memory() {
-        // Only the bounded prepared namespace is indexed; a full old catalog needs no growing deletion journal.
-        let selected: Vec<_> = batch
-            .entries
-            .iter()
-            .map(|entry| entry.staged.blob_id().to_hex())
-            .collect();
-        if let Err(error) = batch
-            .admin
-            .catalog
-            .0
-            .backend
-            .retain_memory_ids(&selected.iter().map(String::as_str).collect())
-        {
+    if mode.clears() {
+        counts.cleanup_pending = !clear_replaced(connection, batch);
+    }
+    Ok(counts)
+}
+
+/// Removes what a clearing commit replaced while the commit still holds exclusive ownership, and
+/// returns whether nothing was left for maintenance. RAM keeps only the bodies the batch
+/// published. A disk reclaims every journaled ID as a reset does, staging and appendable files
+/// included: the reference-checked reclamation after commit removes blobs alone, so those files
+/// would otherwise wait for a restart. The batch's own bodies have new IDs outside the journal.
+fn clear_replaced(connection: &mut Connection, batch: &SeedBatch) -> bool {
+    let backend = &batch.admin.catalog.0.backend;
+    match backend {
+        crate::storage::catalog::BlobBackend::Memory(_) => {
+            // Only the bounded prepared namespace is indexed; a full old catalog needs no growing
+            // deletion journal.
+            let selected: Vec<_> = batch
+                .entries
+                .iter()
+                .map(|entry| entry.staged.blob_id().to_hex())
+                .collect();
+            let Err(error) =
+                backend.retain_memory_ids(&selected.iter().map(String::as_str).collect())
+            else {
+                return true;
+            };
             crate::diagnostics::emit(
                 crate::diagnostics::LogLevel::Error,
                 "seed_cleanup_deferred",
                 serde_json::json!({"message":error.to_string()}),
             );
+            false
+        }
+        crate::storage::catalog::BlobBackend::Disk(data_dir) => {
+            let Err(error) = super::super::reset::reclaim(connection, data_dir) else {
+                return true;
+            };
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "seed_cleanup_deferred",
+                serde_json::json!({"message":error.to_string()}),
+            );
+            false
         }
     }
-    Ok(counts)
 }
 
 fn confirmed(
