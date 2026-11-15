@@ -14,8 +14,10 @@ reject() {
   exit 1
 }
 
+# A line carrying `ADD --checksum=` keeps its digests: an archive checksum picks the source code a
+# build compiles, which no image refresh may change, however much it looks like an image digest.
 normalize() {
-  sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g; s/(snapshot=|"snapshot": ")[0-9]{8}T[0-9]{6}Z/\1<snapshot>/g'
+  sed -E '/--checksum=/!s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s/(snapshot=|"snapshot": ")[0-9]{8}T[0-9]{6}Z/\1<snapshot>/g'
 }
 
 # --summary reports every creation, deletion, rename, copy and mode change.
