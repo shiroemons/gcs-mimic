@@ -24,6 +24,7 @@ Only the Rust example needs the gRPC listener on port 4444; the others use HTTP 
 | [java](java/) | `google-cloud-storage` 2.76.0 | Uses `HttpStorageOptions` with `NoCredentials`. |
 | [dotnet](dotnet/) | `Google.Cloud.Storage.V1` 5.0.0 | Uses `UnauthenticatedAccess` with a custom `BaseUri`. |
 | [rust](rust/) | `google-cloud-storage` 1.22.0 | Objects over HTTP on 4443, buckets over gRPC on 4444. |
+| [cpp](cpp/) | google-cloud-cpp 3.13.0 | Builds the SDK from source in Docker and uses insecure credentials. |
 | [gcloud](gcloud/) | `gcloud storage` (Google Cloud SDK 591.0.0) | Also covers resumable, parallel composite and sliced transfers. |
 
 Each directory's README lists its requirements. Run an example with `./run.sh` (`./gcloud-example.sh` for gcloud); set `GCSM_ENDPOINT` to use an address other than `http://localhost:4443`.

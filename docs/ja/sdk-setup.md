@@ -20,6 +20,7 @@
 | Node.js | `apiEndpoint` | 設定しない |
 | Python | `api_endpoint`。テストでは変数も設定 | `http://`付きの完全なURL |
 | PHP | `apiEndpoint` | 使わない |
+| C++ | `RestEndpointOption`。`CLOUD_STORAGE_EMULATOR_ENDPOINT`を設定するとそちらが優先 | 使わない |
 
 バージョンは、リポジトリのSDKテストと[SDKスコアカード（英語）](../../sdk-scorecard/README.md)で固定しているものです。
 ほかのバージョンは検証していません。

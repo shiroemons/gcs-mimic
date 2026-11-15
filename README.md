@@ -220,6 +220,24 @@ let control = StorageControl::builder()
 </details>
 
 <details>
+<summary>C++</summary>
+
+Insecure credentials send no `Authorization` header. Leave
+`CLOUD_STORAGE_EMULATOR_ENDPOINT` unset or set it to the same URL: when set, the
+SDK sends every request there instead of `RestEndpointOption`.
+
+```cpp
+namespace gc = ::google::cloud;
+namespace gcs = ::google::cloud::storage;
+auto client = gcs::Client(gc::Options{}
+    .set<gcs::RestEndpointOption>("http://localhost:4443")
+    .set<gcs::ProjectIdOption>("local-project")
+    .set<gc::UnifiedCredentialsOption>(gc::MakeInsecureCredentials()));
+```
+
+</details>
+
+<details>
 <summary>gcloud</summary>
 
 A throwaway `CLOUDSDK_CONFIG` keeps your own configuration untouched.

@@ -23,6 +23,7 @@
 | Node.js | `apiEndpoint` | Leave unset |
 | Python | `api_endpoint`; the tests also set the variable | Full URL with `http://` |
 | PHP | `apiEndpoint` | Not used |
+| C++ | `RestEndpointOption`; `CLOUD_STORAGE_EMULATOR_ENDPOINT`, when set, overrides it | Not used |
 
 The versions are those pinned by the repository's SDK tests and the
 [SDK scorecard](../../sdk-scorecard/README.md); other versions are untested.
@@ -143,6 +144,15 @@ The scorecard also runs Java `google-cloud-storage` 2.78.0 (Java 17 or newer),
 client settings are in the [Java](../../sdk-tests/java/README.md),
 [.NET](../../sdk-tests/dotnet/README.md) and [Rust](../../sdk-tests/rust/README.md)
 test READMEs.
+
+## C++
+
+The scorecard runs google-cloud-cpp 3.13.0, built from source with GCC 16.2.0
+for its REST transport only, so no gRPC listener is needed. The
+[C++ example](../../examples/cpp/README.md) builds the same SDK in Docker and
+shows the client options; `CLOUD_STORAGE_EMULATOR_ENDPOINT`, when set,
+overrides `RestEndpointOption`. The [scorecard probe](../../sdk-scorecard/cpp/README.md)
+also covers signed URLs, signed with a local service-account key.
 
 ## Signed URLs and authentication
 
