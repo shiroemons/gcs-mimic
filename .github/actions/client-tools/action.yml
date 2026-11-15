@@ -32,7 +32,8 @@ runs:
         # Maven Central rather than the Apache archive: the Java clients need Central for every
         # dependency anyway, so the Maven download adds no host that can fail on its own.
         fetch "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$maven_pin/apache-maven-$maven_pin-bin.tar.gz" "$tools/maven.tar.gz"
-        echo "908b1501bfb420bf7c8affb855534a9c407fd6099367bfb9f2f2dcb8e9799102bffb84518cde74c679bd76870247c6528683abdd620581bffa90f95d92d175aa  $tools/maven.tar.gz" | sha512sum -c -
+        # The SHA-512 belongs to the version in sdk-tests/java/.maven-version; change both together.
+        echo "8af2fcc48ee6b8f8fc0b21054226e14404b88500df6483cdeb3ae603408f6de27b1397ac591a9fb0d98fee64f4f624fee1383efd25b8998786cda1598fb9ea39  $tools/maven.tar.gz" | sha512sum -c -
         tar -xzf "$tools/maven.tar.gz" -C "$tools"
         echo "JAVA_HOME=$tools/java" >> "$GITHUB_ENV"
         echo "$tools/java/bin" >> "$GITHUB_PATH"

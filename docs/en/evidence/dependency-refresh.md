@@ -1139,9 +1139,14 @@ adopted. The release-scoped check, which does not cover Maven, passed.
 
 ### Maven 3.10.1
 
-Maven builds only `sdk-tests/java` and `sdk-scorecard/java` on a developer's
-machine; no release input, CI job or container uses it. Both `.maven-version`
-files and the dependency status move to 3.10.1, and the Java READMEs name it.
+Maven builds only `sdk-tests/java` and `sdk-scorecard/java`; no release input
+or container uses it. Locally it is the developer's Maven; in CI the
+`client-tools` action downloads the version in `sdk-tests/java/.maven-version`
+from Maven Central for the `sdk-go` and `testcontainers` jobs and accepts it
+only with the SHA-512 written in the action. Both `.maven-version` files, that
+SHA-512 and the dependency status move to 3.10.1, and the Java READMEs name it.
+The first push of the pin without the action's checksum failed both jobs at the
+checksum; the downloaded 3.10.1 archive matches the published SHA-512 below.
 The pinned plugins (maven-compiler-plugin 3.16.0, exec-maven-plugin 3.7.0,
 maven-dependency-plugin 3.11.0), the dependencies and both recorded graphs are
 unchanged.
