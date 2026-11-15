@@ -117,6 +117,16 @@ emulator and exits 0 or non-zero.
 
 None. Every shared case has a public API in 3.13.0.
 
+## Signature verification
+
+The scored runs leave signatures unverified, as for every SDK. To check that
+the SDK's V2, V4 and POST policy signatures verify, start gcs-mimic with
+`--signed-urls verify --signed-host-port exact` and run the probe as above:
+all 51 cases pass, and with an unrelated `SCORECARD_SIGNING_KEY` the four
+`signed.*` cases fail with 403 `SignatureDoesNotMatch`. `exact` is needed
+because the test signer's default, `lenient`, also accepts a V4 host without
+its port. Results: [the C++ slice](../../docs/en/slices/sdk-scorecard-cpp.md#signature-verification).
+
 ## What this SDK sends differently
 
 The first run against gcs-mimic failed two cases because the emulator refused

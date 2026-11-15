@@ -174,7 +174,9 @@ The common HTTP/1 frontend uses a two-second, 32 MiB bounded drain after early
 errors, so clients that finish writing before reading retain the backend's
 checksum-specific response. HTTP/2 uses its normal stream handling. Signed
 cases run in permissive profiles and do not establish server-side signature
-verification. The V4 canonical host of `@google-cloud/storage` 8.4.0 and 9.0.0 drops a nondefault port; strict
+verification; the C++ probe's signatures were separately verified against
+`--signed-urls verify --signed-host-port exact` (see
+[its slice](../docs/en/slices/sdk-scorecard-cpp.md#signature-verification)). The V4 canonical host of `@google-cloud/storage` 8.4.0 and 9.0.0 drops a nondefault port; strict
 use at this origin remains unsupported. See the transport contract for limits.
 
 Ordinary SDK headers and query values are preserved. A failure during setup

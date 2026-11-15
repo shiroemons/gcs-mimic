@@ -104,7 +104,9 @@ outside the release image's inputs.
   origin; a wrong CA or SAN must fail with the SDK's certificate error.
 
 Signed cases run in the permissive profile and establish routing, parameters
-and bytes, not emulator-side signature verification.
+and bytes, not emulator-side signature verification. A separate run against
+`--signed-urls verify --signed-host-port exact` establishes that the SDK's
+signatures verify; see "Signature verification" below.
 
 ## Cases
 
@@ -199,7 +201,7 @@ the final run is at `6652e6fa`. Both had no uncommitted change.
 
 | Case | Result | Evidence |
 | --- | --- | --- |
-| CPP-PINS | PASS on linux/arm64; linux/amd64 not built | `docker build -f sdk-scorecard/cpp/Dockerfile ... sdk-scorecard` succeeds without probe warnings. Both CMake archives are checksum-verified on every build; the linux/x86_64 one was never unpacked. |
+| CPP-PINS | PASS | `docker build -f sdk-scorecard/cpp/Dockerfile ... sdk-scorecard` succeeds without probe warnings on linux/arm64. At `ffe09ec5`, `docker buildx build --platform linux/amd64` with the same context also succeeds, in 180 s on the arm64 host's emulation, unpacking the x86_64 CMake archive; that image (`uname -m` `x86_64`) passes all 51 cases against gcs-mimic over plain HTTP. The scored runs use the host's architecture, linux/arm64. |
 | CPP-TRANSPORT | PASS | `bash sdk-scorecard/test-tls.sh`: 32/32, including `cpp` with the fixture CA (passes), an unrelated CA and a wrong SAN (both fail with libcurl's certificate error). |
 | CPP-ISOLATION | PASS | With `CLOUD_STORAGE_EMULATOR_ENDPOINT`, `CLOUD_STORAGE_TESTBENCH_ENDPOINT`, proxy variables and `GOOGLE_CLOUD_UNIVERSE_DOMAIN` set to other hosts, every case result over HTTP and HTTPS was identical. A run without the scrub was not made. |
 | CPP-CORE | PASS | `bash sdk-scorecard/run.sh` wrote [results/2026-11-15](../../../sdk-scorecard/results/2026-11-15/summary.md) in 830 s and, after the fixes, [results/2026-11-15-2](../../../sdk-scorecard/results/2026-11-15-2/summary.md) in 988 s, each for all four products, and `score.sh` accepted both. The 51 IDs and areas equal the Ruby core; no case is unsupported. gcs-mimic passed 49 in the first run (below) and 51 in the final one, so the ledger's all-pass case CPP-SCORECARD passes. In both runs the other eight SDKs' case results equal the 2026-11-12 run for every product. |
@@ -248,7 +250,25 @@ specified: error responses carry `http_status_code` in `ErrorInfo` metadata,
 and a gunzipped download carries
 `x-guploader-response-body-transformations: gunzipped`.
 
-Not run: a linux/amd64 build and strict-profile signature verification.
-`just check` ran once, on the final source with both fixes. The first build's
-time was not captured; with cached library layers a rebuild after a probe
-change takes seconds.
+Not run: a strict-profile run of all 51 cases, which needs SDK credentials and
+grants this slice does not define. `just check` ran once, on the final source
+with both fixes. The first build's time was not captured; with cached library
+layers a rebuild after a probe change takes seconds.
+
+## Signature verification
+
+Verified on 2026-11-15 at `ffe09ec5`, linux/arm64, against gcs-mimic over
+plain HTTP started with `--signed-urls verify --signed-host-port exact`. Its
+ready event reported `signed_urls` `verify`, `test_signer` `enabled` and
+`signed_host_port` `exact`. `exact` matters: with the test signer enabled the
+default is `lenient`, which also accepts a V4 host without its port, so only
+`exact` shows that the SDK signs the port.
+
+| Run | Signing key | Result |
+| --- | --- | --- |
+| All 51 cases | `fixtures/signing/test-only-private.pem`, the built-in test signer | 51/51 pass, including `signed.v4_get`, `signed.v4_put`, `signed.v2_get` and `signed.post_policy_v4` |
+| `SCORECARD_RUN=signed` | A freshly generated unrelated RSA key | All four fail with 403 `SignatureDoesNotMatch` (the POST policy: `The policy signature does not match.`) |
+
+The probe and its arguments are those of the scorecard; only the server flags
+and, for the control, `SCORECARD_SIGNING_KEY` differ. The scored runs keep the
+permissive `signed_urls=ignore` default shared by every product.

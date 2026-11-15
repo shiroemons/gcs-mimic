@@ -64591,6 +64591,14 @@
           ]
         },
         {
+          "id": "CPP-SIGNED-VERIFY",
+          "description": "With gcs-mimic verifying signatures at the exact host and port (signed_urls=verify, signed_host_port=exact), the SDK's V4 GET/PUT, V2 GET and V4 POST policy signatures verify, and the same requests signed with an unrelated key fail with 403 SignatureDoesNotMatch.",
+          "result": "PASS",
+          "test_ids": [
+            "scorecard-cpp-signed-verify"
+          ]
+        },
+        {
           "id": "CPP-EXTENDED",
           "description": "Verify the gRPC transport, C++-specific idioms, strict credentials/authorization, native TLS and other profiles separately.",
           "result": "PENDING",
@@ -64599,7 +64607,8 @@
       ],
       "test_ids": [
         "scorecard-cpp",
-        "scorecard-cpp-tls"
+        "scorecard-cpp-tls",
+        "scorecard-cpp-signed-verify"
       ],
       "verification": [
         {
@@ -64609,6 +64618,15 @@
           "artifact": "docs/en/slices/sdk-scorecard-cpp.md",
           "test_ids": [
             "scorecard-cpp-tls"
+          ]
+        },
+        {
+          "command": "gcs-mimic serve --signed-urls verify --signed-host-port exact, then the C++ probe with the test signer key and with an unrelated key",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/sdk-scorecard-cpp.md",
+          "test_ids": [
+            "scorecard-cpp-signed-verify"
           ]
         },
         {
@@ -64666,7 +64684,7 @@
         }
       ],
       "known_deviations": [
-        "The probe keeps the SDK defaults, so the restore {} body and nanosecond POST policy expirations are accepted by local rules recorded in JSON-OBJECTS-011 and DESIGN-041. Only the JSON/REST transport is measured. Object list pages are observed through the SDK's own rpc log, because no public reader exposes them. Signed cases do not establish emulator-side cryptographic verification; gRPC, strict authorization, native TLS, other profiles and real-GCS parity remain pending."
+        "The probe keeps the SDK defaults, so the restore {} body and nanosecond POST policy expirations are accepted by local rules recorded in JSON-OBJECTS-011 and DESIGN-041. Only the JSON/REST transport is measured. Object list pages are observed through the SDK's own rpc log, because no public reader exposes them. The scored signed cases run with signatures unverified, as for every SDK; their cryptographic validity is established by the separate signed_urls=verify run (CPP-SIGNED-VERIFY). gRPC, strict authorization, native TLS, other profiles and real-GCS parity remain pending."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-15"
