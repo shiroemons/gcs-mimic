@@ -52,7 +52,8 @@ Storage writes them: plain from `0.001` up to `10^7`, scientific outside that (`
 `1.0E7`), 16 significant digits from `2^64` upward (`1.844674407370955E19`), and `"0.0E"`
 or `"-0.0E"` for a float zero.
 
-Cloud Storage enforced no 8 KiB limit on custom metadata (recorded 2026-11-15). The merged
+Cloud Storage enforced no 8 KiB limit on custom metadata (recorded 2026-11-15 in the
+[provider probes](../evidence/custom-metadata-condition-probes.md)). The merged
 map, including retained keys, stays within the local 40 KiB bound on encoded metadata and
 answers 400 `invalid` past it. A null value removes its key on PATCH, while a PUT stores it as
 the empty string, as Cloud Storage did. The JSON body has the existing 64 KiB cap.

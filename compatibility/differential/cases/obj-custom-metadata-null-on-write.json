@@ -1,0 +1,12 @@
+{
+  "id": "obj-custom-metadata-null-on-write",
+  "description": "A null custom metadata value on writes that create or replace an object's metadata: a multipart insert, a copy and a rewrite whose body names a source key and a new key as null, a compose destination and a PUT. The 2026-11-15 live recording shows that every one of them stores the null value as an empty string, even for a key the copy source has; only a PATCH removes a key named with null.",
+  "steps": [
+    {"name": "source", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart", "fields": "metadata"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}\",\"metadata\":{{\"k\":\"v\"}}}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--", "expect_status": 200},
+    {"name": "insert-null", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "multipart", "fields": "metadata"}, "headers": {"Content-Type": "multipart/related; boundary=gcsmimicdiff"}, "body_text": "--gcsmimicdiff\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{\"name\":\"{object}-insert\",\"metadata\":{{\"k\":\"v\",\"gone\":null}}}}\r\n--gcsmimicdiff\r\nContent-Type: text/plain\r\n\r\nhello\r\n--gcsmimicdiff--", "expect_status": 200},
+    {"name": "copy-null", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-copy", "query": {"fields": "metadata"}, "body": {"metadata": {"k": null, "gone": null}}, "expect_status": 200},
+    {"name": "rewrite-null", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-rewrite", "query": {"fields": "done,resource/metadata"}, "body": {"metadata": {"k": null, "gone": null}}, "expect_status": 200},
+    {"name": "compose-null", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-compose/compose", "query": {"fields": "metadata"}, "body": {"sourceObjects": [{"name": "{object}"}], "destination": {"contentType": "text/plain", "metadata": {"gone": null}}}, "expect_status": 200},
+    {"name": "put-null", "method": "PUT", "path": "/storage/v1/b/{bucket}/o/{object}-insert", "query": {"fields": "metadata"}, "body": {"metadata": {"k": "v", "gone": null}}, "expect_status": 200}
+  ]
+}

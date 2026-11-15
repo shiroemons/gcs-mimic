@@ -1,0 +1,11 @@
+{
+  "id": "obj-generation-match-and-not-match",
+  "description": "A match and a not-match condition on the same generation sent together, each pair satisfiable on its own: copy, rewrite and move with ifGenerationMatch=0 and ifGenerationNotMatch=1 on a new destination, and copy with ifSourceGenerationMatch and ifSourceGenerationNotMatch on the source. The 2026-11-15 live recording shows that copy and rewrite evaluate both conditions (a not-match condition fails on a destination that does not exist yet, so that pair answers 412, and the source pair passes), while move refuses the pair with 409 conflict.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "capture": {"gen": "body:generation"}, "expect_status": 200},
+    {"name": "copy-both", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-copy", "query": {"ifGenerationMatch": "0", "ifGenerationNotMatch": "1", "fields": "name"}, "expect_status": 412},
+    {"name": "copy-source-both", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/copyTo/b/{bucket}/o/{object}-copy-source", "query": {"ifSourceGenerationMatch": "{gen}", "ifSourceGenerationNotMatch": "1", "fields": "name"}, "expect_status": 200},
+    {"name": "rewrite-both", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/rewriteTo/b/{bucket}/o/{object}-rewrite", "query": {"ifGenerationMatch": "0", "ifGenerationNotMatch": "1", "fields": "done,resource/name"}, "expect_status": 412},
+    {"name": "move-both", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}/moveTo/o/{object}-moved", "query": {"ifGenerationMatch": "0", "ifGenerationNotMatch": "1", "fields": "name"}, "expect_status": 409}
+  ]
+}
