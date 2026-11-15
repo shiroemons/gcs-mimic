@@ -536,8 +536,10 @@ Write a `multipart/related` body with CRLF delimiters, JSON metadata first and m
 second. A metadata contentType must match the media part's Content-Type, ignoring
 parameters such as `charset`; a mismatch returns 400 and publishes nothing, as Cloud
 Storage does. An omitted, null or empty contentType uses the media part's type.
-Custom metadata is limited to 8192 UTF-8 key/value bytes. The media cap excludes
-framing, and each JSON part is limited to 16 MiB.
+Custom metadata has no 8 KiB limit; fixed and custom metadata together stop at a local
+40 KiB once encoded as JSON, as described under
+[changing metadata](#list-objects-and-conditionally-change-metadata).
+The media cap excludes framing, and each JSON part is limited to 16 MiB.
 
 ```sh
 printf 'Hello multipart.\n' > "$work_dir/multipart-media.txt"
@@ -887,7 +889,9 @@ generation, checksums and bytes; a stale precondition returns 412 without mutati
 An object PUT, like PATCH, answers without `acl` and `owner` unless it asks for
 `projection=full`, as Cloud Storage did when recorded; the example names `noAcl`
 explicitly. Custom metadata has no 8 KiB limit, as Cloud Storage enforced none when recorded;
-fixed and custom metadata together stop at a local 40 KiB once encoded as JSON. Supplied `acl` arrays replace the stored ACL as
+fixed and custom metadata together stop at a local 40 KiB once encoded as JSON. Cloud Storage
+still documents 8 KiB, so code that must keep working if that limit is enforced should stay
+within it. Supplied `acl` arrays replace the stored ACL as
 described in the [ACL contract](slices/json-acl.md); IAM, advanced fields and partial
 response masks remain unsupported. JSON media and XML downloads expand gzip-encoded objects for
 clients that do not accept gzip, and upload tokens replay as described in the [SDK integration](slices/sdk-scorecard-integration.md)

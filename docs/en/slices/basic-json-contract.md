@@ -175,8 +175,10 @@ Non-upload methods with generation select first and compare that same record.
 | patch / JSON-OBJECTS-010 | PATCH object path; generation, four conditions, projection, fields; JSON contentType, contentEncoding, contentDisposition, contentLanguage, cacheControl and metadata; no media body | storage.objects.update; merge supplied fixed/custom values; null removes field/map/key; one revision and unchanged generation/bytes/hashes; 200 Object, invalid 400, stale 412 locally, unsupported 501, missing 404 | [Metadata](json-object-metadata.md) |
 | update / JSON-OBJECTS-015 | PUT same path/queries and supported metadata; full default projection | Same permission/atomic checks; replace supported set, reset omitted fixed/custom fields; missing content type serves octet-stream; 200 Object and same failures; changed output-only/unknown input stays explicitly unsupported | [Metadata](json-object-metadata.md) |
 
-The final custom metadata map is bounded to 8192 UTF-8 key/value bytes. Empty
-custom values survive; empty keys/non-ASCII fixed header values return 501.
+The final custom metadata map has no 8 KiB limit, as Cloud Storage enforced
+none when recorded; fixed and custom metadata stay within a local 40 KiB once
+encoded as JSON. Empty custom values survive; empty keys/non-ASCII fixed header
+values return 501.
 Metadata changes preserve immutable data identity and use the injected clock.
 Unchanged server-managed metadata may be round-tripped inside the transaction;
 changed/unknown/unmodeled output input returns 501 under SPEC-015. All metadata

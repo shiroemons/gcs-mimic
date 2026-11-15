@@ -18,8 +18,9 @@ Malformed or truncated containers, failed checksums and failed conditions preser
 the previous complete resource and bytes; concurrent create-if-absent has one winner.
 Successful fixed/custom metadata, hashes and generation survive restart.
 
-Metadata types and the 8192-byte custom UTF-8 key/value limit are checked before
-media input/staging. Query name overrides only string/null metadata name; the path
+Metadata types and the local 40 KiB bound on encoded fixed and custom metadata are
+checked before media input/staging; the former 8192-byte custom metadata limit was
+removed after Cloud Storage enforced none (recorded 2026-11-15). Query name overrides only string/null metadata name; the path
 bucket overrides string metadata bucket. Nonempty metadata contentType wins over
 the media header then `application/octet-stream`; null/empty contentType falls back.
 Each JSON part is capped at 65536 bytes. The contract records exact MIME cap

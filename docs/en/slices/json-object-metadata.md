@@ -19,7 +19,7 @@ BEHAVIOR-OBJECT-002, BEHAVIOR-OBJECT-006 and BEHAVIOR-COMMON-011.
 | Revision transition | Metageneration increments once; updated uses injected clock; ETag changes |
 | Media headers | Stored content fields are reflected while bytes/checksums remain unchanged |
 | Malformed JSON/types | 400 parseError/invalidArgument; state unchanged |
-| Custom metadata size | Sum of UTF-8 key/value bytes <=8192; excess returns 400 invalidArgument atomically |
+| Custom metadata size | No 8 KiB limit, as Cloud Storage enforced none (recorded 2026-11-15); the merged fixed and custom metadata past the local 40 KiB once encoded as JSON return 400 `invalid` atomically |
 | Unsupported fields/query/headers | Explicit 501 notImplemented; no ignored recognized semantics |
 | Missing bucket/object | 404 notFound |
 | Conditioned concurrent updates | Exactly one 200; the other 412; one metageneration increment |

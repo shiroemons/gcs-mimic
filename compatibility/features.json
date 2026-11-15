@@ -28199,7 +28199,7 @@
         "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
         "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
-        "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; non-null custom metadata UTF-8 key/value bytes are capped at 8192 before media/staging and rechecked at publication."
+        "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; fixed and custom metadata are held to the local 40 KiB bound on encoded metadata before media/staging and rechecked at publication, with no 8 KiB custom metadata limit, as Cloud Storage enforced none (recorded 2026-11-15)."
       ],
       "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
       "last_verified": "2026-10-22"
@@ -38848,7 +38848,7 @@
         },
         {
           "id": "EXT-XML-022-CUSTOM-METADATA",
-          "description": "Normalize custom HTTP metadata keys to lowercase, preserve empty/ASCII values, enforce the 8192-byte stored suffix/value limit and reject empty names, repeated case-folded keys and non-ASCII values under the local representability rule.",
+          "description": "Normalize custom HTTP metadata keys to lowercase, preserve empty/ASCII values, accept values past 8 KiB as Cloud Storage did (recorded 2026-11-15) and reject empty names, repeated case-folded keys and non-ASCII values under the local representability rule.",
           "result": "PASS",
           "test_ids": [
             "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
@@ -42517,7 +42517,7 @@
       "acceptance_cases": [
         {
           "id": "POST-FORM-FRAMING",
-          "description": "Bounded multipart/form-data parsing: Content-Disposition names and quoted filenames, duplicate fields, no limit on the number of fields or one field, 16 MiB of fields in total, which charges each field's name and map entry, custom metadata at its documented 8 KiB however many fields carry it, a required file part that must be last; query options and non-form content types are 400 and write nothing.",
+          "description": "Bounded multipart/form-data parsing: Content-Disposition names and quoted filenames, duplicate fields, no limit on the number of fields or one field, 16 MiB of fields in total, which charges each field's name and map entry, fixed and custom metadata within the local 40 KiB bound on encoded metadata however many fields carry it, a required file part that must be last; query options and non-form content types are 400 and write nothing.",
           "result": "PASS",
           "test_ids": [
             "a_policy_form_may_split_its_custom_metadata_over_many_small_fields",
