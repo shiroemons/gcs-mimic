@@ -21693,10 +21693,25 @@
             "TestGRPCBuckets",
             "TestGRPCBucketsStrict"
           ]
+        },
+        {
+          "language": "Java",
+          "toolchain": "openjdk 27.0.1",
+          "sdk": "com.google.cloud:google-cloud-storage",
+          "version": "2.78.0",
+          "transport": "Storage v2 gRPC; StorageOptions.grpc() create, get and delete bucket",
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "FAIL",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl",
+          "test_ids": [
+            "sdk-scorecard grpc.bucket_create_get_delete (Java)"
+          ]
         }
       ],
       "known_deviations": [
-        "Nested masks and fields absent from foundation conversion (including encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
+        "Nested masks and fields absent from foundation conversion (including encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
+        "The Java SDK's default GetBucket read mask names billing, which is not modelled, so its gRPC bucket get fails with UNIMPLEMENTED (scorecard grpc.bucket_create_get_delete)."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -23324,7 +23339,7 @@
         {"command": "RUST_TEST_THREADS=8 just check", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
-      "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
+      "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}, {"language": "Java", "toolchain": "openjdk 27.0.1", "sdk": "com.google.cloud:google-cloud-storage", "version": "2.78.0", "transport": "Storage v2 gRPC; blobReadSession with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Java)"]}, {"language": "Python", "toolchain": "3.15.2", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "Storage v2 gRPC; AsyncMultiRangeDownloader with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Python)"]}, {"language": "Rust", "toolchain": "1.100.0", "sdk": "google-cloud-storage", "version": "1.22.0", "transport": "Storage v2 gRPC; Storage::open_object with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.rust.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Rust)"]}],
       "known_deviations": ["Process-local FIFO retains at most 1024 reader-free handle descriptors for ten injected-clock minutes; eviction, expiry or restart requires reopening without a handle. Missing generations return NOT_FOUND and invalidate the handle. Provider lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, encryption, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Other unfinished admitted read_ids receive ABORTED when a range or stream fails; provider status values remain unobserved in SPEC-GRPC-PENDING-RANGES. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
       "implemented_in": null,
       "last_verified": "2026-10-29"
@@ -36231,10 +36246,39 @@
             "TestGRPCAppendable",
             "TestGRPCFoundationFailsFast"
           ]
+        },
+        {
+          "language": "Java",
+          "toolchain": "openjdk 27.0.1",
+          "sdk": "com.google.cloud:google-cloud-storage",
+          "version": "2.78.0",
+          "transport": "Storage v2 gRPC; blobAppendableUpload with a flush before finalization",
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl",
+          "test_ids": [
+            "sdk-scorecard grpc.appendable_object (Java)"
+          ]
+        },
+        {
+          "language": "Python",
+          "toolchain": "3.15.2",
+          "sdk": "google-cloud-storage",
+          "version": "3.17.1",
+          "transport": "Storage v2 gRPC; AsyncAppendableObjectWriter.open",
+          "command": "bash sdk-scorecard/run.sh",
+          "result": "FAIL",
+          "verified_at": "2026-11-15",
+          "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl",
+          "test_ids": [
+            "sdk-scorecard grpc.appendable_object (Python)"
+          ]
         }
       ],
       "known_deviations": [
-        "Unfinalized objects are visible only through gRPC GetObject, ReadObject, BidiReadObject and DeleteObject; JSON, XML and ListObjects see them after finalization. Creating an appendable generation over an existing object returns UNIMPLEMENTED. Appendable objects are accepted in any bucket."
+        "Unfinalized objects are visible only through gRPC GetObject, ReadObject, BidiReadObject and DeleteObject; JSON, XML and ListObjects see them after finalization. Creating an appendable generation over an existing object returns UNIMPLEMENTED. Appendable objects are accepted in any bucket.",
+        "A first BidiWriteObject message that carries only an appendable write_object_spec gets no response until a flush or state_lookup. The Python SDK's AsyncAppendableObjectWriter.open waits for one, so it cannot open an appendable object (scorecard grpc.appendable_object)."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29"

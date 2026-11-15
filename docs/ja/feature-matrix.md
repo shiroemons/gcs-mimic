@@ -467,7 +467,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | RPC-STORAGE-001 | DeleteBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-002 | GetBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-002 | GetBucket | PARTIAL | P6 | EXACT | EXACT | 2 |
 | RPC-STORAGE-003 | CreateBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-004 | ListBuckets | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-005 | LockBucketRetentionPolicy | PARTIAL | P6 | EXACT | EXACT | 1 |
@@ -481,7 +481,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | RPC-STORAGE-013 | CancelResumableWrite | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-014 | GetObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-015 | ReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-016 | BidiReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-016 | BidiReadObject | PARTIAL | P6 | EXACT | EXACT | 4 |
 | RPC-STORAGE-017 | UpdateObject | PARTIAL | P6 | EXACT | LOCAL_SIMULATION | 1 |
 | RPC-STORAGE-018 | WriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-019 | BidiWriteObject | PARTIAL | P6 | EXACT | EXACT | 2 |
@@ -743,7 +743,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-RAPID-001 | RAPIDのゾーン構成と制約 | NOT_STARTED | P6 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-RAPID-002 | 追記可能オブジェクト作成 | PARTIAL | P6 | EXACT | EXACT | 1 |
+| BEHAVIOR-RAPID-002 | 追記可能オブジェクト作成 | PARTIAL | P6 | EXACT | EXACT | 3 |
 | BEHAVIOR-RAPID-003 | 追記の単一writer制御 | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RAPID-004 | 追記flush・確定 | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RAPID-005 | 追記中の読み取り | PARTIAL | P6 | EXACT | EXACT | 1 |
