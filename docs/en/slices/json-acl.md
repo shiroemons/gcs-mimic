@@ -50,7 +50,8 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
 - `projection=full` adds bucket `acl`,
   `defaultObjectAcl` and `owner` (`project-owners-N`) and object `acl` to bucket
   get/list/insert/patch/update/restore and object get/list/insert/patch/update/copy/
-  compose/move/restore responses. Without a `projection` parameter a native
+  move responses; object compose and restore answer without ACL fields, as
+  observed on the wire. Without a `projection` parameter a native
   bucket PATCH defaults to `full`, and a native bucket PUT defaults to `noAcl`
   unless it carries `predefinedAcl` or `predefinedDefaultObjectAcl`, as recorded
   on 2026-10-31; the fake-gcs-server profile defaults a bucket PUT to `full` and

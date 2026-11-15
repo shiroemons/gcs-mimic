@@ -882,8 +882,9 @@ PATCH preserves omitted fields and merges custom keys; null removes a key or fie
 PUT replaces the supported writable fields, clearing omitted cache/language/encoding/
 disposition values and custom keys. Both increment metageneration while preserving
 generation, checksums and bytes; a stale precondition returns 412 without mutation.
-An object PUT answers with the full projection (`acl` and `owner`) by default; the
-example asks for `noAcl` so its response matches the list and GET. Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
+An object PUT, like PATCH, answers without `acl` and `owner` unless it asks for
+`projection=full`, as Cloud Storage did when recorded; the example names `noAcl`
+explicitly. Custom metadata is bounded to 8 KiB. Supplied `acl` arrays replace the stored ACL as
 described in the [ACL contract](slices/json-acl.md); IAM, advanced fields and partial
 response masks remain unsupported. JSON media and XML downloads expand gzip-encoded objects for
 clients that do not accept gzip, and upload tokens replay as described in the [SDK integration](slices/sdk-scorecard-integration.md)
