@@ -95,11 +95,29 @@ pub(crate) struct StepReport {
     pub(crate) local_choice: Option<String>,
 }
 
+/// A harness error, which fails its case.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CaseError {
+    /// The case stopped on one side. It prints as `side: text`.
+    Run { side: Side, text: String },
+    /// The reference recording is missing or no longer answers the case as it stands.
+    Recording(String),
+}
+
+impl fmt::Display for CaseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Run { side, text } => write!(f, "{side}: {text}"),
+            Self::Recording(text) => f.write_str(text),
+        }
+    }
+}
+
 pub(crate) struct CaseReport {
     pub(crate) id: String,
     pub(crate) description: String,
     pub(crate) outcome: Outcome,
-    pub(crate) errors: Vec<String>,
+    pub(crate) errors: Vec<CaseError>,
     pub(crate) steps: Vec<StepReport>,
 }
 
@@ -146,26 +164,34 @@ fn note_local_choice(choice: &LocalChoice, step: &StepOutcome, notes: &mut Vec<N
 fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome>) -> CaseReport {
     let mut errors = Vec::new();
     if let Some(error) = &mimic.error {
-        errors.push(format!("mimic: {error}"));
+        errors.push(CaseError::Run {
+            side: Side::Mimic,
+            text: error.clone(),
+        });
     }
     if let Some(reference) = reference {
         if let Some(error) = &reference.error {
-            errors.push(format!("reference: {error}"));
+            errors.push(CaseError::Run {
+                side: Side::Reference,
+                text: error.clone(),
+            });
         }
         // A case that moved between the shared bucket and its own one answers a
         // different question, though its steps are unchanged.
         if let Some(recorded) = &reference.bucket
             && recorded != case.bucket.label()
         {
-            errors.push(format!(
+            errors.push(CaseError::Recording(format!(
                 "bucket mode changed from '{recorded}' to '{}' since the reference was recorded; record again",
                 case.bucket.label()
-            ));
+            )));
         }
         let expected: Vec<_> = case.steps.iter().map(|s| s.name.clone()).collect();
         let recorded: Vec<_> = reference.steps.iter().map(|s| s.name.clone()).collect();
         if recorded != expected {
-            errors.push("reference recording does not match the case's steps; record again".into());
+            errors.push(CaseError::Recording(
+                "reference recording does not match the case's steps; record again".into(),
+            ));
         } else if let Some(step) = case
             .steps
             .iter()
@@ -175,9 +201,9 @@ fn compare_case(case: &Case, mimic: &CaseOutcome, reference: Option<&CaseOutcome
         {
             // Checked even when the recording holds an error: a changed
             // request means the reference answered a different question.
-            errors.push(format!(
+            errors.push(CaseError::Recording(format!(
                 "step {step:?} changed since the reference was recorded; record again"
-            ));
+            )));
         }
     }
     let mut steps = Vec::new();
@@ -263,9 +289,9 @@ pub(crate) fn build(
             let mut report =
                 compare_case(case, mimic_outcome.unwrap_or(&missing), reference_outcome);
             if reference.is_some() && reference_outcome.is_none() {
-                report
-                    .errors
-                    .push("reference has no recording for this case".into());
+                report.errors.push(CaseError::Recording(
+                    "reference has no recording for this case".into(),
+                ));
                 report.outcome = Outcome::Error;
             }
             report
@@ -362,7 +388,10 @@ pub(crate) fn markdown(header: &Header<'_>, reports: &[CaseReport]) -> String {
             out.push('\n');
         }
         for error in &report.errors {
-            out.push_str(&format!("- error: {}\n", error.replace('`', "'")));
+            out.push_str(&format!(
+                "- error: {}\n",
+                error.to_string().replace('`', "'")
+            ));
         }
         for step in &report.steps {
             if !reported(step) {
@@ -440,7 +469,7 @@ pub(crate) fn json_report(header: &Header<'_>, reports: &[CaseReport]) -> Value 
         "cases": reports.iter().map(|r| json!({
             "id": r.id,
             "result": r.outcome.label(header.mode),
-            "errors": r.errors,
+            "errors": r.errors.iter().map(CaseError::to_string).collect::<Vec<_>>(),
             "steps": r.steps.iter().map(|s| json!({
                 "name": s.name,
                 "request": s.request,
@@ -782,7 +811,9 @@ mod tests {
         for error in [None, Some("transport failed")] {
             let stale = compare_case(&current, &mimic, Some(&outcome(&recorded_case, error)));
             assert!(
-                stale.errors.iter().any(|e| e.contains("changed since")),
+                stale.errors.iter().any(
+                    |e| matches!(e, CaseError::Recording(text) if text.contains("changed since"))
+                ),
                 "{:?}",
                 stale.errors
             );
@@ -1069,10 +1100,10 @@ mod tests {
             };
             let report = compare_case(&case, &outcome(None), Some(&reference));
             assert_eq!(
-                report
-                    .errors
-                    .iter()
-                    .any(|e| e.contains("bucket mode changed")),
+                report.errors.iter().any(|e| matches!(
+                    e,
+                    CaseError::Recording(text) if text.contains("bucket mode changed")
+                )),
                 refused,
                 "{recorded:?}: {:?}",
                 report.errors
@@ -1084,5 +1115,86 @@ mod tests {
         };
         let failed = compare_case(&case, &harness, None);
         assert!(has_failures(&[failed], FailOn::default()));
+    }
+
+    #[test]
+    fn case_errors_name_the_side_that_stopped_and_print_recording_errors_as_they_are() {
+        use super::super::case::parse_case;
+        let case = parse_case(
+            &json!({"id": "c", "description": "d", "bucket": false,
+                    "steps": [{"name": "s", "method": "GET", "path": "/x"}]}),
+            "c",
+        )
+        .unwrap();
+        let stopped = |error: &str| CaseOutcome {
+            id: "c".into(),
+            bucket: Some("none".into()),
+            error: Some(error.into()),
+            steps: vec![],
+        };
+        let mut reports = build(
+            std::slice::from_ref(&case),
+            &[stopped("`curl` exited")],
+            Some(&[stopped("timed out")]),
+        );
+        reports.extend(build(
+            std::slice::from_ref(&case),
+            &[CaseOutcome {
+                error: None,
+                ..stopped("")
+            }],
+            Some(&[]),
+        ));
+        assert_eq!(
+            reports[0].errors,
+            [
+                CaseError::Run {
+                    side: Side::Mimic,
+                    text: "`curl` exited".into(),
+                },
+                CaseError::Run {
+                    side: Side::Reference,
+                    text: "timed out".into(),
+                },
+                CaseError::Recording(
+                    "reference recording does not match the case's steps; record again".into(),
+                ),
+            ]
+        );
+        let header = Header {
+            mode: RunMode::Replay,
+            generated: "2026-11-01",
+            reference_requests: None,
+            reference_retries: 0,
+            cleanup: &[],
+            reference_cleanup: &[],
+            skipped: &[],
+        };
+        let md = markdown(&header, &reports);
+        assert!(
+            md.contains(concat!(
+                "- error: mimic: 'curl' exited\n",
+                "- error: reference: timed out\n",
+                "- error: reference recording does not match the case's steps; record again\n",
+            )),
+            "{md}"
+        );
+        assert!(
+            md.contains("- error: reference has no recording for this case\n"),
+            "{md}"
+        );
+        let json = json_report(&header, &reports);
+        assert_eq!(
+            json["cases"][0]["errors"],
+            json!([
+                "mimic: `curl` exited",
+                "reference: timed out",
+                "reference recording does not match the case's steps; record again"
+            ])
+        );
+        assert_eq!(
+            json["cases"][1]["errors"],
+            json!(["reference has no recording for this case"])
+        );
     }
 }
