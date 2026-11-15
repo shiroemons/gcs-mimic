@@ -12,11 +12,12 @@ use super::{
 use crate::{
     auth::{Caller, OBJECTS_CREATE},
     bucket::BucketAccess,
+    csek::CustomerKey,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
         generation::{Generation, InvalidGeneration},
     },
-    storage::{AppendError, AppendWriter, Finality, ObjectReader},
+    storage::{AppendError, AppendWriter, Finality, ObjectReader, ReadableMetadata},
 };
 use tonic::{
     Status,
@@ -356,10 +357,11 @@ impl Storage {
         target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
+        key: Option<CustomerKey>,
     ) -> Result<(ObjectRecord, ObjectReader, Finality), ObjectError> {
         self.state
             .catalog
-            .open_readable(target, conditions, access)
+            .open_readable(target, conditions, access, key)
             .await
     }
 
@@ -369,10 +371,11 @@ impl Storage {
         target: ObjectTarget,
         conditions: ObjectConditions,
         access: &BucketAccess,
-    ) -> Result<(ObjectRecord, Finality), ObjectError> {
+        key: Option<CustomerKey>,
+    ) -> Result<ReadableMetadata, ObjectError> {
         self.state
             .catalog
-            .get_readable(target, conditions, access)
+            .get_readable(target, conditions, access, key)
             .await
     }
 

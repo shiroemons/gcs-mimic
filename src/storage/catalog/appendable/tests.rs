@@ -52,7 +52,7 @@ async fn deletion_serializes_with_appendable_finalization_on_disk_and_ram() {
             );
             assert!(matches!(
                 catalog
-                    .get_readable(live("append", &name), Default::default(), PERMISSIVE)
+                    .get_readable(live("append", &name), Default::default(), PERMISSIVE, None)
                     .await,
                 Err(ObjectError::ObjectNotFound)
             ));

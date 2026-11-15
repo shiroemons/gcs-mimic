@@ -9,6 +9,7 @@ use super::{
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
+    csek::CustomerKey,
     grpc::{
         generated::google::rpc::Status as RpcStatus,
         validate::{self, NegativeGeneration},
@@ -123,21 +124,15 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<Option<Generation>, St
         .map_err(|NegativeGeneration| Status::invalid_argument(MESSAGE))?;
     validate::lenient_conditions(ObjectConditions::from(spec), MESSAGE)?;
     if spec
-        .common_object_request_params
+        .routing_token
         .as_ref()
-        .is_some_and(|params| params != &Default::default())
-        || spec
-            .routing_token
-            .as_ref()
-            .is_some_and(|token| !token.is_empty())
+        .is_some_and(|token| !token.is_empty())
         || !matches!(
             ReadMask::from(spec.read_mask.as_ref()),
             ReadMask::Default | ReadMask::Wildcard
         )
     {
-        return Err(unsupported(
-            "BidiReadObject encryption, routing_token or read_mask",
-        ));
+        return Err(unsupported("BidiReadObject routing_token or read_mask"));
     }
     if spec.read_handle.is_some()
         && (spec.if_generation_match.is_some()
@@ -159,6 +154,7 @@ impl Storage {
         generation: Option<Generation>,
         access: &BucketAccess,
         caller: Option<Caller<'_>>,
+        key: Option<CustomerKey>,
     ) -> Result<(Selected, HandleToken), Status> {
         let handle = spec.read_handle.as_ref().ok_or_else(|| {
             Status::invalid_argument("Missing read_handle; reopen without read_handle")
@@ -184,9 +180,11 @@ impl Storage {
         }
         let target = ObjectTarget::new(bucket, object, Some(entry.generation));
         let (record, mut reader, _) = self
-            .open_readable(target, Default::default(), access)
+            .open_readable(target, Default::default(), access, key)
             .await
             .map_err(|error| {
+                // A wrong or missing key is the caller's mistake, not a sign the snapshot is
+                // gone, so only a vanished object invalidates the handle.
                 if matches!(
                     error,
                     ObjectError::ObjectNotFound | ObjectError::BucketNotFound
@@ -235,6 +233,10 @@ impl Storage {
             )
         })?;
         let generation = validate_spec(&spec)?;
+        // Real Cloud Storage refused BidiReadObject for the test project, so nothing was
+        // recorded. These rules are local decisions that mirror ReadObject, and a resumed
+        // read must repeat its key because a handle never stores one.
+        let key = super::customer_key::key(spec.common_object_request_params.as_ref())?;
         super::routing::check(
             &metadata,
             Routes::Request(&[Route::Bucket(Some(spec.bucket.as_str()))]),
@@ -243,13 +245,13 @@ impl Storage {
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();
         let (mut selected, token) = if resumed {
-            self.resume_read_handle(&spec, generation, &access, caller)
+            self.resume_read_handle(&spec, generation, &access, caller, key)
                 .await?
         } else {
             let conditions = ObjectConditions::from(&spec);
             let target = ObjectTarget::new(bucket, object, generation.map(Generation::get));
             let (record, reader, finality) = self
-                .open_readable(target, conditions, &access)
+                .open_readable(target, conditions, &access, key)
                 .await
                 .map_err(|e| super::access_status(naming_object(bucket, object)(e), caller))?;
             let selected = Selected {
@@ -290,7 +292,8 @@ impl Storage {
                 Some(super::append::object(
                     &selected.record,
                     selected.finality,
-                    crate::csek::StoredHashes::keyless(selected.record.customer_key_sha256),
+                    // Opening verified the key, so the stored bytes' hashes may be shown.
+                    crate::csek::StoredHashes::Revealed,
                 )?)
             },
             read_handle: Some(pb::BidiReadHandle {
@@ -667,13 +670,13 @@ mod tests {
         let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
         assert_code(
             storage
-                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
                 .await,
             tonic::Code::NotFound,
         );
         assert_code(
             storage
-                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
                 .await,
             tonic::Code::FailedPrecondition,
         );
@@ -727,7 +730,7 @@ mod tests {
         let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
         assert_code(
             storage
-                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
                 .await,
             tonic::Code::FailedPrecondition,
         );
@@ -778,7 +781,7 @@ mod tests {
                 .unwrap();
             let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
             let resumed = storage
-                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
                 .await;
             if versioned {
                 let (mut opened, _) = resumed.unwrap();
@@ -810,7 +813,7 @@ mod tests {
                     .unwrap();
                 assert_code(
                     storage
-                        .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                        .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
                         .await,
                     tonic::Code::NotFound,
                 );
@@ -826,7 +829,7 @@ mod tests {
         let spec = issued_spec(&states[0], "object").await;
         let reconnected = storage_with(states[0].clone(), 1024);
         let (mut resumed, token) = reconnected
-            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
             .await
             .unwrap();
         assert_eq!(
@@ -841,7 +844,7 @@ mod tests {
         let other = storage_with(states[1].clone(), 1024);
         assert_code(
             other
-                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+                .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
                 .await,
             tonic::Code::FailedPrecondition,
         );
@@ -905,7 +908,7 @@ mod tests {
         writer.flush().await.unwrap();
         let storage = crate::grpc::test_support::storage_with(state.clone(), 1024);
         let (mut opened, _) = storage
-            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
             .await
             .unwrap();
         assert_eq!(opened.size, 10);
@@ -930,7 +933,7 @@ mod tests {
             .await
             .unwrap();
         let (mut opened, _) = storage
-            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None)
+            .resume_read_handle(&spec, issued_generation(&spec), PERMISSIVE, None, None)
             .await
             .unwrap();
         assert_eq!(
@@ -1164,3 +1167,6 @@ mod tests {
         assert_eq!(ranges.len(), 200);
     }
 }
+
+#[cfg(test)]
+mod csek_tests;

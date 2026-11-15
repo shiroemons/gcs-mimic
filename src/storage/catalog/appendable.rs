@@ -43,7 +43,7 @@ use super::objects::ObjectReader;
 
 mod data;
 mod readable;
-pub(crate) use readable::Finality;
+pub(crate) use readable::{Finality, ReadableMetadata};
 
 pub(super) const SCHEMA: &str = "CREATE TABLE appendable_objects (
     bucket TEXT NOT NULL COLLATE BINARY,

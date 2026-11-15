@@ -1,9 +1,10 @@
 use super::resource::{OwnerFields, mask_object};
 use super::*;
 use crate::grpc::{
-    v2::mask::ReadMask,
+    v2::{customer_key, mask::ReadMask},
     validate::{ByteRange, RangeError},
 };
+use crate::storage::ReadableMetadata;
 
 /// Cloud Storage names the object and its size when a read starts past the end;
 /// [`read_range`] keeps the generic bound check.
@@ -113,7 +114,8 @@ impl Storage {
     ) -> Result<Response<pb::Object>, Status> {
         let r = request.into_inner();
         let mask = ReadMask::from(r.read_mask.as_ref());
-        common(r.common_object_request_params.as_ref())?;
+        // A malformed key fails before the object is looked up (recorded 2026-11-15).
+        let key = customer_key::key(r.common_object_request_params.as_ref())?;
         if r.soft_deleted == Some(true) || !r.restore_token.is_empty() {
             return Err(unsupported_for(
                 "GetObject soft_deleted/restore_token",
@@ -124,15 +126,20 @@ impl Storage {
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
-        let (record, finality) = self
-            .get_readable(target, conditions(ObjectConditions::from(&r))?, &access)
+        let ReadableMetadata {
+            record,
+            finality,
+            hashes,
+        } = self
+            .get_readable(
+                target,
+                conditions(ObjectConditions::from(&r))?,
+                &access,
+                key,
+            )
             .await
             .map_err(named_object_status(bucket, name))?;
-        let mut object = super::super::append::object(
-            &record,
-            finality,
-            crate::csek::StoredHashes::keyless(record.customer_key_sha256),
-        )?;
+        let mut object = super::super::append::object(&record, finality, hashes)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
                 caller,
@@ -150,7 +157,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<ResponseStream<pb::ReadObjectResponse>>, Status> {
         let r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
+        let key = customer_key::key(r.common_object_request_params.as_ref())?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let mask = ReadMask::from(r.read_mask.as_ref());
         require_content_in_read_mask(mask)?;
@@ -158,7 +165,12 @@ impl Storage {
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
         let (record, mut reader, finality) = self
-            .open_readable(target, conditions(ObjectConditions::from(&r))?, &access)
+            .open_readable(
+                target,
+                conditions(ObjectConditions::from(&r))?,
+                &access,
+                key,
+            )
             .await
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;
@@ -167,11 +179,10 @@ impl Storage {
             .set_range(range.start, range.len)
             .await
             .map_err(read_failure)?;
-        let mut object = super::super::append::object(
-            &record,
-            finality,
-            crate::csek::StoredHashes::keyless(record.customer_key_sha256),
-        )?;
+        // Opening the data verified the key (an encrypted object without one fails), so the
+        // stored bytes' hashes are always the caller's to see.
+        let mut object =
+            super::super::append::object(&record, finality, crate::csek::StoredHashes::Revealed)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
                 caller,
@@ -303,3 +314,6 @@ impl Storage {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests;

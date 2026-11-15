@@ -34,7 +34,7 @@ async fn readable_selection_survives_appendable_finalization() {
             for _ in 0..20 {
                 let target = live("grpc-append", &name);
                 let (record, mut reader, _) = storage
-                    .open_readable(target.clone(), Default::default(), PERMISSIVE)
+                    .open_readable(target.clone(), Default::default(), PERMISSIVE, None)
                     .await
                     .unwrap();
                 assert_eq!(record.size, 9);
@@ -44,10 +44,10 @@ async fn readable_selection_survives_appendable_finalization() {
                 );
                 assert_eq!(
                     storage
-                        .get_readable(target, Default::default(), PERMISSIVE)
+                        .get_readable(target, Default::default(), PERMISSIVE, None)
                         .await
                         .unwrap()
-                        .0
+                        .record
                         .size,
                     9
                 );

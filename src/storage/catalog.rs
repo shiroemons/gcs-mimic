@@ -69,7 +69,7 @@ mod md5_availability;
 mod object_hold;
 
 mod appendable;
-pub(crate) use appendable::{AppendError, AppendWriter, Finality};
+pub(crate) use appendable::{AppendError, AppendWriter, Finality, ReadableMetadata};
 
 mod object_move;
 pub(crate) use object_move::{MoveAccess, MoveConditions, MoveNames};
