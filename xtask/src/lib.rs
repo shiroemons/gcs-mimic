@@ -548,9 +548,7 @@ fn count_rows(ledger: &Value, rows: &BTreeMap<&str, FeatureRow<'_>>) -> Result<(
 
 /// Rejects unknown and cyclic dependencies, and incomplete ones of an IMPLEMENTED row.
 fn check_dependencies(by_id: &BTreeMap<&str, FeatureRow<'_>>) -> Result<()> {
-    // Kahn's algorithm avoids a recursive stack proportional to user-edited dependency depth.
-    let mut pending = BTreeMap::new();
-    let mut dependents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut dependencies = BTreeMap::new();
     for (&id, row) in by_id {
         let deps = strings(row.value, "dependencies")?;
         let mut waiting = false;
@@ -566,7 +564,6 @@ fn check_dependencies(by_id: &BTreeMap<&str, FeatureRow<'_>>) -> Result<()> {
                 )?;
             }
             waiting |= !complete;
-            dependents.entry(dependency).or_default().push(id);
         }
         // An incomplete dependency already names what a PARTIAL row is missing, so the row
         // need not restate it as a deviation of its own.
@@ -576,26 +573,45 @@ fn check_dependencies(by_id: &BTreeMap<&str, FeatureRow<'_>>) -> Result<()> {
                 &format!("{id}: PARTIAL needs explicit missing cases or an incomplete dependency"),
             )?;
         }
-        pending.insert(id, deps.len());
+        dependencies.insert(id, deps);
     }
-    let mut ready: Vec<_> = pending
+    ensure(is_acyclic(&dependencies), "dependency cycle")
+}
+
+/// Whether every row can be ordered after all of its dependencies.
+///
+/// Kahn's algorithm avoids a recursive stack proportional to user-edited dependency depth. Each
+/// dependency lists its dependents with the dependencies they wait for, so ordering a row looks
+/// nothing up; a row that waits for one never ordered stays unordered and counts as a cycle.
+fn is_acyclic(dependencies: &BTreeMap<&str, BTreeSet<&str>>) -> bool {
+    let mut dependents: BTreeMap<&str, Vec<(&str, &BTreeSet<&str>)>> = BTreeMap::new();
+    for (&id, waits_for) in dependencies {
+        for &dependency in waits_for {
+            dependents
+                .entry(dependency)
+                .or_default()
+                .push((id, waits_for));
+        }
+    }
+    let mut ready: Vec<&str> = dependencies
         .iter()
-        .filter_map(|(&id, &n)| (n == 0).then_some(id))
+        .filter_map(|(&id, waits_for)| waits_for.is_empty().then_some(id))
         .collect();
-    let mut visited = 0;
+    let mut ordered = BTreeSet::new();
     while let Some(id) = ready.pop() {
-        visited += 1;
-        if let Some(children) = dependents.get(id) {
-            for child in children {
-                let n = pending.get_mut(child).unwrap();
-                *n -= 1;
-                if *n == 0 {
-                    ready.push(child);
-                }
+        ordered.insert(id);
+        for &(dependent, waits_for) in dependents.get(id).into_iter().flatten() {
+            // Only the last of its dependencies to be ordered finds them all ordered, so each
+            // dependent becomes ready once.
+            if waits_for
+                .iter()
+                .all(|dependency| ordered.contains(dependency))
+            {
+                ready.push(dependent);
             }
         }
     }
-    ensure(visited == by_id.len(), "dependency cycle")
+    ordered.len() == dependencies.len()
 }
 
 fn escape(text: &str) -> String {
@@ -758,11 +774,15 @@ pub fn run(root: &Path, command: &str) -> Result<()> {
     let titles = read_json(&root.join("docs/ja/feature-titles.json"))?;
     let title_map = titles["titles"].as_object().ok_or("missing title map")?;
     let rows = array(&ledger, "features")?;
+    let ids = rows
+        .iter()
+        .map(|row| string(row, "id"))
+        .collect::<Result<Vec<_>>>()?;
     ensure(
-        title_map.len() == rows.len()
-            && rows.iter().all(|r| {
+        title_map.len() == ids.len()
+            && ids.iter().all(|&id| {
                 title_map
-                    .get(r["id"].as_str().unwrap())
+                    .get(id)
                     .is_some_and(|t| t.as_str().is_some_and(|s| !s.trim().is_empty()))
             }),
         "companion IDs must match the ledger exactly",
@@ -823,6 +843,32 @@ mod tests {
             properties["actual_fidelity"]["enum"],
             json!([&[ledger::NO_FIDELITY][..], &fidelities].concat())
         );
+    }
+
+    #[test]
+    fn dependency_order_rejects_every_cycle() {
+        fn graph<'a>(edges: &[(&'a str, &[&'a str])]) -> BTreeMap<&'a str, BTreeSet<&'a str>> {
+            edges
+                .iter()
+                .map(|&(id, deps)| (id, deps.iter().copied().collect()))
+                .collect()
+        }
+        // A chain and a diamond, whose shared dependency is ordered once.
+        assert!(is_acyclic(&graph(&[
+            ("A", &[]),
+            ("B", &["A"]),
+            ("C", &["A"]),
+            ("D", &["B", "C"]),
+        ])));
+        for cyclic in [
+            graph(&[("A", &["A"])]),
+            graph(&[("A", &["B"]), ("B", &["A"])]),
+            // A row behind a cycle is never ordered either.
+            graph(&[("A", &["B"]), ("B", &["A"]), ("C", &["A"]), ("D", &[])]),
+            graph(&[("A", &["missing"])]),
+        ] {
+            assert!(!is_acyclic(&cyclic), "{cyclic:?}");
+        }
     }
 
     /// Two rows in one category, so rendering sorts them by ID.

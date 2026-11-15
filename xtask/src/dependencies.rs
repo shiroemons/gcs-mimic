@@ -1477,14 +1477,15 @@ fn check_rust_toolchain(root: &Path) -> Result<bool> {
     }
     let metadata: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
     for (name, versions) in direct_crate_resolutions(&metadata)? {
-        if versions.len() != 1 {
+        let mut resolved = versions.iter();
+        let (Some(version), None) = (resolved.next(), resolved.next()) else {
             return Err(format!("ambiguous direct resolution: {name}: {versions:?}"));
-        }
+        };
         let latest = latest_crate(&fetch(
             &format!("https://index.crates.io/{}", index_path(&name)),
             &[],
         )?)?;
-        drift |= compare(&name, versions.first().unwrap(), &latest);
+        drift |= compare(&name, version, &latest);
     }
     Ok(drift)
 }
