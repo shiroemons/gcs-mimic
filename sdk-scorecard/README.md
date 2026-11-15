@@ -235,8 +235,22 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [sixth 2026-11-15 comparison](results/2026-11-15-6/summary.md) is the
-latest. It gives Go, Ruby, Node.js, PHP, Python, Rust and C++ `sdk` cases for
+The [seventh 2026-11-15 comparison](results/2026-11-15-7/summary.md) is the
+latest. It runs the same 2,324 cases as the sixth on the 0.22.0 source at
+`bf92697d`, with no uncommitted change, in 23 min 32 s. Only four gcs-mimic
+results change, each from fail to pass: Java's
+`grpc.bucket_create_get_delete`, now that bucket read masks accept the
+settings gcs-mimic never stores; Python's `grpc.appendable_object`, now that
+every appendable open is answered; Rust's `object.csek_rotation`, now that
+Storage v2 accepts customer-supplied keys; and Python's
+`sdk.xml_multipart_upload`, now that each XML multipart part reports its
+CRC32C and MD5. gcs-mimic scores **99.8** and Core **100**; its only failure is
+PHP's `sdk.stream_wrapper`, which declares `X-Upload-Content-Length: 0` before
+streaming chunks of unknown total. floci-gcp (**74.2**), fake-gcs-server
+(**39.2**) and gcp-storage-emulator (**35.7**) match the sixth comparison
+case for case.
+
+The [sixth 2026-11-15 comparison](results/2026-11-15-6/summary.md) gives Go, Ruby, Node.js, PHP, Python, Rust and C++ `sdk` cases for
 the workflows their public APIs reach beyond the shared core, and moves the
 seven Java and .NET cases that measure the same workflows to the shared IDs,
 so it executes 2,324 cases on the 0.22.0 source at `1f5268a0`, with no

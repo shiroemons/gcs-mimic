@@ -167,13 +167,11 @@ The part hash fields added on 2026-11-15 passed
 `xml_multipart_http`) and `cargo test --locked --lib` (2,340 passed).
 `multipart_part_responses_carry_one_hash_field_per_algorithm` checks the
 `crc32c=` and `md5=` fields of a part, of its replacement under a verified
-`Content-MD5`, and of a part under a customer-supplied key. A gcs-mimic-only
-scorecard run the same day at `c5ec8310`, with no uncommitted change
-(`bash sdk-scorecard/run.sh --out "$TMPDIR/scorecard-part-hash" gcs-mimic`),
+`Content-MD5`, and of a part under a customer-supplied key. The
+[seventh 2026-11-15 scorecard comparison](../../../sdk-scorecard/results/2026-11-15-7/summary.md)
 passes Python's `sdk.xml_multipart_upload`:
 `transfer_manager.upload_chunks_concurrently` in google-cloud-storage 3.17.1
-checks each part's CRC32C from these fields by default. That run is not a
-recorded comparison; the scorecard tables keep the recorded results.
+checks each part's CRC32C from these fields by default.
 
 The framing regression on 2026-11-04 passed `cargo check --locked`,
 `cargo test --locked --lib xml::put::tests::empty_request_framing_keeps_header_validation`
