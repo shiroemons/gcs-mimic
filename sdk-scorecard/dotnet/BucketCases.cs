@@ -21,6 +21,7 @@ internal static partial class Probe
         new("bucket.iam_policy", Iam),
         new("bucket.iam_test_permissions", Permissions),
         new("bucket.soft_delete_policy", SoftDeletePolicy),
+        new("bucket.soft_delete_restore", BucketSoftDeleteRestore),
         new("bucket.autoclass", Autoclass),
         new("bucket.acl", BucketAcl),
         new("bucket.default_object_acl", DefaultObjectAcl),
@@ -176,6 +177,28 @@ internal static partial class Probe
         var bucket = await NewBucket(token);
         await SoftDelete(bucket.Name, 864000, token);
         Check((await Get(bucket.Name, token)).SoftDeletePolicy?.RetentionDurationSeconds == 864000, "soft delete policy differs");
+    }
+
+    private static async Task BucketSoftDeleteRestore(CancellationToken token)
+    {
+        var bucket = await NewBucket(new Bucket
+        {
+            Name = Unique(), SoftDeletePolicy = new Bucket.SoftDeletePolicyData { RetentionDurationSeconds = 604800 },
+        }, token);
+        Check(bucket.SoftDeletePolicy?.RetentionDurationSeconds == 604800, "soft delete policy not set at creation");
+        var blob = await Upload(bucket.Name, "kept.txt", Bytes("kept"), token);
+        var generation = (await Get(bucket.Name, token)).Generation;
+        Check(generation is not null, "bucket generation missing");
+        await Client.DeleteObjectAsync(bucket.Name, "kept.txt", null, token);
+        await Client.DeleteBucketAsync(bucket.Name, null, token);
+        await ExpectStatus(HttpStatusCode.NotFound, () => Get(bucket.Name, token));
+        var deleted = await Client.GetBucketAsync(bucket.Name, new GetBucketOptions { SoftDeleted = true, Generation = generation }, token);
+        Check(deleted.Name == bucket.Name && deleted.Generation == generation,
+            $"soft-deleted lookup found {deleted.Name} generation {deleted.Generation}, expected generation {generation}");
+        await Client.RestoreBucketAsync(bucket.Name, generation!.Value, null, token);
+        Check((await Get(bucket.Name, token)).Name == bucket.Name, "restored bucket missing");
+        await Client.RestoreObjectAsync(bucket.Name, "kept.txt", blob.Generation!.Value, null, token);
+        Check((await Read(bucket.Name, "kept.txt", token)).SequenceEqual(Bytes("kept")), "restored object bytes");
     }
 
     private static async Task Autoclass(CancellationToken token)

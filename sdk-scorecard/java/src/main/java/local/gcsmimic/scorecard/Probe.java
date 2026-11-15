@@ -36,10 +36,11 @@ public final class Probe {
 
   /**
    * Cases this SDK version cannot express through its public API. Decided statically so a
-   * runtime failure can never be reclassified as "unsupported". Every scorecard workflow has a
-   * public google-cloud-storage 2.78.0 API, so the map is empty.
+   * runtime failure can never be reclassified as "unsupported". Each value completes the sentence
+   * "google-cloud-storage 2.78.0 has no public API for ...".
    */
-  static final Map<String, String> UNSUPPORTED = Map.of();
+  static final Map<String, String> UNSUPPORTED = Map.of("bucket.soft_delete_restore",
+      "restoring a soft-deleted bucket (Storage.restore takes only a BlobId)");
 
   private Probe() {}
 

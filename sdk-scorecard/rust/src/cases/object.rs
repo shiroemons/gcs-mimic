@@ -315,22 +315,25 @@ pub(super) async fn gzip_transcoding(ctx: &Ctx) -> Result<()> {
 
 pub(super) async fn customer_supplied_key(ctx: &Ctx) -> Result<()> {
     let bucket = ctx.bucket().await?;
-    let key: Vec<u8> = (0_u8..32)
-        .map(|i| i.wrapping_mul(37).wrapping_add(11))
-        .collect();
+    let key = test_key(11)?;
     ctx.storage
         .write_object(path(&bucket), "csek.txt", Bytes::from_static(b"secret"))
-        .set_key(KeyAes256::new(&key)?)
+        .set_key(key.clone())
         .send_buffered()
         .await?;
     expect_error(
         collect(ctx.reader(&bucket, "csek.txt")).await,
         Expect::ServiceError,
     )?;
-    let keyed = collect(
-        ctx.reader(&bucket, "csek.txt")
-            .set_key(KeyAes256::new(&key)?),
-    )
-    .await?;
+    let keyed = collect(ctx.reader(&bucket, "csek.txt").set_key(key)).await?;
     check(keyed == b"secret", "keyed bytes")
+}
+
+/// A fixed customer-supplied key, distinct for each `offset`, so the probe needs no
+/// random-number dependency.
+pub(super) fn test_key(offset: u8) -> Result<KeyAes256> {
+    let key: Vec<u8> = (0_u8..32)
+        .map(|i| i.wrapping_mul(37).wrapping_add(offset))
+        .collect();
+    Ok(KeyAes256::new(&key)?)
 }

@@ -1,4 +1,4 @@
-// Signed URL and POST policy cases: the 4 shared `signed.*` IDs.
+// Signed URL and POST policy cases: the 6 shared `signed.*` IDs.
 //
 // They run in the permissive profile and establish routing, parameters and
 // bytes, not emulator-side signature verification.
@@ -48,6 +48,47 @@ void V4Get(Ctx& c) { SignedRoundTrip(c, Version::kV4, "GET"); }
 void V4Put(Ctx& c) { SignedRoundTrip(c, Version::kV4, "PUT"); }
 void V2Get(Ctx& c) { SignedRoundTrip(c, Version::kV2, "GET"); }
 
+void V4ResumableUpload(Ctx& c) {
+  auto const bucket = NewBucket(c);
+  auto const data = RandomBytes(256 * 1024 + 5);
+  // The start header is signed, so the request must send it unchanged.
+  auto const url = Require(
+      c.signer.CreateV4SignedUrl("POST", bucket, "resumable.bin", gcs::SignedUrlDuration(kLifetime),
+                                 gcs::Scheme(c.config.origin.scheme),
+                                 gcs::AddExtensionHeader("x-goog-resumable", "start")),
+      "sign resumable start");
+  auto const start = c.http.Send("POST", url, "", {{"x-goog-resumable", "start"}});
+  Check(start.status == 201,
+        "start: status " + std::to_string(start.status) + ": " + start.body.substr(0, 250));
+  auto const locations = start.HeaderValues("location");
+  Check(locations.size() == 1,
+        "start returned " + std::to_string(locations.size()) + " Location headers");
+  auto const& session = locations.front();
+  Check(c.http.SameOrigin(session), "session URI " + session + " leaves the origin");
+  auto const finish = c.http.Send("PUT", session, data);
+  Check(finish.status == 200 || finish.status == 201,
+        "upload: status " + std::to_string(finish.status) + ": " + finish.body.substr(0, 250));
+  CheckEqual(Download(c, bucket, "resumable.bin"), data, "signed resumable bytes");
+}
+
+void V4ResponseOverrides(Ctx& c) {
+  auto const bucket = NewBucket(c);
+  std::string const disposition = "attachment; filename=\"report.csv\"";
+  Upload(c, bucket, "report.txt", "a,b\n", gcs::ContentType("text/plain"));
+  auto const url = Require(
+      c.signer.CreateV4SignedUrl("GET", bucket, "report.txt", gcs::SignedUrlDuration(kLifetime),
+                                 gcs::Scheme(c.config.origin.scheme),
+                                 gcs::WithResponseContentDisposition(disposition),
+                                 gcs::WithResponseContentType("text/csv")),
+      "sign response overrides");
+  auto const response = c.http.Send("GET", url);
+  CheckStatus(response, "GET with response overrides");
+  CheckEqual(response.body, "a,b\n", "signed bytes");
+  CheckEqual(response.HeaderValues("content-disposition"), {disposition}, "Content-Disposition");
+  CheckEqual(response.HeaderValues("content-type"), {"text/csv"}, "Content-Type");
+  CheckEqual(Metadata(c, bucket, "report.txt").content_type(), "text/plain", "stored content type");
+}
+
 void PostPolicyV4(Ctx& c) {
   auto const bucket = NewBucket(c);
   auto const policy =
@@ -71,6 +112,8 @@ void AddSignedCases(std::vector<Case>& cases) {
   cases.insert(cases.end(), {
                                 {"signed.v4_get", V4Get},
                                 {"signed.v4_put", V4Put},
+                                {"signed.v4_resumable_upload", V4ResumableUpload},
+                                {"signed.v4_response_overrides", V4ResponseOverrides},
                                 {"signed.v2_get", V2Get},
                                 {"signed.post_policy_v4", PostPolicyV4},
                             });

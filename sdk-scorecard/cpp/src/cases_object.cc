@@ -1,4 +1,4 @@
-// Object cases: the 27 shared `object.*` IDs.
+// Object cases: the 29 shared `object.*` IDs.
 #include "harness.h"
 #include "google/cloud/log.h"
 #include <zlib.h>
@@ -10,7 +10,6 @@
 #include <map>
 #include <memory>
 #include <numeric>
-#include <random>
 #include <variant>
 
 namespace scorecard {
@@ -33,13 +32,6 @@ std::string GzipCompress(std::string const& plain) {
   deflateEnd(&stream);
   if (code != Z_STREAM_END) Fail("gzip compression failed");
   return out;
-}
-
-std::string RandomBytes(std::size_t count) {
-  std::random_device device;
-  std::string bytes(count, '\0');
-  for (auto& byte : bytes) byte = static_cast<char>(device() & 0xFF);
-  return bytes;
 }
 
 std::string Repeat(std::string const& unit, std::size_t times) {
@@ -329,6 +321,31 @@ void Compose(Ctx& c) {
   CheckEqual(Download(c, bucket, "all"), "p1p2p3", "compose bytes");
 }
 
+void ComposePreconditions(Ctx& c) {
+  gcs::BucketMetadata metadata;
+  metadata.enable_versioning();
+  auto const bucket = NewBucket(c, metadata);
+  auto const first = Upload(c, bucket, "p1", "one").generation();
+  Upload(c, bucket, "p1", "ONE");
+  auto const second = Upload(c, bucket, "p2", "two").generation();
+  // Each source's generation pins the version to concatenate, so p1 contributes "one".
+  std::vector<gcs::ComposeSourceObject> const sources = {{"p1", first, {}}, {"p2", second, {}}};
+  Require(c.sdk.ComposeObject(bucket, sources, "both"), "compose");
+  auto const composed = Metadata(c, bucket, "both").generation();
+  CheckEqual(Download(c, bucket, "both"), "onetwo", "compose bytes");
+  ExpectHttp(c.sdk.ComposeObject(bucket, sources, "both", gcs::IfGenerationMatch(composed + 1)),
+             412, "compose with a stale destination generation");
+  auto const after = Metadata(c, bucket, "both").generation();
+  Check(after == composed, "destination generation changed from " + std::to_string(composed) +
+                               " to " + std::to_string(after));
+  CheckEqual(Download(c, bucket, "both"), "onetwo", "destination bytes after the rejected compose");
+  Require(c.sdk.ComposeObject(bucket, sources, "both", gcs::IfGenerationMatch(composed)),
+          "compose with the destination generation");
+  Check(Metadata(c, bucket, "both").generation() != composed,
+        "matching compose kept generation " + std::to_string(composed));
+  CheckEqual(Download(c, bucket, "both"), "onetwo", "matching compose bytes");
+}
+
 void Move(Ctx& c) {
   auto const bucket = NewBucket(c);
   Upload(c, bucket, "old", "moved");
@@ -413,16 +430,39 @@ void GzipTranscoding(Ctx& c) {
   CheckEqual(Download(c, bucket, "gz.txt", gcs::AcceptEncodingGzip()), zipped, "compressed bytes");
 }
 
+// Reads the object and requires an HTTP error response. Only such a response
+// proves the service refused the key; a transport failure does not.
+template <typename... Options>
+void ExpectReadRefused(Ctx& c, std::string const& bucket, std::string const& name,
+                       std::string const& what, Options&&... options) {
+  auto stream = c.sdk.ReadObject(bucket, name, std::forward<Options>(options)...);
+  std::string const ignored{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+  Check(!stream.status().ok(), what + " succeeded");
+  Check(HttpStatus(stream.status()) >= 400, what + ": " + Describe(stream.status()));
+}
+
 void CustomerSuppliedKey(Ctx& c) {
   auto const bucket = NewBucket(c);
   auto const key = gcs::EncryptionKey::FromBinaryKey(RandomBytes(32));
   Upload(c, bucket, "csek.txt", "secret", key);
-  auto stream = c.sdk.ReadObject(bucket, "csek.txt");
-  std::string const ignored{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-  Check(!stream.status().ok(), "keyless read of an encrypted object succeeded");
-  // Only an HTTP error response proves the key is required; a transport failure does not.
-  Check(HttpStatus(stream.status()) >= 400, "keyless read: " + Describe(stream.status()));
+  ExpectReadRefused(c, bucket, "csek.txt", "keyless read of an encrypted object");
   CheckEqual(Download(c, bucket, "csek.txt", key), "secret", "keyed bytes");
+}
+
+void CsekRotation(Ctx& c) {
+  auto const bucket = NewBucket(c);
+  auto const old_key = RandomBytes(32);
+  auto const new_key = RandomBytes(32);
+  Upload(c, bucket, "rotate.txt", "rotate", gcs::EncryptionKey::FromBinaryKey(old_key));
+  Require(c.sdk.RewriteObjectBlocking(bucket, "rotate.txt", bucket, "rotate.txt",
+                                      gcs::SourceEncryptionKey::FromBinaryKey(old_key),
+                                      gcs::EncryptionKey::FromBinaryKey(new_key)),
+          "rewrite onto itself with a new key");
+  CheckEqual(Download(c, bucket, "rotate.txt", gcs::EncryptionKey::FromBinaryKey(new_key)), "rotate",
+             "new key bytes");
+  ExpectReadRefused(c, bucket, "rotate.txt", "read with the old key",
+                    gcs::EncryptionKey::FromBinaryKey(old_key));
+  ExpectReadRefused(c, bucket, "rotate.txt", "read without a key");
 }
 
 void SoftDeleteRestore(Ctx& c) {
@@ -460,6 +500,7 @@ void AddObjectCases(std::vector<Case>& cases) {
                    {"object.copy_with_metadata", CopyWithMetadata},
                    {"object.rewrite_storage_class", RewriteStorageClass},
                    {"object.compose", Compose},
+                   {"object.compose_preconditions", ComposePreconditions},
                    {"object.move", Move},
                    {"object.acl", ObjectAcl},
                    {"object.holds", Holds},
@@ -468,6 +509,7 @@ void AddObjectCases(std::vector<Case>& cases) {
                    {"object.storage_class_on_write", StorageClassOnWrite},
                    {"object.gzip_transcoding", GzipTranscoding},
                    {"object.customer_supplied_key", CustomerSuppliedKey},
+                   {"object.csek_rotation", CsekRotation},
                    {"object.soft_delete_restore", SoftDeleteRestore},
                });
 }

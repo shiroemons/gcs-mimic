@@ -57,6 +57,13 @@ std::string UniqueName() {
   return name;
 }
 
+std::string RandomBytes(std::size_t count) {
+  std::random_device device;
+  std::string bytes(count, '\0');
+  for (auto& byte : bytes) byte = static_cast<char>(device() & 0xFF);
+  return bytes;
+}
+
 gc::Options EndpointOptions(Config const& config) {
   auto const origin = config.origin.ToString();
   // Zero retries make one failed attempt one failure. Without it a 503 would

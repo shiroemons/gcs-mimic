@@ -3,8 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Probes the official `Google.Cloud.Storage.V1` 5.0.0 against an emulator. It
-emits one JSONL line per case: the 51 shared bucket, object and signed cases
-(same IDs and order as the Python probe) plus 20 .NET-specific cases in the
+emits one JSONL line per case: the 56 shared bucket, object and signed cases
+(same IDs and order as the Python probe) plus 17 .NET-specific cases in the
 `sdk` area (IDs start with `sdk.`): progress reporting, resumable sessions,
 signed-URL templates, rewrite loops and similar idioms.
 

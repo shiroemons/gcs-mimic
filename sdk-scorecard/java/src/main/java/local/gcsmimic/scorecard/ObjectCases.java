@@ -32,6 +32,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.zip.GZIPOutputStream;
 
 /** Object probes, in the canonical case order. */
@@ -60,6 +61,7 @@ final class ObjectCases extends Cases {
     cases.add(new Probe.Case("object.copy_with_metadata", this::copy));
     cases.add(new Probe.Case("object.rewrite_storage_class", this::rewrite));
     cases.add(new Probe.Case("object.compose", this::compose));
+    cases.add(new Probe.Case("object.compose_preconditions", this::composePreconditions));
     cases.add(new Probe.Case("object.move", this::move));
     cases.add(new Probe.Case("object.acl", this::acl));
     cases.add(new Probe.Case("object.holds", this::holds));
@@ -68,6 +70,7 @@ final class ObjectCases extends Cases {
     cases.add(new Probe.Case("object.storage_class_on_write", this::storageClass));
     cases.add(new Probe.Case("object.gzip_transcoding", this::transcoding));
     cases.add(new Probe.Case("object.customer_supplied_key", this::csek));
+    cases.add(new Probe.Case("object.csek_rotation", this::csekRotation));
     cases.add(new Probe.Case("object.soft_delete_restore", this::restore));
   }
 
@@ -275,6 +278,28 @@ final class ObjectCases extends Cases {
     check(Arrays.equals(read(b, "all"), bytes("p1p2p3")), "compose bytes");
   }
 
+  private void composePreconditions() throws Exception {
+    String b = storage.create(BucketInfo.newBuilder(unique()).setVersioningEnabled(true).build()).getName();
+    long first = upload(b, "p1", "one").getGeneration();
+    upload(b, "p1", "ONE");
+    long second = upload(b, "p2", "two").getGeneration();
+    // addSource(name, generation) pins each source to the version to concatenate.
+    // A builder accumulates target options, so each request gets its own builder.
+    Supplier<Storage.ComposeRequest.Builder> sources = () -> Storage.ComposeRequest.newBuilder()
+        .addSource("p1", first).addSource("p2", second).setTarget(BlobInfo.newBuilder(b, "both").build());
+    Blob composed = storage.compose(sources.get().build());
+    check(Arrays.equals(read(b, "both"), bytes("onetwo")), "compose bytes");
+    long generation = composed.getGeneration();
+    Storage.ComposeRequest stale = sources.get().setTargetOptions(BlobTargetOption.generationMatch(generation + 1)).build();
+    expectStatus(412, () -> storage.compose(stale));
+    Blob after = reload(BlobId.of(b, "both"));
+    check(after.getGeneration() == generation, "destination generation changed");
+    check(Arrays.equals(read(b, "both"), bytes("onetwo")), "destination bytes changed");
+    Blob replaced = storage.compose(sources.get().setTargetOptions(BlobTargetOption.generationMatch(generation)).build());
+    check(replaced.getGeneration() != generation, "matching compose kept the generation");
+    check(Arrays.equals(read(b, "both"), bytes("onetwo")), "matching compose bytes");
+  }
+
   private void move() {
     String b = bucket().getName();
     upload(b, "old", "moved");
@@ -359,6 +384,36 @@ final class ObjectCases extends Cases {
       check(expected.getCode() >= 400, "read without key: " + expected);
     }
     check(Arrays.equals(read(b, "csek.txt", BlobSourceOption.decryptionKey(key)), bytes("secret")), "keyed bytes");
+  }
+
+  private void csekRotation() throws IOException {
+    String b = bucket().getName();
+    SecureRandom random = new SecureRandom();
+    byte[] raw = new byte[32];
+    random.nextBytes(raw);
+    String old = Base64.getEncoder().encodeToString(raw);
+    random.nextBytes(raw);
+    String rotated = Base64.getEncoder().encodeToString(raw);
+    storage.create(BlobInfo.newBuilder(b, "rotate.txt").build(), bytes("rotate"), BlobTargetOption.encryptionKey(old));
+    // Copying an object onto itself with a new destination key is the documented key rotation.
+    BlobId id = BlobId.of(b, "rotate.txt");
+    CopyWriter copy = storage.copy(Storage.CopyRequest.newBuilder().setSource(id)
+        .setSourceOptions(BlobSourceOption.decryptionKey(old))
+        .setTarget(BlobInfo.newBuilder(id).build(), BlobTargetOption.encryptionKey(rotated)).build());
+    while (!copy.isDone()) {
+      copy.copyChunk();
+    }
+    check(Arrays.equals(read(b, "rotate.txt", BlobSourceOption.decryptionKey(rotated)), bytes("rotate")),
+        "new key bytes");
+    // StorageException also wraps transport failures; only a status of 400 or above is an HTTP error response.
+    for (BlobSourceOption[] options : new BlobSourceOption[][] {{BlobSourceOption.decryptionKey(old)}, {}}) {
+      try {
+        read(b, "rotate.txt", options);
+        throw new AssertionError("read with a stale or missing key succeeded");
+      } catch (StorageException expected) {
+        check(expected.getCode() >= 400, "read with a stale or missing key: " + expected);
+      }
+    }
   }
 
   private void restore() {

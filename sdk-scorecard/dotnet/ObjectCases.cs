@@ -28,6 +28,7 @@ internal static partial class Probe
         new("object.copy_with_metadata", Copy),
         new("object.rewrite_storage_class", Rewrite),
         new("object.compose", Compose),
+        new("object.compose_preconditions", ComposePreconditions),
         new("object.move", Move),
         new("object.acl", ObjectAcl),
         new("object.holds", Holds),
@@ -37,6 +38,7 @@ internal static partial class Probe
         // Never run: listed in Unsupported because the compressed half of the workflow has no public API.
         new("object.gzip_transcoding", _ => throw new NotSupportedException()),
         new("object.customer_supplied_key", Csek),
+        new("object.csek_rotation", CsekRotation),
         new("object.soft_delete_restore", Restore),
     ];
 
@@ -265,6 +267,41 @@ internal static partial class Probe
         Check((await Read(bucket.Name, "all", token)).SequenceEqual(Bytes("p1p2p3")), "compose bytes");
     }
 
+    private static async Task ComposePreconditions(CancellationToken token)
+    {
+        var bucket = await NewBucket(new Bucket { Name = Unique(), Versioning = new Bucket.VersioningData { Enabled = true } }, token);
+        var first = await Upload(bucket.Name, "p1", Bytes("one"), token);
+        await Upload(bucket.Name, "p1", Bytes("ONE"), token);
+        var second = await Upload(bucket.Name, "p2", Bytes("two"), token);
+        // Each source's generation pins the version to concatenate, so p1 contributes "one", not "ONE".
+        var request = new ComposeRequest
+        {
+            Destination = new Object(),
+            SourceObjects =
+            [
+                new ComposeRequest.SourceObjectsData { Name = "p1", Generation = first.Generation },
+                new ComposeRequest.SourceObjectsData { Name = "p2", Generation = second.Generation },
+            ],
+        };
+        Task<Object> ComposeBoth(long? ifGenerationMatch)
+        {
+            var call = Client.Service.Objects.Compose(request, bucket.Name, "both");
+            call.IfGenerationMatch = ifGenerationMatch;
+            return call.ExecuteAsync(token);
+        }
+        await ComposeBoth(null);
+        var composed = await Client.GetObjectAsync(bucket.Name, "both", null, token);
+        Check((await Read(bucket.Name, "both", token)).SequenceEqual(Bytes("onetwo")), "compose bytes");
+        await ExpectStatus(HttpStatusCode.PreconditionFailed, () => ComposeBoth(composed.Generation + 1));
+        var after = await Client.GetObjectAsync(bucket.Name, "both", null, token);
+        Check(after.Generation == composed.Generation, $"destination generation changed from {composed.Generation} to {after.Generation}");
+        Check((await Read(bucket.Name, "both", token)).SequenceEqual(Bytes("onetwo")), "destination bytes changed");
+        await ComposeBoth(composed.Generation);
+        var replaced = await Client.GetObjectAsync(bucket.Name, "both", null, token);
+        Check(replaced.Generation != composed.Generation, $"matching compose kept generation {composed.Generation}");
+        Check((await Read(bucket.Name, "both", token)).SequenceEqual(Bytes("onetwo")), "matching compose bytes");
+    }
+
     private static async Task Move(CancellationToken token)
     {
         var bucket = await NewBucket(token);
@@ -339,6 +376,34 @@ internal static partial class Probe
         catch (GoogleApiException) { }
         var keyed = await Read(bucket.Name, "csek.txt", token, new DownloadObjectOptions { EncryptionKey = key });
         Check(keyed.SequenceEqual(Bytes("secret")), "keyed bytes");
+    }
+
+    private static async Task CsekRotation(CancellationToken token)
+    {
+        var bucket = await NewBucket(token);
+        var oldKey = EncryptionKey.Generate();
+        var newKey = EncryptionKey.Generate();
+        await Upload(bucket.Name, "k.txt", Bytes("rotate"), token, new UploadObjectOptions { EncryptionKey = oldKey });
+        await Client.CopyObjectAsync(bucket.Name, "k.txt", bucket.Name, "k.txt",
+            new CopyObjectOptions { SourceEncryptionKey = oldKey, EncryptionKey = newKey }, token);
+        Check((await Read(bucket.Name, "k.txt", token, new DownloadObjectOptions { EncryptionKey = newKey })).SequenceEqual(Bytes("rotate")), "new key bytes");
+        // GoogleApiException is an HTTP error response; a transport failure surfaces as HttpRequestException.
+        foreach (var key in new[] { oldKey, EncryptionKey.None })
+        {
+            try
+            {
+                await Read(bucket.Name, "k.txt", token, new DownloadObjectOptions { EncryptionKey = key });
+                throw new InvalidOperationException(key == oldKey ? "old key still reads" : "keyless read succeeded");
+            }
+            catch (GoogleApiException) { }
+        }
+        using var keyed = new StorageClientBuilder
+        {
+            BaseUri = new Uri(Origin, "storage/v1/").ToString(), UnauthenticatedAccess = true, HttpClientFactory = Factory, EncryptionKey = newKey,
+        }.Build();
+        using var output = new MemoryStream();
+        await keyed.DownloadObjectAsync(bucket.Name, "k.txt", output, null, token);
+        Check(output.ToArray().SequenceEqual(Bytes("rotate")), "client default key bytes");
     }
 
     private static async Task Restore(CancellationToken token)

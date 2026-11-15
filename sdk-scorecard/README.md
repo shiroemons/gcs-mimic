@@ -86,11 +86,11 @@ scorecard.
 
 | Area | Go | Ruby | Node.js | PHP | Python | Java | .NET | Rust | C++ | Scope |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bucket | 20 | 20 | 20 | 20 | 20 | 20 | 20 | 20 | 20 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
-| object | 27 | 27 | 27 | 27 | 27 | 27 | 27 | 27 | 27 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK, soft delete/restore |
-| signed | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | V4 GET/PUT, V2 GET, V4 POST policy |
+| bucket | 21 | 21 | 21 | 21 | 21 | 21 | 21 | 21 | 21 | Bucket CRUD/listing, labels, preconditions, versioning, lifecycle, CORS, retention and lock, UBLA, PAP, IAM, soft-delete policy, bucket soft delete/restore, autoclass, ACL/default ACL, notifications, HMAC keys, service account |
+| object | 29 | 29 | 29 | 29 | 29 | 29 | 29 | 29 | 29 | Uploads (single, resumable, metadata, checksums), range reads, PATCH, delete, generation/metageneration conditions, listing (delimiter, paging, offsets, glob), copy, rewrite, compose and its preconditions, move, ACL, holds, object retention, custom time, storage class, gzip transcoding, CSEK and key rotation, soft delete/restore |
+| signed | 6 | 6 | 6 | 6 | 6 | 6 | 6 | 6 | 6 | V4 GET/PUT, V4 resumable start, V4 response overrides, V2 GET, V4 POST policy |
 | grpc | 6 | – | – | – | – | – | – | – | – | `storage.NewGRPCClient`: bucket CRUD, write/read, list, update/delete, MultiRangeDownloader, appendable objects |
-| sdk | – | – | – | – | – | 19 | 20 | – | – | The SDK's own idioms: blob handles, channels and write sessions, Transfer Manager, batch, retry, progress and resumable-session handling, signed-URL templates, rewrite loops, CSEK rotation, plus Java's gRPC transport |
+| sdk | – | – | – | – | – | 19 | 17 | – | – | The SDK's own idioms: blob handles, channels and write sessions, Transfer Manager, batch, retry, progress and resumable-session handling, signed-URL templates, rewrite loops, plus Java's gRPC transport |
 
 Case IDs in `bucket`, `object` and `signed` are shared between the SDKs. The
 probes live in [`go/main.go`](go/main.go), [`ruby/probe.rb`](ruby/probe.rb),
@@ -102,8 +102,9 @@ and the grounds in their READMEs. The scorer
 rejects missing files, incomplete/duplicate cases, invalid pass values,
 different SDK inputs, case sets or unsupported markers across products, and
 differing shared case IDs across SDKs. The SDKs with unsupported cases are
-Ruby (`object.list_offsets`), .NET (`object.gzip_transcoding`) and Rust
-(`bucket.notifications`, `project.hmac_keys`, `project.service_account`,
+Go, Java and C++ (`bucket.soft_delete_restore`), Ruby (`object.list_offsets`),
+.NET (`object.gzip_transcoding`) and Rust (`bucket.soft_delete_restore`,
+`bucket.notifications`, `project.hmac_keys`, `project.service_account`,
 `signed.v2_get`).
 
 ## Pinned inputs

@@ -4,7 +4,7 @@
 
 Probes the official `google-cloud-cpp` Cloud Storage client 3.13.0 over its
 JSON/REST transport against an emulator. It emits one JSONL line per case: the
-51 shared bucket, object and signed cases, with the same IDs, areas and order as
+56 shared bucket, object and signed cases, with the same IDs, areas and order as
 the Python probe. It has no SDK-specific (`sdk` area) cases and does not use the
 SDK's gRPC transport, so `SCORECARD_GRPC_ENDPOINT` is ignored. Contract:
 [the C++ slice](../../docs/en/slices/sdk-scorecard-cpp.md).
@@ -111,19 +111,38 @@ emulator and exits 0 or non-zero.
   the case instead of passing it.
 - `object.copy_with_metadata` and `object.rewrite_storage_class` use
   `RewriteObjectBlocking` with destination metadata; setting cases use
-  `PatchBucket`.
+  `PatchBucket`. `object.csek_rotation` rewrites the object onto itself with
+  `RewriteObjectBlocking`, `SourceEncryptionKey` and `EncryptionKey`.
+- `object.compose_preconditions` pins each source with the `generation` of
+  `ComposeSourceObject` and sets the destination condition with
+  `IfGenerationMatch`.
+- `signed.v4_resumable_upload` signs a POST with
+  `AddExtensionHeader("x-goog-resumable", "start")` and sends that header
+  through the probe's libcurl handle, which also checks that the returned
+  `Location` is on the origin before the PUT. `signed.v4_response_overrides`
+  signs with `WithResponseContentDisposition` and `WithResponseContentType`; the
+  handle records the final response's headers so the case can require exactly
+  one value of each.
 
 ## Unsupported cases
 
-None. Every shared case has a public API in 3.13.0.
+Cases the SDK has no public API for are emitted with `unsupported: true` and
+excluded from the C++ denominator.
+
+| Case | Reason |
+| --- | --- |
+| `bucket.soft_delete_restore` | 3.13.0 has no public API for restoring a soft-deleted bucket: `Client` has `RestoreObject` only. |
 
 ## Signature verification
 
 The scored runs leave signatures unverified, as for every SDK. To check that
 the SDK's V2, V4 and POST policy signatures verify, start gcs-mimic with
-`--signed-urls verify --signed-host-port exact` and run the probe as above:
-all 51 cases pass, and with an unrelated `SCORECARD_SIGNING_KEY` the four
-`signed.*` cases fail with 403 `SignatureDoesNotMatch`. `exact` is needed
+`--signed-urls verify --signed-host-port exact` and run the probe as above.
+With the 51 cases the probe then had, all passed, and with an unrelated
+`SCORECARD_SIGNING_KEY` the four `signed.*` cases failed with 403
+`SignatureDoesNotMatch`. `signed.v4_resumable_upload` and
+`signed.v4_response_overrides`, added later, have not been run in this mode.
+`exact` is needed
 because the test signer's default, `lenient`, also accepts a V4 host without
 its port. Results: [the C++ slice](../../docs/en/slices/sdk-scorecard-cpp.md#signature-verification).
 

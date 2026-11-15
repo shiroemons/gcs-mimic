@@ -56,6 +56,9 @@ void ExpectHttp(gc::StatusOr<T> const& result, int expected, std::string const& 
 // "sc-cpp-" plus 12 random hex digits: a valid bucket name and an object prefix.
 std::string UniqueName();
 
+// `count` bytes from std::random_device, for payloads and customer-supplied keys.
+std::string RandomBytes(std::size_t count);
+
 // What every case receives.
 struct Ctx {
   Config config;

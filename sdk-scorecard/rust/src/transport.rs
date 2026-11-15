@@ -36,17 +36,27 @@ impl SignedHttp {
         url: &str,
     ) -> Result<reqwest::RequestBuilder, BoxError> {
         let parsed = Url::parse(url)?;
-        if parsed.origin() != self.origin.origin() {
+        if !self.is_local(&parsed) {
             return Err(io::Error::other("request escaped emulator").into());
         }
         Ok(self.client.request(method, parsed))
     }
 
     pub(crate) async fn send(&self, request: Request) -> Result<Response, BoxError> {
-        if request.url().origin() != self.origin.origin() {
+        if !self.is_local(request.url()) {
             return Err(io::Error::other("request escaped emulator").into());
         }
         Ok(self.client.execute(request).await?)
+    }
+
+    /// Whether `url` is an absolute URL on exactly the emulator origin, such as a
+    /// session URI a signed request returned.
+    pub(crate) fn same_origin(&self, url: &str) -> bool {
+        Url::parse(url).is_ok_and(|parsed| self.is_local(&parsed))
+    }
+
+    fn is_local(&self, url: &Url) -> bool {
+        url.origin() == self.origin.origin()
     }
 }
 

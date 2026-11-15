@@ -61,6 +61,12 @@ pub(crate) const CASES: &[(&str, Case)] = &[
         "bucket.soft_delete_policy",
         run!(bucket::soft_delete_policy),
     ),
+    (
+        "bucket.soft_delete_restore",
+        Case::Unsupported(
+            "google-cloud-storage 1.22.0 has no public API for restoring a soft-deleted bucket (StorageControl has restore_object only)",
+        ),
+    ),
     ("bucket.autoclass", run!(bucket::autoclass)),
     ("bucket.acl", run!(bucket::acl)),
     (
@@ -116,6 +122,10 @@ pub(crate) const CASES: &[(&str, Case)] = &[
         run!(copy::rewrite_storage_class),
     ),
     ("object.compose", run!(copy::compose)),
+    (
+        "object.compose_preconditions",
+        run!(copy::compose_preconditions),
+    ),
     ("object.move", run!(copy::move_object)),
     ("object.acl", run!(object::acl)),
     ("object.holds", run!(retention::holds)),
@@ -130,12 +140,21 @@ pub(crate) const CASES: &[(&str, Case)] = &[
         "object.customer_supplied_key",
         run!(object::customer_supplied_key),
     ),
+    ("object.csek_rotation", run!(copy::csek_rotation)),
     (
         "object.soft_delete_restore",
         run!(retention::soft_delete_restore),
     ),
     ("signed.v4_get", run!(signed::v4_get)),
     ("signed.v4_put", run!(signed::v4_put)),
+    (
+        "signed.v4_resumable_upload",
+        run!(signed::v4_resumable_upload),
+    ),
+    (
+        "signed.v4_response_overrides",
+        run!(signed::v4_response_overrides),
+    ),
     (
         "signed.v2_get",
         Case::Unsupported("google-cloud-storage 1.22.0 has no public API for V2 signed URLs"),
@@ -150,7 +169,7 @@ mod tests {
 
     #[test]
     fn case_list_matches_the_shared_scorecard_shape() {
-        assert_eq!(CASES.len(), 51);
+        assert_eq!(CASES.len(), 56);
         let ids: HashSet<&str> = CASES.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids.len(), CASES.len(), "duplicate case IDs");
     }

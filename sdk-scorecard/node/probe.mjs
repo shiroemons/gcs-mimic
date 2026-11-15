@@ -107,6 +107,20 @@ for (const [id, field, value, rules] of [
   assert.partialDeepStrictEqual(got, value);
   if (rules) assert.equal(rules(got), 1);
 });
+probe('bucket.soft_delete_restore', async () => {
+  const b = await bucket({softDeletePolicy: {retentionDurationSeconds: '604800'}});
+  const meta = await metadata(b);
+  assert.equal(meta.softDeletePolicy?.retentionDurationSeconds, '604800');
+  const generation = meta.generation;
+  assert(generation, 'bucket generation missing');
+  await b.delete();
+  await expectCode(404, () => b.getMetadata());
+  // The SDK has no typed single-bucket soft-deleted lookup; the soft-deleted listing is its public one.
+  const [deleted] = await storage.getBuckets({softDeleted: true, prefix: b.name});
+  assert.deepEqual(deleted.map(found => [found.name, found.metadata.generation]), [[b.name, generation]]);
+  await storage.bucket(b.name).restore({generation});
+  assert.equal((await metadata(storage.bucket(b.name))).name, b.name);
+});
 // Autoclass is set when the bucket is created, as in the other probes.
 probe('bucket.autoclass', async () => {
   const b = await bucket({autoclass: {enabled: true}});
@@ -285,6 +299,24 @@ probe('object.compose', async () => {
   assert.equal(Number((await metadata(b.file('all'))).componentCount), 3);
   await equalBytes(b.file('all'), 'p1p2p3');
 });
+probe('object.compose_preconditions', async () => {
+  const b = await bucket({versioning: {enabled: true}});
+  const first = (await metadata(await upload(b, 'p1', 'one'))).generation;
+  await upload(b, 'p1', 'ONE');
+  const second = (await metadata(await upload(b, 'p2', 'two'))).generation;
+  // combine sends each source File's generation, so these pin the versions to concatenate.
+  const sources = [b.file('p1', {generation: first}), b.file('p2', {generation: second})];
+  await b.combine(sources, 'both');
+  await equalBytes(b.file('both'), 'onetwo');
+  const generation = (await metadata(b.file('both'))).generation;
+  const stale = (BigInt(generation) + 1n).toString();
+  await expectCode(412, () => b.combine(sources, 'both', {ifGenerationMatch: stale}));
+  assert.equal((await metadata(b.file('both'))).generation, generation);
+  await equalBytes(b.file('both'), 'onetwo');
+  await b.combine(sources, 'both', {ifGenerationMatch: generation});
+  assert.notEqual((await metadata(b.file('both'))).generation, generation);
+  await equalBytes(b.file('both'), 'onetwo');
+});
 probe('object.move', async () => {
   const b = await bucket();
   const file = await upload(b, 'old', 'moved');
@@ -336,6 +368,17 @@ probe('object.customer_supplied_key', async () => {
   await assert.rejects(() => read(b.file('csek.txt')), (error) => Number.isInteger(error.code) && error.code >= 400);
   await equalBytes(file, 'secret');
 });
+probe('object.csek_rotation', async () => {
+  const b = await bucket();
+  const [oldKey, newKey] = [randomBytes(32), randomBytes(32)];
+  await b.file('rotate.txt', {encryptionKey: oldKey}).save('rotate', {resumable: false});
+  await b.file('rotate.txt', {encryptionKey: oldKey}).rotateEncryptionKey({encryptionKey: newKey});
+  await equalBytes(b.file('rotate.txt', {encryptionKey: newKey}), 'rotate');
+  // Only an HTTP error response proves the old key is gone; a transport failure does not.
+  const httpError = error => Number.isInteger(error.code) && error.code >= 400;
+  await assert.rejects(() => read(b.file('rotate.txt', {encryptionKey: oldKey})), httpError);
+  await assert.rejects(() => read(b.file('rotate.txt')), httpError);
+});
 probe('object.soft_delete_restore', async () => {
   const b = await bucket({softDeletePolicy: {retentionDurationSeconds: '604800'}});
   const file = await upload(b, 'sd.txt', 'restore me');
@@ -345,7 +388,8 @@ probe('object.soft_delete_restore', async () => {
   await b.file('sd.txt').restore({generation});
   await equalBytes(b.file('sd.txt'), 'restore me');
 });
-for (const [id, version, action] of [['v4_get', 'v4', 'read'], ['v4_put', 'v4', 'write'], ['v2_get', 'v2', 'read']]) {
+// A function rather than one loop, because the catalog puts the V4 cases that follow between V4 and V2.
+const signedRoundTrip = (id, version, action) => {
   probe(`signed.${id}`, async () => {
     const b = await bucket();
     const file = b.file('signed.txt');
@@ -357,7 +401,39 @@ for (const [id, version, action] of [['v4_get', 'v4', 'read'], ['v4_put', 'v4', 
     if (action === 'read') assert.equal(await response.text(), 'signed');
     else await equalBytes(file, 'uploaded');
   });
-}
+};
+signedRoundTrip('v4_get', 'v4', 'read');
+signedRoundTrip('v4_put', 'v4', 'write');
+probe('signed.v4_resumable_upload', async () => {
+  const b = await bucket();
+  const data = randomBytes(256 * 1024 + 5);
+  const file = b.file('resumable.bin');
+  // The 'resumable' action signs a POST with x-goog-resumable: start; the header is part of the signature.
+  const [url] = await signer.bucket(b.name).file(file.name)
+    .getSignedUrl({version: 'v4', action: 'resumable', expires: Date.now() + 300000});
+  const start = await http(url, {method: 'POST', headers: {'x-goog-resumable': 'start'}});
+  assert.equal(start.status, 201, `start status ${start.status}: ${await start.text()}`);
+  const session = new URL(start.headers.get('location') ?? '');
+  assert.equal(session.origin, origin.origin, `session URI ${session} leaves the origin`);
+  const finish = await http(session.href, {method: 'PUT', body: data});
+  assert([200, 201].includes(finish.status), `upload status ${finish.status}: ${await finish.text()}`);
+  await equalBytes(file, data);
+});
+probe('signed.v4_response_overrides', async () => {
+  const b = await bucket();
+  const file = await upload(b, 'report.txt', 'a,b\n', {contentType: 'text/plain'});
+  const disposition = 'attachment; filename="report.csv"';
+  const [url] = await signer.bucket(b.name).file(file.name).getSignedUrl({
+    version: 'v4', action: 'read', expires: Date.now() + 300000,
+    responseDisposition: disposition, responseType: 'text/csv'});
+  const response = await http(url);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'a,b\n');
+  assert.equal(response.headers.get('content-disposition'), disposition);
+  assert.equal(response.headers.get('content-type'), 'text/csv');
+  assert.equal((await metadata(file)).contentType, 'text/plain');
+});
+signedRoundTrip('v2_get', 'v2', 'read');
 probe('signed.post_policy_v4', async () => {
   const b = await bucket();
   const [policy] = await signer.bucket(b.name).file('post.txt')

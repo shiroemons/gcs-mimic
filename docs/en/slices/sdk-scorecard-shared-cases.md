@@ -34,7 +34,7 @@ because a core case that most SDKs mark `n/a` measures little.
 | --- | --- | --- |
 | `bucket.soft_delete_restore` | bucket | A bucket created with a 604800-second soft-delete policy and then deleted returns 404 on a normal get; a soft-deleted lookup finds it with the generation it had before deletion; restoring that generation makes a normal get return it again. |
 | `object.csek_rotation` | object | An object written with customer-supplied key A and rewritten onto itself with source key A and destination key B reads back its bytes with key B; reads with key A and without a key then fail with HTTP error responses, not transport failures. |
-| `object.compose_preconditions` | object | In a versioned bucket, p1 written as `one` and overwritten as `ONE`, and p2 written as `two`: composing p1 pinned to its first generation and p2 pinned to its generation into a new object with `ifGenerationMatch=0` gives the bytes `onetwo`; repeating that compose fails with 412 and leaves the destination's generation and bytes unchanged. |
+| `object.compose_preconditions` | object | In a versioned bucket, p1 written as `one` and overwritten as `ONE`, and p2 written as `two`: composing p1 pinned to its first generation and p2 pinned to its generation gives the bytes `onetwo`; repeating the compose with `ifGenerationMatch` set to the destination's generation plus one fails with 412 and leaves its generation and bytes unchanged; repeating it with `ifGenerationMatch` equal to the destination's generation succeeds with a new generation and the bytes `onetwo`. |
 | `signed.v4_resumable_upload` | signed | A V4 URL signed for POST with the `x-goog-resumable: start` header, sent unchanged with that header, returns 201 and a session URI on the same origin; a PUT of all the bytes to that URI completes the upload, and the object reads back those bytes. |
 | `signed.v4_response_overrides` | signed | A V4 signed GET URL whose signed query sets `response-content-disposition` to `attachment; filename="report.csv"` and `response-content-type` to `text/csv`, sent unchanged, returns 200 with the object's bytes and exactly those two header values; the object's stored `contentType` stays `text/plain`. |
 
@@ -109,5 +109,11 @@ Case counts become: Go 62, Ruby 56, Node.js 56, PHP 56, Python 56, Java 75,
    rather than staying a .NET-only case.
 2. The compose case pins source generations instead of using per-source
    `ifGenerationMatch`, because Node.js and PHP expose only the generation.
+   Its destination preconditions are non-zero generations: PHP's
+   `Bucket::compose` (google/cloud-storage 2.6.1) passes its options through
+   `array_filter`, which drops `ifGenerationMatch => 0`, so a
+   create-only-if-absent compose cannot be sent from PHP. A matching
+   generation must succeed as well as a stale one fail, so a server that
+   answers 412 to any precondition fails the case.
 3. The response-override case reads the stored `contentType` as well, so a
    server that rewrites the object's metadata to the override fails.

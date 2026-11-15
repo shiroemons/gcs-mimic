@@ -1,5 +1,6 @@
 package local.gcsmimic.scorecard;
 
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.HttpMethod;
 import com.google.cloud.storage.PostPolicyV4;
@@ -13,7 +14,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -22,7 +25,8 @@ import java.util.concurrent.TimeUnit;
  * the SDK and use the generated URL unchanged.
  */
 final class SignedCases extends Cases {
-  private record Response(int status, byte[] body) {
+  /** Header names are lower-cased so lookups do not depend on the server's capitalization. */
+  private record Response(int status, byte[] body, Map<String, String> headers) {
     String preview() {
       String text = new String(body, StandardCharsets.UTF_8);
       return "status " + status + ": " + (text.length() > 200 ? text.substring(0, 200) : text);
@@ -37,14 +41,22 @@ final class SignedCases extends Cases {
   void register(List<Probe.Case> cases) {
     cases.add(new Probe.Case("signed.v4_get", () -> signed(SignUrlOption.withV4Signature(), HttpMethod.GET)));
     cases.add(new Probe.Case("signed.v4_put", () -> signed(SignUrlOption.withV4Signature(), HttpMethod.PUT)));
+    cases.add(new Probe.Case("signed.v4_resumable_upload", this::resumableUpload));
+    cases.add(new Probe.Case("signed.v4_response_overrides", this::responseOverrides));
     cases.add(new Probe.Case("signed.v2_get", () -> signed(SignUrlOption.withV2Signature(), HttpMethod.GET)));
     cases.add(new Probe.Case("signed.post_policy_v4", this::postPolicy));
   }
 
   private Response send(URL url, String method, String contentType, byte[] body) throws IOException {
+    return send(url, method, contentType, body, Map.of());
+  }
+
+  private Response send(URL url, String method, String contentType, byte[] body, Map<String, String> headers)
+      throws IOException {
     HttpURLConnection connection = context.http.open(url);
     try {
       connection.setRequestMethod(method);
+      headers.forEach(connection::setRequestProperty);
       if (body != null) {
         connection.setDoOutput(true);
         if (contentType != null) {
@@ -58,10 +70,54 @@ final class SignedCases extends Cases {
       int status = connection.getResponseCode();
       InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
       byte[] content = stream == null ? new byte[0] : stream.readAllBytes();
-      return new Response(status, content);
+      Map<String, String> received = new HashMap<>();
+      connection.getHeaderFields().forEach((name, values) -> {
+        if (name != null && !values.isEmpty()) {
+          received.put(name.toLowerCase(Locale.ROOT), values.get(0));
+        }
+      });
+      return new Response(status, content, received);
     } finally {
       connection.disconnect();
     }
+  }
+
+  private void resumableUpload() throws IOException {
+    String b = bucket().getName();
+    byte[] data = pattern(256 * 1024 + 5, 7);
+    // A resumable start is a POST whose x-goog-resumable header is part of the signature.
+    URL url = storage.signUrl(BlobInfo.newBuilder(b, "resumable.bin").build(), 5, TimeUnit.MINUTES,
+        SignUrlOption.withV4Signature(), SignUrlOption.httpMethod(HttpMethod.POST),
+        SignUrlOption.withExtHeaders(Map.of("x-goog-resumable", "start")),
+        SignUrlOption.withHostName(context.http.origin().toString()), SignUrlOption.withPathStyle(),
+        SignUrlOption.signWith(context.signer));
+    Response start = send(url, "POST", null, new byte[0], Map.of("x-goog-resumable", "start"));
+    check(start.status() == 201, "start " + start.preview());
+    String location = start.headers().get("location");
+    check(location != null, "start response has no Location");
+    URL session = new URL(location);
+    context.http.requireOrigin(session);
+    Response finish = send(session, "PUT", null, data);
+    check(finish.status() == 200 || finish.status() == 201, "upload " + finish.preview());
+    check(Arrays.equals(read(b, "resumable.bin"), data), "signed resumable bytes");
+  }
+
+  private void responseOverrides() throws IOException {
+    String b = bucket().getName();
+    storage.create(BlobInfo.newBuilder(b, "report.txt").setContentType("text/plain").build(), bytes("a,b\n"));
+    String disposition = "attachment; filename=\"report.csv\"";
+    URL url = storage.signUrl(BlobInfo.newBuilder(b, "report.txt").build(), 5, TimeUnit.MINUTES,
+        SignUrlOption.withV4Signature(), SignUrlOption.httpMethod(HttpMethod.GET),
+        SignUrlOption.withQueryParams(Map.of("response-content-disposition", disposition,
+            "response-content-type", "text/csv")),
+        SignUrlOption.withHostName(context.http.origin().toString()), SignUrlOption.withPathStyle(),
+        SignUrlOption.signWith(context.signer));
+    Response response = send(url, "GET", null, null);
+    check(response.status() == 200, response.preview());
+    check(Arrays.equals(response.body(), bytes("a,b\n")), "signed bytes");
+    check(disposition.equals(response.headers().get("content-disposition"))
+        && "text/csv".equals(response.headers().get("content-type")), "override headers " + response.headers());
+    check("text/plain".equals(reload(BlobId.of(b, "report.txt")).getContentType()), "stored content type changed");
   }
 
   private void signed(SignUrlOption version, HttpMethod method) throws IOException {

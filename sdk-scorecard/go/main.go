@@ -48,12 +48,21 @@ type testCase struct {
 }
 
 type result struct {
-	SDK    string `json:"sdk"`
-	ID     string `json:"id"`
-	Area   string `json:"area"`
-	Pass   bool   `json:"pass"`
-	Detail string `json:"detail,omitempty"`
+	SDK         string `json:"sdk"`
+	ID          string `json:"id"`
+	Area        string `json:"area"`
+	Pass        bool   `json:"pass"`
+	Unsupported bool   `json:"unsupported,omitempty"`
+	Detail      string `json:"detail,omitempty"`
 }
+
+// unsupportedError marks a case the SDK has no public API for. Its message is the catalog's
+// reason verbatim, so it must not be truncated like a failure detail.
+type unsupportedError string
+
+func (e unsupportedError) Error() string { return string(e) }
+
+func unsupported(reason string) error { return unsupportedError(reason) }
 
 func main() {
 	endpoint, err := url.Parse(os.Getenv("SCORECARD_ENDPOINT"))
@@ -103,7 +112,10 @@ func main() {
 		}
 		err := runCase(p, c)
 		r := result{SDK: "go", ID: c.id, Area: c.area, Pass: err == nil}
-		if err != nil {
+		var missing unsupportedError
+		if errors.As(err, &missing) {
+			r.Unsupported, r.Detail = true, string(missing)
+		} else if err != nil {
 			r.Detail = truncate(err.Error(), 300)
 		}
 		_ = encoder.Encode(r)
@@ -272,29 +284,39 @@ func payload(n int) []byte {
 	return data
 }
 
-func (p *probe) signedURL(bucket, object, method string, scheme storage.SigningScheme) (string, error) {
-	return storage.SignedURL(bucket, object, &storage.SignedURLOptions{
+func (p *probe) signedURL(bucket, object, method string, scheme storage.SigningScheme, edit ...func(*storage.SignedURLOptions)) (string, error) {
+	opts := &storage.SignedURLOptions{
 		Scheme: scheme, GoogleAccessID: p.signer, PrivateKey: p.key, Method: method,
 		Expires: time.Now().Add(10 * time.Minute), Hostname: p.endpoint.Host,
 		Insecure: p.endpoint.Scheme == "http",
-	})
+	}
+	for _, e := range edit {
+		e(opts)
+	}
+	return storage.SignedURL(bucket, object, opts)
 }
 
 func httpDo(ctx context.Context, method, target string, body io.Reader, header http.Header) (int, []byte, error) {
+	code, _, data, err := httpDoHeader(ctx, method, target, body, header)
+	return code, data, err
+}
+
+// httpDoHeader also returns the response headers, for cases that assert on them.
+func httpDoHeader(ctx context.Context, method, target string, body io.Reader, header http.Header) (int, http.Header, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	for k, v := range header {
 		req.Header[k] = v
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return resp.StatusCode, data, err
+	return resp.StatusCode, resp.Header, data, err
 }
 
 func cases() []testCase {
@@ -549,6 +571,9 @@ func cases() []testCase {
 				return fmt.Errorf("soft delete policy %+v", a.SoftDeletePolicy)
 			}
 			return nil
+		}},
+		{"bucket.soft_delete_restore", "bucket", func(p *probe) error {
+			return unsupported("cloud.google.com/go/storage v1.70.0 has no public API for soft-deleted buckets (BucketHandle has no SoftDeleted or Restore)")
 		}},
 		{"bucket.autoclass", "bucket", func(p *probe) error {
 			b, err := p.bucket(&storage.BucketAttrs{Autoclass: &storage.Autoclass{Enabled: true}})
@@ -997,6 +1022,61 @@ func cases() []testCase {
 			got, err := read(p.ctx, b.Object("all"))
 			return expectBytes(got, []byte("p1p2p3"), err)
 		}},
+		{"object.compose_preconditions", "object", func(p *probe) error {
+			b, err := p.bucket(&storage.BucketAttrs{VersioningEnabled: true})
+			if err != nil {
+				return err
+			}
+			first, err := write(p.ctx, b.Object("p1"), []byte("one"), nil)
+			if err != nil {
+				return err
+			}
+			if _, err := write(p.ctx, b.Object("p1"), []byte("ONE"), nil); err != nil {
+				return err
+			}
+			second, err := write(p.ctx, b.Object("p2"), []byte("two"), nil)
+			if err != nil {
+				return err
+			}
+			// The composer sends each source handle's generation, so these pin the versions to concatenate.
+			compose := func(dst *storage.ObjectHandle) (*storage.ObjectAttrs, error) {
+				return dst.ComposerFrom(b.Object("p1").Generation(first.Generation), b.Object("p2").Generation(second.Generation)).Run(p.ctx)
+			}
+			composed, err := compose(b.Object("both"))
+			if err != nil {
+				return err
+			}
+			got, err := read(p.ctx, b.Object("both"))
+			if err := expectBytes(got, []byte("onetwo"), err); err != nil {
+				return err
+			}
+			stale := b.Object("both").If(storage.Conditions{GenerationMatch: composed.Generation + 1})
+			if _, err := compose(stale); err == nil {
+				return fmt.Errorf("mismatching compose succeeded")
+			} else if err := expectCode(err, http.StatusPreconditionFailed); err != nil {
+				return fmt.Errorf("mismatching compose: %w", err)
+			}
+			after, err := b.Object("both").Attrs(p.ctx)
+			if err != nil {
+				return err
+			}
+			if after.Generation != composed.Generation {
+				return fmt.Errorf("destination generation changed from %d to %d", composed.Generation, after.Generation)
+			}
+			got, err = read(p.ctx, b.Object("both"))
+			if err := expectBytes(got, []byte("onetwo"), err); err != nil {
+				return fmt.Errorf("destination bytes changed: %w", err)
+			}
+			replaced, err := compose(b.Object("both").If(storage.Conditions{GenerationMatch: composed.Generation}))
+			if err != nil {
+				return fmt.Errorf("matching compose: %w", err)
+			}
+			if replaced.Generation == composed.Generation {
+				return fmt.Errorf("matching compose kept generation %d", composed.Generation)
+			}
+			got, err = read(p.ctx, b.Object("both"))
+			return expectBytes(got, []byte("onetwo"), err)
+		}},
 		{"object.move", "object", func(p *probe) error {
 			b, err := p.bucket(nil)
 			if err != nil {
@@ -1154,6 +1234,37 @@ func cases() []testCase {
 			got, err := read(p.ctx, o.Key(key))
 			return expectBytes(got, []byte("secret"), err)
 		}},
+		{"object.csek_rotation", "object", func(p *probe) error {
+			b, err := p.bucket(nil)
+			if err != nil {
+				return err
+			}
+			oldKey, newKey := make([]byte, 32), make([]byte, 32)
+			rand.Read(oldKey)
+			rand.Read(newKey)
+			o := b.Object("rotate.txt")
+			if _, err := write(p.ctx, o.Key(oldKey), []byte("rotate"), nil); err != nil {
+				return err
+			}
+			if _, err := o.Key(newKey).CopierFrom(o.Key(oldKey)).Run(p.ctx); err != nil {
+				return err
+			}
+			got, err := read(p.ctx, o.Key(newKey))
+			if err := expectBytes(got, []byte("rotate"), err); err != nil {
+				return fmt.Errorf("new key: %w", err)
+			}
+			if _, err := read(p.ctx, o.Key(oldKey)); err == nil {
+				return fmt.Errorf("read with the old key succeeded")
+			} else if err := expectHTTPError(err); err != nil {
+				return fmt.Errorf("read with the old key: %w", err)
+			}
+			if _, err := read(p.ctx, o); err == nil {
+				return fmt.Errorf("read without a key succeeded")
+			} else if err := expectHTTPError(err); err != nil {
+				return fmt.Errorf("read without a key: %w", err)
+			}
+			return nil
+		}},
 		{"object.soft_delete_restore", "object", func(p *probe) error {
 			b, err := p.bucket(&storage.BucketAttrs{SoftDeletePolicy: &storage.SoftDeletePolicy{RetentionDuration: 7 * 24 * time.Hour}})
 			if err != nil {
@@ -1213,6 +1324,73 @@ func cases() []testCase {
 			}
 			got, err := read(p.ctx, b.Object("put.txt"))
 			return expectBytes(got, []byte("uploaded"), err)
+		}},
+		{"signed.v4_resumable_upload", "signed", func(p *probe) error {
+			b, err := p.bucket(nil)
+			if err != nil {
+				return err
+			}
+			data := payload(256*1024 + 5)
+			// A signed POST with x-goog-resumable: start opens the session; the header is part of the signature.
+			start := http.Header{"X-Goog-Resumable": {"start"}}
+			u, err := p.signedURL(b.BucketName(), "resumable.bin", "POST", storage.SigningSchemeV4, func(o *storage.SignedURLOptions) {
+				o.Headers = []string{"x-goog-resumable:start"}
+			})
+			if err != nil {
+				return err
+			}
+			code, header, body, err := httpDoHeader(p.ctx, "POST", u, nil, start)
+			if err != nil || code != 201 {
+				return fmt.Errorf("start status %d err %v body %s", code, err, truncate(string(body), 200))
+			}
+			session, err := url.Parse(header.Get("Location"))
+			if err != nil || session.Scheme != p.endpoint.Scheme || session.Host != p.endpoint.Host {
+				return fmt.Errorf("session URI %q leaves the origin (err %v)", header.Get("Location"), err)
+			}
+			code, body, err = httpDo(p.ctx, "PUT", session.String(), bytes.NewReader(data), nil)
+			if err != nil || (code != 200 && code != 201) {
+				return fmt.Errorf("upload status %d err %v body %s", code, err, truncate(string(body), 200))
+			}
+			got, err := read(p.ctx, b.Object("resumable.bin"))
+			return expectBytes(got, data, err)
+		}},
+		{"signed.v4_response_overrides", "signed", func(p *probe) error {
+			b, err := p.bucket(nil)
+			if err != nil {
+				return err
+			}
+			o := b.Object("report.txt")
+			if _, err := write(p.ctx, o, []byte("a,b\n"), func(w *storage.Writer) { w.ContentType = "text/plain" }); err != nil {
+				return err
+			}
+			disposition := `attachment; filename="report.csv"`
+			u, err := p.signedURL(b.BucketName(), "report.txt", "GET", storage.SigningSchemeV4, func(opts *storage.SignedURLOptions) {
+				opts.QueryParameters = url.Values{"response-content-disposition": {disposition}, "response-content-type": {"text/csv"}}
+			})
+			if err != nil {
+				return err
+			}
+			code, header, body, err := httpDoHeader(p.ctx, "GET", u, nil, nil)
+			if err != nil || code != 200 {
+				return fmt.Errorf("status %d err %v body %s", code, err, truncate(string(body), 200))
+			}
+			if err := expectBytes(body, []byte("a,b\n"), nil); err != nil {
+				return err
+			}
+			if got := header.Get("Content-Disposition"); got != disposition {
+				return fmt.Errorf("Content-Disposition %q", got)
+			}
+			if got := header.Get("Content-Type"); got != "text/csv" {
+				return fmt.Errorf("Content-Type %q", got)
+			}
+			a, err := o.Attrs(p.ctx)
+			if err != nil {
+				return err
+			}
+			if a.ContentType != "text/plain" {
+				return fmt.Errorf("stored content type %q", a.ContentType)
+			}
+			return nil
 		}},
 		{"signed.v2_get", "signed", func(p *probe) error {
 			b, err := p.bucket(nil)

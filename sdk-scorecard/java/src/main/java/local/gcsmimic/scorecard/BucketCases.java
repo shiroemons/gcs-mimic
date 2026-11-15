@@ -53,6 +53,10 @@ final class BucketCases extends Cases {
     cases.add(new Probe.Case("bucket.iam_policy", this::iam));
     cases.add(new Probe.Case("bucket.iam_test_permissions", this::permissions));
     cases.add(new Probe.Case("bucket.soft_delete_policy", this::softDeletePolicy));
+    // Never run: Probe.UNSUPPORTED reports this case before its body is reached.
+    cases.add(new Probe.Case("bucket.soft_delete_restore", () -> {
+      throw new UnsupportedOperationException("declared unsupported in Probe.UNSUPPORTED");
+    }));
     cases.add(new Probe.Case("bucket.autoclass", this::autoclass));
     cases.add(new Probe.Case("bucket.acl", this::bucketAcl));
     cases.add(new Probe.Case("bucket.default_object_acl", this::defaultAcl));

@@ -185,6 +185,19 @@ foreach ([
     if (array_is_list($value)) check(count($got ?? []) === count($value), "$field rule count differs");
     foreach ($value as $key => $want) check(($got[$key] ?? null) == $want, "$field differs");
 });
+probe('bucket.soft_delete_restore', function () use ($storage) {
+    $b = newBucket(['softDeletePolicy' => ['retentionDurationSeconds' => '604800']]);
+    check(($b->info()['softDeletePolicy']['retentionDurationSeconds'] ?? null) === '604800', 'soft delete policy not set at creation');
+    $generation = $b->info()['generation'] ?? null;
+    check(is_string($generation) && $generation !== '', 'bucket generation missing');
+    $b->delete();
+    expectCode(404, fn() => $storage->bucket($b->name())->reload());
+    // bucket() would only cache these options, so reload() is what sends the soft-deleted lookup.
+    $deleted = $storage->bucket($b->name())->reload(['softDeleted' => true, 'generation' => $generation]);
+    check(($deleted['name'] ?? null) === $b->name() && ($deleted['generation'] ?? null) === $generation, 'soft-deleted lookup');
+    $storage->restore($b->name(), $generation);
+    check(($storage->bucket($b->name())->reload()['name'] ?? null) === $b->name(), 'restored bucket missing');
+});
 // Autoclass is set when the bucket is created, as in the other probes.
 probe('bucket.autoclass', function () {
     $b = newBucket(['autoclass' => ['enabled' => true]]);
@@ -367,6 +380,27 @@ probe('object.compose', function () {
     check((int)$file->info()['componentCount'] === 3, 'component count');
     bytes($file, 'p1p2p3');
 });
+probe('object.compose_preconditions', function () {
+    $b = newBucket(['versioning' => ['enabled' => true]]);
+    $first = upload($b, 'p1', 'one')->info()['generation'];
+    upload($b, 'p1', 'ONE');
+    $second = upload($b, 'p2', 'two')->info()['generation'];
+    // compose sends each source object's generation, so these pin the versions to concatenate.
+    $sources = [$b->object('p1', ['generation' => $first]), $b->object('p2', ['generation' => $second])];
+    // Bucket::compose filters falsy options, so ifGenerationMatch => 0 would never be sent; the
+    // preconditions below use the destination's non-zero generation instead.
+    $options = ['metadata' => ['contentType' => 'text/plain']];
+    $composed = $b->compose($sources, 'both', $options);
+    bytes($composed, 'onetwo');
+    $generation = $composed->info()['generation'];
+    expectCode(412, fn() => $b->compose($sources, 'both', ['ifGenerationMatch' => (string)((int)$generation + 1)] + $options));
+    $after = $b->object('both');
+    check($after->info()['generation'] === $generation, 'destination generation changed');
+    bytes($after, 'onetwo');
+    $replaced = $b->compose($sources, 'both', ['ifGenerationMatch' => $generation] + $options);
+    check($replaced->info()['generation'] !== $generation, 'matching compose kept the generation');
+    bytes($replaced, 'onetwo');
+});
 probe('object.move', function () {
     $b = newBucket();
     upload($b, 'old', 'moved')->move('new');
@@ -419,6 +453,25 @@ probe('object.customer_supplied_key', function () {
     }
     throw new RuntimeException('read without key succeeded');
 });
+probe('object.csek_rotation', function () {
+    $b = newBucket();
+    $old = base64_encode(random_bytes(32));
+    $new = base64_encode(random_bytes(32));
+    $file = upload($b, 'rotate.txt', 'rotate', ['encryptionKey' => $old]);
+    // Rewriting an object onto itself with a new destination key is the documented key rotation.
+    $file->rewrite($b, ['encryptionKey' => $old, 'destinationEncryptionKey' => $new]);
+    $rotated = $b->object('rotate.txt');
+    bytes($rotated, 'rotate', ['encryptionKey' => $new]);
+    // A ServiceException carries an HTTP response; a transport failure would not be one.
+    foreach ([['encryptionKey' => $old], []] as $options) {
+        try { $rotated->downloadAsString($options); }
+        catch (ServiceException $e) {
+            check(in_array($e->getCode(), [400, 403], true), $e->getMessage());
+            continue;
+        }
+        throw new RuntimeException('read with a stale or missing key succeeded');
+    }
+});
 probe('object.soft_delete_restore', function () {
     $b = newBucket(['softDeletePolicy' => ['retentionDurationSeconds' => '604800']]);
     $file = upload($b, 'sd.txt', 'restore me');
@@ -428,7 +481,8 @@ probe('object.soft_delete_restore', function () {
     $b->restore('sd.txt', $generation);
     bytes($b->object('sd.txt'), 'restore me');
 });
-foreach ([['v4_get', 'v4', 'GET'], ['v4_put', 'v4', 'PUT'], ['v2_get', 'v2', 'GET']] as [$id, $version, $method]) {
+// The V4 cases are registered in catalog order, between v4_put and v2_get, so this is a closure.
+$signedProbe = function (string $id, string $version, string $method) use ($http, $origin, $signer, $publicKey) {
     probe("signed.$id", function () use ($http, $origin, $signer, $publicKey, $version, $method) {
         $b = newBucket();
         if ($method === 'GET') upload($b, 'signed.txt', 'signed');
@@ -445,7 +499,45 @@ foreach ([['v4_get', 'v4', 'GET'], ['v4_put', 'v4', 'PUT'], ['v2_get', 'v2', 'GE
         if ($method === 'GET') check((string)$response->getBody() === 'signed', 'signed bytes');
         else bytes($file, 'uploaded');
     });
+};
+$signedProbe('v4_get', 'v4', 'GET');
+$signedProbe('v4_put', 'v4', 'PUT');
+// V4 URLs are signed through bucketBoundHostname with the bucket as the first path segment, as above.
+function signedV4(string $bucketName, string $object, array $options): string {
+    global $origin, $signer, $storage;
+    return $storage->bucket($bucketName)->object("$bucketName/$object")->signedUrl(
+        new DateTimeImmutable('+5 minutes'), $options + ['version' => 'v4', 'credentialsFetcher' => $signer,
+            'bucketBoundHostname' => $origin, 'scheme' => parse_url($origin, PHP_URL_SCHEME)]);
 }
+probe('signed.v4_resumable_upload', function () use ($http, $origin) {
+    $b = newBucket();
+    $data = random_bytes(256 * 1024 + 5);
+    // signedUploadUrl() drops bucketBoundHostname, so the same signedUrl() call is made directly with the
+    // POST method and the x-goog-resumable header that signedUploadUrl() would sign.
+    $url = signedV4($b->name(), 'resumable.bin', ['method' => 'POST', 'allowPost' => true,
+        'headers' => ['x-goog-resumable' => 'start']]);
+    $start = $http->post($url, ['headers' => ['x-goog-resumable' => 'start']]);
+    check($start->getStatusCode() === 201, 'start status ' . $start->getStatusCode() . ': ' . substr((string)$start->getBody(), 0, 200));
+    $session = new GuzzleHttp\Psr7\Uri($start->getHeaderLine('Location'));
+    check($session->getScheme() . '://' . $session->getAuthority() === $origin, 'session URI leaves the origin');
+    $finish = $http->put($session, ['body' => $data]);
+    check(in_array($finish->getStatusCode(), [200, 201], true), 'upload status ' . $finish->getStatusCode());
+    bytes($b->object('resumable.bin'), $data);
+});
+probe('signed.v4_response_overrides', function () use ($http) {
+    $b = newBucket();
+    $file = upload($b, 'report.txt', "a,b\n", ['metadata' => ['contentType' => 'text/plain']]);
+    $disposition = 'attachment; filename="report.csv"';
+    $url = signedV4($b->name(), 'report.txt', ['method' => 'GET',
+        'responseDisposition' => $disposition, 'responseType' => 'text/csv']);
+    $response = $http->get($url);
+    check($response->getStatusCode() === 200, 'signed status ' . $response->getStatusCode());
+    check((string)$response->getBody() === "a,b\n", 'signed bytes');
+    $headers = [$response->getHeaderLine('Content-Disposition'), $response->getHeaderLine('Content-Type')];
+    check($headers === [$disposition, 'text/csv'], 'override headers ' . json_encode($headers));
+    check($file->reload()['contentType'] === 'text/plain', 'stored content type changed');
+});
+$signedProbe('v2_get', 'v2', 'GET');
 probe('signed.post_policy_v4', function () use ($http, $origin, $signer) {
     $b = newBucket();
     $policy = $b->generateSignedPostPolicyV4('post.txt', new DateTimeImmutable('+5 minutes'), ['credentialsFetcher' => $signer]);

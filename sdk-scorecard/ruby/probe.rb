@@ -87,15 +87,15 @@ def http(method, url, body: nil, headers: {})
     headers.each { |key, value| request[key] = value }
     request.body = body if body
     response = client.request(request)
-    [response.code.to_i, response.body.to_s]
+    [response.code.to_i, response.body.to_s, response]
   end
 end
 
-def signed_v4(bucket, name, method)
+def signed_v4(bucket, name, method, **options)
   # The SDK's bucket-bound mode preserves host:port but omits the bucket path prefix.
   bucket.file("#{bucket.name}/#{name}", skip_lookup: true)
         .signed_url(version: :v4, method: method, issuer: SIGNER, signing_key: SIGNING_KEY, expires: 300,
-                    scheme: ORIGIN.scheme, bucket_bound_hostname: ORIGIN.authority)
+                    scheme: ORIGIN.scheme, bucket_bound_hostname: ORIGIN.authority, **options)
 end
 
 def seed(bucket, *names)
@@ -248,6 +248,21 @@ probe "bucket.soft_delete_policy", "bucket" do
   bucket.soft_delete_policy = { retention_duration_seconds: 10 * 24 * 60 * 60 }
   policy = STORAGE.bucket(bucket.name).soft_delete_policy
   check policy&.retention_duration_seconds == 10 * 24 * 60 * 60, "soft delete policy #{policy.inspect}"
+end
+
+probe "bucket.soft_delete_restore", "bucket" do
+  bucket = new_bucket { |b| b.soft_delete_policy = { retention_duration_seconds: 7 * 24 * 60 * 60 } }
+  check bucket.soft_delete_policy&.retention_duration_seconds == 7 * 24 * 60 * 60, "soft delete policy not set at creation"
+  generation = bucket.generation
+  check generation, "bucket generation missing"
+  bucket.delete
+  # Storage#bucket maps a 404 to nil, which is what a normal get of a soft-deleted bucket must return.
+  check STORAGE.bucket(bucket.name).nil?, "deleted bucket still returned by a normal get"
+  deleted = STORAGE.bucket bucket.name, soft_deleted: true, generation: generation
+  check deleted && deleted.generation == generation, "soft-deleted lookup #{deleted.inspect}"
+  STORAGE.restore_bucket bucket.name, generation
+  restored = STORAGE.bucket bucket.name
+  check restored && restored.name == bucket.name, "restored bucket missing"
 end
 
 probe "bucket.autoclass", "bucket" do
@@ -446,6 +461,30 @@ probe "object.compose", "object" do
   check download(bucket.file("all")) == "p1p2p3", "compose bytes"
 end
 
+probe "object.compose_preconditions", "object" do
+  bucket = new_bucket(versioning: true)
+  first = upload(bucket, "p1", "one").generation
+  upload bucket, "p1", "ONE"
+  second = upload(bucket, "p2", "two").generation
+  # Compose sends each File source's generation, so these pin the versions to concatenate.
+  sources = [bucket.file("p1", generation: first, skip_lookup: true), bucket.file("p2", generation: second, skip_lookup: true)]
+  composed = bucket.compose sources, "both"
+  check download(bucket.file("both")) == "onetwo", "compose bytes"
+  begin
+    bucket.compose sources, "both", if_generation_match: composed.generation + 1
+    raise ProbeFailure, "mismatching compose succeeded"
+  rescue Google::Cloud::Error => e
+    check e.status_code == 412, "mismatching compose: #{e.class}: #{e.message}"
+  end
+  after = bucket.file "both"
+  check after.generation == composed.generation, "destination generation changed"
+  check download(after) == "onetwo", "destination bytes changed"
+  bucket.compose sources, "both", if_generation_match: composed.generation
+  replaced = bucket.file "both"
+  check replaced.generation != composed.generation, "matching compose kept the generation"
+  check download(replaced) == "onetwo", "matching compose bytes"
+end
+
 probe "object.move", "object" do
   bucket = new_bucket
   upload(bucket, "old", "moved")
@@ -522,6 +561,22 @@ probe "object.customer_supplied_key", "object" do
   check download(file, encryption_key: key) == "secret", "keyed read differs"
 end
 
+probe "object.csek_rotation", "object" do
+  bucket = new_bucket
+  old_key = SecureRandom.random_bytes(32)
+  new_key = SecureRandom.random_bytes(32)
+  upload(bucket, "rotate.txt", "rotate", encryption_key: old_key)
+  bucket.file("rotate.txt", encryption_key: old_key).rotate encryption_key: old_key, new_encryption_key: new_key
+  check download(bucket.file("rotate.txt"), encryption_key: new_key) == "rotate", "new key bytes differ"
+  [{ encryption_key: old_key }, {}].each do |options|
+    download bucket.file("rotate.txt"), **options
+    raise ProbeFailure, "read with #{options.empty? ? 'no key' : 'the old key'} succeeded"
+  rescue Google::Cloud::Error => e
+    # Only an HTTP error response proves the old key is gone; a transport failure does not.
+    check e.status_code.is_a?(Integer) && e.status_code >= 400, "read with #{options.keys.first || 'no key'}: #{e.class}: #{e.message}"
+  end
+end
+
 probe "object.soft_delete_restore", "object" do
   bucket = new_bucket
   bucket.soft_delete_policy = { retention_duration_seconds: 7 * 24 * 60 * 60 }
@@ -545,6 +600,35 @@ probe "signed.v4_put", "signed" do
   status, body = http("PUT", signed_v4(bucket, "put.txt", "PUT"), body: "uploaded")
   check status == 200, "status #{status} body #{body[0, 200]}"
   check download(bucket.file("put.txt")) == "uploaded", "uploaded bytes differ"
+end
+
+probe "signed.v4_resumable_upload", "signed" do
+  bucket = new_bucket
+  data = SecureRandom.random_bytes(256 * 1024 + 5)
+  # A signed POST with x-goog-resumable: start opens the session; the header is part of the signature.
+  url = signed_v4(bucket, "resumable.bin", "POST", headers: { "x-goog-resumable" => "start" })
+  status, body, response = http("POST", url, body: "", headers: { "x-goog-resumable" => "start" })
+  check status == 201, "start status #{status} body #{body[0, 200]}"
+  session = response["location"].to_s
+  uri = URI(session)
+  check [uri.scheme, uri.host, uri.port] == [ORIGIN.scheme, ORIGIN.host, ORIGIN.port], "session URI #{session.inspect} leaves the origin"
+  status, body, = http("PUT", session, body: data)
+  check [200, 201].include?(status), "upload status #{status} body #{body[0, 200]}"
+  check download(bucket.file("resumable.bin")) == data.b, "signed resumable bytes differ"
+end
+
+probe "signed.v4_response_overrides", "signed" do
+  bucket = new_bucket
+  upload bucket, "report.txt", "a,b\n", content_type: "text/plain"
+  disposition = 'attachment; filename="report.csv"'
+  url = signed_v4(bucket, "report.txt", "GET",
+                  query: { "response-content-disposition" => disposition, "response-content-type" => "text/csv" })
+  status, body, response = http("GET", url)
+  check status == 200, "status #{status} body #{body[0, 200]}"
+  check body == "a,b\n", "signed bytes differ"
+  headers = [response["content-disposition"], response["content-type"]]
+  check headers == [disposition, "text/csv"], "override headers #{headers}"
+  check bucket.file("report.txt").content_type == "text/plain", "stored content type changed"
 end
 
 probe "signed.v2_get", "signed" do

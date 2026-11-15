@@ -241,6 +241,22 @@ def soft_delete_policy():
     check(b.soft_delete_policy.retention_duration_seconds == 864000, "soft delete policy differs")
 
 
+@probe("bucket.soft_delete_restore")
+def bucket_restore():
+    b = CLIENT.bucket(unique())
+    b.soft_delete_policy.retention_duration_seconds = 604800
+    b.create(retry=None)
+    check(b.soft_delete_policy.retention_duration_seconds == 604800, "soft delete policy not set at creation")
+    generation = b.generation
+    check(generation is not None, "bucket generation missing")
+    b.delete(retry=None)
+    expect_error(exceptions.NotFound, lambda: CLIENT.get_bucket(b.name, retry=None))
+    deleted = CLIENT.get_bucket(b.name, soft_deleted=True, generation=generation, retry=None)
+    check((deleted.name, deleted.generation) == (b.name, generation), "soft-deleted lookup")
+    CLIENT.restore_bucket(b.name, generation, retry=None)
+    check(CLIENT.get_bucket(b.name, retry=None).name == b.name, "restored bucket missing")
+
+
 @probe("bucket.autoclass")
 def autoclass():
     b = CLIENT.bucket(unique())
@@ -475,6 +491,30 @@ def compose():
     check(read(dest) == b"p1p2p3", "compose bytes")
 
 
+@probe("object.compose_preconditions")
+def compose_preconditions():
+    b = CLIENT.bucket(unique())
+    b.versioning_enabled = True
+    b.create(retry=None)
+    first = upload(b, "p1", "one").generation
+    upload(b, "p1", "ONE")
+    second = upload(b, "p2", "two").generation
+    # compose sends each source blob's generation, so these pin the versions to concatenate.
+    sources = [b.blob("p1", generation=first), b.blob("p2", generation=second)]
+    b.blob("both").compose(sources, retry=None)
+    composed = b.get_blob("both", retry=None)
+    check(read(composed) == b"onetwo", "compose bytes")
+    stale = composed.generation + 1
+    expect_error(exceptions.PreconditionFailed, lambda: b.blob("both").compose(sources, if_generation_match=stale, retry=None))
+    after = b.get_blob("both", retry=None)
+    check(after.generation == composed.generation, "destination generation changed")
+    check(read(after) == b"onetwo", "destination bytes changed")
+    b.blob("both").compose(sources, if_generation_match=composed.generation, retry=None)
+    replaced = b.get_blob("both", retry=None)
+    check(replaced.generation != composed.generation, "matching compose kept the generation")
+    check(read(replaced) == b"onetwo", "matching compose bytes")
+
+
 @probe("object.move")
 def move():
     b = bucket()
@@ -550,6 +590,22 @@ def csek():
     check(read(blob) == b"secret", "keyed bytes")
 
 
+@probe("object.csek_rotation")
+def csek_rotation():
+    b = bucket()
+    old, new = secrets.token_bytes(32), secrets.token_bytes(32)
+    b.blob("rotate.txt", encryption_key=old).upload_from_string("rotate", retry=None)
+    source = b.blob("rotate.txt", encryption_key=old)
+    dest = b.blob("rotate.txt", encryption_key=new)
+    token, _, _ = dest.rewrite(source, retry=None)
+    while token is not None:
+        token, _, _ = dest.rewrite(source, token=token, retry=None)
+    check(read(b.blob("rotate.txt", encryption_key=new)) == b"rotate", "new key bytes")
+    # GoogleAPICallError covers HTTP error responses only; a transport failure raises from requests.
+    expect_error(exceptions.GoogleAPICallError, lambda: read(b.blob("rotate.txt", encryption_key=old)))
+    expect_error(exceptions.GoogleAPICallError, lambda: read(b.blob("rotate.txt")))
+
+
 @probe("object.soft_delete_restore")
 def restore():
     b = bucket()
@@ -577,6 +633,39 @@ def signed(version, method):
 
 probe("signed.v4_get")(lambda: signed("v4", "GET"))
 probe("signed.v4_put")(lambda: signed("v4", "PUT"))
+
+
+@probe("signed.v4_resumable_upload")
+def signed_resumable():
+    b = bucket()
+    data = secrets.token_bytes(256 * 1024 + 5)
+    # RESUMABLE signs a POST with the x-goog-resumable: start header.
+    url = b.blob("resumable.bin").generate_signed_url(version="v4", expiration=timedelta(minutes=5), method="RESUMABLE",
+                                                      api_access_endpoint=ORIGIN, credentials=SIGNER)
+    start = HTTP.post(url, headers={"x-goog-resumable": "start"})
+    check(start.status_code == 201, f"start status {start.status_code}: {start.text[:200]}")
+    session = start.headers.get("Location", "")
+    check(urlsplit(session)[:2] == (PARTS.scheme, PARTS.netloc), f"session URI {session!r} leaves the origin")
+    finish = HTTP.put(session, data=data)
+    check(finish.status_code in (200, 201), f"upload status {finish.status_code}: {finish.text[:200]}")
+    check(read(b.blob("resumable.bin")) == data, "signed resumable bytes")
+
+
+@probe("signed.v4_response_overrides")
+def signed_overrides():
+    blob = upload(bucket(), "report.txt", "a,b\n", content_type="text/plain")
+    disposition = 'attachment; filename="report.csv"'
+    url = blob.generate_signed_url(version="v4", expiration=timedelta(minutes=5), method="GET", api_access_endpoint=ORIGIN,
+                                   credentials=SIGNER, response_disposition=disposition, response_type="text/csv")
+    response = HTTP.get(url)
+    check(response.status_code == 200, f"status {response.status_code}: {response.text[:200]}")
+    check(response.content == b"a,b\n", "signed bytes")
+    headers = (response.headers.get("Content-Disposition"), response.headers.get("Content-Type"))
+    check(headers == (disposition, "text/csv"), f"override headers {headers}")
+    blob.reload(retry=None)
+    check(blob.content_type == "text/plain", f"stored content type {blob.content_type}")
+
+
 probe("signed.v2_get")(lambda: signed("v2", "GET"))
 
 

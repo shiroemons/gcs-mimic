@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Probes the official `com.google.cloud:google-cloud-storage` 2.78.0 against an
-emulator. It emits one JSONL line per case: the 51 shared bucket, object and
+emulator. It emits one JSONL line per case: the 56 shared bucket, object and
 signed cases (same IDs and order as the Python probe) plus 19 Java-specific
 cases in the `sdk` area (IDs start with `sdk.`). The area covers the SDK's
 blob handles, channels, write sessions, Transfer Manager, batch, retry and
@@ -25,7 +25,9 @@ SCORECARD_ENDPOINT=https://127.0.0.1:PORT SCORECARD_GRPC_ENDPOINT=127.0.0.1:GRPC
 
 ## Unsupported cases
 
-None. Every shared case is expressible with the public Java API.
+`bucket.soft_delete_restore`: google-cloud-storage 2.78.0 has no public API for
+restoring a soft-deleted bucket (`Storage.restore` takes only a `BlobId`). Every
+other shared case is expressible with the public Java API.
 
 ## Dependencies
 

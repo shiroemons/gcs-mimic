@@ -1,4 +1,4 @@
-// Bucket and project cases: the first 20 shared IDs.
+// Bucket and project cases: the first 21 shared IDs.
 #include "harness.h"
 #include <chrono>
 #include <map>
@@ -254,6 +254,9 @@ void AddBucketCases(std::vector<Case>& cases) {
                    {"bucket.iam_policy", BucketIamPolicy},
                    {"bucket.iam_test_permissions", BucketIamTestPermissions},
                    {"bucket.soft_delete_policy", BucketSoftDeletePolicy},
+                   {"bucket.soft_delete_restore", nullptr,
+                    "google-cloud-cpp 3.13.0 has no public API for restoring a soft-deleted "
+                    "bucket (Client has RestoreObject only)"},
                    {"bucket.autoclass", BucketAutoclass},
                    {"bucket.acl", BucketAcl},
                    {"bucket.default_object_acl", BucketDefaultObjectAcl},
