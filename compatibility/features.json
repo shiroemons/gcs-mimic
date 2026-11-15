@@ -5644,7 +5644,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.get through project-plus-bucket predefined roles; broader bucket policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Supported fields selection is delivered; recognized unsupported billing semantics return 400 badRequest. generation is accepted only with softDeleted=true (SPEC-BUCKET-SOFT-DELETE).",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
@@ -6333,7 +6333,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 16 MiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The fake-gcs-server profile keeps the 400 for an undeclared query parameter and for an array lifecycle.",
+      "notes": "Bounded 16 MiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Ruby SDK no-op defaults are accepted under docs/en/slices/sdk-ruby-defaults.md; SPEC-RUBY-DEFAULTS records unverified provider null/empty-input parity. iamConfiguration accepts uniformBucketLevelAccess/bucketPolicyOnly enabled booleans, null/empty child defaults and combined enforced PAP; persisted aliases/deadline, 400 predefined ACL rejection and remaining ACL/default-grant/initializer limits are described in docs/en/slices/sdk-ubla-predefined-acl.md (SPEC-UBLA-EDGES). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): the native profile accepts undeclared query parameters (SPEC-JSON-UNKNOWN-QUERY, resolved) and a lifecycle given as an array (SPEC-LIFECYCLE-ARRAY, resolved), uses reason invalid with Cloud Storage's wording, omits retentionPolicy.isLocked while unlocked, gives an inactive softDeletePolicy no effectiveTime and hides the owner under uniform bucket-level access. The fake-gcs-server profile hides that owner too, on every route, projection and field selection, as the pinned fake-gcs-server v1.56.1 never reports one, and keeps the 400 for an undeclared query parameter and for an array lifecycle.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -7005,7 +7005,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.create on the ?project= project through project-level predefined roles only; IAM/organization policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 400 badRequest.",
         "Documented output-only insert fields are ignored, following the JSON resource writable column and v2 OUTPUT_ONLY annotations/AIP-203; exact JSON service behavior is unverified against a real bucket.",
@@ -7545,7 +7545,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.list on the ?project= project through project-level predefined roles only; IAM policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
         "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -24906,7 +24906,9 @@
             "object_acl_targets_a_generation_and_renders_with_full_projection",
             "strict_profile_requires_iam_policy_permissions",
             "uniform_access_and_public_access_prevention_restrict_acls",
-            "metadata_updates_replace_and_clear_acls"
+            "metadata_updates_replace_and_clear_acls",
+            "legacy_profile_reports_no_owner_under_uniform_access",
+            "legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller"
           ]
         },
         {
@@ -24924,7 +24926,9 @@
         "object_acl_targets_a_generation_and_renders_with_full_projection",
         "strict_profile_requires_iam_policy_permissions",
         "uniform_access_and_public_access_prevention_restrict_acls",
-        "metadata_updates_replace_and_clear_acls"
+        "metadata_updates_replace_and_clear_acls",
+        "legacy_profile_reports_no_owner_under_uniform_access",
+        "legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller"
       ],
       "verification": [
         {
@@ -24964,6 +24968,16 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["metadata_updates_replace_and_clear_acls"]
+        },
+        {
+          "command": "cargo test --locked --offline --test it_json legacy_profile_reports_no_owner_under_uniform_access",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "docs/en/slices/json-acl.md",
+          "test_ids": [
+            "legacy_profile_reports_no_owner_under_uniform_access",
+            "legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -26198,7 +26212,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-<projectNumber>; the ownership model is a local choice without provider parity."
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity."
       ],
       "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
@@ -47703,7 +47717,7 @@
       ],
       "source_checked_at": "2026-10-31",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/json-acl.md; read-grant evidence: docs/en/slices/acl-permission-effects.md. With uniform access enabled every bucket, default object and object ACL method returns 400 invalid without mutation, full projection omits acl/defaultObjectAcl (bucket owner remains) and stored entries reappear after disabling. Predefined ACL rejection stays under DESIGN-019. Selected-generation object read grants now stop under UBLA and resume after disabling; fixed-source copy replays and BidiRead handles also reauthorize. Synchronized legacy bucket IAM permissions must remain available under UBLA. Object OWNER management, remaining grants/projections and exact provider errors retain their pending cases.",
+      "notes": "Contract: docs/en/slices/json-acl.md; read-grant evidence: docs/en/slices/acl-permission-effects.md. With uniform access enabled every bucket, default object and object ACL method returns 400 invalid without mutation, full projection omits acl, defaultObjectAcl and the bucket owner in both profiles, and stored entries reappear after disabling. Predefined ACL rejection stays under DESIGN-019. Selected-generation object read grants now stop under UBLA and resume after disabling; fixed-source copy replays and BidiRead handles also reauthorize. Synchronized legacy bucket IAM permissions must remain available under UBLA. Object OWNER management, remaining grants/projections and exact provider errors retain their pending cases.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",

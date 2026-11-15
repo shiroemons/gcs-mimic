@@ -19,7 +19,10 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
 - A bucket, default object ACL or object generation without stored entries has
   the `projectPrivate` canned ACL of the owning project:
   `project-owners-N OWNER`, `project-editors-N OWNER`, `project-viewers-N READER`.
-  `N` is the bucket's rendered `projectNumber`: a numeric local project ID, or `0`.
+  `N` is the bucket's local project number: a numeric local project ID, or `0`.
+  The native profile renders the same number as `projectNumber`. The
+  fake-gcs-server profile fixes `projectNumber` at `"0"`, so its ACL entries and
+  `owner` name the local project number instead.
 - Entities follow the pinned Discovery forms: `user-`/`group-` email or ID,
   `domain-`, `project-{owners,editors,viewers}-ID`, `allUsers`,
   `allAuthenticatedUsers`. Roles are `OWNER`, `WRITER`, `READER` for bucket ACLs
@@ -46,10 +49,10 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
   or object generation.
 - `projection=full`, including the PUT default, adds bucket `acl`,
   `defaultObjectAcl` and `owner` (`project-owners-N`) and object `acl` to bucket
-  get/list/insert/patch/update and object get/list/insert/patch/update/copy/
+  get/list/insert/patch/update/restore and object get/list/insert/patch/update/copy/
   compose/move/restore responses. Strict callers without
   `storage.buckets.getIamPolicy` or `storage.objects.getIamPolicy` receive the
-  resource without ACL fields.
+  resource without ACL fields or bucket `owner`, in both profiles.
 - Bucket PATCH/PUT `acl` and `defaultObjectAcl`, and object PATCH/PUT `acl`,
   replace the entire supplied array. An empty array clears the ACL; omission
   preserves it for both methods. Output-only fields on entries are ignored.
@@ -77,7 +80,9 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
   PUT retains its existing metadata-map/content replacement behavior; ACL
   omission does not reset stored entries.
 - With uniform bucket-level access enabled every ACL method returns 400 `invalid`
-  and full projection omits `acl`/`defaultObjectAcl` (bucket `owner` remains).
+  and full projection omits `acl`, `defaultObjectAcl` and the bucket `owner` in
+  both profiles, whatever the route or `fields` selection, as Cloud Storage does
+  (recorded 2026-10-31); the pinned fake-gcs-server never returns them.
   Stored entries survive and reappear when uniform access is disabled.
 - With public access prevention in effect, adding `allUsers` or
   `allAuthenticatedUsers` fails with 412 `conditionNotMet`, as IAM policy

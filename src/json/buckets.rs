@@ -1,5 +1,4 @@
 use super::{JsonError, Projection, WriteMode, query::validate_project};
-use crate::acl::{Entity, ProjectTeam};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
     RETENTION_RANGE_MESSAGE, RetentionPeriod, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE,
@@ -1046,26 +1045,6 @@ fn profile_fields(
             labels: Some(&bucket.labels),
         },
     })
-}
-
-/// The `owner` the fake-gcs-server profile keeps reporting for a bucket under uniform
-/// bucket-level access, where Cloud Storage reports none (recorded 2026-10-31): the owners team
-/// of the project number the profile reports.
-pub(crate) fn legacy_uniform_owner(
-    profile: CompatProfile,
-    uniform_access: UniformAccess,
-) -> Option<Value> {
-    match (profile, uniform_access) {
-        (CompatProfile::FakeGcsServer, UniformAccess::Enabled) => {
-            let owners = Entity::project_team(ProjectTeam::Owners, LEGACY_PROJECT_NUMBER);
-            Some(Value::Object(Map::from_iter([(
-                "entity".into(),
-                owners.as_str().into(),
-            )])))
-        }
-        (CompatProfile::FakeGcsServer, UniformAccess::Disabled)
-        | (CompatProfile::Native, UniformAccess::Enabled | UniformAccess::Disabled) => None,
-    }
 }
 
 pub(crate) fn bucket_resource_with_profile(

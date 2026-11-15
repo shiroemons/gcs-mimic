@@ -78,6 +78,7 @@ records null defaults and local error details.
 | Bucket metadata call | gcs-mimic behavior |
 | --- | --- |
 | Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }` / JSON bucket PUT | In the native profile PUT replaces the resource, as recorded from Cloud Storage: omitted labels, CORS, lifecycle, versioning, retention policy (a locked one stays) and defaultEventBasedHold are cleared; the storage class, soft delete policy and access settings are kept. Ruby update blocks send PUT, so they lose omitted settings; use direct setters (PATCH) instead. `--compat-profile fake-gcs-server` keeps the earlier omission-preserving behavior. See the [PUT contract](slices/bucket-metadata-put.md). |
+| JSON bucket insert, get, PATCH, PUT or restore with `projection=full`, the default of a `--compat-profile fake-gcs-server` PUT | Under uniform bucket-level access neither profile returns `acl`, `defaultObjectAcl` or `owner`, whatever the `fields` selection; fake-gcs-server never returns them. With uniform access off the response adds them. The fake-gcs-server profile fixes `projectNumber` at `"0"`, so its `owner` and ACL entries name the local project number instead: `project-owners-42` for project `00042`, `project-owners-0` for a project that is not a number. See the [ACL contract](slices/json-acl.md). |
 
 | Soft-delete call | gcs-mimic behavior |
 | --- | --- |

@@ -4391,27 +4391,42 @@ fn satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others() {
     }
 }
 
-/// The fake-gcs-server profile keeps reporting the owners team of project number `0` as the
-/// `owner` of a bucket under uniform bucket-level access. A full projection appends it after
-/// every other field, before the field selection applies, and leaves listing items without it.
+/// Under uniform bucket-level access the fake-gcs-server profile reports no bucket `owner`, as
+/// the native profile and Cloud Storage do (recorded 2026-10-31); fake-gcs-server itself never
+/// reports one. No route, projection or field selection adds it, so a full projection renders
+/// the same resource as the default one.
 #[test]
-fn legacy_profile_reports_an_owner_under_uniform_access() {
-    fn keys(value: &Value) -> Vec<&str> {
-        value
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect()
-    }
+fn legacy_profile_reports_no_owner_under_uniform_access() {
     let dir = TestDir::new();
+    let uniform = |name: &str| {
+        json!({
+            "name": name,
+            "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": true}},
+            "softDeletePolicy": {"retentionDurationSeconds": "604800"},
+        })
+        .to_string()
+    };
+    // The profile renders no bucket generation, so the native profile soft-deletes the bucket the
+    // profile restores from the same data directory.
+    let mut native = profile_server(&dir, "native");
+    let created = native
+        .request(
+            "POST",
+            "/storage/v1/b?project=00042",
+            &uniform("uniform-restore"),
+        )
+        .json_ok();
+    let generation = created["generation"].as_str().unwrap().to_owned();
+    native
+        .request("DELETE", "/storage/v1/b/uniform-restore", "")
+        .expect(204);
+    native.stop();
     let server = profile_server(&dir, "fake-gcs-server");
     let path = "/storage/v1/b/uniform-owner";
     let inserted = server.request(
         "POST",
         "/storage/v1/b?project=00042&projection=full",
-        &json!({"name":"uniform-owner","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}})
-            .to_string(),
+        &uniform("uniform-owner"),
     );
     let patched = server.request(
         "PATCH",
@@ -4421,34 +4436,29 @@ fn legacy_profile_reports_an_owner_under_uniform_access() {
     // The profile's PUT defaults to the full projection and keeps the access settings it omits.
     let replaced = server.request("PUT", path, r#"{"labels":{"replaced":"yes"}}"#);
     let full = server.request("GET", &format!("{path}?projection=full"), "");
+    let restored = server.request(
+        "POST",
+        &format!("/storage/v1/b/uniform-restore/restore?generation={generation}&projection=full"),
+        "",
+    );
     for (operation, reply) in [
         ("insert", &inserted),
         ("patch", &patched),
         ("put", &replaced),
         ("get", &full),
+        ("restore", &restored),
     ] {
         let resource = reply.json_ok();
         assert_eq!(
             resource["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"], true,
             "{operation}"
         );
-        assert_eq!(
-            resource["owner"],
-            json!({"entity":"project-owners-0"}),
-            "{operation}"
-        );
-        assert!(
-            resource.get("acl").is_none() && resource.get("defaultObjectAcl").is_none(),
-            "{operation}"
-        );
-        assert_eq!(keys(&resource).last(), Some(&"owner"), "{operation}");
+        for field in ["owner", "acl", "defaultObjectAcl"] {
+            assert!(resource.get(field).is_none(), "{operation} {field}");
+        }
     }
     let plain = server.request("GET", path, "").json_ok();
-    assert!(plain.get("owner").is_none());
-    let full = full.json();
-    let mut appended = keys(&plain);
-    appended.push("owner");
-    assert_eq!(keys(&full), appended);
+    assert_eq!(full.json(), plain);
     let selected = server
         .request(
             "GET",
@@ -4456,15 +4466,67 @@ fn legacy_profile_reports_an_owner_under_uniform_access() {
             "",
         )
         .json_ok();
-    assert_eq!(
-        selected,
-        json!({"name":"uniform-owner","owner":{"entity":"project-owners-0"}})
-    );
+    assert_eq!(selected, json!({"name":"uniform-owner"}));
     let listed = server
         .request("GET", "/storage/v1/b?project=00042&projection=full", "")
         .json_ok();
-    assert_eq!(listed["items"][0]["name"], "uniform-owner");
-    assert!(listed["items"][0].get("owner").is_none());
+    let items = listed["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2, "{listed}");
+    for item in items {
+        assert!(item.get("owner").is_none(), "{item}");
+    }
+}
+
+/// A strict caller without `storage.buckets.getIamPolicy` receives no `owner` of a bucket under
+/// uniform bucket-level access in the fake-gcs-server profile, whatever it asks for.
+#[test]
+fn legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller() {
+    let dir = TestDir::new();
+    let registry = common::process::write_identities(
+        &dir.0,
+        &json!({"identities":[
+            {"id":"editor@example.test","tokens":["editor"],"project_roles":{"project":["roles/storage.editor"]}},
+            {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}}
+        ]}),
+    );
+    let server = Server::start_options(
+        &dir,
+        &[
+            "--compat-profile",
+            "fake-gcs-server",
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            registry.to_str().unwrap(),
+        ],
+    );
+    let path = "/storage/v1/b/strict-uniform";
+    let inserted = server.authorized(
+        "editor",
+        "POST",
+        "/storage/v1/b?project=project&projection=full",
+        r#"{"name":"strict-uniform","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}"#,
+    );
+    let full = server.authorized("viewer", "GET", &format!("{path}?projection=full"), "");
+    for (operation, reply) in [("insert", &inserted), ("get", &full)] {
+        let resource = reply.json_ok();
+        assert_eq!(
+            resource["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"], true,
+            "{operation}"
+        );
+        for field in ["owner", "acl", "defaultObjectAcl"] {
+            assert!(resource.get(field).is_none(), "{operation} {field}");
+        }
+    }
+    let selected = server
+        .authorized(
+            "viewer",
+            "GET",
+            &format!("{path}?projection=full&fields=name,owner"),
+            "",
+        )
+        .json_ok();
+    assert_eq!(selected, json!({"name":"strict-uniform"}));
 }
 
 declare_server!();

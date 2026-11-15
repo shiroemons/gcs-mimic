@@ -124,7 +124,6 @@ pub(super) async fn respond<'a>(
     };
     if acl_full {
         acl::add_full_projection(state, caller, &mut rendered, base_url).await?;
-        add_legacy_uniform_owner(&mut rendered, profile);
     }
     Ok(json_response_selected(&mut rendered.value, &fields, cache))
 }
@@ -149,20 +148,6 @@ fn rendered_bucket(
         value: json::bucket_resource_with_profile(record, base_url, projection, profile)?,
         subjects: AclSubjects::Bucket(record.into()),
     })
-}
-
-/// Appends the `owner` the profile reports for a bucket resource under uniform bucket-level
-/// access, after the ACL fields of a full projection; an `owner` those fields added stays.
-/// Listing items carry none.
-fn add_legacy_uniform_owner(rendered: &mut Rendered, profile: CompatProfile) {
-    let AclSubjects::Bucket(bucket) = &rendered.subjects else {
-        return;
-    };
-    if let Some(owner) = json::legacy_uniform_owner(profile, bucket.uniform_access)
-        && let Some(resource) = rendered.value.as_object_mut()
-    {
-        resource.entry("owner").or_insert(owner);
-    }
 }
 
 /// Whether a PATCH or PUT starts on a bucket whose uniform bucket-level access is enabled.
@@ -562,7 +547,6 @@ async fn get(
     let mut resource = rendered_bucket(&record, ctx.base_url, params.projection, profile)?;
     if params.projection == json::Projection::Full {
         acl::add_full_projection(state, caller, &mut resource, ctx.base_url).await?;
-        add_legacy_uniform_owner(&mut resource, profile);
     }
     read_metadata_response(
         request.headers(),

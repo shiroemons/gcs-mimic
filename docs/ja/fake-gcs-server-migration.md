@@ -74,6 +74,7 @@ nativeの`api_base_url`は再開可能URLも固定するため、すべてのク
 | バケットメタデータの操作 | gcs-mimicでの動作 |
 | --- | --- |
 | Ruby `bucket.update { \|b\| b.public_access_prevention = "enforced" }`、JSONバケットPUT | 指定した設定だけを変更し、省略したlabels・versioningなどの設定を保持します。labels:nullで消去し、versioning:{}で無効化します。実GCSでは未検証のローカル方針です。[PUTの契約](bucket-metadata-put.md)を参照してください。 |
+| `projection=full`を付けたJSONのバケット作成・取得・PATCH・PUT・restore（`--compat-profile fake-gcs-server`のPUTでは既定） | UBLAが有効なら、どちらのプロファイルも`fields`の指定にかかわらず`acl`・`defaultObjectAcl`・`owner`を返しません。fake-gcs-serverもこれらを返しません。UBLAが無効なら応答に加えます。fake-gcs-serverプロファイルは`projectNumber`を`"0"`に固定するため、`owner`とACLのエントリーにはローカルのプロジェクト番号が入ります。プロジェクト`00042`なら`project-owners-42`、数値でないプロジェクトなら`project-owners-0`です。[ACLの契約（英語）](../en/slices/json-acl.md)を参照してください。 |
 
 | 保持ポリシーの操作 | gcs-mimicでの動作 |
 | --- | --- |
