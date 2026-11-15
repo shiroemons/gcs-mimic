@@ -85,13 +85,6 @@ fn session_status(error: ResumableError) -> Status {
     }
 }
 
-pub(super) fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    validate::common(
-        params,
-        "customer encryption; omit common_object_request_params",
-    )
-}
-
 pub(super) fn conditions(conditions: ObjectConditions) -> Result<ObjectConditions, Status> {
     validate::lenient_conditions(
         conditions,
