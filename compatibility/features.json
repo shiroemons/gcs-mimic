@@ -8597,7 +8597,7 @@
       ],
       "source_checked_at": "2026-10-31",
       "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
-      "notes": "POST b/{bucket}/restore?generation=G (projection optional, empty body) restores an unexpired soft-deleted version in one catalog transaction with its generation, metadata, IAM bindings (new revision), bucket/default object ACL entries and a new incarnation; retained objects return to the bucket but stay soft-deleted, as documented and observed on Cloud Storage. Missing generation 400 required, unknown or expired version 404, live bucket with the same name 409 conflict. Strict mode requires storage.buckets.restore on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md; evidence: docs/en/evidence/bucket-soft-delete-restore.md. userProject is accepted and ignored.",
+      "notes": "POST b/{bucket}/restore?generation=G (projection optional; an empty body, or a form body identical to the URL query) restores an unexpired soft-deleted version in one catalog transaction with its generation, metadata, IAM bindings (new revision), bucket/default object ACL entries and a new incarnation; retained objects return to the bucket but stay soft-deleted, as documented and observed on Cloud Storage. Missing generation 400 required, unknown or expired version 404, live bucket with the same name 409 conflict. Strict mode requires storage.buckets.restore on the version's project. Contract: docs/en/slices/bucket-soft-delete-restore.md; evidence: docs/en/evidence/bucket-soft-delete-restore.md. userProject is accepted and ignored.",
       "dependencies": [
         "BEHAVIOR-BUCKET-017"
       ],
@@ -8673,6 +8673,15 @@
           "test_ids": [
             "sdk.bucket_soft_delete_restore"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --test it_json bucket_soft_delete",
+          "result": "PASS",
+          "verified_at": "2026-11-15",
+          "artifact": "tests/it_json/bucket_soft_delete_http.rs",
+          "test_ids": [
+            "bucket_soft_delete_get_list_and_restore_round_trip"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -8692,10 +8701,11 @@
         }
       ],
       "known_deviations": [
-        "SPEC-BUCKET-SOFT-DELETE: a live bucket with the same name makes restore return a local 409 conflict; notification configurations are not retained; gRPC restore is not implemented."
+        "SPEC-BUCKET-SOFT-DELETE: a live bucket with the same name makes restore return a local 409 conflict; notification configurations are not retained; gRPC restore is not implemented.",
+        "The official Ruby SDK (google-cloud-storage 1.62.2) restore_bucket repeats the URL query as a form-encoded body. Restore accepts that identical form body, as objects.restore does; a form body that adds or changes a parameter, and any JSON body including {}, still return 400 (tests/it_json/bucket_soft_delete_http.rs bucket_soft_delete_get_list_and_restore_round_trip). No Cloud Storage recording establishes how a restore body is treated."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-31",
+      "last_verified": "2026-11-15",
       "http_method": "POST",
       "path": "b/{bucket}/restore",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",

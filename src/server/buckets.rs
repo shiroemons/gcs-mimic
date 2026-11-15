@@ -114,13 +114,7 @@ pub(super) async fn respond<'a>(
             bucket,
             generation,
             projection,
-        } => {
-            let record = state
-                .catalog
-                .restore_bucket(&bucket, generation, &access)
-                .await?;
-            rendered_bucket(&record, base_url, projection, profile)?
-        }
+        } => restore(request, ctx, &access, &bucket, generation, projection).await?,
     };
     if acl_full {
         acl::add_full_projection(state, caller, &mut rendered, base_url).await?;
@@ -282,6 +276,27 @@ async fn lock_retention_policy(
         )
         .await?;
     rendered_bucket(&record, ctx.base_url, json::Projection::NoAcl, ctx.profile)
+}
+
+/// Restores a soft-deleted bucket. Ruby's generated client repeats the URL query in a
+/// form-encoded body here, as on object restore and retention lock, so the body passes the same
+/// check; no pinned client sends `{}` to this method.
+async fn restore(
+    request: Request<Incoming>,
+    ctx: BucketCtx<'_>,
+    access: &BucketAccess,
+    bucket: &str,
+    generation: i64,
+    projection: json::Projection,
+) -> Result<Rendered, JsonError> {
+    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    validate_bodyless_post(request, &query, EmptyJsonBody::Refused).await?;
+    let record = ctx
+        .state
+        .catalog
+        .restore_bucket(bucket, generation, access)
+        .await?;
+    rendered_bucket(&record, ctx.base_url, projection, ctx.profile)
 }
 
 async fn test_iam_permissions(

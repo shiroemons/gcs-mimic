@@ -254,10 +254,10 @@ impl BucketRequest {
             | Self::SetIam { .. }
             | Self::Patch { .. }
             | Self::Update { .. }
+            | Self::Restore { .. }
             | Self::LockRetentionPolicy { .. } => true,
             Self::GetSoftDeleted { .. }
             | Self::ListSoftDeleted(_)
-            | Self::Restore { .. }
             | Self::Get { .. }
             | Self::List(_)
             | Self::Delete { .. }

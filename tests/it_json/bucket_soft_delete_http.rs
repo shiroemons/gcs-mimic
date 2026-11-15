@@ -12,13 +12,24 @@ impl Server {
     }
 
     fn send(&self, token: Option<&str>, method: &str, path: &str, body: &str) -> Reply {
+        self.send_typed(token, "application/json", method, path, body)
+    }
+
+    fn send_typed(
+        &self,
+        token: Option<&str>,
+        content_type: &str,
+        method: &str,
+        path: &str,
+        body: &str,
+    ) -> Reply {
         let authorization = token
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
             .unwrap_or_default();
         Client {
             address: &self.address,
             host: "local.invalid",
-            headers: "Content-Type: application/json\r\n",
+            headers: &format!("Content-Type: {content_type}\r\n"),
             timeout: Duration::from_secs(5),
         }
         .request_eof(method, path, &authorization, body.as_bytes())
@@ -155,14 +166,38 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
     server
         .request("POST", "/storage/v1/b/soft-bucket/restore?generation=1", "")
         .json_reason_value(404, "notFound");
-    // Restart between deletion and restore: the soft-deleted state is durable.
+    let restore = format!("/storage/v1/b/soft-bucket/restore?generation={generation}");
+    // A body passes only when it adds nothing to the URL query; no pinned client sends `{}` here.
+    for (content_type, body) in [
+        (
+            "application/x-www-form-urlencoded",
+            "generation=1".to_owned(),
+        ),
+        (
+            "application/x-www-form-urlencoded",
+            format!("generation={generation}&extra=true"),
+        ),
+        ("application/json", "{}".to_owned()),
+        (
+            "application/json",
+            format!(r#"{{"generation":"{generation}"}}"#),
+        ),
+    ] {
+        server
+            .send_typed(None, content_type, "POST", &restore, &body)
+            .json_reason_value(400, "invalidArgument");
+    }
+    // Restart between deletion and restore: the soft-deleted state is durable. The restore
+    // repeats its URL query as a form body, as google-cloud-storage 1.62.2 for Ruby sends it.
     server.stop();
     let server = Server::start(&dir, &[]);
     let restored = server
-        .request(
+        .send_typed(
+            None,
+            "application/x-www-form-urlencoded",
             "POST",
-            &format!("/storage/v1/b/soft-bucket/restore?generation={generation}"),
-            "",
+            &restore,
+            &format!("generation={generation}"),
         )
         .json_ok();
     assert_eq!(restored["generation"], generation);

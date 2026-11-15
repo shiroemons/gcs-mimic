@@ -30,8 +30,10 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
 - `buckets.list`: `softDeleted=true` lists only soft-deleted versions as distinct
   results ordered by name and generation; the page token carries the generation.
   Permission: `storage.buckets.list`.
-- `buckets.restore`: `POST b/{bucket}/restore?generation=G`, no request body,
-  optional `projection`, returns the bucket. IAM policies and metadata are
+- `buckets.restore`: `POST b/{bucket}/restore?generation=G`, no request body
+  (a form body identical to the URL query, which the Ruby SDK sends, is accepted
+  since the scorecard shared-case slice), optional `projection`, returns the
+  bucket. IAM policies and metadata are
   restored, managed folders are not, and `softDeleteTime`/`hardDeleteTime` are
   cleared. The JSON API restores only the empty bucket; objects are restored
   afterwards with `objects.restore`. Permission: `storage.buckets.restore` at the
@@ -90,8 +92,8 @@ and [buckets.restore](https://docs.cloud.google.com/storage/docs/json_api/v1/buc
   bucket/default object ACL entries, a new incarnation and the retained objects.
   The response is the live bucket without deletion times. A missing `generation`
   returns 400 required, an unknown or expired version 404 notFound, a live bucket
-  with the same name 409 conflict, and a request body 400. All failures leave the
-  catalog unchanged.
+  with the same name 409 conflict, and any other request body 400. All failures
+  leave the catalog unchanged.
 - BUCKET-SOFT-DELETE-AUTH: in strict mode, soft-deleted get, list and restore
   require `storage.buckets.get`, `storage.buckets.list` and
   `storage.buckets.restore` on the soft-deleted version's project. The deleted
