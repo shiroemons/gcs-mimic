@@ -681,7 +681,6 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
     match error {
         ObjectError::Corrupt(_)
         | ObjectError::InvalidFixedMetadata(_)
-        | ObjectError::InvalidMetadata
         | ObjectError::Metadata(_) => true,
         ObjectError::Unavailable(cause) => matches!(
             cause.typed_source(),

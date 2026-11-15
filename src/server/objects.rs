@@ -224,11 +224,16 @@ async fn add_acl(
         return Ok(());
     };
     // A replay is recorded only by an upload or a copy, which render one object.
+    let mismatch = || {
+        JsonError::from(ObjectError::Unavailable(
+            "Upload replay snapshot does not match the replayed object".into(),
+        ))
+    };
     let AclSubjects::Object(object) = &rendered.subjects else {
-        return Err(JsonError::from(ObjectError::InvalidMetadata));
+        return Err(mismatch());
     };
     if !snapshot.matches_resource(&object.bucket, &object.name, object.generation) {
-        return Err(JsonError::from(ObjectError::InvalidMetadata));
+        return Err(mismatch());
     }
     let access = ctx.authorize(auth::OBJECTS_GET_IAM, &object.bucket).await?;
     if let Some(snapshot) = ctx

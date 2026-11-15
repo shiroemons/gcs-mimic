@@ -860,7 +860,6 @@ pub(crate) enum ObjectError {
     /// [`Self::ChecksumMismatch`], with both digests for the JSON message.
     HashMismatch(Box<HashMismatch>),
     TooLarge,
-    InvalidMetadata,
     InvalidFixedMetadata(String),
     /// A predefined ACL reached publication on a bucket with uniform access enabled. Typed
     /// because each protocol words this refusal differently.
@@ -915,7 +914,6 @@ impl fmt::Display for ObjectError {
                 formatter.write_str("checksum mismatch")
             }
             Self::TooLarge => formatter.write_str("object too large"),
-            Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
             Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),
             Self::UniformAccessPredefinedAcl => {
                 formatter.write_str(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
@@ -979,7 +977,6 @@ impl TypedSource for ObjectError {
             | Self::ChecksumMismatch
             | Self::HashMismatch(_)
             | Self::TooLarge
-            | Self::InvalidMetadata
             | Self::InvalidFixedMetadata(_)
             | Self::UniformAccessPredefinedAcl
             | Self::InvalidDerivedArgument(_)

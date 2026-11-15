@@ -1069,6 +1069,7 @@ fn publish_entry(
 ) -> Result<ObjectRecord, AdminError> {
     let now = clock.now();
     let micros = checked_entry_micros(entry, now)?;
+    check_import_requirements(entry)?;
     if let Tracking::Restore(binding) = &entry.staged.tracking {
         super::super::sync_state::conflicts::validate_restore(transaction, binding)?;
     }
@@ -1079,6 +1080,24 @@ fn publish_entry(
         now,
         micros,
     )?)
+}
+
+/// The only request an import builds: it names both hashes and replaces an absent object. An
+/// element marked imported that differs is refused before it publishes its recorded identity.
+fn check_import_requirements(entry: &BatchPublication) -> Result<(), AdminError> {
+    let request = &entry.request;
+    if entry.staged.import_identity().is_some()
+        && (request.expected.md5.is_none()
+            || request.expected.crc32c.is_none()
+            || request.mode != PublishMode::Replace
+            || request.condition != Some(GenerationCondition::Absent))
+    {
+        return Err(AdminError::Invalid(
+            "imported publication requires MD5, CRC32C, Replace mode and an absent destination"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// The publication time in catalog microseconds, once the staged body passed its checks.
@@ -1115,14 +1134,6 @@ fn publish_checked_entry(
         now,
     )?;
     let staged = &entry.staged;
-    if staged.import_identity().is_some()
-        && (entry.request.expected.md5.is_none()
-            || entry.request.expected.crc32c.is_none()
-            || entry.request.mode != PublishMode::Replace
-            || entry.request.condition != Some(GenerationCondition::Absent))
-    {
-        return Err(ObjectError::InvalidMetadata);
-    }
     if objects::skip_same(
         entry.request.mode,
         previous.as_ref(),

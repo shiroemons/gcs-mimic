@@ -87,7 +87,11 @@ impl BucketPublication {
                     .checked_mul(1_000_000)
                     .and_then(|duration| micros.checked_add(duration))
                     .map(UnixMicros)
-                    .ok_or(ObjectError::InvalidMetadata)
+                    .ok_or_else(|| {
+                        ObjectError::Corrupt(
+                            "Stored soft delete duration overflows the deletion deadline".into(),
+                        )
+                    })
             })
             .transpose()
     }
@@ -184,7 +188,9 @@ pub(in crate::storage::catalog) fn expiration_after(
 ) -> Result<std::time::SystemTime, ObjectError> {
     created
         .checked_add(std::time::Duration::from_secs(period))
-        .ok_or(ObjectError::InvalidMetadata)
+        .ok_or_else(|| {
+            ObjectError::Corrupt("Stored retention period overflows the expiration time".into())
+        })
 }
 
 /// ACL metadata rejections keep their client-input status across publication paths.

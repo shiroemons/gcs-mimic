@@ -598,6 +598,24 @@ async fn grpc_derived_writes_return_the_recorded_owner_and_acl_views() {
         .await
         .unwrap()
         .into_inner();
+    // The catalog refuses a move onto its own source with the message the JSON API answers.
+    let onto_source = storage
+        .move_object(
+            Request::new(pb::MoveObjectRequest {
+                bucket: bucket.into(),
+                source_object: "moved".into(),
+                destination_object: "moved".into(),
+                ..Default::default()
+            }),
+            admin,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(onto_source.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        onto_source.message(),
+        "Source and destination object names must be different."
+    );
     storage
         .state
         .catalog

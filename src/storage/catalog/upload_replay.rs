@@ -373,7 +373,10 @@ impl UploadReplay {
         })
         .map_err(objects::object_unavailable)?;
         if completion.len() > super::MAX_STORED_DOCUMENT_BYTES {
-            return Err(ObjectError::InvalidMetadata);
+            return Err(ObjectError::InvalidFixedMetadata(format!(
+                "Object metadata and ACL exceed the {} KiB kept to replay this upload's response; shorten them.",
+                super::MAX_STORED_DOCUMENT_BYTES / 1024
+            )));
         }
         let deadline = now
             .checked_add(LIFETIME_MICROS)

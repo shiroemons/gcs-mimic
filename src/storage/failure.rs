@@ -479,7 +479,6 @@ impl StorageCause for ObjectError {
             | Self::ChecksumMismatch
             | Self::HashMismatch(_)
             | Self::TooLarge
-            | Self::InvalidMetadata
             | Self::InvalidFixedMetadata(_)
             | Self::UniformAccessPredefinedAcl
             | Self::Metadata(_)

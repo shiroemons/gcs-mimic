@@ -87,7 +87,9 @@ impl Catalog {
                 )?;
                 record.check_retention(now.time)?;
                 if source == destination {
-                    return Err(ObjectError::InvalidMetadata);
+                    return Err(ObjectError::InvalidDerivedArgument(
+                        "Source and destination object names must be different.".into(),
+                    ));
                 }
                 let publication = super::objects::BucketPublication::load(&transaction, &bucket)?;
                 let origin = super::change_journal::origin(&destination_create);

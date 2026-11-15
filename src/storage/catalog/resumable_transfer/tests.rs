@@ -131,7 +131,7 @@ async fn resumable_recovery_crash_and_power_loss_restore_the_acknowledged_prefix
 }
 
 #[test]
-fn resumable_retention_overflow_returns_the_publication_metadata_error() {
+fn resumable_retention_overflow_reports_the_stored_period_as_corrupt() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     connection.execute_batch("CREATE TABLE buckets(name TEXT, retention_policy TEXT); INSERT INTO buckets VALUES('bucket',NULL)").unwrap();
     let mut options = ResumableOptions::new(BucketAccess::Permissive);
@@ -181,8 +181,11 @@ fn resumable_retention_overflow_returns_the_publication_metadata_error() {
             );
         } else {
             let error = record.unwrap_err();
-            assert_eq!(error, ObjectError::InvalidMetadata);
-            assert_eq!(error.to_string(), "custom metadata exceeds 8 KiB");
+            assert!(matches!(error, ObjectError::Corrupt(_)), "{error:?}");
+            assert_eq!(
+                error.to_string(),
+                "object storage corrupt: Stored retention period overflows the expiration time"
+            );
         }
     }
 }

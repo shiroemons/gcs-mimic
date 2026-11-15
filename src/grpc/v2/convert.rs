@@ -388,7 +388,9 @@ impl From<ObjectConversionError> for tonic::Status {
 impl From<ObjectConversionError> for ObjectError {
     fn from(error: ObjectConversionError) -> Self {
         match error {
-            ObjectConversionError::InvalidCustomTime(_) => Self::InvalidMetadata,
+            ObjectConversionError::InvalidCustomTime(error) => Self::Corrupt(
+                crate::storage::failure::BackendCause::with_source(INVALID_CUSTOM_TIME, error),
+            ),
             ObjectConversionError::Storage(error) => error,
         }
     }
@@ -880,7 +882,7 @@ mod tests {
         ));
         assert!(matches!(
             object(&corrupt_time).map_err(ObjectError::from),
-            Err(ObjectError::InvalidMetadata)
+            Err(ObjectError::Corrupt(cause)) if cause.message() == INVALID_CUSTOM_TIME
         ));
     }
 

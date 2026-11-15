@@ -927,7 +927,6 @@ impl From<ObjectError> for JsonError {
         match error {
             ObjectError::BucketNotFound => Self::missing_bucket(),
             ObjectError::Component(failure) => failure.into(),
-            ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
             ObjectError::Metadata(error) => {
                 if error.unsupported() { Self::unsupported_object(&error.to_string()) }
                 else { Self::invalid(error.to_string()) }
