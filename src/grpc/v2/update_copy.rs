@@ -13,7 +13,7 @@ use crate::{
     grpc::validate::{self, NegativeGeneration, strict_bucket_conditions, strict_conditions},
     json,
     object::{
-        ComposeSource, ExpectedHashes, ObjectConditions, ObjectTarget,
+        ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget,
         generation::{Generation, InvalidGeneration},
     },
     server::authorize_bucket,
@@ -41,13 +41,6 @@ fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
                 "update_mask is required; use paths such as content_type or versioning.enabled",
             )
         })
-}
-
-fn common(params: Option<&pb::CommonObjectRequestParams>) -> Result<(), Status> {
-    validate::common(
-        params,
-        "customer-supplied encryption; omit common_object_request_params",
-    )
 }
 
 /// The bucket of an IAM resource. Managed folders and objects are valid IAM resources
@@ -758,7 +751,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let mut r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
+        let key = super::customer_key::key(r.common_object_request_params.as_ref())?;
         if !r.predefined_acl.is_empty() {
             return Err(unsupported(
                 "UpdateObject predefined_acl; omit predefined_acl",
@@ -797,18 +790,22 @@ impl Storage {
                 ObjectTarget::new(bucket, name, generation.map(Generation::get)),
                 c,
                 update,
-                |_| Ok(()),
+                // A wrong key fails before the metadata change commits.
+                move |record| {
+                    crate::csek::check_metadata(record.customer_key_sha256, key)
+                        .map(drop)
+                        .map_err(ObjectError::CustomerEncryption)
+                },
                 &access,
             )
             .await
             .map_err(super::object_io::naming_object(bucket, name))?;
+        // A metadata update never changes the stored key, so the check that passed against
+        // the pre-commit record gives the same answer for the committed one.
+        let hashes = crate::csek::check_metadata(record.customer_key_sha256, key)
+            .map_err(super::status::customer_encryption)?;
         Ok(Response::new(
-            self.written_object(
-                &record,
-                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
-                caller,
-            )
-            .await?,
+            self.written_object(&record, hashes, caller).await?,
         ))
     }
     pub(super) async fn compose_object(
@@ -817,7 +814,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::Object>, Status> {
         let mut r = request.into_inner();
-        common(r.common_object_request_params.as_ref())?;
+        let key = super::customer_key::key(r.common_object_request_params.as_ref())?;
         if !r.destination_predefined_acl.is_empty()
             || !r.kms_key.is_empty()
             || r.object_checksums
@@ -825,7 +822,7 @@ impl Storage {
                 .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
         {
             return Err(unsupported(
-                "ComposeObject encryption/ACL/checksums; omit these options",
+                "ComposeObject kms_key/destination_predefined_acl/object_checksums; omit these options",
             ));
         }
         let o = r.destination.take().ok_or_else(|| {
@@ -834,7 +831,9 @@ impl Storage {
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         validate_derived_fields(&o)?;
-        let metadata = super::object_update::for_write(&o);
+        let mut metadata = super::object_update::for_write(&o);
+        // The catalog applies this one key to every source and to the result.
+        metadata.customer_key_sha256 = key.map(CustomerKey::sha256);
         let sources = r
             .source_objects
             .iter()
@@ -979,6 +978,8 @@ impl Storage {
     }
 }
 
+#[cfg(test)]
+mod object_keys;
 #[cfg(test)]
 mod rewrite_keys;
 
@@ -1245,7 +1246,6 @@ mod tests {
             mask(Some(&prost_types::FieldMask::default())),
             Code::InvalidArgument,
         );
-        assert!(common(Some(&pb::CommonObjectRequestParams::default())).is_ok());
         assert_code(
             strict_conditions(ObjectConditions {
                 if_generation_match: Some(-1),
@@ -2758,7 +2758,7 @@ mod tests {
         ] {
             assert_unsupported(
                 s.compose_object(Request::new(request), None).await,
-                "ComposeObject encryption/ACL/checksums",
+                "ComposeObject kms_key/destination_predefined_acl/object_checksums",
             );
         }
         for destination in [
@@ -2855,11 +2855,6 @@ mod tests {
             ..Default::default()
         });
         let option = "customer-supplied encryption";
-        let request = pb::ComposeObjectRequest {
-            common_object_request_params: customer_key.clone(),
-            ..compose
-        };
-        assert_unsupported(s.compose_object(Request::new(request), None).await, option);
         let request = pb::RestoreObjectRequest {
             common_object_request_params: customer_key,
             restore_token: String::new(),
