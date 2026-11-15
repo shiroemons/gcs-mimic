@@ -69,9 +69,6 @@ impl ObservationCursor {
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct Item {
-    /// `PAGE`'s kind column, which is `category.rank()`; the finding ID renders it.
-    #[serde(skip)]
-    pub kind: i64,
     #[serde(skip)]
     pub ordinal: Ordinal,
     pub category: FindingCategory,
@@ -135,8 +132,8 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     } else {
         None
     };
+    // Column 0 is `PAGE`'s sort key, the category's rank, which `category` already names.
     Ok(Item {
-        kind: row.get(0)?,
         ordinal: row.get(1)?,
         category,
         bucket: row.get(3)?,
