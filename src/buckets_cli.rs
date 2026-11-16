@@ -3,12 +3,14 @@
 
 use crate::CliError;
 use gcs_mimic::{
-    bucket_init::generate::{Bucket, Document, Format, GenerateError, Setting},
+    bucket_init::generate::{Bucket, CorsGap, Document, Format, GenerateError, Setting},
     diagnostics::{DiagnosticSource, Diagnostics},
 };
 use inquire::InquireError;
 use std::{
+    borrow::Cow,
     io::{self, IsTerminal, Write},
+    iter,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -21,21 +23,28 @@ pub(crate) const HELP: &str =
                              [--format json|env|compose] [--output PATH]
 
 Writes a bucket initialization document for --buckets-file, GCS_MIMIC_BUCKETS or a Compose
-service. Without --name it asks on a terminal: each bucket's name, the settings to configure,
-their values, and the format unless --format is given; questions use stderr, and Esc or Ctrl-C
-writes nothing. With --name it asks nothing; each setting after a --name belongs to that bucket:
+service. Without --name it asks on a terminal: how you run gcs-mimic unless --format is given,
+then bucket names (several, comma-separated, share their answers) and what they are for, and
+shows the buckets to write, change or add to. A JSON document bound for the terminal is saved
+to a file it asks for, or printed if none can be created. Questions use stderr; Esc goes back,
+and Ctrl-C writes nothing.
+With --name it asks nothing; each setting after a --name belongs to that bucket:
   --project ID                  --location LOCATION        --storage-class CLASS
   --public-access-prevention inherited|enforced            --soft-delete-retention-seconds N
   --versioning                  --default-event-based-hold --public-read
   --label KEY=VALUE             --iam-binding ROLE=MEMBER[,MEMBER]...
-  --cors-origin ORIGIN          --cors-method METHOD       --cors-response-header NAME
-  --cors-max-age-seconds N
+  --browser-uploads             --browser-downloads        --cors-origin ORIGIN
+  --cors-method METHOD          --cors-response-header NAME --cors-max-age-seconds N
 --label, the --cors list settings and --iam-binding may repeat; other settings appear once per
-bucket. --public-read grants allUsers roles/storage.objectViewer. A bucket without settings
-gets default settings.
+bucket. A bucket's CORS settings form one rule, which needs at least one --cors-origin and one
+method to match a request. --browser-uploads adds PUT and POST with the Content-Type and
+x-goog-resumable request headers, and --browser-downloads GET and HEAD, for the rule's origins.
+--public-read grants allUsers roles/storage.objectViewer. A bucket without settings gets
+default settings.
 --format json (the default) writes the document, env one GCS_MIMIC_BUCKETS line in single
-quotes, and compose an environment: block with each $ written $$. The document goes to stdout,
-or to a new file with --output PATH, which refuses an existing file.
+quotes, and compose an environment: block with each $ written $$; for buckets without settings,
+env and compose write their names alone. The document goes to stdout, or to a new file with
+--output PATH, which refuses an existing file. On a terminal, stderr then says how to use it.
 The document passes startup validation before it is written; checks against stored state,
 such as a project's public access prevention, still run when the server starts.
 No configuration, environment, data directory or network is read.";
@@ -49,30 +58,151 @@ struct Request {
     output: Option<PathBuf>,
 }
 
+/// What the questions settled on: the document, its text, and the file they saved it in.
+struct Answers {
+    document: Document,
+    format: Format,
+    text: String,
+    saved: Option<PathBuf>,
+}
+
+/// The document as written, and the file it went to rather than stdout.
+struct Written {
+    document: Document,
+    format: Format,
+    file: Option<PathBuf>,
+}
+
 pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
     let Request {
         buckets,
         format,
         output,
     } = parse(args)?;
-    let (buckets, format) = if buckets.is_empty() {
-        ask(format)?
+    let written = if buckets.is_empty() {
+        ask(format, output)?
     } else {
-        (buckets, format.unwrap_or(Format::Json))
+        from_flags(buckets, format, output)?
     };
-    let text = Document::new(buckets).render(format).map_err(rejected)?;
-    write(&text, output.as_deref())
+    // Advice is for a person at a terminal; a script reads the document and the exit code.
+    if io::stderr().is_terminal() {
+        let destination = match written.file.as_deref() {
+            Some(path) => Destination::File(path),
+            None if io::stdout().is_terminal() => Destination::Terminal,
+            None => Destination::Redirected,
+        };
+        eprint!("{}", advice(&written.document, written.format, destination));
+    }
+    Ok(())
 }
 
-/// Asks on a terminal. Elsewhere nothing could answer, so it fails before asking anything.
-fn ask(format: Option<Format>) -> Result<(Vec<Bucket>, Format), Diagnostics> {
+fn from_flags(
+    buckets: Vec<Bucket>,
+    format: Option<Format>,
+    output: Option<PathBuf>,
+) -> Result<Written, CliError> {
+    let format = format.unwrap_or(Format::Json);
+    let document = Document::new(buckets);
+    let text = document.render(format).map_err(rejected)?;
+    write(&text, output.as_deref())?;
+    Ok(Written {
+        document,
+        format,
+        file: output,
+    })
+}
+
+/// Where the document went, which decides what to do with it next.
+#[derive(Clone, Copy, Debug)]
+enum Destination<'a> {
+    File(&'a Path),
+    Terminal,
+    /// Stdout went to a file or a pipe whose name the command cannot know.
+    Redirected,
+}
+
+/// The next step for the document, then a note for each bucket whose CORS rule would refuse a
+/// browser upload, which startup accepts and a browser reports far from its cause.
+fn advice(document: &Document, format: Format, destination: Destination<'_>) -> String {
+    let notes = document.uploads_refusing_content_type().map(|bucket| {
+        Cow::Owned(format!(
+            "Note: browser uploads to {bucket} send Content-Type, which its CORS rule refuses; add --cors-response-header Content-Type\n"
+        ))
+    });
+    iter::once(next_step(format, destination))
+        .chain(notes)
+        .collect()
+}
+
+/// What to do with the document where it went, in one line that fits a terminal, since a
+/// wrapped paragraph after a document goes unread.
+fn next_step(format: Format, destination: Destination<'_>) -> Cow<'static, str> {
+    match (format, destination) {
+        (Format::Json, Destination::File(path)) => {
+            format!("Next: gcs-mimic serve --buckets-file {}\n", shell_word(path)).into()
+        }
+        (Format::Json, Destination::Terminal) => {
+            "Next: save this as buckets.json, then run gcs-mimic serve --buckets-file buckets.json\n"
+                .into()
+        }
+        (Format::Json, Destination::Redirected) => {
+            "Next: run gcs-mimic serve --buckets-file with the file this went to\n".into()
+        }
+        (Format::Env, _) => {
+            "Next: export this line before gcs-mimic serve, or put it in a Compose env_file\n".into()
+        }
+        (Format::Compose, _) => "Next: add GCS_MIMIC_BUCKETS to the gcs-mimic service's environment: in compose.yaml, then docker compose up -d\n".into(),
+    }
+}
+
+/// `path` as one shell word, quoted only when it has to be, so the next command can be pasted.
+fn shell_word(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let plain = |c: char| c.is_ascii_alphanumeric() || "-_./+,:@%=".contains(c);
+    if !text.is_empty() && text.chars().all(plain) {
+        text.into_owned()
+    } else {
+        format!("'{}'", text.replace('\'', r"'\''"))
+    }
+}
+
+/// Asks on a terminal. Elsewhere nothing could answer, so it fails before asking anything, as it
+/// does for an existing `--output`, which refused after the last question would lose every answer.
+fn ask(format: Option<Format>, output: Option<PathBuf>) -> Result<Written, CliError> {
     if !(io::stdin().is_terminal() && io::stderr().is_terminal()) {
         return Err(failure(
             "--name",
             "No bucket given and no terminal to ask on; pass --name NAME for each bucket, see gcs-mimic buckets new --help.",
-        ));
+        )
+        .into());
     }
-    prompts::ask(format).map_err(unanswered)
+    if output.as_deref().is_some_and(Path::exists) {
+        return Err(failure("--output", EXISTING_OUTPUT).into());
+    }
+    // A JSON document on a terminal only scrolls past, so the questions then ask for a file.
+    let file = if output.is_none() && io::stdout().is_terminal() {
+        prompts::FileQuestion::Ask
+    } else {
+        prompts::FileQuestion::Skip
+    };
+    let Answers {
+        document,
+        format,
+        text,
+        saved,
+    } = prompts::ask(format, file).map_err(unanswered)?;
+    let file = match saved {
+        Some(path) => Some(path),
+        None => {
+            write(&text, output.as_deref())?;
+            output
+        }
+    };
+    Ok(Written {
+        document,
+        format,
+        file,
+    })
 }
 
 fn unanswered(error: InquireError) -> Diagnostics {
@@ -98,6 +228,27 @@ fn failure(key: &str, fix: impl Into<String>) -> Diagnostics {
 fn rejected(error: GenerateError) -> Diagnostics {
     match error {
         GenerateError::Rejected(diagnostics) => diagnostics,
+        GenerateError::IncompleteCors { bucket, gap } => {
+            let (key, lacks, add) = match gap {
+                CorsGap::Origin => (
+                    "--cors-origin",
+                    "--cors-origin",
+                    "--cors-origin http://localhost:3000",
+                ),
+                CorsGap::Method => ("--cors-method", "--cors-method", "--cors-method GET"),
+                CorsGap::OriginAndMethod => (
+                    "--cors-origin",
+                    "--cors-origin or --cors-method",
+                    "--cors-origin http://localhost:3000 --cors-method GET",
+                ),
+            };
+            failure(
+                key,
+                format!(
+                    "{bucket} has CORS settings but no {lacks}, so its rule matches no request; add one after --name {bucket}, for example {add}."
+                ),
+            )
+        }
         error @ (GenerateError::InvalidName
         | GenerateError::UnpairedLabel
         | GenerateError::InvalidLabel
@@ -182,6 +333,8 @@ fn setting<'a>(
         "--versioning" => Setting::Versioning,
         "--default-event-based-hold" => Setting::DefaultEventBasedHold,
         "--public-read" => Setting::PublicRead,
+        "--browser-uploads" => Setting::BrowserUploads,
+        "--browser-downloads" => Setting::BrowserDownloads,
         "--project" => Setting::Project(text()?),
         "--location" => Setting::Location(text()?),
         "--storage-class" => Setting::StorageClass(text()?),
@@ -236,34 +389,74 @@ fn seconds(flag: &str, value: &str) -> Result<u64, Diagnostics> {
     })
 }
 
+const EXISTING_OUTPUT: &str = "--output names an existing file, which is kept; choose a new path.";
+
 /// Writes the document to a new `output` file, refusing an existing one, or else to stdout.
 fn write(text: &str, output: Option<&Path>) -> Result<(), CliError> {
     let Some(path) = output else {
         io::stdout().lock().write_all(text.as_bytes())?;
         return Ok(());
     };
+    save_new(path, text).map_err(|error| {
+        let fix = match error {
+            SaveError::Exists => EXISTING_OUTPUT,
+            SaveError::Create(_) => {
+                "Cannot create --output; choose a new path in a writable directory."
+            }
+            SaveError::Write(_) => {
+                "Cannot write --output; free disk space or choose another path, then retry."
+            }
+        };
+        failure("--output", fix).into()
+    })
+}
+
+/// Why a document could not be saved as a new file.
+#[derive(Debug)]
+enum SaveError {
+    /// The file exists, and is kept.
+    Exists,
+    Create(io::Error),
+    /// The partial file was removed.
+    Write(io::Error),
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exists => f.write_str("That file exists and is kept."),
+            Self::Create(error) => write!(f, "Cannot create that file: {error}."),
+            Self::Write(error) => write!(f, "Cannot write that file, so it was removed: {error}."),
+        }
+    }
+}
+
+impl std::error::Error for SaveError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Exists => None,
+            Self::Create(error) | Self::Write(error) => Some(error),
+        }
+    }
+}
+
+/// Saves `text` as a new file at `path`, never replacing one. A partial file is removed, since
+/// a partial document would fail startup later and far from its cause.
+fn save_new(path: &Path, text: &str) -> Result<(), SaveError> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .map_err(|error| {
-            failure(
-                "--output",
-                if error.kind() == io::ErrorKind::AlreadyExists {
-                    "--output names an existing file, which is kept; choose a new path."
-                } else {
-                    "Cannot create --output; choose a new path in a writable directory."
-                },
-            )
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                SaveError::Exists
+            } else {
+                SaveError::Create(error)
+            }
         })?;
-    if file.write_all(text.as_bytes()).is_err() {
-        // A partial document would fail startup later and far from its cause.
+    if let Err(error) = file.write_all(text.as_bytes()) {
         let _ = std::fs::remove_file(path);
-        return Err(failure(
-            "--output",
-            "Cannot write --output; free disk space or choose another path, then retry.",
-        )
-        .into());
+        return Err(SaveError::Write(error));
     }
     Ok(())
 }

@@ -47,6 +47,8 @@ fn a_generated_document_initializes_its_buckets_at_startup() {
     let written = run(&args);
     assert!(written.status.success(), "{written:?}");
     assert!(written.stdout.is_empty(), "{written:?}");
+    // The next-step advice is for a terminal; a script's stderr stays empty on success.
+    assert!(written.stderr.is_empty(), "{written:?}");
     let server = Server::launch(
         http_command(&dir.0.join("file"))
             .arg("--buckets-file")
@@ -71,6 +73,29 @@ fn a_generated_document_initializes_its_buckets_at_startup() {
             .json_ok();
     assert_eq!(bucket["versioning"]["enabled"], true);
     assert_eq!(bucket["labels"]["team"], "storage");
+    drop(server);
+
+    // Buckets without settings come out as their names, which startup creates as it would the
+    // document.
+    let names = run(&[
+        "buckets",
+        "new",
+        "--name",
+        "app-uploads",
+        "--name",
+        "app-exports",
+        "--format",
+        "env",
+    ]);
+    assert!(names.status.success(), "{names:?}");
+    let names = String::from_utf8(names.stdout).unwrap();
+    let value = names
+        .strip_prefix("GCS_MIMIC_BUCKETS=")
+        .and_then(|rest| rest.strip_suffix('\n'))
+        .unwrap();
+    assert_eq!(value, "app-uploads,app-exports");
+    let server = Server::launch(http_command(&dir.0.join("names")).env("GCS_MIMIC_BUCKETS", value));
+    assert_eq!(server.ready["buckets"]["created"], 2);
 }
 
 /// Questions need a terminal; without one and without --name nothing is asked or written.
@@ -114,4 +139,24 @@ fn a_document_startup_would_refuse_is_not_written() {
     ]));
     assert_eq!(refused["key"], "buckets[0].location");
     assert_eq!(diagnostic(&run(&["buckets", "list"]))["key"], "command");
+}
+
+/// Startup accepts a CORS rule without a method, which matches no request, so the command
+/// refuses it and writes nothing rather than report success for CORS that never applies.
+#[test]
+fn a_cors_rule_that_matches_no_request_is_not_written() {
+    let dir = common::TestDir::new();
+    let path = dir.0.join("buckets.json");
+    let refused = diagnostic(&run(&[
+        "buckets",
+        "new",
+        "--name",
+        "app-uploads",
+        "--cors-origin",
+        "http://localhost:3000",
+        "--output",
+        path.to_str().unwrap(),
+    ]));
+    assert_eq!(refused["key"], "--cors-method");
+    assert!(!path.exists());
 }

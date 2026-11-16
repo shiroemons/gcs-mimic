@@ -32,7 +32,7 @@ fn helper_help_texts_keep_their_exact_bytes() {
         ),
         (
             &["buckets", "new", "--help"],
-            "d63a82fa59b142814e3cee1b9f5c4e6feb7a7b8f7ea02099b1bf87f077a158cf",
+            "53977744817b0189f5b8b16bbfb7127b581ba0599479c23b92b4ec7975f9bd3a",
         ),
     ] {
         let output = common::server_command().args(args).output().unwrap();

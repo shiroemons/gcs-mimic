@@ -190,3 +190,192 @@ fn refused_arguments_name_their_option_and_the_remedy() {
         assert!(actual_fix.contains(says), "{values:?}: {actual_fix}");
     }
 }
+
+/// The diagnostic a parsed command line gets when its document is refused.
+fn refusal(values: &[&str]) -> (String, String) {
+    let request = parse(&args(values)).unwrap();
+    let diagnostics = Document::new(request.buckets)
+        .render(Format::Json)
+        .map_err(rejected)
+        .unwrap_err();
+    let diagnostic = &diagnostics.errors[0];
+    (diagnostic.key.clone(), diagnostic.fix.clone())
+}
+
+/// A CORS rule that matches no request names the option that completes it, with an example to
+/// add after that bucket's --name.
+#[test]
+fn an_incomplete_cors_rule_names_the_option_that_completes_it() {
+    let origin = ["--cors-origin", "http://localhost:3000"];
+    let method = ["--cors-method", "PUT"];
+    let header = ["--cors-response-header", "Content-Type"];
+    for (settings, key, says) in [
+        (
+            origin.as_slice(),
+            "--cors-method",
+            "no --cors-method, so its rule matches no request; add one after --name app-uploads, for example --cors-method GET",
+        ),
+        (
+            &method,
+            "--cors-origin",
+            "for example --cors-origin http://localhost:3000.",
+        ),
+        (
+            &header,
+            "--cors-origin",
+            "no --cors-origin or --cors-method",
+        ),
+    ] {
+        let mut values = vec!["--name", "app-exports", "--name", "app-uploads"];
+        values.extend_from_slice(settings);
+        let (actual_key, actual_fix) = refusal(&values);
+        assert_eq!(actual_key, key, "{values:?}");
+        assert!(
+            actual_fix.starts_with("app-uploads has CORS settings"),
+            "{actual_fix}"
+        );
+        assert!(actual_fix.contains(says), "{values:?}: {actual_fix}");
+    }
+}
+
+fn advised(values: &[&str], format: Format, destination: Destination<'_>) -> String {
+    advice(
+        &Document::new(parse(&args(values)).unwrap().buckets),
+        format,
+        destination,
+    )
+}
+
+/// The advice names the next command for where the document went, and a path is quoted only
+/// when a shell would split or expand it.
+#[test]
+fn advice_names_the_next_step_for_the_format_and_destination() {
+    let named = ["--name", "app-uploads"];
+    for (path, word) in [
+        ("buckets.json", "buckets.json"),
+        ("config/buckets.json", "config/buckets.json"),
+        ("my buckets.json", "'my buckets.json'"),
+        ("it's.json", r"'it'\''s.json'"),
+        ("$HOME.json", "'$HOME.json'"),
+    ] {
+        assert_eq!(
+            advised(&named, Format::Json, Destination::File(Path::new(path))),
+            format!("Next: gcs-mimic serve --buckets-file {word}\n")
+        );
+    }
+    for (format, destination, says) in [
+        (
+            Format::Json,
+            Destination::Terminal,
+            "save this as buckets.json",
+        ),
+        (
+            Format::Json,
+            Destination::Redirected,
+            "--buckets-file with the file this went to",
+        ),
+        (Format::Env, Destination::Terminal, "env_file"),
+        (
+            Format::Compose,
+            Destination::Redirected,
+            "docker compose up -d",
+        ),
+    ] {
+        let advice = advised(&named, format, destination);
+        assert!(advice.starts_with("Next: "), "{advice}");
+        assert!(advice.contains(says), "{advice}");
+        // One line within a common terminal's width: a wrapped paragraph goes unread.
+        assert_eq!(advice.lines().count(), 1, "{advice}");
+        assert!(advice.trim_end().len() <= 120, "{advice}");
+    }
+}
+
+/// Startup accepts an upload rule without Content-Type, so the advice warns about it instead.
+#[test]
+fn advice_notes_each_upload_rule_without_content_type() {
+    let advice = advised(
+        &[
+            "--name",
+            "app-uploads",
+            "--cors-origin",
+            "http://localhost:3000",
+            "--cors-method",
+            "PUT",
+            "--name",
+            "app-assets",
+            "--cors-origin",
+            "*",
+            "--cors-method",
+            "GET",
+            "--name",
+            "app-forms",
+            "--cors-origin",
+            "http://localhost:3000",
+            "--cors-method",
+            "POST",
+            "--cors-response-header",
+            "Content-Type",
+        ],
+        Format::Compose,
+        Destination::Terminal,
+    );
+    let notes: Vec<_> = advice.lines().skip(1).collect();
+    assert_eq!(
+        notes,
+        [
+            "Note: browser uploads to app-uploads send Content-Type, which its CORS rule refuses; add --cors-response-header Content-Type"
+        ]
+    );
+}
+
+/// The goal flags add what the questions' goals add, so a script says what a bucket is for in
+/// the words the questions use, and still needs an origin.
+#[test]
+fn goal_flags_add_what_the_goals_add() {
+    let request = parse(&args(&[
+        "--name",
+        "app-uploads",
+        "--browser-uploads",
+        "--browser-downloads",
+        "--cors-origin",
+        "http://localhost:3000",
+    ]))
+    .unwrap();
+    assert_eq!(
+        request.buckets,
+        [expected(
+            "app-uploads",
+            [
+                Setting::BrowserUploads,
+                Setting::BrowserDownloads,
+                Setting::CorsOrigin("http://localhost:3000".parse().unwrap()),
+            ],
+        )]
+    );
+    let (key, fix) = refusal(&["--name", "app-assets", "--browser-downloads"]);
+    assert_eq!(key, "--cors-origin");
+    assert!(
+        fix.contains("for example --cors-origin http://localhost:3000"),
+        "{fix}"
+    );
+}
+
+/// A saved document never replaces a file; a file that cannot be created keeps its cause.
+#[test]
+fn a_saved_document_never_replaces_a_file() {
+    let dir = crate::test_support::TestDir::new();
+    let path = dir.0.join("buckets.json");
+    save_new(&path, "{}\n").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}\n");
+    assert!(matches!(save_new(&path, "other"), Err(SaveError::Exists)));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}\n");
+    let missing = dir.0.join("missing").join("buckets.json");
+    let error = save_new(&missing, "{}\n").unwrap_err();
+    assert!(matches!(error, SaveError::Create(_)), "{error:?}");
+    assert!(std::error::Error::source(&error).is_some());
+    assert!(
+        error.to_string().starts_with("Cannot create that file: "),
+        "{error}"
+    );
+    assert!(!missing.exists());
+}

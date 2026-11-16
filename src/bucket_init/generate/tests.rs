@@ -338,6 +338,113 @@ fn a_public_grant_under_enforced_prevention_is_refused() {
     assert!(Document::new(vec![inherited]).render(Format::Json).is_ok());
 }
 
+/// Startup accepts a CORS rule that matches no request, so the generator refuses one that lacks
+/// an origin or a method instead of reporting success for CORS that never applies.
+#[test]
+fn a_cors_rule_without_an_origin_or_a_method_is_refused() {
+    let origin = || Setting::CorsOrigin("http://localhost:3000".parse().unwrap());
+    let method = || Setting::CorsMethod("PUT".parse().unwrap());
+    let header = || Setting::CorsResponseHeader("Content-Type".parse().unwrap());
+    for (settings, gap) in [
+        (vec![origin()], CorsGap::Method),
+        (vec![origin(), header()], CorsGap::Method),
+        (vec![method()], CorsGap::Origin),
+        (vec![header()], CorsGap::OriginAndMethod),
+        (
+            vec![Setting::CorsMaxAgeSeconds(3600)],
+            CorsGap::OriginAndMethod,
+        ),
+    ] {
+        let document = Document::new(vec![
+            bucket("app-exports", []),
+            bucket("app-uploads", settings),
+        ]);
+        for format in Format::ALL.iter().copied() {
+            let refused = document.render(format);
+            assert!(
+                matches!(
+                    &refused,
+                    Err(GenerateError::IncompleteCors { bucket, gap: actual })
+                        if bucket == "app-uploads" && *actual == gap
+                ),
+                "{gap:?} {}: {refused:?}",
+                format.as_str()
+            );
+        }
+    }
+    let complete = Document::new(vec![bucket("app-uploads", [origin(), method()])]);
+    assert_eq!(parsed(&complete.render(Format::Json).unwrap()).len(), 1);
+}
+
+/// A browser upload of a file sends Content-Type, so a rule that allows uploads must list it or
+/// `*` for the upload's preflight to pass.
+#[test]
+fn uploads_refusing_content_type_are_named() {
+    let rule = |method: &str, headers: &[&str]| {
+        let mut settings = vec![
+            Setting::CorsOrigin("http://localhost:3000".parse().unwrap()),
+            Setting::CorsMethod(method.parse().unwrap()),
+        ];
+        settings.extend(
+            headers
+                .iter()
+                .map(|header| Setting::CorsResponseHeader(header.parse().unwrap())),
+        );
+        settings
+    };
+    let document = Document::new(vec![
+        bucket("put-bare", rule("PUT", &[])),
+        bucket("post-etag", rule("POST", &["ETag"])),
+        bucket("any-method", rule("*", &[])),
+        bucket("put-listed", rule("PUT", &["content-type"])),
+        bucket("put-any-header", rule("PUT", &["*"])),
+        bucket("get-bare", rule("GET", &[])),
+        bucket("no-cors", []),
+    ]);
+    assert_eq!(
+        document.uploads_refusing_content_type().collect::<Vec<_>>(),
+        ["put-bare", "post-etag", "any-method"]
+    );
+}
+
+/// Members picked one at a time from a list form one binding in the order they were picked.
+#[test]
+fn members_chosen_one_at_a_time_form_one_binding() {
+    let members: Members = ["allUsers", "user:dev@example.com"]
+        .iter()
+        .map(|member| member.parse::<Members>().unwrap())
+        .collect();
+    assert_eq!(members, "allUsers,user:dev@example.com".parse().unwrap());
+}
+
+/// Asserts that startup accepts `setting` up to `limit` seconds and refuses one more.
+fn assert_startup_limit(limit: u64, setting: impl Fn(u64) -> Setting) {
+    let render = |seconds| {
+        let mut settings = cors("http://localhost:3000").to_vec();
+        settings.push(setting(seconds));
+        Document::new(vec![bucket("app-uploads", settings)]).render(Format::Json)
+    };
+    assert!(render(limit).is_ok(), "{limit}");
+    assert!(
+        matches!(render(limit + 1), Err(GenerateError::Rejected(_))),
+        "{limit}"
+    );
+}
+
+/// The limits a question checks typed seconds against are the ones startup applies, so a typed
+/// value it lets through cannot fail after the last question.
+#[test]
+fn typed_seconds_limits_are_the_limits_startup_applies() {
+    assert_startup_limit(
+        u64::from(MAX_CORS_MAX_AGE_SECONDS),
+        Setting::CorsMaxAgeSeconds,
+    );
+    assert_startup_limit(
+        MAX_SOFT_DELETE_RETENTION_SECONDS,
+        Setting::SoftDeleteRetentionSeconds,
+    );
+}
+
 #[test]
 fn a_repeated_bucket_is_refused_by_the_startup_parser() {
     let document = Document::new(vec![bucket("app-uploads", []), bucket("app-uploads", [])]);
@@ -347,13 +454,19 @@ fn a_repeated_bucket_is_refused_by_the_startup_parser() {
     ));
 }
 
+/// A CORS rule with an origin and a method, which the format tests need only for its origin.
+fn cors(origin: &str) -> [Setting; 2] {
+    [
+        Setting::CorsOrigin(origin.parse().unwrap()),
+        Setting::CorsMethod("GET".parse().unwrap()),
+    ]
+}
+
 #[test]
 fn env_is_one_single_quoted_line_of_the_compact_document() {
     let document = Document::new(vec![bucket(
         "app-uploads",
-        [Setting::CorsOrigin(
-            "http://localhost:${PORT}".parse().unwrap(),
-        )],
+        cors("http://localhost:${PORT}"),
     )]);
     let line = document.render(Format::Env).unwrap();
     assert_eq!(line.lines().count(), 1);
@@ -371,25 +484,21 @@ fn env_is_one_single_quoted_line_of_the_compact_document() {
         None,
     )
     .unwrap();
-    let quoted = Document::new(vec![bucket(
-        "app-uploads",
-        [Setting::CorsOrigin("http://it's.example".parse().unwrap())],
-    )]);
+    let quoted = Document::new(vec![bucket("app-uploads", cors("http://it's.example"))]);
     assert!(matches!(
         quoted.render(Format::Env),
         Err(GenerateError::Unquotable)
     ));
 }
 
-/// Compose reads `$$` as `$`, so undoing the escape and the indentation gives back the document.
+/// Compose reads `$$` as `$`, so undoing the escape and the indentation gives back the document,
+/// with one bucket on each line between the opening and closing lines.
 #[test]
 fn compose_indents_the_document_and_doubles_each_dollar() {
-    let document = Document::new(vec![bucket(
-        "app-uploads",
-        [Setting::CorsOrigin(
-            "http://localhost:${PORT}".parse().unwrap(),
-        )],
-    )]);
+    let document = Document::new(vec![
+        bucket("app-uploads", cors("http://localhost:${PORT}")),
+        bucket("app-assets", [Setting::Versioning]),
+    ]);
     let snippet = document.render(Format::Compose).unwrap();
     let mut lines = snippet.lines();
     assert_eq!(lines.next(), Some("environment:"));
@@ -397,11 +506,99 @@ fn compose_indents_the_document_and_doubles_each_dollar() {
     let body: Vec<_> = lines
         .map(|line| line.strip_prefix("    ").unwrap().replace("$$", "$"))
         .collect();
+    assert_eq!(body.len(), 2 + 2);
     assert_eq!(
-        body.join("\n"),
-        serde_json::to_string_pretty(&document).unwrap()
+        serde_json::from_str::<serde_json::Value>(&body.join("\n")).unwrap(),
+        serde_json::to_value(&document).unwrap()
     );
     assert!(snippet.contains("$${PORT}"));
+}
+
+/// The inline setting reads bucket names as the document with one name-only entry each, so
+/// buckets without settings need no JSON there; a bucket file takes only a document.
+#[test]
+fn name_only_buckets_are_written_as_names_where_the_setting_takes_them() {
+    let document = Document::new(vec![bucket("app-uploads", []), bucket("app-exports", [])]);
+    assert_eq!(
+        document.render(Format::Env).unwrap(),
+        "GCS_MIMIC_BUCKETS=app-uploads,app-exports\n"
+    );
+    assert_eq!(
+        document.render(Format::Compose).unwrap(),
+        "environment:\n  GCS_MIMIC_BUCKETS: \"app-uploads,app-exports\"\n"
+    );
+    assert!(document.render(Format::Json).unwrap().starts_with('{'));
+    // The names stand for exactly the document the parser checked.
+    assert_eq!(
+        super::super::shorthand::document("app-uploads,app-exports").unwrap(),
+        serde_json::to_string(&document).unwrap()
+    );
+    let settled = Document::new(vec![bucket("app-uploads", []), bucket("null", [])]);
+    assert!(
+        settled
+            .render(Format::Compose)
+            .unwrap()
+            .ends_with("\"app-uploads,null\"\n")
+    );
+    let mixed = Document::new(vec![
+        bucket("app-uploads", []),
+        bucket("app-exports", [Setting::Versioning]),
+    ]);
+    assert!(
+        mixed
+            .render(Format::Env)
+            .unwrap()
+            .starts_with("GCS_MIMIC_BUCKETS='{")
+    );
+}
+
+/// Browser uploads and downloads give a rule that matches their requests and passes an
+/// upload's preflight, and repeat no value that a flag gave too.
+#[test]
+fn browser_goal_settings_add_each_value_once() {
+    let entry = bucket(
+        "app-uploads",
+        [
+            Setting::CorsOrigin("http://localhost:3000".parse().unwrap()),
+            Setting::CorsMethod("PUT".parse().unwrap()),
+            Setting::BrowserUploads,
+            Setting::BrowserDownloads,
+            Setting::BrowserUploads,
+        ],
+    );
+    let rule = entry.cors.as_ref().unwrap();
+    assert_eq!(rule.method, ["PUT", "POST", "GET", "HEAD"]);
+    assert_eq!(rule.response_header, ["Content-Type", "x-goog-resumable"]);
+    let document = Document::new(vec![entry]);
+    assert_eq!(parsed(&document.render(Format::Json).unwrap()).len(), 1);
+    assert_eq!(document.uploads_refusing_content_type().count(), 0);
+    let without_origin = Document::new(vec![bucket("app-assets", [Setting::BrowserDownloads])]);
+    assert!(matches!(
+        without_origin.render(Format::Json),
+        Err(GenerateError::IncompleteCors {
+            gap: CorsGap::Origin,
+            ..
+        })
+    ));
+}
+
+/// Several buckets can share one set of answers, each under a name checked as a new one is.
+#[test]
+fn answers_are_shared_under_another_name() {
+    let first = bucket("app-uploads", every_setting());
+    let second = first.with_name("app-exports").unwrap();
+    assert_eq!(second.name(), "app-exports");
+    assert_eq!(
+        Bucket {
+            name: "app-uploads".into(),
+            ..second
+        },
+        first
+    );
+    assert!(matches!(
+        first.with_name("Bad-Name"),
+        Err(GenerateError::InvalidName)
+    ));
 }
 
 #[test]

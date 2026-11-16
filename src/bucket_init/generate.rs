@@ -11,6 +11,8 @@ use crate::{clock::SystemClock, config::Config, diagnostics::Diagnostics};
 use serde::{Serialize, Serializer};
 use std::{collections::BTreeMap, str::FromStr};
 
+mod summary;
+
 crate::config::string_enum! {
     no_default listed
     /// Where the document goes: a `buckets_file` (`json`), a `.env` file or shell line (`env`),
@@ -37,6 +39,21 @@ crate::serde_util::serialize_as_str!(PublicAccessPrevention);
 
 /// The role that public read grants to `allUsers`.
 const PUBLIC_READ_ROLE: &str = "roles/storage.objectViewer";
+
+/// The longest soft delete retention startup accepts, so that a question can refuse a longer one
+/// as it is typed.
+pub const MAX_SOFT_DELETE_RETENTION_SECONDS: u64 = crate::bucket::MAX_SOFT_DELETE_RETENTION_SECONDS;
+
+/// The longest CORS max age startup accepts, since a bucket stores it as an `i32`.
+pub const MAX_CORS_MAX_AGE_SECONDS: u32 = i32::MAX.unsigned_abs();
+
+/// The methods browser uploads use: `PUT` sends a file, and `POST` starts a resumable upload.
+pub const UPLOAD_METHODS: [&str; 2] = ["PUT", "POST"];
+/// The request headers browser uploads send, which a preflight refuses unless the rule lists
+/// them: `Content-Type` with a file, and `x-goog-resumable` to start a resumable upload.
+pub const UPLOAD_HEADERS: [&str; 2] = ["Content-Type", "x-goog-resumable"];
+/// The methods browser downloads use: `GET` reads an object and `HEAD` its metadata.
+pub const DOWNLOAD_METHODS: [&str; 2] = ["GET", "HEAD"];
 
 /// The storage classes a prompt offers. The legacy `MULTI_REGIONAL` and
 /// `DURABLE_REDUCED_AVAILABILITY` stay valid in a document but are not offered for new buckets.
@@ -117,6 +134,12 @@ impl FromStr for CorsOrigin {
     }
 }
 
+impl std::fmt::Display for CorsOrigin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// A CORS method that startup accepts: an HTTP method or `*`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CorsMethod(String);
@@ -153,6 +176,13 @@ impl FromStr for CorsResponseHeader {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Members(Vec<String>);
 
+/// Members chosen one at a time, such as from a list, form one binding.
+impl FromIterator<Members> for Members {
+    fn from_iter<I: IntoIterator<Item = Members>>(lists: I) -> Self {
+        Self(lists.into_iter().flat_map(|Members(list)| list).collect())
+    }
+}
+
 impl FromStr for Members {
     type Err = GenerateError;
 
@@ -186,6 +216,11 @@ pub enum Setting {
     CorsMethod(CorsMethod),
     CorsResponseHeader(CorsResponseHeader),
     CorsMaxAgeSeconds(u64),
+    /// Adds [`UPLOAD_METHODS`] and [`UPLOAD_HEADERS`] to the CORS rule, whose origins come from
+    /// [`Setting::CorsOrigin`].
+    BrowserUploads,
+    /// Adds [`DOWNLOAD_METHODS`] to the CORS rule.
+    BrowserDownloads,
     /// Grants `allUsers` object reads through `iamPolicy`.
     PublicRead,
     IamBinding {
@@ -210,6 +245,8 @@ impl Setting {
             Self::CorsMethod(_) => "cors.method",
             Self::CorsResponseHeader(_) => "cors.responseHeader",
             Self::CorsMaxAgeSeconds(_) => "cors.maxAgeSeconds",
+            Self::BrowserUploads => "browser uploads",
+            Self::BrowserDownloads => "browser downloads",
             Self::PublicRead => "public read",
             Self::IamBinding { .. } => "iamPolicy.bindings",
         }
@@ -257,6 +294,43 @@ struct Cors {
     response_header: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_age_seconds: Option<u64>,
+}
+
+impl Cors {
+    /// What the rule lacks before any request can match it: a request matches a rule only
+    /// through one of its origins and one of its methods. Startup accepts a rule that matches
+    /// nothing, so a helper that wrote one would report success for CORS that never applies.
+    fn gap(&self) -> Option<CorsGap> {
+        match (self.origin.is_empty(), self.method.is_empty()) {
+            (false, false) => None,
+            (true, false) => Some(CorsGap::Origin),
+            (false, true) => Some(CorsGap::Method),
+            (true, true) => Some(CorsGap::OriginAndMethod),
+        }
+    }
+
+    /// Whether a browser upload that sets `Content-Type` fails its preflight under this rule:
+    /// the rule lets browsers upload, but the preflight's requested headers must each be one of
+    /// its response headers.
+    fn refuses_upload_content_type(&self) -> bool {
+        let uploads = self
+            .method
+            .iter()
+            .any(|method| matches!(method.as_str(), "PUT" | "POST" | "*"));
+        uploads
+            && !self
+                .response_header
+                .iter()
+                .any(|header| header == "*" || header.eq_ignore_ascii_case("Content-Type"))
+    }
+}
+
+/// What a bucket's CORS rule lacks before it can match a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorsGap {
+    Origin,
+    Method,
+    OriginAndMethod,
 }
 
 /// The answers describe one CORS rule, which the document holds in a list.
@@ -321,6 +395,43 @@ impl Bucket {
         &self.name
     }
 
+    /// The same answers for a bucket named `name`, so that several buckets can share them.
+    pub fn with_name(&self, name: &str) -> Result<Self, GenerateError> {
+        Ok(Self {
+            name: Self::new(name)?.name,
+            ..self.clone()
+        })
+    }
+
+    /// Whether the entry is its name alone, which the inline setting can say without JSON.
+    fn is_name_only(&self) -> bool {
+        let Self {
+            name: _,
+            project,
+            location,
+            storage_class,
+            labels,
+            cors,
+            versioning,
+            default_event_based_hold,
+            iam_configuration,
+            soft_delete_policy,
+            iam_policy,
+            public_read,
+        } = self;
+        project.is_none()
+            && location.is_none()
+            && storage_class.is_none()
+            && labels.is_empty()
+            && cors.is_none()
+            && versioning.is_none()
+            && !default_event_based_hold
+            && iam_configuration.is_none()
+            && soft_delete_policy.is_none()
+            && iam_policy.is_none()
+            && !public_read
+    }
+
     /// Whether this entry enforces public access prevention, under which startup refuses a
     /// public grant.
     fn prevents_public_access(&self) -> bool {
@@ -375,6 +486,16 @@ impl Bucket {
             Setting::CorsMaxAgeSeconds(seconds) => {
                 set_once(&mut self.cors_rule().max_age_seconds, seconds)
             }
+            Setting::BrowserUploads => {
+                let rule = self.cors_rule();
+                extend(&mut rule.method, &UPLOAD_METHODS);
+                extend(&mut rule.response_header, &UPLOAD_HEADERS);
+                true
+            }
+            Setting::BrowserDownloads => {
+                extend(&mut self.cors_rule().method, &DOWNLOAD_METHODS);
+                true
+            }
             Setting::PublicRead => {
                 let fresh = !std::mem::replace(&mut self.public_read, true);
                 if fresh {
@@ -427,10 +548,19 @@ fn set_once<T>(member: &mut Option<T>, value: T) -> bool {
     true
 }
 
-/// Adds a list value; a list member accepts any number of them.
+/// Adds a list value unless the list has it. A list member accepts any number of values, and a
+/// goal such as browser uploads may add one that a flag already gave.
 fn push(list: &mut Vec<String>, value: String) -> bool {
-    list.push(value);
+    if !list.contains(&value) {
+        list.push(value);
+    }
     true
+}
+
+fn extend(list: &mut Vec<String>, values: &[&str]) {
+    for value in values {
+        push(list, (*value).to_owned());
+    }
 }
 
 /// A complete buckets document.
@@ -452,6 +582,12 @@ impl Document {
     /// startup parser with the default `seed_project` and `default_location`. Checks that depend on
     /// the catalog, such as a project's public access prevention, still happen at startup.
     pub fn render(&self, format: Format) -> Result<String, GenerateError> {
+        if let Some((bucket, gap)) = self.buckets.iter().find_map(|bucket| {
+            let gap = bucket.cors.as_ref()?.gap()?;
+            Some((bucket.name.clone(), gap))
+        }) {
+            return Err(GenerateError::IncompleteCors { bucket, gap });
+        }
         if let Some(index) = self
             .buckets
             .iter()
@@ -460,10 +596,10 @@ impl Document {
             return Err(GenerateError::PublicUnderPrevention { index });
         }
         let text = match format {
-            Format::Env => serde_json::to_string(self),
-            Format::Json | Format::Compose => serde_json::to_string_pretty(self),
-        }
-        .map_err(GenerateError::Encode)?;
+            Format::Env => serde_json::to_string(self).map_err(GenerateError::Encode)?,
+            Format::Json => serde_json::to_string_pretty(self).map_err(GenerateError::Encode)?,
+            Format::Compose => self.compose_json()?,
+        };
         let defaults = Config::default();
         let form = match format {
             Format::Json => Form::File,
@@ -478,11 +614,58 @@ impl Document {
             None,
         )
         .map_err(GenerateError::Rejected)?;
-        match format {
-            Format::Json => Ok(format!("{text}\n")),
-            Format::Env => env_line(&text),
-            Format::Compose => Ok(compose_snippet(&text)),
+        match (format, self.shorthand()) {
+            (Format::Json, _) => Ok(format!("{text}\n")),
+            (Format::Env, Some(names)) => Ok(format!("GCS_MIMIC_BUCKETS={names}\n")),
+            (Format::Env, None) => env_line(&text),
+            // Quoted, since YAML would read a bucket named null or true as no string at all.
+            (Format::Compose, Some(names)) => {
+                Ok(format!("environment:\n  GCS_MIMIC_BUCKETS: \"{names}\"\n"))
+            }
+            (Format::Compose, None) => Ok(compose_snippet(&text)),
         }
+    }
+
+    /// The bucket names, comma-separated, when the names alone say everything. The inline
+    /// setting reads them as the document with one name-only entry each, which is this document,
+    /// so the text the parser checked is the text startup reads. A bucket file takes only a
+    /// document. Names hold no comma, quote, `$` or space, so they need no quoting.
+    fn shorthand(&self) -> Option<String> {
+        self.buckets.iter().all(Bucket::is_name_only).then(|| {
+            let names: Vec<_> = self.buckets.iter().map(Bucket::name).collect();
+            names.join(",")
+        })
+    }
+
+    /// The document for a Compose block with one bucket on each line, so that a block of several
+    /// buckets stays short enough to read and edit there.
+    fn compose_json(&self) -> Result<String, GenerateError> {
+        let entries = self
+            .buckets
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(GenerateError::Encode)?;
+        Ok(format!(
+            "{{\"version\": {}, \"buckets\": [\n  {}\n]}}",
+            self.version,
+            entries.join(",\n  ")
+        ))
+    }
+
+    /// The buckets whose CORS rule lets browsers upload but refuses the preflight of an upload
+    /// that sets `Content-Type`, as a browser does for a file. Startup accepts such a rule, since
+    /// an upload without that header passes, so this is advice rather than a refusal.
+    pub fn uploads_refusing_content_type(&self) -> impl Iterator<Item = &str> {
+        self.buckets
+            .iter()
+            .filter(|bucket| {
+                bucket
+                    .cors
+                    .as_ref()
+                    .is_some_and(Cors::refuses_upload_content_type)
+            })
+            .map(Bucket::name)
     }
 }
 
@@ -527,6 +710,11 @@ pub enum GenerateError {
     UnsupportedMember,
     /// A single-valued member was given twice for one bucket.
     Repeated(&'static str),
+    /// The bucket's CORS rule lacks what any request needs to match it.
+    IncompleteCors {
+        bucket: String,
+        gap: CorsGap,
+    },
     /// The entry at `index` grants public access while it enforces public access prevention,
     /// which startup refuses.
     PublicUnderPrevention {
@@ -570,6 +758,17 @@ impl std::fmt::Display for GenerateError {
             Self::Repeated(member) => {
                 write!(f, "{member} was already given for this bucket; give it once.")
             }
+            Self::IncompleteCors { bucket, gap } => {
+                let lacks = match gap {
+                    CorsGap::Origin => "an origin",
+                    CorsGap::Method => "a method",
+                    CorsGap::OriginAndMethod => "an origin or a method",
+                };
+                write!(
+                    f,
+                    "The CORS rule of {bucket} has no {lacks}, so it matches no request; give at least one CORS origin and one CORS method."
+                )
+            }
             Self::PublicUnderPrevention { index } => write!(
                 f,
                 "buckets[{index}] enforces public access prevention, so its iamPolicy cannot grant allUsers or allAuthenticatedUsers; drop public read and those members, or keep publicAccessPrevention inherited."
@@ -598,6 +797,7 @@ impl std::error::Error for GenerateError {
             | Self::InvalidMember
             | Self::UnsupportedMember
             | Self::Repeated(_)
+            | Self::IncompleteCors { .. }
             | Self::PublicUnderPrevention { .. }
             | Self::Unquotable => None,
         }
