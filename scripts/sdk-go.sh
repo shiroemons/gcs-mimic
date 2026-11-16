@@ -242,6 +242,11 @@ GCSM_LOCAL_STRICT_ENDPOINT="$local_strict_endpoint" GCSM_TRUSTED_ENDPOINT="$trus
 
 if [[ $with_clients == true && -z ${GCSM_GO_TEST_RUN:-} ]]; then
   (cd "$root/go" && GOTOOLCHAIN=auto go test -race -tags integration ./...)
+  # The published module's go directive is the oldest Go release its users may build with, so
+  # vet and test it with exactly that release rather than the pinned toolchain.
+  go_floor=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' "$root/go/go.mod")
+  test -n "$go_floor"
+  (cd "$root/go" && GOTOOLCHAIN="go$go_floor" go vet ./... && GOTOOLCHAIN="go$go_floor" go test -count=1 ./...)
   (cd "$root/go/sourceexport" && GOTOOLCHAIN=auto go test -race ./...)
 fi
 

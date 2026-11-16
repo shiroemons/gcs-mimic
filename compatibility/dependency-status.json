@@ -344,12 +344,12 @@
   "sdk_ecosystems": [
     {
       "ecosystem": "go", "manifest": "go/go.mod", "source_checked_at": "2026-11-16",
-      "toolchain": {"version": "1.27.4", "go": "1.27.0", "toolchain": "go1.27.4"},
+      "toolchain": {"version": "1.27.4", "go": "1.26.0", "toolchain": "go1.27.4"},
       "direct_dependencies": [
         {"name": "cloud.google.com/go/storage", "current": "v1.71.0", "license": "Apache-2.0"},
         {"name": "google.golang.org/api", "current": "v0.315.0", "license": "BSD-3-Clause"}
       ],
-      "resolution_constraints": "Separate subprocess facade module and origin guard; exact Go requirements and go.sum are checked. Reuses the official SDK suite's verified graph. Runtime integration remains a final-source gate."
+      "resolution_constraints": "Separate subprocess facade module and origin guard; exact Go requirements and go.sum are checked. Reuses the official SDK suite's verified graph. Its go directive is the oldest supported Go series (1.26.0 while go.dev lists 1.27 and 1.26), so users on either series can require it; scripts/sdk-go.sh vets and tests it with exactly that release. Runtime integration remains a final-source gate."
     },
     {
       "ecosystem": "go", "manifest": "sdk-scorecard/go/go.mod", "source_checked_at": "2026-11-16",

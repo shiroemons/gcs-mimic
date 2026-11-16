@@ -110,6 +110,15 @@ when both specify the same patch. `actions/setup-go` reads the toolchain from
 The verified 2026-11-11 snapshot uses Go 1.27.4, Storage v1.70.0 and API client
 v0.312.0. These are dated inputs, not permanent version requirements.
 
+The published [`go/` module](../../go/README.md) is the exception to the language
+series. Its `go` directive is the minimum a user's own module inherits, so it names
+the oldest series that go.dev still lists as stable (`1.26.0` while 1.27 and 1.26 are
+supported), and its `toolchain` directive keeps pinning the current stable patch for
+this repository's own runs. The freshness check expects that oldest series for
+`go/go.mod` only, and `scripts/sdk-go.sh` vets and tests the module with exactly the
+release its directive names. When a dependency requires a newer series, the
+directive follows it and the check reports the drift until the series ages out.
+
 Commit `go.mod` and `go.sum`. Go's minimum version selection uses the manifest's
 direct and indirect requirements; `go.sum` authenticates module content rather
 than selecting versions. Ordinary CI uses that graph. The API client is a large

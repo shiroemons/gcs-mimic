@@ -464,6 +464,23 @@ fn latest_stable_go(
     }
 }
 
+/// The `go` directive a manifest should declare, given the stable releases go.dev lists: the
+/// newest patch of each supported release series. The published `go/` module declares the
+/// oldest supported series, so that a user on either series can require it without raising
+/// their own directive; every other manifest tracks the newest series.
+fn go_language_baseline(
+    manifest: &str,
+    stable: impl Iterator<Item = (u64, u64, u64)>,
+) -> Option<String> {
+    let series = stable.map(|(major, minor, _)| (major, minor));
+    let (major, minor) = if manifest == "go/go.mod" {
+        series.min()?
+    } else {
+        series.max()?
+    };
+    Some(format!("{major}.{minor}.0"))
+}
+
 fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     if !matches!(
         text(scope, "manifest")?,
@@ -489,7 +506,7 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
         }
     }
     let releases = json(&fetch("https://go.dev/dl/?mode=json", &[])?)?;
-    let ((major, minor, _), latest) = releases
+    let stable: Vec<_> = releases
         .as_array()
         .ok_or("invalid Go releases")?
         .iter()
@@ -498,13 +515,14 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
             let name = r["version"].as_str()?.strip_prefix("go")?;
             Some((version(name)?, name))
         })
+        .collect();
+    let (_, latest) = stable
+        .iter()
         .max_by_key(|(v, _)| *v)
         .ok_or("no stable Go release")?;
-    let mut drift = compare(
-        "Go language baseline",
-        &module.go,
-        &format!("{major}.{minor}.0"),
-    );
+    let baseline = go_language_baseline(text(scope, "manifest")?, stable.iter().map(|(v, _)| *v))
+        .ok_or("no stable Go release")?;
+    let mut drift = compare("Go language baseline", &module.go, &baseline);
     drift |= compare("Go toolchain", &module.toolchain, latest);
     for (name, current) in module.direct {
         let proxy = |url: &str| {
@@ -1707,6 +1725,27 @@ fn missing_registry_manifests(declared: &BTreeSet<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_published_go_module_declares_the_oldest_supported_series() {
+        let stable = [(1, 27, 4), (1, 26, 8)];
+        assert_eq!(
+            go_language_baseline("go/go.mod", stable.into_iter()).as_deref(),
+            Some("1.26.0")
+        );
+        for manifest in [
+            "sdk-tests/go/go.mod",
+            "sdk-scorecard/go/go.mod",
+            "go/sourceexport/go.mod",
+        ] {
+            assert_eq!(
+                go_language_baseline(manifest, stable.into_iter()).as_deref(),
+                Some("1.27.0"),
+                "{manifest}"
+            );
+        }
+        assert_eq!(go_language_baseline("go/go.mod", std::iter::empty()), None);
+    }
 
     #[test]
     fn registry_pins_come_from_actual_manifests() {
