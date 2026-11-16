@@ -343,7 +343,12 @@ fn entries_carry_notes_and_lists_end_in_the_entry_that_asks_by_hand() {
         "7 days, the Cloud Storage default (604800 seconds)"
     );
     // The notes say when a page needs each goal: <img> and links need no CORS, and the
-    // default permissive mode already lets anyone read.
+    // default permissive mode already lets anyone read, so a bucket is private only in strict
+    // mode.
+    assert_eq!(
+        Goal::Defaults.to_string(),
+        "Default settings  (private in strict mode; anyone reads in the default permissive mode)"
+    );
     assert_eq!(
         Goal::BrowserDownloads.to_string(),
         "Browser downloads  (your page reads objects with fetch(); <img> and links need none)"

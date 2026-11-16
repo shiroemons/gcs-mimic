@@ -102,10 +102,12 @@ impl Noted for Goal {
 
     // Each note says when a bucket needs the goal, since the members' names do not: a page
     // shows objects through <img> and links without CORS, and the default permissive mode
-    // already lets anyone read, so public read matters only in strict mode.
+    // already lets anyone read, so public read matters only in strict mode. For the same
+    // reason no setting makes a bucket private: the mode does, and the first entry, where
+    // someone looking for a private bucket reads first, says so.
     fn note(self) -> &'static str {
         match self {
-            Self::Defaults => "nothing more to set up",
+            Self::Defaults => "private in strict mode; anyone reads in the default permissive mode",
             Self::BrowserUploads => "your web or mobile app uploads files: CORS for PUT and POST",
             Self::BrowserDownloads => {
                 "your page reads objects with fetch(); <img> and links need none"
