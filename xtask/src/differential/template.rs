@@ -199,11 +199,13 @@ pub(crate) fn json_get<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
 
 /// Where a step's capture takes its value: `body:a.b.0.c` (a JSON scalar at a dotted
 /// path), `header:name` or `header:name?param` (a query parameter of the header value,
-/// for example the upload ID in a resumable session `Location`).
+/// for example the upload ID in a resumable session `Location`), or `xml:Element` (the
+/// text of the first element with that name in an XML body, such as an `UploadId`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Capture {
     Body { path: String },
     Header { name: String, param: Option<String> },
+    Xml { element: String },
 }
 
 /// Parsed when a case is loaded, so a malformed spec fails validation instead of
@@ -217,10 +219,17 @@ impl FromStr for Capture {
                 path: path.to_owned(),
             });
         }
+        if let Some(element) = spec.strip_prefix("xml:").filter(|e| !e.is_empty()) {
+            return Ok(Self::Xml {
+                element: element.to_owned(),
+            });
+        }
         let rest = spec
             .strip_prefix("header:")
             .filter(|rest| !rest.is_empty() && !rest.starts_with('?'))
-            .ok_or_else(|| format!("capture {spec}: expected body:PATH or header:NAME"))?;
+            .ok_or_else(|| {
+                format!("capture {spec}: expected body:PATH, header:NAME or xml:ELEMENT")
+            })?;
         Ok(match rest.split_once('?') {
             Some((name, param)) => Self::Header {
                 name: name.to_owned(),
@@ -245,6 +254,7 @@ impl fmt::Display for Capture {
                 name,
                 param: Some(param),
             } => write!(f, "header:{name}?{param}"),
+            Self::Xml { element } => write!(f, "xml:{element}"),
         }
     }
 }
@@ -272,6 +282,17 @@ pub(crate) fn extract(capture: &Capture, response: &Response) -> Result<String> 
                 .find_map(|pair| pair.strip_prefix(param.as_str())?.strip_prefix('='))
                 .map(str::to_owned)
                 .ok_or_else(|| format!("capture {capture}: query parameter absent"))
+        }
+        // Read whatever the content type says: Cloud Storage sends some XML documents
+        // as text/html.
+        Capture::Xml { element } => {
+            let tree = super::xml::parse(&String::from_utf8_lossy(&response.body))
+                .map_err(|e| format!("capture {capture}: body is not XML: {e}"))?;
+            let found = super::xml::find(&tree, element)
+                .ok_or_else(|| format!("capture {capture}: element absent"))?;
+            super::xml::text(found)
+                .map(str::to_owned)
+                .ok_or_else(|| format!("capture {capture}: element has child elements"))
         }
     }
 }
@@ -354,6 +375,36 @@ mod tests {
     }
 
     #[test]
+    fn captures_the_first_matching_xml_element_whatever_the_content_type() {
+        let response = |body: &str| Response {
+            status: 200,
+            headers: vec![("content-type".into(), "text/html; charset=UTF-8".into())],
+            body: body.as_bytes().to_vec(),
+        };
+        let listing = response(
+            "<?xml version='1.0' encoding='UTF-8'?><ListMultipartUploadsResult>\
+             <NextKeyMarker></NextKeyMarker><Upload><Key>a</Key><UploadId>U1</UploadId></Upload>\
+             <Upload><Key>b</Key><UploadId>U2</UploadId></Upload></ListMultipartUploadsResult>",
+        );
+        let capture = |spec: &str, response: &Response| extract(&spec.parse().unwrap(), response);
+        assert_eq!(capture("xml:UploadId", &listing).unwrap(), "U1");
+        assert_eq!(capture("xml:NextKeyMarker", &listing).unwrap(), "");
+        assert_eq!(
+            capture("xml:Upload", &listing).unwrap_err(),
+            "capture xml:Upload: element has child elements"
+        );
+        assert_eq!(
+            capture("xml:NextUploadIdMarker", &listing).unwrap_err(),
+            "capture xml:NextUploadIdMarker: element absent"
+        );
+        let error = capture("xml:UploadId", &response(r#"{"uploadId":"U1"}"#)).unwrap_err();
+        assert!(
+            error.starts_with("capture xml:UploadId: body is not XML: "),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn capture_specs_print_as_written_and_reject_other_forms() {
         for (spec, capture) in [
             (
@@ -376,14 +427,20 @@ mod tests {
                     param: Some("b?c".into()),
                 },
             ),
+            (
+                "xml:UploadId",
+                Capture::Xml {
+                    element: "UploadId".into(),
+                },
+            ),
         ] {
             assert_eq!(spec.parse::<Capture>().unwrap(), capture);
             assert_eq!(capture.to_string(), spec);
         }
-        for spec in ["body:", "header:", "header:?x", "cookie:x", ""] {
+        for spec in ["body:", "header:", "header:?x", "xml:", "cookie:x", ""] {
             assert_eq!(
                 spec.parse::<Capture>().unwrap_err(),
-                format!("capture {spec}: expected body:PATH or header:NAME")
+                format!("capture {spec}: expected body:PATH, header:NAME or xml:ELEMENT")
             );
         }
     }

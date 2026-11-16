@@ -760,7 +760,8 @@ Modes:
 - **Cleanup** never stops at the first failure. For each bucket it reads the
   bucket, clears a retention policy, a default event-based hold and requester
   pays (only what is set), deletes notification configs and managed folders,
-  deletes every object version (a 403 is answered by releasing the holds and
+  aborts every open XML multipart upload (paging the `?uploads` listing by its
+  next markers), deletes every object version (a 403 is answered by releasing the holds and
   the unlocked retention with `overrideUnlockedRetention=true`, then deleting
   again), deletes the bucket and confirms a 404. A managed folders listing that
   is refused (412 when uniform bucket-level access is off, 403 without
@@ -962,9 +963,11 @@ independently.
   write literal braces. A variable must be defined before its first use.
 - `body` is JSON; `body_text` is raw text. Query values are percent-encoded by
   the harness; write paths already encoded.
-- `capture` maps a name to `body:dotted.path` or `header:name` /
+- `capture` maps a name to `body:dotted.path`, `header:name` /
   `header:name?param` (a query parameter of the header value, such as the
-  upload ID in a resumable `Location`).
+  upload ID in a resumable `Location`), or `xml:Element` (the text of the first
+  element with that name in an XML body, such as an `UploadId` or a
+  `NextContinuationToken`, whatever the content type).
 - `compare` (case level, merged into each step) accepts `ignore_headers`,
   `only_headers`, `ignore_body_paths` (`$.a.b[*].c`, covering the subtree) and
   `body` (`auto`, `json`, `text`, `ignore`). `"compare": false` on a step runs
@@ -978,8 +981,10 @@ independently.
 path-style XML endpoint (`/{bucket}/{object}`, `Authorization: Bearer` on the
 real service), so `method`, `path`, `query`, `headers` and `body_text` work as
 for JSON steps; set `Content-Type` explicitly on a PUT. A response whose
-`content-type` contains `xml` and parses is compared as an ordered tree, not as
-text: every element becomes `{"name", "attrs"?, "text" | "children"}`, the root
+`content-type` contains `xml`, or whose body starts with an XML declaration
+(Cloud Storage sends multipart initiation and listing documents as
+`text/html`; the content type is still compared as a header), and that parses
+is compared as an ordered tree, not as text: every element becomes `{"name", "attrs"?, "text" | "children"}`, the root
 also carries a canonical `declaration`, so element order, nesting and missing or
 extra elements are differences. Paths in `ignore_body_paths` address that tree
 (`$.children[2].text`). Leaf text is normalized by tag (`ETag`, `Generation`,

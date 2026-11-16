@@ -1,7 +1,8 @@
 //! A small XML reader for Cloud Storage XML API responses (`ListBucketResult`,
-//! `Error`, `CopyObjectResult`). It turns a document into an ordered JSON tree
-//! so the harness compares element order and nesting instead of raw text, and
-//! so the usual path-based ignore patterns keep working.
+//! `ListMultipartUploadsResult`, `Error`, `CopyObjectResult`). It turns a
+//! document into an ordered JSON tree so the harness compares element order and
+//! nesting instead of raw text, so the usual path-based ignore patterns keep
+//! working, and so a case can capture an element's text.
 //!
 //! Shape of the tree: every element is `{"name": TAG}` plus `"attrs"` (object,
 //! only when attributes exist) and either `"text"` (a leaf) or `"children"` (an
@@ -202,6 +203,30 @@ pub(crate) fn parse(text: &str) -> Result<Value> {
     Ok(root)
 }
 
+/// Whether a body is an XML document whatever its content type says: Cloud Storage
+/// answers multipart initiation and listing as `text/html` with an XML document.
+pub(crate) fn is_document(body: &str) -> bool {
+    body.trim_start().starts_with("<?xml")
+}
+
+/// The first element named `name` in document order, the tree's root included.
+pub(crate) fn find<'a>(node: &'a Value, name: &str) -> Option<&'a Value> {
+    if node["name"] == name {
+        return Some(node);
+    }
+    children(node).find_map(|child| find(child, name))
+}
+
+/// The child elements of an element, in order; none for a leaf.
+pub(crate) fn children(node: &Value) -> impl Iterator<Item = &Value> {
+    node["children"].as_array().into_iter().flatten()
+}
+
+/// The text of a leaf element; `None` for an element with children.
+pub(crate) fn text(node: &Value) -> Option<&str> {
+    node["text"].as_str()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +258,23 @@ mod tests {
             parse("<R><A></A></R>").unwrap(),
             parse("<R><A/></R>").unwrap()
         );
+    }
+
+    #[test]
+    fn finds_the_first_element_by_name_in_document_order() {
+        let tree = parse("<R><A><B>inner</B></A><B>outer</B><C/></R>").unwrap();
+        assert_eq!(find(&tree, "B").and_then(text), Some("inner"));
+        assert_eq!(find(&tree, "C").and_then(text), Some(""));
+        assert_eq!(find(&tree, "R").map(|r| children(r).count()), Some(3));
+        assert_eq!(find(&tree, "A").and_then(text), None, "A has children");
+        assert!(find(&tree, "D").is_none());
+    }
+
+    #[test]
+    fn an_xml_declaration_marks_a_document_whatever_the_content_type() {
+        assert!(is_document(" \n<?xml version='1.0'?><R/>"));
+        assert!(!is_document("<!DOCTYPE html><html></html>"));
+        assert!(!is_document("Not Found"));
     }
 
     #[test]

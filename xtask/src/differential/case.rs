@@ -796,11 +796,13 @@ mod tests {
 
     #[test]
     fn rejects_malformed_capture_specs_when_the_case_is_loaded() {
-        for spec in ["body:", "header:", "header:?x", "cookie:x"] {
+        for spec in ["body:", "header:", "header:?x", "xml:", "cookie:x"] {
             let step = json!({"name": "s", "method": "GET", "path": "/p", "capture": {"v": spec}});
             assert_eq!(
                 parse_case(&case_with(step), "x").unwrap_err(),
-                format!("steps[0].capture.v: capture {spec}: expected body:PATH or header:NAME")
+                format!(
+                    "steps[0].capture.v: capture {spec}: expected body:PATH, header:NAME or xml:ELEMENT"
+                )
             );
         }
     }

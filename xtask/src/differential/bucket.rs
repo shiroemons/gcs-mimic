@@ -8,8 +8,9 @@ use super::normalize::{Normalizer, project_numbers};
 use super::runner::Service;
 use super::template::percent_encode;
 use super::transport::{Request, Response, Wire};
+use super::xml;
 use serde_json::{Value, json};
-use std::{thread::sleep, time::Duration};
+use std::{str::FromStr, thread::sleep, time::Duration};
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -398,9 +399,152 @@ fn clear_bucket_settings(
     }
 }
 
-/// Empties and deletes a bucket, then confirms it answers 404. A bucket that is
-/// already gone is not an error. Every failure is collected; the error holds
-/// all of them.
+/// An open XML multipart upload, which is also the position a listing resumes after.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenUpload {
+    key: String,
+    id: String,
+}
+
+impl OpenUpload {
+    /// Reads the child elements that name an upload (`Key` and `UploadId`, or the next
+    /// markers); `None` when either is absent or empty.
+    fn from_children(node: &Value, key: &str, id: &str) -> Option<Self> {
+        let text = |element: &str| {
+            xml::children(node)
+                .find(|child| child["name"] == element)
+                .and_then(xml::text)
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned)
+        };
+        Some(Self {
+            key: text(key)?,
+            id: text(id)?,
+        })
+    }
+
+    /// The path-style abort: every segment of the name encoded, the separators kept.
+    fn abort_request(&self, bucket: &str) -> Request {
+        let segments: Vec<String> = self.key.split('/').map(percent_encode).collect();
+        let target = format!(
+            "/{bucket}/{}?uploadId={}",
+            segments.join("/"),
+            percent_encode(&self.id)
+        );
+        request("DELETE", target, None)
+    }
+}
+
+/// One page of a bucket's XML multipart upload listing.
+struct UploadPage {
+    uploads: Vec<OpenUpload>,
+    /// Where the next page starts; `None` on the last page.
+    next: Option<OpenUpload>,
+}
+
+impl UploadPage {
+    fn request(bucket: &str, after: Option<&OpenUpload>) -> Request {
+        let mut target = format!("/{bucket}?uploads");
+        if let Some(after) = after {
+            target.push_str(&format!(
+                "&key-marker={}&upload-id-marker={}",
+                percent_encode(&after.key),
+                percent_encode(&after.id)
+            ));
+        }
+        request("GET", target, None)
+    }
+}
+
+impl FromStr for UploadPage {
+    type Err = String;
+
+    fn from_str(body: &str) -> Result<Self> {
+        let root = xml::parse(body).map_err(|e| format!("not XML: {e}"))?;
+        let uploads = xml::children(&root)
+            .filter(|child| child["name"] == "Upload")
+            .map(|upload| {
+                OpenUpload::from_children(upload, "Key", "UploadId")
+                    .ok_or("an Upload without Key or UploadId")
+            })
+            .collect::<std::result::Result<_, _>>()?;
+        let truncated = xml::children(&root)
+            .any(|child| child["name"] == "IsTruncated" && xml::text(child) == Some("true"));
+        let next = truncated
+            .then(|| {
+                OpenUpload::from_children(&root, "NextKeyMarker", "NextUploadIdMarker")
+                    .ok_or("a truncated page without next markers")
+            })
+            .transpose()?;
+        Ok(Self { uploads, next })
+    }
+}
+
+/// One listing page; `Ok(None)` when there is no listing to read (the bucket is gone).
+fn list_uploads(
+    side: &Service<'_>,
+    norm: &Normalizer,
+    name: &str,
+    after: Option<&OpenUpload>,
+) -> Result<Option<UploadPage>> {
+    let response =
+        send_retrying(side, &UploadPage::request(name, after)).map_err(|e| norm.text(&e))?;
+    match response.status {
+        200 => String::from_utf8_lossy(&response.body).parse().map(Some),
+        status if ABSENT.contains(&status) => Ok(None),
+        _ => Err(describe(norm, &response)),
+    }
+}
+
+/// Aborts every XML multipart upload left open in the bucket, as a case that fails
+/// between starting and finishing one leaves it. Returns how many were aborted.
+fn abort_uploads(
+    side: &Service<'_>,
+    norm: &Normalizer,
+    name: &str,
+    problems: &mut Vec<String>,
+) -> usize {
+    let mut aborted = 0;
+    let mut after = None;
+    loop {
+        let page = match list_uploads(side, norm, name, after.as_ref()) {
+            Ok(Some(page)) => page,
+            Ok(None) => return aborted,
+            Err(error) => {
+                problems.push(format!("list multipart uploads: {error}"));
+                return aborted;
+            }
+        };
+        for upload in &page.uploads {
+            let abort = upload.abort_request(name);
+            let answered = expect(
+                side,
+                norm,
+                "abort multipart upload",
+                &abort,
+                &[204, 404],
+                problems,
+            );
+            if answered.is_some() {
+                aborted += 1;
+            }
+        }
+        match page.next {
+            None => return aborted,
+            // A page that does not move the markers forward would be listed again forever.
+            Some(next) if after.as_ref() == Some(&next) => {
+                problems
+                    .push("list multipart uploads: a truncated page repeats its markers".into());
+                return aborted;
+            }
+            next => after = next,
+        }
+    }
+}
+
+/// Empties and deletes a bucket (open multipart uploads included), then confirms
+/// it answers 404. A bucket that is already gone is not an error. Every failure
+/// is collected; the error holds all of them.
 pub(crate) fn cleanup(side: &Service<'_>, norm: &Normalizer, name: &str) -> Result<String> {
     let probe = request(
         "GET",
@@ -429,6 +573,7 @@ pub(crate) fn cleanup(side: &Service<'_>, norm: &Normalizer, name: &str) -> Resu
     };
     let mut problems = Vec::new();
     clear_bucket_settings(side, norm, name, &bucket, &mut problems);
+    let uploads = abort_uploads(side, norm, name, &mut problems);
     let listing =
         format!("/storage/v1/b/{name}/o?versions=true&fields=items(name,generation),nextPageToken");
     let versions = list_all(
@@ -474,8 +619,14 @@ pub(crate) fn cleanup(side: &Service<'_>, norm: &Normalizer, name: &str) -> Resu
         }
     };
     if problems.is_empty() {
+        // Named only when there were any, so the usual line stays as it was.
+        let aborted = if uploads > 0 {
+            format!(", {uploads} multipart uploads aborted")
+        } else {
+            String::new()
+        };
         Ok(format!(
-            "emptied ({deleted} object versions), deleted, GET confirmed 404"
+            "emptied ({deleted} object versions{aborted}), deleted, GET confirmed 404"
         ))
     } else {
         if let Some(failure) = probe_failure {
@@ -562,6 +713,50 @@ mod tests {
         /// Status of the managed folders listing when not 0 (412 without uniform
         /// bucket-level access, 403 without permission).
         folder_list_status: u16,
+        /// Open multipart uploads as (key, upload ID), listed one per page.
+        uploads: RefCell<BTreeSet<(String, String)>>,
+        /// Answer every multipart listing as truncated with the same markers.
+        uploads_stuck: bool,
+    }
+
+    impl FakeBucket {
+        /// One upload per page after the request's markers, as an XML document sent as
+        /// text/html like Cloud Storage does.
+        fn uploads_page(&self, target: &str) -> Result<Response> {
+            if self.uploads_stuck {
+                return response(
+                    200,
+                    "<?xml version='1.0'?><ListMultipartUploadsResult><NextKeyMarker>k</NextKeyMarker>\
+                     <NextUploadIdMarker>U1</NextUploadIdMarker><IsTruncated>true</IsTruncated>\
+                     </ListMultipartUploadsResult>",
+                );
+            }
+            let query = target.split_once('?').map_or("", |(_, q)| q);
+            let param = |name: &str| {
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
+                    .map(crate::differential::template::percent_decode)
+            };
+            let after = (
+                param("key-marker").unwrap_or_default(),
+                param("upload-id-marker").unwrap_or_default(),
+            );
+            let uploads = self.uploads.borrow();
+            let mut rest = uploads.iter().filter(|upload| **upload > after);
+            let page = rest.next();
+            let truncated = rest.next().is_some();
+            let (next_key, next_id) = page.cloned().unwrap_or_default();
+            let entry = page.map_or_else(String::new, |(key, id)| {
+                format!("<Upload><Key>{key}</Key><UploadId>{id}</UploadId></Upload>")
+            });
+            let body = format!(
+                "<?xml version='1.0' encoding='UTF-8'?><ListMultipartUploadsResult>\
+                 <NextKeyMarker>{next_key}</NextKeyMarker><NextUploadIdMarker>{next_id}</NextUploadIdMarker>\
+                 <IsTruncated>{truncated}</IsTruncated>{entry}</ListMultipartUploadsResult>"
+            );
+            response(200, &body)
+        }
     }
 
     fn response(status: u16, body: &str) -> Result<Response> {
@@ -652,6 +847,16 @@ mod tests {
                     *self.bucket_gone.borrow_mut() = true;
                     response(204, "")
                 }
+                ("GET", "/bk") if req.target.starts_with("/bk?uploads") => {
+                    self.uploads_page(&req.target)
+                }
+                ("DELETE", p) if p.starts_with("/bk/") => {
+                    let key = crate::differential::template::percent_decode(&p["/bk/".len()..]);
+                    let id = req.target.split_once("?uploadId=").map(|(_, id)| id);
+                    let removed = id
+                        .is_some_and(|id| self.uploads.borrow_mut().remove(&(key, id.to_owned())));
+                    response(if removed { 204 } else { 404 }, "")
+                }
                 _ => response(500, &format!("unexpected {line}")),
             }
         }
@@ -696,6 +901,92 @@ mod tests {
             assert!(sent.contains(needle), "missing {needle:?} in\n{sent}");
         }
         assert!(fake.notifications.borrow().is_empty() && fake.folders.borrow().is_empty());
+    }
+
+    #[test]
+    fn cleanup_aborts_every_open_multipart_upload_page_by_page() {
+        let fake = FakeBucket::default();
+        for (key, id) in [("d/mp.bin", "U1"), ("f g.bin", "U2")] {
+            fake.uploads
+                .borrow_mut()
+                .insert((key.to_owned(), id.to_owned()));
+        }
+        let note = cleanup(&side(&fake), &Normalizer::default(), "bk").unwrap();
+        assert_eq!(
+            note,
+            "emptied (1 object versions, 2 multipart uploads aborted), deleted, GET confirmed 404"
+        );
+        assert!(fake.uploads.borrow().is_empty());
+        let sent = fake.sent.borrow().join("\n");
+        for needle in [
+            "GET /bk?uploads\n",
+            "DELETE /bk/d/mp.bin?uploadId=U1\n",
+            "GET /bk?uploads&key-marker=d%2Fmp.bin&upload-id-marker=U1\n",
+            "DELETE /bk/f%20g.bin?uploadId=U2\n",
+        ] {
+            assert!(sent.contains(needle), "missing {needle:?} in\n{sent}");
+        }
+        // The uploads go before the bucket, whose delete they would otherwise block.
+        let aborted = sent.find("DELETE /bk/f%20g.bin").unwrap();
+        assert!(aborted < sent.find("DELETE /storage/v1/b/bk\n").unwrap());
+    }
+
+    #[test]
+    fn an_upload_page_needs_named_uploads_and_next_markers_when_truncated() {
+        let page = |inner: &str| {
+            format!("<?xml version='1.0'?><ListMultipartUploadsResult>{inner}</ListMultipartUploadsResult>")
+                .parse::<UploadPage>()
+        };
+        let last = page(
+            "<NextKeyMarker></NextKeyMarker><IsTruncated>false</IsTruncated>\
+             <Upload><Key>a</Key><UploadId>U1</UploadId></Upload>",
+        )
+        .unwrap();
+        let upload = OpenUpload {
+            key: "a".into(),
+            id: "U1".into(),
+        };
+        assert_eq!((last.uploads, last.next), (vec![upload.clone()], None));
+        let more = page(
+            "<NextKeyMarker>a</NextKeyMarker><NextUploadIdMarker>U1</NextUploadIdMarker>\
+             <IsTruncated>true</IsTruncated>",
+        )
+        .unwrap();
+        assert_eq!(more.next, Some(upload));
+        for (inner, error) in [
+            (
+                "<Upload><Key>a</Key><UploadId></UploadId></Upload>",
+                "an Upload without Key or UploadId",
+            ),
+            (
+                "<IsTruncated>true</IsTruncated><NextKeyMarker>a</NextKeyMarker>",
+                "a truncated page without next markers",
+            ),
+        ] {
+            assert_eq!(page(inner).err().as_deref(), Some(error));
+        }
+        assert!("Not Found".parse::<UploadPage>().is_err());
+    }
+
+    #[test]
+    fn a_multipart_listing_that_does_not_advance_is_reported_not_repeated() {
+        let fake = FakeBucket {
+            uploads_stuck: true,
+            ..FakeBucket::default()
+        };
+        let error = cleanup(&side(&fake), &Normalizer::default(), "bk").unwrap_err();
+        assert!(
+            error.contains("a truncated page repeats its markers"),
+            "{error}"
+        );
+        assert!(error.contains("the bucket itself is deleted"), "{error}");
+        let lists = fake
+            .sent
+            .borrow()
+            .iter()
+            .filter(|line| line.starts_with("GET /bk?uploads"))
+            .count();
+        assert_eq!(lists, 2, "the second page repeats the markers and stops");
     }
 
     fn create_request(body: Value) -> Request {

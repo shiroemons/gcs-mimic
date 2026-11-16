@@ -470,14 +470,15 @@ impl Normalizer {
         let is_json = headers
             .get("content-type")
             .is_some_and(|t| t.contains("json"));
+        // Cloud Storage sends multipart initiation and listing documents as text/html. The
+        // content type is compared as a header; the document is still compared as a tree, so
+        // a difference in element order shows as one rather than as unequal text.
+        let text = String::from_utf8_lossy(&response.body);
         let is_xml = headers
             .get("content-type")
-            .is_some_and(|t| t.contains("xml"));
-        let xml_tree = if is_xml {
-            xml::parse(&String::from_utf8_lossy(&response.body)).ok()
-        } else {
-            None
-        };
+            .is_some_and(|t| t.contains("xml"))
+            || xml::is_document(&text);
+        let xml_tree = if is_xml { xml::parse(&text).ok() } else { None };
         let body = if response.body.is_empty() {
             NormBody::Empty
         } else if let (true, Ok(value)) = (is_json, serde_json::from_slice(&response.body)) {
@@ -853,6 +854,31 @@ mod tests {
             normalizer().response(&broken, false).body,
             NormBody::Text(_)
         ));
+    }
+
+    #[test]
+    fn an_xml_document_sent_as_html_is_still_compared_as_a_tree() {
+        let html = |body: &str| Response {
+            status: 200,
+            headers: vec![("Content-Type".into(), "text/html; charset=UTF-8".into())],
+            body: body.as_bytes().to_vec(),
+        };
+        let out = normalizer().response(
+            &html("<?xml version='1.0' encoding='UTF-8'?><R><Initiated>2026-11-16T06:37:53.548719Z</Initiated></R>"),
+            false,
+        );
+        assert_eq!(out.headers["content-type"], "text/html; charset=UTF-8");
+        let NormBody::Json(tree) = out.body else {
+            panic!("an XML document should become a tree");
+        };
+        assert_eq!(tree["children"][0]["text"], "<time:f6>");
+        // A plain HTML or text answer stays text.
+        for body in ["Not Found", "<!DOCTYPE html><html></html>"] {
+            assert_eq!(
+                normalizer().response(&html(body), false).body,
+                NormBody::Text(body.into())
+            );
+        }
     }
 
     #[test]
