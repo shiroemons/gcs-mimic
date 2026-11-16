@@ -262,6 +262,21 @@ fn advised(values: &[&str], format: Format, destination: Destination<'_>) -> Str
     )
 }
 
+/// The advice without the blank line that keeps it apart from a document printed on the terminal
+/// just above, which it starts with exactly when the document went there.
+fn apart(advice: String, destination: Destination<'_>) -> String {
+    match destination {
+        Destination::Terminal => advice
+            .strip_prefix('\n')
+            .map(str::to_owned)
+            .unwrap_or_else(|| panic!("no blank line before {advice:?}")),
+        Destination::File(_) | Destination::Redirected => {
+            assert!(!advice.starts_with('\n'), "{advice:?}");
+            advice
+        }
+    }
+}
+
 /// The advice names the next command for where the document went, and a path is quoted only
 /// when a shell would split or expand it.
 #[test]
@@ -297,7 +312,7 @@ fn advice_names_the_next_step_for_the_format_and_destination() {
             "docker compose up -d",
         ),
     ] {
-        let advice = advised(&named, format, destination);
+        let advice = apart(advised(&named, format, destination), destination);
         assert!(advice.starts_with("Next: "), "{advice}");
         assert!(advice.contains(says), "{advice}");
         // One line within a common terminal's width: a wrapped paragraph goes unread.
@@ -339,7 +354,7 @@ fn strict_advice_says_where_servers_and_browsers_connect() {
             "http://gcs:4444; never publish it",
         ),
     ] {
-        let advice = advised(&strict, format, destination);
+        let advice = apart(advised(&strict, format, destination), destination);
         assert!(advice.starts_with("Next: "), "{advice}");
         assert!(advice.contains(servers), "{advice}");
         assert!(
@@ -390,6 +405,7 @@ fn advice_notes_each_upload_rule_without_content_type() {
         Format::Compose,
         Destination::Terminal,
     );
+    let advice = apart(advice, Destination::Terminal);
     let notes: Vec<_> = advice.lines().skip(1).collect();
     assert_eq!(
         notes,

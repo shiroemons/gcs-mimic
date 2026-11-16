@@ -453,6 +453,8 @@ fn named_buckets_without_goals_come_out_as_one_compose_line() {
         "environment:\n  GCS_MIMIC_BUCKETS: \"app-uploads,app-exports\"\n"
     );
     assert_eq!(answers.saved, None);
+    // A blank line ends the questions, so the document does not run on from the last answer.
+    assert_eq!(script.seen.last().map(String::as_str), Some("\n"));
     for question in [
         "? Who can read app-uploads and app-exports? [Public, Private]",
         "? What should app-uploads and app-exports do? [Default settings, Browser uploads, Browser downloads, Keep old versions, Keep deleted objects, More settings…]",
@@ -785,7 +787,7 @@ fn a_private_bucket_turns_on_strict_mode_for_every_bucket() {
         .seen
         .iter()
         .rev()
-        .find(|seen| seen.starts_with('\n'))
+        .find(|seen| seen.contains("\napp-public\n"))
         .unwrap();
     assert!(
         summary.starts_with("\nStrict mode for the whole server, since a bucket is private"),

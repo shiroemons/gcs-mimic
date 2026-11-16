@@ -12,7 +12,6 @@ use inquire::InquireError;
 use std::{
     borrow::Cow,
     io::{self, IsTerminal, Write},
-    iter,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -146,7 +145,15 @@ fn advice(document: &Document, format: Format, destination: Destination<'_>) -> 
         AuthMode::Permissive => next_step(format, destination),
         AuthMode::Strict => strict_steps(format, destination).into(),
     };
-    iter::once(next).chain(notes).collect()
+    // A document printed just above would run on into the advice without a blank line.
+    let apart = match destination {
+        Destination::Terminal => "\n",
+        Destination::File(_) | Destination::Redirected => "",
+    };
+    [Cow::Borrowed(apart), next]
+        .into_iter()
+        .chain(notes)
+        .collect()
 }
 
 /// Strict mode changes how the application connects, so each change gets a line of its own

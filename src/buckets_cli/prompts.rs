@@ -484,6 +484,9 @@ fn document(
                         Saved::Back => continue,
                     },
                 };
+                // What follows, the document or the next step, would run on from the last
+                // answer without a blank line.
+                term.show("\n");
                 return Ok(Some(Answers {
                     document,
                     format,
