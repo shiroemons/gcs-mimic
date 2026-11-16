@@ -16,6 +16,7 @@ func TestRustBucketHelpersRetainOptionsAndProtectObjects(t *testing.T) {
 	if os.Getenv("GCSM_BINARY") == "" {
 		t.Fatal("integration requires GCSM_BINARY")
 	}
+	skipNoListenerOnWindows(t)
 	server, err := NewServerWithOptions(Options{Scheme: "http", NoListener: true})
 	if err != nil {
 		t.Fatal(err)

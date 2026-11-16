@@ -16,6 +16,7 @@ func TestRustFixtureACLAndRetention(t *testing.T) {
 	if os.Getenv("GCSM_BINARY") == "" {
 		t.Fatal("integration requires GCSM_BINARY")
 	}
+	skipNoListenerOnWindows(t)
 	// The server displays retention times at millisecond precision (observed 2026-10-31), so the
 	// sub-millisecond part of what was sent is not read back.
 	until := time.Date(2090, 1, 1, 0, 0, 0, 123456000, time.UTC)

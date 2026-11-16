@@ -167,6 +167,7 @@ Verification on 2026-11-16, Go 1.27.4:
   with `-tags integration` every `./gcsmimic` test passed, each within 0.2
   seconds. Their cleanup fails when `Close` cannot stop the child gracefully, so
   the CTRL_BREAK stop works on both architectures; the child's log shows its
-  `stopping` event. In `./fakestorage` the four integration tests that use
-  `NoListener` failed, because `NoListener` refuses Windows by design, as it
-  does on `main`; the Go CI job runs only on Linux, where they pass.
+  `stopping` event. The four `./fakestorage` integration tests that use
+  `NoListener` first failed there: gcs-mimic serves no Unix socket on Windows,
+  so `NoListener` refuses to start, which `TestNoListenerHandlerAndTransport`
+  checks. They now skip on Windows with that reason and still run elsewhere.

@@ -59129,7 +59129,7 @@
         },
         {
           "id": "GO-WINDOWS-STOP",
-          "description": "On Windows both packages start the child in its own process group and stop it with CTRL_BREAK through GenerateConsoleCtrlEvent, and gcs-mimic stops gracefully on it. On windows-2025 (x64) and windows-11-arm (ARM64) runners the fake-child tests and the gcsmimic integration tests against a Windows build pass; each test's cleanup fails when Close has to kill the child, and each finished within 0.2 seconds. fakestorage's NoListener integration tests refuse on Windows by design and fail there, as on main; the Go CI job runs only on Linux.",
+          "description": "On Windows both packages start the child in its own process group and stop it with CTRL_BREAK through GenerateConsoleCtrlEvent, and gcs-mimic stops gracefully on it. On windows-2025 (x64) and windows-11-arm (ARM64) runners the fake-child tests and the gcsmimic integration tests against a Windows build pass; each test's cleanup fails when Close has to kill the child, and each finished within 0.2 seconds. fakestorage's NoListener integration tests skip on Windows, where NoListener refuses because gcs-mimic serves no Unix socket; the Go CI job runs only on Linux.",
           "result": "PASS",
           "test_ids": [
             "TestStopEndsTheChildAndRepeatsItsResult",

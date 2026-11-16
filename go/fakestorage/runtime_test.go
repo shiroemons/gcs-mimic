@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,12 +19,24 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
+// skipNoListenerOnWindows ends a test of NoListener on Windows, where gcs-mimic serves no Unix
+// socket and NoListener refuses to start; TestNoListenerHandlerAndTransport checks that refusal.
+func skipNoListenerOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("NoListener needs a Unix socket, which gcs-mimic does not serve on Windows")
+	}
+}
+
 func TestRustRuntimeFixtureSDKHandlerAndParallelIsolation(t *testing.T) {
 	if os.Getenv("GCSM_BINARY") == "" {
 		t.Fatal("integration requires GCSM_BINARY")
 	}
 	for _, noListener := range []bool{false, true} {
 		t.Run(map[bool]string{false: "listener", true: "facade"}[noListener], func(t *testing.T) {
+			if noListener {
+				skipNoListenerOnWindows(t)
+			}
 			t.Parallel()
 			// Creation times are displayed at millisecond precision, so the microseconds are not read back.
 			created := time.Date(2020, 1, 2, 3, 4, 5, 123456000, time.UTC)
@@ -98,6 +111,7 @@ func TestRustRuntimeEventOptionsKeepInitialFixturesQuietAndPublishAllSelectedEve
 	if os.Getenv("GCSM_BINARY") == "" {
 		t.Fatal("integration requires GCSM_BINARY")
 	}
+	skipNoListenerOnWindows(t)
 	messages := make(chan map[string]string, 16)
 	publisher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
