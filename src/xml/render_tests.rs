@@ -75,6 +75,8 @@ fn v1_interoperable_versions_listing() {
     );
 }
 
+/// Recorded version 2 shape: the request echoes and the next token before KeyCount, which
+/// counts `Contents` only; MaxKeys only when requested; Delimiter after them; no StorageClass.
 #[test]
 fn v2_listing_with_tokens_and_start_after() {
     let page = ObjectListPage {
@@ -98,16 +100,99 @@ fn v2_listing_with_tokens_and_start_after() {
             &HeaderMap::new(),
             &page
         ),
-        "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name>bucket</Name><Prefix>p/</Prefix><Delimiter>/</Delimiter><MaxKeys>1000</MaxKeys><IsTruncated>true</IsTruncated><KeyCount>2</KeyCount><StartAfter>p/a</StartAfter><NextContinuationToken>xml2.5b226f33222c22702f632f222c747275652c6e756c6c5d.cc6e8f7415f00927</NextContinuationToken><Contents><Key>p/b</Key><Generation>42</Generation><MetaGeneration>2</MetaGeneration><LastModified>2023-11-14T22:13:20.123Z</LastModified><ETag>\"03030303030303030303030303030303\"</ETag><Size>5</Size><StorageClass>NEARLINE</StorageClass></Contents><CommonPrefixes><Prefix>p/c/</Prefix></CommonPrefixes></ListBucketResult>"
+        "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name>bucket</Name><Prefix>p/</Prefix><StartAfter>p/a</StartAfter><NextContinuationToken>xml2.5b226f33222c22702f632f222c747275652c6e756c6c5d.cc6e8f7415f00927</NextContinuationToken><KeyCount>1</KeyCount><Delimiter>/</Delimiter><IsTruncated>true</IsTruncated><Contents><Key>p/b</Key><Generation>42</Generation><MetaGeneration>2</MetaGeneration><LastModified>2023-11-14T22:13:20.123Z</LastModified><ETag>\"03030303030303030303030303030303\"</ETag><Size>5</Size></Contents><CommonPrefixes><Prefix>p/c/</Prefix></CommonPrefixes></ListBucketResult>"
     );
     assert_eq!(
         listing(
-            &format!("list-type=2&prefix=p%2F&continuation-token=xml2.{token}&max-keys=5"),
+            &format!(
+                "list-type=2&prefix=p%2F&delimiter=%2F&start-after=p%2F0&continuation-token=xml2.{token}&max-keys=5"
+            ),
             &HeaderMap::new(),
             &page
         ),
-        "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name>bucket</Name><Prefix>p/</Prefix><MaxKeys>5</MaxKeys><IsTruncated>true</IsTruncated><KeyCount>2</KeyCount><ContinuationToken>xml2.5b226f33222c22702f61222c66616c73652c6e756c6c5d.e7f3bde90b7ce12b</ContinuationToken><NextContinuationToken>xml2.5b226f33222c22702f632f222c747275652c6e756c6c5d.cc6e8f7415f00927</NextContinuationToken><Contents><Key>p/b</Key><Generation>42</Generation><MetaGeneration>2</MetaGeneration><LastModified>2023-11-14T22:13:20.123Z</LastModified><ETag>\"03030303030303030303030303030303\"</ETag><Size>5</Size><StorageClass>NEARLINE</StorageClass></Contents><CommonPrefixes><Prefix>p/c/</Prefix></CommonPrefixes></ListBucketResult>"
+        "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name>bucket</Name><Prefix>p/</Prefix><StartAfter>p/0</StartAfter><ContinuationToken>xml2.5b226f33222c22702f61222c66616c73652c6e756c6c5d.e7f3bde90b7ce12b</ContinuationToken><NextContinuationToken>xml2.5b226f33222c22702f632f222c747275652c6e756c6c5d.cc6e8f7415f00927</NextContinuationToken><KeyCount>1</KeyCount><MaxKeys>5</MaxKeys><Delimiter>/</Delimiter><IsTruncated>true</IsTruncated><Contents><Key>p/b</Key><Generation>42</Generation><MetaGeneration>2</MetaGeneration><LastModified>2023-11-14T22:13:20.123Z</LastModified><ETag>\"03030303030303030303030303030303\"</ETag><Size>5</Size></Contents><CommonPrefixes><Prefix>p/c/</Prefix></CommonPrefixes></ListBucketResult>"
     );
+}
+
+/// Cloud Storage echoed an empty `continuation-token` or `start-after` as an empty element, the
+/// start before the token, and wrote neither when the request did not send it (recorded).
+#[test]
+fn v2_listing_echoes_empty_tokens_and_start_after() {
+    let page = ObjectListPage {
+        items: vec![object_record("bucket", "b", at())],
+        prefixes: Vec::new(),
+        next: None,
+        bucket_metageneration: None,
+    };
+    let contents = "<Contents><Key>b</Key><Generation>42</Generation><MetaGeneration>2</MetaGeneration><LastModified>2023-11-14T22:13:20.123Z</LastModified><ETag>\"03030303030303030303030303030303\"</ETag><Size>5</Size></Contents>";
+    for (query, echoes) in [
+        ("list-type=2", ""),
+        (
+            "list-type=2&continuation-token=",
+            "<ContinuationToken></ContinuationToken>",
+        ),
+        ("list-type=2&start-after=", "<StartAfter></StartAfter>"),
+        (
+            "list-type=2&continuation-token=&start-after=a",
+            "<StartAfter>a</StartAfter><ContinuationToken></ContinuationToken>",
+        ),
+    ] {
+        assert_eq!(
+            listing(query, &HeaderMap::new(), &page),
+            format!(
+                "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name>bucket</Name><Prefix></Prefix>{echoes}<KeyCount>1</KeyCount><IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
+            ),
+            "{query}"
+        );
+    }
+}
+
+/// With `encoding-type=url`, version 2 wrote a space as `+` and kept `/` (recorded), in keys,
+/// common prefixes and the echoed names alike.
+#[test]
+fn v2_listing_url_encodes_names_form_style() {
+    let page = ObjectListPage {
+        items: vec![object_record("bucket", "d/f g+h", at())],
+        prefixes: vec!["d/x y/".into()],
+        next: None,
+        bucket_metageneration: None,
+    };
+    assert_eq!(
+        listing(
+            "list-type=2&encoding-type=url&prefix=d%2F&delimiter=%2F&start-after=d%2Fc%20e",
+            &HeaderMap::new(),
+            &page
+        ),
+        "<?xml version='1.0' encoding='UTF-8'?><ListBucketResult xmlns='http://doc.s3.amazonaws.com/2006-03-01'><Name>bucket</Name><Prefix>d/</Prefix><StartAfter>d/c+e</StartAfter><KeyCount>1</KeyCount><Delimiter>/</Delimiter><IsTruncated>false</IsTruncated><EncodingType>url</EncodingType><Contents><Key>d/f+g%2Bh</Key><Generation>42</Generation><MetaGeneration>2</MetaGeneration><LastModified>2023-11-14T22:13:20.123Z</LastModified><ETag>\"03030303030303030303030303030303\"</ETag><Size>5</Size></Contents><CommonPrefixes><Prefix>d/x+y/</Prefix></CommonPrefixes></ListBucketResult>"
+    );
+}
+
+/// Cloud Storage answered `continuation-token=bogus` with this document (recorded). A JSON page
+/// token and a corrupted XML token are refused the same way.
+#[tokio::test]
+async fn v2_listing_refuses_a_token_it_did_not_issue() {
+    let json_token = json::encode_object_page_token(&ObjectListCursor {
+        name: "a".into(),
+        is_prefix: false,
+        generation: None,
+    });
+    for token in ["bogus", "xml2.", "xml2.bogus", json_token.as_str()] {
+        let error = list::parse(
+            "bucket".into(),
+            &format!("list-type=2&continuation-token={token}"),
+            &HeaderMap::new(),
+        )
+        .err()
+        .expect("the token is refused");
+        let response = error.response(ErrorBody::Include);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{token}");
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            String::from_utf8(bytes.to_vec()).unwrap(),
+            "<?xml version='1.0' encoding='UTF-8'?><Error><Code>InvalidArgument</Code><Message>Invalid argument.</Message><Details>Invalid page token.</Details></Error>",
+            "{token}"
+        );
+    }
 }
 
 #[tokio::test]

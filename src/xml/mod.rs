@@ -328,6 +328,11 @@ impl Error {
         Self::invalid_argument("Missing copy source")
     }
 
+    /// The 400 for a listing `continuation-token` that no listing issued (observed 2026-11-16).
+    fn invalid_page_token() -> Self {
+        Self::invalid_argument("Invalid page token.")
+    }
+
     pub(crate) fn unsupported(name: &str) -> Self {
         Self::invalid(format!(
             "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."

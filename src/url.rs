@@ -321,6 +321,26 @@ pub fn encode_object_name(object: &str) -> String {
     encoded
 }
 
+/// Encode a name for an XML listing answered with `encoding-type=url`: ASCII alphanumerics,
+/// `*`, `-`, `.`, `_` and `/` stay, a space becomes `+`, and every other UTF-8 byte becomes
+/// `%XX` with uppercase hex digits.
+///
+/// Cloud Storage was recorded (2026-11-16) writing a space as `+` and keeping `/` in a version 2
+/// object listing. The rest follows application/x-www-form-urlencoded by assumption, since only
+/// those two characters were recorded; it keeps `+` distinguishable from a space.
+pub(crate) fn encode_listing_name(name: &str) -> String {
+    let mut encoded = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        match byte {
+            b' ' => encoded.push('+'),
+            b'*' | b'-' | b'.' | b'_' | b'/' => encoded.push(char::from(byte)),
+            _ if byte.is_ascii_alphanumeric() => encoded.push(char::from(byte)),
+            _ => push_percent_encoded(&mut encoded, byte),
+        }
+    }
+    encoded
+}
+
 pub(crate) fn is_unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
 }
@@ -576,6 +596,20 @@ mod tests {
         assert_eq!(url("x/."), "http://127.0.0.1:4443/bucket/x%2F.");
         assert_eq!(url("a/.../b"), "http://127.0.0.1:4443/bucket/a/.../b");
         assert_eq!(url(".hidden/x"), "http://127.0.0.1:4443/bucket/.hidden/x");
+    }
+
+    #[test]
+    fn listing_names_encode_form_style_and_keep_slashes() {
+        // Recorded: a space becomes `+` and `/` stays.
+        assert_eq!(encode_listing_name("f g"), "f+g");
+        assert_eq!(encode_listing_name("d/c/"), "d/c/");
+        assert_eq!(encode_listing_name("A-z_0.9*"), "A-z_0.9*");
+        // A literal plus stays distinguishable from a space.
+        assert_eq!(encode_listing_name("a+b c"), "a%2Bb+c");
+        assert_eq!(encode_listing_name("~%&=?#"), "%7E%25%26%3D%3F%23");
+        assert_eq!(encode_listing_name("é日"), "%C3%A9%E6%97%A5");
+        assert_eq!(encode_listing_name("<\"'>\u{1}"), "%3C%22%27%3E%01");
+        assert_eq!(encode_listing_name(""), "");
     }
 
     #[test]

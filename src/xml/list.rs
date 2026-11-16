@@ -11,6 +11,12 @@ use hyper::header::HeaderValue;
 use hyper::{HeaderMap, Request, Response};
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod tests;
+
+/// Opens every version 2 continuation token, so that a JSON page token is not taken for one.
+const CONTINUATION_PREFIX: &str = "xml2.";
+
 /// The listing version's cursor, echoed in its response.
 enum Pagination {
     /// `list-type` 1 (default): `marker`/`key-marker` and `generation-marker`/`version-id-marker`.
@@ -20,26 +26,72 @@ enum Pagination {
     },
     /// `list-type=2`: `continuation-token` or `start-after`.
     V2 {
-        continuation: Option<String>,
+        continuation: ContinuationToken,
         start_after: Option<String>,
     },
 }
 
-/// How names are written: as stored, or with `encoding-type=url`.
+/// A version 2 `continuation-token` as the request sent it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ContinuationToken {
+    /// Not sent.
+    Absent,
+    /// Sent empty. Cloud Storage answered 200, listed from the start, or from `start-after`
+    /// when that was sent too, and echoed an empty `ContinuationToken` (recorded).
+    Empty,
+    /// The token of an earlier truncated page, echoed as sent.
+    Issued(String),
+}
+
+impl From<Option<String>> for ContinuationToken {
+    fn from(value: Option<String>) -> Self {
+        match value {
+            None => Self::Absent,
+            Some(token) if token.is_empty() => Self::Empty,
+            Some(token) => Self::Issued(token),
+        }
+    }
+}
+
+impl ContinuationToken {
+    /// The `ContinuationToken` text, written whenever the request sent the parameter.
+    fn echo(&self) -> Option<&str> {
+        match self {
+            Self::Absent => None,
+            Self::Empty => Some(""),
+            Self::Issued(token) => Some(token),
+        }
+    }
+}
+
+/// How names are written: as stored, or with `encoding-type=url` in the listing version's style.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NameEncoding {
     Plain,
-    Url,
+    /// Version 1: every byte but RFC 3986 unreserved ones becomes `%XX`, `/` included. Version 1
+    /// with `encoding-type` was not recorded.
+    Percent,
+    /// Version 2: form style, keeping `/` and writing a space as `+` (recorded).
+    Form,
 }
 
 impl NameEncoding {
     fn element(self, w: &mut XmlWriter, name: &str, value: &str) {
         match self {
             Self::Plain => w.element(name, value),
-            Self::Url => w.element(
+            Self::Percent => w.element(
                 name,
                 &crate::url::encode_object_name(value).replace('/', "%2F"),
             ),
+            Self::Form => w.element(name, &crate::url::encode_listing_name(value)),
+        }
+    }
+
+    /// `EncodingType` names the encoding of a URL-encoded listing.
+    fn write_encoding_type(self, w: &mut XmlWriter) {
+        match self {
+            Self::Plain => {}
+            Self::Percent | Self::Form => w.element("EncodingType", "url"),
         }
     }
 }
@@ -53,7 +105,7 @@ enum ListFormat {
 
 pub(super) struct Params {
     query: ObjectListQuery,
-    /// A usable `max-keys`; a version 1 listing echoes `MaxKeys` only when it is present.
+    /// A usable `max-keys`; both versions echo `MaxKeys` only when it is present (recorded).
     max_keys: Option<usize>,
     pagination: Pagination,
     encoding: NameEncoding,
@@ -65,9 +117,10 @@ impl Params {
         self.max_keys.unwrap_or(1000)
     }
 
-    /// Version 2 and the interoperable format write `StorageClass` per item.
+    /// Only the interoperable format writes `StorageClass` per item; the recorded native
+    /// version 1, version 2 and versions entries carry none.
     fn writes_storage_class(&self) -> bool {
-        matches!(self.pagination, Pagination::V2 { .. }) || self.format == ListFormat::Interoperable
+        self.format == ListFormat::Interoperable
     }
 
     fn interoperable_versions(&self) -> bool {
@@ -101,7 +154,8 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
     };
     let encoding = match values.remove("encoding-type").as_deref() {
         None => NameEncoding::Plain,
-        Some("url") => NameEncoding::Url,
+        Some("url") if version2 => NameEncoding::Form,
+        Some("url") => NameEncoding::Percent,
         _ => return Err(Error::invalid("encoding-type must be url")),
     };
     let mut query = ObjectListQuery {
@@ -124,37 +178,9 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
         }
     };
     let pagination = if version2 {
-        match values.remove("fetch-owner").as_deref() {
-            None | Some("false") => {}
-            Some("true") => return Err(Error::unsupported("fetch-owner=true")),
-            Some(_) => return Err(Error::invalid("fetch-owner must be true or false")),
-        }
-        let continuation = values.remove("continuation-token");
-        let start_after = values.remove("start-after");
-        if let Some(token) = &continuation {
-            let token = token
-                .strip_prefix("xml2.")
-                .ok_or_else(|| Error::invalid("Invalid XML continuation-token"))?;
-            query.cursor = Some(json::decode_object_page_token(token, &query)?);
-        } else if let Some(marker) = &start_after {
-            query.cursor = marker_cursor(marker, None, &query);
-        }
-        Pagination::V2 {
-            continuation,
-            start_after,
-        }
+        parse_v2(&mut values, &mut query)?
     } else {
-        let marker = take_alias(&mut values, "marker", "key-marker")?.unwrap_or_default();
-        let generation = take_alias(&mut values, "generation-marker", "version-id-marker")?
-            .map(|value| number(&value, MinValue::One))
-            .transpose()?;
-        if generation.is_some() && (marker.is_empty() || !query.versions) {
-            return Err(Error::invalid(
-                "A generation marker requires versions and a non-empty name marker",
-            ));
-        }
-        query.cursor = marker_cursor(&marker, generation, &query);
-        Pagination::V1 { marker, generation }
+        parse_v1(&mut values, &mut query)?
     };
     if let Some(key) = values.keys().find(|key| !accepted_parameter(key)) {
         return Err(Error::unsupported(key));
@@ -166,6 +192,59 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
         encoding,
         format,
     })
+}
+
+/// Takes the version 1 markers and sets the cursor they select.
+fn parse_v1(
+    values: &mut BTreeMap<String, String>,
+    query: &mut ObjectListQuery,
+) -> Result<Pagination, Error> {
+    let marker = take_alias(values, "marker", "key-marker")?.unwrap_or_default();
+    let generation = take_alias(values, "generation-marker", "version-id-marker")?
+        .map(|value| number(&value, MinValue::One))
+        .transpose()?;
+    if generation.is_some() && (marker.is_empty() || !query.versions) {
+        return Err(Error::invalid(
+            "A generation marker requires versions and a non-empty name marker",
+        ));
+    }
+    query.cursor = marker_cursor(&marker, generation, query);
+    Ok(Pagination::V1 { marker, generation })
+}
+
+/// Takes the version 2 parameters and sets the cursor they select: an issued token's position
+/// takes precedence over `start-after`, which an empty token leaves in effect (recorded).
+fn parse_v2(
+    values: &mut BTreeMap<String, String>,
+    query: &mut ObjectListQuery,
+) -> Result<Pagination, Error> {
+    match values.remove("fetch-owner").as_deref() {
+        None | Some("false") => {}
+        Some("true") => return Err(Error::unsupported("fetch-owner=true")),
+        Some(_) => return Err(Error::invalid("fetch-owner must be true or false")),
+    }
+    let continuation = ContinuationToken::from(values.remove("continuation-token"));
+    let start_after = values.remove("start-after");
+    query.cursor = match &continuation {
+        ContinuationToken::Issued(token) => Some(continuation_cursor(token, query)?),
+        ContinuationToken::Absent | ContinuationToken::Empty => start_after
+            .as_deref()
+            .and_then(|marker| marker_cursor(marker, None, query)),
+    };
+    Ok(Pagination::V2 {
+        continuation,
+        start_after,
+    })
+}
+
+/// The position an issued continuation token names. Cloud Storage answered a token it had not
+/// issued (`bogus`) with one fixed document (recorded), so a token without the version 2 prefix
+/// and one whose payload does not open are refused alike, without the token's text.
+fn continuation_cursor(token: &str, query: &ObjectListQuery) -> Result<ObjectListCursor, Error> {
+    token
+        .strip_prefix(CONTINUATION_PREFIX)
+        .and_then(|payload| json::decode_object_page_token(payload, query).ok())
+        .ok_or_else(Error::invalid_page_token)
 }
 
 fn take_alias(
@@ -285,13 +364,7 @@ pub(super) fn render(params: &Params, page: &ObjectListPage) -> Result<String, E
         Pagination::V2 {
             continuation,
             start_after,
-        } => render_header_v2(
-            &mut w,
-            params,
-            continuation.as_deref(),
-            start_after.as_deref(),
-            page,
-        ),
+        } => render_header_v2(&mut w, params, continuation, start_after.as_deref(), page),
     }
     for object in &page.items {
         render_item(&mut w, params, object)?;
@@ -335,47 +408,53 @@ fn render_header_v1(
         w.value("MaxKeys", max_keys);
     }
     w.value("IsTruncated", page.next.is_some());
-    if encoding == NameEncoding::Url {
-        w.element("EncodingType", "url");
-    }
+    encoding.write_encoding_type(w);
 }
 
-/// Version 2 listings were not recorded; they keep MaxKeys always and the S3 field order.
+/// Recorded version 2 order: StartAfter and ContinuationToken (each only when the request sent
+/// it, even empty), NextContinuationToken (truncated pages only), KeyCount, MaxKeys (only when
+/// requested), Delimiter (only when non-empty), IsTruncated, EncodingType.
 fn render_header_v2(
     w: &mut XmlWriter,
     params: &Params,
-    continuation: Option<&str>,
+    continuation: &ContinuationToken,
     start_after: Option<&str>,
     page: &ObjectListPage,
 ) {
     let encoding = params.encoding;
-    if !params.query.delimiter.is_empty() {
-        encoding.element(w, "Delimiter", &params.query.delimiter);
-    }
-    w.value("MaxKeys", params.limit());
-    w.value("IsTruncated", page.next.is_some());
-    if encoding == NameEncoding::Url {
-        w.element("EncodingType", "url");
-    }
-    w.value("KeyCount", page.items.len() + page.prefixes.len());
-    if let Some(token) = continuation {
-        w.element("ContinuationToken", token);
-    }
     if let Some(start) = start_after {
         encoding.element(w, "StartAfter", start);
+    }
+    // A page that both continues a token and issues one was not recorded with the two tokens
+    // together; the request's echo comes first, as StartAfter precedes ContinuationToken.
+    if let Some(token) = continuation.echo() {
+        w.element("ContinuationToken", token);
     }
     if let Some(cursor) = &page.next {
         w.element(
             "NextContinuationToken",
-            &format!("xml2.{}", json::encode_object_page_token(cursor)),
+            &format!(
+                "{CONTINUATION_PREFIX}{}",
+                json::encode_object_page_token(cursor)
+            ),
         );
     }
+    // Common prefixes are not keys: three objects and one prefix answered KeyCount 3 (recorded).
+    w.value("KeyCount", page.items.len());
+    if let Some(max_keys) = params.max_keys {
+        w.value("MaxKeys", max_keys);
+    }
+    if !params.query.delimiter.is_empty() {
+        encoding.element(w, "Delimiter", &params.query.delimiter);
+    }
+    w.value("IsTruncated", page.next.is_some());
+    encoding.write_encoding_type(w);
 }
 
-/// A recorded `Contents` entry: Key, Generation, MetaGeneration, LastModified, ETag, Size. A
-/// recorded `Version` adds IsLatest after MetaGeneration and an always-present, empty-unless-
-/// deleted DeletedTime after LastModified. Neither carries a StorageClass; the version 2 and
-/// interoperable forms were not recorded and keep one after Size.
+/// A recorded `Contents` entry: Key, Generation, MetaGeneration, LastModified, ETag, Size, in
+/// version 1 and version 2 alike. A recorded `Version` adds IsLatest after MetaGeneration and an
+/// always-present, empty-unless-deleted DeletedTime after LastModified. None carries a
+/// StorageClass; the interoperable form was not recorded and keeps one after Size.
 fn render_item(
     w: &mut XmlWriter,
     params: &Params,
