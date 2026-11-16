@@ -378,11 +378,11 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 | 署名URLでのアップロード・ダウンロード | ✅ | ✅ | ✅ | ✅ |
 | V4 RSA署名と期限を検証 | ✅ | ❌ | ❌ | ◐ 期限のみ |
 | 非公開バケットを非公開に保ち、`allUsers`で公開する | ✅ strict | ❌ | ❌ | ✅ IAM enforceモード |
-| GoクライアントでgRPC Storage v2 | ✅ | ❌ | ❌ | ◐ 6件中4件 |
+| GoクライアントでgRPC Storage v2 | ✅ | ❌ | ❌ | ◐ 8件中5件 |
 | 比較対象の旧Storage v1 gRPC RPC | ✅ | ◐ 最初のアップロードメッセージのみ | ❌ | ❌ |
 | 公開Dockerイメージ | ✅ GHCR・Docker Hub | ✅ | ✅ | ✅ Docker Hub |
 
-比較対象はfake-gcs-server`v1.56.1`、gcp-storage-emulator`v2026.07.19`、floci-gcp`0.12.0`です。
+比較対象はfake-gcs-server`v1.56.1`、gcp-storage-emulator`v2026.07.19`、floci-gcp`0.13.0`です。
 書き出しの行は任意の[同期ディレクトリ](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)を使い、gRPCの行は一部のRPCが対象です。
 [機能比較](feature-comparison.md)、[floci-gcpの確認結果（英語）](../en/evidence/floci-gcp-comparison.md)、[詳細な機能表](feature-matrix.md)を参照してください。
 
@@ -392,18 +392,18 @@ gcs-mimic、fake-gcs-server、gcp-storage-emulatorはCloud Storageだけをエ�
 
 | SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
 | --- | --- | --- | --- | --- |
-| Go | 66/66（1 n/a） | 28/66（1 n/a） | 21/66（1 n/a） | 53/66（1 n/a） |
-| Ruby | 57/57（1 n/a） | 25/57（1 n/a） | 24/57（1 n/a） | 44/57（1 n/a） |
-| Node.js | 59/59 | 28/59 | 25/59 | 48/59 |
-| PHP | 60/60 | 29/60 | 22/60 | 47/60 |
-| Python | 63/63 | 23/63 | 25/63 | 42/63 |
-| Java | 79/79（1 n/a） | 36/79（1 n/a） | 35/79（1 n/a） | 57/79（1 n/a） |
-| .NET | 72/72（1 n/a） | 32/72（1 n/a） | 31/72（1 n/a） | 52/72（1 n/a） |
+| Go | 66/66（1 n/a） | 28/66（1 n/a） | 21/66（1 n/a） | 54/66（1 n/a） |
+| Ruby | 57/57（1 n/a） | 25/57（1 n/a） | 24/57（1 n/a） | 45/57（1 n/a） |
+| Node.js | 59/59 | 28/59 | 25/59 | 49/59 |
+| PHP | 60/60 | 29/60 | 22/60 | 48/60 |
+| Python | 63/63 | 23/63 | 25/63 | 44/63 |
+| Java | 79/79（1 n/a） | 36/79（1 n/a） | 35/79（1 n/a） | 58/79（1 n/a） |
+| .NET | 72/72（1 n/a） | 32/72（1 n/a） | 31/72（1 n/a） | 53/72（1 n/a） |
 | Rust | 54/54（5 n/a） | 0/54（5 n/a） | 0/54（5 n/a） | 32/54（5 n/a） |
-| C++ | 61/61（1 n/a） | 27/61（1 n/a） | 25/61（1 n/a） | 49/61（1 n/a） |
-| スコア（/100） | 100 | 39.2 | 35.7 | 74.2 |
+| C++ | 61/61（1 n/a） | 27/61（1 n/a） | 25/61（1 n/a） | 50/61（1 n/a） |
+| スコア（/100） | 100 | 39.2 | 35.7 | 75.8 |
 
-2026-11-15に、0.23.0のソースで記録しました（[結果](../../sdk-scorecard/results/2026-11-15-8/summary.md)）。
+2026-11-16に、0.25.0のソースで記録しました（[結果](../../sdk-scorecard/results/2026-11-16/summary.md)）。
 ケースの通過は通常のSDKの操作が動くことを示すもので、APIの完成を意味しません。
 n/aはSDKに公開APIがないケースで、そのSDKの分母から除きます。
 gcs-mimicは9つのSDKの全ケースを通過します。

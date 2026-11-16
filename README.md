@@ -438,12 +438,12 @@ full Google API compatibility.
 | Upload/download with signed URLs | ✅ | ✅ | ✅ | ✅ |
 | Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ | ◐ Expiry only |
 | Keep private buckets private and open public ones with `allUsers` | ✅ Strict mode | ❌ | ❌ | ✅ IAM enforce mode |
-| gRPC Storage v2 with the Go client | ✅ | ❌ | ❌ | ◐ 4 of 6 cases |
+| gRPC Storage v2 with the Go client | ✅ | ❌ | ❌ | ◐ 5 of 8 cases |
 | gRPC legacy Storage v1 reference RPCs | ✅ | ◐ First upload message | ❌ | ❌ |
 | Published Docker image | ✅ GHCR and Docker Hub | ✅ | ✅ | ✅ Docker Hub |
 
 Compared with fake-gcs-server `v1.56.1`, gcp-storage-emulator `v2026.07.19` and
-floci-gcp `0.12.0`. The mirror row uses an optional
+floci-gcp `0.13.0`. The mirror row uses an optional
 [sync directory](docs/en/container-usage.md#mirror-objects-to-a-host-directory),
 and the gRPC rows cover a subset of RPCs. See the
 [detailed comparison](docs/en/feature-comparison.md), the
@@ -457,19 +457,19 @@ Each official SDK runs the same workflows against all four emulators
 
 | SDK | gcs-mimic | fake-gcs-server | gcp-storage-emulator | floci-gcp |
 | --- | --- | --- | --- | --- |
-| Go | 66/66 (1 n/a) | 28/66 (1 n/a) | 21/66 (1 n/a) | 53/66 (1 n/a) |
-| Ruby | 57/57 (1 n/a) | 25/57 (1 n/a) | 24/57 (1 n/a) | 44/57 (1 n/a) |
-| Node.js | 59/59 | 28/59 | 25/59 | 48/59 |
-| PHP | 60/60 | 29/60 | 22/60 | 47/60 |
-| Python | 63/63 | 23/63 | 25/63 | 42/63 |
-| Java | 79/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 57/79 (1 n/a) |
-| .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 52/72 (1 n/a) |
+| Go | 66/66 (1 n/a) | 28/66 (1 n/a) | 21/66 (1 n/a) | 54/66 (1 n/a) |
+| Ruby | 57/57 (1 n/a) | 25/57 (1 n/a) | 24/57 (1 n/a) | 45/57 (1 n/a) |
+| Node.js | 59/59 | 28/59 | 25/59 | 49/59 |
+| PHP | 60/60 | 29/60 | 22/60 | 48/60 |
+| Python | 63/63 | 23/63 | 25/63 | 44/63 |
+| Java | 79/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 58/79 (1 n/a) |
+| .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 53/72 (1 n/a) |
 | Rust | 54/54 (5 n/a) | 0/54 (5 n/a) | 0/54 (5 n/a) | 32/54 (5 n/a) |
-| C++ | 61/61 (1 n/a) | 27/61 (1 n/a) | 25/61 (1 n/a) | 49/61 (1 n/a) |
-| Score (/100) | 100 | 39.2 | 35.7 | 74.2 |
+| C++ | 61/61 (1 n/a) | 27/61 (1 n/a) | 25/61 (1 n/a) | 50/61 (1 n/a) |
+| Score (/100) | 100 | 39.2 | 35.7 | 75.8 |
 
-Recorded on 2026-11-15 with the 0.23.0 source
-([results](sdk-scorecard/results/2026-11-15-8/summary.md)). A passing case
+Recorded on 2026-11-16 with the 0.25.0 source
+([results](sdk-scorecard/results/2026-11-16/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
 gcs-mimic passes every case for all nine SDKs.

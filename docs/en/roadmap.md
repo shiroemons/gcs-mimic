@@ -30,8 +30,8 @@ See [container usage](container-usage.md) and the
 
 SDK and browser evidence covers declared subsets. The
 [nine-SDK scorecard](../../sdk-scorecard/README.md) passes every case for all
-nine SDKs in its latest [run](../../sdk-scorecard/results/2026-11-15-8/summary.md)
-on the 0.23.0 source. The last gaps it found closed in 0.23.0: bucket read
+nine SDKs in its latest [run](../../sdk-scorecard/results/2026-11-16/summary.md)
+on the 0.25.0 source. The last gaps it found closed in 0.23.0: bucket read
 masks accept the settings gcs-mimic never stores
 ([scope](slices/grpc-v2-buckets.md)), every appendable open is answered
 ([scope](slices/grpc-v2-rapid-append.md)), Storage v2 accepts

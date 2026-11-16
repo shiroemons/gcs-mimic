@@ -25,7 +25,7 @@ seedは毎回の起動時に適用し、拡張子からMIMEを決めます。
 
 SDKとブラウザーの検証は、宣言した範囲が対象です。
 [9つのSDKのスコアカード](../../sdk-scorecard/README.md)では、
-0.23.0のソースでの[最新の結果](../../sdk-scorecard/results/2026-11-15-8/summary.md)では、9つのSDKの全ケースが通ります。
+0.25.0のソースでの[最新の結果](../../sdk-scorecard/results/2026-11-16/summary.md)では、9つのSDKの全ケースが通ります。
 最後まで残っていた未対応は0.23.0で解消しました。バケットの読み取りマスクがgcs-mimicの保存しない設定を受け付け（[範囲](grpc-v2-buckets.md)）、追記型を開くと必ず応答し（[範囲](grpc-v2-rapid-append.md)）、Storage v2が顧客指定の暗号鍵を受け付け（[範囲](grpc-v2-customer-supplied-keys.md)）、XMLマルチパートの各パートの応答がハッシュを返し（[範囲（英語）](../en/slices/xml-multipart-upload.md)）、宣言されたアップロードの長さ0を合計未定として扱います（[範囲（英語）](../en/slices/resumable-upload.md)）。範囲と残りの条件は
 [SDK統合](../en/slices/sdk-scorecard-integration.md)と[C++のスライス（英語）](../en/slices/sdk-scorecard-cpp.md)に記録しています。
 Rails Active Storageには[非Google universeを使うstorage.ymlの手順](rails-active-storage.md)があります。
