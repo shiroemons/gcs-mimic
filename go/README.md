@@ -14,12 +14,12 @@ the Rust executable as a child process; neither embeds the emulator.
 go get github.com/shiroemons/gcs-mimic/go@latest
 ```
 
-The module needs Go 1.26 or newer. It belongs to one gcs-mimic release, and a
-release tags it `go/vX.Y.Z` once its archives are published, so
-`go get github.com/shiroemons/gcs-mimic/go@vX.Y.Z` pins that release; until a
-tag exists, `@latest` takes the newest commit of `main`. Both packages share
-the module's version, so during `0.x` a minor release may change either of
-them.
+The module needs Go 1.26 or newer. It belongs to one gcs-mimic release: from
+0.25.0, each release tags it `go/vX.Y.Z` once its archives are published, so
+`@latest` selects the newest release and
+`go get github.com/shiroemons/gcs-mimic/go@vX.Y.Z` pins one. Both packages
+share the module's version, so during `0.x` a minor release may change either
+of them.
 
 Nothing else is needed: on first use the packages download the gcs-mimic
 binary of their release, as described next.
