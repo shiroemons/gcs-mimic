@@ -1,5 +1,32 @@
 # Local release gates on the integrated source
 
+## Published 0.25.0 source
+
+Recorded **2026-11-16** for tag `v0.25.0`, commit `711bad7edfb4807afb1b191b3841fba7b3f2bc32`, tree `3ea1fb1ba5b47493b1a56d084c28eed014bda449`. The local gates ran on its parent `b48b6acad5f320cdd0b8d7d3c582c6c71a2e24e4` (tree `410b2633ece37571af815286cf3b74831c2efbae`); the tagged commit only adds the verification section to the release notes. The remote gates ran on the tagged commit itself, and their results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Local `just pre-push` | Exit 0; 3842 Rust tests passed with Rust 1.100.0, and the SDK suites and the container checks on both architectures passed in one invocation | Recorded below |
+| Foundation checks | `success`, including the reference comparison and the container checks on both architectures | [Run 43833380466](https://github.com/shiroemons/gcs-mimic/actions/runs/43833380466) |
+| Documentation checks | `success` | [Run 43833380677](https://github.com/shiroemons/gcs-mimic/actions/runs/43833380677) |
+| Release binaries dry run | `success`; all eight native build and test targets passed, and the publish job checked eight archives and their checksums and selected `--latest=true` | [Run 43833675711](https://github.com/shiroemons/gcs-mimic/actions/runs/43833675711) |
+| Tag publication | `success` on its second attempt; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43833409518](https://github.com/shiroemons/gcs-mimic/actions/runs/43833409518) |
+
+The tag was pushed before the dry run, so the first attempt of the tag workflow stopped in `validate` with `No successful dry run of 711bad7edfb4807afb1b191b3841fba7b3f2bc32 holds its 8 archives` and published nothing. After the dry run succeeded on the same commit, the failed jobs were rerun, as the [release procedure](../binary-distribution.md) prescribes. The second attempt reused the dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun, and its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.25.0) is the latest Release and has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`. `ghcr.io/shiroemons/gcs-mimic:0.25.0`, `0.25` and `latest`, and `shiroemons/gcs-mimic:0.25.0`, `0.25` and `latest`, resolve to the same index digest `sha256:552a118fa4440b15dff8599f9d36ec94fbd17afffb74f3dcbbf0ce03b4823c64` for `linux/amd64` and `linux/arm64`; the container workflow checked anonymous pulls. The `aarch64-apple-darwin` archive matches its `SHA256SUMS` entry and its binary reports `gcs-mimic 0.25.0`.
+
+## Local gates on the 0.25.0 source
+
+Recorded **2026-11-16** on macOS (Apple Silicon) with Rust 1.100.0 for commit `b48b6acad5f320cdd0b8d7d3c582c6c71a2e24e4` (package version 0.25.0), with no uncommitted change. The container stage ran on Kiri, a Docker-compatible runtime whose daemon reports Docker 27.5.1, with 14 CPUs and about 15.7 GiB.
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 21m52s`. Rust and shell checks took 12m02s: 3842 tests in 20 test binaries, 0 failed, 1 ignored, including library tests `2390 passed` and `it_xml_auth` `320 passed`. SDK suites passed in 1m10s: Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust. Containers took 8m40s: seven `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `scripts/check-cross.sh` | 0 | `0 new production Clippy violations; 0 ratcheted findings` for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` |
+| `cargo xtask dependencies check --scope release` | 0 | 42 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 0 | 144 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+
+The dependency checks ran on 2026-11-16 at `08:13:50Z` and `08:15:14Z` on the dependency refresh, committed afterwards as `880d2543`; the later commits change no dependency input but the package version in Cargo.lock. Unlike for 0.24.0, both architectures' container checks passed in the same `just pre-push` invocation.
+
 ## Published 0.24.0 source
 
 Recorded **2026-11-16** for tag `v0.24.0`, commit `21fe40d7bfb8a22998b5c48a745f366cc18479e3`, tree `3d54494a43d3ade333931d2f04a5e8edc44f36a0`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
