@@ -1,0 +1,31 @@
+{
+  "id": "xml-multipart-list",
+  "description": "XML multipart uploads on a bucket of their own: the upload listing with and without prefix and delimiter, encoding-type, the max-uploads ceiling and key-marker and upload-id-marker paging, and the content type of initiation, part upload, part listing, completion and abort. Checks SPEC-XML-MULTIPART-LIST and SPEC-XML-MULTIPART-CONTENT-TYPE.",
+  "bucket": "own",
+  "steps": [
+    {"name": "initiate-d-mp", "protocol": "xml", "method": "POST", "path": "/{bucket}/d/mp.bin", "query": {"uploads": ""}, "capture": {"up_d_mp": "xml:UploadId"}, "expect_status": 200},
+    {"name": "initiate-d-x", "protocol": "xml", "method": "POST", "path": "/{bucket}/d/x.bin", "query": {"uploads": ""}, "capture": {"up_d_x": "xml:UploadId"}, "expect_status": 200},
+    {"name": "initiate-e", "protocol": "xml", "method": "POST", "path": "/{bucket}/e.bin", "query": {"uploads": ""}, "capture": {"up_e": "xml:UploadId"}, "expect_status": 200},
+    {"name": "initiate-f-g", "protocol": "xml", "method": "POST", "path": "/{bucket}/f%20g.bin", "query": {"uploads": ""}, "capture": {"up_f_g": "xml:UploadId"}, "expect_status": 200},
+    {"name": "list", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": ""}, "expect_status": 200},
+    {"name": "list-prefix", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "prefix": "d/"}, "expect_status": 200},
+    {"name": "list-delimiter", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "delimiter": "/"}, "expect_status": 200},
+    {"name": "list-prefix-delimiter", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "prefix": "d/", "delimiter": "/"}, "expect_status": 200},
+    {"name": "list-encoding", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "encoding-type": "url"}, "expect_status": 200},
+    {"name": "list-encoding-common-prefixes", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "encoding-type": "url", "delimiter": "/"}, "expect_status": 200},
+    {"name": "list-encoding-echoes", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "encoding-type": "url", "prefix": "d/", "delimiter": "/", "key-marker": "d/mp.bin"}, "expect_status": 200},
+    {"name": "list-encoding-unknown", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "encoding-type": "bogus"}},
+    {"name": "list-max-uploads-ceiling", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "max-uploads": "5000"}, "expect_status": 200},
+    {"name": "list-first-page", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "max-uploads": "1"}, "expect_status": 200},
+    {"name": "list-second-page", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "max-uploads": "1", "key-marker": "d/mp.bin", "upload-id-marker": "{up_d_mp}"}, "expect_status": 200},
+    {"name": "list-key-marker-only", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "key-marker": "d/mp.bin"}, "expect_status": 200},
+    {"name": "list-upload-id-marker-only", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": "", "upload-id-marker": "{up_d_mp}"}},
+    {"name": "upload-part-e", "protocol": "xml", "method": "PUT", "path": "/{bucket}/e.bin", "query": {"partNumber": "1", "uploadId": "{up_e}"}, "headers": {"Content-Type": "application/octet-stream"}, "body_text": "part", "capture": {"etag_e": "header:etag"}, "expect_status": 200},
+    {"name": "list-parts-e", "protocol": "xml", "method": "GET", "path": "/{bucket}/e.bin", "query": {"uploadId": "{up_e}"}, "expect_status": 200},
+    {"name": "complete-e", "protocol": "xml", "method": "POST", "path": "/{bucket}/e.bin", "query": {"uploadId": "{up_e}"}, "headers": {"Content-Type": "application/xml"}, "body_text": "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>{etag_e}</ETag></Part></CompleteMultipartUpload>", "expect_status": 200},
+    {"name": "abort-d-x", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/d/x.bin", "query": {"uploadId": "{up_d_x}"}, "expect_status": 204},
+    {"name": "abort-d-mp", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/d/mp.bin", "query": {"uploadId": "{up_d_mp}"}, "expect_status": 204, "always": true},
+    {"name": "abort-f-g", "protocol": "xml", "method": "DELETE", "path": "/{bucket}/f%20g.bin", "query": {"uploadId": "{up_f_g}"}, "expect_status": 204, "always": true},
+    {"name": "list-after-aborts", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"uploads": ""}, "expect_status": 200}
+  ]
+}

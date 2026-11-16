@@ -1,0 +1,25 @@
+{
+  "id": "xml-list-v2",
+  "description": "XML ListBucket with list-type=2 on a bucket of its own: element order, empty continuation-token and start-after, an issued token across a truncated page, delimiter, encoding-type, prefix, fetch-owner and an invalid token. Checks SPEC-XML-LIST-V2.",
+  "bucket": "own",
+  "steps": [
+    {"name": "put-a", "protocol": "xml", "method": "PUT", "path": "/{bucket}/a", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200, "compare": false},
+    {"name": "put-b", "protocol": "xml", "method": "PUT", "path": "/{bucket}/b", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200, "compare": false},
+    {"name": "put-d-c", "protocol": "xml", "method": "PUT", "path": "/{bucket}/d/c", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200, "compare": false},
+    {"name": "put-d-e", "protocol": "xml", "method": "PUT", "path": "/{bucket}/d/e", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200, "compare": false},
+    {"name": "put-f-g", "protocol": "xml", "method": "PUT", "path": "/{bucket}/f%20g", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200, "compare": false},
+    {"name": "list", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2"}, "expect_status": 200},
+    {"name": "list-empty-token", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "continuation-token": ""}, "expect_status": 200},
+    {"name": "list-empty-start-after", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "start-after": ""}, "expect_status": 200},
+    {"name": "list-empty-token-with-start-after", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "continuation-token": "", "start-after": "a"}, "expect_status": 200},
+    {"name": "list-truncated", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "max-keys": "3"}, "capture": {"token": "xml:NextContinuationToken"}, "expect_status": 200},
+    {"name": "list-next-page", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "max-keys": "3", "continuation-token": "{token}"}, "expect_status": 200},
+    {"name": "list-delimiter", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "delimiter": "/"}, "expect_status": 200},
+    {"name": "list-prefix", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "prefix": "d/"}, "expect_status": 200},
+    {"name": "list-encoding", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "encoding-type": "url"}, "expect_status": 200},
+    {"name": "list-encoding-common-prefixes", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "encoding-type": "url", "delimiter": "/"}, "expect_status": 200},
+    {"name": "list-encoding-echoes", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "encoding-type": "url", "prefix": "d/", "delimiter": "/", "start-after": "d/c"}, "expect_status": 200},
+    {"name": "list-fetch-owner-false", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "fetch-owner": "false"}, "expect_status": 200},
+    {"name": "list-invalid-token", "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "continuation-token": "bogus"}}
+  ]
+}

@@ -47248,19 +47248,3786 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "xml-list-v2",
+      "steps": [
+        {
+          "fingerprint": "038504611d9d446f",
+          "name": "put-a",
+          "request": "PUT /<bucket>/a",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "471a34c34278d65a",
+          "name": "put-b",
+          "request": "PUT /<bucket>/b",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d4b09b3451278eda",
+          "name": "put-d-c",
+          "request": "PUT /<bucket>/d/c",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "751580af4e4748c0",
+          "name": "put-d-e",
+          "request": "PUT /<bucket>/d/e",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c4acb1d882319660",
+          "name": "put-f-g",
+          "request": "PUT /<bucket>/f%20g",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "860f18bb4af91b6c",
+          "name": "list",
+          "request": "GET /<bucket>?list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "5"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5d9fad97884eedd8",
+          "name": "list-empty-token",
+          "request": "GET /<bucket>?continuation-token=&list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "ContinuationToken",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "5"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f73d5c3dfff697b8",
+          "name": "list-empty-start-after",
+          "request": "GET /<bucket>?list-type=2&start-after=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "StartAfter",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "5"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3b3481d0bb15a50d",
+          "name": "list-empty-token-with-start-after",
+          "request": "GET /<bucket>?continuation-token=&list-type=2&start-after=a",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "StartAfter",
+                    "text": "a"
+                  },
+                  {
+                    "name": "ContinuationToken",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "4"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "56023063fa9914f9",
+          "name": "list-truncated",
+          "request": "GET /<bucket>?list-type=2&max-keys=3",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextContinuationToken",
+                    "text": "<token>"
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "3"
+                  },
+                  {
+                    "name": "MaxKeys",
+                    "text": "3"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "true"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e73cbe48e5843304",
+          "name": "list-next-page",
+          "request": "GET /<bucket>?continuation-token=CgNkL2M%3D&list-type=2&max-keys=3",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "ContinuationToken",
+                    "text": "<token>"
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "2"
+                  },
+                  {
+                    "name": "MaxKeys",
+                    "text": "3"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "10047fea5533cf81",
+          "name": "list-delimiter",
+          "request": "GET /<bucket>?delimiter=%2F&list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "3"
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Prefix",
+                        "text": "d/"
+                      }
+                    ],
+                    "name": "CommonPrefixes"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "55aa5aed675fbcb2",
+          "name": "list-prefix",
+          "request": "GET /<bucket>?list-type=2&prefix=d%2F",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": "d/"
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "2"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0277cfc4ff423f52",
+          "name": "list-encoding",
+          "request": "GET /<bucket>?encoding-type=url&list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "5"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "name": "EncodingType",
+                    "text": "url"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f+g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "bb42db5d2e564237",
+          "name": "list-encoding-common-prefixes",
+          "request": "GET /<bucket>?delimiter=%2F&encoding-type=url&list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "3"
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "name": "EncodingType",
+                    "text": "url"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f+g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Prefix",
+                        "text": "d/"
+                      }
+                    ],
+                    "name": "CommonPrefixes"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d8dc21d550228e05",
+          "name": "list-encoding-echoes",
+          "request": "GET /<bucket>?delimiter=%2F&encoding-type=url&list-type=2&prefix=d%2F&start-after=d%2Fc",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": "d/"
+                  },
+                  {
+                    "name": "StartAfter",
+                    "text": "d/c"
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "1"
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "name": "EncodingType",
+                    "text": "url"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6b6bc63e3d9a066a",
+          "name": "list-fetch-owner-false",
+          "request": "GET /<bucket>?fetch-owner=false&list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": ""
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "5"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "a"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "b"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/c"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/e"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "9b4041abd94c2032",
+          "name": "list-invalid-token",
+          "request": "GET /<bucket>?continuation-token=bogus&list-type=2",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Invalid page token."
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "xml-multipart-list",
+      "steps": [
+        {
+          "fingerprint": "ce31f72744d33a1f",
+          "name": "initiate-d-mp",
+          "request": "POST /<bucket>/d/mp.bin?uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Key",
+                    "text": "d/mp.bin"
+                  },
+                  {
+                    "name": "UploadId",
+                    "text": "<upload-id>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "InitiateMultipartUploadResult"
+              }
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a12f88a92d5d6cfb",
+          "name": "initiate-d-x",
+          "request": "POST /<bucket>/d/x.bin?uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Key",
+                    "text": "d/x.bin"
+                  },
+                  {
+                    "name": "UploadId",
+                    "text": "<upload-id>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "InitiateMultipartUploadResult"
+              }
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "656044df9d691f3b",
+          "name": "initiate-e",
+          "request": "POST /<bucket>/e.bin?uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Key",
+                    "text": "e.bin"
+                  },
+                  {
+                    "name": "UploadId",
+                    "text": "<upload-id>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "InitiateMultipartUploadResult"
+              }
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "514852827f4b174f",
+          "name": "initiate-f-g",
+          "request": "POST /<bucket>/f%20g.bin?uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Key",
+                    "text": "f g.bin"
+                  },
+                  {
+                    "name": "UploadId",
+                    "text": "<upload-id>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "InitiateMultipartUploadResult"
+              }
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a116d06d7f5044ad",
+          "name": "list",
+          "request": "GET /<bucket>?uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "021a18f725acabd7",
+          "name": "list-prefix",
+          "request": "GET /<bucket>?prefix=d%2F&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": "d/"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5c413e9770f449be",
+          "name": "list-delimiter",
+          "request": "GET /<bucket>?delimiter=%2F&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Prefix",
+                        "text": "d/"
+                      }
+                    ],
+                    "name": "CommonPrefixes"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3acbe3bc51f4db94",
+          "name": "list-prefix-delimiter",
+          "request": "GET /<bucket>?delimiter=%2F&prefix=d%2F&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": "d/"
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "031d6facf08130cf",
+          "name": "list-encoding",
+          "request": "GET /<bucket>?encoding-type=url&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f+g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "name": "EncodingType",
+                    "text": "url"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0058aab0dd8abf58",
+          "name": "list-encoding-common-prefixes",
+          "request": "GET /<bucket>?delimiter=%2F&encoding-type=url&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f+g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Prefix",
+                        "text": "d/"
+                      }
+                    ],
+                    "name": "CommonPrefixes"
+                  },
+                  {
+                    "name": "EncodingType",
+                    "text": "url"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e7662354680561e6",
+          "name": "list-encoding-echoes",
+          "request": "GET /<bucket>?delimiter=%2F&encoding-type=url&key-marker=d%2Fmp.bin&prefix=d%2F&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": "d/mp.bin"
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": "d/"
+                  },
+                  {
+                    "name": "Delimiter",
+                    "text": "/"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "name": "EncodingType",
+                    "text": "url"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e1d7c24f3b34c9ec",
+          "name": "list-encoding-unknown",
+          "request": "GET /<bucket>?encoding-type=bogus&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidArgument"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "Invalid argument."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Invalid encoding type: bogus"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "5370d839cae9add4",
+          "name": "list-max-uploads-ceiling",
+          "request": "GET /<bucket>?max-uploads=5000&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "913246ce180849f4",
+          "name": "list-first-page",
+          "request": "GET /<bucket>?max-uploads=1&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": "d/mp.bin"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": "<up_d_mp>"
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "true"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "eeee11c4742781e5",
+          "name": "list-second-page",
+          "request": "GET /<bucket>?key-marker=d%2Fmp.bin&max-uploads=1&upload-id-marker=<up_d_mp>&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": "d/mp.bin"
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": "<up_d_mp>"
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": "d/x.bin"
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": "<up_d_x>"
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "true"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "de6397a40128eb5d",
+          "name": "list-key-marker-only",
+          "request": "GET /<bucket>?key-marker=d%2Fmp.bin&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": "d/mp.bin"
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "693b1007f6969b46",
+          "name": "list-upload-id-marker-only",
+          "request": "GET /<bucket>?upload-id-marker=<up_d_mp>&uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/mp.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "d/x.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "e.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "f g.bin"
+                      },
+                      {
+                        "name": "UploadId",
+                        "text": "<upload-id>"
+                      },
+                      {
+                        "name": "StorageClass",
+                        "text": "STANDARD"
+                      },
+                      {
+                        "name": "Initiated",
+                        "text": "<time:f6>"
+                      }
+                    ],
+                    "name": "Upload"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "41d80d4ed08d1a22",
+          "name": "upload-part-e",
+          "request": "PUT /<bucket>/e.bin?partNumber=1&uploadId=<up_e>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-hash": "crc32c=cP5/Xg==, md5=9Mk4XxkC9zNLALm07NFk3g==",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "973e650f78daeb2f",
+          "name": "list-parts-e",
+          "request": "GET /<bucket>/e.bin?uploadId=<up_e>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Key",
+                    "text": "e.bin"
+                  },
+                  {
+                    "name": "UploadId",
+                    "text": "<upload-id>"
+                  },
+                  {
+                    "name": "StorageClass",
+                    "text": "STANDARD"
+                  },
+                  {
+                    "name": "PartNumberMarker",
+                    "text": "0"
+                  },
+                  {
+                    "name": "NextPartNumberMarker",
+                    "text": "0"
+                  },
+                  {
+                    "name": "MaxParts",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "PartNumber",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f6>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "4"
+                      }
+                    ],
+                    "name": "Part"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListPartsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f2b26ebeece7d779",
+          "name": "complete-e",
+          "request": "POST /<bucket>/e.bin?uploadId=<up_e>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Location",
+                    "text": "http://<host>/<bucket>/e.bin"
+                  },
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Key",
+                    "text": "e.bin"
+                  },
+                  {
+                    "name": "ETag",
+                    "text": "<etag:quoted>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "CompleteMultipartUploadResult"
+              }
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=cP5/Xg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-length": "4",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "2c242fc31250e6c8",
+          "name": "abort-d-x",
+          "request": "DELETE /<bucket>/d/x.bin?uploadId=<up_d_x>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "expires": "<time:http>",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "3963bda64fe47783",
+          "name": "abort-d-mp",
+          "request": "DELETE /<bucket>/d/mp.bin?uploadId=<up_d_mp>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "expires": "<time:http>",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "288d185cb00ca831",
+          "name": "abort-f-g",
+          "request": "DELETE /<bucket>/f%20g.bin?uploadId=<up_f_g>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "expires": "<time:http>",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "a116d06d7f5044ad",
+          "name": "list-after-aborts",
+          "request": "GET /<bucket>?uploads=",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://s3.amazonaws.com/doc/2006-03-01/"
+                },
+                "children": [
+                  {
+                    "name": "Bucket",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "KeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "UploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextKeyMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "NextUploadIdMarker",
+                    "text": ""
+                  },
+                  {
+                    "name": "MaxUploads",
+                    "text": "1000"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListMultipartUploadsResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
-  "generated": "2026-11-15",
+  "generated": "2026-11-16",
   "recorded_dates": [
     "2026-11-01",
     "2026-11-02",
     "2026-11-04",
     "2026-11-09",
     "2026-11-13",
-    "2026-11-15"
+    "2026-11-15",
+    "2026-11-16"
   ],
-  "requests": 1778,
+  "requests": 1843,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }
