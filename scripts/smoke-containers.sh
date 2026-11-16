@@ -19,6 +19,7 @@ for platform in "$@"; do
   esac
 done
 cd "$(dirname "$0")/.."
+source scripts/published-ports.sh
 export COMPOSE_FILE=compose.yaml:compose.http.yaml
 peer_image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
 
@@ -425,7 +426,7 @@ for platform in "$@"; do
   service=$(docker compose -p "$project" ps --quiet gcs)
   address=$(docker compose -p "$project" port gcs 4443)
   [[ $address == 127.0.0.1:* ]] || exit 1
-  docker inspect "$service" | jq -e '.[0].HostConfig.PortBindings | keys == ["4443/tcp"]' >/dev/null
+  [[ $(published_ports "$service") == '["4443/tcp"]' ]] || exit 1
   [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$service") == true ]] || exit 1
   # Assert effective behavior, not the recipe's setting names: the recipe leaves the principal,
   # the host port rule and the bucket mode to their defaults.
@@ -552,7 +553,7 @@ for platform in "$@"; do
   docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
   service=$(docker compose -p "$project" ps --quiet gcs)
   [[ $(docker compose -p "$project" port gcs "$port") == "127.0.0.1:$port" ]] || exit 1
-  docker inspect "$service" | jq -e --arg port "$port/tcp" '.[0].HostConfig.PortBindings | keys == [$port]' >/dev/null
+  [[ $(published_ports "$service") == "[\"$port/tcp\"]" ]] || exit 1
   [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$service") == true ]] || exit 1
   docker logs "$service" 2>&1 | jq -se --arg listen "0.0.0.0:$port" '
     any(.event == "ready" and .auth_mode == "strict" and .test_signer == "enabled" and .signed_host_port == "lenient"

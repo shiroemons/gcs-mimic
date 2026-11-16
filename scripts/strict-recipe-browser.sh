@@ -67,6 +67,7 @@ if [ "$#" != 0 ]; then
 fi
 
 cd "$(dirname "$0")/.."
+source scripts/published-ports.sh
 export COMPOSE_FILE=examples/strict-local/compose.yaml
 export GCSM_IMAGE=${GCSM_IMAGE:-gcs-mimic:local}
 export GCSM_PORT=0
@@ -179,7 +180,7 @@ docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
 service=$(docker compose -p "$project" ps --quiet gcs)
 address=$(docker compose -p "$project" port gcs 4443)
 [[ $address == 127.0.0.1:* ]] || fail "the main listener is published on $address"
-docker inspect "$service" | jq -e '.[0].HostConfig.PortBindings | keys == ["4443/tcp"]' >/dev/null \
+[[ $(published_ports "$service") == '["4443/tcp"]' ]] \
   || fail 'the recipe publishes more than the main listener'
 docker logs "$service" 2>&1 | jq -se 'any(.event == "ready" and .auth_mode == "strict" and .test_signer == "enabled")' >/dev/null \
   || fail 'the recipe is not in strict mode with the test signer'
