@@ -105,15 +105,21 @@ func (m release) supportedRange() string {
 	return fmt.Sprintf("%d.x from %d.%d.0", m.major, m.major, m.minor)
 }
 
+// supportsRelease reports whether this module can drive a binary that reported version.
+func supportsRelease(version string) bool {
+	r, err := parseRelease(version)
+	return err == nil && mustParseRelease(ModuleVersion).supports(r)
+}
+
 // checkBinary accepts the version a started binary reported in its ready event.
 func checkBinary(product, path, version string) error {
-	if r, err := parseRelease(version); err == nil && mustParseRelease(ModuleVersion).supports(r) {
+	if supportsRelease(version) {
 		return nil
 	}
 	return &UnsupportedBinaryError{Path: path, Version: version, product: product}
 }
 
-// versionProbeTimeout bounds the one `--version` call made after a failed start.
+// versionProbeTimeout bounds one `--version` call.
 const versionProbeTimeout = 5 * time.Second
 
 // probeBinary asks an executable that exited before readiness for its version. A binary of
@@ -121,6 +127,16 @@ const versionProbeTimeout = 5 * time.Second
 // version is then the likely cause. It returns nil when the version is supported or cannot be
 // read, leaving the exit error as the explanation.
 func probeBinary(ctx context.Context, product, path string) error {
+	version, ok := reportedVersion(ctx, path)
+	if !ok {
+		return nil
+	}
+	return checkBinary(product, path, version)
+}
+
+// reportedVersion runs `path --version`. ok is false when the executable does not answer in time
+// or answers something other than a gcs-mimic version.
+func reportedVersion(ctx context.Context, path string) (version string, ok bool) {
 	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
@@ -128,14 +144,14 @@ func probeBinary(ctx context.Context, product, path string) error {
 	cmd.WaitDelay = time.Second
 	output, err := cmd.Output()
 	if err != nil {
-		return nil
+		return "", false
 	}
 	version, found := strings.CutPrefix(strings.TrimSpace(string(output)), "gcs-mimic ")
 	if !found {
-		return nil
+		return "", false
 	}
 	if _, err := parseRelease(version); err != nil {
-		return nil
+		return "", false
 	}
-	return checkBinary(product, path, version)
+	return version, true
 }

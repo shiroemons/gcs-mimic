@@ -130,6 +130,10 @@ lockfile, the Go module's `ModuleVersion` (`go/internal/mimicproc/version.go`),
 user examples, release notes and artifact references together when preparing the
 chosen release; `scripts/check-release-recipes.sh` fails when the recipes or the
 Go module name another version. A local preview image is not a published version.
+After publication, a follow-up commit records the Release's `SHA256SUMS` in
+`go/internal/mimicproc/SHA256SUMS`, which the Go packages' download checks, and
+the Go module is tagged `go/vX.Y.Z` on that commit
+([release flow](binary-distribution.md#verification-and-release-flow), step 8).
 
 ## The 1.0.0 gate
 

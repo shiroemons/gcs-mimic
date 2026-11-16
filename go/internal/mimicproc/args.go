@@ -45,17 +45,6 @@ func (s Serve) endpointScheme() string {
 	return s.Scheme
 }
 
-// Executable returns the binary to start: explicit, then GCSM_BINARY, then gcs-mimic on PATH.
-func Executable(explicit string) string {
-	if explicit != "" {
-		return explicit
-	}
-	if binary := os.Getenv("GCSM_BINARY"); binary != "" {
-		return binary
-	}
-	return "gcs-mimic"
-}
-
 // CheckRenamedBinary refuses the former GCS_MIMIC_BINARY when nothing else selects a binary.
 // The child environment drops every GCS_MIMIC_* name, so the old variable would otherwise be
 // ignored silently. option names the package's own way to select the executable.

@@ -115,8 +115,9 @@ no complete Go compatibility claim follows from wire or SDK coverage.
 the facade above stays for migration. [The Go README](../../../go/README.md#gcsmimic)
 documents its API and options. Its acceptance cases are the DESIGN-082 rows
 `GO-SHARED-PROCESS-CONTROL`, `GO-GCSMIMIC-LIFECYCLE`,
-`GO-GCSMIMIC-HELPER-REQUESTS`, `GO-GCSMIMIC-HELPER-RUNTIME` and
-`GO-WINDOWS-STOP`.
+`GO-GCSMIMIC-HELPER-REQUESTS`, `GO-GCSMIMIC-HELPER-RUNTIME`,
+`GO-WINDOWS-STOP` and, for both packages, `GO-BINARY-DOWNLOAD`
+([below](#finding-and-downloading-the-binary)).
 
 The child runs `serve --auth-mode permissive --seed-project PROJECT
 --admin-enabled true --listen 127.0.0.1:0 --scheme http --backend memory`,
@@ -171,3 +172,48 @@ Verification on 2026-11-16, Go 1.27.4:
   `NoListener` first failed there: gcs-mimic serves no Unix socket on Windows,
   so `NoListener` refuses to start, which `TestNoListenerHandlerAndTransport`
   checks. They now skip on Windows with that reason and still run elsewhere.
+
+## Finding and downloading the binary
+
+Both packages choose their executable through `mimicproc.Resolve`
+(`go/internal/mimicproc/download.go`), so that `go get` followed by `go test`
+starts without other setup. The [Go README](../../../go/README.md#finding-the-binary)
+documents the order for users. Acceptance cases of `GO-BINARY-DOWNLOAD`:
+
+| Case | Behavior |
+| --- | --- |
+| Explicit choice | `WithExecutable`, `Options.Executable` and then `GCSM_BINARY` are used as given, without a lookup or a download, so another release still fails with `UnsupportedBinaryError` |
+| Supported binary on PATH | `gcs-mimic` on `PATH` is started when its `--version` reports a supported release; another release, or no version, is skipped |
+| Download and cache | Otherwise the release archive of `ModuleVersion` for the platform is downloaded from GitHub Releases into the cache directory, its SHA-256 is compared with `go/internal/mimicproc/SHA256SUMS`, and only the executable is extracted, through a temporary file and a rename, to `os.UserCacheDir()/gcs-mimic/VERSION/TARGET/`. Later starts reuse it without a request |
+| Platforms | `darwin`, `linux` and `windows` on `amd64` and `arm64`; Linux takes the static musl archives. Windows archives are zip files, whose paths may use either separator |
+| Refusals | A different digest, an archive the file does not record, an archive without the executable, another platform and an HTTP failure each fail the start, name `GCSM_BINARY` and any skipped `PATH` binary, and leave nothing in the cache |
+| Turning it off | `GCSM_DOWNLOAD=off` ends the lookup with `gcs-mimic` on `PATH`, whatever its release, as before; any value other than `on` or `off` fails |
+
+The recorded `SHA256SUMS` is the Release's own file, so a module revision can
+download only after the release it names is published; the release flow records
+it in a follow-up commit and tags `go/vX.Y.Z` there. The download is bounded to
+five minutes and 256 MiB, honors the standard proxy variables, and serializes
+installs within one process; separate test processes may download at once, and
+each rename leaves a complete file. The cache keeps only the executable, not
+the archive's license files.
+
+The module's `go` directive names the oldest supported Go series, `1.26.0`, and
+`scripts/sdk-go.sh` vets and tests the module with exactly that release.
+
+Verification on 2026-11-16:
+
+- `go test -race -count=1 ./...` with Go 1.27.4, and `go vet ./...` and
+  `go test -count=1 ./...` with Go 1.26.0, passed every package. The download
+  tests serve archives from a local test HTTP server into a temporary cache.
+- With the 0.25.0 release binary as `GCSM_BINARY`,
+  `go test -race -count=1 -tags integration ./...` passed every package on macOS.
+- Without `GCSM_BINARY` or `gcs-mimic` on `PATH`, a test module requiring this
+  module through a local replacement downloaded the published 0.25.0
+  `aarch64-apple-darwin` archive on macOS and ran `gcsmimic` and `fakestorage`
+  tests against it; the cached executable was byte-identical to the one in the
+  archive, and a second run started from the cache. In `golang:1.27.4-bookworm`
+  on ARM64 the same module downloaded and ran the `aarch64-unknown-linux-musl`
+  archive. A new module created with Go 1.26.0, which declared `go 1.25.0`,
+  required it; `go mod tidy` raised the directive to `go 1.26.0`, not 1.27, and
+  added no `toolchain` line.
+- Windows downloads were not run; the zip unit tests cover their extraction.

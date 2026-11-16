@@ -134,6 +134,8 @@ Gitタグは`vX.Y.Z`または`vX.Y.Z-rc.N`で、バイナリ、アーカイブ�
 同じ製品バージョンとソースコミットに対応させます。
 公開準備時にはマニフェスト、lockfile、Goモジュールの`ModuleVersion`（`go/internal/mimicproc/version.go`）、利用例、リリースノート、成果物の参照を
 まとめて更新します。利用例やGoモジュールが別のバージョンを示すと、`scripts/check-release-recipes.sh`が失敗します。ローカルの確認用イメージは公開版ではありません。
+公開後は、続くコミットでReleaseの`SHA256SUMS`を`go/internal/mimicproc/SHA256SUMS`に記録し、そのコミットにGoモジュールのタグ`go/vX.Y.Z`を付けます。
+Goのパッケージは、自分の版をダウンロードしたときにこのファイルで照合します（[リリースの流れ](../en/binary-distribution.md#verification-and-release-flow)の手順8）。
 
 公開したタグ、バイナリ、固定バージョンのイメージは置き換えません。
 依存やベースイメージだけの修正・再ビルドでも、新しい版として公開します。

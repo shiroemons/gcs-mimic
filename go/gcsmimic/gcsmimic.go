@@ -10,8 +10,12 @@
 // TempBucket so that parallel tests never see each other's objects. Reset clears every bucket,
 // so it suits tests that run one after another.
 //
-// The package starts the binary as a child process; it does not embed the emulator. Code
-// written for fake-gcs-server's Go API can keep that API with the fakestorage package.
+// The package starts the binary as a child process; it does not embed the emulator. Without
+// WithExecutable or GCSM_BINARY it uses gcs-mimic on PATH when that is a supported release, and
+// otherwise downloads the module's own release once from GitHub Releases, checks it against the
+// SHA-256 recorded in the module, and keeps it in the user cache directory. GCSM_DOWNLOAD=off
+// turns the download off. Code written for fake-gcs-server's Go API can keep that API with the
+// fakestorage package.
 package gcsmimic
 
 import (
@@ -81,9 +85,13 @@ func New(ctx context.Context, opts ...Option) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	executable, err := mimicproc.Resolve(ctx, c.executable)
+	if err != nil {
+		return nil, err
+	}
 	proc, err := mimicproc.Start(ctx, mimicproc.Spec{
 		Product:    "gcsmimic",
-		Executable: mimicproc.Executable(c.executable),
+		Executable: executable,
 		Serve: mimicproc.Serve{Project: c.project, Listen: "127.0.0.1:0", Scheme: "http",
 			DataDir: c.dataDir},
 		Extra:      extra,

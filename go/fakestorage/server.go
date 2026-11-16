@@ -43,7 +43,7 @@ type Options struct {
 	BucketsLocation       string
 	CertificateLocation   string
 	PrivateKeyLocation    string
-	Executable            string // Defaults to GCSM_BINARY, then gcs-mimic on PATH.
+	Executable            string // Defaults to GCSM_BINARY, then a supported gcs-mimic on PATH, then a download as in gcsmimic.
 	EventOptions          EventManagerOptions
 	PubSubEmulatorHost    string // Explicit local Pub/Sub endpoint; otherwise PUBSUB_EMULATOR_HOST.
 	MemoryMaxBytes        uint64 // Zero uses the bounded Rust memory backend default.
@@ -224,9 +224,13 @@ func (s *Server) start(ctx context.Context, options Options, root string) error 
 	if options.PubSubEmulatorHost != "" {
 		args = append(args, "--pubsub-emulator-host", options.PubSubEmulatorHost)
 	}
+	executable, err := mimicproc.Resolve(ctx, options.Executable)
+	if err != nil {
+		return err
+	}
 	proc, err := mimicproc.Start(ctx, mimicproc.Spec{
 		Product:    "fakestorage",
-		Executable: mimicproc.Executable(options.Executable),
+		Executable: executable,
 		Serve: mimicproc.Serve{CompatProfile: "fake-gcs-server", Project: "local-project",
 			Listen:     net.JoinHostPort(host, strconv.Itoa(int(options.Port))),
 			SocketPath: s.socketPath, Scheme: scheme, DataDir: root},

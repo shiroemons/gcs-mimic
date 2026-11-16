@@ -59210,6 +59210,21 @@
             "TestRustSeedMatchesTheStartupSeed",
             "TestRustResetReturnsToTheStartupState"
           ]
+        },
+        {
+          "id": "GO-BINARY-DOWNLOAD",
+          "description": "Without WithExecutable, Options.Executable or GCSM_BINARY, both packages start gcs-mimic on PATH only when its --version reports a supported release; otherwise they download the module's own release archive for macOS, Linux (static musl) or Windows on x86-64 or ARM64 from GitHub Releases, check its SHA-256 against go/internal/mimicproc/SHA256SUMS, extract only the executable through a temporary file and a rename into os.UserCacheDir()/gcs-mimic/VERSION/TARGET, and reuse that copy. An explicit path and GCSM_BINARY are used as given; GCSM_DOWNLOAD=off keeps the earlier PATH lookup and any value other than on or off fails. A different digest, an unrecorded archive, an archive without the executable, an unsupported platform or an HTTP failure fails the start, names GCSM_BINARY and any skipped PATH binary, and leaves nothing in the cache. The unit tests serve archives from a local test HTTP server. On 2026-11-16 the 0.25.0 module downloaded and ran the published 0.25.0 aarch64-apple-darwin archive on macOS and the aarch64-unknown-linux-musl archive in golang:1.27.4-bookworm, and the second run started from the cache; Windows downloads are covered only by the zip unit tests. Contract: go/README.md#finding-the-binary.",
+          "result": "PASS",
+          "test_ids": [
+            "TestResolveUsesAnExplicitBinaryAndGCSMBinaryAsGiven",
+            "TestResolveWithTheDownloadOffKeepsThePathLookup",
+            "TestResolveUsesASupportedReleaseOnPath",
+            "TestResolveDownloadsOnceAndReusesTheCache",
+            "TestResolveExtractsTheWindowsZip",
+            "TestResolveRefusesWhatItCannotVerifyOrFind",
+            "TestResolveReportsTheSkippedBinaryWhenTheDownloadFails",
+            "TestRecordedDigestsCoverEveryDownloadPlatform"
+          ]
         }
       ],
       "test_ids": [
@@ -59279,7 +59294,15 @@
         "go-compose-bucket-lifecycle",
         "guide-compose-go-object-suite",
         "guide-compose-go-strict-suite",
-        "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
+        "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
+        "TestResolveUsesAnExplicitBinaryAndGCSMBinaryAsGiven",
+        "TestResolveWithTheDownloadOffKeepsThePathLookup",
+        "TestResolveUsesASupportedReleaseOnPath",
+        "TestResolveDownloadsOnceAndReusesTheCache",
+        "TestResolveExtractsTheWindowsZip",
+        "TestResolveRefusesWhatItCannotVerifyOrFind",
+        "TestResolveReportsTheSkippedBinaryWhenTheDownloadFails",
+        "TestRecordedDigestsCoverEveryDownloadPlatform"
       ],
       "verification": [
         {"command":"On windows-2025 and windows-11-arm GitHub runners: cargo build --locked --bin gcs-mimic; cd go && go test -count=1 -v ./... && GCSM_BINARY=<checkout>/target/debug/gcs-mimic.exe go test -count=1 -v -tags integration ./... (every package passed; the four fakestorage NoListener integration tests skip)","result":"PASS","verified_at":"2026-11-16","artifact":"docs/en/slices/go-subprocess-facade.md","test_ids":["TestStopEndsTheChildAndRepeatsItsResult","TestRustStartWritesReadsAndKeepsServersApart","TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration","TestRustSeedMatchesTheStartupSeed","TestRustResetReturnsToTheStartupState"]},
@@ -59510,6 +59533,22 @@
           "artifact": "docs/en/slices/go-subprocess-facade.md",
           "test_ids": [
             "TestRustStartWritesReadsAndKeepsServersApart"
+          ]
+        },
+        {
+          "command": "cd go && GOTOOLCHAIN=go1.27.4 go test -race -count=1 ./... && GOTOOLCHAIN=go1.26.0 go vet ./... && GOTOOLCHAIN=go1.26.0 go test -count=1 ./...",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "go/README.md",
+          "test_ids": [
+            "TestResolveUsesAnExplicitBinaryAndGCSMBinaryAsGiven",
+            "TestResolveWithTheDownloadOffKeepsThePathLookup",
+            "TestResolveUsesASupportedReleaseOnPath",
+            "TestResolveDownloadsOnceAndReusesTheCache",
+            "TestResolveExtractsTheWindowsZip",
+            "TestResolveRefusesWhatItCannotVerifyOrFind",
+            "TestResolveReportsTheSkippedBinaryWhenTheDownloadFails",
+            "TestRecordedDigestsCoverEveryDownloadPlatform"
           ]
         }
       ],

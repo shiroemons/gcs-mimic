@@ -8,24 +8,68 @@ the Rust executable as a child process; neither embeds the emulator.
 | `gcsmimic` | New tests. gcs-mimic's own API, with helpers for per-test buckets, fixtures and reset |
 | `fakestorage` | Tests that move from fake-gcs-server and keep its Go API; change only the import path |
 
-The module is source code in this checkout; no separately published module is
-claimed. Use the checkout's `go/` as a local module replacement when adopting it.
-Build the Rust executable first, then set `GCSM_BINARY` to that executable
-or install `gcs-mimic` on `PATH`. Both packages share the module's version, so
-during `0.x` a minor release may change either of them.
+## Install
+
+```sh
+go get github.com/shiroemons/gcs-mimic/go@latest
+```
+
+The module needs Go 1.26 or newer. It belongs to one gcs-mimic release, and a
+release tags it `go/vX.Y.Z` once its archives are published, so
+`go get github.com/shiroemons/gcs-mimic/go@vX.Y.Z` pins that release; until a
+tag exists, `@latest` takes the newest commit of `main`. Both packages share
+the module's version, so during `0.x` a minor release may change either of
+them.
+
+Nothing else is needed: on first use the packages download the gcs-mimic
+binary of their release, as described next.
+
+## Finding the binary
+
+The packages start the first of these:
+
+1. `WithExecutable` (`gcsmimic`) or `Options.Executable` (`fakestorage`), used as given.
+2. `GCSM_BINARY`, used as given.
+3. `gcs-mimic` on `PATH`, when its `--version` reports a
+   [supported release](#supported-binaries); another release is skipped.
+4. The module's own release, kept in the user cache directory as
+   `gcs-mimic/VERSION/TARGET/gcs-mimic` below `os.UserCacheDir()`
+   (`~/Library/Caches` on macOS, `~/.cache` on Linux, `%LocalAppData%` on
+   Windows), and downloaded from GitHub Releases the first time.
+
+The download takes the release archive for the platform: macOS and Windows on
+x86-64 and ARM64, and on Linux the static musl build for x86-64 and ARM64,
+which runs on any distribution. It checks the archive against the SHA-256 in
+`internal/mimicproc/SHA256SUMS`, a copy of that release's `SHA256SUMS`. The Go
+checksum database fixes that file together with the module, so an archive
+replaced on GitHub fails the check instead of running. Only the executable is
+extracted, and it is put in place by a rename, so test processes running in
+parallel share one complete copy. The download is bounded to five minutes and
+goes through `HTTPS_PROXY` when set. On another platform, build gcs-mimic from
+source and set `GCSM_BINARY`.
+
+`GCSM_DOWNLOAD=off` turns the download off, for machines that must not reach
+GitHub; the lookup then ends with `gcs-mimic` on `PATH`, whatever its release.
+Unset or `on` allows the download, and any other value fails the start. In CI,
+cache the directory (for example `~/.cache/gcs-mimic` on Linux runners) to
+download once rather than on every run.
+
+A module revision that records no SHA-256 for its own release cannot
+download. That is `main` between the commit that prepares a release and the
+commit that records the published `SHA256SUMS`; set `GCSM_BINARY` there.
 
 ## Supported binaries
 
 The packages pass options and read ready fields of their own release, so they
 start only a binary of a supported release. During `0.x` that is the same
-minor release as the checkout, such as any `0.20.y` for a `0.20.0` checkout,
+minor release as the module, such as any `0.20.y` for the `0.20.0` module,
 because a `0.x` minor release may break; from `1.0.0` it is the same major
-release at or above the checkout's minor. They read the `version` of the ready
+release at or above the module's minor. They read the `version` of the ready
 event, and when a binary exits before ready they ask `--version`. Another
 release fails with `*gcsmimic.UnsupportedBinaryError` or
 `*fakestorage.UnsupportedBinaryError`, which are the same type; it names the
 binary's path, both versions and the package that refused it. Use `errors.As`
-to detect it. Build the executable from the same checkout to match.
+to detect it. A binary built from the same checkout always matches.
 The former `GCS_MIMIC_BINARY` fails with replacement advice when neither
 `GCSM_BINARY` nor the package's executable option selects a binary. Inherited
 `GCS_MIMIC_*` server settings are removed from each child so that the package's
@@ -92,7 +136,7 @@ Start options:
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `WithExecutable(path)` | `GCSM_BINARY`, then `gcs-mimic` on `PATH` | The binary to start |
+| `WithExecutable(path)` | [Found or downloaded](#finding-the-binary) | The binary to start |
 | `WithProject(id)` | `local-project` | Project of the startup buckets and of the buckets the helpers create |
 | `WithBuckets(names...)` | none | Buckets with default settings, created before ready |
 | `WithBucketsDocument(json)` | none | A bucket initialization document (version 1), for startup buckets with CORS, IAM or other settings; not with `WithBuckets` |
@@ -102,9 +146,10 @@ Start options:
 | `WithArgs(args...)` | none | More `serve` arguments, such as `--memory-max-bytes`. Arguments the package sets itself are refused |
 
 A failed start says why: a missing executable names `GCSM_BINARY` and
-`WithExecutable`, another release returns `UnsupportedBinaryError`, an exit
-before ready includes the last 4 KiB of the server's output, and a start that
-takes over 30 seconds says so.
+`WithExecutable`, a failed download names the archive, the reason and any
+skipped `gcs-mimic` on `PATH` with its version, another release returns
+`UnsupportedBinaryError`, an exit before ready includes the last 4 KiB of the
+server's output, and a start that takes over 30 seconds says so.
 
 ### TempBucket
 
@@ -261,7 +306,9 @@ The normal unit tests use the Go test executable as a controllable child
 (`internal/fakechild`), and the `gcsmimic` helper tests also use a local test
 HTTP server that checks each request. Ordinary listener cases require loopback
 permission; NoListener cases use Unix sockets. They do not start the Rust
-runtime. Dedicated Rust wire tests verify Unix CRUD, preconditions, parallel
+runtime. The download tests serve archives from a local test HTTP server into a
+temporary cache, so no test reaches GitHub. The examples are compiled but not
+run, because running them needs a gcs-mimic binary. Dedicated Rust wire tests verify Unix CRUD, preconditions, parallel
 connections and socket cleanup independently.
 `cmd/sdk-guard` normally restricts the HTTP origin. Its explicit `--grpc-endpoint`
 mode provides one local HTTP/1 and h2c frontdoor for the standalone Rust SDK,

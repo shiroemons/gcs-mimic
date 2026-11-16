@@ -25,8 +25,9 @@ type config struct {
 	args       []string
 }
 
-// WithExecutable names the gcs-mimic binary to start. Without it, GCSM_BINARY and then
-// gcs-mimic on PATH are used.
+// WithExecutable names the gcs-mimic binary to start. Without it, GCSM_BINARY is used; failing
+// that, gcs-mimic on PATH when it is a supported release, and otherwise the module's own release,
+// downloaded once into the user cache directory unless GCSM_DOWNLOAD is off.
 func WithExecutable(path string) Option {
 	return func(c *config) { c.executable = path }
 }

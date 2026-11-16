@@ -201,6 +201,24 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    release must open them all. The xtask release-version tests reject a later
    version while an earlier published release lacks its fixture, and the
    integration tests require every fixture to be listed and preserve its resources.
+8. Once the Release is published, record its checksums for the Go module and tag
+   the module. The [Go packages](../../go/README.md) download their release and
+   check it against `go/internal/mimicproc/SHA256SUMS`; the digests exist only
+   after the dry run, so the tagged `vX.Y.Z` commit cannot carry them. Copy the
+   Release's file:
+
+   ```sh
+   gh release download vX.Y.Z -p SHA256SUMS \
+     -O go/internal/mimicproc/SHA256SUMS --clobber
+   ```
+
+   Check that the file lists the eight archives of `X.Y.Z`, and run
+   `go test ./internal/mimicproc` in `go/`, which requires one release's digests
+   for every download platform. Commit the file and push it through the agreed
+   process. When publication is authorized, create and push the annotated tag
+   `go/vX.Y.Z` (or `go/vX.Y.Z-rc.N`) on that commit, so that
+   `go get github.com/shiroemons/gcs-mimic/go@vX.Y.Z` selects it. Never move a
+   `go/` tag: the Go checksum database keeps the first content it saw.
 
 Packaging is also available as `cargo xtask release prepare TARGET BINARY OUTPUT_DIR`
 or `just prepare-binary TARGET BINARY OUTPUT_DIR`. Build first with the pinned
