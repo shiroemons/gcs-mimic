@@ -1270,3 +1270,25 @@ by the freshness check.
 | `cargo xtask dependencies check --scope release` at `2026-11-16T02:01:08Z` | Exit 0 with 42 `CURRENT` lines, `inquire` now among them |
 
 The Ruby SDK and Active Storage suites themselves run in `just pre-push` on the release source.
+
+## Refresh: 2026-11-16, before 0.25.0
+
+The full freshness check before 0.25.0 reported two development-only updates; the release-scoped check was current. Both are adopted.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| cloud.google.com/go/storage | v1.70.0 | v1.71.0 (changelog dated 2026-11-14, published to the Go proxy 2026-11-16T06:36:23Z, revision `20a33852bdd96c8dc0e07c76e45ff4c085cbd0ce`, Go 1.26.0, 1,106,090-byte module zip) | `go`, `sdk-scorecard/go`, `sdk-tests/go` |
+| composer:2.11.2 index | `sha256:5bcb28b8…` | `sha256:0c8e663f14c94d07b3c45b175c51f5a14718508f21fe4dd7e54f09488dd0ed71` | `sdk-tests/php/run.sh`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh` |
+
+[Storage v1.71.0](https://github.com/googleapis/google-cloud-go/releases/tag/storage%2Fv1.71.0) adds OpenTelemetry spans and attributes, a default buffer pool for gRPC parallel uploads and `ReaderObjectAttrs.Unfinalized`. Its fixes include URL-safe base64 for the feature tracking header, more validation of REST requests, keeping seen bytes on a 206 during reader reopen, and a read stall timeout on the MultiRangeDownloader's initial stream. Its LICENSE is byte-identical to v1.70.0. `go get` and `go mod tidy` raise only indirect requirements to the module's new minimums, among them `cloud.google.com/go/auth` v0.24.4, the OpenTelemetry contrib instrumentation v0.72.0 and detectors v1.47.0, the operations exporter v0.62.0, `go-jose` v4.1.6 and genproto `v0.0.0-20261110000943-09e21b237f2c`, and drop the GCP resource detector the module no longer requires. In `sdk-scorecard/go` the tidy also marks `google.golang.org/grpc` v1.85.0 direct: the probe has imported `grpc/codes` and `grpc/status` since its gRPC cases were added on 2026-11-15, and the snapshot now lists it. `examples/go` stays on v1.70.0, as it is not tracked by the freshness check.
+
+The composer:2.11.2 index was rebuilt to add a linux/riscv64 manifest. Its linux/amd64 (`sha256:c4a7ecd0…`) and linux/arm64 (`sha256:d76824a7…`) manifests and every other platform manifest are unchanged, and `latest` resolves to the same index.
+
+### Validation performed on 2026-11-16, before 0.25.0
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-16T08:15:14Z` | Exit 0 with 144 `CURRENT` lines; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Rust `slim-trixie` differs only on the undeclared linux/riscv64 platform |
+| `cargo xtask dependencies check --scope release` at `2026-11-16T08:13:50Z` | Exit 0 with 42 `CURRENT` lines |
+
+The Go and PHP SDK suites and the Go module's tests run in `just pre-push` on the release source.

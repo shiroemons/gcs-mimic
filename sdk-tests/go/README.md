@@ -74,8 +74,8 @@ See the [retention contract](../../docs/en/slices/sdk-retention-policy.md).
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This module pins Go 1.27.4, `cloud.google.com/go/storage` v1.70.0 and
-`google.golang.org/api` v0.312.0, verified on 2026-11-11. `go.sum` records module
+This module pins Go 1.27.4, `cloud.google.com/go/storage` v1.71.0 and
+`google.golang.org/api` v0.315.0, verified on 2026-11-16. `go.sum` records module
 checksums; `go.mod` records the resolved graph. Go 1.21 or newer can download the
 pinned toolchain with `GOTOOLCHAIN=auto`. The `go 1.27.0` directive selects the
 language baseline and `toolchain go1.27.4` pins the verified stable patch release.

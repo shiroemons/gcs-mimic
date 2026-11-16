@@ -30,7 +30,7 @@ The versions are those pinned by the repository's SDK tests and the
 
 ## Go
 
-`cloud.google.com/go/storage` v1.70.0 ([tests](../../sdk-tests/go/README.md)).
+`cloud.google.com/go/storage` v1.71.0 ([tests](../../sdk-tests/go/README.md)).
 With `STORAGE_EMULATOR_HOST=localhost:4443`, a plain `storage.NewClient(ctx)`
 skips authentication and uses the emulator, so a fake-gcs-server setup works
 unchanged. To configure it in code:

@@ -27,7 +27,7 @@
 
 ## Go
 
-`cloud.google.com/go/storage` v1.70.0（[テスト（英語）](../../sdk-tests/go/README.md)）。
+`cloud.google.com/go/storage` v1.71.0（[テスト（英語）](../../sdk-tests/go/README.md)）。
 `STORAGE_EMULATOR_HOST=localhost:4443`があれば、通常の`storage.NewClient(ctx)`が認証を省いてエミュレーターに接続します。
 fake-gcs-serverでの設定がそのまま使えます。コードで指定する場合は次のとおりです。
 
