@@ -36,6 +36,14 @@ pub(crate) fn build(root: &Path) -> Result<PathBuf> {
         .ok_or_else(|| "cargo did not report the gcs-mimic executable".into())
 }
 
+/// The API base gcs-mimic advertises in the links it returns. It is `https`, like the live
+/// endpoint, so a link the service writes with its own scheme normalizes to `<host>` on both
+/// sides while one written as `http` on purpose (Cloud Storage's multipart completion
+/// `Location`) stays `http://<host>` on both. Requests still go to the loopback listener. The
+/// host must not appear in anything else gcs-mimic answers: the local caller's email address
+/// is `local-user@gcs-mimic.invalid`, and a host inside it would no longer read as an email.
+pub(crate) const ADVERTISED_API_BASE: &str = "https://api.storage.invalid";
+
 pub(crate) struct LocalServer {
     child: Child,
     _pubsub: pubsub::Stub,
@@ -61,6 +69,7 @@ impl LocalServer {
             .args(["serve", "--scheme", "http", "--listen", "127.0.0.1:0"])
             .args(["--grpc-listen", "127.0.0.1:0"])
             .args(["--cors-fallback", "none"])
+            .args(["--api-base-url", ADVERTISED_API_BASE])
             .args(["--compat-profile", "native", "--data-dir"])
             .arg(work.join("data"))
             .stdout(File::create(&log).map_err(|e| format!("server log: {e}"))?)

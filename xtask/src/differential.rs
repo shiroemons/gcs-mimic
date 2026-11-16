@@ -370,6 +370,10 @@ fn run_mimic(
         hosts: vec![
             local.endpoint.clone(),
             local.endpoint.trim_start_matches("http://").to_owned(),
+            server::ADVERTISED_API_BASE.to_owned(),
+            server::ADVERTISED_API_BASE
+                .trim_start_matches("https://")
+                .to_owned(),
             // The ErrorInfo domain names the service, so mimic reports the live value too.
             "storage.googleapis.com".to_owned(),
         ],

@@ -723,6 +723,14 @@ The local server also runs with `--cors-fallback none`. The recorded buckets
 have no CORS configuration, and the permissive allow-all fallback would add
 `Vary: Origin` to XML reads that Cloud Storage answers without one.
 
+It also runs with `--api-base-url https://api.storage.invalid`, while requests
+still go to its loopback listener. Links that gcs-mimic writes with its own
+scheme then read `https://`, as the live service's do, and normalize to
+`<host>` on both sides; a link that Cloud Storage writes as `http://` on
+purpose, such as the XML multipart completion `Location`, stays
+`http://<host>` on both sides instead of matching any link of an `http`
+listener.
+
 ```sh
 cargo xtask differential validate            # parse and check the case files, no network
 cargo xtask differential run                 # self-check: gcs-mimic only
