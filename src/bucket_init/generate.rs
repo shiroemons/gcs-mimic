@@ -9,7 +9,10 @@
 use super::{Form, parse};
 use crate::{clock::SystemClock, config::Config, diagnostics::Diagnostics};
 use serde::{Serialize, Serializer};
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    str::FromStr,
+};
 
 crate::config::string_enum! {
     no_default listed
@@ -77,6 +80,31 @@ pub fn bucket_roles() -> Vec<&'static str> {
         .collect()
 }
 
+/// A label written `key=value` that startup accepts. It is checked when it is read, so that a
+/// prompt can ask again at once instead of losing every answer to the parser's check of the
+/// whole document, which checks it again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Label {
+    key: String,
+    value: String,
+}
+
+impl FromStr for Label {
+    type Err = GenerateError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        use crate::bucket::{LabelPart, valid_label};
+        let (key, value) = text.split_once('=').ok_or(GenerateError::UnpairedLabel)?;
+        if !valid_label(key, LabelPart::Key) || !valid_label(value, LabelPart::Value) {
+            return Err(GenerateError::InvalidLabel);
+        }
+        Ok(Self {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        })
+    }
+}
+
 /// One answer about one bucket, naming one member of its entry. Single-valued answers may be
 /// given once per bucket; labels, CORS lists and IAM bindings accumulate.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,10 +112,7 @@ pub enum Setting {
     Project(String),
     Location(String),
     StorageClass(String),
-    Label {
-        key: String,
-        value: String,
-    },
+    Label(Label),
     Versioning,
     DefaultEventBasedHold,
     PublicAccessPrevention(PublicAccessPrevention),
@@ -111,7 +136,7 @@ impl Setting {
             Self::Project(_) => "project",
             Self::Location(_) => "location",
             Self::StorageClass(_) => "storageClass",
-            Self::Label { .. } => "labels",
+            Self::Label(_) => "labels",
             Self::Versioning => "versioning",
             Self::DefaultEventBasedHold => "defaultEventBasedHold",
             Self::PublicAccessPrevention(_) => "iamConfiguration.publicAccessPrevention",
@@ -260,7 +285,7 @@ impl Bucket {
             Setting::Project(project) => set_once(&mut self.project, project),
             Setting::Location(location) => set_once(&mut self.location, location),
             Setting::StorageClass(class) => set_once(&mut self.storage_class, class),
-            Setting::Label { key, value } => match self.labels.entry(key) {
+            Setting::Label(Label { key, value }) => match self.labels.entry(key) {
                 Entry::Vacant(entry) => {
                     entry.insert(value);
                     true
@@ -412,6 +437,10 @@ fn compose_snippet(text: &str) -> String {
 pub enum GenerateError {
     /// The name breaks the bucket-name rules.
     InvalidName,
+    /// A label has no `=` between its key and value.
+    UnpairedLabel,
+    /// A label's key or value breaks the label rules.
+    InvalidLabel,
     /// A single-valued member was given twice for one bucket.
     Repeated(&'static str),
     /// The entry at `index` grants public access while it enforces public access prevention,
@@ -431,6 +460,12 @@ impl std::fmt::Display for GenerateError {
         match self {
             Self::InvalidName => f.write_str(
                 "Bucket names use lower-case letters, digits, '-', '_' and '.', 3 to 63 characters (222 with dots), and start and end with a letter or digit, for example app-uploads.",
+            ),
+            Self::UnpairedLabel => {
+                f.write_str("Write the label as key=value, for example team=storage.")
+            }
+            Self::InvalidLabel => f.write_str(
+                "Label keys and values use lower-case letters, digits, '-' and '_', at most 63 characters each, and a key starts with a letter, for example team=storage.",
             ),
             Self::Repeated(member) => {
                 write!(f, "{member} was already given for this bucket; give it once.")
@@ -454,6 +489,8 @@ impl std::error::Error for GenerateError {
             Self::Rejected(diagnostics) => Some(diagnostics),
             Self::Encode(error) => Some(error),
             Self::InvalidName
+            | Self::UnpairedLabel
+            | Self::InvalidLabel
             | Self::Repeated(_)
             | Self::PublicUnderPrevention { .. }
             | Self::Unquotable => None,

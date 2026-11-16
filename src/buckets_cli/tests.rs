@@ -55,10 +55,7 @@ fn settings_attach_to_the_preceding_bucket() {
                     "app-uploads",
                     [
                         Setting::Versioning,
-                        Setting::Label {
-                            key: "team".into(),
-                            value: "storage".into(),
-                        },
+                        Setting::Label("team=storage".parse().unwrap()),
                         Setting::CorsOrigin("http://localhost:3000".into()),
                         Setting::CorsMethod("GET".into()),
                         Setting::CorsMethod("PUT".into()),
@@ -125,7 +122,12 @@ fn refused_arguments_name_their_option_and_the_remedy() {
         (
             &["--name", "app-uploads", "--label", "team"],
             "--label",
-            "KEY=VALUE",
+            "key=value",
+        ),
+        (
+            &["--name", "app-uploads", "--label", "Team=storage"],
+            "--label",
+            "lower-case letters",
         ),
         (
             &["--name", "app-uploads", "--iam-binding", "allUsers"],

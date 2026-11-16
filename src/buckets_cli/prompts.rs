@@ -4,7 +4,7 @@
 //! document alone reaches stdout.
 
 use gcs_mimic::bucket_init::generate::{
-    self, Bucket, Format, GenerateError, PublicAccessPrevention, Setting,
+    self, Bucket, Format, GenerateError, Label, PublicAccessPrevention, Setting,
 };
 use inquire::{
     Confirm, CustomType, InquireError, MultiSelect, Select, Text, error::CustomUserError,
@@ -233,26 +233,21 @@ fn cors(bucket: &mut Bucket) -> Result<(), InquireError> {
 
 fn labels(bucket: &mut Bucket) -> Result<(), InquireError> {
     loop {
-        let label = Text::new("Label as key=value (empty to finish):")
-            .with_validator(|value: &str| {
-                Ok(if value.is_empty() || value.contains('=') {
+        let answer = Text::new("Label as key=value (empty to finish):")
+            .with_validator(|answer: &str| {
+                Ok(if answer.is_empty() {
                     Validation::Valid
                 } else {
-                    Validation::Invalid(
-                        "Write the label as key=value, for example team=storage.".into(),
-                    )
+                    valid(answer.parse::<Label>().map(drop))
                 })
             })
             .prompt()?;
-        let Some((key, value)) = label.split_once('=') else {
+        if answer.is_empty() {
             return Ok(());
-        };
-        let setting = Setting::Label {
-            key: key.to_owned(),
-            value: value.to_owned(),
-        };
+        }
+        let label = answer.parse().map_err(custom)?;
         // A repeated key asks again instead of ending the questions.
-        if let Err(error) = bucket.apply(setting) {
+        if let Err(error) = bucket.apply(Setting::Label(label)) {
             eprintln!("{error}");
         }
     }

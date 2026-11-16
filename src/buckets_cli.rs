@@ -98,6 +98,8 @@ fn rejected(error: GenerateError) -> Diagnostics {
     match error {
         GenerateError::Rejected(diagnostics) => diagnostics,
         error @ (GenerateError::InvalidName
+        | GenerateError::UnpairedLabel
+        | GenerateError::InvalidLabel
         | GenerateError::Repeated(_)
         | GenerateError::PublicUnderPrevention { .. }
         | GenerateError::Unquotable
@@ -188,16 +190,11 @@ fn setting<'a>(
         "--cors-method" => Setting::CorsMethod(text()?),
         "--cors-response-header" => Setting::CorsResponseHeader(text()?),
         "--cors-max-age-seconds" => Setting::CorsMaxAgeSeconds(seconds(flag, &text()?)?),
-        "--label" => {
-            let label = text()?;
-            let (key, value) = label.split_once('=').ok_or_else(|| {
-                failure(flag, "--label takes KEY=VALUE, for example team=storage.")
-            })?;
-            Setting::Label {
-                key: key.to_owned(),
-                value: value.to_owned(),
-            }
-        }
+        "--label" => Setting::Label(
+            text()?
+                .parse()
+                .map_err(|error: GenerateError| failure(flag, error.to_string()))?,
+        ),
         "--iam-binding" => {
             let binding = text()?;
             let (role, members) = binding.split_once('=').ok_or_else(|| {

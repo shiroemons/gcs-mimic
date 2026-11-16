@@ -15,14 +15,8 @@ fn every_setting() -> Vec<Setting> {
         Setting::Project("other-project".into()),
         Setting::Location("EU".into()),
         Setting::StorageClass("NEARLINE".into()),
-        Setting::Label {
-            key: "team".into(),
-            value: "storage".into(),
-        },
-        Setting::Label {
-            key: "env".into(),
-            value: "dev".into(),
-        },
+        Setting::Label("team=storage".parse().unwrap()),
+        Setting::Label("env=dev".parse().unwrap()),
         Setting::Versioning,
         Setting::DefaultEventBasedHold,
         Setting::PublicAccessPrevention(PublicAccessPrevention::Inherited),
@@ -116,20 +110,8 @@ fn single_valued_members_refuse_a_second_value_and_lists_accumulate() {
     let mut entry = bucket("app-uploads", [Setting::Location("EU".into())]);
     for (setting, member) in [
         (Setting::Location("US".into()), "location"),
-        (
-            Setting::Label {
-                key: "team".into(),
-                value: "a".into(),
-            },
-            "",
-        ),
-        (
-            Setting::Label {
-                key: "team".into(),
-                value: "b".into(),
-            },
-            "labels",
-        ),
+        (Setting::Label("team=a".parse().unwrap()), ""),
+        (Setting::Label("team=b".parse().unwrap()), "labels"),
         (Setting::Versioning, ""),
         (Setting::Versioning, "versioning"),
         (Setting::PublicRead, ""),
@@ -151,6 +133,54 @@ fn single_valued_members_refuse_a_second_value_and_lists_accumulate() {
         entry.apply(Setting::CorsOrigin(origin.into())).unwrap();
     }
     assert_eq!(entry.cors.as_ref().unwrap().origin.len(), 2);
+}
+
+/// A label is refused when it is read exactly when the startup parser would refuse it, so a prompt
+/// asks again instead of losing every answer at the end.
+#[test]
+fn a_label_is_refused_when_read_exactly_when_startup_refuses_it() {
+    let long = "a".repeat(64);
+    let longest = "a".repeat(63);
+    for (key, value) in [
+        ("team", "storage"),
+        ("team", ""),
+        ("équipe", "données"),
+        ("team-1_a", "v-2_b"),
+        (longest.as_str(), longest.as_str()),
+        ("Team", "storage"),
+        ("team", "Storage"),
+        ("1team", "storage"),
+        ("", "storage"),
+        ("team", "a b"),
+        ("team", "a.b"),
+        (long.as_str(), "v"),
+        ("team", long.as_str()),
+    ] {
+        let label = format!("{key}={value}").parse::<Label>();
+        let document = serde_json::json!({
+            "version": 1,
+            "buckets": [{"name": "app-uploads", "labels": {key: value}}],
+        });
+        let startup = parse(
+            document.to_string().as_bytes(),
+            Form::File,
+            "local-project",
+            &SystemClock,
+            "US",
+            None,
+        );
+        assert_eq!(label.is_ok(), startup.is_ok(), "{key}={value}");
+        if let Err(error) = label {
+            assert!(
+                matches!(error, GenerateError::InvalidLabel),
+                "{key}={value}"
+            );
+        }
+    }
+    assert!(matches!(
+        "team".parse::<Label>(),
+        Err(GenerateError::UnpairedLabel)
+    ));
 }
 
 #[test]
