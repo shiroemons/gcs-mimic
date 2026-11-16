@@ -257,6 +257,7 @@ pub(super) const STEPS: &[Step] = &[
     Step::statements(51, policies::RAISED_BINDINGS_SCHEMA, None),
     Step::statements(52, admin::initialization::SCHEMA, None),
     Step::statements(53, STORAGE_CLASS_UPDATED_SCHEMA, None),
+    Step::statements(54, xml_multipart::timestamps::SCHEMA, None),
 ];
 
 #[expect(

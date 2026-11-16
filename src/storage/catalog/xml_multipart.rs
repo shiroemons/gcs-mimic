@@ -16,8 +16,10 @@ use std::{fmt, path::Path, time::SystemTime};
 
 mod listing;
 mod maintenance;
+pub(super) mod timestamps;
 mod transfer;
 pub(crate) use listing::{UploadPage, UploadQuery};
+use timestamps::StoredTime;
 pub(crate) use transfer::PartUpload;
 
 pub(super) const SCHEMA: &str = "CREATE TABLE xml_multipart_uploads (
@@ -185,7 +187,11 @@ fn read_upload(row: &rusqlite::Row<'_>) -> rusqlite::Result<Upload> {
         },
         incarnation: row.get("incarnation")?,
         options,
-        created: row.get::<_, UnixMillis>("created")?.system_time()?,
+        created: StoredTime {
+            millis: row.get("created")?,
+            micros: row.get("created_sub_milli_micros")?,
+        }
+        .system_time()?,
     })
 }
 
@@ -196,9 +202,11 @@ fn active(
     now: UnixMillis,
 ) -> Result<Upload, Error> {
     objects::authorized_bucket(connection, &target.bucket, access)?;
-    sql::row(connection, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4", params![target.id,target.bucket,target.name,now],read_upload).optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
+    sql::row(connection, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created,u.created_sub_milli_micros FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.id=?1 AND u.bucket=?2 AND u.name=?3 AND u.deadline>?4", params![target.id,target.bucket,target.name,now],read_upload).optional().map_err(object_unavailable)?.ok_or(Error::NoSuchUpload)
 }
 
+/// Decodes a part row selected as
+/// `number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros`.
 fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
     let hashes = Hashes {
         md5: row.get(3)?,
@@ -208,14 +216,18 @@ fn read_part(row: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
         number: row.get(0)?,
         blob_id: row.get(1)?,
         size: row.get(2)?,
-        updated: row.get::<_, UnixMillis>(5)?.system_time()?,
+        updated: StoredTime {
+            millis: row.get(5)?,
+            micros: row.get(6)?,
+        }
+        .system_time()?,
         etag: format!("\"{}\"", crate::hashing::encode_lower(&hashes.md5)),
         hashes,
     })
 }
 
 fn part(connection: &Connection, id: &str, number: u16) -> Result<Part, Error> {
-    sql::row(connection, "SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![id,number],read_part).optional().map_err(object_unavailable)?.ok_or(Error::InvalidPart)
+    sql::row(connection, "SELECT number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![id,number],read_part).optional().map_err(object_unavailable)?.ok_or(Error::InvalidPart)
 }
 
 impl Catalog {
@@ -242,8 +254,9 @@ impl Catalog {
                 .map_err(object_unavailable)?
                 .to_hex(),
         };
-        let now = UnixMillis::try_from(self.0.clock.now())?;
+        let now = StoredTime::try_from(self.0.clock.now())?;
         let deadline = now
+            .millis
             .checked_add_millis(super::SESSION_LIFETIME_MILLIS)
             .ok_or_else(|| object_unavailable("multipart deadline overflow"))?;
         let upload = self
@@ -267,15 +280,16 @@ impl Catalog {
                 let incarnation = bucket_incarnation(&transaction, &target.bucket)?;
                 sql::exec(
                     &transaction,
-                    "INSERT INTO xml_multipart_uploads VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    "INSERT INTO xml_multipart_uploads (id,bucket,name,incarnation,options,created,deadline,created_sub_milli_micros) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                     params![
                         target.id,
                         target.bucket,
                         target.name,
                         incarnation,
                         encoded,
-                        now,
-                        deadline
+                        now.millis,
+                        deadline,
+                        now.micros
                     ],
                 )?;
                 transaction.commit()?;
@@ -357,7 +371,7 @@ impl Catalog {
         self.run(move |connection| -> Result<_, Error> {
             let transaction=connection.transaction().map_err(object_unavailable)?;
             let upload=active(&transaction,&target,&access,now)?;
-            let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
+            let mut parts=transaction.prepare_cached("SELECT number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros FROM xml_multipart_parts WHERE upload_id=?1 AND number>?2 ORDER BY number LIMIT ?3")
                 .and_then(|mut s|s.query_map(params![target.id,marker,limit.clamp(1,1000)+1],read_part)?.collect::<rusqlite::Result<Vec<_>>>()).map_err(object_unavailable)?;
             let more=parts.len()>limit.clamp(1,1000); if more {parts.pop();}
             Ok(PartsPage { upload, parts, more })
@@ -425,8 +439,10 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         return Err(super::unavailable("invalid multipart catalog state"));
     }
     // Row by row: nothing bounds how many uploads a catalog holds, so neither may this check.
+    // It runs at the stored version, which may predate `created_sub_milli_micros`; that column's
+    // CHECK already bounds it, so the version 37 columns are all this decodes.
     let mut statement = connection.prepare_cached(
-        "SELECT id,bucket,name,incarnation,options,created FROM xml_multipart_uploads ORDER BY id",
+        "SELECT id,bucket,name,incarnation,options,created,0 AS created_sub_milli_micros FROM xml_multipart_uploads ORDER BY id",
     )?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {

@@ -97,8 +97,31 @@ pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connec
         .unwrap();
 }
 
+/// Restores schema 53, before multipart upload and part times kept microseconds. Fixtures built
+/// before schema 37 have no multipart tables, so neither column is there to drop.
+pub(crate) fn downgrade_multipart_micros_schema(connection: &rusqlite::Connection) {
+    for (table, column) in [
+        ("xml_multipart_uploads", "created_sub_milli_micros"),
+        ("xml_multipart_parts", "updated_sub_milli_micros"),
+    ] {
+        let present: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)",
+                [table, column],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if present {
+            connection
+                .execute_batch(&format!("ALTER TABLE {table} DROP COLUMN {column};"))
+                .unwrap();
+        }
+    }
+}
+
 /// Restores schema 52; older fixtures may already lack the timestamp column.
 pub(crate) fn downgrade_storage_class_updated_schema(connection: &rusqlite::Connection) {
+    downgrade_multipart_micros_schema(connection);
     let present: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name = 'time_storage_class_updated')",

@@ -148,7 +148,7 @@ use schema::{initialize_catalog, upgrade, validate_schema, validate_schema_versi
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = 53;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = 54;
 /// Matches `length(CAST(.. AS BLOB)) <= 65536` on the session, rewrite, notification, appendable,
 /// upload replay and multipart documents (schema versions 7, 11, 28, 34, 35 and 37). Those
 /// schema texts are frozen history: raising this needs a migration such as
@@ -417,7 +417,9 @@ impl rusqlite::types::FromSql for UnixMicros {
 
 /// A resumable, multipart, rewrite, derived-transfer or HMAC key time, or a clock reading compared
 /// with one: whole milliseconds since the Unix epoch, the unit those tables have always stored.
-/// Hard delete times use [`UnixMicros`]; neither converts into the other.
+/// Multipart upload and part times keep the microseconds past it in a column of their own
+/// (`xml_multipart::timestamps`). Hard delete times use [`UnixMicros`]; neither converts into
+/// the other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct UnixMillis(i64);
 

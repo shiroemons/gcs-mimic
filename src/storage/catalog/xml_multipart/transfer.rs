@@ -71,13 +71,13 @@ impl Catalog {
                     #[cfg(unix)] backend.sync_staging_dir().map_err(object_unavailable)?;
                     #[cfg(test)] super::super::fault::hit(&data_dir,super::super::fault::Step::Checkpoint).map_err(object_unavailable)?;
                     let transaction=sql::immediate(connection).map_err(object_unavailable)?;
-                    let now=UnixMillis::try_from(clock.now())?;
-                    active(&transaction,&target,&access,now)?;
+                    let now=StoredTime::try_from(clock.now())?;
+                    active(&transaction,&target,&access,now.millis)?;
                     objects::authorized_bucket(&transaction,&target.bucket,&access.with_permission(Permission::ObjectsCreate))?;
                     let others=sql::scalar::<u64>(&transaction, OTHER_PARTS_BYTES, params![target.id,number]).map_err(object_unavailable)?;
                     others.checked_add(size).filter(|total| *total<=request.max_bytes).ok_or(ObjectError::TooLarge)?;
                     sql::exec(&transaction, "INSERT OR IGNORE INTO xml_multipart_deletions SELECT blob_id FROM xml_multipart_parts WHERE upload_id=?1 AND number=?2", params![target.id,number]).map_err(object_unavailable)?;
-                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated", params![target.id,number,id,size,md5.as_slice(),crc32c,now]).map_err(object_unavailable)?;
+                    sql::exec(&transaction, "INSERT INTO xml_multipart_parts (upload_id,number,blob_id,size,md5,crc32c,updated,updated_sub_milli_micros) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(upload_id,number) DO UPDATE SET blob_id=excluded.blob_id,size=excluded.size,md5=excluded.md5,crc32c=excluded.crc32c,updated=excluded.updated,updated_sub_milli_micros=excluded.updated_sub_milli_micros", params![target.id,number,id,size,md5.as_slice(),crc32c,now.millis,now.micros]).map_err(object_unavailable)?;
                     let stored=part(&transaction,&target.id,number)?;
                     objects::commit_publication(transaction)?;
                     Ok(stored)

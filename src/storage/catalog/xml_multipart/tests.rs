@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 
 mod maintenance;
 mod parallel;
+mod timestamps;
 
 async fn setup(clock: Arc<dyn Clock>) -> (TestDir, Catalog) {
     let dir = TestDir::new();

@@ -75,18 +75,19 @@ async fn schema_52_migrates_null_class_times_and_executes_stored_rules() {
     let changed = current(&catalog, "object").await;
     catalog.close().await.unwrap();
     let connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    let current_version = crate::storage::catalog::CATALOG_SCHEMA_VERSION;
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        53
+        current_version
     );
     assert!(matches!(
-        crate::storage::catalog::schema::validate_schema_version(53, 52),
+        crate::storage::catalog::schema::validate_schema_version(current_version, 52),
         Err(CatalogError::NewerSchema {
-            version: 53,
+            version,
             supported: 52
-        })
+        }) if version == current_version
     ));
     drop(connection);
     let catalog = Catalog::open_with_clock(&data.0, clock).await.unwrap();

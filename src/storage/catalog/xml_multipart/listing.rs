@@ -36,7 +36,7 @@ impl Catalog {
             loop {
                 // A NULL `?4` makes `u.id>?4` never true, so without an upload ID the scan resumes
                 // past every upload named `after_name`; names are never empty, so `''` starts it.
-                let upload=sql::row(&transaction, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.bucket=?1 AND u.deadline>?2 AND (u.name>?3 OR (u.name=?3 AND u.id>?4)) ORDER BY u.name,u.id LIMIT 1", params![query.bucket,now,after_name,after_id],read_upload).optional()?;
+                let upload=sql::row(&transaction, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created,u.created_sub_milli_micros FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.bucket=?1 AND u.deadline>?2 AND (u.name>?3 OR (u.name=?3 AND u.id>?4)) ORDER BY u.name,u.id LIMIT 1", params![query.bucket,now,after_name,after_id],read_upload).optional()?;
                 let Some(upload)=upload else {break};
                 after_name=upload.target.name.clone();after_id=Some(upload.target.id.clone());
                 if !after_name.starts_with(&query.prefix) {continue;}
