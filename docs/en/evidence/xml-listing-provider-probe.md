@@ -69,7 +69,23 @@ gcs-mimic 0.24.0, `max-uploads=1`:
 
 Not recorded: `prefix` and `delimiter` together, which fields `encoding-type=url` encodes, `key-marker` and `upload-id-marker` paging, and the content types of part upload, list parts, completion and abort.
 
+## Recorded again with the differential harness
+
+On the same day the [differential harness](differential-harness.md) recorded two cases against Cloud Storage in the same authorized project, after it learned to capture a value from an XML body (`xml:ELEMENT`) and to abort open multipart uploads in cleanup:
+
+- `xml-list-v2`: 18 steps on a bucket of its own (five objects `a`, `b`, `d/c`, `d/e`, `f g`).
+- `xml-multipart-list`: 24 steps on a bucket of its own (four uploads, one completed with one part, three aborted).
+
+The run sent 65 requests with no 429 retry. Both buckets were emptied, deleted and confirmed 404 on Cloud Storage and on gcs-mimic, and the final sweep found no leftover bucket. The recording was merged into the [reference](../../../compatibility/differential/reference/gcs.json) with `--add-new`; the other 122 cases did not change. The harness sends `uploads=` where curl sent `uploads`, and Cloud Storage answered both the same way. Every curl observation above was answered the same way again. The cases also recorded what curl had not:
+
+- Version 2 listing: `NextContinuationToken` follows the echoes on a truncated page and precedes `KeyCount`; `MaxKeys` follows `KeyCount` only when `max-keys` is sent; `Delimiter` follows them; `EncodingType` follows `IsTruncated`. `KeyCount` counts the `Contents` entries only (3 for `a`, `b`, `f g` and the common prefix `d/`). `encoding-type=url` wrote `f g` as `f+g` and kept `d/c`. `fetch-owner=false` listed as usual. `continuation-token=bogus` answered 400 `InvalidArgument` with the message `Invalid argument.` and the details `Invalid page token.`.
+- Upload listing: with both `prefix` and `delimiter`, `Prefix` precedes `Delimiter` between the next markers. `encoding-type=url` wrote `f g.bin` as `f+g.bin`, kept `d/` and put `EncodingType` after the common prefixes; `encoding-type=bogus` answered 400 `InvalidArgument` with the details `Invalid encoding type: bogus`, as `application/xml`. `key-marker` with `upload-id-marker` resumed after the named upload and echoed both; `key-marker` alone resumed after every upload of that name; `upload-id-marker` alone was ignored and echoed empty. Both listings sent `Cache-Control: private, max-age=0` with `Expires`.
+- Part upload, part listing, completion and abort: the part upload's empty 200, the part listing and the completion were `text/html; charset=UTF-8`; the abort's 204 had no `Content-Type`. The part listing wrote `NextPartNumberMarker` 0 after `PartNumberMarker` on an untruncated page, and part `LastModified` with microseconds. Initiation and completion varied by `Origin`. Completion sent `x-goog-stored-content-length` and no `ETag` header, and wrote its `Location` with `http` for an `https` request.
+
+gcs-mimic now answers both cases as recorded (SPEC-XML-LIST-V2, SPEC-XML-MULTIPART-LIST and SPEC-XML-MULTIPART-CONTENT-TYPE are resolved), and the offline replay of every case reports no difference.
+
 ## Limits
 
-- One run against one project and region, sent by curl rather than replayed by the harness. A change to gcs-mimic needs a recorded and replayed case first, as SPEC-XML-MULTIPART-LIST describes.
-- The Python SDK's `sdk.xml_multipart_upload` scorecard case, which initiates, uploads parts and completes an XML multipart upload, passes on gcs-mimic 0.24.0 with `application/xml`, so the content type has not broken that client.
+- One run against one project and region. The comparison column above describes gcs-mimic 0.24.0, before the fixes.
+- Characters other than a space and `/` were not recorded under `encoding-type=url`, nor a truncated part listing, nor an XML POST other than multipart initiation and completion; the ledger names the local choices for each.
+- The Python SDK's `sdk.xml_multipart_upload` scorecard case, which initiates, uploads parts and completes an XML multipart upload, passed on gcs-mimic 0.24.0 with `application/xml`.

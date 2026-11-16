@@ -49,8 +49,8 @@ each request requires its current operation permission in strict mode.
 | --- | --- | --- |
 | Initiate | `POST /BUCKET/OBJECT?uploads`, empty body; supported ordinary XML upload metadata, class and CSEK headers | XML `InitiateMultipartUploadResult` with Bucket, Key and UploadId; no ordinary object is created |
 | Upload part | `PUT /BUCKET/OBJECT?uploadId=ID&partNumber=N`; bounded media body, optional Content-MD5 or x-goog-hash | Empty 200 with the part ETag and two `x-goog-hash` fields, `crc32c=` and `md5=`, for the part's own bytes, as the provider documents; replacing N leaves only its newly committed bytes selected |
-| List parts | `GET /BUCKET/OBJECT?uploadId=ID`, optional max-parts and part-number-marker | Ordered Part records containing number, ETag, size and modification time; at most 1000 entries and continuation only when truncated |
-| List uploads | `GET /BUCKET?uploads`, optional prefix, delimiter, max-uploads, key-marker and upload-id-marker | Name/ID-ordered active uploads and deduplicated CommonPrefixes; combined page limit and continuation after the whole prefix group |
+| List parts | `GET /BUCKET/OBJECT?uploadId=ID`, optional max-parts and part-number-marker | Ordered Part records containing number, ETag, size and modification time; at most 1000 entries, with the next part number marker 0 on the last page |
+| List uploads | `GET /BUCKET?uploads`, optional prefix, delimiter, max-uploads, key-marker, upload-id-marker and encoding-type | Name/ID-ordered active uploads and deduplicated CommonPrefixes; combined page limit and continuation after the whole prefix group |
 | Complete | `POST /BUCKET/OBJECT?uploadId=ID` with CompleteMultipartUpload/Part/PartNumber/ETag XML | One new generation with ordered selected bytes, initiation metadata, completion-time timestamps, CRC32C and an opaque ETag |
 | Abort | `DELETE /BUCKET/OBJECT?uploadId=ID`, empty body | Empty 204; the session becomes unavailable and parts are journaled for reclamation |
 
@@ -67,7 +67,34 @@ returns 411, while framed initiation and unframed list/abort requests reach
 bucket lookup (`NoSuchBucket`). The HTTP API serves only HTTP/1.1; HTTP/2
 accepted every recorded request through framing. Google's front-end 411 uses
 an HTTP/1.0 HTML response; the local HTTP/1.1 XML `MissingContentLength` body is
-a known difference. Successful operations and chunked framing were not probed.
+a known difference. Chunked framing was not probed.
+
+Successful operations follow the answers Cloud Storage gave in differential case
+`xml-multipart-list` (recorded 2026-11-16, replayed by the Foundation checks):
+
+- Initiation, both listings, completion and the empty part upload answer are
+  `text/html; charset=UTF-8`; the abort's 204 has no Content-Type, and errors
+  stay `application/xml`. Both listings are `Cache-Control: private, max-age=0`
+  with `Expires`; POST, PUT and DELETE answers vary by `Origin`.
+- The upload listing writes `Bucket`, `KeyMarker`, `UploadIdMarker`,
+  `NextKeyMarker`, `Prefix` and `Delimiter` only when the request sent them,
+  `NextUploadIdMarker`, `MaxUploads` and `IsTruncated`, then `Upload` entries
+  with `Initiated` in microseconds and `CommonPrefixes`. Both next markers are
+  present and empty on the last page. `encoding-type=url` writes names form
+  style (a space as `+`, `/` kept; other bytes by application/x-www-form-urlencoded,
+  which was not recorded) and adds `EncodingType` last; another value answers
+  400 `InvalidArgument` naming it. An `upload-id-marker` without a `key-marker`
+  is ignored and echoed empty.
+- The part listing writes `NextPartNumberMarker` after `PartNumberMarker` on
+  every page, 0 on the last; a truncated page names its last part, which was not
+  recorded. Part `LastModified` carries microseconds.
+- Completion sends `x-goog-generation`, `x-goog-metageneration`, a CRC32C-only
+  `x-goog-hash` and `x-goog-stored-content-length`, and no `ETag` header beside
+  the document's. Its `Location` uses `http` whatever scheme the request or the
+  advertised API base used, as Cloud Storage answered an `https` request.
+
+Upload and part times keep microseconds from catalog schema 54; uploads and
+parts written before it report zero microseconds past their millisecond.
 
 Part numbers range from 1 through 10000 and need not be contiguous. Completion
 requires a nonempty, strictly increasing manifest. Missing parts or mismatched
