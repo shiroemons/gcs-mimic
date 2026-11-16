@@ -125,7 +125,7 @@ Go, Java and C++ (`bucket.soft_delete_restore`), Ruby (`object.list_offsets`),
 | gcs-mimic | Release build of the checked-out source; the commit is recorded in `*.meta.json` |
 | fake-gcs-server | `fsouza/fake-gcs-server:1.56.1` |
 | gcp-storage-emulator | `oittaa/gcp-storage-emulator:v2026.07.19` |
-| floci-gcp | `floci/floci-gcp:0.12.0` |
+| floci-gcp | `floci/floci-gcp:0.13.0` |
 
 Update the pins in `run.sh` and the module files deliberately; record the
 change in the next results directory rather than rewriting old results.
