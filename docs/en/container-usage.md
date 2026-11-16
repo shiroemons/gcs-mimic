@@ -447,10 +447,13 @@ file must exist before startup. The JSON shape is:
 ```
 
 The image can also write the document. `docker run --rm -it IMAGE buckets new`
-asks for each bucket and its settings on the terminal and prints a document,
-an `environment:` block for Compose with each `$` written `$$`, or one
-`GCS_MIMIC_BUCKETS` line; with `--name NAME` and settings as flags it asks
-nothing, and `-it` is not needed. See
+asks how you run gcs-mimic and what each bucket is for on the terminal and prints
+an `environment:` block for Compose with each `$` written `$$`, one
+`GCS_MIMIC_BUCKETS` line, or a document; with `--name NAME` and settings as flags
+it asks nothing, and `-it` is not needed. The container cannot keep a JSON file:
+its working directory is not writable and leaves with the container, so the
+questions offer printing the document instead, or redirect a flag run with
+`docker run --rm IMAGE buckets new --name NAME > buckets.json`. See
 [writing a document](slices/bucket-initialization.md#writing-a-document-with-buckets-new);
 releases up to 0.23.0 do not have the command.
 
