@@ -56,9 +56,9 @@ fn settings_attach_to_the_preceding_bucket() {
                     [
                         Setting::Versioning,
                         Setting::Label("team=storage".parse().unwrap()),
-                        Setting::CorsOrigin("http://localhost:3000".into()),
-                        Setting::CorsMethod("GET".into()),
-                        Setting::CorsMethod("PUT".into()),
+                        Setting::CorsOrigin("http://localhost:3000".parse().unwrap()),
+                        Setting::CorsMethod("GET".parse().unwrap()),
+                        Setting::CorsMethod("PUT".parse().unwrap()),
                         Setting::PublicAccessPrevention(PublicAccessPrevention::Inherited),
                         Setting::PublicRead,
                     ],
@@ -67,7 +67,7 @@ fn settings_attach_to_the_preceding_bucket() {
                     "app-exports",
                     [Setting::IamBinding {
                         role: "roles/storage.objectAdmin".into(),
-                        members: vec!["user:a@example.com".into(), "user:b@example.com".into()],
+                        members: "user:a@example.com,user:b@example.com".parse().unwrap(),
                     }],
                 ),
             ],
@@ -128,6 +128,46 @@ fn refused_arguments_name_their_option_and_the_remedy() {
             &["--name", "app-uploads", "--label", "Team=storage"],
             "--label",
             "lower-case letters",
+        ),
+        (
+            &["--name", "app-uploads", "--cors-origin", "http://a b"],
+            "--cors-origin",
+            "visible ASCII",
+        ),
+        (
+            &["--name", "app-uploads", "--cors-method", "GE T"],
+            "--cors-method",
+            "HTTP method",
+        ),
+        (
+            &[
+                "--name",
+                "app-uploads",
+                "--cors-response-header",
+                "Content Type",
+            ],
+            "--cors-response-header",
+            "header name",
+        ),
+        (
+            &[
+                "--name",
+                "app-uploads",
+                "--iam-binding",
+                "roles/storage.objectViewer=dev@example.com",
+            ],
+            "--iam-binding",
+            "Invalid member",
+        ),
+        (
+            &[
+                "--name",
+                "app-uploads",
+                "--iam-binding",
+                "roles/storage.objectViewer=group:dev@example.com",
+            ],
+            "--iam-binding",
+            "unsupported",
         ),
         (
             &["--name", "app-uploads", "--iam-binding", "allUsers"],

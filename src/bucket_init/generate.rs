@@ -9,10 +9,7 @@
 use super::{Form, parse};
 use crate::{clock::SystemClock, config::Config, diagnostics::Diagnostics};
 use serde::{Serialize, Serializer};
-use std::{
-    collections::{BTreeMap, btree_map::Entry},
-    str::FromStr,
-};
+use std::{collections::BTreeMap, str::FromStr};
 
 crate::config::string_enum! {
     no_default listed
@@ -105,6 +102,74 @@ impl FromStr for Label {
     }
 }
 
+/// A CORS origin that startup accepts, checked when it is read as a label is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorsOrigin(String);
+
+impl FromStr for CorsOrigin {
+    type Err = GenerateError;
+
+    fn from_str(origin: &str) -> Result<Self, Self::Err> {
+        if !crate::bucket::valid_cors_origin(origin) {
+            return Err(GenerateError::InvalidCorsOrigin);
+        }
+        Ok(Self(origin.to_owned()))
+    }
+}
+
+/// A CORS method that startup accepts: an HTTP method or `*`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorsMethod(String);
+
+impl FromStr for CorsMethod {
+    type Err = GenerateError;
+
+    fn from_str(method: &str) -> Result<Self, Self::Err> {
+        if !crate::bucket::valid_cors_method(method) {
+            return Err(GenerateError::InvalidCorsMethod);
+        }
+        Ok(Self(method.to_owned()))
+    }
+}
+
+/// A CORS response header that startup accepts: a header name or `*`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorsResponseHeader(String);
+
+impl FromStr for CorsResponseHeader {
+    type Err = GenerateError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        if !crate::bucket::valid_cors_response_header(name) {
+            return Err(GenerateError::InvalidCorsResponseHeader);
+        }
+        Ok(Self(name.to_owned()))
+    }
+}
+
+/// The members of one IAM binding, written comma-separated as `--iam-binding` and the question
+/// take them; spaces around each member are dropped. Each is checked by the rules startup applies
+/// to a policy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Members(Vec<String>);
+
+impl FromStr for Members {
+    type Err = GenerateError;
+
+    fn from_str(list: &str) -> Result<Self, Self::Err> {
+        use crate::auth::policy_input::{PolicyInputError, parse_member};
+        list.split(',')
+            .map(str::trim)
+            .map(|member| match parse_member(member) {
+                Ok(_) => Ok(member.to_owned()),
+                Err(PolicyInputError::UnsupportedInput(_)) => Err(GenerateError::UnsupportedMember),
+                Err(PolicyInputError::InvalidInput(_)) => Err(GenerateError::InvalidMember),
+            })
+            .collect::<Result<_, _>>()
+            .map(Self)
+    }
+}
+
 /// One answer about one bucket, naming one member of its entry. Single-valued answers may be
 /// given once per bucket; labels, CORS lists and IAM bindings accumulate.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,15 +182,15 @@ pub enum Setting {
     DefaultEventBasedHold,
     PublicAccessPrevention(PublicAccessPrevention),
     SoftDeleteRetentionSeconds(u64),
-    CorsOrigin(String),
-    CorsMethod(String),
-    CorsResponseHeader(String),
+    CorsOrigin(CorsOrigin),
+    CorsMethod(CorsMethod),
+    CorsResponseHeader(CorsResponseHeader),
     CorsMaxAgeSeconds(u64),
     /// Grants `allUsers` object reads through `iamPolicy`.
     PublicRead,
     IamBinding {
         role: String,
-        members: Vec<String>,
+        members: Members,
     },
 }
 
@@ -285,13 +350,7 @@ impl Bucket {
             Setting::Project(project) => set_once(&mut self.project, project),
             Setting::Location(location) => set_once(&mut self.location, location),
             Setting::StorageClass(class) => set_once(&mut self.storage_class, class),
-            Setting::Label(Label { key, value }) => match self.labels.entry(key) {
-                Entry::Vacant(entry) => {
-                    entry.insert(value);
-                    true
-                }
-                Entry::Occupied(_) => false,
-            },
+            Setting::Label(label) => self.add_label(label)?,
             Setting::Versioning => set_once(&mut self.versioning, Versioning { enabled: true }),
             Setting::DefaultEventBasedHold => {
                 !std::mem::replace(&mut self.default_event_based_hold, true)
@@ -308,9 +367,9 @@ impl Bucket {
                     retention_duration_seconds: seconds,
                 },
             ),
-            Setting::CorsOrigin(origin) => push(&mut self.cors_rule().origin, origin),
-            Setting::CorsMethod(method) => push(&mut self.cors_rule().method, method),
-            Setting::CorsResponseHeader(header) => {
+            Setting::CorsOrigin(CorsOrigin(origin)) => push(&mut self.cors_rule().origin, origin),
+            Setting::CorsMethod(CorsMethod(method)) => push(&mut self.cors_rule().method, method),
+            Setting::CorsResponseHeader(CorsResponseHeader(header)) => {
                 push(&mut self.cors_rule().response_header, header)
             }
             Setting::CorsMaxAgeSeconds(seconds) => {
@@ -323,12 +382,28 @@ impl Bucket {
                 }
                 fresh
             }
-            Setting::IamBinding { role, members } => {
+            Setting::IamBinding {
+                role,
+                members: Members(members),
+            } => {
                 self.bind(role, members);
                 true
             }
         };
         if fresh { Ok(()) } else { Err(repeated) }
+    }
+
+    /// Adds a label and returns whether its key is new. A new key past the limit is refused here,
+    /// so that a question can ask again instead of the parser refusing the whole document.
+    fn add_label(&mut self, Label { key, value }: Label) -> Result<bool, GenerateError> {
+        if self.labels.contains_key(&key) {
+            return Ok(false);
+        }
+        if self.labels.len() >= crate::bucket::MAX_LABELS {
+            return Err(GenerateError::TooManyLabels);
+        }
+        self.labels.insert(key, value);
+        Ok(true)
     }
 
     fn cors_rule(&mut self) -> &mut Cors {
@@ -441,6 +516,15 @@ pub enum GenerateError {
     UnpairedLabel,
     /// A label's key or value breaks the label rules.
     InvalidLabel,
+    /// A new label key would pass the most labels a bucket can have.
+    TooManyLabels,
+    InvalidCorsOrigin,
+    InvalidCorsMethod,
+    InvalidCorsResponseHeader,
+    /// A member is not a principal a policy can name.
+    InvalidMember,
+    /// A member names a principal kind that the emulator does not model, such as a group.
+    UnsupportedMember,
     /// A single-valued member was given twice for one bucket.
     Repeated(&'static str),
     /// The entry at `index` grants public access while it enforces public access prevention,
@@ -467,6 +551,22 @@ impl std::fmt::Display for GenerateError {
             Self::InvalidLabel => f.write_str(
                 "Label keys and values use lower-case letters, digits, '-' and '_', at most 63 characters each, and a key starts with a letter, for example team=storage.",
             ),
+            Self::TooManyLabels => write!(
+                f,
+                "A bucket can have at most {} labels.",
+                crate::bucket::MAX_LABELS
+            ),
+            Self::InvalidCorsOrigin => f.write_str(
+                "A CORS origin is visible ASCII without spaces, for example http://localhost:3000 or *.",
+            ),
+            Self::InvalidCorsMethod => {
+                f.write_str("A CORS method is an HTTP method, for example GET, or *.")
+            }
+            Self::InvalidCorsResponseHeader => f.write_str(
+                "A CORS response header is a header name, for example Content-Type, or *.",
+            ),
+            Self::InvalidMember => f.write_str(super::policy::MEMBER_FIX),
+            Self::UnsupportedMember => f.write_str(super::policy::UNSUPPORTED_MEMBER_FIX),
             Self::Repeated(member) => {
                 write!(f, "{member} was already given for this bucket; give it once.")
             }
@@ -491,6 +591,12 @@ impl std::error::Error for GenerateError {
             Self::InvalidName
             | Self::UnpairedLabel
             | Self::InvalidLabel
+            | Self::TooManyLabels
+            | Self::InvalidCorsOrigin
+            | Self::InvalidCorsMethod
+            | Self::InvalidCorsResponseHeader
+            | Self::InvalidMember
+            | Self::UnsupportedMember
             | Self::Repeated(_)
             | Self::PublicUnderPrevention { .. }
             | Self::Unquotable => None,

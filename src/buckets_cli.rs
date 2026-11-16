@@ -10,6 +10,7 @@ use inquire::InquireError;
 use std::{
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 mod prompts;
@@ -100,6 +101,12 @@ fn rejected(error: GenerateError) -> Diagnostics {
         error @ (GenerateError::InvalidName
         | GenerateError::UnpairedLabel
         | GenerateError::InvalidLabel
+        | GenerateError::TooManyLabels
+        | GenerateError::InvalidCorsOrigin
+        | GenerateError::InvalidCorsMethod
+        | GenerateError::InvalidCorsResponseHeader
+        | GenerateError::InvalidMember
+        | GenerateError::UnsupportedMember
         | GenerateError::Repeated(_)
         | GenerateError::PublicUnderPrevention { .. }
         | GenerateError::Unquotable
@@ -186,15 +193,11 @@ fn setting<'a>(
         "--soft-delete-retention-seconds" => {
             Setting::SoftDeleteRetentionSeconds(seconds(flag, &text()?)?)
         }
-        "--cors-origin" => Setting::CorsOrigin(text()?),
-        "--cors-method" => Setting::CorsMethod(text()?),
-        "--cors-response-header" => Setting::CorsResponseHeader(text()?),
+        "--cors-origin" => Setting::CorsOrigin(parsed(flag, &text()?)?),
+        "--cors-method" => Setting::CorsMethod(parsed(flag, &text()?)?),
+        "--cors-response-header" => Setting::CorsResponseHeader(parsed(flag, &text()?)?),
         "--cors-max-age-seconds" => Setting::CorsMaxAgeSeconds(seconds(flag, &text()?)?),
-        "--label" => Setting::Label(
-            text()?
-                .parse()
-                .map_err(|error: GenerateError| failure(flag, error.to_string()))?,
-        ),
+        "--label" => Setting::Label(parsed(flag, &text()?)?),
         "--iam-binding" => {
             let binding = text()?;
             let (role, members) = binding.split_once('=').ok_or_else(|| {
@@ -205,7 +208,7 @@ fn setting<'a>(
             })?;
             Setting::IamBinding {
                 role: role.to_owned(),
-                members: members.split(',').map(str::to_owned).collect(),
+                members: parsed(flag, members)?,
             }
         }
         _ => {
@@ -215,6 +218,13 @@ fn setting<'a>(
             ));
         }
     })
+}
+
+/// A flag value read through the generator's own check, refused under the flag's name.
+fn parsed<T: FromStr<Err = GenerateError>>(flag: &str, value: &str) -> Result<T, Diagnostics> {
+    value
+        .parse()
+        .map_err(|error: GenerateError| failure(flag, error.to_string()))
 }
 
 fn seconds(flag: &str, value: &str) -> Result<u64, Diagnostics> {

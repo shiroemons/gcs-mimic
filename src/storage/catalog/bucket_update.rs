@@ -125,7 +125,7 @@ pub(super) fn update_in_transaction(
     validate_retention_expiration(transaction, &record)?;
     bucket_autoclass::update(transaction, &mut record, &update, clock.now())?;
     apply_labels(&mut record, std::mem::take(&mut update.labels), mode)?;
-    if record.labels.len() > 64 {
+    if record.labels.len() > crate::bucket::MAX_LABELS {
         return Err(CatalogError::InvalidMetadata(
             "A bucket can have at most 64 labels".into(),
         ));

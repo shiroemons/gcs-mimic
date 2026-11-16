@@ -54395,6 +54395,8 @@
             "single_valued_members_refuse_a_second_value_and_lists_accumulate",
             "an_invalid_name_is_refused_before_any_answer",
             "a_label_is_refused_when_read_exactly_when_startup_refuses_it",
+            "cors_values_and_members_are_refused_when_read_exactly_when_startup_refuses_them",
+            "a_label_past_the_limit_is_refused_when_given",
             "a_public_grant_under_enforced_prevention_is_refused",
             "a_repeated_bucket_is_refused_by_the_startup_parser",
             "env_is_one_single_quoted_line_of_the_compact_document",
@@ -54411,7 +54413,7 @@
         },
         {
           "id": "bucket-document-prompts-on-terminals",
-          "description": "Driven through a tmux terminal on macOS, and through docker run -it in the linux/arm64 image, which has no terminfo: the name is checked as typed, arrow-key lists select settings, a bucket with public read is offered only inherited prevention, an unsupported location, a repeated bucket name, a label startup would refuse, such as one with an upper-case key, a repeated label key and a non-numeric max age are explained and asked again, and the answers write the expected document on stdout. Esc and Ctrl-C end with exit 1, the cancellation diagnostic and nothing written, and leave the terminal in canonical mode with echo and a visible cursor.",
+          "description": "Driven through a tmux terminal on macOS, and through docker run -it in the linux/arm64 image, which has no terminfo: the name is checked as typed, arrow-key lists select settings, a bucket with public read is offered only inherited prevention, an unsupported location, a repeated bucket name, a label startup would refuse, such as one with an upper-case key, a repeated label key and a non-numeric max age are explained and asked again, and on macOS so are a CORS origin and a response header with a space, a member without a user: prefix, a group: member and a 65th label; the answers write the expected document on stdout. Esc and Ctrl-C end with exit 1, the cancellation diagnostic and nothing written, and leave the terminal in canonical mode with echo and a visible cursor.",
           "result": "PASS",
           "test_ids": ["buckets-new-prompts-on-macos-and-container-terminals"]
         },
@@ -54430,6 +54432,8 @@
         "single_valued_members_refuse_a_second_value_and_lists_accumulate",
         "an_invalid_name_is_refused_before_any_answer",
         "a_label_is_refused_when_read_exactly_when_startup_refuses_it",
+        "cors_values_and_members_are_refused_when_read_exactly_when_startup_refuses_them",
+        "a_label_past_the_limit_is_refused_when_given",
         "a_public_grant_under_enforced_prevention_is_refused",
         "a_repeated_bucket_is_refused_by_the_startup_parser",
         "env_is_one_single_quoted_line_of_the_compact_document",
@@ -54803,7 +54807,7 @@
           ]
         },
         {
-          "command": "Manual: tmux new-session running gcs-mimic buckets new, answered with tmux send-keys and read with capture-pane, then stty -a and the pane's cursor flag after Esc and Ctrl-C; the same through docker run --rm -it with the linux/arm64 image; repeated with inquire 0.9.5 and the label check",
+          "command": "Manual: tmux new-session running gcs-mimic buckets new, answered with tmux send-keys and read with capture-pane, then stty -a and the pane's cursor flag after Esc and Ctrl-C; the same through docker run --rm -it with the linux/arm64 image; repeated with inquire 0.9.5 and the label check; the CORS, member and label-count checks on macOS only",
           "result": "PASS",
           "verified_at": "2026-11-16",
           "artifact": "docs/en/slices/bucket-initialization.md",
@@ -54821,6 +54825,8 @@
             "single_valued_members_refuse_a_second_value_and_lists_accumulate",
             "an_invalid_name_is_refused_before_any_answer",
             "a_label_is_refused_when_read_exactly_when_startup_refuses_it",
+            "cors_values_and_members_are_refused_when_read_exactly_when_startup_refuses_them",
+            "a_label_past_the_limit_is_refused_when_given",
             "a_public_grant_under_enforced_prevention_is_refused",
             "a_repeated_bucket_is_refused_by_the_startup_parser",
             "env_is_one_single_quoted_line_of_the_compact_document",

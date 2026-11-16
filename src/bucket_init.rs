@@ -1056,7 +1056,7 @@ fn check_values(
             }
             "labels" => {
                 if let Some(labels) = members(raw) {
-                    if labels.0.len() > 64 {
+                    if labels.0.len() > crate::bucket::MAX_LABELS {
                         error(
                             diagnostics,
                             Reason::Native,

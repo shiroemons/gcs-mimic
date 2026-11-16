@@ -213,7 +213,7 @@ fn insert_labels(
     let object = value
         .as_object()
         .ok_or_else(|| JsonError::invalid("labels must be a string map"))?;
-    if object.len() > 64 {
+    if object.len() > crate::bucket::MAX_LABELS {
         return Err(JsonError::invalid("A bucket can have at most 64 labels"));
     }
     for (key, value) in object {
@@ -405,7 +405,7 @@ fn update_labels(
         .ok_or_else(|| JsonError::invalid("labels must be an object or null"))?;
     match mode {
         WriteMode::Replace => {
-            if labels.len() > 64 {
+            if labels.len() > crate::bucket::MAX_LABELS {
                 return Err(JsonError::invalid("A bucket can have at most 64 labels"));
             }
             labels

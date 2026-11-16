@@ -21,15 +21,15 @@ fn every_setting() -> Vec<Setting> {
         Setting::DefaultEventBasedHold,
         Setting::PublicAccessPrevention(PublicAccessPrevention::Inherited),
         Setting::SoftDeleteRetentionSeconds(604_800),
-        Setting::CorsOrigin("http://localhost:3000".into()),
-        Setting::CorsMethod("GET".into()),
-        Setting::CorsMethod("PUT".into()),
-        Setting::CorsResponseHeader("Content-Type".into()),
+        Setting::CorsOrigin("http://localhost:3000".parse().unwrap()),
+        Setting::CorsMethod("GET".parse().unwrap()),
+        Setting::CorsMethod("PUT".parse().unwrap()),
+        Setting::CorsResponseHeader("Content-Type".parse().unwrap()),
         Setting::CorsMaxAgeSeconds(3600),
         Setting::PublicRead,
         Setting::IamBinding {
             role: "roles/storage.objectAdmin".into(),
-            members: vec!["user:dev@example.com".into()],
+            members: "user:dev@example.com".parse().unwrap(),
         },
     ]
 }
@@ -130,7 +130,9 @@ fn single_valued_members_refuse_a_second_value_and_lists_accumulate() {
         }
     }
     for origin in ["http://a.example", "http://b.example"] {
-        entry.apply(Setting::CorsOrigin(origin.into())).unwrap();
+        entry
+            .apply(Setting::CorsOrigin(origin.parse().unwrap()))
+            .unwrap();
     }
     assert_eq!(entry.cors.as_ref().unwrap().origin.len(), 2);
 }
@@ -157,19 +159,8 @@ fn a_label_is_refused_when_read_exactly_when_startup_refuses_it() {
         ("team", long.as_str()),
     ] {
         let label = format!("{key}={value}").parse::<Label>();
-        let document = serde_json::json!({
-            "version": 1,
-            "buckets": [{"name": "app-uploads", "labels": {key: value}}],
-        });
-        let startup = parse(
-            document.to_string().as_bytes(),
-            Form::File,
-            "local-project",
-            &SystemClock,
-            "US",
-            None,
-        );
-        assert_eq!(label.is_ok(), startup.is_ok(), "{key}={value}");
+        let startup = startup_accepts(serde_json::json!({"labels": {key: value}}));
+        assert_eq!(label.is_ok(), startup, "{key}={value}");
         if let Err(error) = label {
             assert!(
                 matches!(error, GenerateError::InvalidLabel),
@@ -181,6 +172,123 @@ fn a_label_is_refused_when_read_exactly_when_startup_refuses_it() {
         "team".parse::<Label>(),
         Err(GenerateError::UnpairedLabel)
     ));
+}
+
+/// Whether the startup parser accepts one entry with `members` besides its name.
+fn startup_accepts(members: serde_json::Value) -> bool {
+    let mut entry = serde_json::json!({"name": "app-uploads"});
+    if let (Some(entry), Some(members)) = (entry.as_object_mut(), members.as_object()) {
+        entry.extend(members.clone());
+    }
+    let document = serde_json::json!({"version": 1, "buckets": [entry]});
+    parse(
+        document.to_string().as_bytes(),
+        Form::File,
+        "local-project",
+        &SystemClock,
+        "US",
+        None,
+    )
+    .is_ok()
+}
+
+/// CORS values and IAM members are refused when they are read exactly when startup refuses them,
+/// as labels are, so a question asks again instead of losing every answer at the end.
+#[test]
+fn cors_values_and_members_are_refused_when_read_exactly_when_startup_refuses_them() {
+    for origin in [
+        "http://localhost:3000",
+        "*",
+        "https://a.example:8443",
+        "http://a b",
+        "",
+        "http://ä.example",
+        "http://a\tb",
+    ] {
+        let read = origin.parse::<CorsOrigin>();
+        let startup =
+            startup_accepts(serde_json::json!({"cors": [{"origin": [origin], "method": ["GET"]}]}));
+        assert_eq!(read.is_ok(), startup, "{origin:?}");
+        assert!(read.is_ok() || matches!(read, Err(GenerateError::InvalidCorsOrigin)));
+    }
+    for method in ["GET", "*", "PATCH", "GE T", ""] {
+        let read = method.parse::<CorsMethod>();
+        let startup = startup_accepts(
+            serde_json::json!({"cors": [{"origin": ["http://localhost:3000"], "method": [method]}]}),
+        );
+        assert_eq!(read.is_ok(), startup, "{method:?}");
+        assert!(read.is_ok() || matches!(read, Err(GenerateError::InvalidCorsMethod)));
+    }
+    for header in [
+        "Content-Type",
+        "*",
+        "x-goog-meta-a",
+        "Content Type",
+        "",
+        "a:b",
+    ] {
+        let read = header.parse::<CorsResponseHeader>();
+        let startup = startup_accepts(serde_json::json!({"cors": [{
+            "origin": ["http://localhost:3000"], "method": ["GET"], "responseHeader": [header],
+        }]}));
+        assert_eq!(read.is_ok(), startup, "{header:?}");
+        assert!(read.is_ok() || matches!(read, Err(GenerateError::InvalidCorsResponseHeader)));
+    }
+    for member in [
+        "allUsers",
+        "allAuthenticatedUsers",
+        "user:dev@example.com",
+        "serviceAccount:ci@local-project.iam.gserviceaccount.com",
+        "projectViewer:local-project",
+        "dev@example.com",
+        "user:",
+        "",
+        "group:dev@example.com",
+        "domain:example.com",
+    ] {
+        let read = member.parse::<Members>();
+        let startup = startup_accepts(serde_json::json!({"iamPolicy": {"bindings": [
+            {"role": "roles/storage.objectViewer", "members": [member]},
+        ]}}));
+        assert_eq!(read.is_ok(), startup, "{member:?}");
+    }
+    assert!(matches!(
+        "group:dev@example.com".parse::<Members>(),
+        Err(GenerateError::UnsupportedMember)
+    ));
+    assert!(matches!(
+        "dev@example.com".parse::<Members>(),
+        Err(GenerateError::InvalidMember)
+    ));
+    assert_eq!(
+        "allUsers, user:dev@example.com".parse::<Members>().unwrap(),
+        "allUsers,user:dev@example.com".parse().unwrap()
+    );
+}
+
+/// A bucket takes 64 labels; a new key past them is refused while a repeated key stays a repeat.
+#[test]
+fn a_label_past_the_limit_is_refused_when_given() {
+    let mut entry = bucket("app-uploads", []);
+    for index in 0..64 {
+        entry
+            .apply(Setting::Label(format!("k{index}=v").parse().unwrap()))
+            .unwrap();
+    }
+    assert!(
+        Document::new(vec![entry.clone()])
+            .render(Format::Json)
+            .is_ok()
+    );
+    assert!(matches!(
+        entry.apply(Setting::Label("k64=v".parse().unwrap())),
+        Err(GenerateError::TooManyLabels)
+    ));
+    assert!(matches!(
+        entry.apply(Setting::Label("k0=w".parse().unwrap())),
+        Err(GenerateError::Repeated("labels"))
+    ));
+    assert_eq!(entry.labels.len(), 64);
 }
 
 #[test]
@@ -201,7 +309,7 @@ fn a_public_grant_under_enforced_prevention_is_refused() {
         Setting::PublicRead,
         Setting::IamBinding {
             role: "roles/storage.objectViewer".into(),
-            members: vec!["allAuthenticatedUsers".into()],
+            members: "allAuthenticatedUsers".parse().unwrap(),
         },
     ];
     for public in public_members {
@@ -243,7 +351,9 @@ fn a_repeated_bucket_is_refused_by_the_startup_parser() {
 fn env_is_one_single_quoted_line_of_the_compact_document() {
     let document = Document::new(vec![bucket(
         "app-uploads",
-        [Setting::CorsOrigin("http://localhost:${PORT}".into())],
+        [Setting::CorsOrigin(
+            "http://localhost:${PORT}".parse().unwrap(),
+        )],
     )]);
     let line = document.render(Format::Env).unwrap();
     assert_eq!(line.lines().count(), 1);
@@ -263,7 +373,7 @@ fn env_is_one_single_quoted_line_of_the_compact_document() {
     .unwrap();
     let quoted = Document::new(vec![bucket(
         "app-uploads",
-        [Setting::CorsOrigin("http://it's.example".into())],
+        [Setting::CorsOrigin("http://it's.example".parse().unwrap())],
     )]);
     assert!(matches!(
         quoted.render(Format::Env),
@@ -276,7 +386,9 @@ fn env_is_one_single_quoted_line_of_the_compact_document() {
 fn compose_indents_the_document_and_doubles_each_dollar() {
     let document = Document::new(vec![bucket(
         "app-uploads",
-        [Setting::CorsOrigin("http://localhost:${PORT}".into())],
+        [Setting::CorsOrigin(
+            "http://localhost:${PORT}".parse().unwrap(),
+        )],
     )]);
     let snippet = document.render(Format::Compose).unwrap();
     let mut lines = snippet.lines();
@@ -314,7 +426,7 @@ fn every_offered_choice_passes_the_startup_parser() {
     );
     settings.extend(bucket_roles().into_iter().map(|role| Setting::IamBinding {
         role: role.into(),
-        members: vec!["user:dev@example.com".into()],
+        members: "user:dev@example.com".parse().unwrap(),
     }));
     let buckets: Vec<_> = settings
         .into_iter()

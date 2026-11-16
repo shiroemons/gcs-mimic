@@ -4,13 +4,14 @@
 //! document alone reaches stdout.
 
 use gcs_mimic::bucket_init::generate::{
-    self, Bucket, Format, GenerateError, Label, PublicAccessPrevention, Setting,
+    self, Bucket, CorsOrigin, CorsResponseHeader, Format, GenerateError, Label, Members,
+    PublicAccessPrevention, Setting,
 };
 use inquire::{
     Confirm, CustomType, InquireError, MultiSelect, Select, Text, error::CustomUserError,
     validator::Validation,
 };
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 /// A member the user can choose to set, in the order its questions come. Public access
 /// prevention comes before public read, so a bucket that grants public read is never offered
@@ -203,13 +204,13 @@ fn location() -> Result<String, InquireError> {
 fn cors(bucket: &mut Bucket) -> Result<(), InquireError> {
     for method in MultiSelect::new("CORS methods:", CORS_METHODS.to_vec()).prompt()? {
         bucket
-            .apply(Setting::CorsMethod(method.to_owned()))
+            .apply(Setting::CorsMethod(method.parse().map_err(custom)?))
             .map_err(custom)?;
     }
-    for origin in repeated("CORS origin, such as http://localhost:3000")? {
+    for origin in repeated::<CorsOrigin>("CORS origin, such as http://localhost:3000")? {
         bucket.apply(Setting::CorsOrigin(origin)).map_err(custom)?;
     }
-    for header in repeated("CORS response header, such as Content-Type")? {
+    for header in repeated::<CorsResponseHeader>("CORS response header, such as Content-Type")? {
         bucket
             .apply(Setting::CorsResponseHeader(header))
             .map_err(custom)?;
@@ -257,15 +258,12 @@ fn bindings(bucket: &mut Bucket) -> Result<(), InquireError> {
     loop {
         let role = Select::new("IAM role:", generate::bucket_roles()).prompt()?;
         let members = Text::new("Members, comma-separated, such as user:dev@example.com:")
-            .with_validator(required)
+            .with_validator(|answer: &str| Ok(valid(answer.parse::<Members>().map(drop))))
             .prompt()?;
         bucket
             .apply(Setting::IamBinding {
                 role: role.to_owned(),
-                members: members
-                    .split(',')
-                    .map(|member| member.trim().to_owned())
-                    .collect(),
+                members: members.parse().map_err(custom)?,
             })
             .map_err(custom)?;
         if !Confirm::new("Add another IAM binding?")
@@ -277,16 +275,28 @@ fn bindings(bucket: &mut Bucket) -> Result<(), InquireError> {
     }
 }
 
-/// Asks for values one at a time until an empty answer.
-fn repeated(what: &str) -> Result<Vec<String>, InquireError> {
+/// Asks for values one at a time until an empty answer, checking each as it is given so that a
+/// value startup would refuse asks again.
+fn repeated<T>(what: &str) -> Result<Vec<T>, InquireError>
+where
+    T: FromStr<Err = GenerateError> + 'static,
+{
     let message = format!("{what} (empty to finish):");
     let mut values = Vec::new();
     loop {
-        let value = Text::new(&message).prompt()?;
-        if value.is_empty() {
+        let answer = Text::new(&message)
+            .with_validator(|answer: &str| {
+                Ok(if answer.is_empty() {
+                    Validation::Valid
+                } else {
+                    valid(answer.parse::<T>().map(drop))
+                })
+            })
+            .prompt()?;
+        if answer.is_empty() {
             return Ok(values);
         }
-        values.push(value);
+        values.push(answer.parse().map_err(custom)?);
     }
 }
 

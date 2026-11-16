@@ -16,7 +16,8 @@ use serde::Deserialize;
 use serde_json::{Value, value::RawValue};
 
 pub(super) const EXAMPLE: &str = "\"iamPolicy\":{\"bindings\":[{\"role\":\"roles/storage.objectViewer\",\"members\":[\"allUsers\"]}]}";
-const MEMBER_FIX: &str = "Invalid member; use allUsers, allAuthenticatedUsers, user:EMAIL, serviceAccount:EMAIL or projectViewer:PROJECT.";
+pub(super) const MEMBER_FIX: &str = "Invalid member; use allUsers, allAuthenticatedUsers, user:EMAIL, serviceAccount:EMAIL or projectViewer:PROJECT.";
+pub(super) const UNSUPPORTED_MEMBER_FIX: &str = "Groups, domains, deleted and federated principals are unsupported; use allUsers, allAuthenticatedUsers, user:EMAIL, serviceAccount:EMAIL or projectViewer:PROJECT.";
 
 /// Only the grants: the catalog owns a policy's version and etag, so a file cannot state them.
 #[derive(Deserialize)]
@@ -204,10 +205,9 @@ fn check_members(
     for (index, raw) in items.iter().enumerate() {
         let (reason, fix) = match value(raw)?.as_str().map(policy_input::parse_member) {
             Some(Ok(_)) => continue,
-            Some(Err(PolicyInputError::UnsupportedInput(_))) => (
-                Reason::Unsupported,
-                "Groups, domains, deleted and federated principals are unsupported; use allUsers, allAuthenticatedUsers, user:EMAIL, serviceAccount:EMAIL or projectViewer:PROJECT.",
-            ),
+            Some(Err(PolicyInputError::UnsupportedInput(_))) => {
+                (Reason::Unsupported, UNSUPPORTED_MEMBER_FIX)
+            }
             Some(Err(PolicyInputError::InvalidInput(_))) | None => (Reason::Native, MEMBER_FIX),
         };
         error(diagnostics, reason, format!("{key}[{index}]"), fix);

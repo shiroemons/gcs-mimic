@@ -423,20 +423,12 @@ pub(crate) fn cors_value(rules: &[CorsRule]) -> serde_json::Value {
 /// or a gRPC message) limits how many arrive.
 pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
     for rule in rules {
-        if rule.origin.iter().any(|origin| {
-            origin.is_empty()
-                || !origin.is_ascii()
-                || origin
-                    .bytes()
-                    .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
-                || hyper::header::HeaderValue::from_str(origin).is_err()
-        }) || rule
-            .method
-            .iter()
-            .any(|method| method != "*" && hyper::Method::from_bytes(method.as_bytes()).is_err())
-            || rule.response_header.iter().any(|name| {
-                name != "*" && hyper::header::HeaderName::from_bytes(name.as_bytes()).is_err()
-            })
+        if !rule.origin.iter().all(|origin| valid_cors_origin(origin))
+            || !rule.method.iter().all(|method| valid_cors_method(method))
+            || !rule
+                .response_header
+                .iter()
+                .all(|name| valid_cors_response_header(name))
             || rule.max_age_seconds.is_some_and(|seconds| seconds < 0)
         {
             return Err(CatalogError::InvalidMetadata(
@@ -446,6 +438,27 @@ pub(crate) fn validate_cors(rules: &[CorsRule]) -> Result<(), CatalogError> {
     }
     Ok(())
 }
+
+/// An origin a CORS rule may list: visible ASCII that a response header value can carry.
+pub(crate) fn valid_cors_origin(origin: &str) -> bool {
+    !origin.is_empty()
+        && origin.is_ascii()
+        && !origin
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        && hyper::header::HeaderValue::from_str(origin).is_ok()
+}
+
+pub(crate) fn valid_cors_method(method: &str) -> bool {
+    method == "*" || hyper::Method::from_bytes(method.as_bytes()).is_ok()
+}
+
+pub(crate) fn valid_cors_response_header(name: &str) -> bool {
+    name == "*" || hyper::header::HeaderName::from_bytes(name.as_bytes()).is_ok()
+}
+
+/// The most labels a bucket can have, as Cloud Storage documents.
+pub(crate) const MAX_LABELS: usize = 64;
 
 /// Which half of a label pair is validated; only keys must start with a letter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

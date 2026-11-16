@@ -161,7 +161,7 @@ impl BucketDefinition {
             .map_err(|error| AdminError::Invalid(error.message))?;
         crate::bucket::validate_cors(&record.cors)?;
         if record.metageneration <= 0
-            || record.labels.len() > 64
+            || record.labels.len() > crate::bucket::MAX_LABELS
             || record.labels.iter().any(|(key, value)| {
                 !crate::bucket::valid_label(key, crate::bucket::LabelPart::Key)
                     || !crate::bucket::valid_label(value, crate::bucket::LabelPart::Value)
