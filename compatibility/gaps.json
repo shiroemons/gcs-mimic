@@ -1696,6 +1696,53 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Differential case obj-resumable-declared-length, recorded against Cloud Storage on 2026-11-15, is the first recording of a 308 after the session holds data. Both the chunk's 308 and a later status query's 308 carry x-goog-running-hash: crc32c=374w4A== and x-range-md5: c946b71bb69c07daf25470742c967e7c, the CRC32C and hex MD5 of the 262144 bytes received. gcs-mimic hashes a session's staged bytes only at completion, so its 308 carries Range but neither header; the case ignores the two headers on those steps.",
       "required_resolution": "Keep a running CRC32C and MD5 per session, persisted with each checkpoint so a restart resumes them without rereading the staged bytes, send both headers on every 308 after data, and compare them in the case."
+    },
+    {
+      "id": "SPEC-XML-LIST-V2",
+      "title": "Cloud Storage's list-type=2 XML listing is not the version 1 document and accepts an empty continuation-token",
+      "status": "OPEN",
+      "affected_features": [
+        "EXT-XML-003"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-bucket-list"
+      ],
+      "observed_at": "2026-11-16",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Recorded against Cloud Storage on 2026-11-16 with curl, not the differential harness (docs/en/evidence/xml-listing-provider-probe.md), after the floci-gcp 0.13.0 release notes (#558, #574) described these answers. A list-type=2 listing answered Name, Prefix, then StartAfter and ContinuationToken when sent, KeyCount, IsTruncated and Contents; it sent no MaxKeys, and its Contents had no StorageClass. An empty continuation-token answered 200, echoed as an empty ContinuationToken and listed from the start; with start-after=a beside it, start-after applied and both were echoed, StartAfter first. gcs-mimic 0.24.0 renders version 2 like the recorded version 1 document (MaxKeys, IsTruncated before KeyCount, StorageClass in Contents), echoes StartAfter and ContinuationToken after KeyCount, and refuses an empty continuation-token with 400 InvalidArgument. Not recorded: a truncated version 2 page and the position of NextContinuationToken, delimiter and CommonPrefixes, encoding-type, fetch-owner, max-keys and a non-empty invalid token. The version 1 case xml-list-bucket still replays without a difference.",
+      "required_resolution": "Record a version 2 differential case covering empty and issued tokens, start-after, truncation, delimiter and encoding-type, then render version 2 as recorded and treat an empty continuation-token as absent while echoing it. Keep the version 1 document unchanged."
+    },
+    {
+      "id": "SPEC-XML-MULTIPART-LIST",
+      "title": "Cloud Storage's multipart upload listing orders and omits elements differently and accepts encoding-type",
+      "status": "OPEN",
+      "affected_features": [
+        "EXT-XML-004"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-bucket-uploads"
+      ],
+      "observed_at": "2026-11-16",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Recorded against Cloud Storage on 2026-11-16 with curl, not the differential harness (docs/en/evidence/xml-listing-provider-probe.md), after the floci-gcp 0.13.0 release notes (#576) described these answers. ListMultipartUploadsResult answered Bucket, KeyMarker, UploadIdMarker, NextKeyMarker, then Prefix or Delimiter only when the request sent it, NextUploadIdMarker, MaxUploads and IsTruncated before the Upload entries; NextKeyMarker and NextUploadIdMarker were present and empty on an untruncated page. encoding-type=url answered 200 with EncodingType after the last Upload. max-uploads=5000 echoed 1000. Initiated carried microseconds. gcs-mimic 0.24.0 always sends Prefix and Delimiter, even empty, before MaxUploads, sends NextKeyMarker and NextUploadIdMarker only on a truncated page and after IsTruncated, refuses encoding-type with 400 InvalidArgument, and writes Initiated in milliseconds. The 1000 ceiling matched. Not recorded: prefix and delimiter together, which fields encoding-type=url encodes, and key-marker or upload-id-marker paging. The harness cannot capture a value from an XML body, so a case cannot yet abort the uploads it starts.",
+      "required_resolution": "Let a differential case capture a value from an XML body, record a case that starts, lists, pages and aborts multipart uploads, then render the listing in the recorded order with empty next markers, echo Prefix and Delimiter only when sent, support encoding-type=url as recorded and write Initiated with microseconds."
+    },
+    {
+      "id": "SPEC-XML-MULTIPART-CONTENT-TYPE",
+      "title": "Cloud Storage answers multipart initiation and upload listing as text/html",
+      "status": "OPEN",
+      "affected_features": [
+        "EXT-XML-004",
+        "EXT-XML-019"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/post-object-multipart",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-bucket-uploads"
+      ],
+      "observed_at": "2026-11-16",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Recorded against Cloud Storage on 2026-11-16 with curl, not the differential harness (docs/en/evidence/xml-listing-provider-probe.md), after the floci-gcp 0.13.0 release notes (#602) described this answer. A multipart initiation (POST ?uploads with Content-Length: 0) and every multipart upload listing answered Content-Type: text/html; charset=UTF-8 with an XML document body. gcs-mimic 0.24.0 sends application/xml; charset=UTF-8 on both, with the same initiation body apart from the bucket and upload ID. The Python SDK's sdk.xml_multipart_upload scorecard case passes on gcs-mimic with application/xml. Not recorded: the content types of part upload, list parts, completion and abort.",
+      "required_resolution": "Record the content type of every XML multipart answer in a replayed case, then send text/html; charset=UTF-8 where Cloud Storage does and check that the scorecard's XML multipart clients still pass."
     }
   ],
   "resolved_research_items": [
