@@ -28,6 +28,7 @@ mod header_kind;
 use header_kind::HeaderKind;
 pub(crate) mod list;
 pub(crate) mod multipart;
+mod name_encoding;
 #[cfg(test)]
 mod render_tests;
 #[cfg(test)]

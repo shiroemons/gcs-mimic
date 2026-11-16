@@ -1,5 +1,6 @@
 //! Bounded XML bucket listing over the shared authorized catalog cursor.
 
+use super::name_encoding::NameEncoding;
 use super::{Error, MinValue, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
@@ -60,38 +61,6 @@ impl ContinuationToken {
             Self::Absent => None,
             Self::Empty => Some(""),
             Self::Issued(token) => Some(token),
-        }
-    }
-}
-
-/// How names are written: as stored, or with `encoding-type=url` in the listing version's style.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NameEncoding {
-    Plain,
-    /// Version 1: every byte but RFC 3986 unreserved ones becomes `%XX`, `/` included. Version 1
-    /// with `encoding-type` was not recorded.
-    Percent,
-    /// Version 2: form style, keeping `/` and writing a space as `+` (recorded).
-    Form,
-}
-
-impl NameEncoding {
-    fn element(self, w: &mut XmlWriter, name: &str, value: &str) {
-        match self {
-            Self::Plain => w.element(name, value),
-            Self::Percent => w.element(
-                name,
-                &crate::url::encode_object_name(value).replace('/', "%2F"),
-            ),
-            Self::Form => w.element(name, &crate::url::encode_listing_name(value)),
-        }
-    }
-
-    /// `EncodingType` names the encoding of a URL-encoded listing.
-    fn write_encoding_type(self, w: &mut XmlWriter) {
-        match self {
-            Self::Plain => {}
-            Self::Percent | Self::Form => w.element("EncodingType", "url"),
         }
     }
 }

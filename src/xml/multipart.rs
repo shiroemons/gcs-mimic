@@ -7,10 +7,15 @@ use crate::server::upload_drive::{
 use crate::{
     json,
     object::ObjectError,
-    server::{ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, stream_upload},
+    server::{
+        ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, empty_response, stream_upload,
+    },
     storage::xml_multipart as storage,
 };
-use hyper::{Method, Request, Response, StatusCode, Uri, header::HeaderValue};
+use hyper::{
+    Method, Request, Response, StatusCode, Uri,
+    header::{self, HeaderValue},
+};
 use std::{collections::BTreeMap, str::FromStr};
 
 mod manifest;
@@ -295,8 +300,27 @@ fn storage_error(error: storage::Error, ctx: ObjectCtx<'_>) -> Error {
     Error::new(code, error.to_string())
 }
 
-fn response(body: String) -> Response<ResponseBody> {
-    boxed(super::document_response(body))
+/// Cloud Storage sends every successful multipart document (initiation, both listings and
+/// completion) as `text/html` (recorded 2026-11-16); errors stay `application/xml`.
+const DOCUMENT_CONTENT_TYPE: &str = "text/html; charset=UTF-8";
+
+fn document(body: String) -> Response<ResponseBody> {
+    let mut response = super::document_response(body);
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(DOCUMENT_CONTENT_TYPE),
+    );
+    boxed(response)
+}
+
+/// A listing document, which Cloud Storage marks private like its bucket listings.
+fn listing_document(body: String) -> Response<ResponseBody> {
+    let mut response = document(body);
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(super::PRIVATE_CACHE_CONTROL),
+    );
+    response
 }
 
 pub(crate) async fn respond(
@@ -373,7 +397,7 @@ async fn write_upload(
                 ))
                 .await
                 .map_err(|error| storage_error(error, ctx))?;
-            Ok(response(render::initiate_body(&upload.target)))
+            Ok(document(render::initiate_body(&upload.target)))
         }
         Write::Part { upload_id, number } => {
             let target = upload_target(path, upload_id);
@@ -399,9 +423,8 @@ async fn write_upload(
             ctx.await_catalog(ctx.state.catalog.abort_xml_multipart(lease))
                 .await
                 .map_err(|error| storage_error(error, ctx))?;
-            let mut response = response(String::new());
-            *response.status_mut() = StatusCode::NO_CONTENT;
-            Ok(response)
+            // No body, so no Content-Type, as Cloud Storage answers.
+            Ok(boxed(empty_response(StatusCode::NO_CONTENT)))
         }
     }
 }
@@ -473,7 +496,8 @@ async fn upload_part(
             DriveError::Upload(error) => storage_error(error, ctx),
             DriveError::Producer(error) => put::storage_error(error, ctx.caller),
         })?;
-    let mut response = response(String::new());
+    // The envelope gives this empty PUT answer the text/html type Cloud Storage sends.
+    let mut response = boxed(empty_response(StatusCode::OK));
     response.headers_mut().insert(
         "etag",
         HeaderValue::from_str(&part.etag)
@@ -512,17 +536,19 @@ async fn complete(
         .await
         .map_err(|error| storage_error(error, ctx))?;
     drop(wait);
-    let mut response = response(render::complete_body(ctx.endpoints.api_base_url(), &record));
+    let mut response = document(render::complete_body(ctx.endpoints.api_base_url(), &record));
     json::insert_response_headers(&record, response.headers_mut());
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
+    // The completion document carries the ETag; Cloud Storage sends no ETag header beside it
+    // (recorded 2026-11-16).
     super::move_headers(
         &mut headers,
         response.headers_mut(),
         &[
-            "etag",
             "x-goog-hash",
             "x-goog-generation",
             "x-goog-metageneration",
+            "x-goog-stored-content-length",
         ],
     );
     Ok(response)

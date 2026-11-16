@@ -1313,7 +1313,8 @@ struct CivilTime {
     day: i64,
     /// Seconds into the day.
     daytime: i64,
-    millis: i64,
+    /// Microseconds into the second.
+    micros: i64,
     /// Days since 1970-01-01, which fixes the weekday.
     days: i64,
 }
@@ -1343,7 +1344,7 @@ fn civil_time(time: UnixNanos) -> Result<CivilTime, JsonError> {
         month,
         day,
         daytime: seconds.rem_euclid(86400),
-        millis: micros.div_euclid(1000).rem_euclid(1000),
+        micros: micros.rem_euclid(1_000_000),
         days,
     })
 }
@@ -1382,16 +1383,37 @@ pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
 
 /// [`timestamp`] for a time that is already seconds and nanoseconds, such as a retention time.
 pub(crate) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
+    rfc3339(time, Fraction::Millis)
+}
+
+/// Render a stored time as RFC 3339 UTC with exactly six fractional digits, as Cloud Storage
+/// writes XML multipart `Initiated` and part `LastModified` times (recorded 2026-11-16).
+pub(crate) fn timestamp_micros(time: SystemTime) -> Result<String, JsonError> {
+    rfc3339(UnixNanos::from(time), Fraction::Micros)
+}
+
+/// The fractional-second digits of a rendered time; finer precision is floored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fraction {
+    Millis,
+    Micros,
+}
+
+fn rfc3339(time: UnixNanos, fraction: Fraction) -> Result<String, JsonError> {
     let CivilTime {
         year,
         month,
         day,
         daytime,
-        millis,
+        micros,
         ..
     } = civil_time(time)?;
+    let fraction = match fraction {
+        Fraction::Millis => format!("{:03}", micros / 1000),
+        Fraction::Micros => format!("{micros:06}"),
+    };
     Ok(format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{fraction}Z",
         daytime / 3600,
         daytime / 60 % 60,
         daytime % 60,

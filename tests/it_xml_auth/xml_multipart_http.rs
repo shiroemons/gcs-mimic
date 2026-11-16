@@ -308,7 +308,14 @@ fn multipart_wire_round_trip_sparse_parts_paging_restart_and_checksum_metadata()
     assert!(objects.json().get("items").is_none());
     let uploads = server.request("GET", "/multipart-bucket?uploads&delimiter=%2F", "", b"");
     uploads.status(200);
-    assert_eq!(tag(&uploads.body, "Prefix"), "");
+    // The listing echoes only what the request sent: Delimiter, and no Prefix (recorded
+    // 2026-11-16), so the only Prefix is the common prefix's.
+    assert_eq!(tag(&uploads.body, "Delimiter"), "/");
+    assert!(
+        !uploads.body.contains("<Prefix></Prefix>"),
+        "{}",
+        uploads.body
+    );
     assert!(
         uploads
             .body

@@ -2,7 +2,8 @@
 //!
 //! The recorded XML responses differ by method rather than by handler: reads and DELETE carry a
 //! private `Cache-Control` with an `Expires` of the response time, PUT carries neither (it is
-//! not cacheable), and PUT and DELETE vary by `Origin` even for a bucket without CORS rules. A
+//! not cacheable), and PUT, POST and DELETE vary by `Origin` even for a bucket without CORS
+//! rules (POST as recorded for multipart initiation and completion on 2026-11-16). A
 //! successful PUT with no body is `text/html`. Applying these once after routing keeps every
 //! handler and error path consistent.
 
@@ -30,7 +31,9 @@ pub(crate) fn apply<B>(method: &Method, now: SystemTime, response: &mut Response
         .get(header::CACHE_CONTROL)
         .is_some_and(|value| value == PRIVATE_CACHE_CONTROL);
     let headers = response.headers_mut();
-    if (method == Method::PUT || method == Method::DELETE) && !headers.contains_key(header::VARY) {
+    if matches!(*method, Method::PUT | Method::POST | Method::DELETE)
+        && !headers.contains_key(header::VARY)
+    {
         headers.insert(header::VARY, HeaderValue::from_static("Origin"));
     }
     if method == Method::DELETE && !headers.contains_key(header::CACHE_CONTROL) {

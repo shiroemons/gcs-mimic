@@ -1600,6 +1600,27 @@ fn http_dates_render_calendar_fields_and_refuse_out_of_range_times() {
 }
 
 #[test]
+fn microsecond_timestamps_keep_six_digits_and_floor_nanoseconds() {
+    for (micros, expected) in [
+        (0_i64, "1970-01-01T00:00:00.000000Z"),
+        (548_719, "1970-01-01T00:00:00.548719Z"),
+        (-1, "1969-12-31T23:59:59.999999Z"),
+    ] {
+        let duration = Duration::from_micros(micros.unsigned_abs());
+        let time = if micros < 0 {
+            UNIX_EPOCH - duration
+        } else {
+            UNIX_EPOCH + duration
+        };
+        assert_eq!(timestamp_micros(time).unwrap(), expected);
+        assert_eq!(
+            timestamp_micros(time + Duration::from_nanos(999)).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn utc_timestamps_floor_to_milliseconds() {
     // Cloud Storage renders three fractional digits (observed 2026-10-31); the stored
     // microseconds are unchanged and only the rendering floors.
