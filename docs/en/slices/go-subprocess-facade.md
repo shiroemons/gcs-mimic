@@ -161,5 +161,12 @@ Verification on 2026-11-16, Go 1.27.4:
   Before those routes existed the last three failed: the purge answered 404
   `Route not found` while the bucket remained, `defaults` was refused with 400,
   and the reset refused `state` with 400 `invalidArgument`.
-- The Windows stop is compiled and vetted only. No Windows run has started or
-  stopped a child.
+- On 2026-11-16 a temporary workflow ran the Go packages on `windows-2025`
+  (x64) and `windows-11-arm` (ARM64) GitHub runners against a Windows build of
+  gcs-mimic from this source. The fake-child tests passed in every package, and
+  with `-tags integration` every `./gcsmimic` test passed, each within 0.2
+  seconds. Their cleanup fails when `Close` cannot stop the child gracefully, so
+  the CTRL_BREAK stop works on both architectures; the child's log shows its
+  `stopping` event. In `./fakestorage` the four integration tests that use
+  `NoListener` failed, because `NoListener` refuses Windows by design, as it
+  does on `main`; the Go CI job runs only on Linux, where they pass.

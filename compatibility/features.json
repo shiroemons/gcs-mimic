@@ -54410,12 +54410,19 @@
         },
         {
           "id": "bucket-document-prompts-on-terminals",
-          "description": "The interactive questions, arrow-key lists, Esc and Ctrl-C restoring the terminal, and docker run -it in the image without terminfo are not exercised by any automated test; each needs one recorded manual run on macOS, Linux and Windows terminals.",
+          "description": "Driven through a tmux terminal on macOS, and through docker run -it in the linux/arm64 image, which has no terminfo: the name is checked as typed, arrow-key lists select settings, a bucket with public read is offered only inherited prevention, an unsupported location, a repeated bucket name, a repeated label key and a non-numeric max age are explained and asked again, and the answers write the expected document on stdout. Esc and Ctrl-C end with exit 1, the cancellation diagnostic and nothing written, and leave the terminal in canonical mode with echo and a visible cursor.",
+          "result": "PASS",
+          "test_ids": ["buckets-new-prompts-on-macos-and-container-terminals"]
+        },
+        {
+          "id": "bucket-document-prompts-on-windows-console",
+          "description": "The questions on a Windows console, including Windows on ARM64 and the legacy console host, are not checked: the runners have no interactive console.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
+        "buckets-new-prompts-on-macos-and-container-terminals",
         "a_bucket_without_answers_is_a_name_only_entry",
         "every_member_passes_the_startup_parser_in_every_format",
         "answers_to_different_members_give_the_same_entry_in_any_order",
@@ -54792,6 +54799,13 @@
             "seed_defaults_publish_the_object_a_startup_seed_publishes",
             "seed_defaults_are_opt_in_and_refuse_an_explicit_identity"
           ]
+        },
+        {
+          "command": "Manual: tmux new-session running gcs-mimic buckets new, answered with tmux send-keys and read with capture-pane, then stty -a and the pane's cursor flag after Esc and Ctrl-C; the same through docker run --rm -it with the linux/arm64 image",
+          "result": "PASS",
+          "verified_at": "2026-11-16",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["buckets-new-prompts-on-macos-and-container-terminals"]
         },
         {
           "command": "cargo test --locked --offline --lib -- bucket_init::generate; cargo test --locked --offline --bin gcs-mimic -- buckets_cli; cargo test --locked --offline --test it_process -- buckets_cli helper_help",
@@ -59115,9 +59129,15 @@
         },
         {
           "id": "GO-WINDOWS-STOP",
-          "description": "On Windows both packages start the child in its own process group and stop it with CTRL_BREAK through GenerateConsoleCtrlEvent. Compiled and vetted with GOOS=windows only; no Windows run has exercised it.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "On Windows both packages start the child in its own process group and stop it with CTRL_BREAK through GenerateConsoleCtrlEvent, and gcs-mimic stops gracefully on it. On windows-2025 (x64) and windows-11-arm (ARM64) runners the fake-child tests and the gcsmimic integration tests against a Windows build pass; each test's cleanup fails when Close has to kill the child, and each finished within 0.2 seconds. fakestorage's NoListener integration tests refuse on Windows by design and fail there, as on main; the Go CI job runs only on Linux.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStopEndsTheChildAndRepeatsItsResult",
+            "TestRustStartWritesReadsAndKeepsServersApart",
+            "TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration",
+            "TestRustSeedMatchesTheStartupSeed",
+            "TestRustResetReturnsToTheStartupState"
+          ]
         }
       ],
       "test_ids": [
@@ -59190,6 +59210,7 @@
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
       ],
       "verification": [
+        {"command":"On windows-2025 and windows-11-arm GitHub runners: cargo build --locked --bin gcs-mimic; cd go && go test -count=1 -v ./... && GCSM_BINARY=<checkout>/target/debug/gcs-mimic.exe go test -count=1 -v -tags integration ./gcsmimic/... ./internal/...","result":"PASS","verified_at":"2026-11-16","artifact":"docs/en/slices/go-subprocess-facade.md","test_ids":["TestStopEndsTheChildAndRepeatsItsResult","TestRustStartWritesReadsAndKeepsServersApart","TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration","TestRustSeedMatchesTheStartupSeed","TestRustResetReturnsToTheStartupState"]},
         {"command":"cargo build --locked; cd go && GCSM_BINARY=<checkout>/target/debug/gcs-mimic go test -race -count=1 -tags integration ./...","result":"PASS","verified_at":"2026-11-16","artifact":"go/README.md","test_ids":["TestRustTempBucketDeletesProtectedObjectsAndEveryGeneration","TestRustSeedMatchesTheStartupSeed","TestRustResetReturnsToTheStartupState"]},
         {"command":"GCSM_TEST_RAMDISK=0 bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/slices/bucket-metadata-put.md","test_ids":["TestBucketMetadataReplace","TestStrictAuthBucketMetadataReplace"]},
         {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/grpc-v2-foundation.md","test_ids":["TestGRPCFoundationFailsFast","TestGRPCFoundationWireStatus","TestGRPCFoundationStrictAuth"]},
