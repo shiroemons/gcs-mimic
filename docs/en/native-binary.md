@@ -325,7 +325,10 @@ per bucket would. A value that starts with `{` is a document. Releases up to
 `gcs-mimic buckets new` writes a document for either setting: it asks for each
 bucket and its settings on a terminal, or takes `--name NAME` and settings as
 flags, and prints JSON, one `GCS_MIMIC_BUCKETS` line or a Compose
-`environment:` block after checking it as startup would. See
+`environment:` block after checking it as startup would. Answering that only
+your servers read the buckets without public read, or `--auth-mode strict`,
+adds the strict settings for a trusted listener on `127.0.0.1:4444`, or names
+them as `serve` options for a JSON file. See
 [writing a document](slices/bucket-initialization.md#writing-a-document-with-buckets-new).
 
 The ready field `buckets` reports the same counts for either setting; it never

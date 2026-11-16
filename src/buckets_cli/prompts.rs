@@ -11,7 +11,8 @@ mod terminal;
 
 use super::{Answers, save_new};
 use gcs_mimic::bucket_init::generate::{
-    self, Bucket, CorsOrigin, Document, Format, Label, Members, PublicAccessPrevention, Setting,
+    self, AuthMode, Bucket, CorsOrigin, Document, Format, Label, Members, PublicAccessPrevention,
+    Setting,
 };
 use inquire::{InquireError, validator::Validation};
 use lists::{
@@ -227,6 +228,39 @@ impl fmt::Display for Next {
     }
 }
 
+/// Who reads the buckets without public read. No bucket setting decides it: the server's
+/// authentication mode does, so it is asked once for every bucket, before writing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Readers(AuthMode);
+
+impl Readers {
+    /// Anyone first, where the cursor starts: strict mode moves the application's servers to
+    /// another port, so Enter alone keeps them where they are.
+    const ALL: [Self; 2] = [Self(AuthMode::Permissive), Self(AuthMode::Strict)];
+}
+
+impl Noted for Readers {
+    fn name(self) -> &'static str {
+        match self.0 {
+            AuthMode::Permissive => "Anyone",
+            AuthMode::Strict => "Only your servers and the URLs they sign",
+        }
+    }
+
+    fn note(self) -> &'static str {
+        match self.0 {
+            AuthMode::Permissive => "the default permissive mode, which allows every request",
+            AuthMode::Strict => "strict mode; your servers then use port 4444",
+        }
+    }
+}
+
+impl fmt::Display for Readers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_noted(*self, f)
+    }
+}
+
 /// Whether the questions end by asking where to save a JSON document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FileQuestion {
@@ -296,9 +330,14 @@ const SOFT_DELETE_RETENTIONS: [SecondsPick; 5] = [
 const OTHER_LOCATION: &str = "Another location";
 
 /// Asks on the terminal how the server reads the document unless a flag chose its format, then
-/// for the buckets, and for a file to save a JSON document in when `file` asks for one.
-pub(super) fn ask(format: Option<Format>, file: FileQuestion) -> Result<Answers, InquireError> {
-    ask_on(&mut Inquire, format, file)
+/// for the buckets, who reads them unless a flag chose the mode, and for a file to save a JSON
+/// document in when `file` asks for one.
+pub(super) fn ask(
+    format: Option<Format>,
+    auth_mode: Option<AuthMode>,
+    file: FileQuestion,
+) -> Result<Answers, InquireError> {
+    ask_on(&mut Inquire, format, auth_mode, file)
 }
 
 /// Esc goes back one step everywhere, so it ends the questions only on the first one: from the
@@ -306,6 +345,7 @@ pub(super) fn ask(format: Option<Format>, file: FileQuestion) -> Result<Answers,
 fn ask_on(
     term: &mut impl Terminal,
     format: Option<Format>,
+    auth_mode: Option<AuthMode>,
     file: FileQuestion,
 ) -> Result<Answers, InquireError> {
     loop {
@@ -324,7 +364,7 @@ fn ask_on(
             Format::Json => file,
             Format::Env | Format::Compose => FileQuestion::Skip,
         };
-        match document(term, chosen, file)? {
+        match document(term, chosen, auth_mode, file)? {
             Some(answers) => return Ok(answers),
             None if format.is_none() => {}
             None => return Err(InquireError::OperationCanceled),
@@ -334,11 +374,12 @@ fn ask_on(
 
 /// Asks for the first buckets, then shows the buckets and asks what next until they are written
 /// or cancelled; `None` is Esc on the first bucket names, which goes back before them. Esc in a
-/// later bucket's names comes back here, and a document that cannot be written or saved does
-/// too, so no answer is lost.
+/// later bucket's names or on who reads them comes back here, and a document that cannot be
+/// written or saved does too, so no answer is lost.
 fn document(
     term: &mut impl Terminal,
     format: Format,
+    auth_mode: Option<AuthMode>,
     file: FileQuestion,
 ) -> Result<Option<Answers>, InquireError> {
     let Some(mut asked) = bucket(term, None, &[], &[])? else {
@@ -353,8 +394,12 @@ fn document(
         };
         match next {
             Next::Write => {
+                let Some(readers) = back(who_reads(term, &asked, auth_mode))? else {
+                    continue;
+                };
                 let document =
-                    Document::new(asked.iter().map(|entry| entry.bucket.clone()).collect());
+                    Document::new(asked.iter().map(|entry| entry.bucket.clone()).collect())
+                        .with_auth_mode(readers);
                 let text = match document.render(format) {
                     Ok(text) => text,
                     Err(error) => {
@@ -447,6 +492,35 @@ fn latest_origins(asked: &[Asked]) -> &[CorsOrigin] {
         .map(|entry| entry.origins.as_slice())
         .find(|origins| !origins.is_empty())
         .unwrap_or_default()
+}
+
+/// Who reads the buckets that public read does not open, as the mode that `chosen` names, or
+/// else as the question answers it. Public read opens a bucket in either mode, so with only
+/// such buckets there is nothing to ask, and the question names the others.
+fn who_reads(
+    term: &mut impl Terminal,
+    asked: &[Asked],
+    chosen: Option<AuthMode>,
+) -> Result<AuthMode, InquireError> {
+    if let Some(chosen) = chosen {
+        return Ok(chosen);
+    }
+    let buckets = asked.iter().map(|entry| &entry.bucket);
+    let closed = buckets
+        .clone()
+        .filter(|bucket| !bucket.grants_public_read())
+        .map(|bucket| bucket.name().to_owned());
+    let Some(closed) = Names::listed(closed) else {
+        return Ok(AuthMode::Permissive);
+    };
+    let text = format!("Who can read {closed}?");
+    let question = Question::new(&text);
+    let question = if buckets.clone().any(Bucket::grants_public_read) {
+        question.with_help("Buckets with public read stay open to anyone")
+    } else {
+        question
+    };
+    choose_one(term, question, &Readers::ALL).map(|readers| readers.0)
 }
 
 /// The index of the bucket to act on; with one bucket there is nothing to ask.

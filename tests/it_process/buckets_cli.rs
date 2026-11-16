@@ -98,6 +98,50 @@ fn a_generated_document_initializes_its_buckets_at_startup() {
     assert_eq!(server.ready["buckets"]["created"], 2);
 }
 
+/// The strict settings written beside the buckets start a server where anyone reads the bucket
+/// with public read, a request without credentials on the main port, as a browser's, cannot
+/// read the other, and the application's servers read it on the trusted listener.
+#[test]
+fn strict_settings_keep_buckets_without_public_read_private() {
+    let dir = common::TestDir::new();
+    let written = run(&[
+        "buckets",
+        "new",
+        "--name",
+        "app-public",
+        "--public-read",
+        "--name",
+        "app-private",
+        "--format",
+        "env",
+        "--auth-mode",
+        "strict",
+    ]);
+    assert!(written.status.success(), "{written:?}");
+    let mut command = http_command(&dir.0);
+    for line in String::from_utf8(written.stdout).unwrap().lines() {
+        let (key, value) = line.split_once('=').unwrap();
+        // A free port rather than the fixed one the settings name, so tests run side by side.
+        let value = match key {
+            "GCS_MIMIC_TRUSTED_LISTEN" => "127.0.0.1:0",
+            _ => value.trim_matches('\''),
+        };
+        command.env(key, value);
+    }
+    let server = Server::launch(&mut command);
+    assert_eq!(server.ready["auth_mode"], "strict");
+    assert_eq!(server.ready["test_signer"], "enabled");
+    assert_eq!(server.ready["buckets"]["created"], 2);
+    let objects = |address: &str, bucket: &str| {
+        let path = format!("/storage/v1/b/{bucket}/o");
+        common::effects::request(address, "GET", &path, "", b"").status
+    };
+    assert_eq!(objects(&server.address, "app-public"), 200);
+    assert_eq!(objects(&server.address, "app-private"), 401);
+    let trusted = server.ready["trusted_listen"].as_str().unwrap();
+    assert_eq!(objects(trusted, "app-private"), 200);
+}
+
 /// Questions need a terminal; without one and without --name nothing is asked or written.
 #[test]
 fn without_a_bucket_or_a_terminal_it_fails_before_asking() {

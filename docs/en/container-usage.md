@@ -447,10 +447,14 @@ file must exist before startup. The JSON shape is:
 ```
 
 The image can also write the document. `docker run --rm -it IMAGE buckets new`
-asks how you run gcs-mimic and what each bucket is for on the terminal and prints
-an `environment:` block for Compose with each `$` written `$$`, one
-`GCS_MIMIC_BUCKETS` line, or a document; with `--name NAME` and settings as flags
-it asks nothing, and `-it` is not needed. The container cannot keep a JSON file:
+asks how you run gcs-mimic, what each bucket is for and who can read the buckets
+without public read on the terminal, and prints an `environment:` block for
+Compose with each `$` written `$$`, one `GCS_MIMIC_BUCKETS` line, or a document;
+with `--name NAME` and settings as flags it asks nothing, and `-it` is not needed.
+When only your servers read them, which `--auth-mode strict` also chooses, the
+block starts with the
+[trusted listener](#keep-private-buckets-private-with-a-trusted-listener)'s
+strict settings. The container cannot keep a JSON file:
 its working directory is not writable and leaves with the container, so the
 questions offer printing the document instead, or redirect a flag run with
 `docker run --rm IMAGE buckets new --name NAME > buckets.json`. See

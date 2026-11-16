@@ -37,6 +37,45 @@ crate::config::string_enum! {
 
 crate::serde_util::serialize_as_str!(PublicAccessPrevention);
 
+crate::config::string_enum! {
+    no_default
+    /// The authentication mode the written settings start the server in, which decides who reads
+    /// a bucket without public read: anyone in `permissive`, the server's default, and only the
+    /// application's servers and the URLs they sign in `strict`. No member of a bucket says
+    /// this, so the document carries it for the settings written beside the buckets.
+    pub enum AuthMode {
+        Permissive => "permissive",
+        Strict => "strict",
+    }
+    "auth mode must be permissive or strict"
+}
+
+/// The `serve` options that start the server as the strict settings below do, for a buckets file,
+/// which holds only buckets.
+pub const STRICT_SERVE_OPTIONS: &str =
+    "--auth-mode strict --trusted-listen 127.0.0.1:4444 --test-signer enabled";
+
+/// Strict mode's settings as `.env` lines for `gcs-mimic serve` on the machine that runs the
+/// application's servers. The application's servers send no credentials, as browsers do not, so
+/// they get a trusted listener of their own, on loopback so that no other machine reaches it. The
+/// built-in test signer signs the URLs that browsers use for private objects. No comment lines:
+/// zsh runs a pasted `#` line as a command unless `interactive_comments` is set.
+const STRICT_ENV: &str = "GCS_MIMIC_AUTH_MODE=strict
+GCS_MIMIC_TRUSTED_LISTEN=127.0.0.1:4444
+GCS_MIMIC_TEST_SIGNER=enabled
+";
+
+/// Strict mode's settings for a Compose service, as in the strict local recipe. In a container
+/// the trusted listener binds every address so that the application's containers reach it, and
+/// leaving its port out of `ports:` is what keeps everything else out, so the block says so.
+const STRICT_COMPOSE: &str = "  GCS_MIMIC_AUTH_MODE: strict
+  # Your servers on the Compose network use port 4444 without credentials. Never publish it:
+  # anything that reaches it acts as your app.
+  GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444
+  # Signs URLs for browsers with a key that ships with gcs-mimic, so use it only locally.
+  GCS_MIMIC_TEST_SIGNER: enabled
+";
+
 /// The role that public read grants to `allUsers`.
 const PUBLIC_READ_ROLE: &str = "roles/storage.objectViewer";
 
@@ -395,6 +434,11 @@ impl Bucket {
         &self.name
     }
 
+    /// Whether anyone reads the bucket's objects, in strict mode too.
+    pub fn grants_public_read(&self) -> bool {
+        self.public_read
+    }
+
     /// The same answers for a bucket named `name`, so that several buckets can share them.
     pub fn with_name(&self, name: &str) -> Result<Self, GenerateError> {
         Ok(Self {
@@ -563,24 +607,41 @@ fn extend(list: &mut Vec<String>, values: &[&str]) {
     }
 }
 
-/// A complete buckets document.
+/// A complete buckets document, and the mode the settings written beside it start the server in.
 #[derive(Debug, Serialize)]
 pub struct Document {
     version: u8,
     buckets: Vec<Bucket>,
+    #[serde(skip)]
+    auth_mode: AuthMode,
 }
 
 impl Document {
+    /// The document for the server's default permissive mode, which needs no settings beside it.
     pub fn new(buckets: Vec<Bucket>) -> Self {
         Self {
             version: 1,
             buckets,
+            auth_mode: AuthMode::Permissive,
         }
+    }
+
+    /// The same buckets with settings beside them, where the format has room for settings, that
+    /// start the server in `auth_mode`.
+    #[must_use]
+    pub fn with_auth_mode(self, auth_mode: AuthMode) -> Self {
+        Self { auth_mode, ..self }
+    }
+
+    pub fn auth_mode(&self) -> AuthMode {
+        self.auth_mode
     }
 
     /// The document as `format` writes it, after the text the server will read passes the
     /// startup parser with the default `seed_project` and `default_location`. Checks that depend on
-    /// the catalog, such as a project's public access prevention, still happen at startup.
+    /// the catalog, such as a project's public access prevention, still happen at startup. In
+    /// strict mode `env` and `compose` write that mode's settings before the buckets; a buckets
+    /// file holds only buckets, so `json` leaves them to [`STRICT_SERVE_OPTIONS`].
     pub fn render(&self, format: Format) -> Result<String, GenerateError> {
         if let Some((bucket, gap)) = self.buckets.iter().find_map(|bucket| {
             let gap = bucket.cors.as_ref()?.gap()?;
@@ -614,15 +675,22 @@ impl Document {
             None,
         )
         .map_err(GenerateError::Rejected)?;
+        let settings = match (format, self.auth_mode) {
+            (_, AuthMode::Permissive) | (Format::Json, AuthMode::Strict) => "",
+            (Format::Env, AuthMode::Strict) => STRICT_ENV,
+            (Format::Compose, AuthMode::Strict) => STRICT_COMPOSE,
+        };
         match (format, self.shorthand()) {
             (Format::Json, _) => Ok(format!("{text}\n")),
-            (Format::Env, Some(names)) => Ok(format!("GCS_MIMIC_BUCKETS={names}\n")),
-            (Format::Env, None) => env_line(&text),
+            (Format::Env, Some(names)) => Ok(format!("{settings}GCS_MIMIC_BUCKETS={names}\n")),
+            (Format::Env, None) => Ok(format!("{settings}{}", env_line(&text)?)),
             // Quoted, since YAML would read a bucket named null or true as no string at all.
-            (Format::Compose, Some(names)) => {
-                Ok(format!("environment:\n  GCS_MIMIC_BUCKETS: \"{names}\"\n"))
+            (Format::Compose, Some(names)) => Ok(format!(
+                "environment:\n{settings}  GCS_MIMIC_BUCKETS: \"{names}\"\n"
+            )),
+            (Format::Compose, None) => {
+                Ok(format!("environment:\n{settings}{}", compose_member(&text)))
             }
-            (Format::Compose, None) => Ok(compose_snippet(&text)),
         }
     }
 
@@ -678,10 +746,10 @@ fn env_line(text: &str) -> Result<String, GenerateError> {
     Ok(format!("GCS_MIMIC_BUCKETS='{text}'\n"))
 }
 
-/// An `environment:` block to paste into a service. Compose interpolates `$` in values, and
-/// `$$` is its literal dollar.
-fn compose_snippet(text: &str) -> String {
-    let mut snippet = String::from("environment:\n  GCS_MIMIC_BUCKETS: |\n");
+/// The `GCS_MIMIC_BUCKETS` member of an `environment:` block to paste into a service. Compose
+/// interpolates `$` in values, and `$$` is its literal dollar.
+fn compose_member(text: &str) -> String {
+    let mut snippet = String::from("  GCS_MIMIC_BUCKETS: |\n");
     for line in text.replace('$', "$$").lines() {
         snippet.push_str("    ");
         snippet.push_str(line);

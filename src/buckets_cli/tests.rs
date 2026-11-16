@@ -43,6 +43,8 @@ fn settings_attach_to_the_preceding_bucket() {
         "app-exports",
         "--iam-binding",
         "roles/storage.objectAdmin=user:a@example.com,user:b@example.com",
+        "--auth-mode",
+        "strict",
         "--output",
         "buckets.yaml",
     ]))
@@ -72,17 +74,19 @@ fn settings_attach_to_the_preceding_bucket() {
                 ),
             ],
             format: Some(Format::Compose),
+            auth_mode: Some(AuthMode::Strict),
             output: Some(PathBuf::from("buckets.yaml")),
         }
     );
 }
 
-/// Without options nothing is chosen yet, so the questions ask for the format too.
+/// Without options nothing is chosen yet, so the questions ask for the format and who reads.
 #[test]
 fn without_options_no_bucket_or_format_is_chosen() {
     let request = parse(&[]).unwrap();
     assert!(request.buckets.is_empty());
     assert_eq!(request.format, None);
+    assert_eq!(request.auth_mode, None);
     assert_eq!(request.output, None);
 }
 
@@ -117,6 +121,16 @@ fn refused_arguments_name_their_option_and_the_remedy() {
         (
             &["--format", "env", "--format", "json"],
             "--format",
+            "given twice",
+        ),
+        (
+            &["--auth-mode", "private"],
+            "--auth-mode",
+            "permissive or strict",
+        ),
+        (
+            &["--auth-mode", "strict", "--auth-mode", "strict"],
+            "--auth-mode",
             "given twice",
         ),
         (
@@ -239,8 +253,10 @@ fn an_incomplete_cors_rule_names_the_option_that_completes_it() {
 }
 
 fn advised(values: &[&str], format: Format, destination: Destination<'_>) -> String {
+    let request = parse(&args(values)).unwrap();
+    let auth_mode = request.auth_mode.unwrap_or(AuthMode::Permissive);
     advice(
-        &Document::new(parse(&args(values)).unwrap().buckets),
+        &Document::new(request.buckets).with_auth_mode(auth_mode),
         format,
         destination,
     )
@@ -287,6 +303,61 @@ fn advice_names_the_next_step_for_the_format_and_destination() {
         // One line within a common terminal's width: a wrapped paragraph goes unread.
         assert_eq!(advice.lines().count(), 1, "{advice}");
         assert!(advice.trim_end().len() <= 120, "{advice}");
+    }
+}
+
+/// Strict mode moves the application's servers to the trusted listener, so its advice says where
+/// servers and browsers connect, each in a line that fits a terminal, and a buckets file's serve
+/// command carries strict mode's options.
+#[test]
+fn strict_advice_says_where_servers_and_browsers_connect() {
+    let strict = ["--name", "app-private", "--auth-mode", "strict"];
+    let file = Destination::File(Path::new("buckets.json"));
+    let served = advised(&strict, Format::Json, file);
+    assert!(
+        served.starts_with(&format!(
+            "Next: gcs-mimic serve --buckets-file buckets.json \\\n  {STRICT_SERVE_OPTIONS}\n"
+        )),
+        "{served}"
+    );
+    for (format, destination, servers) in [
+        (Format::Json, file, "http://127.0.0.1:4444"),
+        (Format::Json, Destination::Terminal, "http://127.0.0.1:4444"),
+        (
+            Format::Json,
+            Destination::Redirected,
+            "http://127.0.0.1:4444",
+        ),
+        (
+            Format::Env,
+            Destination::Terminal,
+            "With docker run, choose Docker Compose",
+        ),
+        (
+            Format::Compose,
+            Destination::Redirected,
+            "http://gcs:4444; never publish it",
+        ),
+    ] {
+        let advice = advised(&strict, format, destination);
+        assert!(advice.starts_with("Next: "), "{advice}");
+        assert!(advice.contains(servers), "{advice}");
+        assert!(
+            advice.contains("public buckets are open there, private ones need signed URLs"),
+            "{advice}"
+        );
+        // The key's command runs where the server does: in Compose, as its service.
+        let credentials = match format {
+            Format::Json | Format::Env => "the key that gcs-mimic test-signer credentials prints",
+            Format::Compose => {
+                "the key that docker compose run --rm gcs test-signer credentials prints"
+            }
+        };
+        assert!(advice.contains(credentials), "{advice}");
+        if format == Format::Json {
+            assert!(advice.contains(STRICT_SERVE_OPTIONS), "{advice}");
+        }
+        assert!(advice.lines().all(|line| line.len() <= 120), "{advice}");
     }
 }
 

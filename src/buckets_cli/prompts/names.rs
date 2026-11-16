@@ -35,9 +35,14 @@ impl Names {
             }
             names.push(name.to_owned());
         }
+        Self::listed(names).ok_or(NameError::Empty)
+    }
+
+    /// `names` together, for a question about all of them, or `None` when there are none.
+    pub(super) fn listed(names: impl IntoIterator<Item = String>) -> Option<Self> {
         let mut names = names.into_iter();
-        let first = names.next().ok_or(NameError::Empty)?;
-        Ok(Self {
+        let first = names.next()?;
+        Some(Self {
             first,
             rest: names.collect(),
         })

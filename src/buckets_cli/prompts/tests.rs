@@ -405,8 +405,18 @@ fn run(
     file: FileQuestion,
     replies: impl IntoIterator<Item = Reply>,
 ) -> (Result<Answers, InquireError>, Script) {
+    run_in(format, None, file, replies)
+}
+
+/// [`run`], with `--auth-mode` given or not.
+fn run_in(
+    format: Option<Format>,
+    auth_mode: Option<AuthMode>,
+    file: FileQuestion,
+    replies: impl IntoIterator<Item = Reply>,
+) -> (Result<Answers, InquireError>, Script) {
     let mut script = Script::new(replies);
-    let answers = ask_on(&mut script, format, file);
+    let answers = ask_on(&mut script, format, auth_mode, file);
     (answers, script)
 }
 
@@ -426,6 +436,7 @@ fn named_buckets_without_goals_come_out_as_one_compose_line() {
             Reply::Type("app-uploads, app-exports"),
             Reply::Picks(&["Default settings"]),
             Reply::Pick("Write it"),
+            Reply::Pick("Anyone"),
         ],
     );
     let answers = answers.unwrap();
@@ -467,6 +478,7 @@ fn browser_uploads_ask_only_for_the_origins() {
             Reply::No,
             Reply::Picks(&["*"]),
             Reply::Pick("Write it"),
+            Reply::Pick("Anyone"),
         ],
     );
     let document = written(&answers.unwrap());
@@ -550,6 +562,7 @@ fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
             Reply::Type("app-uploads"),
             Reply::Picks(&["Default settings"]),
             Reply::Pick("Write it"),
+            Reply::Pick("Anyone"),
         ],
     );
     assert_eq!(answers.unwrap().text, "GCS_MIMIC_BUCKETS=app-uploads\n");
@@ -623,6 +636,7 @@ fn refused_answers_are_asked_again() {
             Reply::Picks(&[]),
             Reply::Picks(&["*"]),
             Reply::Pick("Write it"),
+            Reply::Pick("Anyone"),
         ],
     );
     assert!(answers.is_ok());
@@ -657,6 +671,7 @@ fn enter_without_a_choice_is_refused_until_one_is_made() {
             Reply::Picks(&["Browser uploads"]),
             Reply::Picks(&["http://localhost:3000"]),
             Reply::Pick("Write it"),
+            Reply::Pick("Anyone"),
         ],
     );
     assert!(
@@ -680,6 +695,87 @@ fn enter_without_a_choice_is_refused_until_one_is_made() {
             ][..]
         )
     );
+}
+
+/// Who reads is asked once, before writing, about the buckets that public read leaves closed,
+/// with Anyone first so that Enter keeps the default; Esc there goes back to the buckets.
+/// Choosing strict mode writes its settings beside the buckets.
+#[test]
+fn public_and_private_buckets_ask_who_reads_the_private_ones() {
+    let (answers, script) = run(
+        None,
+        FileQuestion::Skip,
+        [
+            Reply::Pick("Docker Compose"),
+            Reply::Type("app-public"),
+            Reply::Picks(&["Public read"]),
+            Reply::Pick("Add a bucket"),
+            Reply::Type("app-private, app-uploads"),
+            Reply::Picks(&["Default settings"]),
+            Reply::Pick("Write it"),
+            Reply::Esc,
+            Reply::Pick("Write it"),
+            Reply::Pick("Only your servers and the URLs they sign"),
+        ],
+    );
+    let answers = answers.unwrap();
+    assert!(script.is_done());
+    assert_eq!(answers.document.auth_mode(), AuthMode::Strict);
+    assert!(
+        answers
+            .text
+            .starts_with("environment:\n  GCS_MIMIC_AUTH_MODE: strict\n"),
+        "{}",
+        answers.text
+    );
+    let question = "? Who can read app-private and app-uploads? [Anyone, Only your servers and the URLs they sign]";
+    let asked = script.seen.iter().filter(|seen| *seen == question).count();
+    assert_eq!(asked, 2, "{:#?}", script.seen);
+    let reviews = script
+        .seen
+        .iter()
+        .filter(|seen| seen.starts_with("? Next:"))
+        .count();
+    assert_eq!(reviews, 3);
+    assert_eq!(Readers::ALL.first(), Some(&Readers(AuthMode::Permissive)));
+    assert_eq!(
+        Readers(AuthMode::Strict).to_string(),
+        "Only your servers and the URLs they sign  (strict mode; your servers then use port 4444)"
+    );
+}
+
+/// Public read opens a bucket in either mode, so buckets that all have it raise no question,
+/// and neither does a mode that --auth-mode chose.
+#[test]
+fn who_reads_is_not_asked_when_nothing_depends_on_it() {
+    let (answers, script) = run(
+        Some(Format::Env),
+        FileQuestion::Skip,
+        [
+            Reply::Type("app-public"),
+            Reply::Picks(&["Public read"]),
+            Reply::Pick("Write it"),
+        ],
+    );
+    assert_eq!(answers.unwrap().document.auth_mode(), AuthMode::Permissive);
+    assert!(script.is_done());
+    let (answers, script) = run_in(
+        Some(Format::Env),
+        Some(AuthMode::Strict),
+        FileQuestion::Skip,
+        [
+            Reply::Type("app-private"),
+            Reply::Picks(&["Default settings"]),
+            Reply::Pick("Write it"),
+        ],
+    );
+    assert!(
+        answers
+            .unwrap()
+            .text
+            .starts_with("GCS_MIMIC_AUTH_MODE=strict\n")
+    );
+    assert!(script.is_done());
 }
 
 /// With public read chosen, public access prevention offers only inherited.
@@ -721,6 +817,7 @@ fn a_file_that_cannot_be_created_offers_another_file_or_printing() {
         Reply::Type("app-data"),
         Reply::Picks(&["Default settings"]),
         Reply::Pick("Write it"),
+        Reply::Pick("Anyone"),
         Reply::Type(blocked),
     ];
 

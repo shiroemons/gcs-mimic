@@ -552,6 +552,82 @@ fn name_only_buckets_are_written_as_names_where_the_setting_takes_them() {
     );
 }
 
+/// Strict mode's settings come before the buckets where the format has room for them; a buckets
+/// file holds only buckets, so it stays the same and the serve options say the same as the
+/// `.env` lines.
+#[test]
+fn strict_mode_writes_its_settings_before_the_buckets() {
+    let buckets = || {
+        vec![
+            bucket("app-public", [Setting::PublicRead]),
+            bucket("app-private", []),
+        ]
+    };
+    let permissive = Document::new(buckets());
+    let strict = Document::new(buckets()).with_auth_mode(AuthMode::Strict);
+    assert_eq!(permissive.auth_mode(), AuthMode::Permissive);
+    assert_eq!(strict.auth_mode(), AuthMode::Strict);
+    assert_eq!(
+        strict.render(Format::Json).unwrap(),
+        permissive.render(Format::Json).unwrap()
+    );
+    assert_eq!(
+        strict.render(Format::Env).unwrap(),
+        format!(
+            "GCS_MIMIC_AUTH_MODE=strict\nGCS_MIMIC_TRUSTED_LISTEN=127.0.0.1:4444\nGCS_MIMIC_TEST_SIGNER=enabled\n{}",
+            permissive.render(Format::Env).unwrap()
+        )
+    );
+    let compose = strict.render(Format::Compose).unwrap();
+    let settings: Vec<_> = compose
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .take(4)
+        .collect();
+    assert_eq!(
+        settings,
+        [
+            "environment:",
+            "  GCS_MIMIC_AUTH_MODE: strict",
+            "  GCS_MIMIC_TRUSTED_LISTEN: 0.0.0.0:4444",
+            "  GCS_MIMIC_TEST_SIGNER: enabled",
+        ]
+    );
+    let buckets_member = permissive.render(Format::Compose).unwrap();
+    assert!(compose.ends_with(buckets_member.strip_prefix("environment:\n").unwrap()));
+    // Comments stay inside the service's environment: block.
+    assert!(compose.lines().skip(1).all(|line| line.starts_with("  ")));
+    let names = Document::new(vec![bucket("app-private", [])]).with_auth_mode(AuthMode::Strict);
+    assert!(
+        names
+            .render(Format::Compose)
+            .unwrap()
+            .ends_with("\n  GCS_MIMIC_BUCKETS: \"app-private\"\n")
+    );
+    assert!(
+        names
+            .render(Format::Env)
+            .unwrap()
+            .ends_with("\nGCS_MIMIC_BUCKETS=app-private\n")
+    );
+    for line in STRICT_ENV.lines() {
+        let (key, value) = line.split_once('=').unwrap();
+        let option = key
+            .strip_prefix("GCS_MIMIC_")
+            .unwrap()
+            .to_lowercase()
+            .replace('_', "-");
+        assert!(
+            STRICT_SERVE_OPTIONS.contains(&format!("--{option} {value}")),
+            "{line}"
+        );
+    }
+    assert_eq!(
+        STRICT_SERVE_OPTIONS.split(" --").count(),
+        STRICT_ENV.lines().count()
+    );
+}
+
 /// Browser uploads and downloads give a rule that matches their requests and passes an
 /// upload's preflight, and repeat no value that a flag gave too.
 #[test]

@@ -3,7 +3,9 @@
 
 use crate::CliError;
 use gcs_mimic::{
-    bucket_init::generate::{Bucket, CorsGap, Document, Format, GenerateError, Setting},
+    bucket_init::generate::{
+        AuthMode, Bucket, CorsGap, Document, Format, GenerateError, STRICT_SERVE_OPTIONS, Setting,
+    },
     diagnostics::{DiagnosticSource, Diagnostics},
 };
 use inquire::InquireError;
@@ -18,16 +20,17 @@ use std::{
 mod prompts;
 
 pub(crate) const HELP: &str =
-    "Usage: gcs-mimic buckets new [--format json|env|compose] [--output PATH]
+    "Usage: gcs-mimic buckets new [--format json|env|compose] [--auth-mode MODE] [--output PATH]
        gcs-mimic buckets new --name NAME [SETTING]... [--name NAME [SETTING]...]...
-                             [--format json|env|compose] [--output PATH]
+                             [--format json|env|compose] [--auth-mode MODE] [--output PATH]
 
 Writes a bucket initialization document for --buckets-file, GCS_MIMIC_BUCKETS or a Compose
 service. Without --name it asks on a terminal: how you run gcs-mimic unless --format is given,
 then bucket names (several, comma-separated, share their answers) and what they are for, and
-shows the buckets to write, change or add to. A JSON document bound for the terminal is saved
-to a file it asks for, or printed if none can be created. Questions use stderr; Esc goes back,
-and Ctrl-C writes nothing.
+shows the buckets to write, change or add to; before writing, who reads the buckets without
+public read unless --auth-mode is given. A JSON document bound for the terminal is saved to a
+file it asks for, or printed if none can be created. Questions use stderr; Esc goes back, and
+Ctrl-C writes nothing.
 With --name it asks nothing; each setting after a --name belongs to that bucket:
   --project ID                  --location LOCATION        --storage-class CLASS
   --public-access-prevention inherited|enforced            --soft-delete-retention-seconds N
@@ -43,8 +46,12 @@ x-goog-resumable request headers, and --browser-downloads GET and HEAD, for the 
 default settings.
 --format json (the default) writes the document, env one GCS_MIMIC_BUCKETS line in single
 quotes, and compose an environment: block with each $ written $$; for buckets without settings,
-env and compose write their names alone. The document goes to stdout, or to a new file with
---output PATH, which refuses an existing file. On a terminal, stderr then says how to use it.
+env and compose write their names alone. --auth-mode permissive (the default) lets anyone read
+every bucket; strict keeps buckets without --public-read private, so env and compose then also
+write the settings that start the server so, with a trusted listener on port 4444 for your
+servers and the built-in test signer for URLs they sign for browsers, and json is followed by
+the matching serve options. The document goes to stdout, or to a new file with --output PATH,
+which refuses an existing file. On a terminal, stderr then says how to use it.
 The document passes startup validation before it is written; checks against stored state,
 such as a project's public access prevention, still run when the server starts.
 No configuration, environment, data directory or network is read.";
@@ -55,6 +62,8 @@ struct Request {
     buckets: Vec<Bucket>,
     /// `None` until a flag chooses one: the questions then ask, and flags default to JSON.
     format: Option<Format>,
+    /// `None` until a flag chooses one: the questions then ask, and flags default to permissive.
+    auth_mode: Option<AuthMode>,
     output: Option<PathBuf>,
 }
 
@@ -77,12 +86,13 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
     let Request {
         buckets,
         format,
+        auth_mode,
         output,
     } = parse(args)?;
     let written = if buckets.is_empty() {
-        ask(format, output)?
+        ask(format, auth_mode, output)?
     } else {
-        from_flags(buckets, format, output)?
+        from_flags(buckets, format, auth_mode, output)?
     };
     // Advice is for a person at a terminal; a script reads the document and the exit code.
     if io::stderr().is_terminal() {
@@ -99,10 +109,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
 fn from_flags(
     buckets: Vec<Bucket>,
     format: Option<Format>,
+    auth_mode: Option<AuthMode>,
     output: Option<PathBuf>,
 ) -> Result<Written, CliError> {
     let format = format.unwrap_or(Format::Json);
-    let document = Document::new(buckets);
+    let document = Document::new(buckets).with_auth_mode(auth_mode.unwrap_or(AuthMode::Permissive));
     let text = document.render(format).map_err(rejected)?;
     write(&text, output.as_deref())?;
     Ok(Written {
@@ -121,17 +132,69 @@ enum Destination<'a> {
     Redirected,
 }
 
-/// The next step for the document, then a note for each bucket whose CORS rule would refuse a
-/// browser upload, which startup accepts and a browser reports far from its cause.
+/// The next step for the document, then in strict mode where servers and browsers connect, then
+/// a note for each bucket whose CORS rule would refuse a browser upload, which startup accepts
+/// and a browser reports far from its cause.
 fn advice(document: &Document, format: Format, destination: Destination<'_>) -> String {
     let notes = document.uploads_refusing_content_type().map(|bucket| {
         Cow::Owned(format!(
             "Note: browser uploads to {bucket} send Content-Type, which its CORS rule refuses; add --cors-response-header Content-Type\n"
         ))
     });
-    iter::once(next_step(format, destination))
-        .chain(notes)
-        .collect()
+    let next = match document.auth_mode() {
+        AuthMode::Permissive => next_step(format, destination),
+        AuthMode::Strict => strict_steps(format, destination).into(),
+    };
+    iter::once(next).chain(notes).collect()
+}
+
+/// Strict mode changes how the application connects, so each change gets a line of its own
+/// after the next step, short enough to fit a terminal: the servers' port, since they send no
+/// credentials, as browsers do not, and the browsers' way to private objects with the command
+/// that prints the signing key where the server runs. Public and private buckets share the main
+/// port; only the servers move.
+fn strict_steps(format: Format, destination: Destination<'_>) -> String {
+    let (next, servers, credentials) = match format {
+        Format::Json => (
+            strict_serve(destination),
+            "Your servers on this machine then use http://127.0.0.1:4444",
+            "gcs-mimic test-signer credentials",
+        ),
+        Format::Env => (
+            "Next: export these lines before gcs-mimic serve, on the machine that runs your servers"
+                .to_owned(),
+            // A container's loopback is its own, and the trusted port must stay unpublished, so
+            // servers outside a docker run container cannot reach it; Compose puts them beside it.
+            "Your servers then use http://127.0.0.1:4444. With docker run, choose Docker Compose: 4444 stays unpublished",
+            "gcs-mimic test-signer credentials",
+        ),
+        Format::Compose => (
+            "Next: add these settings to the gcs-mimic service's environment: in compose.yaml, then docker compose up -d"
+                .to_owned(),
+            "Your servers on the Compose network then use port 4444, such as http://gcs:4444; never publish it",
+            "docker compose run --rm gcs test-signer credentials",
+        ),
+    };
+    format!(
+        "{next}\n{servers}\nBrowsers keep the main port: public buckets are open there, private ones need signed URLs\nSign them with the key that {credentials} prints\n"
+    )
+}
+
+/// The serve command for a buckets file in strict mode, continued on a second line so that both
+/// fit a terminal and paste as one command.
+fn strict_serve(destination: Destination<'_>) -> String {
+    match destination {
+        Destination::File(path) => format!(
+            "Next: gcs-mimic serve --buckets-file {} \\\n  {STRICT_SERVE_OPTIONS}",
+            shell_word(path)
+        ),
+        Destination::Terminal => format!(
+            "Next: save this as buckets.json, then run gcs-mimic serve --buckets-file buckets.json \\\n  {STRICT_SERVE_OPTIONS}"
+        ),
+        Destination::Redirected => format!(
+            "Next: run gcs-mimic serve --buckets-file with the file this went to, adding\n  {STRICT_SERVE_OPTIONS}"
+        ),
+    }
 }
 
 /// What to do with the document where it went, in one line that fits a terminal, since a
@@ -168,7 +231,11 @@ fn shell_word(path: &Path) -> String {
 
 /// Asks on a terminal. Elsewhere nothing could answer, so it fails before asking anything, as it
 /// does for an existing `--output`, which refused after the last question would lose every answer.
-fn ask(format: Option<Format>, output: Option<PathBuf>) -> Result<Written, CliError> {
+fn ask(
+    format: Option<Format>,
+    auth_mode: Option<AuthMode>,
+    output: Option<PathBuf>,
+) -> Result<Written, CliError> {
     if !(io::stdin().is_terminal() && io::stderr().is_terminal()) {
         return Err(failure(
             "--name",
@@ -190,7 +257,7 @@ fn ask(format: Option<Format>, output: Option<PathBuf>) -> Result<Written, CliEr
         format,
         text,
         saved,
-    } = prompts::ask(format, file).map_err(unanswered)?;
+    } = prompts::ask(format, auth_mode, file).map_err(unanswered)?;
     let file = match saved {
         Some(path) => Some(path),
         None => {
@@ -268,6 +335,7 @@ fn rejected(error: GenerateError) -> Diagnostics {
 fn parse(args: &[String]) -> Result<Request, Diagnostics> {
     let mut buckets: Vec<Bucket> = Vec::new();
     let mut format = None;
+    let mut auth_mode = None;
     let mut output = None;
     let mut args = args.iter().map(String::as_str);
     while let Some(flag) = args.next() {
@@ -281,6 +349,12 @@ fn parse(args: &[String]) -> Result<Request, Diagnostics> {
                     .parse::<Format>()
                     .map_err(|error| failure(flag, error.to_string()))?;
                 once(&mut format, chosen, flag)?;
+            }
+            "--auth-mode" => {
+                let chosen = value(&mut args, flag)?
+                    .parse::<AuthMode>()
+                    .map_err(|error| failure(flag, error.to_string()))?;
+                once(&mut auth_mode, chosen, flag)?;
             }
             "--output" => once(&mut output, PathBuf::from(value(&mut args, flag)?), flag)?,
             flag => {
@@ -300,6 +374,7 @@ fn parse(args: &[String]) -> Result<Request, Diagnostics> {
     Ok(Request {
         buckets,
         format,
+        auth_mode,
         output,
     })
 }
