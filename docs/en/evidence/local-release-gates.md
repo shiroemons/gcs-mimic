@@ -1,5 +1,39 @@
 # Local release gates on the integrated source
 
+## Published 0.24.0 source
+
+Recorded **2026-11-16** for tag `v0.24.0`, commit `21fe40d7bfb8a22998b5c48a745f366cc18479e3`, tree `3d54494a43d3ade333931d2f04a5e8edc44f36a0`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Local `just pre-push` | Exit 1 in the container stage only; 3811 Rust tests passed with Rust 1.100.0, the SDK suites and the linux/amd64 container checks passed, and linux/arm64 passed all seven checks in a separate run on the same commit | Recorded below |
+| Foundation checks | `success`, including the reference comparison and the container checks on both architectures | [Run 43798436865](https://github.com/shiroemons/gcs-mimic/actions/runs/43798436865) |
+| Documentation checks | `success` | [Run 43798436747](https://github.com/shiroemons/gcs-mimic/actions/runs/43798436747) |
+| Release binaries dry run | `success`; all eight native build and test targets passed, and the publish job checked eight archives and their checksums and selected `--latest=true` | [Run 43798444309](https://github.com/shiroemons/gcs-mimic/actions/runs/43798444309) |
+| Tag publication | `success`; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 43801466522](https://github.com/shiroemons/gcs-mimic/actions/runs/43801466522) |
+
+The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.24.0) is the latest Release and has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`. `ghcr.io/shiroemons/gcs-mimic:0.24.0`, `0.24` and `latest`, and `shiroemons/gcs-mimic:0.24.0`, `0.24` and `latest`, resolve anonymously to the same index digest `sha256:41454bf824003e2a00dede976e40bbe11b7e629cc6dd2c53e0388f1b8bd49867` for `linux/amd64` and `linux/arm64`. The `aarch64-apple-darwin` archive matches its `SHA256SUMS` entry and its binary reports `gcs-mimic 0.24.0`.
+
+## Local gates on the 0.24.0 source
+
+Recorded **2026-11-16** on macOS (Apple Silicon) with Rust 1.100.0 for commit `21fe40d7bfb8a22998b5c48a745f366cc18479e3` (package version 0.24.0). The container stage ran on Kiri, a Docker-compatible runtime whose daemon reports Docker 27.5.1, with 6 CPUs and 16 GiB.
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 1 | Rust and shell checks took 11m36s: 3811 tests in 16 binaries, 0 failed, 1 ignored, including library tests `2374 passed` and `it_process` `114 passed`. SDK suites passed in 33s: Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust. Containers: seven `PASS` lines on `linux/amd64`; `linux/arm64` stopped after six at `No such image: curlimages/curl:8.23.0@sha256:3fb7e13e… for linux/arm64` |
+| `just check-container linux/arm64` | 0 | Seven `PASS` lines in 1m38s |
+| `scripts/check-cross.sh` | 0 | `0 new production Clippy violations; 0 ratcheted findings` for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` |
+| `cargo xtask dependencies check --scope release` | 0 | 42 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 0 | 143 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+
+Kiri keeps one platform of an image reference: pulling the `linux/amd64` variant of a multi-platform digest removes the `linux/arm64` one. `just check-containers` runs both architectures at once, so the amd64 checks replaced the arm64 peer image before the arm64 full application example started; run alone, the arm64 checks passed. Both architectures also passed on Docker in Foundation checks.
+
+The dependency checks ran on 2026-11-16 at `02:00:14Z` and `02:01:08Z` on the source after the dependency refresh; the later commits change no dependency input but the package version in Cargo.lock. `just pre-push` and `scripts/check-cross.sh` ran on the release source before the tag was pushed.
+
+Two earlier `just pre-push` runs for this release failed on parent commit `d6ee48f1dc3e2254df3f24fb33235e7081a54527`. In the first, `it_protocol::object_multipart_http::obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots` received 503 `upload catalog wait timed out` for its last upload, which runs under a 1.2 s object request deadline; it passed five runs alone and in every later run. In the second, both architectures stopped at the strict local recipe check, because Kiri's `docker inspect` reported `HostConfig.PortBindings` as null; [kiri#273](https://github.com/libracoder/kiri/pull/273) fixes that upstream after Kiri 0.2.1. The release commit's checks read the bound ports from `NetworkSettings.Ports` instead.
+
+No local gate run is recorded for 0.23.0.
+
 ## Published 0.22.0 source
 
 Recorded **2026-11-15** for tag `v0.22.0`, commit `9cfc73a6ee3bf3efb75039dcf03c389b87abcab6`, tree `ce9cc724bde8c6e28474450f63cc839b833d512a`. Every gate below ran on the tagged commit itself. Remote results were read back from GitHub after publication:
