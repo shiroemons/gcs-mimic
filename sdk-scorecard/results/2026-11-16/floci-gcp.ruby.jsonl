@@ -1,0 +1,58 @@
+{"sdk":"ruby","id":"bucket.create_get_delete","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.list_prefix_paging","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.update_labels","area":"bucket","pass":false,"detail":"Google::Cloud::Error: Invalid request"}
+{"sdk":"ruby","id":"bucket.metageneration_precondition","area":"bucket","pass":false,"detail":"Google::Cloud::Error: Invalid request"}
+{"sdk":"ruby","id":"bucket.versioning_history","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.lifecycle","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.cors","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.retention_policy","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.retention_lock","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.uniform_bucket_level_access","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.public_access_prevention","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.iam_policy","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.iam_test_permissions","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.soft_delete_policy","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.soft_delete_restore","area":"bucket","pass":false,"detail":"ProbeFailure: bucket generation missing"}
+{"sdk":"ruby","id":"bucket.autoclass","area":"bucket","pass":false,"detail":"ProbeFailure: autoclass not enabled"}
+{"sdk":"ruby","id":"bucket.acl","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.default_object_acl","area":"bucket","pass":true}
+{"sdk":"ruby","id":"bucket.notifications","area":"bucket","pass":true}
+{"sdk":"ruby","id":"project.hmac_keys","area":"bucket","pass":false,"detail":"Google::Cloud::NotFoundError: notFound: HMAC key not found: GOOG1EFNRKIYQYTRRZYBWVG4LZV3SOWZHCYDYONZRAOBPSDUB7KN67GMREOQV"}
+{"sdk":"ruby","id":"project.service_account","area":"bucket","pass":true}
+{"sdk":"ruby","id":"object.write_read_small","area":"object","pass":true}
+{"sdk":"ruby","id":"object.resumable_large","area":"object","pass":true}
+{"sdk":"ruby","id":"object.metadata_on_write","area":"object","pass":true}
+{"sdk":"ruby","id":"object.checksum_rejected","area":"object","pass":false,"detail":"ProbeFailure: wrong CRC32C accepted"}
+{"sdk":"ruby","id":"object.md5_accepted","area":"object","pass":true}
+{"sdk":"ruby","id":"object.range_reads","area":"object","pass":true}
+{"sdk":"ruby","id":"object.update_metadata","area":"object","pass":true}
+{"sdk":"ruby","id":"object.delete_not_found","area":"object","pass":true}
+{"sdk":"ruby","id":"object.does_not_exist_precondition","area":"object","pass":true}
+{"sdk":"ruby","id":"object.generation_match_precondition","area":"object","pass":true}
+{"sdk":"ruby","id":"object.metageneration_match_precondition","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_prefix_delimiter","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_paging","area":"object","pass":true}
+{"sdk":"ruby","id":"object.list_offsets","area":"object","pass":false,"unsupported":true,"detail":"google-cloud-storage 1.62.2 has no public API for listing with start or end offsets (Bucket#files takes neither)"}
+{"sdk":"ruby","id":"object.list_match_glob","area":"object","pass":true}
+{"sdk":"ruby","id":"object.copy_with_metadata","area":"object","pass":false,"detail":"ProbeFailure: copy attrs"}
+{"sdk":"ruby","id":"object.rewrite_storage_class","area":"object","pass":true}
+{"sdk":"ruby","id":"object.compose","area":"object","pass":true}
+{"sdk":"ruby","id":"object.compose_preconditions","area":"object","pass":false,"detail":"ProbeFailure: compose bytes"}
+{"sdk":"ruby","id":"object.move","area":"object","pass":true}
+{"sdk":"ruby","id":"object.acl","area":"object","pass":true}
+{"sdk":"ruby","id":"object.holds","area":"object","pass":true}
+{"sdk":"ruby","id":"object.retention","area":"object","pass":false,"detail":"ProbeFailure: retention not stored"}
+{"sdk":"ruby","id":"object.custom_time","area":"object","pass":true}
+{"sdk":"ruby","id":"object.storage_class_on_write","area":"object","pass":true}
+{"sdk":"ruby","id":"object.gzip_transcoding","area":"object","pass":true}
+{"sdk":"ruby","id":"object.customer_supplied_key","area":"object","pass":true}
+{"sdk":"ruby","id":"object.csek_rotation","area":"object","pass":false,"detail":"Google::Cloud::PermissionDeniedError: forbidden: Missing or invalid customer-supplied encryption key"}
+{"sdk":"ruby","id":"object.soft_delete_restore","area":"object","pass":true}
+{"sdk":"ruby","id":"signed.v4_get","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.v4_put","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.v4_resumable_upload","area":"signed","pass":false,"detail":"ProbeFailure: start status 400 body <Error><Code>InvalidArgument</Code><Message>Invalid argument.</Message><Details>uploadId is required</Details></Error>"}
+{"sdk":"ruby","id":"signed.v4_response_overrides","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.v2_get","area":"signed","pass":true}
+{"sdk":"ruby","id":"signed.post_policy_v4","area":"signed","pass":false,"detail":"ProbeFailure: status 405 body "}
+{"sdk":"ruby","id":"sdk.file_upload_download","area":"sdk","pass":true}
+{"sdk":"ruby","id":"sdk.download_to_io","area":"sdk","pass":true}
