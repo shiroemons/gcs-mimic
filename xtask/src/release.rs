@@ -52,11 +52,11 @@ const SUPPLIED_LICENSES: [SuppliedLicense; 3] = [
     // The revision is the one the crate's .cargo_vcs_info.json names.
     SuppliedLicense {
         crates: &["inquire"],
-        version: "0.9.4",
+        version: "0.9.5",
         repository: "mikaelmello/inquire",
-        revision: "3d5b65422a247acc773d767558e34fcb69ab04bf",
+        revision: "023440088395341392b6245d1601df23f44c1ce2",
         upstream_file: "LICENSE",
-        path: "distribution/notices/inquire-3d5b6542/LICENSE",
+        path: "distribution/notices/inquire-02344008/LICENSE",
     },
     // Import libraries for windows-gnu targets, which no release links; the notices still cover
     // every locked package. They predate .cargo_vcs_info.json, so the revision is the commit

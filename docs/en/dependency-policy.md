@@ -78,7 +78,7 @@ Other targets keep their C library's allocator and do not resolve these packages
 [dependency evidence](evidence/dependency-refresh.md#musl-allocator) records the license, package
 digests, sizes and why that decision no longer holds.
 
-`gcs-mimic buckets new` asks its questions with `inquire` 0.9.4, built with only its `crossterm`
+`gcs-mimic buckets new` asks its questions with `inquire` 0.9.5, built with only its `crossterm`
 backend; arrow-key lists need raw terminal input, which std does not offer. It adds 21 locked
 packages. The published crate omits its license text, so release notices supply the reviewed
 repository text. The
@@ -147,8 +147,8 @@ Official sources checked on 2026-10-21:
 ## Official Ruby SDK example dependencies
 
 The local HTTPS scope adds `sdk-tests/ruby/Gemfile`, `Gemfile.lock` and
-`.ruby-version`. The verified inputs are Ruby 4.0.9 and Bundler 4.0.24, checked
-on 2026-11-05, and `google-cloud-storage` 1.62.2, checked on 2026-11-12. Commit the complete lockfile, including
+`.ruby-version`. The verified inputs are Ruby 4.0.9, checked on 2026-11-05,
+Bundler 4.1.0, checked on 2026-11-16, and `google-cloud-storage` 1.62.2, checked on 2026-11-12. Commit the complete lockfile, including
 checksums and `BUNDLED WITH`; do not infer the active Bundler version from the
 host default. Run the isolated client workflow from
 [`sdk-tests/ruby/README.md`](../../sdk-tests/ruby/README.md).
@@ -167,11 +167,11 @@ The supported manifest uses the official RubyGems source, exact gem pins and
 fail explicitly. Metadata failures do not report `CURRENT`.
 The checker uses the existing bounded curl path and needs no Ruby installation.
 
-Official sources checked on 2026-11-05, and for `google-cloud-storage` on 2026-11-12:
+Official sources checked on 2026-11-05, for Bundler on 2026-11-16 and for `google-cloud-storage` on 2026-11-12:
 
 - <https://www.ruby-lang.org/en/downloads.md>
 - <https://rubygems.org/api/v1/versions/bundler.json>
-- <https://rubygems.org/api/v2/rubygems/bundler/versions/4.0.24.json>
+- <https://rubygems.org/api/v2/rubygems/bundler/versions/4.1.0.json>
 - <https://rubygems.org/api/v1/versions/google-cloud-storage.json>
 - <https://rubygems.org/api/v2/rubygems/google-cloud-storage/versions/1.62.2.json>
 - <https://guides.rubygems.org/rubygems-org-api/>

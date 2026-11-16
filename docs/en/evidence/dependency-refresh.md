@@ -1205,3 +1205,68 @@ A release build of the commit that adds the prompts against its parent, both wit
 | `cargo test --locked -p xtask` | PASS, including the supplied-license tests for both crates |
 
 `xtask release notices` itself was not run end to end: on macOS the container target needs the GCC copyright file that only the release build environment provides.
+
+## Refresh: 2026-11-16, before 0.24.0
+
+The full freshness check run before preparing 0.24.0 exited 1 with one release
+input, `inquire: UPDATE_AVAILABLE current=0.9.4 latest=0.9.5`. After it was
+adopted, a second full check reported the development-only Bundler 4.1.0,
+released 2026-11-16T01:41:02Z, in all three Ruby manifests:
+`bundler: UPDATE_AVAILABLE current=4.0.24 latest=4.1.0`. Both are adopted.
+Two intermediate runs ended in `CHECK_FAILED` on a proxy.golang.org timeout and
+on the anonymous GitHub API limit, and the later runs used a GitHub token.
+
+### inquire 0.9.5
+
+`inquire` 0.9.5 was published 2026-11-15T23:38:26Z from release commit
+`023440088395341392b6245d1601df23f44c1ce2`, the revision its
+`.cargo_vcs_info.json` names. It declares MIT and `rust-version` 1.85.0, and
+the repository is not archived. Its fixes measure tabs and grapheme clusters
+such as emoji with variation selectors when redrawing, keep ANSI escape codes
+from matching when `Select` filters, and, in the `console` backend that
+gcs-mimic does not build, return `OperationInterrupted` on Ctrl+C and
+`NotTTY` without a terminal. Only `inquire` and its checksum change in
+Cargo.lock; no package is added.
+
+| Package | Compressed archive bytes | SHA-256 |
+| --- | --- | --- |
+| `inquire` 0.9.5 | 111,995 | `e8740906750ed5eebb24721bc5261928ed39ac9fb3b7ac78d2d2486f8037c8ab` |
+
+The published crate still has no license file. The repository-root `LICENSE`
+at the new revision has the same git blob ID,
+`dcb70e308455116431c23bb976e9215c37070db6`, as at 0.9.4's
+`3d5b65422a247acc773d767558e34fcb69ab04bf`, so the reviewed table moves to
+0.9.5 and that revision, and the checked-in copy moves unchanged to
+`distribution/notices/inquire-02344008/LICENSE`. The snapshot now lists
+`inquire` among the direct dependencies, which it had left out when the
+dependency was added.
+
+### Bundler 4.1.0
+
+Bundler 4.1.0 is MIT, requires Ruby 3.2.0 and RubyGems 3.4.1 or later, and
+its 421,888-byte gem has SHA-256
+`d7b7a797b988e544a0677a9c6ed78146f2f63d05ae1af8bc7d9426cf88b46377`, as the
+RubyGems metadata records. The minor release reuses RubyGems' index client,
+resolver and serializers, records overrides in an `OVERRIDES` section and
+locks the `ruby` platform variant of gems that publish platform variants.
+`bundle _4.1.0_ update --bundler=4.1.0` with Ruby 4.0.9 changed only the
+Bundler checksum and `BUNDLED WITH` in `sdk-tests/ruby/Gemfile.lock` and
+`sdk-scorecard/ruby/Gemfile.lock`. `sdk-tests/ruby/active_storage/Gemfile.lock`
+also gained the `ruby` variants of the already locked nokogiri 1.19.7 and
+sqlite3 2.10.2, with mini_portile2 2.8.9 (MIT), which those variants need to
+compile; the platform-specific variants and every other gem are unchanged.
+`examples/ruby` stays on the Bundler it was written with, as it is not tracked
+by the freshness check.
+
+### Validation performed on 2026-11-16, before 0.24.0
+
+| Command or check | Result |
+| --- | --- |
+| `cargo test --locked -p xtask` | PASS: 264, 13, 3 and 1 tests, including the supplied-license tests and the check of the actual pins against the snapshot |
+| `docker buildx build --platform linux/arm64` | PASS: the image's `xtask release notices` covered `inquire` 0.9.5 with the supplied text |
+| `gcs-mimic buckets new` questions | PASS through a macOS tmux terminal and `docker run --rm -it` with that image, as recorded in [bucket initialization](../slices/bucket-initialization.md#writing-a-document-with-buckets-new) |
+| `BUNDLE_FROZEN=true bundle install` in the three Ruby projects, and `bundle exec ruby https.rb --self-check` | PASS with Bundler 4.1.0 |
+| `cargo xtask dependencies check` at `2026-11-16T02:00:14Z` | Exit 0 with 143 `CURRENT` lines, among them `inquire: CURRENT current=0.9.5 latest=0.9.5` and three `bundler: CURRENT current=4.1.0 latest=4.1.0`; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Composer `latest` and Rust `slim-trixie` differ only on linux/riscv64 |
+| `cargo xtask dependencies check --scope release` at `2026-11-16T02:01:08Z` | Exit 0 with 42 `CURRENT` lines, `inquire` now among them |
+
+The Ruby SDK and Active Storage suites themselves run in `just pre-push` on the release source.
