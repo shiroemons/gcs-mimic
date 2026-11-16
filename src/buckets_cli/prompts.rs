@@ -16,8 +16,8 @@ use gcs_mimic::bucket_init::generate::{
 };
 use inquire::{InquireError, validator::Validation};
 use lists::{
-    Noted, Offer, Pick, SecondsPick, choose_many, choose_one, custom, pick_many, pick_seconds,
-    positions, required, select_one, valid, write_noted,
+    Noted, Offer, Pick, SecondsPick, choose_many, choose_one, choose_one_at, custom, pick_many,
+    pick_seconds, positions, required, select_one, valid, write_noted,
 };
 use names::Names;
 use std::{
@@ -70,18 +70,17 @@ enum Goal {
     Defaults,
     BrowserUploads,
     BrowserDownloads,
-    PublicRead,
     KeepVersions,
     KeepDeleted,
     More,
 }
 
 impl Goal {
-    const ALL: [Self; 7] = [
+    /// Public read is no goal: whether a bucket is public or private is asked before its goals.
+    const ALL: [Self; 6] = [
         Self::Defaults,
         Self::BrowserUploads,
         Self::BrowserDownloads,
-        Self::PublicRead,
         Self::KeepVersions,
         Self::KeepDeleted,
         Self::More,
@@ -94,7 +93,6 @@ impl Noted for Goal {
             Self::Defaults => "Default settings",
             Self::BrowserUploads => "Browser uploads",
             Self::BrowserDownloads => "Browser downloads",
-            Self::PublicRead => "Public read",
             Self::KeepVersions => "Keep old versions",
             Self::KeepDeleted => "Keep deleted objects",
             Self::More => "More settings…",
@@ -102,18 +100,14 @@ impl Noted for Goal {
     }
 
     // Each note says when a bucket needs the goal, since the members' names do not: a page
-    // shows objects through <img> and links without CORS, and the default permissive mode
-    // already lets anyone read, so public read matters only in strict mode. For the same
-    // reason no setting makes a bucket private: the mode does, and the first entry, where
-    // someone looking for a private bucket reads first, says so.
+    // shows objects through <img> and links without CORS.
     fn note(self) -> &'static str {
         match self {
-            Self::Defaults => "private in strict mode; anyone reads in the default permissive mode",
+            Self::Defaults => "nothing more to set up",
             Self::BrowserUploads => "your web or mobile app uploads files: CORS for PUT and POST",
             Self::BrowserDownloads => {
                 "your page reads objects with fetch(); <img> and links need none"
             }
-            Self::PublicRead => "anyone reads objects, in strict mode too: <img> and links",
             Self::KeepVersions => "overwrites and deletes keep the old object: versioning",
             Self::KeepDeleted => "deleted objects can be restored for a while: soft delete",
             Self::More => "labels, IAM, CORS details, location, storage class and more",
@@ -228,29 +222,48 @@ impl fmt::Display for Next {
     }
 }
 
-/// Who reads the buckets without public read. No bucket setting decides it: the server's
-/// authentication mode does, so it is asked once for every bucket, before writing.
+/// Who reads a bucket, asked right after its names: people think of a bucket as public or
+/// private before what it is for. Only strict mode keeps a bucket private, and the mode is the
+/// whole server's, so one private bucket puts every bucket in strict mode, where a public one
+/// then needs public read; without one, the default permissive mode lets anyone read them all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Readers(AuthMode);
+enum Readers {
+    Public,
+    Private,
+}
 
 impl Readers {
-    /// Anyone first, where the cursor starts: strict mode moves the application's servers to
-    /// another port, so Enter alone keeps them where they are.
-    const ALL: [Self; 2] = [Self(AuthMode::Permissive), Self(AuthMode::Strict)];
+    /// Public first, where the cursor starts: private moves the application's servers to another
+    /// port, so Enter alone changes nothing.
+    const ALL: [Self; 2] = [Self::Public, Self::Private];
+
+    /// The bucket's line in the summary. It says what was answered in either mode, since public
+    /// read is written only when strict mode needs it.
+    fn summary(self) -> &'static str {
+        match self {
+            Self::Public => "public: anyone reads its objects",
+            Self::Private => "private: only your servers and the URLs they sign read it",
+        }
+    }
 }
 
 impl Noted for Readers {
     fn name(self) -> &'static str {
-        match self.0 {
-            AuthMode::Permissive => "Anyone",
-            AuthMode::Strict => "Only your servers and the URLs they sign",
+        match self {
+            Self::Public => "Public",
+            Self::Private => "Private",
         }
     }
 
+    // The notes say what each choice changes rather than what the word means: "public" alone
+    // would push someone who does not care toward private, which changes how the application
+    // connects.
     fn note(self) -> &'static str {
-        match self.0 {
-            AuthMode::Permissive => "the default permissive mode, which allows every request",
-            AuthMode::Strict => "strict mode; your servers then use port 4444",
+        match self {
+            Self::Public => "anyone reads its objects; the default, nothing else changes",
+            Self::Private => {
+                "only your servers read it; the server turns strict and they move to port 4444"
+            }
         }
     }
 }
@@ -260,6 +273,59 @@ impl fmt::Display for Readers {
         write_noted(*self, f)
     }
 }
+
+/// The mode as `--auth-mode` or the other buckets settle it before a bucket is asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Settled {
+    /// `--auth-mode` chose it, so no answer changes it.
+    Chosen(AuthMode),
+    /// The other buckets need it, until a private answer makes it strict.
+    Needed(AuthMode),
+}
+
+impl Settled {
+    /// What `--auth-mode` chose, or else what `others` need: strict once one is private.
+    fn of<'a>(chosen: Option<AuthMode>, mut others: impl Iterator<Item = &'a Asked>) -> Self {
+        match chosen {
+            Some(mode) => Self::Chosen(mode),
+            None if others.any(|entry| entry.readers == Readers::Private) => {
+                Self::Needed(AuthMode::Strict)
+            }
+            None => Self::Needed(AuthMode::Permissive),
+        }
+    }
+
+    fn mode(self) -> AuthMode {
+        match self {
+            Self::Chosen(mode) | Self::Needed(mode) => mode,
+        }
+    }
+
+    /// The summary's first line in strict mode, which every bucket shares, so that a private
+    /// answer's effect on the others stays in sight.
+    fn summary(self) -> &'static str {
+        match self {
+            Self::Chosen(AuthMode::Strict) => {
+                "Strict mode, as --auth-mode chose: your servers use port 4444\n"
+            }
+            Self::Needed(AuthMode::Strict) => {
+                "Strict mode for the whole server, since a bucket is private: your servers use port 4444\n"
+            }
+            Self::Chosen(AuthMode::Permissive) | Self::Needed(AuthMode::Permissive) => "",
+        }
+    }
+}
+
+/// Said when a private answer turns strict mode on: it changes every bucket and how the
+/// application connects, which the answer's note alone could leave unread.
+const STRICT_ON: &str =
+    "Strict mode is now on for the whole server: your servers then use port 4444,
+and browsers reach private objects through signed URLs.
+";
+
+/// Said when no private bucket is left, so that strict mode does not end unnoticed.
+const STRICT_OFF: &str =
+    "No bucket is private now, so the server keeps the default permissive mode.\n";
 
 /// Whether the questions end by asking where to save a JSON document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -374,32 +440,35 @@ fn ask_on(
 
 /// Asks for the first buckets, then shows the buckets and asks what next until they are written
 /// or cancelled; `None` is Esc on the first bucket names, which goes back before them. Esc in a
-/// later bucket's names or on who reads them comes back here, and a document that cannot be
-/// written or saved does too, so no answer is lost.
+/// later bucket's names comes back here, and a document that cannot be written or saved does
+/// too, so no answer is lost. The document is in strict mode when `chosen` says so or a bucket
+/// is private.
 fn document(
     term: &mut impl Terminal,
     format: Format,
-    auth_mode: Option<AuthMode>,
+    chosen: Option<AuthMode>,
     file: FileQuestion,
 ) -> Result<Option<Answers>, InquireError> {
-    let Some(mut asked) = bucket(term, None, &[], &[])? else {
+    let first = Settled::of(chosen, iter::empty());
+    let Some(mut asked) = bucket(term, None, &[], &[], first)? else {
         return Ok(None);
     };
     loop {
-        let shown: String = asked.iter().map(|entry| entry.bucket.to_string()).collect();
-        term.show(&format!("\n{shown}"));
+        let settled = Settled::of(chosen, asked.iter());
+        let shown: String = asked.iter().map(Asked::to_string).collect();
+        term.show(&format!("\n{}{shown}", settled.summary()));
         let next = match select_one(term, Question::new("Next:"), &Next::offered(asked.len())) {
             Err(InquireError::OperationCanceled) => Next::Cancel,
             next => next?,
         };
         match next {
             Next::Write => {
-                let Some(readers) = back(who_reads(term, &asked, auth_mode))? else {
-                    continue;
-                };
-                let document =
-                    Document::new(asked.iter().map(|entry| entry.bucket.clone()).collect())
-                        .with_auth_mode(readers);
+                let mode = settled.mode();
+                let buckets = asked
+                    .iter()
+                    .map(|entry| entry.written(mode))
+                    .collect::<Result<_, _>>()?;
+                let document = Document::new(buckets).with_auth_mode(mode);
                 let text = match document.render(format) {
                     Ok(text) => text,
                     Err(error) => {
@@ -425,7 +494,7 @@ fn document(
             Next::Add => {
                 let taken = names(&asked, None);
                 let latest = latest_origins(&asked).to_vec();
-                if let Some(added) = bucket(term, None, &taken, &latest)? {
+                if let Some(added) = bucket(term, None, &taken, &latest, settled)? {
                     asked.extend(added);
                 }
             }
@@ -434,11 +503,17 @@ fn document(
                     continue;
                 };
                 let taken = names(&asked, Some(index));
+                let others = asked
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, _)| *other != index)
+                    .map(|(_, entry)| entry);
+                let others = Settled::of(chosen, others);
                 let Some(previous) = asked.get(index) else {
                     continue;
                 };
-                let changed = bucket(term, Some(previous), &taken, latest_origins(&asked))?;
-                if let Some(changed) = changed {
+                let latest = latest_origins(&asked);
+                if let Some(changed) = bucket(term, Some(previous), &taken, latest, others)? {
                     asked.splice(index..=index, changed);
                 }
             }
@@ -455,6 +530,12 @@ fn document(
                 }
             }
         }
+        let now = Settled::of(chosen, asked.iter());
+        if settled == Settled::Needed(AuthMode::Strict)
+            && now == Settled::Needed(AuthMode::Permissive)
+        {
+            term.show(STRICT_OFF);
+        }
     }
 }
 
@@ -469,9 +550,39 @@ fn back<T>(answer: Result<T, InquireError>) -> Result<Option<T>, InquireError> {
 /// A bucket with the answers that made it, so that asking it again starts from them.
 struct Asked {
     bucket: Bucket,
+    readers: Readers,
     goals: Vec<Goal>,
     details: Vec<Detail>,
     origins: Vec<CorsOrigin>,
+}
+
+impl Asked {
+    /// The entry to write in `mode`. A public bucket needs public read in strict mode only:
+    /// permissive mode lets anyone read it anyway, and a bucket without settings then keeps the
+    /// short name-only form.
+    fn written(&self, mode: AuthMode) -> Result<Bucket, InquireError> {
+        let mut bucket = self.bucket.clone();
+        match (mode, self.readers) {
+            (AuthMode::Strict, Readers::Public) => {
+                bucket.apply(Setting::PublicRead).map_err(custom)?;
+            }
+            (AuthMode::Strict, Readers::Private)
+            | (AuthMode::Permissive, Readers::Public | Readers::Private) => {}
+        }
+        Ok(bucket)
+    }
+}
+
+/// The bucket as the summary shows it: its name, who reads it, then one line per setting.
+impl fmt::Display for Asked {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}", self.bucket.name())?;
+        writeln!(f, "  {}", self.readers.summary())?;
+        for line in self.bucket.summary_lines() {
+            writeln!(f, "  {line}")?;
+        }
+        Ok(())
+    }
 }
 
 /// The names of the buckets other than the one at `except`, which a new name must not repeat.
@@ -494,35 +605,6 @@ fn latest_origins(asked: &[Asked]) -> &[CorsOrigin] {
         .unwrap_or_default()
 }
 
-/// Who reads the buckets that public read does not open, as the mode that `chosen` names, or
-/// else as the question answers it. Public read opens a bucket in either mode, so with only
-/// such buckets there is nothing to ask, and the question names the others.
-fn who_reads(
-    term: &mut impl Terminal,
-    asked: &[Asked],
-    chosen: Option<AuthMode>,
-) -> Result<AuthMode, InquireError> {
-    if let Some(chosen) = chosen {
-        return Ok(chosen);
-    }
-    let buckets = asked.iter().map(|entry| &entry.bucket);
-    let closed = buckets
-        .clone()
-        .filter(|bucket| !bucket.grants_public_read())
-        .map(|bucket| bucket.name().to_owned());
-    let Some(closed) = Names::listed(closed) else {
-        return Ok(AuthMode::Permissive);
-    };
-    let text = format!("Who can read {closed}?");
-    let question = Question::new(&text);
-    let question = if buckets.clone().any(Bucket::grants_public_read) {
-        question.with_help("Buckets with public read stay open to anyone")
-    } else {
-        question
-    };
-    choose_one(term, question, &Readers::ALL).map(|readers| readers.0)
-}
-
 /// The index of the bucket to act on; with one bucket there is nothing to ask.
 fn which(term: &mut impl Terminal, asked: &[Asked], question: &str) -> Result<usize, InquireError> {
     if let [_] = asked {
@@ -532,7 +614,7 @@ fn which(term: &mut impl Terminal, asked: &[Asked], question: &str) -> Result<us
         .iter()
         .map(|entry| terminal::Entry::plain(entry.bucket.name()))
         .collect();
-    term.select(Question::new(question), &names)
+    term.select(Question::new(question), &names, 0)
 }
 
 /// Where a written document went.
@@ -625,33 +707,80 @@ fn new_file(path: &Path) -> Validation {
     }
 }
 
-/// Asks for buckets: their names, then what they are for and only what those goals need.
-/// Several names share one set of answers. Asked again, a bucket starts from `previous`: its
-/// name filled in and its goals and settings marked. `latest` are the origins a new bucket is
-/// offered first. Esc after the names goes back to them with what was typed filled in, and Esc
-/// on the names gives `None`, going back before them.
+/// Asks for buckets: their names, who reads them, then what they are for and only what those
+/// goals need. Several names share one set of answers. Asked again, a bucket starts from
+/// `previous`: its name filled in, its readers chosen and its goals and settings marked.
+/// `latest` are the origins a new bucket is offered first, and `settled` the mode before it.
+/// Esc after the names goes back to them with what was typed filled in, and Esc on the names
+/// gives `None`, going back before them.
 fn bucket(
     term: &mut impl Terminal,
     previous: Option<&Asked>,
     taken: &[String],
     latest: &[CorsOrigin],
+    settled: Settled,
 ) -> Result<Option<Vec<Asked>>, InquireError> {
     let mut typed = previous.map(|entry| entry.bucket.name().to_owned());
     loop {
         let Some(names) = back(bucket_names(term, typed.as_deref(), taken))? else {
             return Ok(None);
         };
-        match back(goals_and_settings(term, &names, previous, latest))? {
-            Some(asked) => return Ok(Some(asked)),
-            None => typed = Some(names.comma_separated()),
+        typed = Some(names.comma_separated());
+        if let Some(asked) = readers_and_goals(term, &names, previous, latest, settled)? {
+            return Ok(Some(asked));
         }
     }
 }
 
-/// Asks what the named buckets are for and what those goals need, and records it for each.
+/// Asks who reads the named buckets, then their goals; Esc on the goals asks who reads again,
+/// starting from the answer given, and Esc there gives `None`, back to the names. With
+/// `--auth-mode permissive` anyone reads every bucket, so nothing is asked about it and Esc on
+/// the goals goes back to the names.
+fn readers_and_goals(
+    term: &mut impl Terminal,
+    names: &Names,
+    previous: Option<&Asked>,
+    latest: &[CorsOrigin],
+    settled: Settled,
+) -> Result<Option<Vec<Asked>>, InquireError> {
+    if settled == Settled::Chosen(AuthMode::Permissive) {
+        return back(goals_and_settings(
+            term,
+            names,
+            Readers::Public,
+            previous,
+            latest,
+        ));
+    }
+    let mut answered = previous.map(|entry| entry.readers);
+    loop {
+        let question = format!("Who can read {names}?");
+        let start = positions(&Readers::ALL, answered.as_slice());
+        let readers = choose_one_at(
+            term,
+            Question::new(&question),
+            &Readers::ALL,
+            start.first().copied().unwrap_or_default(),
+        );
+        let Some(readers) = back(readers)? else {
+            return Ok(None);
+        };
+        answered = Some(readers);
+        if readers == Readers::Private && settled == Settled::Needed(AuthMode::Permissive) {
+            term.show(STRICT_ON);
+        }
+        if let Some(asked) = back(goals_and_settings(term, names, readers, previous, latest))? {
+            return Ok(Some(asked));
+        }
+    }
+}
+
+/// Asks what the named buckets are for and what those goals need, and records it for each
+/// with who reads it.
 fn goals_and_settings(
     term: &mut impl Terminal,
     names: &Names,
+    readers: Readers,
     previous: Option<&Asked>,
     latest: &[CorsOrigin],
 ) -> Result<Vec<Asked>, InquireError> {
@@ -699,7 +828,7 @@ fn goals_and_settings(
         pursue(term, &mut bucket, *goal)?;
     }
     for detail in &details {
-        configure(term, &mut bucket, *detail, &goals)?;
+        configure(term, &mut bucket, *detail, readers)?;
     }
     let others = names
         .rest()
@@ -707,6 +836,7 @@ fn goals_and_settings(
         .map(|name| {
             Ok(Asked {
                 bucket: bucket.with_name(name).map_err(custom)?,
+                readers,
                 goals: goals.clone(),
                 details: details.clone(),
                 origins: origins.clone(),
@@ -715,6 +845,7 @@ fn goals_and_settings(
         .collect::<Result<Vec<_>, InquireError>>()?;
     let first = Asked {
         bucket,
+        readers,
         goals,
         details,
         origins,
@@ -738,7 +869,6 @@ fn bucket_names(
 /// Records what `goal` needs beyond the CORS rule, which [`cors::ask`] records.
 fn pursue(term: &mut impl Terminal, bucket: &mut Bucket, goal: Goal) -> Result<(), InquireError> {
     let setting = match goal {
-        Goal::PublicRead => Setting::PublicRead,
         Goal::KeepVersions => Setting::Versioning,
         Goal::KeepDeleted => {
             let Some(seconds) = pick_seconds(
@@ -765,14 +895,16 @@ fn configure(
     term: &mut impl Terminal,
     bucket: &mut Bucket,
     detail: Detail,
-    goals: &[Goal],
+    readers: Readers,
 ) -> Result<(), InquireError> {
     let setting = match detail {
         // Asked with the browser goals, before the other details.
         Detail::Cors => return Ok(()),
         Detail::Labels => return labels(term, bucket),
         Detail::IamBindings => return bindings(term, bucket),
-        Detail::PublicAccessPrevention => Setting::PublicAccessPrevention(prevention(term, goals)?),
+        Detail::PublicAccessPrevention => {
+            Setting::PublicAccessPrevention(prevention(term, readers)?)
+        }
         Detail::EventBasedHold => Setting::DefaultEventBasedHold,
         Detail::Location => Setting::Location(location(term)?),
         Detail::StorageClass => Setting::StorageClass(
@@ -819,22 +951,23 @@ impl fmt::Display for Prevention {
     }
 }
 
-/// Public read and enforced prevention cannot go together, so a bucket that chose public read
-/// is offered only `inherited`.
+/// Public read and enforced prevention cannot go together, and a public bucket gets public read
+/// as soon as another bucket is private, so a public bucket is offered only `inherited`.
 fn prevention(
     term: &mut impl Terminal,
-    goals: &[Goal],
+    readers: Readers,
 ) -> Result<PublicAccessPrevention, InquireError> {
-    let public_read = goals.contains(&Goal::PublicRead);
+    let public = readers == Readers::Public;
     let choices: Vec<_> = PublicAccessPrevention::ALL
         .iter()
         .copied()
-        .filter(|prevention| !public_read || *prevention == PublicAccessPrevention::Inherited)
+        .filter(|prevention| !public || *prevention == PublicAccessPrevention::Inherited)
         .map(Prevention)
         .collect();
     let question = Question::new("Public access prevention:");
-    let question = if public_read {
-        question.with_help("enforced would refuse public read, so it is not offered")
+    let question = if public {
+        question
+            .with_help("enforced would refuse a public bucket's public read, so it is not offered")
     } else {
         question
     };

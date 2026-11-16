@@ -174,7 +174,7 @@ where
     T: Clone + fmt::Display,
 {
     let shown: Vec<_> = entries.iter().map(Entry::plain).collect();
-    entry(entries, term.select(question, &shown)?)
+    entry(entries, term.select(question, &shown, 0)?)
 }
 
 /// Asks to choose one of `entries`, with the answer line naming it without its note.
@@ -186,8 +186,21 @@ pub(super) fn choose_one<T>(
 where
     T: Noted + fmt::Display,
 {
+    choose_one_at(term, question, entries, 0)
+}
+
+/// [`choose_one`] with the cursor on the entry at `start` at first, such as an earlier answer.
+pub(super) fn choose_one_at<T>(
+    term: &mut impl Terminal,
+    question: Question<'_>,
+    entries: &[T],
+    start: usize,
+) -> Result<T, InquireError>
+where
+    T: Noted + fmt::Display,
+{
     let shown: Vec<_> = entries.iter().copied().map(noted).collect();
-    entry(entries, term.select(question, &shown)?)
+    entry(entries, term.select(question, &shown, start)?)
 }
 
 /// Asks to choose any of `entries`, with those at `marked` chosen at the start and the answer

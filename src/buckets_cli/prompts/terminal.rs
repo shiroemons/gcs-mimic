@@ -97,8 +97,14 @@ pub(super) enum EnterMeans {
 }
 
 pub(super) trait Terminal {
-    /// The index of the chosen entry.
-    fn select(&mut self, question: Question<'_>, entries: &[Entry]) -> Result<usize, InquireError>;
+    /// The index of the chosen entry, with the cursor on the entry at `start` at first, so that
+    /// Enter keeps an earlier answer.
+    fn select(
+        &mut self,
+        question: Question<'_>,
+        entries: &[Entry],
+        start: usize,
+    ) -> Result<usize, InquireError>;
 
     /// The indices of the chosen entries, with those at `marked` chosen at the start.
     fn select_many(
@@ -128,9 +134,15 @@ pub(super) trait Terminal {
 pub(super) struct Inquire;
 
 impl Terminal for Inquire {
-    fn select(&mut self, question: Question<'_>, entries: &[Entry]) -> Result<usize, InquireError> {
+    fn select(
+        &mut self,
+        question: Question<'_>,
+        entries: &[Entry],
+        start: usize,
+    ) -> Result<usize, InquireError> {
         let mut list = Select::new(question.text, entries.to_vec())
             .with_page_size(entries.len())
+            .with_starting_cursor(start)
             .with_formatter(&answer);
         if let Some(help) = question.help {
             list = list.with_help_message(help);

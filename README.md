@@ -347,9 +347,9 @@ You do not have to write this JSON by hand:
 `docker run --rm -it ghcr.io/shiroemons/gcs-mimic:0.25.0 buckets new` asks for
 the buckets on the terminal and prints a block to paste. Buckets without
 settings need only their names, as in `GCS_MIMIC_BUCKETS: "uploads,exports"`.
-Before printing, it asks who can read the buckets without public read; answer
-that only your servers do, and the block also starts strict mode as the next
-section does, with the built-in test signer for signed URLs.
+It asks whether each bucket is public or private; a private one makes the block
+also start strict mode as the next section does, with the built-in test signer
+for signed URLs.
 
 Both buckets exist at startup, and pages on `http://localhost:3000` get CORS
 headers for `public-assets`. Your app keeps working as it did. So far anyone can

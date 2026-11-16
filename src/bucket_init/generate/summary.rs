@@ -10,7 +10,7 @@ use std::fmt;
 impl fmt::Display for Bucket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{}", self.name)?;
-        let mut lines = self.lines().peekable();
+        let mut lines = self.summary_lines().peekable();
         if lines.peek().is_none() {
             return writeln!(f, "  default settings");
         }
@@ -22,7 +22,9 @@ impl fmt::Display for Bucket {
 }
 
 impl Bucket {
-    fn lines(&self) -> impl Iterator<Item = String> + '_ {
+    /// One line in words per thing the answers set, without the name, for a summary that adds
+    /// lines of its own, such as who reads the bucket; none for a bucket with default settings.
+    pub fn summary_lines(&self) -> impl Iterator<Item = String> + '_ {
         let settings = [
             self.cors.as_ref().map(Cors::to_string),
             self.public_read

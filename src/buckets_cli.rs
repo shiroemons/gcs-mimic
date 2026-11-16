@@ -26,11 +26,12 @@ pub(crate) const HELP: &str =
 
 Writes a bucket initialization document for --buckets-file, GCS_MIMIC_BUCKETS or a Compose
 service. Without --name it asks on a terminal: how you run gcs-mimic unless --format is given,
-then bucket names (several, comma-separated, share their answers) and what they are for, and
-shows the buckets to write, change or add to; before writing, who reads the buckets without
-public read unless --auth-mode is given. A JSON document bound for the terminal is saved to a
-file it asks for, or printed if none can be created. Questions use stderr; Esc goes back, and
-Ctrl-C writes nothing.
+then bucket names (several, comma-separated, share their answers), whether they are public or
+private and what they are for, and shows the buckets to write, change or add to. A private
+bucket puts every bucket in strict mode, where public ones get public read; --auth-mode fixes
+the mode instead, and permissive asks nothing about public or private. A JSON document bound
+for the terminal is saved to a file it asks for, or printed if none can be created. Questions
+use stderr; Esc goes back, and Ctrl-C writes nothing.
 With --name it asks nothing; each setting after a --name belongs to that bucket:
   --project ID                  --location LOCATION        --storage-class CLASS
   --public-access-prevention inherited|enforced            --soft-delete-retention-seconds N

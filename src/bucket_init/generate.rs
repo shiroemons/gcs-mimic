@@ -434,11 +434,6 @@ impl Bucket {
         &self.name
     }
 
-    /// Whether anyone reads the bucket's objects, in strict mode too.
-    pub fn grants_public_read(&self) -> bool {
-        self.public_read
-    }
-
     /// The same answers for a bucket named `name`, so that several buckets can share them.
     pub fn with_name(&self, name: &str) -> Result<Self, GenerateError> {
         Ok(Self {

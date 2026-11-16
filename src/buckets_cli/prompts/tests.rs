@@ -244,6 +244,7 @@ fn esc_goes_back_and_other_errors_still_end_the_questions() {
 fn asked(name: &str, origins: &[&str]) -> Asked {
     Asked {
         bucket: Bucket::new(name).unwrap(),
+        readers: Readers::Public,
         goals: Vec::new(),
         details: Vec::new(),
         origins: origins
@@ -289,7 +290,7 @@ fn a_new_bucket_is_offered_the_latest_origins() {
 fn earlier_answers_are_marked_when_a_bucket_is_asked_again() {
     assert_eq!(
         positions(&Goal::ALL, &[Goal::More, Goal::BrowserUploads]),
-        [1, 6]
+        [1, 5]
     );
     assert_eq!(
         positions(&Detail::ALL, &[Detail::Project, Detail::Cors]),
@@ -342,20 +343,25 @@ fn entries_carry_notes_and_lists_end_in_the_entry_that_asks_by_hand() {
         SOFT_DELETE_RETENTIONS[0].to_string(),
         "7 days, the Cloud Storage default (604800 seconds)"
     );
-    // The notes say when a page needs each goal: <img> and links need no CORS, and the
-    // default permissive mode already lets anyone read, so a bucket is private only in strict
-    // mode.
+    // The notes say when a page needs each goal: <img> and links need no CORS.
     assert_eq!(
         Goal::Defaults.to_string(),
-        "Default settings  (private in strict mode; anyone reads in the default permissive mode)"
+        "Default settings  (nothing more to set up)"
     );
     assert_eq!(
         Goal::BrowserDownloads.to_string(),
         "Browser downloads  (your page reads objects with fetch(); <img> and links need none)"
     );
+    // Who reads a bucket starts on public, which changes nothing, and each choice says what it
+    // changes, since private changes how the application connects.
+    assert_eq!(Readers::ALL.first(), Some(&Readers::Public));
     assert_eq!(
-        Goal::PublicRead.to_string(),
-        "Public read  (anyone reads objects, in strict mode too: <img> and links)"
+        Readers::Public.to_string(),
+        "Public  (anyone reads its objects; the default, nothing else changes)"
+    );
+    assert_eq!(
+        Readers::Private.to_string(),
+        "Private  (only your servers read it; the server turns strict and they move to port 4444)"
     );
     assert_eq!(
         Prevention(PublicAccessPrevention::Enforced).to_string(),
@@ -425,7 +431,8 @@ fn written(answers: &Answers) -> serde_json::Value {
     serde_json::to_value(&answers.document).unwrap()
 }
 
-/// Two names with default settings take four answers and come out as one Compose line.
+/// Two public names with default settings take five answers, Enter on who reads them among
+/// them, and come out as one Compose line.
 #[test]
 fn named_buckets_without_goals_come_out_as_one_compose_line() {
     let (answers, script) = run(
@@ -434,9 +441,9 @@ fn named_buckets_without_goals_come_out_as_one_compose_line() {
         [
             Reply::Pick("Docker Compose"),
             Reply::Type("app-uploads, app-exports"),
+            Reply::Keep,
             Reply::Picks(&["Default settings"]),
             Reply::Pick("Write it"),
-            Reply::Pick("Anyone"),
         ],
     );
     let answers = answers.unwrap();
@@ -446,13 +453,16 @@ fn named_buckets_without_goals_come_out_as_one_compose_line() {
         "environment:\n  GCS_MIMIC_BUCKETS: \"app-uploads,app-exports\"\n"
     );
     assert_eq!(answers.saved, None);
-    assert!(
-        script
-            .seen
-            .contains(&"? What should app-uploads and app-exports do? [Default settings, Browser uploads, Browser downloads, Public read, Keep old versions, Keep deleted objects, More settings…]".to_owned()),
-        "{:#?}",
-        script.seen
-    );
+    for question in [
+        "? Who can read app-uploads and app-exports? [Public, Private]",
+        "? What should app-uploads and app-exports do? [Default settings, Browser uploads, Browser downloads, Keep old versions, Keep deleted objects, More settings…]",
+    ] {
+        assert!(
+            script.seen.contains(&question.to_owned()),
+            "{:#?}",
+            script.seen
+        );
+    }
 }
 
 /// Browser uploads ask only for the origins and give a rule an upload's preflight passes; a
@@ -464,21 +474,23 @@ fn browser_uploads_ask_only_for_the_origins() {
         FileQuestion::Skip,
         [
             Reply::Type("app-uploads"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Browser uploads"]),
             Reply::Picks(&["http://localhost:3000", "http://localhost:PORT"]),
             Reply::Type("3001"),
             Reply::Type(""),
             Reply::Pick("Add a bucket"),
             Reply::Type("app-assets"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Browser downloads"]),
             Reply::Yes,
             Reply::Pick("Add a bucket"),
             Reply::Type("app-media"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Browser downloads"]),
             Reply::No,
             Reply::Picks(&["*"]),
             Reply::Pick("Write it"),
-            Reply::Pick("Anyone"),
         ],
     );
     let document = written(&answers.unwrap());
@@ -503,21 +515,27 @@ fn browser_uploads_ask_only_for_the_origins() {
 }
 
 /// A bucket asked again starts from its answers, so Enter keeps them; Esc while asking it
-/// again goes back to its name and then to the buckets, leaving it as it was.
+/// again goes back through who reads it and its name to the buckets, leaving it as it was.
+/// Strict mode, chosen here by --auth-mode, writes the public bucket's public read.
 #[test]
 fn a_bucket_asked_again_starts_from_its_answers_and_esc_keeps_it() {
-    let (answers, script) = run(
+    let (answers, script) = run_in(
         Some(Format::Json),
+        Some(AuthMode::Strict),
         FileQuestion::Skip,
         [
             Reply::Type("app-assets"),
-            Reply::Picks(&["Browser downloads", "Public read"]),
+            Reply::Pick("Public"),
+            Reply::Picks(&["Browser downloads"]),
             Reply::Picks(&["http://localhost:5173"]),
             Reply::Pick("Change a bucket"),
             Reply::Keep,
+            Reply::Keep,
+            Reply::Esc,
             Reply::Esc,
             Reply::Esc,
             Reply::Pick("Change a bucket"),
+            Reply::Keep,
             Reply::Keep,
             Reply::Keep,
             Reply::Keep,
@@ -540,8 +558,9 @@ fn a_bucket_asked_again_starts_from_its_answers_and_esc_keeps_it() {
 }
 
 /// Esc goes back one step and ends the questions only on the first one: a mistyped name is
-/// fixed by going back from the goals, which keeps what was typed; the names go back to how
-/// gcs-mimic runs; and cancelling later asks first, with Esc there returning to the buckets.
+/// fixed by going back from the goals through who reads it, which keeps what was typed; the
+/// names go back to how gcs-mimic runs; and cancelling later asks first, with Esc there
+/// returning to the buckets.
 #[test]
 fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
     let (answers, script) = run(Some(Format::Env), FileQuestion::Skip, [Reply::Esc]);
@@ -554,15 +573,17 @@ fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
         [
             Reply::Pick("Docker Compose"),
             Reply::Type("app-uplaods"),
+            Reply::Pick("Public"),
+            Reply::Esc,
             Reply::Esc,
             Reply::Type("app-uploads"),
             Reply::Esc,
             Reply::Esc,
             Reply::Pick("docker run or a shell"),
             Reply::Type("app-uploads"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Default settings"]),
             Reply::Pick("Write it"),
-            Reply::Pick("Anyone"),
         ],
     );
     assert_eq!(answers.unwrap().text, "GCS_MIMIC_BUCKETS=app-uploads\n");
@@ -599,6 +620,7 @@ fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
         FileQuestion::Skip,
         [
             Reply::Type("app-uploads"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Default settings"]),
             Reply::Esc,
             Reply::Esc,
@@ -632,11 +654,11 @@ fn refused_answers_are_asked_again() {
         [
             Reply::Type("Bad"),
             Reply::Type("app-uploads"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Browser downloads"]),
             Reply::Picks(&[]),
             Reply::Picks(&["*"]),
             Reply::Pick("Write it"),
-            Reply::Pick("Anyone"),
         ],
     );
     assert!(answers.is_ok());
@@ -666,12 +688,12 @@ fn enter_without_a_choice_is_refused_until_one_is_made() {
         FileQuestion::Skip,
         [
             Reply::Type("app-uploads"),
+            Reply::Pick("Public"),
             Reply::Picks(&[]),
             Reply::Picks(&["Default settings", "Browser uploads"]),
             Reply::Picks(&["Browser uploads"]),
             Reply::Picks(&["http://localhost:3000"]),
             Reply::Pick("Write it"),
-            Reply::Pick("Anyone"),
         ],
     );
     assert!(
@@ -697,25 +719,35 @@ fn enter_without_a_choice_is_refused_until_one_is_made() {
     );
 }
 
-/// Who reads is asked once, before writing, about the buckets that public read leaves closed,
-/// with Anyone first so that Enter keeps the default; Esc there goes back to the buckets.
-/// Choosing strict mode writes its settings beside the buckets.
+fn shown(script: &Script, text: &str) -> usize {
+    script.seen.iter().filter(|seen| *seen == text).count()
+}
+
+/// Who reads is asked right after the names. A private bucket turns strict mode on for every
+/// bucket, said at once and atop the summary; a public bucket beside it then gets public read,
+/// and Esc on the goals asks who reads again from the answer given, as asking again does.
 #[test]
-fn public_and_private_buckets_ask_who_reads_the_private_ones() {
+fn a_private_bucket_turns_on_strict_mode_for_every_bucket() {
     let (answers, script) = run(
         None,
         FileQuestion::Skip,
         [
             Reply::Pick("Docker Compose"),
             Reply::Type("app-public"),
-            Reply::Picks(&["Public read"]),
+            Reply::Pick("Public"),
+            Reply::Picks(&["Default settings"]),
             Reply::Pick("Add a bucket"),
             Reply::Type("app-private, app-uploads"),
-            Reply::Picks(&["Default settings"]),
-            Reply::Pick("Write it"),
+            Reply::Pick("Private"),
             Reply::Esc,
+            Reply::Keep,
+            Reply::Picks(&["Default settings"]),
+            Reply::Pick("Change a bucket"),
+            Reply::Pick("app-private"),
+            Reply::Keep,
+            Reply::Keep,
+            Reply::Keep,
             Reply::Pick("Write it"),
-            Reply::Pick("Only your servers and the URLs they sign"),
         ],
     );
     let answers = answers.unwrap();
@@ -728,78 +760,125 @@ fn public_and_private_buckets_ask_who_reads_the_private_ones() {
         "{}",
         answers.text
     );
-    let question = "? Who can read app-private and app-uploads? [Anyone, Only your servers and the URLs they sign]";
-    let asked = script.seen.iter().filter(|seen| *seen == question).count();
-    assert_eq!(asked, 2, "{:#?}", script.seen);
-    let reviews = script
+    let document = written(&answers);
+    assert_eq!(
+        document["buckets"][0]["iamPolicy"]["bindings"][0]["members"],
+        serde_json::json!(["allUsers"])
+    );
+    for private in 1..=2 {
+        assert_eq!(
+            document["buckets"][private].as_object().unwrap().len(),
+            1,
+            "{document}"
+        );
+    }
+    assert_eq!(
+        shown(
+            &script,
+            "? Who can read app-private and app-uploads? [Public, Private]"
+        ),
+        2
+    );
+    // Said each time a private answer turns strict mode on, not when it already was.
+    assert_eq!(shown(&script, STRICT_ON), 2, "{:#?}", script.seen);
+    let summary = script
         .seen
         .iter()
-        .filter(|seen| seen.starts_with("? Next:"))
-        .count();
-    assert_eq!(reviews, 3);
-    assert_eq!(Readers::ALL.first(), Some(&Readers(AuthMode::Permissive)));
-    assert_eq!(
-        Readers(AuthMode::Strict).to_string(),
-        "Only your servers and the URLs they sign  (strict mode; your servers then use port 4444)"
+        .rev()
+        .find(|seen| seen.starts_with('\n'))
+        .unwrap();
+    assert!(
+        summary.starts_with("\nStrict mode for the whole server, since a bucket is private"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("app-public\n  public: anyone reads its objects\napp-private\n  private:"),
+        "{summary}"
     );
 }
 
-/// Public read opens a bucket in either mode, so buckets that all have it raise no question,
-/// and neither does a mode that --auth-mode chose.
+/// Strict mode ends with the last private bucket, said so that it does not end unnoticed, and
+/// the public bucket left is written as its name alone.
 #[test]
-fn who_reads_is_not_asked_when_nothing_depends_on_it() {
+fn strict_mode_ends_with_the_last_private_bucket() {
     let (answers, script) = run(
         Some(Format::Env),
         FileQuestion::Skip,
         [
-            Reply::Type("app-public"),
-            Reply::Picks(&["Public read"]),
+            Reply::Type("app-data"),
+            Reply::Pick("Private"),
+            Reply::Picks(&["Default settings"]),
+            Reply::Pick("Change a bucket"),
+            Reply::Keep,
+            Reply::Pick("Public"),
+            Reply::Keep,
             Reply::Pick("Write it"),
         ],
     );
-    assert_eq!(answers.unwrap().document.auth_mode(), AuthMode::Permissive);
+    let answers = answers.unwrap();
+    assert!(script.is_done());
+    assert_eq!(answers.text, "GCS_MIMIC_BUCKETS=app-data\n");
+    assert_eq!(shown(&script, STRICT_OFF), 1, "{:#?}", script.seen);
+}
+
+/// --auth-mode decides the mode: permissive asks nothing about readers, since anyone reads every
+/// bucket, and strict still asks, giving a public bucket public read without a private one.
+#[test]
+fn auth_mode_decides_the_mode_without_a_private_bucket() {
+    let (answers, script) = run_in(
+        Some(Format::Env),
+        Some(AuthMode::Permissive),
+        FileQuestion::Skip,
+        [
+            Reply::Type("app-data"),
+            Reply::Picks(&["Default settings"]),
+            Reply::Pick("Write it"),
+        ],
+    );
+    assert_eq!(answers.unwrap().text, "GCS_MIMIC_BUCKETS=app-data\n");
     assert!(script.is_done());
     let (answers, script) = run_in(
         Some(Format::Env),
         Some(AuthMode::Strict),
         FileQuestion::Skip,
         [
-            Reply::Type("app-private"),
+            Reply::Type("app-public"),
+            Reply::Pick("Public"),
             Reply::Picks(&["Default settings"]),
             Reply::Pick("Write it"),
         ],
     );
-    assert!(
-        answers
-            .unwrap()
-            .text
-            .starts_with("GCS_MIMIC_AUTH_MODE=strict\n")
-    );
+    let answers = answers.unwrap();
     assert!(script.is_done());
+    assert!(answers.text.starts_with("GCS_MIMIC_AUTH_MODE=strict\n"));
+    assert!(answers.text.contains("allUsers"), "{}", answers.text);
+    assert_eq!(shown(&script, STRICT_ON), 0);
 }
 
-/// With public read chosen, public access prevention offers only inherited.
+/// A public bucket gets public read once another is private, which enforced prevention would
+/// refuse, so it is offered only inherited; a private bucket is offered both.
 #[test]
-fn public_read_is_offered_only_inherited_prevention() {
-    let (answers, script) = run(
-        Some(Format::Json),
-        FileQuestion::Skip,
-        [
-            Reply::Type("app-assets"),
-            Reply::Picks(&["Public read", "More settings…"]),
-            Reply::Picks(&["Public access prevention"]),
-            Reply::Pick("inherited"),
-            Reply::Pick("Write it"),
-        ],
-    );
-    assert!(answers.is_ok());
-    assert!(
-        script
-            .seen
-            .contains(&"? Public access prevention: [inherited]".to_owned()),
-        "{:#?}",
-        script.seen
-    );
+fn a_public_bucket_is_offered_only_inherited_prevention() {
+    for (readers, offered) in [
+        ("Public", "[inherited]"),
+        ("Private", "[inherited, enforced]"),
+    ] {
+        let (answers, script) = run(
+            Some(Format::Json),
+            FileQuestion::Skip,
+            [
+                Reply::Type("app-assets"),
+                Reply::Pick(readers),
+                Reply::Picks(&["More settings…"]),
+                Reply::Picks(&["Public access prevention"]),
+                Reply::Pick("inherited"),
+                Reply::Pick("Write it"),
+            ],
+        );
+        assert!(answers.is_ok());
+        let question = format!("? Public access prevention: {offered}");
+        assert_eq!(shown(&script, &question), 1, "{:#?}", script.seen);
+    }
 }
 
 /// A file that cannot be created offers another file or printing, and no answer is lost.
@@ -815,9 +894,9 @@ fn a_file_that_cannot_be_created_offers_another_file_or_printing() {
     let saved_text: &'static str = Box::leak(saved.to_string_lossy().into_owned().into_boxed_str());
     let start = [
         Reply::Type("app-data"),
+        Reply::Pick("Public"),
         Reply::Picks(&["Default settings"]),
         Reply::Pick("Write it"),
-        Reply::Pick("Anyone"),
         Reply::Type(blocked),
     ];
 

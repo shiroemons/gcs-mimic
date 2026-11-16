@@ -383,9 +383,9 @@ Composeはインラインの値の`${VAR}`を展開するので、`$`そのも�
 ]}
 ```
 
-文書はイメージでも作れます。`docker run --rm -it IMAGE buckets new`は、gcs-mimicの起動方法、各バケットの用途、公開読み取りのないバケットを誰が読めるかを端末で聞き、`$`を`$$`に直したComposeの`environment:`の断片、`GCS_MIMIC_BUCKETS`の1行、または文書を出力します。
+文書はイメージでも作れます。`docker run --rm -it IMAGE buckets new`は、gcs-mimicの起動方法、各バケットが公開か非公開か、その用途を端末で聞き、`$`を`$$`に直したComposeの`environment:`の断片、`GCS_MIMIC_BUCKETS`の1行、または文書を出力します。
 `--name NAME`と設定を引数で渡せば何も聞かず、`-it`も要りません。
-読めるのを自分のサーバーだけにすると（`--auth-mode strict`でも同じ）、断片の先頭に[信頼済みリスナー](#信頼済みリスナーで非公開バケットを守る)を使うstrictモードの設定が入ります。
+非公開のバケットがあると（`--auth-mode strict`でも同じ）、断片の先頭に[信頼済みリスナー](#信頼済みリスナーで非公開バケットを守る)を使うstrictモードの設定が入り、公開バケットには公開読み取りが付きます。
 コンテナではJSONファイルを残せません。作業ディレクトリに書き込めず、コンテナと一緒に消えるためです。質問では代わりに画面への出力を選べます。引数で渡す場合は`docker run --rm IMAGE buckets new --name NAME > buckets.json`のようにリダイレクトしてください。
 詳しくは[文書の作成](../en/slices/bucket-initialization.md#writing-a-document-with-buckets-new)（英語）を参照してください。0.23.0までのリリースにはこのコマンドがありません。
 

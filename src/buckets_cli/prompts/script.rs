@@ -91,10 +91,16 @@ fn ended(reply: Reply) -> InquireError {
 }
 
 impl Terminal for Script {
-    fn select(&mut self, question: Question<'_>, entries: &[Entry]) -> Result<usize, InquireError> {
+    fn select(
+        &mut self,
+        question: Question<'_>,
+        entries: &[Entry],
+        start: usize,
+    ) -> Result<usize, InquireError> {
         self.ask(question, entries);
         match self.next(question.text) {
             Reply::Pick(answer) => Ok(index(entries, answer, question.text)),
+            Reply::Keep => Ok(start),
             reply => Err(ended(reply)),
         }
     }
