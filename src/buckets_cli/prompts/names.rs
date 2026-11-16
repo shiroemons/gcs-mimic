@@ -50,6 +50,14 @@ impl Names {
     pub(super) fn rest(&self) -> &[String] {
         &self.rest
     }
+
+    /// The names as they would be typed, to fill in the question when it asks again.
+    pub(super) fn comma_separated(&self) -> String {
+        std::iter::once(self.first.as_str())
+            .chain(self.rest.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// `a`, `a and b`, or `a, b and c`, for a question about every named bucket.

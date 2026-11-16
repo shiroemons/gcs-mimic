@@ -64,6 +64,9 @@ impl fmt::Display for Launch {
 /// members those are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Goal {
+    /// Chosen like the others, so that Enter on an entry that Space never marked is refused at
+    /// once instead of quietly leaving the bucket with default settings.
+    Defaults,
     BrowserUploads,
     BrowserDownloads,
     PublicRead,
@@ -73,7 +76,8 @@ enum Goal {
 }
 
 impl Goal {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
+        Self::Defaults,
         Self::BrowserUploads,
         Self::BrowserDownloads,
         Self::PublicRead,
@@ -86,6 +90,7 @@ impl Goal {
 impl Noted for Goal {
     fn name(self) -> &'static str {
         match self {
+            Self::Defaults => "Default settings",
             Self::BrowserUploads => "Browser uploads",
             Self::BrowserDownloads => "Browser downloads",
             Self::PublicRead => "Public read",
@@ -95,11 +100,17 @@ impl Noted for Goal {
         }
     }
 
+    // Each note says when a bucket needs the goal, since the members' names do not: a page
+    // shows objects through <img> and links without CORS, and the default permissive mode
+    // already lets anyone read, so public read matters only in strict mode.
     fn note(self) -> &'static str {
         match self {
+            Self::Defaults => "nothing more to set up",
             Self::BrowserUploads => "your web or mobile app uploads files: CORS for PUT and POST",
-            Self::BrowserDownloads => "your app fetches objects: CORS for GET and HEAD",
-            Self::PublicRead => "anyone can read objects without signing in",
+            Self::BrowserDownloads => {
+                "your page reads objects with fetch(); <img> and links need none"
+            }
+            Self::PublicRead => "anyone reads objects, in strict mode too: <img> and links",
             Self::KeepVersions => "overwrites and deletes keep the old object: versioning",
             Self::KeepDeleted => "deleted objects can be restored for a while: soft delete",
             Self::More => "labels, IAM, CORS details, location, storage class and more",
@@ -288,39 +299,49 @@ pub(super) fn ask(format: Option<Format>, file: FileQuestion) -> Result<Answers,
     ask_on(&mut Inquire, format, file)
 }
 
+/// Esc goes back one step everywhere, so it ends the questions only on the first one: from the
+/// first bucket names back to how gcs-mimic runs, or out when a flag chose the format.
 fn ask_on(
     term: &mut impl Terminal,
     format: Option<Format>,
     file: FileQuestion,
 ) -> Result<Answers, InquireError> {
-    let format = match format {
-        Some(format) => format,
-        None => {
-            choose_one(
-                term,
-                Question::new("How do you run gcs-mimic?"),
-                &Launch::ALL,
-            )?
-            .0
+    loop {
+        let chosen = match format {
+            Some(format) => format,
+            None => {
+                choose_one(
+                    term,
+                    Question::new("How do you run gcs-mimic?"),
+                    &Launch::ALL,
+                )?
+                .0
+            }
+        };
+        let file = match chosen {
+            Format::Json => file,
+            Format::Env | Format::Compose => FileQuestion::Skip,
+        };
+        match document(term, chosen, file)? {
+            Some(answers) => return Ok(answers),
+            None if format.is_none() => {}
+            None => return Err(InquireError::OperationCanceled),
         }
-    };
-    let file = match format {
-        Format::Json => file,
-        Format::Env | Format::Compose => FileQuestion::Skip,
-    };
-    document(term, format, file)
+    }
 }
 
 /// Asks for the first buckets, then shows the buckets and asks what next until they are written
-/// or cancelled. Esc inside a bucket's questions drops only that bucket's answers and comes back
-/// here; the first bucket has nothing to come back to, so Esc there ends the questions. A
-/// document that cannot be written or saved also comes back here, so no answer is lost.
+/// or cancelled; `None` is Esc on the first bucket names, which goes back before them. Esc in a
+/// later bucket's names comes back here, and a document that cannot be written or saved does
+/// too, so no answer is lost.
 fn document(
     term: &mut impl Terminal,
     format: Format,
     file: FileQuestion,
-) -> Result<Answers, InquireError> {
-    let mut asked = bucket(term, None, &[], &[])?;
+) -> Result<Option<Answers>, InquireError> {
+    let Some(mut asked) = bucket(term, None, &[], &[])? else {
+        return Ok(None);
+    };
     loop {
         let shown: String = asked.iter().map(|entry| entry.bucket.to_string()).collect();
         term.show(&format!("\n{shown}"));
@@ -347,17 +368,17 @@ fn document(
                         Saved::Back => continue,
                     },
                 };
-                return Ok(Answers {
+                return Ok(Some(Answers {
                     document,
                     format,
                     text,
                     saved,
-                });
+                }));
             }
             Next::Add => {
                 let taken = names(&asked, None);
                 let latest = latest_origins(&asked).to_vec();
-                if let Some(added) = back(bucket(term, None, &taken, &latest))? {
+                if let Some(added) = bucket(term, None, &taken, &latest)? {
                     asked.extend(added);
                 }
             }
@@ -369,7 +390,7 @@ fn document(
                 let Some(previous) = asked.get(index) else {
                     continue;
                 };
-                let changed = back(bucket(term, Some(previous), &taken, latest_origins(&asked)))?;
+                let changed = bucket(term, Some(previous), &taken, latest_origins(&asked))?;
                 if let Some(changed) = changed {
                     asked.splice(index..=index, changed);
                 }
@@ -528,23 +549,49 @@ fn new_file(path: &Path) -> Validation {
     }
 }
 
-/// Asks for buckets: their names, what they are for, and only what those goals need. Several
-/// names share one set of answers. Asked again, a bucket starts from `previous`: its name filled
-/// in and its goals and settings marked. `latest` are the origins a new bucket is offered first.
+/// Asks for buckets: their names, then what they are for and only what those goals need.
+/// Several names share one set of answers. Asked again, a bucket starts from `previous`: its
+/// name filled in and its goals and settings marked. `latest` are the origins a new bucket is
+/// offered first. Esc after the names goes back to them with what was typed filled in, and Esc
+/// on the names gives `None`, going back before them.
 fn bucket(
     term: &mut impl Terminal,
     previous: Option<&Asked>,
     taken: &[String],
     latest: &[CorsOrigin],
+) -> Result<Option<Vec<Asked>>, InquireError> {
+    let mut typed = previous.map(|entry| entry.bucket.name().to_owned());
+    loop {
+        let Some(names) = back(bucket_names(term, typed.as_deref(), taken))? else {
+            return Ok(None);
+        };
+        match back(goals_and_settings(term, &names, previous, latest))? {
+            Some(asked) => return Ok(Some(asked)),
+            None => typed = Some(names.comma_separated()),
+        }
+    }
+}
+
+/// Asks what the named buckets are for and what those goals need, and records it for each.
+fn goals_and_settings(
+    term: &mut impl Terminal,
+    names: &Names,
+    previous: Option<&Asked>,
+    latest: &[CorsOrigin],
 ) -> Result<Vec<Asked>, InquireError> {
-    let names = bucket_names(term, previous.map(|entry| entry.bucket.name()), taken)?;
     let mut bucket = Bucket::new(names.first()).map_err(custom)?;
+    // Default settings and any goal contradict each other on the answer line.
+    let need = Goal::ALL
+        .iter()
+        .position(|goal| *goal == Goal::Defaults)
+        .map_or(Need::AtLeastOne, Need::AtLeastOneWithAlone);
     let goals = choose_many(
         term,
         Question::new(&format!("What should {names} do?"))
-            .with_help("Space selects, Enter continues; choose none for default settings"),
+            .with_help("Space selects, Enter continues"),
         &Goal::ALL,
         &positions(&Goal::ALL, previous.map_or(&[], |entry| &entry.goals)),
+        need,
     )?;
     let details = if goals.contains(&Goal::More) {
         choose_many(
@@ -553,6 +600,7 @@ fn bucket(
                 .with_help("Space selects, Enter continues"),
             &Detail::ALL,
             &positions(&Detail::ALL, previous.map_or(&[], |entry| &entry.details)),
+            Need::Optional,
         )?
     } else {
         Vec::new()
@@ -629,7 +677,9 @@ fn pursue(term: &mut impl Terminal, bucket: &mut Bucket, goal: Goal) -> Result<(
             };
             Setting::SoftDeleteRetentionSeconds(seconds)
         }
-        Goal::BrowserUploads | Goal::BrowserDownloads | Goal::More => return Ok(()),
+        Goal::Defaults | Goal::BrowserUploads | Goal::BrowserDownloads | Goal::More => {
+            return Ok(());
+        }
     };
     bucket.apply(setting).map_err(custom)
 }

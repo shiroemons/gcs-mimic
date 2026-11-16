@@ -289,7 +289,7 @@ fn a_new_bucket_is_offered_the_latest_origins() {
 fn earlier_answers_are_marked_when_a_bucket_is_asked_again() {
     assert_eq!(
         positions(&Goal::ALL, &[Goal::More, Goal::BrowserUploads]),
-        [0, 5]
+        [1, 6]
     );
     assert_eq!(
         positions(&Detail::ALL, &[Detail::Project, Detail::Cors]),
@@ -327,6 +327,8 @@ fn a_new_file_must_not_exist_and_its_directory_must() {
 fn entries_carry_notes_and_lists_end_in_the_entry_that_asks_by_hand() {
     assert_eq!(MAX_AGES.last(), Some(&SecondsPick::Other));
     assert_eq!(SOFT_DELETE_RETENTIONS.last(), Some(&SecondsPick::Other));
+    // Default settings comes first, where the cursor starts, so choosing it is Space and Enter.
+    assert_eq!(Goal::ALL.first(), Some(&Goal::Defaults));
     assert_eq!(Goal::ALL.last(), Some(&Goal::More));
     assert_eq!(
         Pick::Offered(ORIGINS[0]).to_string(),
@@ -340,9 +342,15 @@ fn entries_carry_notes_and_lists_end_in_the_entry_that_asks_by_hand() {
         SOFT_DELETE_RETENTIONS[0].to_string(),
         "7 days, the Cloud Storage default (604800 seconds)"
     );
+    // The notes say when a page needs each goal: <img> and links need no CORS, and the
+    // default permissive mode already lets anyone read.
+    assert_eq!(
+        Goal::BrowserDownloads.to_string(),
+        "Browser downloads  (your page reads objects with fetch(); <img> and links need none)"
+    );
     assert_eq!(
         Goal::PublicRead.to_string(),
-        "Public read  (anyone can read objects without signing in)"
+        "Public read  (anyone reads objects, in strict mode too: <img> and links)"
     );
     assert_eq!(
         Prevention(PublicAccessPrevention::Enforced).to_string(),
@@ -402,7 +410,7 @@ fn written(answers: &Answers) -> serde_json::Value {
     serde_json::to_value(&answers.document).unwrap()
 }
 
-/// Two names and no goals take four answers and come out as one Compose line.
+/// Two names with default settings take four answers and come out as one Compose line.
 #[test]
 fn named_buckets_without_goals_come_out_as_one_compose_line() {
     let (answers, script) = run(
@@ -411,7 +419,7 @@ fn named_buckets_without_goals_come_out_as_one_compose_line() {
         [
             Reply::Pick("Docker Compose"),
             Reply::Type("app-uploads, app-exports"),
-            Reply::Picks(&[]),
+            Reply::Picks(&["Default settings"]),
             Reply::Pick("Write it"),
         ],
     );
@@ -425,7 +433,7 @@ fn named_buckets_without_goals_come_out_as_one_compose_line() {
     assert!(
         script
             .seen
-            .contains(&"? What should app-uploads and app-exports do? [Browser uploads, Browser downloads, Public read, Keep old versions, Keep deleted objects, More settings…]".to_owned()),
+            .contains(&"? What should app-uploads and app-exports do? [Default settings, Browser uploads, Browser downloads, Public read, Keep old versions, Keep deleted objects, More settings…]".to_owned()),
         "{:#?}",
         script.seen
     );
@@ -478,7 +486,7 @@ fn browser_uploads_ask_only_for_the_origins() {
 }
 
 /// A bucket asked again starts from its answers, so Enter keeps them; Esc while asking it
-/// again leaves it as it was.
+/// again goes back to its name and then to the buckets, leaving it as it was.
 #[test]
 fn a_bucket_asked_again_starts_from_its_answers_and_esc_keeps_it() {
     let (answers, script) = run(
@@ -490,6 +498,7 @@ fn a_bucket_asked_again_starts_from_its_answers_and_esc_keeps_it() {
             Reply::Picks(&["http://localhost:5173"]),
             Reply::Pick("Change a bucket"),
             Reply::Keep,
+            Reply::Esc,
             Reply::Esc,
             Reply::Pick("Change a bucket"),
             Reply::Keep,
@@ -513,19 +522,66 @@ fn a_bucket_asked_again_starts_from_its_answers_and_esc_keeps_it() {
     assert_eq!(document["buckets"].as_array().unwrap().len(), 1);
 }
 
-/// Esc on the first bucket ends the questions; cancelling later asks first, and Esc there
-/// returns to the buckets.
+/// Esc goes back one step and ends the questions only on the first one: a mistyped name is
+/// fixed by going back from the goals, which keeps what was typed; the names go back to how
+/// gcs-mimic runs; and cancelling later asks first, with Esc there returning to the buckets.
 #[test]
-fn esc_ends_only_where_there_is_nothing_to_return_to() {
+fn esc_goes_back_one_step_and_ends_only_on_the_first_question() {
     let (answers, script) = run(Some(Format::Env), FileQuestion::Skip, [Reply::Esc]);
     assert!(matches!(answers, Err(InquireError::OperationCanceled)));
     assert!(script.is_done());
+
+    let (answers, script) = run(
+        None,
+        FileQuestion::Skip,
+        [
+            Reply::Pick("Docker Compose"),
+            Reply::Type("app-uplaods"),
+            Reply::Esc,
+            Reply::Type("app-uploads"),
+            Reply::Esc,
+            Reply::Esc,
+            Reply::Pick("docker run or a shell"),
+            Reply::Type("app-uploads"),
+            Reply::Picks(&["Default settings"]),
+            Reply::Pick("Write it"),
+        ],
+    );
+    assert_eq!(answers.unwrap().text, "GCS_MIMIC_BUCKETS=app-uploads\n");
+    assert!(script.is_done());
+    let launches = script
+        .seen
+        .iter()
+        .filter(|seen| seen.starts_with("? How do you run gcs-mimic?"))
+        .count();
+    assert_eq!(launches, 2);
+
+    // Enter on the names asked again keeps what was typed: an empty answer would be refused.
+    let (answers, script) = run(
+        Some(Format::Env),
+        FileQuestion::Skip,
+        [
+            Reply::Type("app-uplaods"),
+            Reply::Esc,
+            Reply::Keep,
+            Reply::Esc,
+            Reply::Esc,
+        ],
+    );
+    assert!(matches!(answers, Err(InquireError::OperationCanceled)));
+    assert!(script.is_done());
+    assert!(
+        !script.seen.iter().any(|seen| seen.starts_with("# Enter")),
+        "{:#?}",
+        script.seen
+    );
+
     let (answers, script) = run(
         Some(Format::Env),
         FileQuestion::Skip,
         [
             Reply::Type("app-uploads"),
-            Reply::Picks(&[]),
+            Reply::Picks(&["Default settings"]),
             Reply::Esc,
             Reply::Esc,
             Reply::Pick("Cancel and write nothing"),
@@ -574,7 +630,51 @@ fn refused_answers_are_asked_again() {
         "{:#?}",
         script.seen
     );
-    assert!(script.seen.contains(&"# Choose at least one".to_owned()));
+    assert!(
+        script
+            .seen
+            .contains(&"# Choose at least one; Space selects.".to_owned())
+    );
+}
+
+/// Enter on a goal that Space never marked is refused at once instead of leaving the bucket
+/// with default settings, which are a choice of their own and go alone: with another goal they
+/// would put a contradiction on the answer line.
+#[test]
+fn enter_without_a_choice_is_refused_until_one_is_made() {
+    let (answers, script) = run(
+        Some(Format::Env),
+        FileQuestion::Skip,
+        [
+            Reply::Type("app-uploads"),
+            Reply::Picks(&[]),
+            Reply::Picks(&["Default settings", "Browser uploads"]),
+            Reply::Picks(&["Browser uploads"]),
+            Reply::Picks(&["http://localhost:3000"]),
+            Reply::Pick("Write it"),
+        ],
+    );
+    assert!(
+        answers
+            .unwrap()
+            .text
+            .contains("\"method\":[\"PUT\",\"POST\"]")
+    );
+    assert!(script.is_done());
+    let goals = script
+        .seen
+        .iter()
+        .position(|seen| seen.starts_with("? What should app-uploads do?"))
+        .unwrap();
+    assert_eq!(
+        script.seen.get(goals + 1..goals + 3),
+        Some(
+            &[
+                "# Choose at least one; Space selects.".to_owned(),
+                "# Default settings goes alone; Space unmarks.".to_owned(),
+            ][..]
+        )
+    );
 }
 
 /// With public read chosen, public access prevention offers only inherited.
@@ -614,7 +714,7 @@ fn a_file_that_cannot_be_created_offers_another_file_or_printing() {
     let saved_text: &'static str = Box::leak(saved.to_string_lossy().into_owned().into_boxed_str());
     let start = [
         Reply::Type("app-data"),
-        Reply::Picks(&[]),
+        Reply::Picks(&["Default settings"]),
         Reply::Pick("Write it"),
         Reply::Type(blocked),
     ];

@@ -116,8 +116,8 @@ impl Terminal for Script {
                 Reply::Keep => marked.to_vec(),
                 reply => return Err(ended(reply)),
             };
-            if need == Need::AtLeastOne && chosen.is_empty() {
-                self.seen.push("# Choose at least one".to_owned());
+            if let Some(refusal) = need.refusal(entries, &chosen) {
+                self.seen.push(format!("# {refusal}"));
                 continue;
             }
             return Ok(chosen);

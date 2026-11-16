@@ -3,8 +3,8 @@
 //! drive the whole flow with a script instead of keystrokes.
 
 use inquire::{
-    Confirm, InquireError, MultiSelect, Select, Text, error::CustomUserError,
-    list_option::ListOption, validator::Validation,
+    Confirm, InquireError, MultiSelect, Select, Text, list_option::ListOption,
+    validator::Validation,
 };
 use std::{fmt, rc::Rc};
 
@@ -52,11 +52,38 @@ impl fmt::Display for Entry {
     }
 }
 
-/// Whether a list question may be left with nothing chosen.
+/// What a list question accepts as an answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Need {
-    AtLeastOne,
     Optional,
+    AtLeastOne,
+    /// At least one, and the entry at this index only on its own, as default settings, which
+    /// any other choice would contradict.
+    AtLeastOneWithAlone(usize),
+}
+
+impl Need {
+    /// Why the entries at `chosen` are refused, shown under the question that asks again. The
+    /// terminal and the tests' script both judge through this, so they cannot drift apart.
+    pub(super) fn refusal(self, entries: &[Entry], chosen: &[usize]) -> Option<String> {
+        match self {
+            Self::Optional => None,
+            Self::AtLeastOne | Self::AtLeastOneWithAlone(_) if chosen.is_empty() => {
+                Some("Choose at least one; Space selects.".to_owned())
+            }
+            Self::AtLeastOne => None,
+            Self::AtLeastOneWithAlone(alone) => {
+                let mixed = chosen.len() > 1 && chosen.contains(&alone);
+                let name = entries.get(alone).map(|entry| entry.answer.as_str());
+                mixed.then(|| {
+                    format!(
+                        "{} goes alone; Space unmarks.",
+                        name.unwrap_or("That entry")
+                    )
+                })
+            }
+        }
+    }
 }
 
 /// Checks a typed answer. A refusal is shown under the question, which asks again.
@@ -125,8 +152,15 @@ impl Terminal for Inquire {
         if let Some(help) = question.help {
             list = list.with_help_message(help);
         }
-        if need == Need::AtLeastOne {
-            list = list.with_validator(at_least_one);
+        if need != Need::Optional {
+            let shown = entries.to_vec();
+            list = list.with_validator(move |chosen: &[ListOption<&Entry>]| {
+                let chosen: Vec<_> = chosen.iter().map(|option| option.index).collect();
+                Ok(match need.refusal(&shown, &chosen) {
+                    Some(refusal) => Validation::Invalid(refusal.into()),
+                    None => Validation::Valid,
+                })
+            });
         }
         list.raw_prompt()
             .map(|chosen| chosen.into_iter().map(|option| option.index).collect())
@@ -174,12 +208,4 @@ fn answers(chosen: &[ListOption<&Entry>]) -> String {
         .map(|option| option.value.answer.as_str())
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn at_least_one(chosen: &[ListOption<&Entry>]) -> Result<Validation, CustomUserError> {
-    Ok(if chosen.is_empty() {
-        Validation::Invalid("Choose at least one; Space selects.".into())
-    } else {
-        Validation::Valid
-    })
 }

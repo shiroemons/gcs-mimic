@@ -197,12 +197,13 @@ pub(super) fn choose_many<T>(
     question: Question<'_>,
     entries: &[T],
     marked: &[usize],
+    need: Need,
 ) -> Result<Vec<T>, InquireError>
 where
     T: Noted + fmt::Display,
 {
     let shown: Vec<_> = entries.iter().copied().map(noted).collect();
-    term.select_many(question, &shown, marked, Need::Optional)?
+    term.select_many(question, &shown, marked, need)?
         .into_iter()
         .map(|index| entry(entries, index))
         .collect()
