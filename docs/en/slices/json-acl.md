@@ -56,7 +56,10 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
   resumable session stores its completed resource without ACL fields or field
   selection: the completing request, a later status or retry request and a
   refused cancellation each add the object's `acl` and `owner` as they are then,
-  and apply the initiation's `fields` afterwards. Cloud Storage answered the
+  and apply the initiation's `fields` afterwards. Requests on the session URI
+  carry no credentials of their own, so the initiator's stored access decides
+  whether those answers may carry the ACL fields, as a strict caller's own
+  permission does elsewhere: an anonymous initiator gets none. Cloud Storage answered the
   completing and the status request, and a full-projection rewrite, with those
   fields (recorded 2026-11-17, case `obj-full-projection-writes`); the Go SDK's
   Writer and Copier always ask for `full`. The refused cancellation follows by

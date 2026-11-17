@@ -33,26 +33,27 @@ fn acl_fields(resource: &Value) -> (Value, Value) {
     (resource["acl"].clone(), resource["owner"].clone())
 }
 
-/// What a full read of `name` reports, which every full write response must repeat.
-fn read_acl_fields(server: &Server, name: &str) -> (Value, Value) {
+/// What a full read of `name` by `caller` reports, which every full write response to that
+/// caller must repeat.
+fn read_acl_fields(server: &Server, caller: &str, name: &str) -> (Value, Value) {
     acl_fields(
         &server
             .request(
                 "GET",
                 &format!("{BUCKET}/o/{name}?projection=full"),
-                ADMIN,
+                caller,
                 b"",
             )
             .json_ok(),
     )
 }
 
-/// Starts a five-byte resumable upload of `name` and returns its session path.
-fn start_upload(server: &Server, name: &str, query: &str) -> String {
+/// Starts a five-byte resumable upload of `name` as `caller` and returns its session path.
+fn start_upload(server: &Server, caller: &str, name: &str, query: &str) -> String {
     let started = server.request(
         "POST",
         &format!("/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name={name}{query}"),
-        &format!("{ADMIN}X-Upload-Content-Length: 5\r\n"),
+        &format!("{caller}X-Upload-Content-Length: 5\r\n"),
         b"{}",
     );
     assert_eq!(
@@ -66,15 +67,11 @@ fn start_upload(server: &Server, name: &str, query: &str) -> String {
     location[path..].to_owned()
 }
 
-/// A chunk or status request on `session`.
+/// A chunk or status request on `session`. The session URI is the capability, so the request
+/// carries no credentials of its own.
 fn put(server: &Server, session: &str, range: &str, body: &[u8]) -> Value {
     server
-        .request(
-            "PUT",
-            session,
-            &format!("{ADMIN}Content-Range: {range}\r\n"),
-            body,
-        )
+        .request("PUT", session, &format!("Content-Range: {range}\r\n"), body)
         .json_ok()
 }
 
@@ -84,9 +81,9 @@ fn a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl
     let server = Server::start(&data, &inputs, "disk");
     server.bucket();
 
-    let session = start_upload(&server, "full", "&projection=full");
+    let session = start_upload(&server, ADMIN, "full", "&projection=full");
     let completed = put(&server, &session, "bytes 0-4/5", b"hello");
-    let expected = read_acl_fields(&server, "full");
+    let expected = read_acl_fields(&server, ADMIN, "full");
     assert!(
         expected.0.is_array() && expected.1.is_object(),
         "{expected:?}"
@@ -117,7 +114,7 @@ fn a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl
     assert_ne!(grants(&granted), grants(&completed));
     for answer in [
         put(&server, &session, "bytes */5", b""),
-        server.request("DELETE", &session, ADMIN, b"").json_ok(),
+        server.request("DELETE", &session, "", b"").json_ok(),
     ] {
         assert_eq!(grants(&answer), grants(&granted));
         assert_eq!(answer["owner"], granted["owner"]);
@@ -127,6 +124,7 @@ fn a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl
     // The initiation's field selection applies after the ACL fields are added.
     let session = start_upload(
         &server,
+        ADMIN,
         "selected",
         "&projection=full&fields=name,acl(entity)",
     );
@@ -138,9 +136,30 @@ fn a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl
     entities(&put(&server, &session, "bytes */5", b""));
 
     // Without the full projection the completion carries neither field.
-    let session = start_upload(&server, "plain", "");
+    let session = start_upload(&server, ADMIN, "plain", "");
     let plain = put(&server, &session, "bytes 0-4/5", b"hello");
     assert_eq!(acl_fields(&plain), (Value::Null, Value::Null));
+}
+
+/// Requests on a session URI carry no caller of their own, so the initiator's permission decides
+/// whether a full projection answer carries the ACL fields, never the URI alone. An anonymous
+/// initiator, which a bucket's `allUsers` WRITER grant lets create objects, owns nothing and may
+/// not read the ACL, so its session answers without it while an administrator's read shows it.
+#[test]
+fn a_session_answers_with_only_the_acl_its_initiator_may_read() {
+    let (data, inputs) = (TestDir::new(), TestDir::new());
+    let server = Server::start(&data, &inputs, "disk");
+    server.bucket();
+    super::bucket::grant(&server, "allUsers", "WRITER");
+
+    let session = start_upload(&server, "", "anonymous", "&projection=full");
+    let completed = put(&server, &session, "bytes 0-4/5", b"hello");
+    assert!(read_acl_fields(&server, ADMIN, "anonymous").0.is_array());
+    let none = (Value::Null, Value::Null);
+    assert_eq!(acl_fields(&completed), none, "{completed}");
+    assert_eq!(acl_fields(&put(&server, &session, "bytes */5", b"")), none);
+    let cancelled = server.request("DELETE", &session, "", b"").json_ok();
+    assert_eq!(acl_fields(&cancelled), none);
 }
 
 #[test]
@@ -162,7 +181,7 @@ fn a_full_projection_rewrite_answers_with_the_destinations_acl() {
 
     let full = rewrite("?projection=full");
     assert_eq!(full["done"], true);
-    let expected = read_acl_fields(&server, "rewritten");
+    let expected = read_acl_fields(&server, ADMIN, "rewritten");
     assert!(expected.0.is_array(), "{expected:?}");
     assert_eq!(acl_fields(&full["resource"]), expected);
 
@@ -175,6 +194,6 @@ fn a_full_projection_rewrite_answers_with_the_destinations_acl() {
     assert!(plain["resource"].get("acl").is_none(), "{plain}");
     assert_eq!(
         plain["resource"]["owner"],
-        read_acl_fields(&server, "rewritten").1
+        read_acl_fields(&server, ADMIN, "rewritten").1
     );
 }

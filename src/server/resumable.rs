@@ -631,7 +631,9 @@ fn completion_renderer(
 /// them then, before the initiation's field selection. A refused cancellation answers the same
 /// way by inference.
 struct CompletionView {
-    projection: json::Projection,
+    /// With `projection=full`, the initiator's stored access, which decides whether an answer
+    /// may carry the ACL fields: requests on the session URI have no caller of their own.
+    acl_reader: Option<BucketAccess>,
     fields: Option<json::Fields>,
 }
 
@@ -639,7 +641,8 @@ impl CompletionView {
     /// Parses the initiation's field selection, so a bad one fails before any byte is stored.
     fn of(options: &ResumableOptions) -> Result<Self, JsonError> {
         Ok(Self {
-            projection: options.projection,
+            acl_reader: (options.projection == json::Projection::Full)
+                .then(|| options.access.clone()),
             fields: options
                 .response_fields
                 .as_deref()
@@ -653,10 +656,10 @@ impl CompletionView {
         ctx: ObjectCtx<'_>,
         mut resource: serde_json::Value,
     ) -> Result<serde_json::Value, JsonError> {
-        if self.projection == json::Projection::Full {
+        if let Some(initiator) = &self.acl_reader {
             super::acl::add_full_projection_to_stored(
                 ctx.state,
-                ctx.caller,
+                super::acl::AclReader::Initiator(initiator),
                 &mut resource,
                 ctx.endpoints.api_base_url(),
             )

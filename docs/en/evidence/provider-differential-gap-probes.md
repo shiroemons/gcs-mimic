@@ -635,7 +635,9 @@ field selection, and each answer of the completed session adds the object's
 A rewrite with `projection=full` adds them to the resource of its finished
 result the same way. Both reuse the path every other object response takes, so
 uniform bucket-level access and a strict caller without
-`storage.objects.getIamPolicy` still leave the fields out.
+`storage.objects.getIamPolicy` still leave the fields out. Requests on a session
+URI carry no credentials, so for a resumable session that caller is the
+initiator, whose access the session stores.
 
 Inferred, not recorded: a DELETE refused because the session completed answers
 the same way; after an ACL change, an answer of the completed session lists the
@@ -646,6 +648,6 @@ fields.
 
 A replay of the merged reference with `--fail-on-diff --fail-on-note` on
 2026-11-17 found all **138** cases `match`, with no differing fields, notes or
-errors. The same source passed the workspace tests (3929 passed, 0 failed and
+errors. The same source passed the workspace tests (3930 passed, 0 failed and
 1 ignored across 19 test binaries), the production lint gate with 0 new
 violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.

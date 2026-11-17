@@ -292,10 +292,20 @@ pub(super) async fn add_full_projection(
             }
             Ok(())
         }
-        AclSubjects::Object(object) => add_object(state, caller, value, object, base_url).await,
+        AclSubjects::Object(object) => {
+            add_object(state, AclReader::Caller(caller), value, object, base_url).await
+        }
         AclSubjects::Objects { bucket, items } => {
             let resources = rendered_items(value, items.len())?;
-            add_objects(state, caller, bucket, resources, items, base_url).await
+            add_objects(
+                state,
+                AclReader::Caller(caller),
+                bucket,
+                resources,
+                items,
+                base_url,
+            )
+            .await
         }
     }
 }
@@ -383,13 +393,42 @@ pub(crate) async fn readable_object_acls(
     bucket: &str,
     generations: Vec<(String, i64)>,
 ) -> Result<Option<AclProjection>, JsonError> {
-    let access = authorize_bucket(
-        state,
-        caller,
-        permission(AclKind::Object, AclAccess::Read),
-        bucket,
-    )
-    .await?;
+    object_acls(state, AclReader::Caller(caller), bucket, generations).await
+}
+
+/// Whose permission decides whether a response carries the ACL fields of `projection=full`.
+#[derive(Clone, Copy)]
+pub(super) enum AclReader<'a> {
+    /// The request's own caller.
+    Caller(Option<Caller<'a>>),
+    /// The initiator of a resumable session, as its stored access. A session URI is a capability
+    /// that acts for its initiator, so requests on it carry no caller of their own, and passing
+    /// none would read the ACL without any permission check.
+    Initiator(&'a BucketAccess),
+}
+
+impl AclReader<'_> {
+    /// The access that reads object ACLs in `bucket` as this reader.
+    async fn object_acl_access(
+        self,
+        state: &State,
+        bucket: &str,
+    ) -> Result<BucketAccess, JsonError> {
+        let read = permission(AclKind::Object, AclAccess::Read);
+        match self {
+            Self::Caller(caller) => authorize_bucket(state, caller, read, bucket).await,
+            Self::Initiator(access) => Ok(access.with_permission(read)),
+        }
+    }
+}
+
+async fn object_acls(
+    state: &State,
+    reader: AclReader<'_>,
+    bucket: &str,
+    generations: Vec<(String, i64)>,
+) -> Result<Option<AclProjection>, JsonError> {
+    let access = reader.object_acl_access(state, bucket).await?;
     let acl = state
         .catalog
         .object_acl_projection(bucket, generations, &access)
@@ -397,30 +436,31 @@ pub(crate) async fn readable_object_acls(
     Ok(acl.filter(|acl| !acl.uniform_access))
 }
 
-/// Adds `projection=full`'s ACL fields, as the object has them now, to the stored resource of a
-/// completed resumable upload or a finished rewrite (see [`ObjectVersion::of_stored`]).
+/// Adds `projection=full`'s ACL fields, as the object has them now and as `reader` may read
+/// them, to the stored resource of a completed resumable upload or a finished rewrite (see
+/// [`ObjectVersion::of_stored`]).
 pub(super) async fn add_full_projection_to_stored(
     state: &State,
-    caller: Option<Caller<'_>>,
+    reader: AclReader<'_>,
     resource: &mut Value,
     base_url: &str,
 ) -> Result<(), JsonError> {
     let Some(object) = ObjectVersion::of_stored(resource) else {
         return Ok(());
     };
-    add_object(state, caller, resource, &object, base_url).await
+    add_object(state, reader, resource, &object, base_url).await
 }
 
 async fn add_object(
     state: &State,
-    caller: Option<Caller<'_>>,
+    reader: AclReader<'_>,
     resource: &mut Value,
     object: &ObjectVersion,
     base_url: &str,
 ) -> Result<(), JsonError> {
     add_objects(
         state,
-        caller,
+        reader,
         &object.bucket,
         std::slice::from_mut(resource),
         std::slice::from_ref(object),
@@ -432,7 +472,7 @@ async fn add_object(
 /// `resources` holds one rendered resource per element of `objects`, in the same order.
 async fn add_objects(
     state: &State,
-    caller: Option<Caller<'_>>,
+    reader: AclReader<'_>,
     bucket: &str,
     resources: &mut [Value],
     objects: &[ObjectVersion],
@@ -445,7 +485,7 @@ async fn add_objects(
         .iter()
         .map(|object| (object.name.clone(), object.generation))
         .collect();
-    let Some(acl) = readable_object_acls(state, caller, bucket, generations).await? else {
+    let Some(acl) = object_acls(state, reader, bucket, generations).await? else {
         return Ok(());
     };
     for ((resource, object), object_acl) in resources.iter_mut().zip(objects).zip(&acl.objects) {

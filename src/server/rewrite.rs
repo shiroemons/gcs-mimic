@@ -170,7 +170,7 @@ pub(super) async fn respond(
         if projection == json::Projection::Full {
             super::acl::add_full_projection_to_stored(
                 state,
-                ctx.caller,
+                super::acl::AclReader::Caller(ctx.caller),
                 resource,
                 ctx.endpoints.api_base_url(),
             )
