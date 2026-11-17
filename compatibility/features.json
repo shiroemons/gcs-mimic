@@ -22784,6 +22784,8 @@
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "grpc_derived_writes_store_a_temporary_hold_and_custom_time",
+        "destination_acls_refuse_anonymous_callers_and_unknown_values",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -23533,6 +23535,7 @@
       ],
       "test_ids": [
         "grpc_updates_reject_predefined_acls_without_changing_metadata",
+        "grpc_object_updates_and_rewrites_apply_predefined_acls",
         "overlapping_metadata_masks_are_actionable_in_both_orders",
         "object_validation_uses_proto_field_names_and_keeps_error_details",
         "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -24055,6 +24058,9 @@
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "grpc_object_updates_and_rewrites_apply_predefined_acls",
+        "grpc_derived_writes_store_a_temporary_hold_and_custom_time",
+        "destination_acls_refuse_anonymous_callers_and_unknown_values",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",

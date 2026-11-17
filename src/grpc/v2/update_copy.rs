@@ -4,6 +4,7 @@ use super::{
     status::unsupported,
 };
 use crate::{
+    acl::{AclRequest, PredefinedObjectAcl},
     auth::{self, Caller},
     bucket::{
         BucketAccess, BucketConditions, BucketMetadataUpdate, BucketRecord, CatalogError,
@@ -159,13 +160,12 @@ struct RewriteOptions {
 fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<RewriteOptions, Status> {
     let keys = super::customer_key::copy_keys(r)?;
     if !r.destination_kms_key.is_empty()
-        || !r.destination_predefined_acl.is_empty()
         || r.object_checksums
             .as_ref()
             .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
     {
         return Err(unsupported(
-            "RewriteObject destination_kms_key/destination_predefined_acl/object_checksums; omit these options",
+            "RewriteObject destination_kms_key/object_checksums; omit these options",
         ));
     }
     let invalid = || {
@@ -224,12 +224,46 @@ fn rewrite_parameters(r: &pb::RewriteObjectRequest, options: RewriteOptions) -> 
             "ifSourceMetagenerationNotMatch",
             decimal(r.if_source_metageneration_not_match),
         ),
+        // Last, so the sessions stored before it keep their spelling.
+        (
+            "destinationPredefinedAcl",
+            (!r.destination_predefined_acl.is_empty())
+                .then(|| r.destination_predefined_acl.clone()),
+        ),
     ] {
         if let Some(value) = value {
             parameters.insert(key.to_owned(), Value::from(value));
         }
     }
     parameters
+}
+
+/// A canned ACL field of a Storage v2 request, in the JSON API's spelling; empty is absent.
+fn canned_acl(field: &str, value: &str) -> Result<Option<PredefinedObjectAcl>, Status> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value.parse().map(Some).map_err(|_| {
+        Status::invalid_argument(format!(
+            "{field} {value:?} must be authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead"
+        ))
+    })
+}
+
+/// The canned ACL a ComposeObject or RewriteObject names for its destination, which
+/// publication applies as it applies a JSON `destinationPredefinedAcl`; Cloud Storage applied
+/// `private` on both RPCs (case grpc-unsupported-options, recorded 2026-11-13). An anonymous
+/// caller cannot name one, as on a JSON upload: its object belongs to the project owners.
+fn destination_acl(value: &str, access: &BucketAccess) -> Result<AclRequest, Status> {
+    let Some(acl) = canned_acl("destination_predefined_acl", value)? else {
+        return Ok(AclRequest::Omitted);
+    };
+    if access.is_anonymous() {
+        return Err(Status::invalid_argument(
+            "Anonymous callers cannot specify destination_predefined_acl; authenticate or omit destination_predefined_acl",
+        ));
+    }
+    Ok(AclRequest::Predefined(acl))
 }
 
 /// Source and destination of a rewrite; names a request omits come from its token's binding.
@@ -302,6 +336,7 @@ struct NewRewrite<'a> {
     parameters: Map<String, Value>,
     metadata: Option<Value>,
     resource: Option<&'a pb::Object>,
+    acl: AclRequest,
 }
 
 impl Storage {
@@ -382,6 +417,7 @@ impl Storage {
                     parameters,
                     metadata: body,
                     resource: r.destination.as_ref(),
+                    acl: destination_acl(&r.destination_predefined_acl, &create)?,
                 };
                 let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
                 (token, Some(guard))
@@ -435,6 +471,7 @@ impl Storage {
             parameters,
             metadata: body,
             resource,
+            acl,
         } = new;
         let generation = options.source_generation.map(Generation::get);
         let source = self
@@ -453,12 +490,10 @@ impl Storage {
         // The destination key alone decides the new object's encryption; rewriting an object
         // onto itself with a new key rotates it.
         metadata.customer_key_sha256 = options.keys.destination.map(CustomerKey::sha256);
+        // A hold and a custom time apply as on a JSON rewrite: Cloud Storage stored the custom
+        // time (case grpc-unsupported-options, recorded 2026-11-13).
+        metadata.acl = acl;
         super::object_update::validate(&metadata)?;
-        if metadata.temporary_hold == Some(true) || metadata.custom_time.value().is_some() {
-            return Err(unsupported(
-                "RewriteObject temporary_hold/custom_time; omit these fields",
-            ));
-        }
         let class = match resource.filter(|object| !object.storage_class.is_empty()) {
             Some(object) => Some(
                 crate::bucket::validate_storage_class(&object.storage_class)
@@ -752,11 +787,9 @@ impl Storage {
     ) -> Result<Response<pb::Object>, Status> {
         let mut r = request.into_inner();
         let key = super::customer_key::key(r.common_object_request_params.as_ref())?;
-        if !r.predefined_acl.is_empty() {
-            return Err(unsupported(
-                "UpdateObject predefined_acl; omit predefined_acl",
-            ));
-        }
+        // Cloud Storage applied predefined_acl on UpdateObject (case grpc-unsupported-options,
+        // recorded 2026-11-13).
+        let predefined_acl = canned_acl("predefined_acl", &r.predefined_acl)?;
         let retention_override = if r.override_unlocked_retention {
             crate::object::retention::UnlockedOverride::Requested
         } else {
@@ -772,6 +805,9 @@ impl Storage {
             })?;
         let paths = mask(r.update_mask.as_ref())?;
         let mut update = super::object_update::from_proto(&o, paths)?;
+        update.acl = std::mem::take(&mut update.acl)
+            .with_predefined(predefined_acl)
+            .map_err(|_| unsupported("UpdateObject acl together with predefined_acl; omit one"))?;
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
         let c = strict_conditions(ObjectConditions::from(&r))?;
         crate::server::authorize_retention_update(
@@ -814,14 +850,13 @@ impl Storage {
     ) -> Result<Response<pb::Object>, Status> {
         let mut r = request.into_inner();
         let key = super::customer_key::key(r.common_object_request_params.as_ref())?;
-        if !r.destination_predefined_acl.is_empty()
-            || !r.kms_key.is_empty()
+        if !r.kms_key.is_empty()
             || r.object_checksums
                 .as_ref()
                 .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
         {
             return Err(unsupported(
-                "ComposeObject kms_key/destination_predefined_acl/object_checksums; omit these options",
+                "ComposeObject kms_key/object_checksums; omit these options",
             ));
         }
         let o = r.destination.take().ok_or_else(|| {
@@ -833,6 +868,8 @@ impl Storage {
         let mut metadata = super::object_update::for_write(&o);
         // The catalog applies this one key to every source and to the result.
         metadata.customer_key_sha256 = key.map(CustomerKey::sha256);
+        metadata.acl = destination_acl(&r.destination_predefined_acl, &access)?;
+        let names_acl = metadata.acl.predefined().is_some();
         let sources = r
             .source_objects
             .iter()
@@ -855,9 +892,11 @@ impl Storage {
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
-        if !o.storage_class.is_empty() || o.temporary_hold || o.custom_time.is_some() {
+        // A hold and a custom time apply as on a JSON compose: Cloud Storage stored the custom
+        // time (case grpc-unsupported-options, recorded 2026-11-13).
+        if !o.storage_class.is_empty() {
             return Err(unsupported(
-                "ComposeObject metadata; omit storage_class, temporary_hold and custom_time",
+                "ComposeObject storage_class; omit storage_class",
             ));
         }
         super::object_update::validate(&metadata)?;
@@ -891,11 +930,14 @@ impl Storage {
             )
             .await?;
         // Cloud Storage answers ComposeObject without acl or owner, unlike WriteObject and
-        // RewriteObject (case grpc-unsupported-options).
-        Ok(Response::new(convert::object(
-            &record,
-            crate::csek::StoredHashes::Revealed,
-        )?))
+        // RewriteObject, unless it names a canned ACL (case grpc-unsupported-options).
+        let hashes = crate::csek::StoredHashes::Revealed;
+        let object = if names_acl {
+            self.written_object(&record, hashes, caller).await?
+        } else {
+            convert::object(&record, hashes)?
+        };
+        Ok(Response::new(object))
     }
     pub(super) async fn move_object(
         &self,
@@ -1118,6 +1160,16 @@ mod tests {
         assert_eq!(
             parameters(&large),
             r#"{"sourceGeneration":"9223372036854775807","maxBytesRewrittenPerCall":"9223372036853727232","ifMetagenerationMatch":"1"}"#
+        );
+        // A canned ACL binds last, so sessions stored without one keep their spelling.
+        let canned = pb::RewriteObjectRequest {
+            if_generation_match: Some(0),
+            destination_predefined_acl: "private".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            parameters(&canned),
+            r#"{"ifGenerationMatch":"0","destinationPredefinedAcl":"private"}"#
         );
     }
 
@@ -2687,27 +2739,182 @@ mod tests {
         let after = stored_bucket(&s).await;
         assert_eq!(after.metageneration, before.metageneration);
         assert_eq!(after.labels, before.labels);
+        s.state.catalog.close().await.unwrap();
+    }
 
+    fn grants(object: &pb::Object) -> Vec<(&str, &str)> {
+        object
+            .acl
+            .iter()
+            .map(|entry| (entry.entity.as_str(), entry.role.as_str()))
+            .collect()
+    }
+
+    /// UpdateObject and RewriteObject apply a canned ACL as their JSON counterparts do, as Cloud
+    /// Storage applied `private` on both (case grpc-unsupported-options, recorded 2026-11-13).
+    #[tokio::test]
+    async fn grpc_object_updates_and_rewrites_apply_predefined_acls() {
+        let (s, _dir) = setup().await;
         let source = upload(&s, "source", 4).await;
-        let update = pb::UpdateObjectRequest {
+        let update = |predefined_acl: &str, paths: &[&str], acl| pb::UpdateObjectRequest {
             object: Some(pb::Object {
                 bucket: RESOURCE.into(),
                 name: "source".into(),
                 content_type: "application/json".into(),
+                acl,
                 ..Default::default()
             }),
-            predefined_acl: "publicRead".into(),
-            update_mask: fixtures::mask(&["content_type"]),
+            predefined_acl: predefined_acl.into(),
+            update_mask: fixtures::mask(paths),
             ..Default::default()
         };
-        assert_unsupported(
-            s.update_object(Request::new(update), None).await,
-            "UpdateObject predefined_acl",
+        let updated = s
+            .update_object(
+                Request::new(update("publicRead", &["content_type"], Vec::new())),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(updated.metageneration, source.metageneration + 1);
+        assert!(
+            grants(&updated).contains(&("allUsers", "READER")),
+            "{updated:?}"
         );
-        let unchanged = stored_object(&s, "source").await.unwrap();
-        assert_eq!(unchanged.metageneration, source.metageneration);
-        assert_eq!(unchanged.content_type, source.content_type);
+        let explicit = vec![pb::ObjectAccessControl {
+            entity: "allAuthenticatedUsers".into(),
+            role: "READER".into(),
+            ..Default::default()
+        }];
+        assert_unsupported(
+            s.update_object(Request::new(update("private", &["acl"], explicit)), None)
+                .await,
+            "UpdateObject acl together with predefined_acl",
+        );
+        let status = s
+            .update_object(
+                Request::new(update("publicReadWrite", &["content_type"], Vec::new())),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            stored_object(&s, "source").await.unwrap().metageneration,
+            updated.metageneration
+        );
+
+        let rewrite = pb::RewriteObjectRequest {
+            source_bucket: RESOURCE.into(),
+            source_object: "source".into(),
+            destination_bucket: RESOURCE.into(),
+            destination_name: "rewritten".into(),
+            destination_predefined_acl: "private".into(),
+            ..Default::default()
+        };
+        let rewritten = s
+            .rewrite_object(Request::new(rewrite), None)
+            .await
+            .unwrap()
+            .into_inner()
+            .resource
+            .unwrap();
+        // `private` leaves only the owner's grant.
+        let owner = rewritten.owner.as_ref().unwrap().entity.as_str();
+        assert_eq!(grants(&rewritten), [(owner, "OWNER")], "{rewritten:?}");
         s.state.catalog.close().await.unwrap();
+    }
+
+    /// ComposeObject and RewriteObject store a destination hold and custom time as their JSON
+    /// counterparts do; Cloud Storage stored the custom time on both (case
+    /// grpc-unsupported-options, recorded 2026-11-13).
+    #[tokio::test]
+    async fn grpc_derived_writes_store_a_temporary_hold_and_custom_time() {
+        let (s, _dir) = setup().await;
+        upload(&s, "source", 4).await;
+        let custom_time = Some(prost_types::Timestamp {
+            seconds: 1_577_836_800,
+            nanos: 0,
+        });
+        let destination = |name: &str| pb::Object {
+            bucket: RESOURCE.into(),
+            name: name.into(),
+            temporary_hold: true,
+            custom_time,
+            ..Default::default()
+        };
+        let compose = pb::ComposeObjectRequest {
+            destination: Some(destination("composed")),
+            source_objects: vec![pb::compose_object_request::SourceObject {
+                name: "source".into(),
+                ..Default::default()
+            }],
+            destination_predefined_acl: "publicRead".into(),
+            ..Default::default()
+        };
+        let composed = s
+            .compose_object(Request::new(compose), None)
+            .await
+            .unwrap()
+            .into_inner();
+        // A canned ACL brings the owner view into the response, as Cloud Storage answered.
+        assert!(
+            grants(&composed).contains(&("allUsers", "READER")),
+            "{composed:?}"
+        );
+        assert!(composed.owner.is_some());
+        let rewrite = pb::RewriteObjectRequest {
+            source_bucket: RESOURCE.into(),
+            source_object: "source".into(),
+            destination_bucket: RESOURCE.into(),
+            destination_name: "rewritten".into(),
+            destination: Some(pb::Object {
+                bucket: String::new(),
+                name: String::new(),
+                ..destination("")
+            }),
+            ..Default::default()
+        };
+        s.rewrite_object(Request::new(rewrite), None).await.unwrap();
+        for name in ["composed", "rewritten"] {
+            let stored = stored_object(&s, name).await.unwrap();
+            assert!(stored.temporary_hold.is_held(), "{name}");
+            assert_eq!(
+                stored.custom_time.as_deref(),
+                Some("2020-01-01T00:00:00Z"),
+                "{name}"
+            );
+        }
+        s.state.catalog.close().await.unwrap();
+    }
+
+    /// An anonymous caller cannot name a destination's canned ACL, as on a JSON upload; other
+    /// callers get the parsed value, and an empty field names none.
+    #[test]
+    fn destination_acls_refuse_anonymous_callers_and_unknown_values() {
+        let anonymous = BucketAccess::Policy {
+            identity: None,
+            permission: auth::OBJECTS_CREATE,
+            project: None,
+        };
+        assert_eq!(
+            destination_acl("private", &BucketAccess::Permissive).unwrap(),
+            AclRequest::Predefined(PredefinedObjectAcl::Private)
+        );
+        assert_eq!(
+            destination_acl("", &anonymous).unwrap(),
+            AclRequest::Omitted
+        );
+        for (value, access) in [
+            ("private", &anonymous),
+            ("publicReadWrite", &BucketAccess::Permissive),
+        ] {
+            assert_eq!(
+                destination_acl(value, access).unwrap_err().code(),
+                tonic::Code::InvalidArgument,
+                "{value}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2722,7 +2929,6 @@ mod tests {
             md5_hash: vec![0; 16],
             ..Default::default()
         };
-        let custom_time = Some(prost_types::Timestamp::default());
         let kms_key = "projects/p/locations/l/keyRings/r/cryptoKeys/k";
         let composed = pb::Object {
             bucket: RESOURCE.into(),
@@ -2739,10 +2945,6 @@ mod tests {
         };
         for request in [
             pb::ComposeObjectRequest {
-                destination_predefined_acl: "private".into(),
-                ..compose.clone()
-            },
-            pb::ComposeObjectRequest {
                 kms_key: kms_key.into(),
                 ..compose.clone()
             },
@@ -2757,32 +2959,20 @@ mod tests {
         ] {
             assert_unsupported(
                 s.compose_object(Request::new(request), None).await,
-                "ComposeObject kms_key/destination_predefined_acl/object_checksums",
+                "ComposeObject kms_key/object_checksums",
             );
         }
-        for destination in [
-            pb::Object {
+        let request = pb::ComposeObjectRequest {
+            destination: Some(pb::Object {
                 storage_class: "NEARLINE".into(),
-                ..composed.clone()
-            },
-            pb::Object {
-                temporary_hold: true,
-                ..composed.clone()
-            },
-            pb::Object {
-                custom_time,
                 ..composed
-            },
-        ] {
-            let request = pb::ComposeObjectRequest {
-                destination: Some(destination),
-                ..compose.clone()
-            };
-            assert_unsupported(
-                s.compose_object(Request::new(request), None).await,
-                "ComposeObject metadata",
-            );
-        }
+            }),
+            ..compose.clone()
+        };
+        assert_unsupported(
+            s.compose_object(Request::new(request), None).await,
+            "ComposeObject storage_class",
+        );
         assert!(stored_object(&s, "composed").await.is_none());
 
         let rewrite = pb::RewriteObjectRequest {
@@ -2798,10 +2988,6 @@ mod tests {
                 ..rewrite.clone()
             },
             pb::RewriteObjectRequest {
-                destination_predefined_acl: "private".into(),
-                ..rewrite.clone()
-            },
-            pb::RewriteObjectRequest {
                 object_checksums: Some(crc32c.clone()),
                 ..rewrite.clone()
             },
@@ -2812,26 +2998,7 @@ mod tests {
         ] {
             assert_unsupported(
                 s.rewrite_object(Request::new(request), None).await,
-                "RewriteObject destination_kms_key/destination_predefined_acl/object_checksums",
-            );
-        }
-        for destination in [
-            pb::Object {
-                temporary_hold: true,
-                ..Default::default()
-            },
-            pb::Object {
-                custom_time,
-                ..Default::default()
-            },
-        ] {
-            let request = pb::RewriteObjectRequest {
-                destination: Some(destination),
-                ..rewrite.clone()
-            };
-            assert_unsupported(
-                s.rewrite_object(Request::new(request), None).await,
-                "RewriteObject temporary_hold/custom_time",
+                "RewriteObject destination_kms_key/object_checksums",
             );
         }
         assert!(stored_object(&s, "rewritten").await.is_none());
