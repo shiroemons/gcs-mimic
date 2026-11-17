@@ -27,6 +27,9 @@ pub(crate) struct RewriteRequest {
     pub(crate) max_bytes_per_call: Option<NonZeroU64>,
     /// `destinationPredefinedAcl`, which replaces the destination bucket's default object ACL.
     pub(crate) predefined_acl: Option<PredefinedObjectAcl>,
+    /// Whether the finished rewrite's resource carries `acl` and `owner`, as the Go SDK's Copier
+    /// asks for.
+    pub(crate) projection: query::Projection,
     /// The parameters a rewrite token binds, by their JSON API names, as the session stores
     /// them: numbers in canonical decimal, every other bound parameter as sent, keys in
     /// ascending order. The text and the order are part of the stored session bytes.
@@ -109,7 +112,7 @@ fn parse(
     let mut remaining = parameters.clone();
     Fields::take(&mut remaining, Schema::RewriteResponse)?;
     query::common(&mut remaining)?;
-    query::projection(&mut remaining)?;
+    let projection = query::projection(&mut remaining)?;
     let predefined_acl = take_predefined_acl(&mut remaining, "destinationPredefinedAcl")?;
     for key in ["destinationKmsKeyName", "dropContextGroups"] {
         if remaining.contains_key(key) {
@@ -169,6 +172,7 @@ fn parse(
         conditions,
         max_bytes_per_call,
         predefined_acl,
+        projection,
         parameters: parameters
             .into_iter()
             .map(|(key, value)| (key, Value::String(value)))

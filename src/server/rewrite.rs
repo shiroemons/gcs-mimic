@@ -7,7 +7,7 @@ use crate::{
     storage::{
         DerivedDestination,
         rewrite::{
-            DEFAULT_REWRITE_BUDGET, RewriteBinding, RewriteError, RewriteStart,
+            DEFAULT_REWRITE_BUDGET, RewriteBinding, RewriteError, RewriteProgress, RewriteStart,
             UNLIMITED_REWRITE_BUDGET,
         },
     },
@@ -122,6 +122,7 @@ pub(super) async fn respond(
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
     )?;
     let keys = json::copy_keys(request.headers())?;
+    let projection = operation.projection;
     reject_headers(
         request.headers(),
         &[
@@ -154,18 +155,31 @@ pub(super) async fn respond(
     )
     .await;
     drop(wait);
-    let (mut value, mut owner) =
+    let (mut progress, owner) =
         result.map_err(|failure| JsonError::from(ObjectError::backend(failure)))??;
-    // A repeated call on a finished rewrite answers from its stored response.
-    if let Some(resource) = value.get_mut("resource") {
-        super::context::rebase_stored_links(ctx.endpoints, resource);
-    }
-    // A rewrite response has no `etag` of its own, so it answers without an ETag header.
-    let response = boxed(json_response(&value));
-    if let Some(owner) = &mut owner {
+    // The step is settled: a call repeating its token answers from what it stored, so the
+    // transfer outlives a failure to render the response below.
+    if let Some(mut owner) = owner {
         owner.disarm();
     }
-    Ok(response)
+    if let Some(resource) = &mut progress.resource {
+        // A repeated call on a finished rewrite answers from its stored resource.
+        super::context::rebase_stored_links(ctx.endpoints, resource);
+        // Cloud Storage answered a full projection rewrite with the destination's `acl`
+        // (recorded 2026-11-17, case obj-full-projection-writes).
+        if projection == json::Projection::Full {
+            super::acl::add_full_projection_to_stored(
+                state,
+                ctx.caller,
+                resource,
+                ctx.endpoints.api_base_url(),
+            )
+            .await?;
+        }
+    }
+    let value = json::rewrite::response(progress)?;
+    // A rewrite response has no `etag` of its own, so it answers without an ETag header.
+    Ok(boxed(json_response(&value)))
 }
 
 /// What one detached rewrite step owns: the request, its metadata body, keys and access. A
@@ -201,7 +215,7 @@ async fn execute(
     catalog: Catalog,
     max_bytes: u64,
     base: String,
-) -> Result<(Value, Option<crate::storage::DerivedRequestGuard>), JsonError> {
+) -> Result<(RewriteProgress, Option<crate::storage::DerivedRequestGuard>), JsonError> {
     let RewriteJob {
         operation,
         body,
@@ -306,8 +320,7 @@ async fn execute(
         })
         .await
         .map_err(error)?;
-    let value = json::rewrite::response(progress)?;
-    Ok((value, owner))
+    Ok((progress, owner))
 }
 
 fn destination(

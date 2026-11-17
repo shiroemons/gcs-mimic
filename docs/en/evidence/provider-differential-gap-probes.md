@@ -599,3 +599,53 @@ A replay of the merged reference with `--fail-on-diff --fail-on-note` on
 errors. The same source passed the workspace tests (3923 passed, 0 failed and
 1 ignored across 19 test binaries), the production lint gate with 0 new
 violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.
+
+## Ninth recording: full projection on resumable uploads and rewrites
+
+Recorded on **2026-11-17**. The Go SDK's Writer (a resumable upload) and Copier
+(a rewrite) send `projection=full` on every call, and gcs-mimic rendered the
+full projection's `acl` and `owner` on every object write except those two.
+Whether Cloud Storage adds them there was not recorded. One new case asked, with
+the project and access token again supplied only through environment variables:
+
+```sh
+cargo xtask differential run --filter obj-full-projection-writes --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out <merged-reference>
+```
+
+- Requests sent to Cloud Storage: **16** in one run, with no HTTP 429.
+- Resources: the run's shared bucket, which held the uploaded object and its
+  rewritten copy.
+- Cleanup: the bucket was emptied (2 object versions), deleted and confirmed
+  404, and the final listing found nothing left.
+
+The reference now holds **138** cases and **2295** requests.
+
+| Step | Request | Cloud Storage answer | gcs-mimic before |
+| --- | --- | --- | --- |
+| `complete` | The final chunk of a resumable upload started with `projection=full` | 200 with the object's `acl` and `owner` | No `acl` or `owner` |
+| `status-after-completion` | `Content-Range: bytes */5` on the completed session | 200 with the same `acl` and `owner` | No `acl` or `owner` |
+| `rewrite-full` | A rewrite with `projection=full` | 200; the `resource` carries `acl` and `owner` | `owner` only, as without the projection |
+| `get-rewritten-full` | `objects.get` of the rewrite's destination with `projection=full` | 200 with `acl` and `owner` | Matched |
+
+A resumable session now stores its completed resource without ACL fields or
+field selection, and each answer of the completed session adds the object's
+`acl` and `owner` as they are then before applying the initiation's `fields`.
+A rewrite with `projection=full` adds them to the resource of its finished
+result the same way. Both reuse the path every other object response takes, so
+uniform bucket-level access and a strict caller without
+`storage.objects.getIamPolicy` still leave the fields out.
+
+Inferred, not recorded: a DELETE refused because the session completed answers
+the same way; after an ACL change, an answer of the completed session lists the
+current entries while keeping the stored resource's metageneration and the entry
+etags it implies; a session completed before this change whose field selection
+dropped `bucket`, `name`, `generation` or `metageneration` answers without ACL
+fields.
+
+A replay of the merged reference with `--fail-on-diff --fail-on-note` on
+2026-11-17 found all **138** cases `match`, with no differing fields, notes or
+errors. The same source passed the workspace tests (3929 passed, 0 failed and
+1 ignored across 19 test binaries), the production lint gate with 0 new
+violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.

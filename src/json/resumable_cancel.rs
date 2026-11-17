@@ -1,6 +1,6 @@
 use super::{JsonError, read_body};
 use crate::storage::{
-    Catalog, ResumableError, SessionState,
+    Catalog, ResumableError, ResumableOptions, SessionState,
     failure::{BackendFailure, object_unavailable},
 };
 use hyper::{Request, body::Body};
@@ -12,8 +12,12 @@ pub(crate) enum Cancellation {
     Cancelled,
     /// The session had already completed and keeps its object. Cloud Storage answered the
     /// DELETE with 200 and the stored object resource, as it answers a status request
-    /// (recorded 2026-11-17, case obj-gaps-uploads).
-    Completed(Value),
+    /// (recorded 2026-11-17, case obj-gaps-uploads). The session's options shape that response
+    /// as they shape every other response of the completed session.
+    Completed {
+        resource: Value,
+        options: Box<ResumableOptions>,
+    },
 }
 
 pub(crate) async fn cancel_response<B: Body + Unpin>(
@@ -39,7 +43,10 @@ async fn completion(catalog: &Catalog, id: &str, bucket: &str) -> Result<Cancell
     match session.state {
         SessionState::Complete => session
             .completion
-            .map(Cancellation::Completed)
+            .map(|resource| Cancellation::Completed {
+                resource,
+                options: Box::new(session.options),
+            })
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion).into()),
         SessionState::Active
         | SessionState::Cancelled

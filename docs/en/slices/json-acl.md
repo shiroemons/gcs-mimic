@@ -51,8 +51,20 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
 - `projection=full` adds bucket `acl`,
   `defaultObjectAcl` and `owner` (`project-owners-N`) and object `acl` to bucket
   get/list/insert/patch/update/restore and object get/list/insert/patch/update/copy/
-  move responses; object compose and restore answer without ACL fields, as
-  observed on the wire. Without a `projection` parameter a native
+  move responses, resumable-upload completions and rewrite results; object
+  compose and restore answer without ACL fields, as observed on the wire. A
+  resumable session stores its completed resource without ACL fields or field
+  selection: the completing request, a later status or retry request and a
+  refused cancellation each add the object's `acl` and `owner` as they are then,
+  and apply the initiation's `fields` afterwards. Cloud Storage answered the
+  completing and the status request, and a full-projection rewrite, with those
+  fields (recorded 2026-11-17, case `obj-full-projection-writes`); the Go SDK's
+  Writer and Copier always ask for `full`. The refused cancellation follows by
+  inference. An answer after an ACL change keeps the stored resource's
+  metageneration, so its entry etags are those of that metageneration. A session
+  completed before this behavior stored its resource after its field selection;
+  when that selection dropped an identity field (`bucket`, `name`, `generation`,
+  `metageneration`), its answers go without ACL fields. Without a `projection` parameter a native
   bucket PATCH defaults to `full`, and a native bucket PUT defaults to `noAcl`
   unless it carries `predefinedAcl` or `predefinedDefaultObjectAcl`, as recorded
   on 2026-10-31; the fake-gcs-server profile defaults a bucket PUT to `full` and
@@ -146,8 +158,7 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
   path as an `acl` body, which it cannot accompany. Bucket insert
   `predefinedAcl`/`predefinedDefaultObjectAcl` keep their existing responses
   (DESIGN-019); `acl` in insert/copy/rewrite bodies remains unsupported.
-- Resumable-upload completion and rewrite responses do not render ACL fields;
-  restore does not offer `copySourceAcl` and uses the default object ACL, and
+- Restore does not offer `copySourceAcl` and uses the default object ACL, and
   move keeps the source's ACL as its contract states, which `projection=full`
   on a move renders.
 - `userProject` is ignored, as on every JSON method (SPEC-SDK-UNSUPPORTED).

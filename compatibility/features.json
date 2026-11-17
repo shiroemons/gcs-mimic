@@ -25196,7 +25196,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, the default of a native bucket PATCH, of a native bucket PUT with predefinedAcl or predefinedDefaultObjectAcl and of a fake-gcs-server profile bucket PUT, adds bucket acl/defaultObjectAcl/owner and object acl on get/list/insert/patch/update/copy/compose/move/restore; strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; metadata PATCH/PUT replace or clear ACLs. Object owner, resumable-completion and rewrite ACL fields remain pending.",
+      "notes": "Bucket and object noAcl/full return modeled metadata. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. ACL extension (docs/en/slices/json-acl.md, docs/en/evidence/json-acl.md): projection=full, the default of a native bucket PATCH, of a native bucket PUT with predefinedAcl or predefinedDefaultObjectAcl and of a fake-gcs-server profile bucket PUT, adds bucket acl/defaultObjectAcl/owner on get/list/insert/patch/update/restore and object acl/owner on get/list/insert/patch/update/copy/move, resumable-upload completions and rewrite results (object compose and restore answer without them, as recorded); strict callers without getIamPolicy and uniform-access buckets receive the resource without ACL fields; metadata PATCH/PUT replace or clear ACLs. A completed resumable session stores its resource without ACL fields or field selection and adds the object's current acl/owner to each answer before applying the initiation's fields (recorded 2026-11-17, case obj-full-projection-writes; docs/en/evidence/provider-differential-gap-probes.md#ninth-recording-full-projection-on-resumable-uploads-and-rewrites).",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25233,8 +25233,19 @@
           ]
         },
         {
+          "id": "BEHAVIOR-COMMON-005-WRITES",
+          "description": "A resumable upload started with projection=full answers its completing request, a later status or retry request and a refused cancellation with the object's acl and owner as a full read reports them, then the initiation's fields; a rewrite with projection=full adds them to its finished resource. Cloud Storage answered the completing and status requests and the rewrite this way (recorded 2026-11-17, case obj-full-projection-writes); the refused cancellation follows by inference.",
+          "result": "PASS",
+          "test_ids": [
+            "a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl",
+            "a_full_projection_rewrite_answers_with_the_destinations_acl",
+            "a_stored_resource_names_its_version_only_with_every_identity_field",
+            "obj-full-projection-writes"
+          ]
+        },
+        {
           "id": "BEHAVIOR-COMMON-005-PENDING",
-          "description": "Render the object owner and ACL fields on resumable completion and rewrite responses; establish provider parity for projection permission handling.",
+          "description": "Establish provider parity for projection permission handling: a strict caller without getIamPolicy gets the resource without ACL fields instead of an error.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -25249,9 +25260,25 @@
         "uniform_access_and_public_access_prevention_restrict_acls",
         "metadata_updates_replace_and_clear_acls",
         "legacy_profile_reports_no_owner_under_uniform_access",
-        "legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller"
+        "legacy_profile_reports_no_owner_under_uniform_access_to_a_strict_caller",
+        "a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl",
+        "a_full_projection_rewrite_answers_with_the_destinations_acl",
+        "a_stored_resource_names_its_version_only_with_every_identity_field",
+        "obj-full-projection-writes"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "a_full_projection_resumable_upload_answers_every_request_with_the_objects_acl",
+            "a_full_projection_rewrite_answers_with_the_destinations_acl",
+            "a_stored_resource_names_its_version_only_with_every_identity_field",
+            "obj-full-projection-writes"
+          ]
+        },
         {
           "command": "cargo test --workspace --locked",
           "result": "PASS",
@@ -25303,10 +25330,10 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "full omits object owner and the ACL fields of resumable completion and rewrite responses; strict callers without getIamPolicy get no ACL fields instead of an error, a local choice without production projection parity."
+        "Strict callers without getIamPolicy get no ACL fields instead of an error, a local choice without production projection parity. After an ACL change, a completed resumable session's later answers list the current entries with the etags of its stored resource's metageneration (inferred, not recorded)."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-COMMON-006",

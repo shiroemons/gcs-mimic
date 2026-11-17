@@ -12,6 +12,7 @@ mod bidi;
 mod bucket;
 mod compatibility;
 mod derived;
+mod full_projection_writes;
 mod grpc;
 mod mirror;
 mod owner;

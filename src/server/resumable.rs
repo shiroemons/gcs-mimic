@@ -428,9 +428,13 @@ pub(super) async fn session_response(
             Cancellation::Cancelled => {
                 boxed(JsonError::from(crate::storage::ResumableError::Cancelled).into_response())
             }
-            Cancellation::Completed(mut completion) => {
-                super::context::rebase_stored_links(ctx.endpoints, &mut completion);
-                boxed(json_response(&completion))
+            Cancellation::Completed {
+                mut resource,
+                options,
+            } => {
+                super::context::rebase_stored_links(ctx.endpoints, &mut resource);
+                let resource = CompletionView::of(&options)?.respond(ctx, resource).await?;
+                boxed(json_response(&resource))
             }
         });
     }
@@ -556,13 +560,15 @@ pub(crate) async fn transfer(
         ));
     }
     if session.state == SessionState::Complete {
-        // Completing a session stores its response in the same transaction.
+        let view = CompletionView::of(&session.options)?;
+        // Completing a session stores its resource in the same transaction.
         let mut completion = session
             .completion
             .clone()
             .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion))?;
+        drop(lease);
         super::context::rebase_stored_links(ctx.endpoints, &mut completion);
-        return Ok(Transfer::Complete(completion));
+        return view.respond(ctx, completion).await.map(Transfer::Complete);
     }
     if status_only {
         json::read_body(request.into_body(), 0).await?;
@@ -581,7 +587,8 @@ pub(crate) async fn transfer(
     // The session lease holds an activity lease, so no exclusive job can run here.
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(plan.end);
-    let render = completion_renderer(&session.options, ctx.endpoints.api_base_url().to_owned())?;
+    let view = CompletionView::of(&session.options)?;
+    let render = completion_renderer(&session.options, ctx.endpoints.api_base_url().to_owned());
     let (catalog_wait, progress) = watch::channel(ChunkWait::Transfer);
     let chunk = ResumableChunk {
         start: plan.start,
@@ -596,38 +603,70 @@ pub(crate) async fn transfer(
         .write_resumable_session(lease, chunk, body, permit, render);
     let upload = async { upload.await.map_err(JsonError::from) };
     match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
-        Some(value) => Ok(Transfer::Complete(value)),
+        Some(resource) => view.respond(ctx, resource).await.map(Transfer::Complete),
         None => incomplete(offset, &headers).map(Transfer::Incomplete),
     }
 }
 
-/// Renders the completion response, which the session caches for retries. The uploader
-/// supplied any customer key at initiation, so the response is rendered with that key.
+/// Renders the whole resource the session stores for its completion. The uploader supplied any
+/// customer key at initiation, so the resource is rendered with that key.
 fn completion_renderer(
     options: &ResumableOptions,
     base: String,
-) -> Result<
-    impl FnOnce(&ObjectRecord) -> Result<serde_json::Value, ObjectError> + Send + 'static,
-    JsonError,
-> {
-    let fields = options
-        .response_fields
-        .as_deref()
-        .map(json::Fields::parse_syntax)
-        .transpose()?;
+) -> impl FnOnce(&ObjectRecord) -> Result<serde_json::Value, ObjectError> + Send + 'static {
     let projection = options.projection;
     let key = options
         .metadata
         .customer_key_sha256
         .map(crate::csek::CustomerKey::from_sha256);
-    Ok(move |record: &ObjectRecord| {
-        let mut value = json::object_resource_keyed(record, &base, projection, key)
-            .map_err(ObjectError::backend)?;
-        if let Some(fields) = &fields {
-            fields.apply(&mut value);
+    move |record: &ObjectRecord| {
+        json::object_resource_keyed(record, &base, projection, key).map_err(ObjectError::backend)
+    }
+}
+
+/// How each response of a completed session is made from the resource it stores. Cloud Storage
+/// answered the completing request and a later status request with the full projection's `acl`
+/// and `owner` when the initiation asked for it (recorded 2026-11-17, case
+/// obj-full-projection-writes), so those fields are added to each response as the object has
+/// them then, before the initiation's field selection. A refused cancellation answers the same
+/// way by inference.
+struct CompletionView {
+    projection: json::Projection,
+    fields: Option<json::Fields>,
+}
+
+impl CompletionView {
+    /// Parses the initiation's field selection, so a bad one fails before any byte is stored.
+    fn of(options: &ResumableOptions) -> Result<Self, JsonError> {
+        Ok(Self {
+            projection: options.projection,
+            fields: options
+                .response_fields
+                .as_deref()
+                .map(json::Fields::parse_syntax)
+                .transpose()?,
+        })
+    }
+
+    async fn respond(
+        &self,
+        ctx: ObjectCtx<'_>,
+        mut resource: serde_json::Value,
+    ) -> Result<serde_json::Value, JsonError> {
+        if self.projection == json::Projection::Full {
+            super::acl::add_full_projection_to_stored(
+                ctx.state,
+                ctx.caller,
+                &mut resource,
+                ctx.endpoints.api_base_url(),
+            )
+            .await?;
         }
-        Ok(value)
-    })
+        if let Some(fields) = &self.fields {
+            fields.apply(&mut resource);
+        }
+        Ok(resource)
+    }
 }
 
 /// Streams the chunk body into the session write and returns its completion response, or

@@ -52,9 +52,9 @@ async fn cancel_wire(catalog: &Catalog, id: &str, body: &[u8]) -> u16 {
                         Ok(Cancellation::Cancelled) => {
                             JsonError::from(ResumableError::Cancelled).into_response()
                         }
-                        Ok(Cancellation::Completed(completion)) => {
+                        Ok(Cancellation::Completed { resource, .. }) => {
                             hyper::Response::new(http_body_util::Full::new(
-                                hyper::body::Bytes::from(completion.to_string()),
+                                hyper::body::Bytes::from(resource.to_string()),
                             ))
                         }
                         Err(error) => error.into_response(),

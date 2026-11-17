@@ -221,6 +221,22 @@ impl From<&ObjectRecord> for ObjectVersion {
 }
 
 impl ObjectVersion {
+    /// The version a stored object resource describes, read from its own identity fields. A
+    /// completed resumable session and a finished rewrite keep only the resource they first
+    /// answered with, not its record, so this is the one place a version is read back out of
+    /// JSON. `None` when a field selection left an identity field out, as it could for a session
+    /// completed before selections were applied per response.
+    fn of_stored(resource: &Value) -> Option<Self> {
+        let text = |field: &str| resource.get(field)?.as_str();
+        let number = |field: &str| text(field)?.parse().ok();
+        Some(Self {
+            bucket: text("bucket")?.to_owned(),
+            name: text("name")?.to_owned(),
+            generation: number("generation")?,
+            metageneration: number("metageneration")?,
+        })
+    }
+
     /// The owner whose ids and etags the object's ACL entries carry.
     fn acl_owner(&self) -> AclOwner<'_> {
         AclOwner::Object {
@@ -276,17 +292,7 @@ pub(super) async fn add_full_projection(
             }
             Ok(())
         }
-        AclSubjects::Object(object) => {
-            add_objects(
-                state,
-                caller,
-                &object.bucket,
-                std::slice::from_mut(value),
-                std::slice::from_ref(object),
-                base_url,
-            )
-            .await
-        }
+        AclSubjects::Object(object) => add_object(state, caller, value, object, base_url).await,
         AclSubjects::Objects { bucket, items } => {
             let resources = rendered_items(value, items.len())?;
             add_objects(state, caller, bucket, resources, items, base_url).await
@@ -391,6 +397,38 @@ pub(crate) async fn readable_object_acls(
     Ok(acl.filter(|acl| !acl.uniform_access))
 }
 
+/// Adds `projection=full`'s ACL fields, as the object has them now, to the stored resource of a
+/// completed resumable upload or a finished rewrite (see [`ObjectVersion::of_stored`]).
+pub(super) async fn add_full_projection_to_stored(
+    state: &State,
+    caller: Option<Caller<'_>>,
+    resource: &mut Value,
+    base_url: &str,
+) -> Result<(), JsonError> {
+    let Some(object) = ObjectVersion::of_stored(resource) else {
+        return Ok(());
+    };
+    add_object(state, caller, resource, &object, base_url).await
+}
+
+async fn add_object(
+    state: &State,
+    caller: Option<Caller<'_>>,
+    resource: &mut Value,
+    object: &ObjectVersion,
+    base_url: &str,
+) -> Result<(), JsonError> {
+    add_objects(
+        state,
+        caller,
+        &object.bucket,
+        std::slice::from_mut(resource),
+        std::slice::from_ref(object),
+        base_url,
+    )
+    .await
+}
+
 /// `resources` holds one rendered resource per element of `objects`, in the same order.
 async fn add_objects(
     state: &State,
@@ -446,5 +484,36 @@ fn naming_object(error: JsonError, target: &AclTarget) -> JsonError {
     match target {
         AclTarget::Object { bucket, name, .. } => error.naming_object(bucket, name),
         AclTarget::Bucket(_) | AclTarget::DefaultObject(_) => error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ObjectVersion;
+    use serde_json::json;
+
+    /// A stored resource names its version only with every identity field; one a field selection
+    /// trimmed names none, so its response goes without ACL fields instead of failing.
+    #[test]
+    fn a_stored_resource_names_its_version_only_with_every_identity_field() {
+        let stored =
+            json!({"bucket":"b","name":"o","generation":"7","metageneration":"2","size":"5"});
+        let version = ObjectVersion::of_stored(&stored).unwrap();
+        assert_eq!(
+            (
+                version.bucket.as_str(),
+                version.name.as_str(),
+                version.generation,
+                version.metageneration
+            ),
+            ("b", "o", 7, 2)
+        );
+        for field in ["bucket", "name", "generation", "metageneration"] {
+            let mut trimmed = stored.clone();
+            trimmed.as_object_mut().unwrap().remove(field);
+            assert!(ObjectVersion::of_stored(&trimmed).is_none(), "{field}");
+        }
+        let unnumbered = json!({"bucket":"b","name":"o","generation":"x","metageneration":"1"});
+        assert!(ObjectVersion::of_stored(&unnumbered).is_none());
     }
 }

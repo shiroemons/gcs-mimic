@@ -58290,6 +58290,445 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-full-projection-writes",
+      "steps": [
+        {
+          "fingerprint": "f52301ca04556b5b",
+          "name": "start",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-full-projection-writes-1&projection=full&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-full-projection-writes-1&projection=full&uploadType=resumable&upload_id=<up>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "132f814900fda023",
+          "name": "complete",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/project-owners-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/project-editors-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/project-editors-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/project-viewers-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/project-viewers-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/user-<email>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/user-<email>"
+                  }
+                ],
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-full-projection-writes-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-full-projection-writes-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-full-projection-writes-1",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8f97b2f257c205c5",
+          "name": "status-after-completion",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<up>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/project-owners-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/project-editors-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/project-editors-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/project-viewers-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/project-viewers-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1/<generation:16>/user-<email>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1",
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1/acl/user-<email>"
+                  }
+                ],
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-full-projection-writes-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-full-projection-writes-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-full-projection-writes-1",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "55e7d12f11f19dd1",
+          "name": "rewrite-full",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-full-projection-writes-1/rewriteTo/b/<bucket>/o/obj-full-projection-writes-1-rw?projection=full",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "kind": "storage#rewriteResponse",
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "bucket": "<bucket>",
+                      "entity": "project-owners-<project-number>",
+                      "etag": "<etag:str>",
+                      "generation": "<generation:str:16>",
+                      "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/project-owners-<project-number>",
+                      "kind": "storage#objectAccessControl",
+                      "object": "obj-full-projection-writes-1-rw",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER",
+                      "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/project-owners-<project-number>"
+                    },
+                    {
+                      "bucket": "<bucket>",
+                      "entity": "project-editors-<project-number>",
+                      "etag": "<etag:str>",
+                      "generation": "<generation:str:16>",
+                      "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/project-editors-<project-number>",
+                      "kind": "storage#objectAccessControl",
+                      "object": "obj-full-projection-writes-1-rw",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER",
+                      "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/project-editors-<project-number>"
+                    },
+                    {
+                      "bucket": "<bucket>",
+                      "entity": "project-viewers-<project-number>",
+                      "etag": "<etag:str>",
+                      "generation": "<generation:str:16>",
+                      "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/project-viewers-<project-number>",
+                      "kind": "storage#objectAccessControl",
+                      "object": "obj-full-projection-writes-1-rw",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER",
+                      "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/project-viewers-<project-number>"
+                    },
+                    {
+                      "bucket": "<bucket>",
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "generation": "<generation:str:16>",
+                      "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/user-<email>",
+                      "kind": "storage#objectAccessControl",
+                      "object": "obj-full-projection-writes-1-rw",
+                      "role": "OWNER",
+                      "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/user-<email>"
+                    }
+                  ],
+                  "bucket": "<bucket>",
+                  "contentType": "text/plain",
+                  "crc32c": "mnG7TA==",
+                  "etag": "<etag:str>",
+                  "generation": "<generation:str:16>",
+                  "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>",
+                  "kind": "storage#object",
+                  "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                  "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw?generation=<generation:16>&alt=media",
+                  "metageneration": "1",
+                  "name": "obj-full-projection-writes-1-rw",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw",
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "timeCreated": "<time:f3>",
+                  "timeFinalized": "<time:f3>",
+                  "timeStorageClassUpdated": "<time:f3>",
+                  "updated": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e97e200064a6aac9",
+          "name": "get-rewritten-full",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw?projection=full",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/project-owners-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1-rw",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/project-editors-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1-rw",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/project-editors-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/project-viewers-<project-number>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1-rw",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/project-viewers-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "generation": "<generation:str:16>",
+                    "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>/user-<email>",
+                    "kind": "storage#objectAccessControl",
+                    "object": "obj-full-projection-writes-1-rw",
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw/acl/user-<email>"
+                  }
+                ],
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-full-projection-writes-1-rw/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-full-projection-writes-1-rw",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-full-projection-writes-1-rw",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -58304,7 +58743,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2279,
+  "requests": 2295,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }
