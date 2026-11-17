@@ -27,7 +27,10 @@ of its ID.
   `service-{number}@gs-project-accounts.iam.gserviceaccount.com`, and the
   `Project {number} may not create storageClass ...` refusal. The
   fake-gcs-server profile keeps reporting `projectNumber` `"0"`, as that server
-  does; its ACL entities still carry the derived number.
+  does; its ACL entities still carry the derived number. Storage v2 repeats a
+  team of the bucket's own project under the ID in `entity_alt`
+  (`project-owners-{id}`) on bucket, default object and object ACL entries; a
+  team of any other number has none, because no registry maps it to an ID.
 - NUMBER-INPUT: a request names its project by ID or by number in the JSON
   `project` parameter (bucket insert and list, soft-deleted list), the JSON
   project path (`projects/{project}/serviceAccount` and `hmacKeys`), the XML
@@ -80,6 +83,7 @@ Cloud Storage reports.
 `a_number_no_known_project_has_names_a_project_of_its_own`,
 `strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything`,
 `grpc_lists_a_project_by_the_number_its_buckets_render`,
+`entity_alt_names_only_teams_of_the_buckets_project`,
 `project_name_takes_back_rendered_numbers_and_rejects_zero`,
 `page_tokens_keep_their_bytes_and_open`,
 `hmac_key_list_tokens_keep_their_bytes_and_open`,

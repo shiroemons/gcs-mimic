@@ -21738,7 +21738,7 @@
         },
         {
           "id": "grpc_bucket_get_unset_settings",
-          "description": "GetBucket and ListBuckets read masks may select the settings bucket creation and update refuse (billing, custom_placement_config, encryption, hierarchical_namespace, ip_filter, logging, rpo, website); they are never stored and come back unset, as Cloud Storage answered for a bucket without them (case grpc-bucket-unset-settings-mask, recorded 2026-11-15). The Java SDK's default bucket read mask, which names every field, reads what a request without a mask reads.",
+          "description": "GetBucket and ListBuckets read masks may select the settings bucket creation and update refuse (billing, custom_placement_config, encryption, hierarchical_namespace, ip_filter, logging, rpo, website); they are never stored and come back unset, as Cloud Storage answered for a bucket without them (case grpc-bucket-unset-settings-mask, recorded 2026-11-15). The Java SDK's default bucket read mask, which names every field, reads what a request without a mask reads, and its recorded response is compared whole since 2026-11-17: ACL entity_alt, millisecond create_time and update_time, and a disabled soft delete policy without effective_time.",
           "result": "PASS",
           "test_ids": [
             "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
@@ -21765,6 +21765,15 @@
         "grpc-bucket-unset-settings-mask"
       ],
       "verification": [
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc-bucket-unset-settings-mask"
+          ]
+        },
         {
           "command": "cargo test --locked --lib grpc::v2::buckets",
           "result": "PASS",
@@ -21863,7 +21872,7 @@
         "Nested masks and satisfies_pzs remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-11-15"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "RPC-STORAGE-003",
@@ -22648,6 +22657,17 @@
             "grpc_buckets_acl_read_and_update",
             "grpc_buckets_acl_strict_authorization"
           ]
+        },
+        {
+          "id": "grpc_bucket_resource_wire",
+          "description": "The bucket resource matches the whole UpdateBucket response Cloud Storage returned (case bkt-gaps-legacy-class-region, step grpc-update-bucket-class-regional, recorded 2026-11-17) with no ignored fields: bucket and default object ACL entries for a team of the bucket's project carry entity_alt naming the project ID, a team of another project number has none; create_time and update_time carry milliseconds, and the other bucket times are floored alike, as JSON renders them; a soft delete policy with duration 0 has no effective_time.",
+          "result": "PASS",
+          "test_ids": [
+            "entity_alt_names_only_teams_of_the_buckets_project",
+            "bucket_times_keep_milliseconds_and_a_disabled_policy_has_no_effective_time",
+            "grpc_record_conversion",
+            "bkt-gaps-legacy-class-region"
+          ]
         }
       ],
       "test_ids": [
@@ -22664,9 +22684,25 @@
         "TestGRPCUpdateCopyStrict",
         "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access",
         "grpc_buckets_acl_read_and_update",
-        "grpc_buckets_acl_strict_authorization"
+        "grpc_buckets_acl_strict_authorization",
+        "entity_alt_names_only_teams_of_the_buckets_project",
+        "bucket_times_keep_milliseconds_and_a_disabled_policy_has_no_effective_time",
+        "grpc_record_conversion",
+        "bkt-gaps-legacy-class-region"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "entity_alt_names_only_teams_of_the_buckets_project",
+            "bucket_times_keep_milliseconds_and_a_disabled_policy_has_no_effective_time",
+            "grpc_record_conversion",
+            "bkt-gaps-legacy-class-region"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22761,7 +22797,7 @@
         "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "RPC-STORAGE-010",
@@ -23231,7 +23267,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -23265,7 +23301,7 @@
         },
         {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH), explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported.",
+          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH), explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23336,7 +23372,7 @@
         }
       ],
       "known_deviations": [
-        "Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id/ACL entity_alt fields remain unsupported."
+        "Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"

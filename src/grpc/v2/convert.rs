@@ -1,6 +1,6 @@
 use super::{iam, pb};
 use crate::{
-    acl::AclEntry,
+    acl::{AclEntry, Entity},
     auth,
     bucket::{
         BucketRecord, CatalogError, CorsRule,
@@ -12,6 +12,7 @@ use crate::{
     csek::StoredHashes,
     json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
+    project::ProjectNumber,
 };
 use prost_types::{Duration, Timestamp};
 use serde_json::{Map, Value, json};
@@ -195,17 +196,29 @@ fn proto_rule(value: &LifecycleRule) -> Result<pb::bucket::lifecycle::Rule, Obje
     })
 }
 
+/// A team of `project`, the bucket's project, spelled with the project ID instead of its number,
+/// as Cloud Storage repeats it (object ACLs recorded 2026-11-01, bucket and default object ACLs
+/// 2026-11-17). Which ID another project's number stands for is not known here, so a team of any
+/// other project has no alternative spelling.
+fn entity_alt(entity: &Entity, project: &str) -> String {
+    entity
+        .team()
+        .filter(|&(_, named)| ProjectNumber::of(named) == ProjectNumber::of(project))
+        .map(|(team, _)| format!("project-{}-{project}", team.as_str()))
+        .unwrap_or_default()
+}
+
 macro_rules! access_control {
     ($name:ident, $type:path) => {
         /// Takes every field from the helpers the JSON renderer uses, so both transports derive
-        /// the same ids, etags and entity fields.
-        pub(crate) fn $name(owner: AclOwner<'_>, entry: &AclEntry) -> $type {
+        /// the same ids, etags and entity fields. `project` owns the bucket the entry belongs to.
+        pub(crate) fn $name(owner: AclOwner<'_>, project: &str, entry: &AclEntry) -> $type {
             let entity = &entry.entity;
             $type {
                 role: entry.role.as_str().into(),
                 id: owner.entry_id(entity).unwrap_or_default(),
                 entity: entity.as_str().into(),
-                entity_alt: String::new(),
+                entity_alt: entity_alt(entity, project),
                 entity_id: entity.entity_id().unwrap_or_default().into(),
                 etag: owner.etag(),
                 email: entity.email().unwrap_or_default().into(),
@@ -239,7 +252,7 @@ pub(crate) fn bucket(
         .as_ref()
         .map(|policy| {
             Ok::<_, CatalogError>(pb::bucket::RetentionPolicy {
-                effective_time: Some(policy.effective_time.into()),
+                effective_time: Some(millis(policy.effective_time)),
                 is_locked: policy.is_locked,
                 retention_duration: Some(Duration {
                     seconds: crate::grpc::convert::signed(
@@ -257,7 +270,7 @@ pub(crate) fn bucket(
         .as_ref()
         .map(|policy| {
             Ok::<_, CatalogError>(pb::bucket::SoftDeletePolicy {
-                effective_time: Some(policy.effective_time.into()),
+                effective_time: policy.is_enabled().then(|| millis(policy.effective_time)),
                 retention_duration: Some(Duration {
                     seconds: crate::grpc::convert::signed(
                         policy.retention_duration_seconds,
@@ -279,10 +292,7 @@ pub(crate) fn bucket(
         },
         // Cloud Storage returns the project number here, and the Java SDK parses it as a number.
         // It matches JSON `projectNumber`, and `projects::resolve` takes it back as input.
-        project: format!(
-            "projects/{}",
-            crate::project::ProjectNumber::of(&record.project)
-        ),
+        project: format!("projects/{}", ProjectNumber::of(&record.project)),
         metageneration: record.metageneration,
         location: record.location.as_str().into(),
         location_type: record.location.kind().as_str().into(),
@@ -294,13 +304,13 @@ pub(crate) fn bucket(
                     terminal_storage_class_update_time,
                 } => (
                     Some(terminal_storage_class.as_str().into()),
-                    Some(terminal_storage_class_update_time.into()),
+                    Some(millis(terminal_storage_class_update_time)),
                 ),
                 AutoclassState::Disabled => (None, None),
             };
             pb::bucket::Autoclass {
                 enabled: config.is_enabled(),
-                toggle_time: Some(config.toggle_time.into()),
+                toggle_time: Some(millis(config.toggle_time)),
                 terminal_storage_class,
                 terminal_storage_class_update_time,
             }
@@ -310,8 +320,10 @@ pub(crate) fn bucket(
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
-        create_time: Some(record.time_created.into()),
-        update_time: Some(record.updated.into()),
+        // Cloud Storage keeps bucket times to the millisecond (create_time and update_time
+        // recorded 2026-11-17), the precision JSON renders, so every bucket time is floored alike.
+        create_time: Some(millis(record.time_created)),
+        update_time: Some(millis(record.updated)),
         default_event_based_hold: record.default_event_based_hold,
         // Cloud Storage omits the message for a bucket whose versioning is currently off, as JSON does.
         versioning: record
@@ -328,9 +340,7 @@ pub(crate) fn bucket(
             public_access_prevention: record.public_access_prevention.as_str().into(),
             uniform_bucket_level_access: Some(pb::bucket::iam_config::UniformBucketLevelAccess {
                 enabled: record.uniform_bucket_level_access_locked_time.is_some(),
-                lock_time: record
-                    .uniform_bucket_level_access_locked_time
-                    .map(Into::into),
+                lock_time: record.uniform_bucket_level_access_locked_time.map(millis),
             }),
         }),
         ..Default::default()
@@ -501,17 +511,7 @@ pub(crate) fn object_acl(
     };
     entries
         .iter()
-        .map(|entry| {
-            let mut acl = object_access_control(owner, entry);
-            // Cloud Storage repeats a project-team entity under the project ID (observed
-            // 2026-11-01).
-            acl.entity_alt = entry
-                .entity
-                .team()
-                .map(|(team, _)| format!("project-{}-{project}", team.as_str()))
-                .unwrap_or_default();
-            acl
-        })
+        .map(|entry| object_access_control(owner, project, entry))
         .collect()
 }
 
@@ -704,12 +704,12 @@ mod tests {
             let value = crate::json::acl::acl_entry_resource("http://localhost", owner, &entry);
             assert_eq!(value["role"], role, "{kind:?} {role}");
             assert_eq!(
-                bucket_access_control(owner, &entry).role,
+                bucket_access_control(owner, "project", &entry).role,
                 role,
                 "{kind:?} {role}"
             );
             assert_eq!(
-                object_access_control(owner, &entry).role,
+                object_access_control(owner, "project", &entry).role,
                 role,
                 "{kind:?} {role}"
             );
@@ -762,8 +762,8 @@ mod tests {
                     project_number: text(team, "projectNumber"),
                     team: text(team, "team"),
                 });
-                let bucket = bucket_access_control(owner, &entry);
-                let object = object_access_control(owner, &entry);
+                let bucket = bucket_access_control(owner, "project", &entry);
+                let object = object_access_control(owner, "project", &entry);
                 for (role, id, name, entity_id, etag, email, domain, project_team) in [
                     (
                         &bucket.role,
@@ -798,6 +798,80 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Only a team of the bucket's own project is repeated under the project ID, whether the
+    /// entry spells that project by number or by ID.
+    #[test]
+    fn entity_alt_names_only_teams_of_the_buckets_project() {
+        let number = ProjectNumber::of("local");
+        let owner = AclOwner::DefaultObject { metageneration: 1 };
+        for (entity, expected) in [
+            (format!("project-owners-{number}"), "project-owners-local"),
+            (format!("project-viewers-{number}"), "project-viewers-local"),
+            ("project-editors-local".to_owned(), "project-editors-local"),
+            ("project-owners-123".to_owned(), ""),
+            ("user-liz@example.com".to_owned(), ""),
+            ("allUsers".to_owned(), ""),
+        ] {
+            let entry = AclEntry {
+                entity: entity.parse().unwrap(),
+                role: "OWNER".parse().unwrap(),
+            };
+            let bucket = bucket_access_control(owner, "local", &entry);
+            let object = object_access_control(owner, "local", &entry);
+            assert_eq!(bucket.entity_alt, expected, "{entity}");
+            assert_eq!(object.entity_alt, expected, "{entity}");
+        }
+    }
+
+    /// Every bucket time is floored to the millisecond, and a disabled soft delete policy has no
+    /// effective time, as Cloud Storage answered UpdateBucket (recorded 2026-11-17).
+    #[test]
+    fn bucket_times_keep_milliseconds_and_a_disabled_policy_has_no_effective_time() {
+        let time = UNIX_EPOCH + StdDuration::new(1_700_000_000, 123_456_789);
+        let expected = Some(Timestamp {
+            seconds: 1_700_000_000,
+            nanos: 123_000_000,
+        });
+        let policy = |retention_duration_seconds| crate::bucket::SoftDeletePolicy {
+            retention_duration_seconds,
+            effective_time: time,
+        };
+        let disabled = BucketRecord {
+            time_created: time,
+            updated: time,
+            retention_policy: Some(crate::bucket::RetentionPolicy {
+                retention_period: 60,
+                effective_time: time,
+                is_locked: false,
+            }),
+            soft_delete_policy: Some(policy(0)),
+            uniform_bucket_level_access_locked_time: Some(time),
+            ..crate::storage::test_fixtures::bucket("bucket", "project")
+        };
+        let resource = bucket(&disabled, Lifecycle::Include).unwrap();
+        assert_eq!(resource.create_time, expected);
+        assert_eq!(resource.update_time, expected);
+        assert_eq!(resource.retention_policy.unwrap().effective_time, expected);
+        let lock_time = resource
+            .iam_config
+            .and_then(|config| config.uniform_bucket_level_access)
+            .and_then(|access| access.lock_time);
+        assert_eq!(lock_time, expected);
+        let soft_delete = resource.soft_delete_policy.unwrap();
+        assert_eq!(soft_delete.effective_time, None);
+        assert_eq!(soft_delete.retention_duration.unwrap().seconds, 0);
+
+        let enabled = BucketRecord {
+            soft_delete_policy: Some(policy(604_800)),
+            ..disabled
+        };
+        let resource = bucket(&enabled, Lifecycle::Include).unwrap();
+        assert_eq!(
+            resource.soft_delete_policy.unwrap().effective_time,
+            expected
+        );
     }
 
     #[test]
@@ -1005,7 +1079,8 @@ mod tests {
                 .unwrap()
                 .enabled
         );
-        assert_eq!(proto.create_time.unwrap().nanos, 123_456_000);
+        // The same millisecond JSON renders (`...123Z`), not the stored microseconds.
+        assert_eq!(proto.create_time.unwrap().nanos, 123_000_000);
         assert!(proto.acl.is_empty() && proto.lifecycle.is_none() && proto.encryption.is_none());
 
         let record = crate::grpc::test_support::object_record(&bucket_record.name, now);

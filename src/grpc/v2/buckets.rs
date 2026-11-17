@@ -304,12 +304,12 @@ impl Storage {
         bucket.acl = acl
             .bucket
             .iter()
-            .map(|entry| convert::bucket_access_control(bucket_owner, entry))
+            .map(|entry| convert::bucket_access_control(bucket_owner, &acl.project, entry))
             .collect();
         bucket.default_object_acl = acl
             .default_object
             .iter()
-            .map(|entry| convert::object_access_control(default_owner, entry))
+            .map(|entry| convert::object_access_control(default_owner, &acl.project, entry))
             .collect();
     }
 

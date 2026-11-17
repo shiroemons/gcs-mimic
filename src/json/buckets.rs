@@ -1156,8 +1156,7 @@ pub(crate) fn bucket_resource_with_profile(
             "retentionDurationSeconds".into(),
             policy.retention_duration_seconds.to_string().into(),
         )]);
-        // Cloud Storage reports no effective time for a disabled policy (recorded 2026-10-31).
-        if policy.retention_duration_seconds > 0 {
+        if policy.is_enabled() {
             soft_delete.insert(
                 "effectiveTime".into(),
                 timestamp(policy.effective_time)?.into(),

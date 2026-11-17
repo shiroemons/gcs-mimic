@@ -521,13 +521,14 @@ class the destination cannot hold is refused; an XML bucket creation naming such
 a class gets the XML conflict; several differing compose classes are separated
 by a comma and a space.
 
-Differences outside the classes remain open. The full Storage v2 UpdateBucket
-response of `grpc-update-bucket-class-regional` compares without `acl`,
-`defaultObjectAcl`, `createTime`, `updateTime` and `softDeletePolicy`: gcs-mimic
-omits `entityAlt` from bucket ACL entries, writes timestamps with six
-fractional digits where Cloud Storage gives three, and includes
-`softDeletePolicy.effectiveTime` for a bucket whose soft delete is off. These
-are tracked under SPEC-RESPONSE-WIRE-REMAINING.
+The full Storage v2 UpdateBucket response of `grpc-update-bucket-class-regional`
+also differed outside the classes: gcs-mimic omitted `entityAlt` from bucket
+and default object ACL entries, wrote `createTime` and `updateTime` with six
+fractional digits where Cloud Storage gives three, and included
+`softDeletePolicy.effectiveTime` for a bucket whose soft delete is off. All
+three are now aligned, so this step and the Java default mask step of
+`grpc-bucket-unset-settings-mask`, which ignored the same fields, compare the
+whole response.
 
 A replay of the merged reference with `--fail-on-diff --fail-on-note` on
 2026-11-17 found all **136** cases `match`, with no differing fields, notes or

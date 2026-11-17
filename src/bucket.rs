@@ -454,6 +454,14 @@ pub(crate) struct SoftDeletePolicy {
     pub effective_time: SystemTime,
 }
 
+impl SoftDeletePolicy {
+    /// A zero duration turns soft delete off. Cloud Storage then reports the policy without an
+    /// effective time, in JSON (recorded 2026-10-31) and Storage v2 (recorded 2026-11-17).
+    pub(crate) fn is_enabled(&self) -> bool {
+        self.retention_duration_seconds > 0
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CorsRule {
     pub origin: Vec<String>,
