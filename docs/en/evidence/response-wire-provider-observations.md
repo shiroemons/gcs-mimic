@@ -366,9 +366,12 @@ message U as above. Over gRPC:
 | gRPC `UpdateObject`, `DeleteObject`, bucket policy `retention_expire_time` | `PERMISSION_DENIED` with the JSON message; `retention_expire_time` truncated to milliseconds | `grpc::v2::update_copy::tests::grpc_update_object_retention`, `grpc::v2::update_copy::tests::grpc_bucket_policy_expire_time_is_milliseconds` |
 | `satisfiesPZI` in another location | `true` in every location | `bucket_http::satisfies_pzi_is_true_in_every_location` |
 
-Difference kept: gcs-mimic sets a bucket retention policy's `effectiveTime`
-to the request time, not about 60 seconds later. Ledger rows:
-`OBJECT-TIME-READ-BACK`, `BUCKET-SATISFIES-PZI`.
+Difference kept by decision (2026-11-18): gcs-mimic sets a bucket retention
+policy's `effectiveTime` to the request time, not about 60 seconds later.
+Cloud Storage enforced the policy before its reported time, so the later value
+changes no behavior, and one observation does not establish a fixed offset.
+Ledger rows: `OBJECT-TIME-READ-BACK`, `BUCKET-SATISFIES-PZI` and the
+`JSON-BUCKETS-008` scoped difference.
 
 ## XML listing
 

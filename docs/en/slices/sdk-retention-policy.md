@@ -52,6 +52,11 @@ Ruby's pinned generated client repeats ifMetagenerationMatch in its form body
 on POST. Only an identical query/form value is accepted; non-form bodies and
 different or additional parameters are rejected before mutation. This is a scoped
 SDK transport accommodation, not a general form-body API.
+`effectiveTime` is the time of the request that set the period; restating the
+same period keeps it. Cloud Storage reported a time about 60 seconds after the
+request in one observation (2026-10-31) but enforced the policy at once, so
+gcs-mimic keeps the request time as a scoped difference
+(SPEC-RESPONSE-WIRE-REMAINING).
 No new configuration, dependency, polling or startup object scan is required.
 Known limitation: releasing an event-based hold currently does not restart the
 retention age; expiration stays based on object creation. That interaction is

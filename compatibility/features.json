@@ -8082,6 +8082,8 @@
         "bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage",
         "retention_configuration_lock_permissions_and_restart",
         "retention_insert_patch_put_defaults_and_empty_policy_lock",
+        "a_retention_policy_takes_effect_at_its_request_time",
+        "retention_all_mutation_paths_expire_with_injected_clock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
         "bucket_patch_lifecycle_invalid_input_preserves_state",
         "initialized_settings_are_independent_and_api_changes_survive_restart",
@@ -8191,6 +8193,7 @@
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["bucket_http::sdk_append_query_and_array_lifecycle_follow_the_profile","bucket_http::satisfies_pzi_marks_regional_buckets_and_rpo_marks_the_others","bucket_get_ignores_or_rejects_patch_only_acl_query_parameters","bucket_patch_get_only_generation_query_parameter_follows_profile"]},
         {"command":"cargo test --locked --test bucket_if_match_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-bucket-write-etags.md","test_ids":["bucket_updates_accept_and_ignore_entity_tag_headers_like_cloud_storage","etag::json_etag_read_unsupported_lists_dates_and_writes"]},
         {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
+        {"command":"bash scripts/with-test-tmpdir.sh cargo test --locked --lib -- storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-11-18","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["a_retention_policy_takes_effect_at_its_request_time","retention_all_mutation_paths_expire_with_injected_clock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation", "bucket_patch_lifecycle_invalid_input_preserves_state"]},
         {
           "command": "cargo test --offline --test bucket_initialization",
@@ -8557,6 +8560,16 @@
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A bucket retention policy's effectiveTime is the time of the request that set its period (a restated period keeps it), where Cloud Storage reported about 60 seconds later in its one observation (2026-10-31). Both enforce the policy at once, so the reported time is when protection starts; the single-sample offset is not adopted.",
+          "gap": "SPEC-RESPONSE-WIRE-REMAINING",
+          "test_ids": [
+            "a_retention_policy_takes_effect_at_its_request_time",
+            "retention_all_mutation_paths_expire_with_injected_clock"
+          ]
+        }
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-11-13",

@@ -252,6 +252,25 @@ async fn retention_insert_patch_put_defaults_and_empty_policy_lock() {
     h.stop().await;
 }
 
+/// Cloud Storage reported a new policy's effectiveTime about 60 seconds after the request in its
+/// one observation (2026-10-31), yet enforced the policy at once. gcs-mimic reports the request
+/// time, so the time it shows is the time protection starts (SPEC-RESPONSE-WIRE-REMAINING).
+#[tokio::test]
+async fn a_retention_policy_takes_effect_at_its_request_time() {
+    let h = Harness::start(1024, Permissive, None).await;
+    let effective_time = |bucket: Value| bucket["retentionPolicy"]["effectiveTime"].clone();
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
+    let set = policy(&h, json!({"retentionPeriod":"3600"})).await;
+    assert_eq!(effective_time(set), "1970-01-01T00:16:40.000Z");
+    // Restating the period keeps the time; a new period starts from its own request.
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1010));
+    let restated = policy(&h, json!({"retentionPeriod":"3600"})).await;
+    assert_eq!(effective_time(restated), "1970-01-01T00:16:40.000Z");
+    let extended = policy(&h, json!({"retentionPeriod":"7200"})).await;
+    assert_eq!(effective_time(extended), "1970-01-01T00:16:50.000Z");
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn retention_all_mutation_paths_expire_with_injected_clock() {
     let h = Harness::start(1024, Permissive, None).await;
