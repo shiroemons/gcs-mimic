@@ -17259,7 +17259,7 @@
         "PHP checksum compatibility: nonfinal chunks persist consistent whole-object declarations with their durable offset; status/completed retries can repeat persisted declarations or a subset only. New algorithms or conflicts return 400 without invalidating a retained completion. Finalization verifies all persisted hashes; no new checksum is silently ignored. This is a local accommodation with provider parity pending; source and acceptance tests: docs/en/slices/sdk-upload-replay.md.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Matching retained upload tokens replay committed responses; new invocations still enforce conditions. Exact provider cache/error parity remains pending.",
         "SPEC-010/SPEC-016: media, multipart and resumable uploads do not examine Content-MD5, as the recorded obj-upload-checksums differential case showed Cloud Storage storing an upload whose header named the wrong digest (docs/en/evidence/differential-comparison.md); copy, compose and rewrite reject it as an unsupported setting. Checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent. Current scope clarification: JSON resumable checksums are delivered in the basic-json-contract declared subset. Multipart X-Goog-Hash and multi-data-request resumable MD5 remain source questions under SPEC-016 / SPEC-RSM-EDGES; composite remains order 11.",
@@ -18063,7 +18063,7 @@
       "acceptance_cases": [
         {
           "id": "PROVIDER-GAP-PROBES",
-          "description": "PATCH uses a body generation as the selected generation when the query names none (404 when missing), ignores output-only size and md5Hash, answers a body name or bucket that disagrees with the path with Cloud Storage's 400, stores empty contentLanguage, contentDisposition, contentEncoding and cacheControl as empty strings, answers a not-match naming the current value with an empty 304 without a write, reports a failing match before such a not-match and ignores an undeclared query parameter (cases obj-metadata-output-only, obj-mutation-not-match and obj-undeclared-query-writes, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md).",
+          "description": "PATCH uses a body generation as the selected generation when the query names none (404 when missing), ignores output-only size and md5Hash and a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17), answers a body name or bucket that disagrees with the path with Cloud Storage's 400, stores empty contentLanguage, contentDisposition, contentEncoding and cacheControl as empty strings, answers a not-match naming the current value with an empty 304 without a write, reports a failing match before such a not-match and ignores an undeclared query parameter (cases obj-metadata-output-only, obj-mutation-not-match and obj-undeclared-query-writes, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md).",
           "result": "PASS",
           "test_ids": [
             "obj-metadata-output-only",
@@ -18071,7 +18071,9 @@
             "obj-undeclared-query-writes",
             "metadata_bodies_select_generations_and_keep_empty_strings",
             "basic_contract_object_metageneration_not_match_mutations_use_304_without_side_effects",
-            "object_methods_ignore_an_undeclared_query_parameter"
+            "object_methods_ignore_an_undeclared_query_parameter",
+            "a_stale_read_sent_back_whole_updates_the_object",
+            "obj-stale-body-update"
           ]
         },
         {
@@ -18275,6 +18277,8 @@
         "metadata_bodies_select_generations_and_keep_empty_strings",
         "basic_contract_object_metageneration_not_match_mutations_use_304_without_side_effects",
         "object_methods_ignore_an_undeclared_query_parameter",
+        "a_stale_read_sent_back_whole_updates_the_object",
+        "obj-stale-body-update",
         "custom_metadata_values_http::numbers_and_booleans_are_stored_as_strings",
         "custom_metadata_values_http::object_and_array_values_are_dropped_while_other_keys_apply",
         "custom_metadata_values_http::patch_clears_the_map_when_every_supplied_value_is_dropped",
@@ -18336,6 +18340,7 @@
         "concurrent_metadata_updates_need_a_query_precondition_for_one_winner"
       ],
       "verification": [
+        {"command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note", "result": "PASS", "verified_at": "2026-11-17", "artifact": "docs/en/slices/json-metadata-if-match.md", "test_ids": ["a_stale_read_sent_back_whole_updates_the_object", "obj-stale-body-update"]},
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -18639,7 +18644,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -19361,7 +19366,7 @@
       "acceptance_cases": [
         {
           "id": "PROVIDER-GAP-PROBES",
-          "description": "PUT uses a body generation as the selected generation when the query names none, ignores output-only size and md5Hash, answers a body name that disagrees with the path with Cloud Storage's 400, answers a not-match naming the current value with an empty 304 without a write and ignores an undeclared query parameter (cases obj-metadata-output-only, obj-mutation-not-match and obj-undeclared-query-writes, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md).",
+          "description": "PUT uses a body generation as the selected generation when the query names none, ignores output-only size and md5Hash and a superseded etag, metageneration and updated, so the .NET client's UpdateObject made from a stale read applies (case obj-stale-body-update, recorded 2026-11-17), answers a body name that disagrees with the path with Cloud Storage's 400, answers a not-match naming the current value with an empty 304 without a write and ignores an undeclared query parameter (cases obj-metadata-output-only, obj-mutation-not-match and obj-undeclared-query-writes, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md).",
           "result": "PASS",
           "test_ids": [
             "obj-metadata-output-only",
@@ -19369,7 +19374,9 @@
             "obj-undeclared-query-writes",
             "metadata_bodies_select_generations_and_keep_empty_strings",
             "basic_contract_object_metageneration_not_match_mutations_use_304_without_side_effects",
-            "object_methods_ignore_an_undeclared_query_parameter"
+            "object_methods_ignore_an_undeclared_query_parameter",
+            "a_stale_read_sent_back_whole_updates_the_object",
+            "obj-stale-body-update"
           ]
         },
         {
@@ -19557,6 +19564,8 @@
         "metadata_bodies_select_generations_and_keep_empty_strings",
         "basic_contract_object_metageneration_not_match_mutations_use_304_without_side_effects",
         "object_methods_ignore_an_undeclared_query_parameter",
+        "a_stale_read_sent_back_whole_updates_the_object",
+        "obj-stale-body-update",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "all_conditions_generation_selectors_and_conditioned_races",
         "invalid_and_unsupported_metadata_never_mutates_objects",
@@ -19609,6 +19618,7 @@
         "concurrent_metadata_updates_need_a_query_precondition_for_one_winner"
       ],
       "verification": [
+        {"command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note", "result": "PASS", "verified_at": "2026-11-17", "artifact": "docs/en/slices/json-metadata-if-match.md", "test_ids": ["a_stale_read_sent_back_whole_updates_the_object", "obj-stale-body-update"]},
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -19875,7 +19885,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -19886,7 +19896,7 @@
         "Metadata PUT/PATCH/override accept If-Match without evaluating it, as recorded on Cloud Storage on 2026-11-17 (SPEC-METADATA-IF-MATCH, resolved); only query conditions guard a concurrent update. If-None-Match, standalone dates/If-Range on these writes and If-Match on unrelated writes keep a local 400 without provider evidence. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-11-13",
+      "last_verified": "2026-11-17",
       "http_method": "PUT",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -25503,7 +25513,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
@@ -28628,7 +28638,7 @@
       ],
       "known_deviations": [
         "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; fixed and custom metadata are held to the local 40 KiB bound on encoded metadata before media/staging and rechecked at publication, with no 8 KiB custom metadata limit, as Cloud Storage enforced none (recorded 2026-11-15)."
       ],
@@ -28859,7 +28869,7 @@
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted.",
         "One live and retained noncurrent generations are supported; JSON soft delete and restore are delivered under JSON-OBJECTS-011, and cross-transport generation semantics remain unverified.",
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
@@ -29543,7 +29553,7 @@
       ],
       "known_deviations": [
         "SPEC-012: ETag encoding is a local opaque choice; JSON object/bucket GET now supports scoped If-Match/If-None-Match. Object and bucket listings ignore ETag headers as recorded (case obj-collection-validators, 2026-11-13); other writes and lists reject them; IAM GET and combined query conditions are supported under SPEC-JSON-ETAG-WIRE.",
-        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (recorded) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did (case obj-metadata-output-only, 2026-11-13); identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag."
       ],

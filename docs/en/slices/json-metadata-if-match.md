@@ -13,7 +13,14 @@ Until that recording the emulator compared the tag and answered a stale one with
 pass locally and lose an update on Cloud Storage.
 
 The pinned .NET Storage client sends an object's returned ETag on its ordinary
-UpdateObjectAsync request, so its update keeps succeeding. Every other value,
+UpdateObjectAsync request, so its update keeps succeeding. It sends the object it
+read back whole, so an update made from a superseded read also carries that read's
+`etag`, `metageneration` and `updated` in the body. Cloud Storage ignored those
+stale output fields and applied the PUT, and a PATCH naming a superseded `etag`,
+advancing the metageneration each time (case `obj-stale-body-update`, recorded
+2026-11-17); the emulator ignores them the same way. Until then it refused them
+as unsupported settings, so the .NET client's stale update failed with 400 where
+Cloud Storage applies it. Every other value,
 including a weak, empty or malformed one, is ignored the same way; only
 well-formed tags were recorded, and ignoring the others follows from not
 evaluating the header.

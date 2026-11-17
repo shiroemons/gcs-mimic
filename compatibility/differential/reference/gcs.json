@@ -58729,6 +58729,156 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-stale-body-update",
+      "steps": [
+        {
+          "fingerprint": "4b2e93fb0e700ff8",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-stale-body-update-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "<crc>",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<id0>",
+                "kind": "storage#object",
+                "md5Hash": "<md5>",
+                "mediaLink": "<media0>",
+                "metageneration": "1",
+                "name": "obj-stale-body-update-1",
+                "selfLink": "<self0>",
+                "size": "5",
+                "storageClass": "<class0>",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "fac3d2c7f55a72fe",
+          "name": "patch-first",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-stale-body-update-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "first"
+                },
+                "metageneration": "2"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "208b9b9cfd1b3442",
+          "name": "put-stale-read",
+          "request": "PUT /storage/v1/b/<bucket>/o/obj-stale-body-update-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "stale"
+                },
+                "metageneration": "3"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8f65a27e75ba5eb7",
+          "name": "patch-stale-etag",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-stale-body-update-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "patched"
+                },
+                "metageneration": "4"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f787ffcfbab26118",
+          "name": "get-after",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-stale-body-update-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "patched"
+                },
+                "metageneration": "4"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -58743,7 +58893,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2295,
+  "requests": 2310,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

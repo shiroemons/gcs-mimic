@@ -79,19 +79,25 @@ internal static partial class Probe
             $"last report {reports[^1].Status} at {reports[^1].BytesDownloaded}");
     }
 
+    /// <remarks>
+    /// UpdateObjectAsync without options sends the fetched object whole, with its ETag as If-Match and
+    /// no query condition. Cloud Storage ignores If-Match on object metadata writes and the stale
+    /// etag, metageneration and updated of such a body (recorded 2026-11-17, cases obj-gaps-json and
+    /// obj-stale-body-update), so an update made from a stale fetch succeeds and replaces the newer
+    /// metadata. Only an explicit IfMetagenerationMatch guards a concurrent update.
+    /// </remarks>
     private static async Task UpdateObjectPreconditions(CancellationToken token)
     {
         var bucket = await NewBucket(token);
         await Upload(bucket.Name, "u.txt", Bytes("x"), token);
         var stale = await Client.GetObjectAsync(bucket.Name, "u.txt", null, token);
         var fresh = await Client.GetObjectAsync(bucket.Name, "u.txt", null, token);
-        // UpdateObject sends the fetched generation/metageneration as preconditions and its ETag as If-Match.
         fresh.Metadata = new Dictionary<string, string> { ["k"] = "first" };
         await Client.UpdateObjectAsync(fresh, null, token);
         Check(SameMap((await Client.GetObjectAsync(bucket.Name, "u.txt", null, token)).Metadata, ("k", "first")), "first update missing");
         stale.Metadata = new Dictionary<string, string> { ["k"] = "stale" };
-        await ExpectStatus(HttpStatusCode.PreconditionFailed, () => Client.UpdateObjectAsync(stale, null, token));
-        Check(SameMap((await Client.GetObjectAsync(bucket.Name, "u.txt", null, token)).Metadata, ("k", "first")), "stale update changed metadata");
+        await Client.UpdateObjectAsync(stale, null, token);
+        Check(SameMap((await Client.GetObjectAsync(bucket.Name, "u.txt", null, token)).Metadata, ("k", "stale")), "stale update not applied");
     }
 
     /// <remarks>

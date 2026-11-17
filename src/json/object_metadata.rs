@@ -100,7 +100,21 @@ enum BodyKind {
 /// 2026-11). That `id`, `selfLink` and `timeCreated` are ignored the same way is an inference
 /// from a PATCH carrying them that failed only on its `generation`. A PATCH whose `kind` named
 /// another resource was answered with 200 and `storage#object` (case obj-unsupported-inputs).
-const IGNORED_ON_MUTATION: [&str; 6] = ["id", "selfLink", "timeCreated", "size", "md5Hash", "kind"];
+/// A PUT repeating a superseded read whole, as the .NET client's UpdateObject sends it, and a
+/// PATCH naming a superseded `etag` both applied, ignoring the stale `etag`, `metageneration`
+/// and `updated` (recorded 2026-11-17, case obj-stale-body-update). A body `generation` still
+/// selects a generation, so it is not among them.
+const IGNORED_ON_MUTATION: &[&str] = &[
+    "id",
+    "selfLink",
+    "timeCreated",
+    "size",
+    "md5Hash",
+    "kind",
+    "etag",
+    "metageneration",
+    "updated",
+];
 
 /// [`object_metadata_from_map`] for a body that is still JSON text. Every production caller
 /// already holds the resource as members.

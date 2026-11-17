@@ -232,7 +232,7 @@
     {"id": "sdk.download_chunked", "area": "sdk", "sdks": ["dotnet"],
      "checks": ["a chunked download reports progress and returns the exact bytes"]},
     {"id": "sdk.update_object_implicit_preconditions", "area": "sdk", "sdks": ["dotnet"],
-     "checks": ["an UpdateObject made from a stale fetched object, with no explicit options, fails with 412 and leaves the newer metadata unchanged"]},
+     "checks": ["an UpdateObject made from a stale fetched object, with no explicit options, succeeds and replaces the newer metadata, as Cloud Storage ignores its If-Match and the stale output fields of its body"]},
     {"id": "sdk.update_bucket_etag_ignored", "area": "sdk", "sdks": ["dotnet"],
      "checks": ["a bucket update with a stale ETag still succeeds, as Cloud Storage ignores If-Match there"]},
     {"id": "sdk.iam_policy_etag", "area": "sdk", "sdks": ["dotnet"],

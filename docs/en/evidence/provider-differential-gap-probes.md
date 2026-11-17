@@ -651,3 +651,41 @@ A replay of the merged reference with `--fail-on-diff --fail-on-note` on
 errors. The same source passed the workspace tests (3930 passed, 0 failed and
 1 ignored across 19 test binaries), the production lint gate with 0 new
 violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.
+
+## Tenth recording: a superseded read sent back as a metadata update
+
+Recorded on **2026-11-17**. Since object metadata writes ignore If-Match (case
+`obj-gaps-json`), the .NET client's UpdateObject made from a superseded read,
+which sends the read object whole with no query condition, reached the
+emulator's check of output-only body fields and failed with 400 on the stale
+`etag`; the SDK scorecard's .NET case still expected 412. What Cloud Storage
+does with such a body was not recorded. One new case asked, with the project
+and access token again supplied only through environment variables:
+
+```sh
+cargo xtask differential run --filter obj-stale-body-update --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out <merged-reference>
+```
+
+- Requests sent to Cloud Storage: **15** in one run, with no HTTP 429.
+- Resources: the run's shared bucket, which held the one object the case wrote.
+- Cleanup: the bucket was emptied (1 object version), deleted and confirmed 404,
+  and the final listing found nothing left.
+
+The reference now holds **139** cases and **2310** requests.
+
+| Step | Request | Cloud Storage answer | gcs-mimic before |
+| --- | --- | --- | --- |
+| `put-stale-read` | After a PATCH, a PUT repeating the first read whole (stale `etag`, `metageneration` `1` and `updated`) with that `etag` as If-Match | 200; the metadata is replaced and the metageneration advances to 3 | 400, `etag` refused as an unsupported setting |
+| `patch-stale-etag` | A PATCH whose body names the superseded `etag` | 200; applied, metageneration 4 | 400 |
+| `get-after` | `objects.get` | The PATCH's metadata at metageneration 4 | The first PATCH's metadata at metageneration 2 |
+
+Metadata PATCH and PUT now ignore a body `etag`, `metageneration` and `updated`
+like the other output-only fields; a body `generation` still selects a
+generation. Only a query condition guards a concurrent update. The .NET
+scorecard case now expects the stale update to apply, as it does on Cloud
+Storage.
+
+Inferred, not recorded: malformed or `null` values of these three fields are
+ignored the same way, as for `size` and `md5Hash`.

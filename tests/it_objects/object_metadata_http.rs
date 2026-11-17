@@ -211,6 +211,14 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
                 changed.expect_with(200, format_args!("{key}"));
                 assert_eq!(changed.json_ok()[key], value[key], "{key}");
             }
+            // Ignored too (recorded 2026-11-17, case obj-stale-body-update), but the mutation
+            // itself advances them, so the answer carries the server's new value.
+            "etag" | "metageneration" | "updated" => {
+                changed.expect_with(200, format_args!("{key}"));
+                let answer = changed.json_ok();
+                assert_ne!(answer[key], "changed", "{key}");
+                assert_ne!(answer[key], value[key], "{key}");
+            }
             _ => changed.metadata_error(400, "badRequest"),
         }
     }
@@ -599,12 +607,10 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             "customerEncryption",
             "name",
             "bucket",
-            // size, md5Hash and timeCreated are ignored on a mutation; see
-            // metadata_bodies_select_generations_and_keep_empty_strings.
-            "metageneration",
+            // size, md5Hash, timeCreated, etag, metageneration and updated are ignored on a
+            // mutation; see metadata_bodies_select_generations_and_keep_empty_strings and
+            // a_stale_read_sent_back_whole_updates_the_object.
             "crc32c",
-            "updated",
-            "etag",
         ] {
             server
                 .update(method, "", json!({field:null}))
@@ -778,6 +784,57 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
     ] {
         assert!(replaced.get(key).is_none(), "{key}");
     }
+    server.stop();
+}
+
+/// The .NET client's UpdateObject sends the object it read back whole, with that read's ETag as
+/// If-Match and no query condition. Cloud Storage applied such a PUT after a newer change, and a
+/// PATCH naming a superseded `etag`, ignoring the stale output fields (recorded 2026-11-17, case
+/// obj-stale-body-update); only a query condition guards a concurrent update.
+#[test]
+fn a_stale_read_sent_back_whole_updates_the_object() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    server.setup();
+    let path = "/storage/v1/b/test-bucket/o/dir%2Ffile";
+    let mut stale = server.request("GET", path, b"").json_ok();
+    let first = server
+        .update("PATCH", "", json!({"metadata":{"k":"first"}}))
+        .json_ok();
+    assert_eq!(first["metageneration"], "2");
+
+    stale["metadata"] = json!({"k":"stale"});
+    let if_match = format!("If-Match: {}\r\n", stale["etag"]);
+    let replaced = request_headers(
+        &server.address,
+        "PUT",
+        path,
+        stale.to_string().as_bytes(),
+        &if_match,
+    )
+    .json_ok();
+    assert_eq!(replaced["metadata"], json!({"k":"stale"}));
+    assert_eq!(replaced["metageneration"], "3");
+    assert_ne!(replaced["etag"], stale["etag"]);
+
+    let patched = server
+        .update(
+            "PATCH",
+            "",
+            json!({"etag":stale["etag"],"metadata":{"k":"patched"}}),
+        )
+        .json_ok();
+    assert_eq!(patched["metadata"], json!({"k":"patched"}));
+    assert_eq!(patched["metageneration"], "4");
+
+    // A query condition still refuses the stale write.
+    server
+        .update(
+            "PUT",
+            "?ifMetagenerationMatch=1",
+            json!({"metadata":{"k":"refused"}}),
+        )
+        .expect(412);
     server.stop();
 }
 
