@@ -3,39 +3,33 @@
 ## Contract and limits
 
 Object metadata PUT and PATCH, including POST with X-HTTP-Method-Override: PATCH,
-accept If-Match as a local SDK compatibility extension. This scope does not claim
-Google service write parity. Google's JSON header reference explicitly documents
-If-Match for GET; no real-GCS write differential test was run.
+accept If-Match and do not evaluate it. Cloud Storage does the same: in the
+opted-in recording of 2026-11-17 (case `obj-gaps-json`,
+[provider probes](../evidence/provider-differential-gap-probes.md)) a PATCH
+naming the current entity tag, a PATCH naming a superseded one and a PUT naming
+`"bogus"` each answered 200, applied its change and advanced the metageneration.
+Until that recording the emulator compared the tag and answered a stale one with
+412, a protection the provider does not give; a test that relied on it would
+pass locally and lose an update on Cloud Storage.
 
 The pinned .NET Storage client sends an object's returned ETag on its ordinary
-UpdateObjectAsync request. The observed If-Match value is the same valid quoted
-strong tag as the uploaded object's JSON etag. The emulator's existing metadata
-and media GET validators use that same representation identity. The SDK's ETag,
-compression and precondition behavior remain enabled.
+UpdateObjectAsync request, so its update keeps succeeding. Every other value,
+including a weak, empty or malformed one, is ignored the same way; only
+well-formed tags were recorded, and ignoring the others follows from not
+evaluating the header.
 
-If-Match succeeds for a matching strong tag, a matching member of a list, or a
-sole wildcard when the selected object exists. Repeated field instances form
-one list. Weak tags do not satisfy strong comparison. Stale or nonmatching tags
-return 412 conditionNotMet; malformed values return local 400 invalidArgument.
-Parsing checks every list member, so a matching prefix cannot hide malformed
-trailing input. Wildcard/list mixtures and repeated wildcards are invalid.
+Only the query conditions (`ifGenerationMatch`, `ifMetagenerationMatch` and
+their NotMatch forms) guard a concurrent update; they are evaluated inside the
+catalog's immediate mutation transaction. Authorization, generation selection
+and customer key validation are unchanged. Missing resources keep 404, and strict
+permission denials keep 401 or 403.
 
-Existing authorization, generation selection, query preconditions and customer
-key validation remain in force. The catalog calls the existing validation
-callback inside its immediate mutation transaction, before ACL or metadata
-changes. That callback compares the selected current record's ETag and retains
-the existing read-only-field validation. A concurrent metadata change therefore
-cannot pass an outdated tag. Missing resources retain 404, and strict permission
-denials precede conditional evaluation.
+If-None-Match, standalone date conditions and If-Range on these writes, and
+If-Match on other write routes, keep their 400: no recording shows what Cloud
+Storage does with them there. A date condition sent together with If-Match is
+accepted as before, because If-Match takes precedence over If-Unmodified-Since.
 
-If-None-Match remains unsupported for metadata writes. Standalone date conditions
-and If-Range reject explicitly. If-Match takes precedence over
-If-Unmodified-Since as in the existing RFC comparison rules; this does not add
-date comparison. Other write routes retain their existing conditional-header
-rejections. The implementation adds no schema, catalog API, dependency or
-unbounded body buffering.
-
-The feature ledger and SPEC-METADATA-IF-MATCH gap own status and provider limits.
+The feature ledger and the resolved SPEC-METADATA-IF-MATCH gap own the status.
 The broader operation rows remain partial.
 
 ## Sources
@@ -45,7 +39,8 @@ Checked on 2026-10-30:
 - [Google JSON headers](https://docs.cloud.google.com/storage/docs/json_api/v1/parameters),
   retrieved HTML SHA256
   a9ce4895e7a184aec46797845da5a1336af67a1662eea312db145f0981eb6161.
-  Its If-Match section documents GET support, not metadata PUT/PATCH parity.
+  Its If-Match section documents GET support, not metadata PUT/PATCH behavior;
+  the 2026-11-17 recording settles that behavior.
 - [Official Storage client update](https://github.com/googleapis/google-cloud-dotnet/blob/7db3d26977d60289be1a57fbaf3e7c3e26424e24/apis/Google.Cloud.Storage.V1/Google.Cloud.Storage.V1/StorageClientImpl.UpdateObject.cs),
   Google.Cloud.Storage.V1 5.0.0, commit
   7db3d26977d60289be1a57fbaf3e7c3e26424e24, SHA256
@@ -65,17 +60,14 @@ Checked on 2026-10-30:
 
 ## Acceptance
 
-The four tests in tests/it_protocol/http_metadata_etag.rs cover a gzip JSON full-resource
-PUT, fresh/stale tags, combined query conditions, POST override, retained media
-bytes, wildcard/list/repeated-field comparison, weak and malformed tags,
-unsupported conditional headers, strict denials and missing resources.
-Two concurrent updates with the same tag produce exactly one success and one
-412, with one metageneration increment and the same object generation.
+The four tests in tests/it_protocol/http_metadata_etag.rs cover a gzip JSON
+full-resource PUT with the returned tag, PATCH with a superseded and a bogus tag
+(both applied), a failing `ifMetagenerationMatch` that still answers 412 with
+the current tag, POST override, retained media bytes, weak, empty, list,
+repeated and malformed values (all ignored), the conditional headers that stay
+rejected, strict denials and missing resources. Two concurrent updates with the
+same tag both apply; two with the same `ifMetagenerationMatch` produce exactly
+one success and one 412, keeping the object generation.
 
-All four dedicated tests pass. The existing object metadata six-case and
-read/range sixteen-case suites also pass after preserving every rejection
-outside the newly supported metadata If-Match subset. Both shared RFC parser
-tests pass. Unfiltered cargo check and targeted Clippy pass. Actual SDK and
-final combined distribution checks are recorded separately by the integration
-owner; passing these wire cases does not establish the complete SDK or Google
-service contract.
+The replay of case `obj-gaps-json` matches the recording for these steps with
+no declared local choice.

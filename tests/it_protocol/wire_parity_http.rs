@@ -141,13 +141,15 @@ fn json_etags_encode_generation_and_metageneration_like_cloud_storage() {
     );
     replaced.status(200);
     assert_eq!(replaced.json()["etag"], expected_etag(Some(generation), 3));
+    // Cloud Storage applies a metadata write whatever its If-Match names (case obj-gaps-json).
     let stale = server.request(
         "PATCH",
         OBJECT,
         &format!("{JSON}If-Match: {etag}\r\n"),
-        br#"{"metadata":{"k":"lost"}}"#,
+        br#"{"metadata":{"k":"applied"}}"#,
     );
-    stale.status(412);
+    stale.status(200);
+    assert_eq!(stale.json()["etag"], expected_etag(Some(generation), 4));
     // A bare tag that is not a valid token is still rejected: whitespace inside a member and a
     // stray quote inside a bare member stay 400, for both validators.
     for value in [

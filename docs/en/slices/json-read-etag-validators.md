@@ -22,10 +22,10 @@ ignored conditions. `objects.list` and `buckets.list` ignore them since
 2026-11-13, because Cloud Storage listed objects with `If-None-Match: *` and a
 bogus `If-Match` and sent no listing ETag (case `obj-collection-validators`,
 [provider probes](../evidence/provider-differential-gap-probes.md)). The later
-[metadata If-Match extension](json-metadata-if-match.md) supports only object
-metadata PUT/PATCH and POST PATCH override, using the same strong comparison
-inside the immediate mutation transaction. It is SDK-backed local compatibility;
-the GET contract does not establish Google write parity. Current unsupported
+[metadata If-Match contract](json-metadata-if-match.md) accepts If-Match on
+object metadata PUT/PATCH and POST PATCH override without evaluating it, as
+Cloud Storage did in the 2026-11-17 recording; the GET comparison described here
+does not apply to those writes. Current unsupported
 JSON inputs return 400 `badRequest`; the historical execution below used 501.
 Collection responses have no etag; ACL GET routes do not exist. JSON date
 validators, XML conditions and HEAD are outside this documented GET subset.
@@ -186,7 +186,7 @@ questions or excluded implementation, not skipped tests counted as success.
 | ETAG-READ-EMPTY-PUBLIC | Empty media, empty unsatisfiable range overridden by 304, and stored public Cache-Control on 304 | `etag::json_etag_read_selected_generation_zero_byte_and_public_cache` | PASS |
 | ETAG-READ-PERMISSIONS | Anonymous and creator-only strict requests fail before successful, failed or malformed ETag evaluation | `etag::json_etag_read_authorization_precedes_validators` | PASS |
 | ETAG-READ-SNAPSHOT | Conditional open response retains original ETag, generation, metageneration and bytes through metadata update and overwrite | `etag::json_etag_read_metadata_update_and_overwrite_pin_open_reader` | PASS |
-| ETAG-READ-REJECTIONS | Object and bucket listings ignore ETag conditions (recorded 2026-11-13); other lists and unrelated writes reject them; metadata PUT/PATCH If-Match is the explicit local extension. Standalone dates/If-Range and unsupported conditions still fail without mutation. | `etag::json_etag_read_unsupported_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
+| ETAG-READ-REJECTIONS | Object and bucket listings ignore ETag conditions (recorded 2026-11-13); other lists and unrelated writes reject them; metadata PUT/PATCH accept If-Match without evaluating it (recorded 2026-11-17). Standalone dates/If-Range and unsupported conditions still fail without mutation. | `etag::json_etag_read_unsupported_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
 | ETAG-READ-FIELDS | Bucket/object fields=name retains the complete-resource HTTP ETag; matching cache validator returns bodyless 304 and failed If-Match returns an unfiltered 412 error | `fields_http::fields_read_etag_validators_use_the_complete_resource` | PASS |
 | ETAG-READ-FIELDS-ORDER | Malformed fields returns 400 before failing If-Match or matching If-None-Match; parameter validation precedes condition evaluation | `fields_http::fields_invalid_selection_precedes_read_etag_evaluation` | PASS |
 | ETAG-READ-DATE-PRECEDENCE | If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists | `etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior`; `etag::json_etag_read_if_match_overrides_if_unmodified_since` | PASS |
@@ -197,9 +197,9 @@ questions or excluded implementation, not skipped tests counted as success.
 
 ## Explicit exclusions and gaps
 
-- Write-side ETag conditions remain rejected outside the explicit atomic
-  [metadata If-Match subset](json-metadata-if-match.md). That local SDK extension
-  retains provider-write parity as unverified under SPEC-METADATA-IF-MATCH.
+- Write-side ETag conditions remain rejected, except If-Match on object metadata
+  writes, which is [accepted and not evaluated](json-metadata-if-match.md) as
+  recorded on Cloud Storage (SPEC-METADATA-IF-MATCH, resolved).
 - Object and bucket listings ignore collection validators and send no ETag, as
   recorded on 2026-11-13; validators on the other collection listings remain
   rejected pending their own recording. Discovery lacks collection etag fields;

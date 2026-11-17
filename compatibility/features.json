@@ -18034,10 +18034,10 @@
           ]
         },
         {
-          "id": "metadata-if-match-local-sdk",
-          "description": "SDK-backed local If-Match only for metadata PATCH/PUT and POST PATCH override: strong/list/wildcard matching inside the immediate mutation transaction, duplicate-list OR, weak/stale 412, malformed 400, missing 404, strict 403 and one-winner concurrency. If-None-Match/other writes remain unsupported; real-Google metadata-write parity is unverified under SPEC-METADATA-IF-MATCH.",
+          "id": "metadata-if-match-ignored",
+          "description": "Metadata PATCH/PUT and POST PATCH override accept If-Match without evaluating it, as recorded on Cloud Storage (case obj-gaps-json): current, superseded, bogus and malformed values all apply the change, a failing query condition still answers 412, a missing object stays 404 and strict denials stay 401/403. Among concurrent updates only a query precondition picks one winner. If-None-Match, date conditions, If-Range and If-Match on other writes keep their 400.",
           "result": "PASS",
-          "test_ids": ["metadata_if_match_checks_returned_etag_and_query_conditions_atomically", "metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation", "metadata_if_match_preserves_missing_resource_and_strict_permission_errors", "concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"]
+          "test_ids": ["metadata_if_match_is_ignored_while_query_conditions_still_apply", "metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected", "metadata_if_match_keeps_missing_resource_and_strict_permission_errors", "concurrent_metadata_updates_need_a_query_precondition_for_one_winner"]
         },
         {
           "id": "JSON-OBJECTS-010-METADATA",
@@ -18282,10 +18282,10 @@
         "bucket_put_conditioned_race_has_one_winner",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
         "conditional_delete_and_metadata_patch_have_one_winner",
-        "metadata_if_match_checks_returned_etag_and_query_conditions_atomically",
-        "metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation",
-        "metadata_if_match_preserves_missing_resource_and_strict_permission_errors",
-        "concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"
+        "metadata_if_match_is_ignored_while_query_conditions_still_apply",
+        "metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected",
+        "metadata_if_match_keeps_missing_resource_and_strict_permission_errors",
+        "concurrent_metadata_updates_need_a_query_precondition_for_one_winner"
       ],
       "verification": [
         {
@@ -18303,7 +18303,7 @@
           ]
         },
         {"command":"cargo +1.99.1 test --locked --offline --test it_objects custom_metadata_values","result":"PASS","verified_at":"2026-11-09","artifact":"docs/en/evidence/client-compat-0.16.0.md","test_ids":["custom_metadata_values_http::numbers_and_booleans_are_stored_as_strings","custom_metadata_values_http::object_and_array_values_are_dropped_while_other_keys_apply","custom_metadata_values_http::patch_clears_the_map_when_every_supplied_value_is_dropped","custom_metadata_values_http::the_size_limit_counts_the_stored_text_of_a_converted_value","custom_metadata_values_http::every_body_that_writes_metadata_uses_the_same_value_rules"]},
-        {"command":"cargo test --test http_metadata_etag --test object_metadata_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-metadata-if-match.md","test_ids":["metadata_if_match_checks_returned_etag_and_query_conditions_atomically","metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation","metadata_if_match_preserves_missing_resource_and_strict_permission_errors","concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"]},
+        {"command":"cargo test --test http_metadata_etag --test object_metadata_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-metadata-if-match.md","test_ids":["metadata_if_match_is_ignored_while_query_conditions_still_apply","metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected","metadata_if_match_keeps_missing_resource_and_strict_permission_errors","concurrent_metadata_updates_need_a_query_precondition_for_one_winner"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -18588,7 +18588,7 @@
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "SPEC-015 scoped correction: body generation:null is unspecified during metadata mutation for the pinned Java Storage 2.76.0 update call. Actual request capture and unchanged SDK scenario pass after the repair. Since 2026-11-13 a non-null body generation selects the generation when the query names none (404 when it does not exist), as recorded on Cloud Storage (case obj-metadata-output-only). Other read-only nulls, unknown input and strict authorization/preconditions retain rejection; no general output-only parity is inferred. Sources/archive digest, two wire regressions and real-Google-unverified boundary: docs/en/slices/json-object-metadata.md and docs/en/evidence/migration-integration.md.",
-        "SPEC-METADATA-IF-MATCH: metadata PUT/PATCH/override If-Match passes the scoped local SDK extension, comparing strong validators atomically in the existing transaction. Four dedicated wire tests, twenty-two existing metadata/read regressions and the unchanged .NET SDK pass. Official JSON headers document GET support only; actual Google metadata-write semantics remain unverified. If-None-Match, standalone dates/If-Range and unrelated writes retain rejection. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
+        "Metadata PUT/PATCH/override accept If-Match without evaluating it, as recorded on Cloud Storage on 2026-11-17 (SPEC-METADATA-IF-MATCH, resolved); only query conditions guard a concurrent update. If-None-Match, standalone dates/If-Range on these writes and If-Match on unrelated writes keep a local 400 without provider evidence. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-11-13",
@@ -19309,10 +19309,10 @@
           ]
         },
         {
-          "id": "metadata-if-match-local-sdk",
-          "description": "SDK-backed local If-Match only for metadata PATCH/PUT and POST PATCH override: strong/list/wildcard matching inside the immediate mutation transaction, duplicate-list OR, weak/stale 412, malformed 400, missing 404, strict 403 and one-winner concurrency. If-None-Match/other writes remain unsupported; real-Google metadata-write parity is unverified under SPEC-METADATA-IF-MATCH.",
+          "id": "metadata-if-match-ignored",
+          "description": "Metadata PATCH/PUT and POST PATCH override accept If-Match without evaluating it, as recorded on Cloud Storage (case obj-gaps-json): current, superseded, bogus and malformed values all apply the change, a failing query condition still answers 412, a missing object stays 404 and strict denials stay 401/403. Among concurrent updates only a query precondition picks one winner. If-None-Match, date conditions, If-Range and If-Match on other writes keep their 400.",
           "result": "PASS",
-          "test_ids": ["metadata_if_match_checks_returned_etag_and_query_conditions_atomically", "metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation", "metadata_if_match_preserves_missing_resource_and_strict_permission_errors", "concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"]
+          "test_ids": ["metadata_if_match_is_ignored_while_query_conditions_still_apply", "metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected", "metadata_if_match_keeps_missing_resource_and_strict_permission_errors", "concurrent_metadata_updates_need_a_query_precondition_for_one_winner"]
         },
         {
           "id": "JSON-OBJECTS-015-METADATA",
@@ -19537,10 +19537,10 @@
         "bucket_put_conditions_and_query_contract",
         "bucket_put_conditioned_race_has_one_winner",
         "obj_http_malformed_conditions_reject_every_object_method_without_mutation",
-        "metadata_if_match_checks_returned_etag_and_query_conditions_atomically",
-        "metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation",
-        "metadata_if_match_preserves_missing_resource_and_strict_permission_errors",
-        "concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"
+        "metadata_if_match_is_ignored_while_query_conditions_still_apply",
+        "metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected",
+        "metadata_if_match_keeps_missing_resource_and_strict_permission_errors",
+        "concurrent_metadata_updates_need_a_query_precondition_for_one_winner"
       ],
       "verification": [
         {
@@ -19557,7 +19557,7 @@
             "object_methods_ignore_an_undeclared_query_parameter"
           ]
         },
-        {"command":"cargo test --test http_metadata_etag --test object_metadata_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-metadata-if-match.md","test_ids":["metadata_if_match_checks_returned_etag_and_query_conditions_atomically","metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation","metadata_if_match_preserves_missing_resource_and_strict_permission_errors","concurrent_metadata_updates_with_one_etag_have_exactly_one_winner"]},
+        {"command":"cargo test --test http_metadata_etag --test object_metadata_http --test object_range_http","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/json-metadata-if-match.md","test_ids":["metadata_if_match_is_ignored_while_query_conditions_still_apply","metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected","metadata_if_match_keeps_missing_resource_and_strict_permission_errors","concurrent_metadata_updates_need_a_query_precondition_for_one_winner"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -19817,7 +19817,7 @@
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics return local 400 badRequest (SPEC-SDK-UNSUPPORTED); production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
         "SPEC-015 scoped correction: body generation:null is unspecified during metadata mutation for the pinned Java Storage 2.76.0 update call. Actual request capture and unchanged SDK scenario pass after the repair. Since 2026-11-13 a non-null body generation selects the generation when the query names none (404 when it does not exist), as recorded on Cloud Storage (case obj-metadata-output-only). Other read-only nulls, unknown input and strict authorization/preconditions retain rejection; no general output-only parity is inferred. Sources/archive digest, two wire regressions and real-Google-unverified boundary: docs/en/slices/json-object-metadata.md and docs/en/evidence/migration-integration.md.",
-        "SPEC-METADATA-IF-MATCH: metadata PUT/PATCH/override If-Match passes the scoped local SDK extension, comparing strong validators atomically in the existing transaction. Four dedicated wire tests, twenty-two existing metadata/read regressions and the unchanged .NET SDK pass. Official JSON headers document GET support only; actual Google metadata-write semantics remain unverified. If-None-Match, standalone dates/If-Range and unrelated writes retain rejection. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
+        "Metadata PUT/PATCH/override accept If-Match without evaluating it, as recorded on Cloud Storage on 2026-11-17 (SPEC-METADATA-IF-MATCH, resolved); only query conditions guard a concurrent update. If-None-Match, standalone dates/If-Range on these writes and If-Match on unrelated writes keep a local 400 without provider evidence. See docs/en/slices/json-metadata-if-match.md; parent remains PARTIAL."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-11-13",
@@ -65430,7 +65430,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Storage 5.0.0 / Testcontainers 4.16.0 on exact .NET SDK 10.0.403 pass the native HTTP three-chunk resumable, exact read, metadata update, generation/listing, create-only failure and cleanup scenario. SDK gzip and its returned-ETag If-Match remain enabled; SPEC-METADATA-IF-MATCH records that local compatibility extension without provider-write parity. The builder uses the full JSON BaseUri and disables automatic redirects to preserve its per-message origin guard. Container and remaining profiles stay separate. Contract: docs/en/slices/sdk-client-adapters.md; current evidence: docs/en/evidence/migration-integration.md.",
+      "notes": "Storage 5.0.0 / Testcontainers 4.16.0 on exact .NET SDK 10.0.403 pass the native HTTP three-chunk resumable, exact read, metadata update, generation/listing, create-only failure and cleanup scenario. SDK gzip and its returned-ETag If-Match remain enabled; the metadata write accepts that If-Match without evaluating it, as Cloud Storage does (SPEC-METADATA-IF-MATCH, resolved 2026-11-17). The builder uses the full JSON BaseUri and disables automatic redirects to preserve its per-message origin guard. Container and remaining profiles stay separate. Contract: docs/en/slices/sdk-client-adapters.md; current evidence: docs/en/evidence/migration-integration.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -65445,7 +65445,7 @@
         {"command":"GCS_MIMIC_IMAGE=gcs-mimic:integration-20261031-arm64 bash sdk-tests/dotnet/run.sh --container","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/migration-integration.md","test_ids":["dotnet-sdk-container"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["The native anonymous HTTP subset and generic-container scenario pass; HTTPS/strict/signing profiles remain pending. Metadata-write If-Match is an explicitly scoped SDK-backed local extension, with real-Google mutation semantics unverified under SPEC-METADATA-IF-MATCH."],
+      "known_deviations": ["The native anonymous HTTP subset and generic-container scenario pass; HTTPS/strict/signing profiles remain pending. Metadata-write If-Match is accepted and ignored, as recorded on Cloud Storage (SPEC-METADATA-IF-MATCH, resolved 2026-11-17)."],
       "implemented_in": null,
       "last_verified": null
     },

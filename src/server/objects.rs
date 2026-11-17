@@ -441,7 +441,9 @@ async fn update(
     } = params;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
-    let etags = request.headers().clone();
+    // If-Match is accepted and not evaluated: Cloud Storage applied metadata PATCH and PUT
+    // requests naming a superseded or bogus entity tag (case obj-gaps-json). Only the query
+    // conditions guard a concurrent update.
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
@@ -467,17 +469,6 @@ async fn update(
                 // A wrong key fails before the metadata change commits.
                 crate::csek::check_metadata(record.customer_key_sha256, key)
                     .map_err(ObjectError::CustomerEncryption)?;
-                crate::http_conditions::require_etag_match(&etags, &json::object_etag(record))
-                    .map_err(|error| match error {
-                        crate::http_conditions::EtagError::Invalid => {
-                            ObjectError::InvalidFixedMetadata(
-                                "Invalid If-Match precondition".into(),
-                            )
-                        }
-                        crate::http_conditions::EtagError::PreconditionFailed => {
-                            ObjectError::PreconditionFailed
-                        }
-                    })?;
                 json::ObjectMetadataRequest::validate_unchanged(
                     &update.unchanged,
                     record,

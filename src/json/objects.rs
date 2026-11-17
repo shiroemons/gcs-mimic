@@ -190,6 +190,9 @@ impl ObjectRequest {
     pub(crate) fn etag_conditions(&self) -> Option<EtagConditions> {
         match self {
             Self::Get { .. } => None,
+            // The metadata write accepts If-Match without evaluating it, as Cloud Storage did
+            // (case obj-gaps-json). If-None-Match and date conditions stay rejected: no
+            // recording shows what Cloud Storage does with them on this method.
             Self::Update(_) => Some(EtagConditions::MatchOnly),
             // A listing has no entity tag: Cloud Storage listed the objects with
             // `If-None-Match: *` and with a bogus `If-Match` (case obj-collection-validators).

@@ -3,7 +3,7 @@ use crate::common;
 use common::TestDir;
 use common::ingress::{Server, gzip};
 use serde_json::Value;
-use std::sync::{Arc, Barrier};
+use std::sync::Barrier;
 
 const OBJECT: &str = "/storage/v1/b/etag-bucket/o/object";
 const JSON: &str = "Content-Type: application/json\r\n";
@@ -27,54 +27,53 @@ fn setup(server: &Server, auth: &str) -> Value {
     uploaded.json()
 }
 
+// Cloud Storage applied metadata PATCH and PUT requests whose If-Match named a superseded or
+// bogus entity tag (differential case obj-gaps-json), so the header guards nothing here either.
 #[test]
-fn metadata_if_match_checks_returned_etag_and_query_conditions_atomically() {
+fn metadata_if_match_is_ignored_while_query_conditions_still_apply() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     let mut resource = setup(&server, "");
-    let etag = resource["etag"].as_str().unwrap().to_owned();
+    let first_etag = resource["etag"].as_str().unwrap().to_owned();
     resource["metadata"] = serde_json::json!({"fixture":"updated"});
     let updated = server.request(
         "PUT",
         OBJECT,
-        &format!("{JSON}Content-Encoding: gzip\r\nIf-Match: {etag}\r\n"),
+        &format!("{JSON}Content-Encoding: gzip\r\nIf-Match: {first_etag}\r\n"),
         &gzip(resource.to_string().as_bytes()),
     );
     updated.status(200);
     assert_eq!(updated.json()["metageneration"], "2");
     assert_eq!(updated.json()["metadata"]["fixture"], "updated");
     assert_ne!(updated.json()["etag"], resource["etag"]);
-    for (path, condition) in [
-        (OBJECT.to_string(), etag),
-        (
-            format!("{OBJECT}?ifMetagenerationMatch=1"),
-            updated.json()["etag"].as_str().unwrap().into(),
-        ),
-    ] {
-        let failed = server.request(
+    for (condition, metageneration) in [(first_etag.as_str(), "3"), ("\"bogus\"", "4")] {
+        let applied = server.request(
             "PATCH",
-            &path,
+            OBJECT,
             &format!("{JSON}If-Match: {condition}\r\n"),
-            br#"{"metadata":{"fixture":"lost"}}"#,
+            br#"{"metadata":{"fixture":"applied"}}"#,
         );
-        failed.status(412);
-        assert_eq!(
-            failed.json()["error"]["errors"][0]["reason"],
-            "conditionNotMet"
-        );
+        applied.status(200);
+        assert_eq!(applied.json()["metageneration"], metageneration);
     }
-    let before = server.request("GET", OBJECT, "", b"").json();
-    assert_eq!(before["metageneration"], "2");
-    assert_eq!(before["metadata"]["fixture"], "updated");
-    let headers = format!(
-        "{JSON}X-HTTP-Method-Override: PATCH\r\nIf-Match: {}\r\n",
-        before["etag"].as_str().unwrap()
+    let current = server.request("GET", OBJECT, "", b"").json();
+    let failed = server.request(
+        "PATCH",
+        &format!("{OBJECT}?ifMetagenerationMatch=1"),
+        &format!("{JSON}If-Match: {}\r\n", current["etag"].as_str().unwrap()),
+        br#"{"metadata":{"fixture":"lost"}}"#,
     );
+    failed.status(412);
+    assert_eq!(
+        failed.json()["error"]["errors"][0]["reason"],
+        "conditionNotMet"
+    );
+    assert_eq!(server.request("GET", OBJECT, "", b"").json(), current);
     server
         .request(
             "POST",
             OBJECT,
-            &headers,
+            &format!("{JSON}X-HTTP-Method-Override: PATCH\r\nIf-Match: {first_etag}\r\n"),
             br#"{"metadata":{"override":"yes"}}"#,
         )
         .status(200);
@@ -86,20 +85,33 @@ fn metadata_if_match_checks_returned_etag_and_query_conditions_atomically() {
     );
 }
 
+// Only well-formed tags were recorded; a value that is not one is ignored the same way, since
+// the header is not evaluated at all. The other conditional headers have no recording on this
+// method and keep their rejection.
 #[test]
-fn metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validation() {
+fn metadata_if_match_values_are_ignored_and_other_conditions_stay_rejected() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     setup(&server, "");
-    for coding in ["wildcard", "list", "duplicate", "ignored-date"] {
-        let current = server.request("GET", OBJECT, "", b"").json();
-        let etag = current["etag"].as_str().unwrap();
-        let value = match coding {
-            "wildcard" => "*".to_string(),
-            "list" => format!("\"other\", {etag}"),
-            "duplicate" => format!("\"other\"\r\nIf-Match: {etag}"),
-            _ => format!("{etag}\r\nIf-Unmodified-Since: Wed, 21 Oct 2015 07:28:00 GMT"),
-        };
+    let etag = server.request("GET", OBJECT, "", b"").json()["etag"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for value in [
+        "*".to_owned(),
+        format!("\"other\", {etag}"),
+        format!("\"other\"\r\nIf-Match: {etag}"),
+        format!("{etag}\r\nIf-Unmodified-Since: Wed, 21 Oct 2015 07:28:00 GMT"),
+        format!("W/{etag}"),
+        "\"stale\"".to_owned(),
+        String::new(),
+        "bare-tag".to_owned(),
+        "bare tag".to_owned(),
+        "bare\"tag".to_owned(),
+        format!("{etag}, bad tag"),
+        format!("*, {etag}"),
+        "*\r\nIf-Match: *".to_owned(),
+    ] {
         server
             .request(
                 "PATCH",
@@ -110,29 +122,6 @@ fn metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validatio
             .status(200);
     }
     let before = server.request("GET", OBJECT, "", b"").json();
-    let etag = before["etag"].as_str().unwrap();
-    for (value, status) in [
-        (format!("W/{etag}"), 412),
-        ("\"stale\"".into(), 412),
-        (String::new(), 412),
-        // JSON entity tags are unquoted tokens, so a bare tag is valid and fails only to match.
-        ("bare-tag".into(), 412),
-        ("bare tag".into(), 400),
-        ("bare\"tag".into(), 400),
-        (format!("{etag}, bad tag"), 400),
-        (format!("*, {etag}"), 400),
-        ("*\r\nIf-Match: *".into(), 400),
-    ] {
-        server
-            .request(
-                "PATCH",
-                OBJECT,
-                &format!("{JSON}If-Match: {value}\r\n"),
-                b"{}",
-            )
-            .status(status);
-        assert_eq!(server.request("GET", OBJECT, "", b"").json(), before);
-    }
     for (method, path, headers) in [
         ("PATCH", OBJECT.to_string(), "If-None-Match: *\r\n"),
         ("DELETE", OBJECT.to_string(), "If-Match: *\r\n"),
@@ -167,7 +156,7 @@ fn metadata_if_match_reuses_strong_lists_wildcards_and_complete_syntax_validatio
 }
 
 #[test]
-fn metadata_if_match_preserves_missing_resource_and_strict_permission_errors() {
+fn metadata_if_match_keeps_missing_resource_and_strict_permission_errors() {
     let dir = TestDir::new();
     let registry = common::process::write_identities(
         &dir.0,
@@ -210,43 +199,39 @@ fn metadata_if_match_preserves_missing_resource_and_strict_permission_errors() {
     assert_eq!(server.request("GET", OBJECT, admin, b"").json(), original);
 }
 
+/// Sends two metadata PATCH requests at once and returns their sorted statuses.
+fn race(server: &Server, path: &str, headers: &str) -> [u16; 2] {
+    let barrier = Barrier::new(2);
+    let mut statuses = std::thread::scope(|scope| {
+        // Both threads start before either is joined, so the requests overlap.
+        let tasks = ["first", "second"].map(|name| {
+            let barrier = &barrier;
+            scope.spawn(move || {
+                barrier.wait();
+                let body = serde_json::json!({"metadata": {"winner": name}}).to_string();
+                server
+                    .request("PATCH", path, headers, body.as_bytes())
+                    .status
+            })
+        });
+        tasks.map(|task| task.join().unwrap())
+    });
+    statuses.sort_unstable();
+    statuses
+}
+
 #[test]
-fn concurrent_metadata_updates_with_one_etag_have_exactly_one_winner() {
+fn concurrent_metadata_updates_need_a_query_precondition_for_one_winner() {
     let dir = TestDir::new();
     let server = Server::start(&dir, &[]);
     let original = setup(&server, "");
-    let headers = format!("{JSON}If-Match: {}\r\n", original["etag"].as_str().unwrap());
-    let barrier = Arc::new(Barrier::new(2));
-    let mut results = std::thread::scope(|scope| {
-        let tasks: Vec<_> = ["first", "second"]
-            .into_iter()
-            .map(|name| {
-                let barrier = barrier.clone();
-                let server = &server;
-                let headers = &headers;
-                scope.spawn(move || {
-                    barrier.wait();
-                    server
-                        .request(
-                            "PATCH",
-                            OBJECT,
-                            headers,
-                            serde_json::json!({"metadata":{"winner":name}})
-                                .to_string()
-                                .as_bytes(),
-                        )
-                        .status
-                })
-            })
-            .collect();
-        tasks
-            .into_iter()
-            .map(|task| task.join().unwrap())
-            .collect::<Vec<_>>()
-    });
-    results.sort_unstable();
-    assert_eq!(results, [200, 412]);
+    let if_match = format!("{JSON}If-Match: {}\r\n", original["etag"].as_str().unwrap());
+    assert_eq!(race(&server, OBJECT, &if_match), [200, 200]);
+    let current = server.request("GET", OBJECT, "", b"").json();
+    assert_eq!(current["metageneration"], "3");
+    let conditional = format!("{OBJECT}?ifMetagenerationMatch=3");
+    assert_eq!(race(&server, &conditional, JSON), [200, 412]);
     let current = server.request("GET", OBJECT, "", b"").json();
     assert_eq!(current["generation"], original["generation"]);
-    assert_eq!(current["metageneration"], "2");
+    assert_eq!(current["metageneration"], "4");
 }
