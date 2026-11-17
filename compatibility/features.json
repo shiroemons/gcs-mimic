@@ -38529,7 +38529,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): HEAD ignores unknown query parameters and x-goog-* headers like GET; recognized but unsupported queries such as softDeleted are still rejected, and userProject is ignored.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. An invalid raw bucket segment answers XML 400 InvalidBucketName naming it, and one decoding to a name with a slash 404 NoSuchBucket (case xml-gaps-objects, recorded 2026-11-17). Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): HEAD ignores unknown query parameters and x-goog-* headers like GET; recognized but unsupported queries such as softDeleted are still rejected, and userProject is ignored.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -38548,11 +38548,11 @@
         },
         {
           "id": "EXT-XML-017-ERRORS",
-          "description": "Missing, denied, failed-condition, invalid and unsupported HEAD responses preserve their XML status and suppress every body; invalid raw bucket segments retain JSON-style unknown-route errors.",
+          "description": "Missing, denied, failed-condition, invalid and unsupported HEAD responses preserve their XML status and suppress every body; invalid raw bucket segments answer XML 400 InvalidBucketName without a body.",
           "result": "PASS",
           "test_ids": [
             "xml::xml_missing_resources_follow_effective_permission_disclosure",
-            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation"
           ]
@@ -38664,7 +38664,7 @@
         "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
         "xml::xml_head_matches_get_headers_and_selected_metadata",
-        "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+        "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
         "xml::xml_missing_resources_follow_effective_permission_disclosure",
         "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
         "xml::xml_unsupported_operations_fail_before_reading_a_body"
@@ -38701,7 +38701,7 @@
             "xml::xml_head_matches_get_headers_and_selected_metadata",
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
             "xml::xml_missing_resources_follow_effective_permission_disclosure",
-            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
             "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
             "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
@@ -38754,7 +38754,7 @@
             "xml::xml_head_matches_get_headers_and_selected_metadata",
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
             "xml::xml_missing_resources_follow_effective_permission_disclosure",
-            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
             "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
             "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
@@ -38846,7 +38846,7 @@
             "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
             "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
             "xml::xml_head_matches_get_headers_and_selected_metadata",
-            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
             "xml::xml_missing_resources_follow_effective_permission_disclosure",
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
             "xml::xml_unsupported_operations_fail_before_reading_a_body"
@@ -46514,7 +46514,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict local credentials are resolved before public grants. Anonymous callers evaluate allUsers for each granted permission; allAuthenticatedUsers requires registration. XML uses 400 InvalidAuthentication for invalid/unregistered/signature credentials, 401 AuthenticationRequired for anonymous denial and 403 AccessDenied for registered denial; JSON keeps 401 required/authError and 403 forbidden. Invalid raw bucket paths/unknown routes and probes retain their routing behavior. SPEC-017 real-service error/message/header/check-order parity and complete public-access restrictions remain pending. Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md.",
+      "notes": "Strict local credentials are resolved before public grants. Anonymous callers evaluate allUsers for each granted permission; allAuthenticatedUsers requires registration. XML uses 400 InvalidAuthentication for invalid/unregistered/signature credentials, 401 AuthenticationRequired for anonymous denial and 403 AccessDenied for registered denial; JSON keeps 401 required/authError and 403 forbidden. Invalid raw bucket paths answer XML InvalidBucketName; unknown routes and probes retain their routing behavior. SPEC-017 real-service error/message/header/check-order parity and complete public-access restrictions remain pending. Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -52210,10 +52210,10 @@
         },
         {
           "id": "DESIGN-047-PRIVATE",
-          "description": "Strict private and public reads use the same selected path and shared authorization; malformed bucket segments retain the documented unknown-route boundary.",
+          "description": "Strict private and public reads use the same selected path and shared authorization; malformed bucket segments answer XML 400 InvalidBucketName.",
           "result": "PASS",
           "test_ids": [
-            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
             "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
           ]
         }
@@ -52223,7 +52223,7 @@
         "TestXMLReadsEncodedNames",
         "xml::xml_bucket_paths_reserve_only_api_namespaces",
         "guide-compose-public-reads",
-        "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+        "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
         "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml_path_style_decodes_bucket_once_and_preserves_object_names"
       ],
@@ -52237,7 +52237,7 @@
           "test_ids": [
             "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
             "xml::xml_bucket_paths_reserve_only_api_namespaces",
-            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_invalid_bucket_paths_answer_xml_bucket_errors",
             "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
           ]
         },

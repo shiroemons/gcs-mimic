@@ -1060,13 +1060,14 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     let upload = get("/upload/storage/v1/b/b/o");
     assert!(upload.starts_with("HTTP/1.1 405"));
     assert!(upload.contains("allow: POST\r\n"));
-    for path in [
-        "/resumable/upload/storage/v1/b/b/o",
-        "/INVALID/object",
-        "/google.storage.v2.Storage/ReadObject",
-        "/_internal/reset",
-    ] {
+    for path in ["/resumable/upload/storage/v1/b/b/o", "/_internal/reset"] {
         assert!(get(path).starts_with("HTTP/1.1 404"), "{path}");
+    }
+    // A first segment no bucket can be named is an XML bucket error, whatever follows it.
+    for path in ["/INVALID/object", "/google.storage.v2.Storage/ReadObject"] {
+        let reply = get(path);
+        assert!(reply.starts_with("HTTP/1.1 400"), "{path}: {reply}");
+        assert!(reply.contains("<Code>InvalidBucketName</Code>"), "{reply}");
     }
     let service = get("/");
     assert!(service.starts_with("HTTP/1.1 400"), "{service}");

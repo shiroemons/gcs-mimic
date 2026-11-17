@@ -425,7 +425,7 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
                 .auth_error(400, "badRequest");
         }
         server.get(auth, "/storage/v1/unknown").expect(404);
-        server.get(auth, "/INVALID").expect(404);
+        server.get(auth, "/INVALID").expect(400);
         server.get(auth, "/_internal/ready").expect(200);
         server.get(auth, "/_internal/health").expect(200);
     }

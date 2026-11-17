@@ -2343,9 +2343,10 @@ fn bucket_profile_names_support_object_and_xml_routes() {
                 .request(method, &path, "")
                 .json_envelope(400, "invalidParameter");
         }
+        // A name only the fake-gcs-server profile accepts is an XML bucket error natively.
         native
             .request("GET", &format!("/{name}/item"), "")
-            .expect(404);
+            .expect(400);
     }
     native.stop();
     let server = profile_server(&dir, "fake-gcs-server");
@@ -3929,12 +3930,13 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     let chunk = " ".repeat(BODY_LIMIT / 2);
     server.raw(&format!("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n800000\r\n{chunk}\r\n800000\r\n{chunk}\r\n1\r\nx\r\n0\r\n\r\n")).json_envelope(413,"uploadTooLarge");
     server.raw("POST /storage/v1/b/abc/o HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n").json_envelope(400, "badRequest");
-    for path in ["/INVALID", "/storage/v1/b/"] {
+    // Both refusals come before the declared body would be read.
+    for (path, status) in [("/INVALID", 400), ("/storage/v1/b/", 404)] {
         server
             .raw(&format!(
                 "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n"
             ))
-            .expect(404);
+            .expect(status);
     }
     // The fake-gcs-server profile still rejects a parameter the method does not define, which the native
     // profile ignores.

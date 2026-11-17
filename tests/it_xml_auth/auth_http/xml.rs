@@ -88,7 +88,7 @@ fn xml_cache_validators_authorize_before_comparing_one_selected_generation() {
         .expect(304);
 }
 
-use crate::common::errors::xml_error_with_content_type as xml_error;
+use crate::common::errors::{xml_error_message, xml_error_with_content_type as xml_error};
 
 #[test]
 fn public_members_authorize_anonymous_and_registered_callers_without_token_fallback() {
@@ -640,25 +640,44 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
 }
 
 #[test]
-fn xml_invalid_bucket_paths_keep_json_unknown_route_errors() {
+fn xml_invalid_bucket_paths_answer_xml_bucket_errors() {
     let (_config, _data, server) = fixture();
-    for path in [
-        "/INVALID/object",
-        "/ab/object",
-        "/goog-bucket/object",
-        "/1.2.3.4/object",
+    // Cloud Storage named an invalid bucket segment in a 400 InvalidBucketName and answered one
+    // decoding to a name with a slash with 404 NoSuchBucket (recorded 2026-11-17 for
+    // Invalid_Bucket, gcsmimic!bad and gcsmimic%2Fbad; the other names follow the same rule).
+    for (path, bucket) in [
+        ("/Invalid_Bucket/object", "Invalid_Bucket"),
+        ("/gcsmimic!bad/object", "gcsmimic!bad"),
+        ("/INVALID/object", "INVALID"),
+        ("/ab/object", "ab"),
+        ("/goog-bucket/object", "goog-bucket"),
+        ("/1.2.3.4/object", "1.2.3.4"),
+        ("/INVALID", "INVALID"),
     ] {
         let reply = server.get("", path);
-        reply.expect_with(404, format_args!("{path}"));
-        assert_eq!(
-            reply.headers["content-type"],
-            "application/json; charset=UTF-8"
+        xml_error_message(
+            &reply,
+            400,
+            "InvalidBucketName",
+            "The specified bucket is not valid.",
         );
-        assert_eq!(
-            reply.json(),
-            json!({"error":{"code":404,"message":"Route not found","errors":[{"message":"Route not found","domain":"global","reason":"notFound"}]}})
+        let body = String::from_utf8_lossy(&reply.body);
+        assert!(
+            body.contains(&format!(
+                "<Details>Invalid bucket name: '{bucket}'</Details>"
+            )),
+            "{path}: {body}"
         );
     }
+    xml_error_message(
+        &server.get("", "/gcsmimic%2Fbad/object"),
+        404,
+        "NoSuchBucket",
+        "The specified bucket does not exist.",
+    );
+    let head = server.request("HEAD", "/INVALID/object", "", b"");
+    head.expect(400);
+    assert!(head.body.is_empty());
 }
 
 #[test]

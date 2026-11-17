@@ -13,6 +13,7 @@ pub(super) enum XmlCode {
     RequestTimeTooSkewed,
     ServiceUnavailable,
     InvalidRange,
+    InvalidBucketName,
     NoSuchBucket,
     NoSuchKey,
     NoSuchUpload,
@@ -85,6 +86,7 @@ impl XmlCode {
             Self::InvalidArgument
             | Self::InvalidAuthentication
             | Self::ExpiredToken
+            | Self::InvalidBucketName
             | Self::InvalidPart
             | Self::InvalidPartOrder
             | Self::MalformedXml
@@ -114,6 +116,7 @@ impl XmlCode {
             Self::RequestTimeTooSkewed => "RequestTimeTooSkewed",
             Self::ServiceUnavailable => "ServiceUnavailable",
             Self::InvalidRange => "InvalidRange",
+            Self::InvalidBucketName => "InvalidBucketName",
             Self::NoSuchBucket => "NoSuchBucket",
             Self::NoSuchKey => "NoSuchKey",
             Self::NoSuchUpload => "NoSuchUpload",

@@ -65,9 +65,11 @@ decoding. Preserve repeated slashes, leading/trailing object slashes, Unicode,
 spaces, `+`, encoded `?`/`#`, literal percent signs and dot segments. Never use
 an object name as a filesystem path. Malformed escapes, invalid UTF-8 and names
 outside the object validator return an XML 400. An invalid raw bucket segment
-does not select the XML adapter: it retains the JSON-style 404 unknown-route
-response. This exception and encoded bucket segments remain a routing parity
-question; see SPEC-XML-PATH-ERROR.
+selects no object and answers XML 400 `InvalidBucketName` with the message
+`The specified bucket is not valid.` and `Details` of `Invalid bucket name:
+'NAME'`; a segment that decodes to a name with a slash answers XML 404
+`NoSuchBucket`. Cloud Storage answered so (case `xml-gaps-objects`, recorded
+2026-11-17); see SPEC-XML-PATH-ERROR.
 
 Only `/storage/v1`, `/upload/storage/v1`, `/download/storage/v1`,
 `/batch/storage/v1` and `/_internal`, including each slash-delimited descendant,

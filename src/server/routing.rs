@@ -35,6 +35,9 @@ pub(super) enum Target {
     XmlBucket,
     /// An XML path that selects a bucket and object name.
     XmlObject(xml::ObjectPath),
+    /// A path-style target outside the API namespaces whose bucket segment no bucket can be
+    /// named. Cloud Storage answers it from the XML API, which owns every such path.
+    UnnamedBucket(xml::Error),
     /// Everything else: the JSON API, probes and unknown routes.
     Json,
 }
@@ -94,6 +97,8 @@ impl Target {
             Self::Batch
         } else if xml::buckets::matches(request.method(), request.uri(), None) {
             Self::XmlBucket
+        } else if let Some(error) = xml::unselectable_bucket(path, config.compat_profile) {
+            Self::UnnamedBucket(error)
         } else {
             Self::Json
         }
@@ -102,7 +107,10 @@ impl Target {
     /// `None` for management and batch responses, which carry no API envelope.
     fn envelope(&self) -> Option<Family> {
         match self {
-            Self::Unaddressable(_) | Self::XmlBucket | Self::XmlObject(_) => Some(Family::Xml),
+            Self::Unaddressable(_)
+            | Self::UnnamedBucket(_)
+            | Self::XmlBucket
+            | Self::XmlObject(_) => Some(Family::Xml),
             Self::Json => Some(Family::Json),
             Self::Admin(_) | Self::Batch => None,
         }
@@ -209,7 +217,7 @@ async fn route(
     ctx: RequestCtx<'_>,
 ) -> Response<ResponseBody> {
     match target {
-        Target::Unaddressable(error) => {
+        Target::Unaddressable(error) | Target::UnnamedBucket(error) => {
             boxed(error.response(xml::ErrorBody::for_method(request.method())))
         }
         Target::Admin(route) => super::admin::respond(route, request, ctx).await,

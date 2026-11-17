@@ -441,6 +441,40 @@ pub(crate) fn reserved_path(path: &str) -> bool {
     })
 }
 
+/// The XML error for a path-style target whose bucket segment no bucket can be named, which
+/// selects no object. Cloud Storage answered such a segment with 400 `InvalidBucketName`
+/// naming it, and one that decodes to a name with a slash with 404 `NoSuchBucket` (recorded
+/// 2026-11-17, case xml-gaps-objects). A reserved API path, the root and a valid name are left
+/// to the routes that serve them.
+pub(crate) fn unselectable_bucket(
+    path: &str,
+    profile: crate::config::CompatProfile,
+) -> Option<Error> {
+    if reserved_path(path) {
+        return None;
+    }
+    let segment = path.strip_prefix('/')?.split('/').next()?;
+    if segment.is_empty() {
+        return None;
+    }
+    let bucket = json::decode(segment, json::Decoding::Path).ok()?;
+    if json::validate_bucket_name_for_profile(&bucket, profile).is_ok() {
+        return None;
+    }
+    Some(if bucket.contains('/') {
+        Error::new(
+            XmlCode::NoSuchBucket,
+            "The specified bucket does not exist.",
+        )
+    } else {
+        Error::new(
+            XmlCode::InvalidBucketName,
+            "The specified bucket is not valid.",
+        )
+        .with_details(format!("Invalid bucket name: '{bucket}'"))
+    })
+}
+
 pub(crate) fn virtual_bucket(headers: &HeaderMap, domains: &[String]) -> Option<String> {
     let mut hosts = headers.get_all("host").iter();
     let host = hosts.next()?.to_str().ok()?;

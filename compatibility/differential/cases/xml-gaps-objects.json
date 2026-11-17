@@ -5,9 +5,9 @@
     {"name": "put-owner-probe", "protocol": "xml", "method": "PUT", "path": "/{bucket}/{object}-o", "headers": {"Content-Type": "text/plain"}, "body_text": "x", "expect_status": 200},
     {"name": "list-v2-fetch-owner-true", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage lists an Owner element for each object with fetch-owner=true; gcs-mimic refuses the option with 400 InvalidArgument (SPEC-CROSS-PROTOCOL-EXCLUSIONS).", "mimic_status": 400}, "protocol": "xml", "method": "GET", "path": "/{bucket}", "query": {"list-type": "2", "prefix": "{object}-o", "fetch-owner": "true"}},
 
-    {"name": "get-invalid-bucket-uppercase", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage answers an invalid bucket segment with XML 400 InvalidBucketName; gcs-mimic keeps the JSON 404 unknown-route error (SPEC-XML-PATH-ERROR).", "mimic_status": 404}, "protocol": "xml", "method": "GET", "path": "/Invalid_Bucket/{object}"},
-    {"name": "get-invalid-bucket-punctuation", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage answers an invalid bucket segment with XML 400 InvalidBucketName; gcs-mimic keeps the JSON 404 unknown-route error (SPEC-XML-PATH-ERROR).", "mimic_status": 404}, "protocol": "xml", "method": "GET", "path": "/gcsmimic!bad/{object}"},
-    {"name": "get-encoded-slash-bucket", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage answers a percent-encoded slash in the bucket segment with XML 404 NoSuchBucket; gcs-mimic keeps the JSON 404 unknown-route error (SPEC-XML-PATH-ERROR).", "mimic_status": 404}, "protocol": "xml", "method": "GET", "path": "/gcsmimic%2Fbad/{object}"},
+    {"name": "get-invalid-bucket-uppercase", "protocol": "xml", "method": "GET", "path": "/Invalid_Bucket/{object}"},
+    {"name": "get-invalid-bucket-punctuation", "protocol": "xml", "method": "GET", "path": "/gcsmimic!bad/{object}"},
+    {"name": "get-encoded-slash-bucket", "protocol": "xml", "method": "GET", "path": "/gcsmimic%2Fbad/{object}"},
 
     {"name": "upload-non-ascii-metadata", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-m1"}, "headers": {"Content-Type": "text/plain"}, "body_text": "m1", "expect_status": 200},
     {"name": "patch-non-ascii-metadata", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-m1", "query": {"fields": "metadata"}, "body": {"metadata": {"k": "日本語"}}, "expect_status": 200},

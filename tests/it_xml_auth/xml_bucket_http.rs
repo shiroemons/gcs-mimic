@@ -227,7 +227,8 @@ fn xml_head_bucket_checks_access_and_sends_no_body_on_success_or_error() {
         ("/head-bucket", ADMIN, "", 200),
         ("/head-bucket/", ADMIN, "", 200),
         ("/head%2Dbucket", ADMIN, "", 200),
-        ("/head%252Dbucket", ADMIN, "", 404),
+        // Decoded once, the name keeps a percent sign, which no bucket name has.
+        ("/head%252Dbucket", ADMIN, "", 400),
         ("/missing-bucket", ADMIN, "", 404),
         ("/head-bucket", VIEWER, "", 403),
         ("/head-bucket", NONE, "", 403),

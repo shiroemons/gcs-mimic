@@ -182,11 +182,13 @@ fn xml_path_style_decodes_bucket_once_and_preserves_object_names() {
         (200, "encoded body".into())
     );
     let original = server.resource("", "list-bucket", name);
+    // A name decoded once that no bucket can have is 400 InvalidBucketName, and one with a slash
+    // 404 NoSuchBucket; a malformed escape stays 400.
     for (bucket, status) in [
-        ("list%252Dbucket", 404),
+        ("list%252Dbucket", 400),
         ("list%2Fbucket", 404),
         ("list%GGbucket", 400),
-        ("list%E9%9B%AAbucket", 404),
+        ("list%E9%9B%AAbucket", 400),
         ("list%FFbucket", 400),
     ] {
         for method in ["GET", "PUT"] {
