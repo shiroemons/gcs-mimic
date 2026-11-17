@@ -58082,6 +58082,214 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "prj-number-inputs",
+      "steps": [
+        {
+          "fingerprint": "4e10609150d366d0",
+          "name": "get-number",
+          "request": "GET /storage/v1/b/<bucket>?fields=projectNumber",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "projectNumber": "<project-number:str>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ea6ca5c644520d17",
+          "name": "json-list-by-number",
+          "request": "GET /storage/v1/b?fields=items%28name%2CprojectNumber%29&prefix=<bucket>&project=<project-number>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "<bucket>",
+                    "projectNumber": "<project-number:str>"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6371c3823edab0fb",
+          "name": "json-insert-by-number",
+          "request": "POST /storage/v1/b?fields=name%2CprojectNumber&project=<project-number>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<new_bucket>",
+                "projectNumber": "<project-number:str>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "30588612f711906a",
+          "name": "json-list-inserted-by-id",
+          "request": "GET /storage/v1/b?fields=items%28name%29&prefix=<new_bucket>&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "<new_bucket>"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a43e457a226e8a38",
+          "name": "grpc-list-by-number",
+          "request": "GRPC google.storage.v2.Storage/ListBuckets",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "buckets": [
+                  {
+                    "name": "projects/_/buckets/<bucket>",
+                    "project": "projects/<project-number>"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "eb477d4a535f3dac",
+          "name": "grpc-list-zero",
+          "request": "GRPC google.storage.v2.Storage/ListBuckets",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project id: 0 is invalid or not found"
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project id: 0 is invalid or not found"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "63f75e16138c9bc2",
+          "name": "service-account-by-number",
+          "request": "GET /storage/v1/projects/<project-number>/serviceAccount",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "email_address": "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com",
+                "kind": "storage#serviceAccount"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "da5cf96a0aa11b1e",
+          "name": "hmac-get-missing-by-number",
+          "request": "GET /storage/v1/projects/<project-number>/hmacKeys/GOOGNOSUCHKEYID000000",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Access ID not found in project.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "Access ID not found in project."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -58096,7 +58304,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2255,
+  "requests": 2279,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

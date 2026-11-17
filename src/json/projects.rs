@@ -53,6 +53,18 @@ pub(crate) enum ProjectRequest {
 }
 
 impl ProjectRequest {
+    /// The project the path names.
+    pub(crate) fn project_mut(&mut self) -> &mut ProjectId {
+        match self {
+            Self::CreateHmacKey { project, .. }
+            | Self::GetHmacKey { project, .. }
+            | Self::ListHmacKeys(HmacKeyListParams { project, .. })
+            | Self::UpdateHmacKey { project, .. }
+            | Self::DeleteHmacKey { project, .. }
+            | Self::GetServiceAccount { project } => project,
+        }
+    }
+
     /// Whether the method takes a request body.
     pub(crate) fn accepts_body(&self) -> bool {
         match self {
@@ -369,7 +381,7 @@ pub(crate) fn service_account(project: &str) -> Value {
 pub(crate) fn service_account_email(project: &str) -> String {
     format!(
         "service-{}@gs-project-accounts.iam.gserviceaccount.com",
-        crate::acl::project_number(project)
+        crate::project::ProjectNumber::of(project)
     )
 }
 
@@ -415,7 +427,7 @@ fn encode_list_token(params: &HmacKeyListParams, last_access_id: &str) -> String
     page_token::seal(&(
         (
             CursorTag::HmacKeys.as_str(),
-            params.project.as_str(),
+            page_token::cursor_project(params.project.as_str()),
             &params.service_account_email,
             params.show_deleted_keys,
         ),
@@ -431,7 +443,7 @@ fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, 
         JsonError::invalid_parameter("Invalid pageToken for this HMAC key listing")
     })?;
     if tag != CursorTag::HmacKeys.as_str()
-        || project != params.project.as_str()
+        || !page_token::cursor_binds(&project, params.project.as_str())
         || email != params.service_account_email
         || show_deleted_keys != params.show_deleted_keys
     {
@@ -735,7 +747,7 @@ mod tests {
         );
         assert_eq!(
             service_account("local-project")["email_address"],
-            "service-0@gs-project-accounts.iam.gserviceaccount.com"
+            "service-471889570513@gs-project-accounts.iam.gserviceaccount.com"
         );
         assert_eq!(service_account("p")["kind"], "storage#serviceAccount");
     }
@@ -744,19 +756,23 @@ mod tests {
     /// a token issued earlier must still open for the same filters.
     #[test]
     fn hmac_key_list_tokens_keep_their_bytes_and_open() {
-        for (token, email, show_deleted_keys) in [
+        // `earlier` was issued before cursors bound the project number; it still opens for the
+        // spelling it bound, while a current token opens for the ID and the number alike.
+        for (token, earlier, email, show_deleted_keys) in [
             (
+                "5b5b226831222c22363431373732383331323835222c6e756c6c2c66616c73655d2c22474f4f47314558414d504c45225d.7bebb034792dc1ed",
                 "5b5b226831222c2270726f6a6563742d31222c6e756c6c2c66616c73655d2c22474f4f47314558414d504c45225d.affac523806258da",
                 None,
                 false,
             ),
             (
+                "5b5b226831222c22363431373732383331323835222c2273614070726f6a6563742e69616d2e67736572766963656163636f756e742e636f6d222c747275655d2c22474f4f47314558414d504c45225d.0ad9657a753cf7db",
                 "5b5b226831222c2270726f6a6563742d31222c2273614070726f6a6563742e69616d2e67736572766963656163636f756e742e636f6d222c747275655d2c22474f4f47314558414d504c45225d.c41050cb7937b2ba",
                 Some("sa@project.iam.gserviceaccount.com"),
                 true,
             ),
         ] {
-            let params = HmacKeyListParams {
+            let mut params = HmacKeyListParams {
                 project: "project-1".parse().unwrap(),
                 service_account_email: email.map(str::to_owned),
                 show_deleted_keys,
@@ -764,6 +780,10 @@ mod tests {
                 start_after: None,
             };
             assert_eq!(encode_list_token(&params, "GOOG1EXAMPLE"), token);
+            for token in [token, earlier] {
+                assert_eq!(decode_list_token(token, &params).unwrap(), "GOOG1EXAMPLE");
+            }
+            params.project = "641772831285".parse().unwrap();
             assert_eq!(decode_list_token(token, &params).unwrap(), "GOOG1EXAMPLE");
         }
     }

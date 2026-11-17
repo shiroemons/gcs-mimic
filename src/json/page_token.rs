@@ -85,6 +85,18 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
+/// The project a bucket or HMAC key cursor binds: its number, the one name a project's ID and
+/// number share, so a listing continues whichever of the two the next request spells.
+pub(super) fn cursor_project(project: &str) -> String {
+    crate::project::ProjectNumber::of(project).to_string()
+}
+
+/// Whether a cursor binds `project`: by number, or by the spelling cursors bound before they
+/// named projects by number, so a token issued then still opens for that spelling.
+pub(super) fn cursor_binds(bound: &str, project: &str) -> bool {
+    bound == project || bound == cursor_project(project)
+}
+
 /// Tokens detect accidental corruption; they are not authenticated authorization credentials.
 pub(crate) fn encode_page_token(
     project: &str,
@@ -92,7 +104,12 @@ pub(crate) fn encode_page_token(
     last_name: &str,
 ) -> Result<String, JsonError> {
     super::query::validate_project(project)?;
-    encode_bucket_cursor(CursorTag::Buckets, project, prefix, last_name)
+    encode_bucket_cursor(
+        CursorTag::Buckets,
+        &cursor_project(project),
+        prefix,
+        last_name,
+    )
 }
 
 /// Encodes a cursor for a listing that spans every project the caller may list.
@@ -145,7 +162,7 @@ pub(crate) fn encode_soft_deleted_page_token(
     validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     Ok(seal(&(
         CursorTag::SoftDeletedBuckets.as_str(),
-        project,
+        cursor_project(project),
         prefix,
         last_name,
         last_generation.to_string(),
@@ -165,7 +182,7 @@ pub(crate) fn decode_soft_deleted_page_token(
         String,
     ) = open(token, BUCKET_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
     if tag != CursorTag::SoftDeletedBuckets.as_str()
-        || token_project != project
+        || !cursor_binds(&token_project, project)
         || token_prefix != prefix
         || !name.starts_with(prefix)
     {
@@ -185,7 +202,7 @@ fn decode_bucket_cursor(
     let (tag, token_project, token_prefix, name): (String, String, String, String) =
         open(token, BUCKET_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
     if tag != expected.as_str()
-        || token_project != project
+        || !cursor_binds(&token_project, project)
         || token_prefix != prefix
         || !name.starts_with(prefix)
     {
@@ -423,15 +440,27 @@ mod tests {
     /// same text, so a token must keep its bytes and a token issued earlier must still open.
     #[test]
     fn page_tokens_keep_their_bytes_and_open() {
-        const BUCKET: &str = "5b226231222c2270726f6a6563742d31222c226c6f6773222c226c6f67732d32303234225d.2a695ec2890f728e";
+        // A cursor binds the number of `project-1`, so it opens for the ID and for the number.
+        const NUMBER: &str = "641772831285";
+        const BUCKET: &str = "5b226231222c22363431373732383331323835222c226c6f6773222c226c6f67732d32303234225d.5eb3e04d7859726b";
+        // Issued before cursors bound the number; it still opens for the spelling it bound.
+        const EARLIER_BUCKET: &str = "5b226231222c2270726f6a6563742d31222c226c6f6773222c226c6f67732d32303234225d.2a695ec2890f728e";
         assert_eq!(
             encode_page_token("project-1", "logs", "logs-2024").unwrap(),
             BUCKET
         );
-        assert_eq!(
-            decode_page_token(BUCKET, "project-1", "logs").unwrap(),
-            "logs-2024"
-        );
+        for (token, project) in [
+            (BUCKET, "project-1"),
+            (BUCKET, NUMBER),
+            (EARLIER_BUCKET, "project-1"),
+        ] {
+            assert_eq!(
+                decode_page_token(token, project, "logs").unwrap(),
+                "logs-2024",
+                "{token} {project}"
+            );
+        }
+        assert!(decode_page_token(BUCKET, "project-2", "logs").is_err());
         const ALL_PROJECTS: &str =
             "5b2262312a222c22222c22222c226275636b65742d61225d.132d4f68d056d91e";
         assert_eq!(
@@ -442,16 +471,24 @@ mod tests {
             decode_all_projects_page_token(ALL_PROJECTS, "").unwrap(),
             "bucket-a"
         );
-        const SOFT_DELETED: &str = "5b22623173222c2270726f6a6563742d31222c22222c2264656c657465642d6275636b6574222c2231373030303030303030313233225d.60f83ca2962239f6";
+        const SOFT_DELETED: &str = "5b22623173222c22363431373732383331323835222c22222c2264656c657465642d6275636b6574222c2231373030303030303030313233225d.606f2d128d10b853";
+        const EARLIER_SOFT_DELETED: &str = "5b22623173222c2270726f6a6563742d31222c22222c2264656c657465642d6275636b6574222c2231373030303030303030313233225d.60f83ca2962239f6";
         assert_eq!(
             encode_soft_deleted_page_token("project-1", "", "deleted-bucket", 1_700_000_000_123)
                 .unwrap(),
             SOFT_DELETED
         );
-        assert_eq!(
-            decode_soft_deleted_page_token(SOFT_DELETED, "project-1", "").unwrap(),
-            ("deleted-bucket".to_owned(), 1_700_000_000_123)
-        );
+        for (token, project) in [
+            (SOFT_DELETED, "project-1"),
+            (SOFT_DELETED, NUMBER),
+            (EARLIER_SOFT_DELETED, "project-1"),
+        ] {
+            assert_eq!(
+                decode_soft_deleted_page_token(token, project, "").unwrap(),
+                ("deleted-bucket".to_owned(), 1_700_000_000_123),
+                "{token} {project}"
+            );
+        }
         for (token, cursor, query) in [
             (
                 "5b226f33222c22615c22625c5c632fe697a5e69cac5c7530303031222c66616c73652c6e756c6c5d.1357486b6935cd9a",

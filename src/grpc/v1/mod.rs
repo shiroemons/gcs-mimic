@@ -333,17 +333,19 @@ impl Storage {
             .map_err(|e| Status::from(crate::server::anonymous_error(e, caller)))
     }
 
-    fn project(
+    /// The ID of the project `named` names by ID or by number, once the caller may act in it.
+    async fn project_id(
         &self,
         caller: Option<Caller<'_>>,
-        project: &str,
+        named: &str,
         permission: crate::auth::Permission,
-    ) -> Result<(), Status> {
-        json::validate_project(project)?;
+    ) -> Result<String, Status> {
+        json::validate_project(named)?;
+        let project = self.state.project_id(named).await?;
         if let Some(caller) = caller {
-            caller.authorize(permission, Some(project))?;
+            caller.authorize(permission, Some(&project))?;
         }
-        Ok(())
+        Ok(project)
     }
 
     async fn update(
@@ -451,14 +453,16 @@ impl Storage {
         if r.predefined_acl != 0 || r.predefined_default_object_acl != 0 {
             return Err(unsupported("legacy bucket predefined ACLs; omit them"));
         }
-        self.project(caller, &r.project, crate::auth::BUCKETS_CREATE)?;
+        let project = self
+            .project_id(caller, &r.project, crate::auth::BUCKETS_CREATE)
+            .await?;
         let mut bucket = r.bucket.ok_or_else(|| {
             Status::invalid_argument("bucket is required; set bucket.name=example-bucket")
         })?;
         let body = convert::insert_body(&mut bucket)?;
         let record = json::insert_from_object(
             &body,
-            &r.project,
+            &project,
             self.state.clock.now(),
             self.compat_profile,
             &self.state.default_location,
@@ -532,8 +536,7 @@ impl Storage {
                 Some(caller.principal()?.projects_allowing(BUCKETS_LIST))
             }
             (ProjectScope::One(project), caller) => {
-                self.project(caller, project, BUCKETS_LIST)?;
-                Some(vec![project.to_owned()])
+                Some(vec![self.project_id(caller, project, BUCKETS_LIST).await?])
             }
         };
         if r.prefix.len() > 222 {

@@ -175,7 +175,7 @@ async fn publication_keeps_unset_holds_and_default_object_acl_json() {
     assert_eq!(stored.0, r#"[{"entity":"allUsers","role":"READER"}]"#);
     assert_eq!(
         stored.1,
-        r#"[{"entity":"project-owners-0","role":"OWNER"},{"entity":"allUsers","role":"READER"}]"#
+        r#"[{"entity":"project-owners-198358909953","role":"OWNER"},{"entity":"allUsers","role":"READER"}]"#
     );
     catalog.close().await.unwrap();
 }

@@ -749,6 +749,16 @@ fn read_identities(source: &DocumentSource) -> Result<Cow<'_, [u8]>, RegistryErr
 }
 
 impl Registry {
+    /// The projects the identity file names: those its identities hold roles in and those it
+    /// lists for public access prevention.
+    fn project_ids(&self) -> impl Iterator<Item = &str> {
+        self.identities
+            .iter()
+            .flat_map(|identity| identity.projects.keys())
+            .chain(&self.public_access_prevention_projects)
+            .map(String::as_str)
+    }
+
     /// Strict mode's principals, with the built-in test signer when `signer` settles to enabled.
     fn load_principals(
         source: Option<&DocumentSource>,
@@ -1254,6 +1264,11 @@ impl Auth {
             test_signer: TestSigner::Enabled,
             ..Self::with_profile(Profile::VerifyingPermissive(keys))
         }
+    }
+
+    /// The projects strict mode's identity file names; none without one.
+    pub(crate) fn project_ids(&self) -> impl Iterator<Item = &str> {
+        self.registry().into_iter().flat_map(Registry::project_ids)
     }
 
     fn registry(&self) -> Option<&Registry> {
@@ -1972,7 +1987,7 @@ mod tests {
                 entries,
                 vec![
                     crate::acl::AclEntry {
-                        entity: "project-owners-0".parse().unwrap(),
+                        entity: "project-owners-198358909953".parse().unwrap(),
                         role: crate::acl::AclRole::Owner
                     },
                     crate::acl::AclEntry {

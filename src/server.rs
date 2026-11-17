@@ -189,6 +189,7 @@ pub(crate) mod copy;
 mod gzip;
 mod notifications;
 mod object_body;
+mod project_names;
 mod project_resources;
 pub(crate) mod resumable;
 mod retention_access;

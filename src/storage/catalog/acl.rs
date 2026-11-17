@@ -21,6 +21,7 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, params};
 
 mod bucket_policy;
+pub(super) mod project_numbers;
 #[cfg(test)]
 mod snapshot_tests;
 pub(super) use bucket_policy::reconcile as reconcile_bucket_policy;
@@ -179,7 +180,7 @@ pub(crate) struct AclState {
     /// The target, with the object generation the read or change selected.
     pub target: AclTarget<i64>,
     /// The number of the owning project, as ACL entity names spell it.
-    pub project_number: String,
+    pub project_number: crate::project::ProjectNumber,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -202,7 +203,7 @@ pub(crate) enum AclError {
     /// whether a project-team entity names another project.
     EntityNotFound {
         entity: String,
-        project_number: String,
+        project_number: crate::project::ProjectNumber,
     },
     RoleRequired,
     TooManyEntries,
@@ -783,7 +784,7 @@ fn load(
                     name: record.name.clone(),
                     generation: record.generation,
                 },
-                project_number: crate::acl::project_number(&row.project),
+                project_number: crate::project::ProjectNumber::of(&row.project),
             };
             Ok((state, Loaded::Object(Box::new(record))))
         }
@@ -807,7 +808,7 @@ fn load_bucket(
         entries,
         metageneration: row.metageneration,
         target: scope.target(bucket),
-        project_number: crate::acl::project_number(&row.project),
+        project_number: crate::project::ProjectNumber::of(&row.project),
     };
     Ok((state, Loaded::Bucket(scope)))
 }
@@ -964,7 +965,7 @@ impl Catalog {
                         .position(|entry| entry.entity.as_str() == entity)
                         .ok_or_else(|| AclError::EntityNotFound {
                             entity: entity.clone(),
-                            project_number: state.project_number.clone(),
+                            project_number: state.project_number,
                         })?;
                     state.entries.remove(index);
                     None

@@ -890,9 +890,10 @@ body that is not UTF-8 text is compared exactly as `<binary base64:...>`.
 
 Email addresses with a percent-encoded `@` in a URL become
 `<email:percent-encoded>`, so raw `@` versus `%40` remains a reported encoding
-difference. Both forms are also detected by the leak guard. The local Storage
-service agent's project number `0` uses the same `<project-number>` placeholder
-as the discovered project number in live service-agent names.
+difference. Both forms are also detected by the leak guard. A service agent
+address whose project number the run discovered keeps its shape as
+`service-<project-number>@gs-project-accounts.iam.gserviceaccount.com`, on
+either side.
 Double-encoded `%2540` becomes `<email:double-percent-encoded>` and is also
 detected by the leak guard.
 

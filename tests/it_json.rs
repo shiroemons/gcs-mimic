@@ -10,5 +10,6 @@ mod it_json {
     mod fields_http;
     mod json_response_http;
     mod large_resources_http;
+    mod project_number_http;
     mod project_resources_http;
 }

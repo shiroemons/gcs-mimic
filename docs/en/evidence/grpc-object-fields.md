@@ -31,7 +31,7 @@ The official Java SDK's `ListObjects` mask names `checksums.md5_hash`; gcs-mimic
 
 ## Bucket `project`
 
-`google.storage.v2.Bucket.project` is `projects/{project number}` on Google, and the Java SDK parses the value as a number (`StorageException: Illegal embedded sign character` for `projects/local-project`). gcs-mimic now renders the same project number as JSON `projectNumber` (a numeric project ID verbatim, `0` otherwise). Test: `grpc_record_conversion`.
+`google.storage.v2.Bucket.project` is `projects/{project number}` on Google, and the Java SDK parses the value as a number (`StorageException: Illegal embedded sign character` for `projects/local-project`). gcs-mimic now renders the same project number as JSON `projectNumber` (a numeric project ID verbatim, otherwise a number derived from the ID; see [project numbers](../slices/project-numbers.md)), and takes `projects/{number}` back as the project. Tests: `grpc_record_conversion`, `grpc_lists_a_project_by_the_number_its_buckets_render`.
 
 ## GetObject without a read mask
 

@@ -35,7 +35,7 @@ struct BucketCtx<'a> {
 
 pub(super) async fn respond<'a>(
     request: Request<Incoming>,
-    operation: BucketRequest,
+    mut operation: BucketRequest,
     caller: Option<Caller<'a>>,
     state: &'a State,
     profile: CompatProfile,
@@ -47,6 +47,9 @@ pub(super) async fn respond<'a>(
         caller,
         profile,
     };
+    if let Some(project) = operation.project_mut() {
+        *project = state.project_id(project).await?;
+    }
     let access = authorize(ctx, &operation).await?;
     validate_request(&request, &operation)?;
     let fields = response_fields(request.uri().query(), operation.fields())?;

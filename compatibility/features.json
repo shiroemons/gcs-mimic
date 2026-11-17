@@ -5725,8 +5725,8 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.get through project-plus-bucket predefined roles; broader bucket policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
-        "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a project ID of decimal digits within 64 bits as that number, otherwise a twelve-digit number derived from the ID). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
+        "projectNumber is a project ID of decimal digits within 64 bits as that number, otherwise 100000000000 plus the SHA-256 of the ID modulo 900000000000, as floci-gcp derives it, so it is stable but not the Google-assigned number; no project registry or domain ownership verification.",
         "Supported fields selection is delivered; recognized unsupported billing semantics return 400 badRequest. generation is accepted only with softDeleted=true (SPEC-BUCKET-SOFT-DELETE).",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
@@ -7086,8 +7086,8 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.create on the ?project= project through project-level predefined roles only; IAM/organization policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
-        "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a project ID of decimal digits within 64 bits as that number, otherwise a twelve-digit number derived from the ID). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
+        "projectNumber is a project ID of decimal digits within 64 bits as that number, otherwise 100000000000 plus the SHA-256 of the ID modulo 900000000000, as floci-gcp derives it, so it is stable but not the Google-assigned number; no project registry or domain ownership verification.",
         "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 400 badRequest.",
         "Documented output-only insert fields are ignored, following the JSON resource writable column and v2 OUTPUT_ONLY annotations/AIP-203; exact JSON service behavior is unverified against a real bucket.",
         "Native supports the pinned regional/predefined dual-region and US/EU/ASIA location metadata names plus the declared class/label subset; no geographical behavior, configurable dual-region placement or organization defaults. SPEC-REGIONAL-LOCATIONS records normalization and invalid-location error-detail limits.",
@@ -7626,7 +7626,7 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.list on the ?project= project through project-level predefined roles only; IAM policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a project ID of decimal digits within 64 bits as that number, otherwise a twelve-digit number derived from the ID). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity.",
         "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; objects, buckets, the bucket list and the IAM policy follow the recorded whitespace, empty-segment, metadata(), wildcard and alt=media answers (2026-11-13), while fields on a resumable session URL, an empty fields value on non-object resources (inferred), exact error order and service limits remain unrecorded. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -21259,7 +21259,7 @@
       ],
       "source_checked_at": "2026-10-29",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Returns storage#serviceAccount with email_address service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com. The project number follows the bucket resource's projectNumber rule: a numeric project identifier is its own number and a named local project reports 0. Strict mode treats any local role grant in the path project as resourcemanager.projects.get. Contract: docs/en/slices/project-hmac-keys.md.",
+      "notes": "Returns storage#serviceAccount with email_address service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com. The project number follows the bucket resource's projectNumber rule: a project identifier of decimal digits within 64 bits is that number and any other ID reports a number derived from it. The path may name the project by that number as well as by ID (recorded 2026-11-17, case prj-number-inputs). Strict mode treats any local role grant in the path project as resourcemanager.projects.get. Contract: docs/en/slices/project-hmac-keys.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -21294,7 +21294,7 @@
         },
         {
           "id": "SA-PENDING",
-          "description": "Real project numbers for named projects, resourcemanager.projects.get role expansion and requester billing.",
+          "description": "Google-assigned project numbers (local numbers are derived from the project ID), resourcemanager.projects.get role expansion and requester billing.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21364,7 +21364,7 @@
         }
       ],
       "known_deviations": [
-        "Local projects have no Google project number: named projects map to 0, so they share service-0@gs-project-accounts.iam.gserviceaccount.com. resourcemanager.projects.get is approximated by any local role grant in the project. userProject is ignored."
+        "Local projects have no Google-assigned project number: a named project's number is derived from its ID, so its service agent address is stable and distinct per project but differs from the real project's. resourcemanager.projects.get is approximated by any local role grant in the project. userProject is ignored."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29",
@@ -26374,9 +26374,9 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-11-17",
       "source_evidence": "SPEC_BASED",
-      "notes": "Insert/list require a local project identifier; listing and tokens are project scoped.",
+      "notes": "Insert/list require a local project identifier; listing and tokens are project scoped. A project's number is a pure function of its ID and a request may name the project by either. Contract: docs/en/slices/project-numbers.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -26391,15 +26391,48 @@
           ]
         },
         {
+          "id": "BEHAVIOR-COMMON-014-PROJECT-NUMBER",
+          "description": "A project ID of decimal digits within 64 bits is that number, leading zeros included; any other ID renders 100000000000 plus the SHA-256 of the ID modulo 900000000000 (floci-gcp's derivation) in projectNumber, Storage v2 Bucket.project, project-team ACL entities, IAM-to-ACL mapping, the service agent address and the REGIONAL class refusal. A request names its project by ID or by that number in the JSON project parameter (bucket insert and list, soft-deleted list), the JSON project path (service account, HMAC keys), the XML x-goog-project-id header and the Storage v2 and legacy v1 project fields; a number resolves before authorization to the ID the identity file or the catalog (buckets, soft-deleted buckets, HMAC keys) knows by it. Bucket and HMAC key page tokens bind the number, so a listing continues under either spelling, and tokens bound to a spelling before still open. Storage v2 projects/0 is INVALID_ARGUMENT 'Project id: 0 is invalid or not found' with a BadRequest repeating it. Opening a schema 54 catalog renames the stored zero-numbered teams of a named project's bucket, default object, object, soft-deleted bucket and retained object ACLs in one transaction. Recorded 2026-11-17 (case prj-number-inputs; docs/en/evidence/provider-differential-gap-probes.md#eighth-recording-project-numbers-as-input).",
+          "result": "PASS",
+          "test_ids": [
+            "an_id_derives_a_stable_twelve_digit_number",
+            "decimal_digits_are_their_own_number",
+            "a_project_number_names_the_project_its_resources_render",
+            "a_number_no_known_project_has_names_a_project_of_its_own",
+            "strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything",
+            "grpc_lists_a_project_by_the_number_its_buckets_render",
+            "project_name_takes_back_rendered_numbers_and_rejects_zero",
+            "page_tokens_keep_their_bytes_and_open",
+            "hmac_key_list_tokens_keep_their_bytes_and_open",
+            "only_the_owning_projects_zero_numbered_teams_are_renamed",
+            "stored_text_changes_only_when_an_entity_is_renamed",
+            "opening_an_older_catalog_renames_zero_numbered_teams_to_the_owning_project",
+            "a_failed_rename_leaves_every_row_and_the_version_unchanged"
+          ]
+        },
+        {
           "id": "BEHAVIOR-COMMON-014-PENDING",
-          "description": "Implement real project resolution, requester-pays/billing and permission context.",
+          "description": "Implement Google-assigned project numbers and a project registry that refuses unknown projects, requester-pays/billing and permission context.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "bkt_http_crud_metadata_conditions_and_errors",
-        "bkt_http_sorted_scoped_pagination_and_limits"
+        "bkt_http_sorted_scoped_pagination_and_limits",
+        "an_id_derives_a_stable_twelve_digit_number",
+        "decimal_digits_are_their_own_number",
+        "a_project_number_names_the_project_its_resources_render",
+        "a_number_no_known_project_has_names_a_project_of_its_own",
+        "strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything",
+        "grpc_lists_a_project_by_the_number_its_buckets_render",
+        "project_name_takes_back_rendered_numbers_and_rejects_zero",
+        "page_tokens_keep_their_bytes_and_open",
+        "hmac_key_list_tokens_keep_their_bytes_and_open",
+        "only_the_owning_projects_zero_numbered_teams_are_renamed",
+        "stored_text_changes_only_when_an_entity_is_renamed",
+        "opening_an_older_catalog_renames_zero_numbered_teams_to_the_owning_project",
+        "a_failed_rename_leaves_every_row_and_the_version_unchanged"
       ],
       "verification": [
         {
@@ -26411,14 +26444,35 @@
             "bkt_http_crud_metadata_conditions_and_errors",
             "bkt_http_sorted_scoped_pagination_and_limits"
           ]
+        },
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "an_id_derives_a_stable_twelve_digit_number",
+            "decimal_digits_are_their_own_number",
+            "a_project_number_names_the_project_its_resources_render",
+            "a_number_no_known_project_has_names_a_project_of_its_own",
+            "strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything",
+            "grpc_lists_a_project_by_the_number_its_buckets_render",
+            "project_name_takes_back_rendered_numbers_and_rejects_zero",
+            "page_tokens_keep_their_bytes_and_open",
+            "hmac_key_list_tokens_keep_their_bytes_and_open",
+            "only_the_owning_projects_zero_numbered_teams_are_renamed",
+            "stored_text_changes_only_when_an_entity_is_renamed",
+            "opening_an_older_catalog_renames_zero_numbered_teams_to_the_owning_project",
+            "a_failed_rename_leaves_every_row_and_the_version_unchanged"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Projects are local opaque IDs; numeric projectNumber is normalized and string IDs map to \"0\"; userProject returns 400 badRequest."
+        "Projects are local opaque IDs. A named project's number is derived from its ID, not the Google-assigned one; a project ID of decimal digits is that number. A number that no project the identity file or catalog knows derives from names a project of its own (the same number), where Cloud Storage would answer that the project is invalid or not found; only Storage v2 projects/0 is refused that way. userProject is accepted and ignored (SPEC-SDK-UNSUPPORTED)."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-BUCKET-001",
@@ -26496,8 +26550,8 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a decimal u64 project ID, otherwise 0). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity."
+        "projectNumber is a project ID of decimal digits within 64 bits as that number, otherwise 100000000000 plus the SHA-256 of the ID modulo 900000000000, as floci-gcp derives it, so it is stable but not the Google-assigned number; no project registry or domain ownership verification.",
+        "projection=full renders acl, defaultObjectAcl and a local owner entity, project-owners-N, where N is the local project number (a project ID of decimal digits within 64 bits as that number, otherwise a twelve-digit number derived from the ID). The native profile reports the same number as projectNumber; the fake-gcs-server profile fixes projectNumber at \"0\", so its owner and acl entries name the local project number instead. Under uniform bucket-level access both profiles omit all three fields. The ownership model is a local choice without provider parity."
       ],
       "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
@@ -26736,7 +26790,7 @@
         },
         {
           "id": "LEGACY-CLASS-LOCATION",
-          "description": "The legacy REGIONAL class is stored only in a region and MULTI_REGIONAL only in a dual- or multi-region (the dual-region case inferred from the documentation); DURABLE_REDUCED_AVAILABILITY fits every location. Bucket insert, PATCH, PUT and Storage v2 UpdateBucket, object uploads over every adapter including resumable initiation, JSON and Storage v2 rewrite before any byte is copied, and lifecycle SetStorageClass actions and matchesStorageClass conditions refuse a class the location cannot hold, as does an XML bucket creation (inferred), with Cloud Storage's 'Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.': JSON 400 invalid (text/html on a multipart insert and resumable initiation), XML 400 InvalidLocationConstraintStorageClassCombination with that text as Details, Storage v2 INVALID_ARGUMENT with a BadRequest repeating it. The project number is the numeric project ID, or 0 for another local project. Recorded 2026-11-17 (cases bkt-gaps-legacy-class-region, bkt-gaps-legacy-class-multi-region, bkt-gaps-legacy-class-create-region and bkt-gaps-legacy-class-create-multi-regional).",
+          "description": "The legacy REGIONAL class is stored only in a region and MULTI_REGIONAL only in a dual- or multi-region (the dual-region case inferred from the documentation); DURABLE_REDUCED_AVAILABILITY fits every location. Bucket insert, PATCH, PUT and Storage v2 UpdateBucket, object uploads over every adapter including resumable initiation, JSON and Storage v2 rewrite before any byte is copied, and lifecycle SetStorageClass actions and matchesStorageClass conditions refuse a class the location cannot hold, as does an XML bucket creation (inferred), with Cloud Storage's 'Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.': JSON 400 invalid (text/html on a multipart insert and resumable initiation), XML 400 InvalidLocationConstraintStorageClassCombination with that text as Details, Storage v2 INVALID_ARGUMENT with a BadRequest repeating it. The project number is the one the bucket's projectNumber reports. Recorded 2026-11-17 (cases bkt-gaps-legacy-class-region, bkt-gaps-legacy-class-multi-region, bkt-gaps-legacy-class-create-region and bkt-gaps-legacy-class-create-multi-regional).",
           "result": "PASS",
           "test_ids": [
             "legacy_classes_fit_only_their_location_type",

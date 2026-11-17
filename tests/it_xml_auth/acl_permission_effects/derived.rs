@@ -289,7 +289,7 @@ fn derived_writes_apply_destination_predefined_acl() {
             ("publicRead", vec![ADMIN_OWNER, ("allUsers", "READER")]),
             (
                 "bucketOwnerRead",
-                vec![ADMIN_OWNER, ("project-owners-0", "READER")],
+                vec![ADMIN_OWNER, ("project-owners-902648055030", "READER")],
             ),
         ] {
             let query = format!("destinationPredefinedAcl={value}");

@@ -110,18 +110,18 @@ fn xml_canned_acl_values_produce_the_recorded_entries_on_every_write() {
                 "project-private",
                 vec![
                     ADMIN_OWNER,
-                    ("project-owners-0", "OWNER"),
-                    ("project-editors-0", "OWNER"),
-                    ("project-viewers-0", "READER"),
+                    ("project-owners-902648055030", "OWNER"),
+                    ("project-editors-902648055030", "OWNER"),
+                    ("project-viewers-902648055030", "READER"),
                 ],
             ),
             (
                 "bucket-owner-read",
-                vec![ADMIN_OWNER, ("project-owners-0", "READER")],
+                vec![ADMIN_OWNER, ("project-owners-902648055030", "READER")],
             ),
             (
                 "bucket-owner-full-control",
-                vec![ADMIN_OWNER, ("project-owners-0", "OWNER")],
+                vec![ADMIN_OWNER, ("project-owners-902648055030", "OWNER")],
             ),
             ("public-read", vec![ADMIN_OWNER, ("allUsers", "READER")]),
             (
@@ -158,7 +158,7 @@ fn xml_canned_acl_applies_to_a_copy_that_replaces_metadata() {
         .expect(200);
     assert_eq!(
         stored(&server, "replaced"),
-        pairs(&[ADMIN_OWNER, ("project-owners-0", "READER")])
+        pairs(&[ADMIN_OWNER, ("project-owners-902648055030", "READER")])
     );
 }
 

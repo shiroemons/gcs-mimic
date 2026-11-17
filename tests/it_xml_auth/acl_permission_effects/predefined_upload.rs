@@ -37,9 +37,9 @@ pub(super) fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
 fn inherited(entity: &str) -> Vec<(String, String)> {
     pairs(&[
         ADMIN_OWNER,
-        ("project-owners-0", "OWNER"),
-        ("project-editors-0", "OWNER"),
-        ("project-viewers-0", "READER"),
+        ("project-owners-902648055030", "OWNER"),
+        ("project-editors-902648055030", "OWNER"),
+        ("project-viewers-902648055030", "READER"),
         (entity, "READER"),
     ])
 }
@@ -123,18 +123,18 @@ fn media_upload_predefined_acls_replace_the_default_object_acl() {
                 "projectPrivate",
                 vec![
                     ADMIN_OWNER,
-                    ("project-owners-0", "OWNER"),
-                    ("project-editors-0", "OWNER"),
-                    ("project-viewers-0", "READER"),
+                    ("project-owners-902648055030", "OWNER"),
+                    ("project-editors-902648055030", "OWNER"),
+                    ("project-viewers-902648055030", "READER"),
                 ],
             ),
             (
                 "bucketOwnerRead",
-                vec![ADMIN_OWNER, ("project-owners-0", "READER")],
+                vec![ADMIN_OWNER, ("project-owners-902648055030", "READER")],
             ),
             (
                 "bucketOwnerFullControl",
-                vec![ADMIN_OWNER, ("project-owners-0", "OWNER")],
+                vec![ADMIN_OWNER, ("project-owners-902648055030", "OWNER")],
             ),
             (
                 "authenticatedRead",
@@ -228,7 +228,7 @@ fn multipart_and_resumable_uploads_apply_predefined_acl_at_publication() {
     finish(&server, &session).json_ok();
     assert_eq!(
         stored(&server, "resumable"),
-        pairs(&[ADMIN_OWNER, ("project-owners-0", "READER")])
+        pairs(&[ADMIN_OWNER, ("project-owners-902648055030", "READER")])
     );
     let session = initiate(&server, "name=resumable-default");
     finish(&server, &session).json_ok();

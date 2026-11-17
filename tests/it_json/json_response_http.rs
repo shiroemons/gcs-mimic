@@ -17,7 +17,7 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
         let path = format!("{BUCKET}/{suffix}");
         let before = server.request("GET", &path, "", b"");
         assert!(!before.headers["etag"].starts_with('"'));
-        let entry = format!("{path}/project-viewers-0");
+        let entry = format!("{path}/project-viewers-902648055030");
         let deleted = server.request("DELETE", &entry, "", b"");
         deleted.expect(204);
         assert!(!deleted.headers["etag"].starts_with('"'));
@@ -26,13 +26,13 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
                 "POST",
                 &path,
                 "",
-                br#"{"entity":"project-viewers-0","role":"READER"}"#,
+                br#"{"entity":"project-viewers-902648055030","role":"READER"}"#,
             )
             .json_ok();
         let listed = server.request("GET", &path, "", b"").json_ok();
         assert_eq!(
             listed["items"].as_array().unwrap().last().unwrap()["entity"],
-            "project-viewers-0"
+            "project-viewers-902648055030"
         );
         if suffix == "o/file/acl" {
             assert_eq!(
@@ -52,7 +52,7 @@ fn acl_lists_and_deletes_send_bare_etags_and_reinsertions_follow_existing_entrie
     let listed = server
         .request("GET", &format!("{BUCKET}/o/file/acl"), "", b"")
         .json_ok();
-    assert_eq!(listed["items"][3]["entity"], "project-viewers-0");
+    assert_eq!(listed["items"][3]["entity"], "project-viewers-902648055030");
 }
 
 #[test]

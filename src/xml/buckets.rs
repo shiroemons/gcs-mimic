@@ -99,12 +99,23 @@ async fn execute(
             .ok_or_else(|| Error::new(XmlCode::NoSuchBucket, "Bucket not found"))?;
         return Ok(boxed(empty_response(StatusCode::OK)));
     }
-    let project = project(request.headers())?;
-    authorize_project(caller, auth::BUCKETS_LIST, project)?;
+    let project = project_id(ctx, request.headers(), caller).await?;
+    authorize_project(caller, auth::BUCKETS_LIST, &project)?;
     validate(&request, "")?;
-    let project = project.to_owned();
     super::empty_body(request.into_body()).await?;
     list(ctx, &project).await
+}
+
+/// The ID of the project `x-goog-project-id` names by ID or by number.
+async fn project_id(
+    ctx: RequestCtx<'_>,
+    headers: &HeaderMap,
+    caller: Option<auth::Caller<'_>>,
+) -> Result<String, Error> {
+    ctx.state
+        .project_id(project(headers)?)
+        .await
+        .map_err(|error| catalog_error(error, caller))
 }
 
 fn project(headers: &HeaderMap) -> Result<&str, Error> {

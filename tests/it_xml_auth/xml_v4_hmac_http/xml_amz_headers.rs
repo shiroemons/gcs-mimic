@@ -4,7 +4,7 @@ use super::*;
 use serde_json::Value;
 
 const SIGNER_OWNER: (&str, &str) = ("user-signer@example.invalid", "OWNER");
-const OWNERS_READER: (&str, &str) = ("project-owners-0", "READER");
+const OWNERS_READER: (&str, &str) = ("project-owners-902648055030", "READER");
 const TIME: &str = "Thu, 22 Oct 2026 00:00:00 GMT";
 
 fn fixture() -> (TestDir, Server, Key) {

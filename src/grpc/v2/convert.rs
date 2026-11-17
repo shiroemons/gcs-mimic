@@ -278,8 +278,11 @@ pub(crate) fn bucket(
             Lifecycle::Omit => None,
         },
         // Cloud Storage returns the project number here, and the Java SDK parses it as a number.
-        // The local registry has no project numbers, so this matches JSON `projectNumber`.
-        project: format!("projects/{}", crate::acl::project_number(&record.project)),
+        // It matches JSON `projectNumber`, and `projects::resolve` takes it back as input.
+        project: format!(
+            "projects/{}",
+            crate::project::ProjectNumber::of(&record.project)
+        ),
         metageneration: record.metageneration,
         location: record.location.as_str().into(),
         location_type: record.location.kind().as_str().into(),
@@ -959,10 +962,10 @@ mod tests {
             project: "local-project".into(),
             ..bucket_record.clone()
         };
-        // SDKs parse the project as a number, so an ID with no registered number renders as 0.
+        // SDKs parse the project as a number, so an ID renders its derived number.
         assert_eq!(
             bucket(&named, Lifecycle::Include).unwrap().project,
-            "projects/0"
+            "projects/471889570513"
         );
         assert_eq!(proto.bucket_id, value["name"]);
         assert_eq!(proto.storage_class, value["storageClass"]);

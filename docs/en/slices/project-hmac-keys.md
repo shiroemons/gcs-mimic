@@ -60,9 +60,11 @@ account row stays PARTIAL. ACTIVE keys verify signatures under the
   401 required and unknown tokens 401 authError before validation.
 - SA-GET: `GET /storage/v1/projects/{projectId}/serviceAccount` returns
   `{"kind": "storage#serviceAccount", "email_address": ...}` with the Google form
-  `service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com`. A numeric
-  project identifier is its own number; a named local project reports 0, the same
-  `projectNumber` the bucket resource reports, so the address is deterministic.
+  `service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com`. The
+  number is the `projectNumber` the bucket resource reports: a project
+  identifier of decimal digits is that number and any other ID derives one, so the
+  address is deterministic and distinct per project
+  ([project numbers](project-numbers.md)).
 - SA-AUTH: the method requires `resourcemanager.projects.get`, which the
   storage-only role snapshot does not carry. Strict mode accepts any local role
   grant in the path project as project visibility, rejects other projects with
@@ -119,8 +121,10 @@ Local choices:
 - No IAM directory exists, so any syntactically valid email (one `@`, non-empty
   parts, at most 254 bytes, no whitespace) names a service account; Google would
   reject accounts that do not exist.
-- Keys are scoped to the path project identifier as given. A project number and
-  a project ID are different local projects.
+- Keys are scoped to the path project. The path may name it by ID or by the
+  number its resources render, which resolves to the ID before authorization;
+  a number no known project derives from names a project of its own
+  ([project numbers](project-numbers.md)).
 - The secret is stored in the catalog so that a later HMAC signature verifier can
   use it; deletion erases it. The catalog is local test state, not a secret store.
 - Requester billing (`userProject`) is ignored, as Cloud Storage did for a

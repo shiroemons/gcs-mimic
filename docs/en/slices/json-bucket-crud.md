@@ -69,7 +69,9 @@ shapes remain rejected in native mode. The source profile ignores that field.
 
 The local project has no registry: a nonempty project identifier is stored verbatim (at most
 256 UTF-8 bytes); a decimal unsigned 64-bit identifier becomes its normalized decimal
-`projectNumber`; other identifiers (including decimal overflow) yield string `"0"`.
+`projectNumber`, and any other identifier (including decimal overflow) derives a twelve-digit
+one. A request may name a known project by that number
+([project numbers](project-numbers.md)).
 Whitespace and control characters in identifiers are rejected. This is a local simulation, not project
 resolution. Global uniqueness is limited to one catalog.
 

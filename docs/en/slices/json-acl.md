@@ -19,7 +19,8 @@ and remaining permission work are recorded in [ACL permission effects](acl-permi
 - A bucket, default object ACL or object generation without stored entries has
   the `projectPrivate` canned ACL of the owning project:
   `project-owners-N OWNER`, `project-editors-N OWNER`, `project-viewers-N READER`.
-  `N` is the bucket's local project number: a numeric local project ID, or `0`.
+  `N` is the bucket's local project number: a numeric local project ID, or a
+  number derived from any other ID ([project numbers](project-numbers.md)).
   The native profile renders the same number as `projectNumber`. The
   fake-gcs-server profile fixes `projectNumber` at `"0"`, so its ACL entries and
   `owner` name the local project number instead.

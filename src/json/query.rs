@@ -170,6 +170,26 @@ pub(crate) enum BucketRequest {
 }
 
 impl BucketRequest {
+    /// The project a project-scoped call names: an insert or a listing.
+    pub(crate) fn project_mut(&mut self) -> Option<&mut String> {
+        match self {
+            Self::Insert(InsertParams { project, .. })
+            | Self::List(ListParams { project, .. })
+            | Self::ListSoftDeleted(SoftDeletedListParams { project, .. }) => Some(project),
+            Self::GetSoftDeleted { .. }
+            | Self::Restore { .. }
+            | Self::LockRetentionPolicy { .. }
+            | Self::Get { .. }
+            | Self::Patch { .. }
+            | Self::Update { .. }
+            | Self::Delete { .. }
+            | Self::GetIam { .. }
+            | Self::SetIam { .. }
+            | Self::TestIam { .. }
+            | Self::GetStorageLayout { .. } => None,
+        }
+    }
+
     pub(crate) fn projection(&self) -> Projection {
         match self {
             Self::GetSoftDeleted { projection, .. } | Self::Restore { projection, .. } => {

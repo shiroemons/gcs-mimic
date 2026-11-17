@@ -727,7 +727,7 @@ fn creating_a_config_checks_the_topic_against_the_configured_emulator() {
         "//pubsub.googleapis.com/projects/local/topics/present"
     );
 
-    let message = "Cloud Pub/Sub topic '//pubsub.googleapis.com/projects/local/topics/absent' not found, or user 'service-0@gs-project-accounts.iam.gserviceaccount.com' does not have permission to it.";
+    let message = "Cloud Pub/Sub topic '//pubsub.googleapis.com/projects/local/topics/absent' not found, or user 'service-902648055030@gs-project-accounts.iam.gserviceaccount.com' does not have permission to it.";
     let missing = create(r#"{"topic":"projects/local/topics/absent"}"#);
     missing.expect(400);
     let error = &error_json(&missing)["error"];

@@ -31,14 +31,13 @@ fn project_name(resource: &str) -> Result<&str, Status> {
             ))
         })?;
     json::validate_project(project)?;
-    // `Bucket.project` renders a project with no number as `projects/0` (see
-    // `acl::project_number`). That value names no single project, so taking it back as an ID
-    // would silently address a different project called "0".
-    if project.bytes().all(|byte| byte.is_ascii_digit())
-        && crate::acl::project_number(project) == "0"
+    // Project numbers are positive and a derived one is never zero, so `projects/0` names no
+    // project (recorded 2026-11-17). Earlier releases rendered every project ID as `projects/0`;
+    // taking that value back would silently address a different project called "0".
+    if crate::project::ProjectNumber::literal(project) == Some(crate::project::ProjectNumber::ZERO)
     {
-        return Err(Status::invalid_argument(
-            "Invalid project; projects/0 names no project, use projects/local-project or projects/_",
+        return Err(super::status::invalid_field(
+            "Project id: 0 is invalid or not found",
         ));
     }
     Ok(project)
@@ -244,6 +243,18 @@ pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, 
 }
 
 impl Storage {
+    /// The ID of the project a `projects/{project}` resource names by ID or by number.
+    async fn project_id(
+        &self,
+        resource: &str,
+        caller: Option<Caller<'_>>,
+    ) -> Result<String, Status> {
+        self.state
+            .project_id(project_name(resource)?)
+            .await
+            .map_err(|error| access_status(error, caller))
+    }
+
     /// Adds `owner`, `acl` and `default_object_acl` as JSON `projection=full` does. All three
     /// are omitted under uniform bucket-level access and for callers that may not read the ACL;
     /// the read itself still succeeds.
@@ -370,8 +381,10 @@ impl Storage {
             }
             bucket.name.clear();
         }
-        let project = std::mem::take(&mut bucket.project);
-        let project = project_name(&project)?;
+        let project = self
+            .project_id(&std::mem::take(&mut bucket.project), caller)
+            .await?;
+        let project = project.as_str();
         if let Some(caller) = caller {
             caller.authorize(crate::auth::BUCKETS_CREATE, Some(project))?;
             if request.enable_object_retention {
@@ -416,7 +429,8 @@ impl Storage {
     ) -> Result<Response<pb::ListBucketsResponse>, Status> {
         require_caller(caller)?;
         let request = request.into_inner();
-        let project = project_name(&request.parent)?;
+        let project = self.project_id(&request.parent, caller).await?;
+        let project = project.as_str();
         if let Some(caller) = caller {
             caller.authorize(crate::auth::BUCKETS_LIST, Some(project))?;
         }
@@ -516,22 +530,22 @@ mod tests {
         assert_eq!(generic.code(), Code::PermissionDenied);
     }
     #[test]
-    fn project_name_takes_back_rendered_numbers_and_rejects_the_placeholder() {
+    fn project_name_takes_back_rendered_numbers_and_rejects_zero() {
         // A numeric ID renders as itself, so the client can pass it back unchanged.
         assert_eq!(project_name("projects/123").unwrap(), "123");
         assert_eq!(
             project_name("projects/local-project").unwrap(),
             "local-project"
         );
-        // `projects/0` is what a project without a number renders as; it names no project.
-        for placeholder in [
+        // Any spelling of number 0 names no project.
+        for zero in [
             "projects/0",
             "projects/00",
             "projects/000000000000000000000000",
         ] {
-            let error = project_name(placeholder).unwrap_err();
-            assert_eq!(error.code(), Code::InvalidArgument, "{placeholder}");
-            assert!(error.message().contains("projects/0"), "{placeholder}");
+            let error = project_name(zero).unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument, "{zero}");
+            assert_eq!(error.message(), "Project id: 0 is invalid or not found");
         }
     }
 
@@ -995,6 +1009,44 @@ mod tests {
             .unwrap()
             .into_inner();
         assert_eq!(listed.buckets, vec![unmasked]);
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    /// A project's number names it like its ID: the `projects/N` a bucket renders lists it, and
+    /// a page token from one spelling continues under the other.
+    #[tokio::test]
+    async fn grpc_lists_a_project_by_the_number_its_buckets_render() {
+        let (_dir, storage) = storage(false).await;
+        let mut rendered = String::new();
+        for name in ["page-a", "page-b"] {
+            rendered = storage
+                .create_bucket(Request::new(create(name)), None)
+                .await
+                .unwrap()
+                .into_inner()
+                .project;
+        }
+        assert_eq!(rendered, "projects/345434927424");
+        let mut query = pb::ListBucketsRequest {
+            parent: rendered,
+            page_size: 1,
+            ..Default::default()
+        };
+        let first = storage
+            .list_buckets(Request::new(query.clone()), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(first.buckets[0].bucket_id, "page-a");
+        query.parent = "projects/p".into();
+        query.page_token = first.next_page_token;
+        let second = storage
+            .list_buckets(Request::new(query), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(second.buckets[0].bucket_id, "page-b");
+        assert!(second.next_page_token.is_empty());
         storage.state.catalog.close().await.unwrap();
     }
 

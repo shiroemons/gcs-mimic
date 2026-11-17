@@ -10,7 +10,7 @@ pub(super) async fn respond(
     ctx: RequestCtx<'_>,
     caller: Option<auth::Caller<'_>>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let project = project(request.headers())?.to_owned();
+    let project = project_id(ctx, request.headers(), caller).await?;
     authorize_project(caller, auth::BUCKETS_CREATE, &project)?;
     let retention =
         super::super::put::single(request.headers(), "x-goog-bucket-object-lock-enabled")?;

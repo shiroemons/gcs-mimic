@@ -74,7 +74,7 @@ impl StorageClass {
 /// action or condition (recorded 2026-11-17).
 #[derive(Debug, PartialEq, Eq)]
 pub struct ClassLocationConflict {
-    project_number: String,
+    project_number: crate::project::ProjectNumber,
     class: StorageClass,
     location: Location,
 }
@@ -90,7 +90,7 @@ impl ClassLocationConflict {
             return Ok(());
         }
         Err(Self {
-            project_number: crate::acl::project_number(project),
+            project_number: crate::project::ProjectNumber::of(project),
             class,
             location,
         })
@@ -901,8 +901,8 @@ mod tests {
                 );
             }
         }
-        // A numeric project ID is its own number; another local project has number 0.
-        for (project, number) in [("local", "0"), ("123456", "123456")] {
+        // A numeric project ID is its own number; any other ID has a derived one.
+        for (project, number) in [("local", "902648055030"), ("123456", "123456")] {
             assert_eq!(
                 ClassLocationConflict::check(StorageClass::Regional, multi, project)
                     .unwrap_err()

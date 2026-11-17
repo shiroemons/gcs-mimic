@@ -1085,7 +1085,7 @@ fn profile_fields(
     let location = ReportedLocation::new(bucket, profile);
     Ok(match profile {
         CompatProfile::Native => ProfileFields {
-            project_number: crate::acl::project_number(&bucket.project),
+            project_number: crate::project::ProjectNumber::of(&bucket.project).to_string(),
             location,
             storage_class: bucket.storage_class,
             etag: bucket_etag(bucket),

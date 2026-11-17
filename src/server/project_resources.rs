@@ -31,12 +31,14 @@ fn authorize_project_visibility(
 
 pub(super) async fn respond(
     request: Request<Incoming>,
-    operation: ProjectRequest,
+    mut operation: ProjectRequest,
     fields: Fields,
     caller: Option<Caller<'_>>,
     state: &State,
     base_url: &str,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
+    let project = operation.project_mut();
+    *project = state.project_id(project.as_str()).await?.try_into()?;
     match &operation {
         ProjectRequest::CreateHmacKey { project, .. } => {
             authorize_project(caller, HMAC_KEYS_CREATE, project.as_str())?

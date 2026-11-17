@@ -258,6 +258,10 @@ pub(super) const STEPS: &[Step] = &[
     Step::statements(52, admin::initialization::SCHEMA, None),
     Step::statements(53, STORAGE_CLASS_UPDATED_SCHEMA, None),
     Step::statements(54, xml_multipart::timestamps::SCHEMA, None),
+    Step::data_only(
+        acl::project_numbers::SCHEMA_VERSION,
+        acl::project_numbers::migrate,
+    ),
 ];
 
 #[expect(
@@ -390,9 +394,9 @@ mod tests {
     use super::*;
 
     /// Every version from the first migration to the current one has exactly one step, and only
-    /// the two documented exceptions lack statements or a migration of their own.
+    /// the data-only versions and version 3 lack statements or a migration of their own.
     #[test]
-    fn steps_list_every_version_once_with_two_exceptions() {
+    fn steps_list_every_version_once_with_documented_exceptions() {
         let versions: Vec<i64> = STEPS.iter().map(|step| step.version).collect();
         assert_eq!(versions, (2..=CATALOG_SCHEMA_VERSION).collect::<Vec<_>>());
         let data_only: Vec<i64> = STEPS
@@ -400,7 +404,13 @@ mod tests {
             .filter(|step| step.schema.is_none())
             .map(|step| step.version)
             .collect();
-        assert_eq!(data_only, [TIMESTAMP_MICROS_SCHEMA_VERSION]);
+        assert_eq!(
+            data_only,
+            [
+                TIMESTAMP_MICROS_SCHEMA_VERSION,
+                acl::project_numbers::SCHEMA_VERSION
+            ]
+        );
         let applied_by_previous: Vec<i64> = STEPS
             .iter()
             .filter(|step| step.migration.is_none())

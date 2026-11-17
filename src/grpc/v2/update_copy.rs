@@ -3163,8 +3163,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let refused =
-            "Project 0 may not create storageClass REGIONAL buckets with locationConstraint US.";
+        let refused = "Project 471889570513 may not create storageClass REGIONAL buckets with locationConstraint US.";
         assert_bad_request(
             s.update_bucket(Request::new(update("update-copy-bucket")), None)
                 .await,

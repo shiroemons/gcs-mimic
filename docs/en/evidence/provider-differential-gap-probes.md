@@ -509,10 +509,8 @@ classes now uses the recorded message. The three `REGIONAL` markers in
 `bkt-unsupported-settings` were removed. `RAPID` stays unsupported, with the
 message `storageClass RAPID requires a zonal bucket`.
 
-gcs-mimic has no project registry. As in a bucket's `projectNumber`, the
-conflict names the numeric project ID, or `0` for any other local project, and
-the differential normalizer replaces `Project 0 may not` with the
-`<project-number>` placeholder that hides a recorded number.
+The conflict names the number the bucket's `projectNumber` reports; how a named
+project gets that number is described under the eighth recording.
 
 Inferred, not recorded: `MULTI_REGIONAL` in a dual-region is accepted, as the
 documentation says; resumable initiation refuses a class the location cannot
@@ -534,5 +532,69 @@ are tracked under SPEC-RESPONSE-WIRE-REMAINING.
 A replay of the merged reference with `--fail-on-diff --fail-on-note` on
 2026-11-17 found all **136** cases `match`, with no differing fields, notes or
 errors. The same source passed the workspace tests (3914 passed, 0 failed and
+1 ignored across 19 test binaries), the production lint gate with 0 new
+violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.
+
+## Eighth recording: project numbers as input
+
+Recorded on **2026-11-17**. Until then gcs-mimic rendered the number of every
+named project as `0` (`projectNumber`, `projects/0`, `project-owners-0`,
+`service-0@...`), refused its own `projects/0` as Storage v2 input, and the
+differential normalizer needed three rules to hide that `0`. Whether Cloud
+Storage takes a project number wherever it takes a project ID was not
+recorded. One new case asked, with the project and access token again supplied
+only through environment variables:
+
+```sh
+cargo xtask differential run --filter prj-number-inputs --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out compatibility/differential/reference/gcs.json
+```
+
+- Requests sent to Cloud Storage: **24** in one run, with no HTTP 429.
+- Resources: the case's own us-central1 bucket and the bucket the case created
+  by project number, both empty.
+- Cleanup: both buckets were deleted and confirmed 404, and the final listing
+  found nothing left.
+
+The reference now holds **137** cases and **2279** requests.
+
+The case reads the case bucket's `projectNumber` into a variable and sends it
+back (`prj-number-inputs`):
+
+| Step | Request | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `json-list-by-number` | `buckets.list` with `project=<number>` | 200, the case bucket | Matched since aligned (an empty listing) |
+| `json-insert-by-number`, `json-list-inserted-by-id` | `buckets.insert` with `project=<number>`, then `buckets.list` with the project ID | 200; the new bucket lists under the ID | Matched since aligned (the bucket landed in a project named by the digits) |
+| `grpc-list-by-number` | Storage v2 ListBuckets with `parent` `projects/<number>` | The case bucket, `project` `projects/<number>` | Matched since aligned (an empty listing) |
+| `grpc-list-zero` | ListBuckets with `parent` `projects/0` | INVALID_ARGUMENT `Project id: 0 is invalid or not found` with a `google.rpc.BadRequest` repeating it | Matched since aligned (gcs-mimic used its own wording) |
+| `service-account-by-number` | `projects/<number>/serviceAccount` | 200, `service-<number>@gs-project-accounts.iam.gserviceaccount.com` | Matched |
+| `hmac-get-missing-by-number` | `projects/<number>/hmacKeys/<missing>` | 404 `Access ID not found in project.` | Matched |
+
+gcs-mimic still has no project registry, but a project's number is now a pure
+function of its ID: a numeric ID is that number, and any other ID
+renders `100000000000 + (SHA-256(ID) mod 900000000000)`, the twelve-digit
+number floci-gcp derives. Every rendering uses it: `projectNumber`, Storage v2
+`Bucket.project`, project-team ACL entities and their IAM mapping, the service
+agent address and the class-location refusal. A request may name its project
+by that number in the JSON `project` parameter and project path, the XML
+`x-goog-project-id` header and the Storage v2 and legacy v1 project fields; the
+number is turned back into the ID before authorization, from the projects the
+identity file names or that own a bucket, a soft-deleted bucket or an HMAC key.
+Bucket and HMAC key page tokens bind the number, so a listing continues under
+either spelling. Opening an older catalog renames the stored `-0` project teams
+of a named project's ACLs. The normalizer's three rules for `0` were removed;
+the emulator's number is hidden the way a recorded number is.
+
+Inferred, not recorded: the XML `x-goog-project-id` header, the legacy v1
+fields, HMAC key creation and listing, and soft-deleted bucket listings take a
+number as the recorded routes do; a page token issued for one spelling of a
+project continues under the other. Not modeled: a number no known project
+derives from names a project of its own, where Cloud Storage would answer that
+the project is invalid or not found.
+
+A replay of the merged reference with `--fail-on-diff --fail-on-note` on
+2026-11-17 found all **137** cases `match`, with no differing fields, notes or
+errors. The same source passed the workspace tests (3923 passed, 0 failed and
 1 ignored across 19 test binaries), the production lint gate with 0 new
 violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.

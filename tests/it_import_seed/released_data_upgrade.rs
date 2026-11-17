@@ -28,6 +28,10 @@ const SUPPORTED_RELEASES: &[&str] = &[
 /// Link fields embed the advertised base URL of whichever server answered.
 const ADDRESS_FIELDS: &[&str] = &["selfLink", "mediaLink"];
 
+/// `projectNumber` is rendered from the bucket's project ID, not stored. Releases that rendered
+/// every named project as `0` recorded that; this build derives the number of `fixture`.
+const FIXTURE_PROJECT_NUMBER: &str = "930125985357";
+
 impl Server {
     fn start(data: &Path) -> Self {
         Self::launch(
@@ -84,6 +88,10 @@ fn assert_preserved(release: &str, expected: &Value, actual: &Value) {
     let expected = expected.as_object().unwrap();
     for (key, value) in expected {
         if ADDRESS_FIELDS.contains(&key.as_str()) {
+            continue;
+        }
+        if key == "projectNumber" {
+            assert_eq!(actual[key], FIXTURE_PROJECT_NUMBER, "{release}");
             continue;
         }
         assert_eq!(

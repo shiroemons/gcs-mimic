@@ -109,39 +109,6 @@ fn shaped_placeholder(name: &str, item: &Value) -> String {
     }
 }
 
-/// Replaces the number in `project-owners-0` style entities. The emulator has no
-/// project registry and renders `0`; a recorded real number is already
-/// `<project-number>`, so only the team entity position is rewritten.
-fn scrub_project_team_number(text: &str) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(at) = rest.find("project-") {
-        let (head, tail) = rest.split_at(at + "project-".len());
-        out.push_str(head);
-        rest = tail;
-        for team in ["owners-", "editors-", "viewers-"] {
-            if let Some(after) = tail.strip_prefix(team) {
-                let digits = after.bytes().take_while(u8::is_ascii_digit).count();
-                if &after[..digits] == "0" {
-                    out.push_str(team);
-                    out.push_str("<project-number>");
-                    rest = &after[digits..];
-                }
-                break;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Replaces the emulator's `0` in Cloud Storage's refusal of a class the bucket location cannot
-/// hold, `Project <number> may not create storageClass ...`; a recorded real number is already
-/// `<project-number>`.
-fn scrub_project_sentence_number(text: &str) -> String {
-    text.replace("Project 0 may not ", "Project <project-number> may not ")
-}
-
 /// Replaces `generation=<digits>` so URLs and ids compare by shape.
 fn scrub_generation(text: &str) -> String {
     let mut out = String::new();
@@ -263,14 +230,7 @@ pub(crate) fn scrub_emails(text: &str) -> String {
         let domain = &text[domain_start..end];
         if start < at && domain.contains('.') && !domain.starts_with('.') {
             out.push_str(&text[copied..start]);
-            // Live project-number substitution already preserves this service-agent shape.
-            out.push_str(
-                if &text[start..end] == "service-0@gs-project-accounts.iam.gserviceaccount.com" {
-                    "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com"
-                } else {
-                    placeholder
-                },
-            );
+            out.push_str(placeholder);
             copied = end;
             at = end;
         } else {
@@ -299,8 +259,7 @@ impl Normalizer {
         for (value, placeholder) in &self.literals {
             out = out.replace(value.as_str(), placeholder);
         }
-        let numbered = scrub_project_sentence_number(&scrub_project_team_number(&out));
-        scrub_emails(&scrub_upload_ids(&scrub_generation(&numbered)))
+        scrub_emails(&scrub_upload_ids(&scrub_generation(&out)))
     }
 
     pub(crate) fn json(&self, value: &Value) -> Value {
@@ -577,8 +536,9 @@ mod tests {
         });
         let out = normalizer().json(&input);
         assert_eq!(out["id"], "<bucket>/o.txt/<generation:16>");
-        let acl = normalizer()
-            .json(&json!({"id": "gcsmimic-diff-abc-b/o.txt/1730000000000001/project-owners-0"}));
+        let acl = normalizer().json(
+            &json!({"id": "gcsmimic-diff-abc-b/o.txt/1730000000000001/project-owners-123456789"}),
+        );
         assert_eq!(
             acl["id"],
             "<bucket>/o.txt/<generation:16>/project-owners-<project-number>"
@@ -671,27 +631,20 @@ mod tests {
     }
 
     #[test]
-    fn local_service_agent_matches_the_recorded_project_number_placeholder() {
+    fn a_known_project_number_keeps_the_service_agent_shape() {
         let n = normalizer();
-        let shape = "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com";
-        assert_eq!(
-            n.text("service-0@gs-project-accounts.iam.gserviceaccount.com"),
-            shape
-        );
         assert_eq!(
             n.text("service-123456789@gs-project-accounts.iam.gserviceaccount.com"),
-            shape
+            "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com"
         );
-        assert_eq!(n.text("service-0@example.com"), "<email>");
-        assert_eq!(
-            n.text("service-0@gs-project-accounts.iam.gserviceaccount.com.evil"),
-            "<email>"
-        );
-        assert_eq!(
-            n.text("another-service-0@gs-project-accounts.iam.gserviceaccount.com"),
-            "<email>"
-        );
-        assert_eq!(n.text("service-0"), "service-0");
+        // Any other address, including an agent of a number the run never saw, stays hidden.
+        for address in [
+            "service-0@gs-project-accounts.iam.gserviceaccount.com",
+            "service-987654321@gs-project-accounts.iam.gserviceaccount.com",
+            "svc@example.com",
+        ] {
+            assert_eq!(n.text(address), "<email>", "{address}");
+        }
     }
 
     #[test]
@@ -716,14 +669,15 @@ mod tests {
     }
 
     #[test]
-    fn emulator_project_number_is_hidden_only_in_team_entities() {
+    fn a_known_project_number_is_hidden_wherever_a_value_names_it() {
         let n = normalizer();
         let out = n.json(&json!({
-            "entity": "project-owners-0",
-            "id": "b/project-viewers-0",
-            "selfLink": "<host>/b/x/acl/project-editors-0",
-            "name": "obj-0",
-            "other": "project-owners-05 and project-owners-",
+            "entity": "project-owners-123456789",
+            "id": "b/project-viewers-123456789",
+            "selfLink": "<host>/b/x/acl/project-editors-123456789",
+            "message": "Project 123456789 may not create storageClass REGIONAL buckets with locationConstraint US.",
+            // A team of a number the run never saw names another project and stays visible.
+            "other": "project-owners-0",
         }));
         assert_eq!(out["entity"], "project-owners-<project-number>");
         assert_eq!(out["id"], "b/project-viewers-<project-number>");
@@ -731,20 +685,11 @@ mod tests {
             out["selfLink"],
             "<host>/b/x/acl/project-editors-<project-number>"
         );
-        assert_eq!(out["name"], "obj-0");
-        assert_eq!(out["other"], "project-owners-05 and project-owners-");
-    }
-
-    #[test]
-    fn emulator_project_number_is_hidden_in_the_class_location_refusal() {
-        let n = normalizer();
         assert_eq!(
-            n.text(
-                "Project 0 may not create storageClass REGIONAL buckets with locationConstraint US."
-            ),
+            out["message"],
             "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
         );
-        assert_eq!(n.text("Project 05 may not"), "Project 05 may not");
+        assert_eq!(out["other"], "project-owners-0");
     }
 
     #[test]

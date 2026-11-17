@@ -825,7 +825,10 @@ mod tests {
         // The rendered metageneration, not the stored one, signs the entries.
         assert_eq!(resource["acl"][0]["etag"], "CAE=");
         assert_eq!(resource["defaultObjectAcl"], json!([]));
-        assert_eq!(resource["owner"], json!({"entity": "project-owners-0"}));
+        assert_eq!(
+            resource["owner"],
+            json!({"entity": "project-owners-902648055030"})
+        );
         let mut resource = Map::new();
         let object = AclOwner::Object {
             bucket: "bucket",

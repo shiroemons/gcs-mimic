@@ -49,9 +49,9 @@ fn entity<'a>(list: &'a Value, entity: &str) -> &'a Value {
 }
 
 const PROJECT_PRIVATE: &[(&str, &str)] = &[
-    ("project-owners-0", "OWNER"),
-    ("project-editors-0", "OWNER"),
-    ("project-viewers-0", "READER"),
+    ("project-owners-902648055030", "OWNER"),
+    ("project-editors-902648055030", "OWNER"),
+    ("project-viewers-902648055030", "READER"),
 ];
 
 /// An object written without credentials is owned by the configured local creator.
@@ -79,10 +79,10 @@ fn bucket_acl_crud_round_trips_and_advances_metageneration() {
     assert_eq!(
         list["items"][0],
         json!({
-            "kind": "storage#bucketAccessControl", "id": "test-bucket/project-owners-0",
-            "selfLink": "http://127.0.0.1:4443/storage/v1/b/test-bucket/acl/project-owners-0",
-            "bucket": "test-bucket", "entity": "project-owners-0", "role": "OWNER",
-            "projectTeam": {"projectNumber": "0", "team": "owners"}, "etag": "CAE="
+            "kind": "storage#bucketAccessControl", "id": "test-bucket/project-owners-902648055030",
+            "selfLink": "http://127.0.0.1:4443/storage/v1/b/test-bucket/acl/project-owners-902648055030",
+            "bucket": "test-bucket", "entity": "project-owners-902648055030", "role": "OWNER",
+            "projectTeam": {"projectNumber": "902648055030", "team": "owners"}, "etag": "CAE="
         })
     );
     let before = metageneration(&call(&server, "GET", BUCKET).json_ok());
@@ -267,8 +267,8 @@ fn default_object_acl_applies_only_to_objects_created_afterwards() {
     assert_eq!(
         list["items"][2],
         json!({
-            "kind": "storage#objectAccessControl", "entity": "project-viewers-0", "role": "READER",
-            "projectTeam": {"projectNumber": "0", "team": "viewers"}, "etag": "CAE="
+            "kind": "storage#objectAccessControl", "entity": "project-viewers-902648055030", "role": "READER",
+            "projectTeam": {"projectNumber": "902648055030", "team": "viewers"}, "etag": "CAE="
         })
     );
     server.put("before", b"1").json_ok();
@@ -401,8 +401,14 @@ fn object_acl_targets_a_generation_and_renders_with_full_projection() {
 
     let bucket = call(&server, "GET", &format!("{BUCKET}?projection=full")).json_ok();
     assert_eq!(bucket["acl"].as_array().unwrap().len(), 3);
-    assert_eq!(bucket["defaultObjectAcl"][0]["entity"], "project-owners-0");
-    assert_eq!(bucket["owner"], json!({"entity": "project-owners-0"}));
+    assert_eq!(
+        bucket["defaultObjectAcl"][0]["entity"],
+        "project-owners-902648055030"
+    );
+    assert_eq!(
+        bucket["owner"],
+        json!({"entity": "project-owners-902648055030"})
+    );
     let plain = call(&server, "GET", BUCKET).json_ok();
     assert!(plain.get("acl").is_none() && plain.get("owner").is_none());
     let buckets = call(
@@ -516,7 +522,7 @@ fn uniform_access_and_public_access_prevention_restrict_acls() {
         "READER"
     );
     assert_eq!(
-        entity(&object["items"], "project-owners-0")["role"],
+        entity(&object["items"], "project-owners-902648055030")["role"],
         "OWNER"
     );
 }
@@ -989,9 +995,9 @@ fn strict_profile_requires_iam_policy_permissions() {
         entries(&json!({"items":object["acl"]})),
         pairs(&[
             ("user-admin@example.test", "OWNER"),
-            ("project-owners-0", "OWNER"),
-            ("project-editors-0", "OWNER"),
-            ("project-viewers-0", "READER")
+            ("project-owners-902648055030", "OWNER"),
+            ("project-editors-902648055030", "OWNER"),
+            ("project-viewers-902648055030", "READER")
         ])
     );
     assert_eq!(object["owner"], json!({"entity":"user-admin@example.test"}));

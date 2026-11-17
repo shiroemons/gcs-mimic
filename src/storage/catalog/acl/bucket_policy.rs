@@ -5,11 +5,9 @@ use super::{
 };
 use crate::storage::catalog::sql;
 use crate::{
-    acl::{
-        AclKind, AclRole, Entity, EntityRef, parse_entity, project_number, project_private,
-        validate_entries,
-    },
+    acl::{AclKind, AclRole, Entity, EntityRef, parse_entity, project_private, validate_entries},
     auth::{Binding, Member, MemberRef, Policy, Role},
+    project::ProjectNumber,
     storage::catalog::{policies, principals::Profile, unavailable},
 };
 use rusqlite::{Connection, params};
@@ -31,14 +29,10 @@ fn member_entity(member: &Member, project: &str, principals: Option<&Profile>) -
         }
         MemberRef::Group(id) => format!("group-{id}"),
         MemberRef::Domain(id) => format!("domain-{id}"),
-        MemberRef::Project { team, project: id } => {
-            let number = if id == project {
-                project_number(project)
-            } else {
-                id.into()
-            };
-            format!("project-{}-{number}", team.as_str())
+        MemberRef::Project { team, project: id } if id == project => {
+            return Some(Entity::project_team(team, project));
         }
+        MemberRef::Project { team, project: id } => format!("project-{}-{id}", team.as_str()),
     };
     parse_entity(&entity).ok()
 }
@@ -52,7 +46,7 @@ fn iam_member(entity: &Entity, project: &str) -> Member {
         EntityRef::Domain(domain) => MemberRef::Domain(domain),
         EntityRef::ProjectTeam { team, project: id } => MemberRef::Project {
             team,
-            project: if id == project_number(project) {
+            project: if id == ProjectNumber::of(project).to_string() {
                 project
             } else {
                 id

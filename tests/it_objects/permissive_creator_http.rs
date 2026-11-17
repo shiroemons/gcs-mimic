@@ -39,9 +39,9 @@ fn assert_creator(object: &Value, entity: &str) {
     assert_eq!(
         acl,
         [
-            "project-owners-0",
-            "project-editors-0",
-            "project-viewers-0",
+            "project-owners-902648055030",
+            "project-editors-902648055030",
+            "project-viewers-902648055030",
             entity
         ]
     );
@@ -148,7 +148,7 @@ fn changing_or_disabling_the_creator_follows_restarts_without_authorizing_anythi
     assert_creator(&full(&server, "kept"), "user-dev@example.test");
     server.put("plain-owners", b"c").json_ok();
     let object = full(&server, "plain-owners");
-    assert_eq!(object["owner"]["entity"], "project-owners-0");
+    assert_eq!(object["owner"]["entity"], "project-owners-902648055030");
     assert_eq!(object["acl"].as_array().unwrap().len(), 3);
     // Anonymous requests were always allowed in permissive mode; the creator is only a label.
     server

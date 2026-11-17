@@ -42,7 +42,7 @@ fn acl_error(error: AclError, access: AclAccess) -> JsonError {
         AclError::EntityNotFound {
             entity,
             project_number,
-        } => entity_not_found(&entity, &project_number),
+        } => entity_not_found(&entity, project_number),
         AclError::RoleRequired => JsonError::required("Access control must contain a role"),
         AclError::TooManyEntries => JsonError::invalid(format!(
             "An ACL can hold at most {} entries; delete an entry before adding another",
@@ -57,10 +57,10 @@ const UNIFORM_ACCESS_UPDATE_ACL: &str = "Cannot use ACL API to update bucket pol
 
 /// A missing entity. A project-team entity that names another project is a bad request about
 /// that project, and any other missing entity is a missing key (recorded 2026-10-31).
-fn entity_not_found(entity: &str, project_number: &str) -> JsonError {
+fn entity_not_found(entity: &str, project_number: crate::project::ProjectNumber) -> JsonError {
     if let Ok(entity) = crate::acl::parse_entity(entity)
         && let crate::acl::EntityRef::ProjectTeam { project, .. } = entity.parsed()
-        && project != project_number
+        && project != project_number.to_string()
     {
         return JsonError::invalid(format!("Project \"{project}\" was not found."));
     }
@@ -129,7 +129,7 @@ pub(super) async fn respond(
                     acl_error(
                         AclError::EntityNotFound {
                             entity: entity.clone(),
-                            project_number: acl.project_number.clone(),
+                            project_number: acl.project_number,
                         },
                         AclAccess::Read,
                     )

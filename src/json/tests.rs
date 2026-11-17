@@ -1527,12 +1527,15 @@ fn bkt_get_001_and_id_001_bucket_wire_fields() {
     ] {
         assert!(value.get(field).is_none(), "{field}");
     }
-    bucket.project = "test-project".to_owned();
-    assert_eq!(resource(&bucket)["projectNumber"], "0");
-    bucket.project = u64::MAX.to_string();
-    assert_eq!(resource(&bucket)["projectNumber"], u64::MAX.to_string());
-    bucket.project = "18446744073709551616".to_owned();
-    assert_eq!(resource(&bucket)["projectNumber"], "0");
+    // Decimal digits within 64 bits are their own number; any other ID derives one.
+    for (project, number) in [
+        ("test-project", "900286375562"),
+        ("18446744073709551615", "18446744073709551615"),
+        ("18446744073709551616", "810077914834"),
+    ] {
+        bucket.project = project.to_owned();
+        assert_eq!(resource(&bucket)["projectNumber"], number, "{project}");
+    }
     bucket.name = "a/b ?#é".to_owned();
     assert_eq!(
         resource(&bucket)["selfLink"],
@@ -1934,25 +1937,25 @@ fn bucket_resource_json_keeps_its_bytes() {
             CompatProfile::Native,
             1,
             false,
-            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"1","location":"US","storageClass":"STANDARD","etag":"CAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT"}"#,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"641772831285","generation":"1700000000123456789","metageneration":"1","location":"US","storageClass":"STANDARD","etag":"CAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT"}"#,
         ),
         (
             CompatProfile::Native,
             1,
             true,
-            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"1","location":"US","storageClass":"STANDARD","etag":"CAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT","labels":{"env":"test"}}"#,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"641772831285","generation":"1700000000123456789","metageneration":"1","location":"US","storageClass":"STANDARD","etag":"CAE=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:13:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT","labels":{"env":"test"}}"#,
         ),
         (
             CompatProfile::Native,
             2,
             false,
-            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"2","location":"US","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT"}"#,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"641772831285","generation":"1700000000123456789","metageneration":"2","location":"US","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT"}"#,
         ),
         (
             CompatProfile::Native,
             2,
             true,
-            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"0","generation":"1700000000123456789","metageneration":"2","location":"US","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT","labels":{"env":"test"}}"#,
+            r#"{"kind":"storage#bucket","selfLink":"http://localhost:4443/storage/v1/b/golden-bucket","id":"golden-bucket","name":"golden-bucket","projectNumber":"641772831285","generation":"1700000000123456789","metageneration":"2","location":"US","storageClass":"STANDARD","etag":"CAI=","timeCreated":"2023-11-14T22:13:20.123Z","updated":"2023-11-14T22:14:20.123Z","iamConfiguration":{"bucketPolicyOnly":{"enabled":false},"uniformBucketLevelAccess":{"enabled":false},"publicAccessPrevention":"inherited"},"locationType":"multi-region","rpo":"DEFAULT","labels":{"env":"test"}}"#,
         ),
         (
             CompatProfile::FakeGcsServer,

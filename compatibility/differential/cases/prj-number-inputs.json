@@ -1,0 +1,15 @@
+{
+  "id": "prj-number-inputs",
+  "description": "A request names its project by number as well as by ID. The number the case bucket reports is sent back as the JSON project parameter of a list and an insert, as the gRPC ListBuckets parent and in the project path of the service account and an HMAC key lookup; the inserted bucket then lists under the project ID. projects/0 names no project.",
+  "bucket": "own",
+  "steps": [
+    {"name": "get-number", "method": "GET", "path": "/storage/v1/b/{bucket}", "query": {"fields": "projectNumber"}, "capture": {"number": "body:projectNumber"}, "expect_status": 200},
+    {"name": "json-list-by-number", "method": "GET", "path": "/storage/v1/b", "query": {"project": "{number}", "prefix": "{bucket}", "fields": "items(name,projectNumber)"}, "expect_status": 200},
+    {"name": "json-insert-by-number", "method": "POST", "path": "/storage/v1/b", "query": {"project": "{number}", "fields": "name,projectNumber"}, "body": {"name": "{new_bucket}", "location": "us-central1", "iamConfiguration": {"publicAccessPrevention": "enforced"}, "softDeletePolicy": {"retentionDurationSeconds": "0"}}, "expect_status": 200},
+    {"name": "json-list-inserted-by-id", "method": "GET", "path": "/storage/v1/b", "query": {"project": "{project}", "prefix": "{new_bucket}", "fields": "items(name)"}, "expect_status": 200},
+    {"name": "grpc-list-by-number", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "project=projects%2F{number}"}, "body": {"parent": "projects/{number}", "prefix": "{bucket}", "readMask": {"paths": ["name", "project"]}}, "expect_status": 0},
+    {"name": "grpc-list-zero", "protocol": "grpc", "rpc": "google.storage.v2.Storage/ListBuckets", "headers": {"x-goog-request-params": "project=projects%2F0"}, "body": {"parent": "projects/0", "prefix": "{bucket}"}},
+    {"name": "service-account-by-number", "method": "GET", "path": "/storage/v1/projects/{number}/serviceAccount", "expect_status": 200},
+    {"name": "hmac-get-missing-by-number", "method": "GET", "path": "/storage/v1/projects/{number}/hmacKeys/GOOGNOSUCHKEYID000000", "expect_status": 404}
+  ]
+}

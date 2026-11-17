@@ -6,10 +6,11 @@ use common::TestDir;
 use common::effects::Server;
 use serde_json::{Value, json};
 
-/// Cloud Storage's refusal of a class the location cannot hold; a local project has number 0.
+/// Cloud Storage's refusal of a class the location cannot hold, naming the number of project
+/// `local`.
 fn refusal(class: &str, location: &str) -> String {
     format!(
-        "Project 0 may not create storageClass {class} buckets with locationConstraint {location}."
+        "Project 902648055030 may not create storageClass {class} buckets with locationConstraint {location}."
     )
 }
 

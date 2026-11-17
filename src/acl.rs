@@ -4,7 +4,7 @@
 //! `projectPrivate` canned ACL derived from the owning project, which is the documented default
 //! for a bucket created without `predefinedAcl` and its default object ACL.
 
-use crate::auth::Role;
+use crate::{auth::Role, project::ProjectNumber};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
@@ -372,7 +372,7 @@ impl Entity {
     /// `project-TEAM-NUMBER` for `project`, spelled with the number bucket resources render.
     pub(crate) fn project_team(team: ProjectTeam, project: &str) -> Self {
         Self {
-            text: format!("project-{}-{}", team.as_str(), project_number(project)),
+            text: format!("project-{}-{}", team.as_str(), ProjectNumber::of(project)),
             scope: Scope::ProjectTeam(team),
         }
     }
@@ -622,15 +622,6 @@ pub(crate) fn check_role(kind: AclKind, role: AclRole) -> Result<(), AclError> {
             role: role.as_str().to_owned(),
         })
     }
-}
-
-/// The project number rendered by bucket resources: numeric project IDs are used verbatim and
-/// other local project IDs map to `0`, because the local registry has no project numbers.
-pub(crate) fn project_number(project: &str) -> String {
-    crate::decimal::Grammar::Digits
-        .parse::<u64>(project)
-        .unwrap_or(0)
-        .to_string()
 }
 
 /// The `projectPrivate` canned ACL used for buckets and objects without stored entries.
@@ -907,7 +898,7 @@ mod tests {
         assert_eq!(
             PredefinedObjectAcl::BucketOwnerRead.entries("local"),
             vec![AclEntry {
-                entity: "project-owners-0".parse().unwrap(),
+                entity: "project-owners-902648055030".parse().unwrap(),
                 role: crate::acl::AclRole::Reader
             }]
         );
@@ -1055,16 +1046,11 @@ mod tests {
     /// The constructors spell what parsing reads, so a built entity equals a parsed one.
     #[test]
     fn built_entities_match_parsed_ones() {
-        for (team, number) in [
-            (ProjectTeam::Owners, "123"),
-            (ProjectTeam::Editors, "123"),
-            (ProjectTeam::Viewers, "0"),
+        for (team, project, number) in [
+            (ProjectTeam::Owners, "123", "123"),
+            (ProjectTeam::Editors, "123", "123"),
+            (ProjectTeam::Viewers, "local-project", "471889570513"),
         ] {
-            let project = if number == "0" {
-                "local-project"
-            } else {
-                number
-            };
             let built = Entity::project_team(team, project);
             let text = format!("project-{}-{number}", team.as_str());
             assert_eq!(built, text.parse().unwrap());
@@ -1149,8 +1135,7 @@ mod tests {
         );
         assert_eq!(
             project_private("local")[0].entity.as_str(),
-            "project-owners-0"
+            "project-owners-902648055030"
         );
-        assert_eq!(project_number("99999999999999999999999"), "0");
     }
 }
