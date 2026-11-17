@@ -151,7 +151,9 @@ Unsupported fields follow the shared PATCH list, which includes insert-only,
 immutable or reserved fields absent from update's writable list. Their 400 badRequest
 rejection is a fail-closed local choice, not a provider error claim:
 billing, customPlacementConfig, encryption, hierarchicalNamespace, ipFilter,
-logging, rpo (the native profile accepts a restated default) and website
+logging, rpo (in the native profile a regional bucket refuses `DEFAULT` and
+`ASYNC_TURBO` with Cloud Storage's 400 invalid naming the location type, recorded
+2026-11-17, and a dual- or multi-region bucket accepts a restated `DEFAULT`) and website
 (`UNSUPPORTED_FIELDS` in `src/json/buckets.rs`). `acl` and `defaultObjectAcl`
 replace the stored entries, and `autoclass` and `objectRetention` follow their
 own contracts. The native

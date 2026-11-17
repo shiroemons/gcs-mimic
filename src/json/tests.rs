@@ -1,5 +1,5 @@
 use super::*;
-use crate::bucket::{BucketRecord, CatalogError};
+use crate::bucket::{BucketRecord, CatalogError, Rpo};
 use crate::config::CompatProfile;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
@@ -1166,19 +1166,31 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
 }
 
 #[test]
-fn rpo_default_is_accepted_and_other_values_are_not() {
+fn rpo_insert_restates_only_the_default_and_an_update_names_its_objective() {
     for value in [Value::Null, json!("DEFAULT")] {
         let body = json!({"name":"abc", "rpo": value});
         assert!(parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).is_ok());
-        assert!(
-            buckets::parse_bucket_patch(body.to_string().as_bytes(), CompatProfile::Native).is_ok()
-        );
     }
     let body = json!({"name":"abc", "rpo": "ASYNC_TURBO"});
     assert!(parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).is_err());
-    assert!(
-        buckets::parse_bucket_patch(body.to_string().as_bytes(), CompatProfile::Native).is_err()
-    );
+    // The catalog checks a named objective against the stored location type.
+    let patch = |value: Value| {
+        let body = json!({"rpo": value}).to_string();
+        buckets::parse_bucket_patch(body.as_bytes(), CompatProfile::Native)
+    };
+    for (value, named) in [
+        (Value::Null, None),
+        (json!("DEFAULT"), Some(Rpo::Default)),
+        (json!("ASYNC_TURBO"), Some(Rpo::AsyncTurbo)),
+    ] {
+        assert_eq!(patch(value.clone()).unwrap().rpo, named, "{value}");
+    }
+    for value in [json!("BOGUS"), json!(1)] {
+        assert!(
+            patch(value.clone()).unwrap_err().message.contains("rpo"),
+            "{value}"
+        );
+    }
 }
 
 #[test]

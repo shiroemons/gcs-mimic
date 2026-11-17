@@ -1,5 +1,5 @@
 use super::*;
-use crate::bucket::RetentionPolicyUpdate;
+use crate::bucket::{LocationKind, RetentionPolicyUpdate, Rpo};
 use crate::object::{MapPatch, WriteMode};
 
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = :labels, storage_class = :storage_class,
@@ -81,6 +81,25 @@ pub(super) struct BucketChange<'a> {
     pub(super) mode: WriteMode,
 }
 
+/// Cloud Storage refused both objectives on a regional bucket, naming its location type
+/// (recorded 2026-11-17, case bkt-unsupported-settings). A dual- or multi-region bucket keeps
+/// `DEFAULT`, its only objective without the turbo replication this emulator does not model.
+fn check_rpo(record: &BucketRecord, rpo: Option<Rpo>) -> Result<(), CatalogError> {
+    match (rpo, record.location.kind()) {
+        (None, _) | (Some(Rpo::Default), LocationKind::DualRegion | LocationKind::MultiRegion) => {
+            Ok(())
+        }
+        (Some(rpo), LocationKind::Region) => Err(CatalogError::InvalidMetadata(format!(
+            "RPO: {} cannot be enabled on REGION bucket '{}'.",
+            rpo.as_str(),
+            record.name
+        ))),
+        (Some(Rpo::AsyncTurbo), LocationKind::DualRegion | LocationKind::MultiRegion) => {
+            Err(CatalogError::UnsupportedMetadata("rpo".into()))
+        }
+    }
+}
+
 /// Applies `change` as a PATCH or PUT does, journal entry included, inside the caller's
 /// transaction; the caller commits.
 pub(super) fn update_in_transaction(
@@ -97,6 +116,7 @@ pub(super) fn update_in_transaction(
         mode,
     } = change;
     let mut record = authorize_update(transaction, name, &update, conditions, access)?;
+    check_rpo(&record, update.rpo)?;
     // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
     // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
     if matches!(mode, WriteMode::Patch) && update.is_empty() {

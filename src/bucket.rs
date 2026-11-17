@@ -274,6 +274,38 @@ impl VersioningUpdate {
     }
 }
 
+/// A recovery point objective a bucket update names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Rpo {
+    Default,
+    AsyncTurbo,
+}
+
+/// A recovery point objective Cloud Storage does not define.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UnknownRpo;
+
+impl Rpo {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "DEFAULT",
+            Self::AsyncTurbo => "ASYNC_TURBO",
+        }
+    }
+}
+
+impl std::str::FromStr for Rpo {
+    type Err = UnknownRpo;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "DEFAULT" => Ok(Self::Default),
+            "ASYNC_TURBO" => Ok(Self::AsyncTurbo),
+            _ => Err(UnknownRpo),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BucketMetadataUpdate {
     pub acl: Option<Vec<crate::acl::AclEntry>>,
@@ -291,6 +323,9 @@ pub(crate) struct BucketMetadataUpdate {
     pub default_event_based_hold: Option<bool>,
     pub(crate) public_access_prevention: Option<PublicAccessPrevention>,
     pub uniform_bucket_level_access_enabled: Option<UniformAccessRequest>,
+    /// A named recovery point objective. It is checked against the stored location and never
+    /// stored: `DEFAULT` is the only objective a dual- or multi-region bucket has here.
+    pub(crate) rpo: Option<Rpo>,
     /// A recognised member was present even though it sets nothing, which still counts as a
     /// change and advances the metageneration.
     pub touched: bool,
@@ -314,6 +349,8 @@ impl BucketMetadataUpdate {
             default_event_based_hold,
             public_access_prevention,
             uniform_bucket_level_access_enabled,
+            // Checked before emptiness matters, and an accepted objective stores nothing.
+            rpo: _,
             touched,
         } = self;
         acl.is_none()

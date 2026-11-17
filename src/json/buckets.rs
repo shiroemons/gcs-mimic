@@ -572,11 +572,25 @@ fn parse_bucket_update(
         .or(omitted_clears.then_some(false)),
         public_access_prevention: parse_public_access_prevention(body.get("iamConfiguration"))?,
         uniform_bucket_level_access_enabled: parse_uniform_access(body.get("iamConfiguration"))?,
+        rpo: parse_rpo(body.get("rpo"))?,
     })
 }
 
-/// Rejects the bucket settings this emulator does not model. A restated default `rpo` and the
-/// ACL members, which have their own handling, pass.
+/// The recovery point objective of an update. Null restates the default and names none; a value
+/// Cloud Storage does not define stays unsupported.
+fn parse_rpo(value: Option<&Value>) -> Result<Option<crate::bucket::Rpo>, JsonError> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    value
+        .as_str()
+        .and_then(|value| value.parse().ok())
+        .map(Some)
+        .ok_or_else(|| JsonError::unsupported("rpo"))
+}
+
+/// Rejects the bucket settings this emulator does not model. The ACL members and, in the native
+/// profile, `rpo` have their own handling and pass.
 fn reject_unsupported_update_fields(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
@@ -584,9 +598,7 @@ fn reject_unsupported_update_fields(
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
             if matches!(*field, "acl" | "defaultObjectAcl")
-                || (*field == "rpo"
-                    && profile == CompatProfile::Native
-                    && body.get("rpo").is_some_and(is_default_rpo))
+                || (*field == "rpo" && profile == CompatProfile::Native)
             {
                 continue;
             }

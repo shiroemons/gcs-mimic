@@ -318,6 +318,57 @@ async fn resumable_initiation_types_must_agree_when_both_are_declared() {
     h.stop().await;
 }
 
+// Recorded 2026-11-17 (case bkt-unsupported-settings): a regional bucket refuses both objectives
+// and names its location type, even in a PATCH that changes nothing else.
+#[tokio::test]
+async fn rpo_updates_follow_the_bucket_location_type() {
+    let h = Harness::start(1000, Permissive, None).await;
+    let json = "Content-Type: application/json\r\n";
+    for (name, location) in [("regional-rpo", "us-central1"), ("multi-rpo", "US")] {
+        let body = format!(r#"{{"name":"{name}","location":"{location}"}}"#);
+        let created = h
+            .request(
+                "POST",
+                "/storage/v1/b?project=project",
+                json,
+                body.as_bytes(),
+            )
+            .await;
+        assert_eq!(created.status, 200, "{}", created.json());
+    }
+    for rpo in ["DEFAULT", "ASYNC_TURBO"] {
+        let body = format!(r#"{{"rpo":"{rpo}"}}"#);
+        let refused = h
+            .request("PATCH", "/storage/v1/b/regional-rpo", json, body.as_bytes())
+            .await;
+        refused.error(400, "invalid");
+        assert_eq!(
+            refused.json()["error"]["message"],
+            format!("RPO: {rpo} cannot be enabled on REGION bucket 'regional-rpo'.")
+        );
+    }
+    let kept = h
+        .request(
+            "PATCH",
+            "/storage/v1/b/multi-rpo",
+            json,
+            br#"{"rpo":"DEFAULT"}"#,
+        )
+        .await;
+    assert_eq!(kept.status, 200, "{}", kept.json());
+    assert_eq!(kept.json()["rpo"], "DEFAULT");
+    let turbo = h
+        .request(
+            "PATCH",
+            "/storage/v1/b/multi-rpo",
+            json,
+            br#"{"rpo":"ASYNC_TURBO"}"#,
+        )
+        .await;
+    assert_eq!(turbo.status, 400, "{}", turbo.json());
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn media_conditionals_keep_the_representation_headers() {
     let h = Harness::start(1000, Permissive, None).await;
