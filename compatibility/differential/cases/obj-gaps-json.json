@@ -10,9 +10,9 @@
 
     {"name": "upload-soft-delete-probe", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-sd"}, "headers": {"Content-Type": "text/plain"}, "body_text": "gone", "capture": {"gsd": "body:generation"}, "expect_status": 200},
     {"name": "delete-soft-delete-probe", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-sd", "expect_status": 204},
-    {"name": "list-soft-deleted-policy-off", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage refuses a soft-deleted listing on a bucket without a soft delete policy with 400 invalid; gcs-mimic answers an empty listing (SPEC-SOFT-DELETE).", "mimic_status": 200},"method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"softDeleted": "true", "prefix": "{object}-sd"}},
-    {"name": "get-soft-deleted-policy-off", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage refuses a soft-deleted read on a bucket without a soft delete policy with 400 invalid; gcs-mimic answers 404 notFound (SPEC-SOFT-DELETE).", "mimic_status": 404},"method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-sd", "query": {"softDeleted": "true", "generation": "{gsd}"}},
-    {"name": "restore-policy-off", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage refuses a restore on a bucket without a soft delete policy with 400 invalid; gcs-mimic answers 404 notFound (SPEC-SOFT-DELETE).", "mimic_status": 404},"method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-sd/restore", "query": {"generation": "{gsd}", "fields": "name"}},
+    {"name": "list-soft-deleted-policy-off", "method": "GET", "path": "/storage/v1/b/{bucket}/o", "query": {"softDeleted": "true", "prefix": "{object}-sd"}},
+    {"name": "get-soft-deleted-policy-off", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-sd", "query": {"softDeleted": "true", "generation": "{gsd}"}},
+    {"name": "restore-policy-off", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-sd/restore", "query": {"generation": "{gsd}", "fields": "name"}},
 
     {"name": "upload-glob-slash", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-g/a"}, "headers": {"Content-Type": "text/plain"}, "body_text": "s", "expect_status": 200},
     {"name": "upload-glob-dash", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-g-a"}, "headers": {"Content-Type": "text/plain"}, "body_text": "d", "expect_status": 200},

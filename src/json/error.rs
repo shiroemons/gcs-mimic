@@ -922,14 +922,53 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
     }
 }
 
+impl From<Box<crate::object::HeldObject>> for JsonError {
+    fn from(held: Box<crate::object::HeldObject>) -> Self {
+        let kind = match held.kind {
+            crate::object::HoldKind::Temporary => "Temporary",
+            crate::object::HoldKind::EventBased => "Event-Based",
+        };
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            format!(
+                "Object '{}/{}' is under active {kind} hold and cannot be deleted, overwritten or archived until hold is removed.",
+                held.bucket, held.name
+            ),
+        )
+        .with_kind(ErrorKind::ActiveHold)
+    }
+}
+
+/// Bucket retention policies and object retention share the reason and wording (observed
+/// 2026-10-31, including the refused overwrite).
+impl From<Box<crate::object::RetainedObject>> for JsonError {
+    fn from(retained: Box<crate::object::RetainedObject>) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "retentionPolicyNotMet",
+            format!(
+                "Object '{}/{}' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
+                retained.bucket,
+                retained.name,
+                crate::object::retention::pacific_rfc3339(retained.until)
+            ),
+        )
+        .with_kind(ErrorKind::RetentionNotMet)
+    }
+}
+
 impl From<ObjectError> for JsonError {
     fn from(error: ObjectError) -> Self {
         match error {
             ObjectError::BucketNotFound => Self::missing_bucket(),
             ObjectError::Component(failure) => failure.into(),
             ObjectError::Metadata(error) => {
-                if error.unsupported() { Self::unsupported_object(&error.to_string()) }
-                else { Self::invalid(error.to_string()) }
+                if error.unsupported() {
+                    Self::unsupported_object(&error.to_string())
+                } else {
+                    Self::invalid(error.to_string())
+                }
             }
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
             ObjectError::ComposeClassMismatch { .. } => Self::invalid(error.to_string()),
@@ -957,6 +996,9 @@ impl From<ObjectError> for JsonError {
                 "objectNotSoftDeleted",
                 error.to_string(),
             ),
+            ObjectError::SoftDeletePolicyRequired(request) => {
+                Self::invalid(request.policy_required_message())
+            }
             ObjectError::PreconditionFailed => Self::precondition_not_held().at_if_match(),
             ObjectError::OverwriteForbidden(denied) | ObjectError::Denied(denied) => denied.into(),
             ObjectError::Forbidden => Self::forbidden(),
@@ -970,32 +1012,8 @@ impl From<ObjectError> for JsonError {
                 "forbidden",
                 crate::object::LOCKED_RETENTION_MESSAGE,
             ),
-            ObjectError::ActiveHold(held) => {
-                let kind = match held.kind {
-                    crate::object::HoldKind::Temporary => "Temporary",
-                    crate::object::HoldKind::EventBased => "Event-Based",
-                };
-                Self::new(
-                    StatusCode::FORBIDDEN,
-                    "forbidden",
-                    format!(
-                        "Object '{}/{}' is under active {kind} hold and cannot be deleted, overwritten or archived until hold is removed.",
-                        held.bucket, held.name
-                    ),
-                ).with_kind(ErrorKind::ActiveHold)
-            }
-            // Bucket retention policies and object retention share the reason and wording
-            // (observed 2026-10-31, including the refused overwrite).
-            ObjectError::ObjectRetentionNotMet(retained) => Self::new(
-                StatusCode::FORBIDDEN,
-                "retentionPolicyNotMet",
-                format!(
-                    "Object '{}/{}' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
-                    retained.bucket,
-                    retained.name,
-                    crate::object::retention::pacific_rfc3339(retained.until)
-                ),
-            ).with_kind(ErrorKind::RetentionNotMet),
+            ObjectError::ActiveHold(held) => held.into(),
+            ObjectError::ObjectRetentionNotMet(retained) => retained.into(),
             ObjectError::HashMismatch(mismatch) => {
                 let (label, noun) = match mismatch.algorithm {
                     crate::object::HashAlgorithm::Crc32c => ("CRC32C", "CRC32C"),
@@ -1021,7 +1039,8 @@ impl From<ObjectError> for JsonError {
                 StatusCode::BAD_REQUEST,
                 "badRequest",
                 "The upload request body did not complete",
-            ).with_kind(ErrorKind::IncompleteBody),
+            )
+            .with_kind(ErrorKind::IncompleteBody),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::UniformAccessPredefinedAcl => {
                 Self::invalid(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)

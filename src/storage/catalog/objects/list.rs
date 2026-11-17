@@ -1,4 +1,6 @@
 use super::*;
+use crate::object::SoftDeletedRequest;
+use crate::storage::catalog::soft_delete;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObjectListCursor {
@@ -79,11 +81,12 @@ impl Catalog {
                 authorized_bucket(connection, &query.bucket, &access)?;
                 let time = clock.now();
                 if query.soft_deleted {
-                    super::super::soft_delete::purge_expired(
+                    soft_delete::require_policy(
                         connection,
                         &query.bucket,
-                        time.try_into()?,
+                        SoftDeletedRequest::List,
                     )?;
+                    soft_delete::purge_expired(connection, &query.bucket, time.try_into()?)?;
                 }
                 let mut page = list_page_at(connection, &query, limit, unix_micros(time)?)?;
                 page.bucket_metageneration =

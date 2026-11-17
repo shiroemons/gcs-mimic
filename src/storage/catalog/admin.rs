@@ -415,7 +415,9 @@ impl From<ObjectError> for AdminError {
             ObjectError::BucketNotFound | ObjectError::ObjectNotFound => Self::NotFound,
             ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,
-            ObjectError::UniformAccessPredefinedAcl => Self::Invalid(error.to_string()),
+            ObjectError::UniformAccessPredefinedAcl | ObjectError::SoftDeletePolicyRequired(_) => {
+                Self::Invalid(error.to_string())
+            }
             ObjectError::OverwriteForbidden(_)
             | ObjectError::PublicAccessPrevention
             | ObjectError::Denied(_)

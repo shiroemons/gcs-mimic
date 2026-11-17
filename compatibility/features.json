@@ -18659,7 +18659,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens. projection=full (always sent by the Java SDK) and noAcl are accepted; as observed on Cloud Storage, the restore response omits acl and owner for every projection (docs/en/evidence/object-restore-projection.md). Seven-day SDK policy examples and debug guidance for policy-free empty listings: docs/en/slices/sdk-local-auth-softdelete-notes.md. The owner-approved local absent-policy listing remains empty 200 rather than Google's 400 (retained generations can still be listed after policy removal).",
+      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens. projection=full (always sent by the Java SDK) and noAcl are accepted; as observed on Cloud Storage, the restore response omits acl and owner for every projection (docs/en/evidence/object-restore-projection.md). Seven-day SDK policy examples: docs/en/slices/sdk-local-auth-softdelete-notes.md. Without a positive policy a softDeleted listing or read and a restore answer Cloud Storage's 400 invalid, as recorded on 2026-11-17 (SPEC-SOFT-DELETE); generations retained under an earlier policy are refused the same way while the policy is off.",
       "dependencies": [
         "DESIGN-082",
         "DESIGN-083"

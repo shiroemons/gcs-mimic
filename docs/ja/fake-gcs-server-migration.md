@@ -101,11 +101,10 @@ _, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &stor
 bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
 ```
 
-Goでは削除前に`err`を確認してください。未設定での`softDeleted=true`は空の200を返します
-（公式は400）。これはオーナー承認済みのローカル仕様です。
-無効化前から保持している世代は引き続き一覧に出ます。
-`--log-level debug`では、ポリシー未設定の空一覧に理由と
-`softDeletePolicy.retentionDurationSeconds=604800`の修正例を出します。
+Goでは削除前に`err`を確認してください。正の保持期間を持つポリシーがないと、
+`softDeleted=true`の一覧・取得とrestoreはCloud Storageと同じく400 invalidになるため、
+soft deleteを試す前にポリシーを設定してください。以前のポリシーで保持中の世代も、
+ポリシーが無効なあいだは同じく拒否され、正のポリシーに戻すと再び使えます。
 
 ```json
 {"version":1,"project":"local-project","buckets":[{"name":"assets"},{"name":"exports"}]}

@@ -20,12 +20,13 @@ _, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &stor
 bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
 ```
 
-Check Go's `err` before deleting. An unset policy returns an empty 200 for
-`softDeleted=true` (officially 400), an owner-approved local choice; retained
-generations remain listable after disabling the policy. `--log-level debug`
-adds one explanation and a `retentionDurationSeconds=604800` repair per empty
-policy-free request. See [local credentials and listing notes](sdk-local-auth-softdelete-notes.md)
-for the separate diagnostic checks; no HTTP response is changed.
+Check Go's `err` before deleting. Without a positive policy a `softDeleted=true`
+listing or read and a restore answer 400 invalid with Cloud Storage's messages
+(recorded 2026-11-17, case `obj-gaps-json`); until then gcs-mimic answered an
+empty listing and 404. Generations retained under an earlier policy are refused
+the same way while the policy is off, and reachable again once it is positive;
+that state was not recorded. The earlier debug explanation of an empty
+policy-free listing is gone with it.
 
 - SOFT-DELETE-CONFIG: insert/PATCH/PUT, the buckets file and gRPC accept integral
   retention seconds, 0 or 1 through 7776000; get/list return
@@ -52,9 +53,9 @@ for the separate diagnostic checks; no HTTP response is changed.
   gave new buckets. Buckets created by `import`, directory sync
   or the fake-gcs-server profile get no default; seed files and the buckets file
   use it. A bucket with no policy and a
-  bucket with an explicit zero both allow softDeleted=true listing (200, empty
-  unless retained generations remain); missing soft-deleted generations return
-  404 notFound on metadata GET and restore.
+  bucket with an explicit zero both refuse a softDeleted=true listing, a
+  softDeleted=true metadata GET and a restore with 400 invalid and Cloud
+  Storage's messages, before any generation is looked up (recorded 2026-11-17).
 - SOFT-DELETE-DELETE: shared JSON/XML delete preserves bytes and immutable
   softDeleteTime/hardDeleteTime after hold/retention checks; normal reads hide it.
 - SOFT-DELETE-OVERWRITE: shared publication retains overwritten destinations

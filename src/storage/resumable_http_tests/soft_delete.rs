@@ -52,38 +52,48 @@ async fn retained(h: &Harness) -> Vec<Value> {
 async fn soft_delete_configuration_defaults_boundaries_and_permissions() {
     let h = Harness::start(1024, Strict, None).await;
     h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
+    // Without a positive policy nothing is retained, and Cloud Storage refuses every
+    // soft-deleted request before looking for a generation (recorded 2026-11-17).
     for seconds in [None, Some(0)] {
         if let Some(seconds) = seconds {
             policy(&h, seconds).await;
         }
         let default = upload(&h, "permanent", b"permanent").await;
-        assert!(retained(&h).await.is_empty());
         assert_eq!(
             h.request("DELETE", "/storage/v1/b/bucket/o/permanent", ADMIN, b"")
                 .await
                 .status,
             204
         );
-        assert!(retained(&h).await.is_empty());
+        let listing = h
+            .request("GET", "/storage/v1/b/bucket/o?softDeleted=true", ADMIN, b"")
+            .await;
+        listing.error(400, "invalid");
+        assert_eq!(
+            listing.json()["error"]["message"],
+            "Soft delete policy is required to list soft-deleted versions"
+        );
         for (name, generation) in [
             ("permanent", default["generation"].as_str().unwrap()),
             ("missing", "1"),
         ] {
-            for (method, path) in [
+            for (method, path, message) in [
                 (
                     "GET",
                     format!(
                         "/storage/v1/b/bucket/o/{name}?softDeleted=true&generation={generation}"
                     ),
+                    "Soft delete policy is required to request a soft-deleted version.",
                 ),
                 (
                     "POST",
                     format!("/storage/v1/b/bucket/o/{name}/restore?generation={generation}"),
+                    "bucket soft delete policy must be set.",
                 ),
             ] {
-                h.request(method, &path, ADMIN, b"")
-                    .await
-                    .error(404, "notFound");
+                let refused = h.request(method, &path, ADMIN, b"").await;
+                refused.error(400, "invalid");
+                assert_eq!(refused.json()["error"]["message"], message);
             }
         }
     }
@@ -508,7 +518,6 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
     )
     .await
     .error(412, "objectNotSoftDeleted");
-    policy(&h, 0).await;
     let dir = h.dir.0.clone();
     let clock = h.clock.clone();
     h.stop.send(()).unwrap();
@@ -526,7 +535,7 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
             .soft_delete_policy
             .unwrap()
             .retention_duration_seconds,
-        0
+        604800
     );
     let retained = reopened
         .get_soft_deleted_object(
@@ -547,6 +556,53 @@ async fn soft_delete_restore_conditions_collisions_and_restart() {
         .unwrap();
     assert!(restored.generation > retained.generation);
     reopened.close().await.unwrap();
+}
+
+// A generation retained under an earlier policy is refused like any other while the policy is
+// off. Keeping it until its hard delete time, so that a positive policy reaches it again, is a
+// local choice: Cloud Storage was recorded only on a bucket that never had a policy.
+#[tokio::test]
+async fn retained_generations_are_refused_while_the_policy_is_off() {
+    let h = Harness::start(1024, Permissive, None).await;
+    h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
+    policy(&h, 604800).await;
+    let uploaded = upload(&h, "kept", b"kept").await;
+    let generation = uploaded["generation"].as_str().unwrap();
+    assert_eq!(
+        h.request("DELETE", "/storage/v1/b/bucket/o/kept", ADMIN, b"")
+            .await
+            .status,
+        204
+    );
+    policy(&h, 0).await;
+    let read = format!("/storage/v1/b/bucket/o/kept?softDeleted=true&generation={generation}");
+    let restore = format!("/storage/v1/b/bucket/o/kept/restore?generation={generation}");
+    for (method, path, message) in [
+        (
+            "GET",
+            "/storage/v1/b/bucket/o?softDeleted=true",
+            "Soft delete policy is required to list soft-deleted versions",
+        ),
+        (
+            "GET",
+            read.as_str(),
+            "Soft delete policy is required to request a soft-deleted version.",
+        ),
+        (
+            "POST",
+            restore.as_str(),
+            "bucket soft delete policy must be set.",
+        ),
+    ] {
+        let refused = h.request(method, path, ADMIN, b"").await;
+        refused.error(400, "invalid");
+        assert_eq!(refused.json()["error"]["message"], message);
+    }
+    policy(&h, 604800).await;
+    assert_eq!(retained(&h).await.len(), 1);
+    let restored = h.request("POST", &restore, ADMIN, b"").await;
+    assert_eq!(restored.status, 200, "{}", restored.json());
+    h.stop().await;
 }
 
 #[tokio::test]

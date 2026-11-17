@@ -825,6 +825,26 @@ pub(crate) enum ComponentFailureKind {
     },
 }
 
+/// What a request asked of a bucket's soft-deleted generations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SoftDeletedRequest {
+    List,
+    Get,
+    Restore,
+}
+
+impl SoftDeletedRequest {
+    /// Cloud Storage's refusal when the bucket has no soft delete policy (recorded
+    /// 2026-11-17, case obj-gaps-json); each request kind has its own wording.
+    pub(crate) const fn policy_required_message(self) -> &'static str {
+        match self {
+            Self::List => "Soft delete policy is required to list soft-deleted versions",
+            Self::Get => "Soft delete policy is required to request a soft-deleted version.",
+            Self::Restore => "bucket soft delete policy must be set.",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ObjectError {
     BucketNotFound,
@@ -843,6 +863,9 @@ pub(crate) enum ObjectError {
     /// A Locked retention was shortened, removed or unlocked; the override never applies.
     LockedRetention,
     ObjectNotSoftDeleted,
+    /// The bucket has no positive soft delete policy, so it keeps no soft-deleted generation
+    /// to list, read or restore.
+    SoftDeletePolicyRequired(SoftDeletedRequest),
     /// Strict authorization refused a Cloud Storage permission, including when the bucket's
     /// current owning project is not one the caller was authorized for.
     Denied(Box<crate::auth::Denied>),
@@ -907,6 +930,9 @@ impl fmt::Display for ObjectError {
             Self::ObjectNotSoftDeleted => formatter.write_str(
                 "object is not soft deleted; select a generation from softDeleted=true listing",
             ),
+            Self::SoftDeletePolicyRequired(request) => {
+                formatter.write_str(request.policy_required_message())
+            }
             Self::Denied(denied) => denied.fmt(formatter),
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::NotModified | Self::WriteNotModified => formatter.write_str("not modified"),
@@ -970,6 +996,7 @@ impl TypedSource for ObjectError {
             | Self::UnlockedRetentionOverrideRequired
             | Self::LockedRetention
             | Self::ObjectNotSoftDeleted
+            | Self::SoftDeletePolicyRequired(_)
             | Self::Denied(_)
             | Self::Forbidden
             | Self::NotModified

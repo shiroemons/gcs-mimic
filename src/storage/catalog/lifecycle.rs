@@ -701,6 +701,7 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
         | ObjectError::UnlockedRetentionOverrideRequired
         | ObjectError::LockedRetention
         | ObjectError::ObjectNotSoftDeleted
+        | ObjectError::SoftDeletePolicyRequired(_)
         | ObjectError::Denied(_)
         | ObjectError::Forbidden
         | ObjectError::NotModified

@@ -2,7 +2,7 @@ use super::{Catalog, CatalogError, UnixMicros, objects, unavailable, unix_micros
 use crate::storage::catalog::sql;
 use crate::{
     bucket::BucketAccess,
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, SoftDeletedRequest},
 };
 use objects::{SELECT_SOFT_DELETED_GENERATION, authorized_bucket, object_unavailable, read_object};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -33,6 +33,27 @@ const EARLIEST_EXPIRY: &str = "WITH RECURSIVE keys(bucket) AS (
 pub(crate) struct RestoreAccess<'a> {
     pub(crate) restore: &'a BucketAccess,
     pub(crate) create: &'a BucketAccess,
+}
+
+/// Refuses a soft-deleted listing, read or restore in a bucket without a positive soft delete
+/// policy before any generation is looked up, as Cloud Storage refused them in a bucket created
+/// with retention 0 (case obj-gaps-json). Generations retained under an earlier policy are
+/// refused the same way; that state is not recorded.
+pub(super) fn require_policy(
+    connection: &Connection,
+    bucket: &str,
+    request: SoftDeletedRequest,
+) -> Result<(), ObjectError> {
+    let retention: i64 = sql::scalar(
+        connection,
+        "SELECT COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
+        [bucket],
+    )?;
+    if retention > 0 {
+        Ok(())
+    } else {
+        Err(ObjectError::SoftDeletePolicyRequired(request))
+    }
 }
 
 /// Permanently removes up to 100 expired rows of one bucket key and journals their blobs in the
@@ -254,6 +275,7 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
+            require_policy(&transaction, &bucket, SoftDeletedRequest::Get)?;
             let selection = selected(
                 &transaction,
                 &bucket,
@@ -322,6 +344,11 @@ impl Catalog {
         let pinned = self
             .run_upload::<_, ObjectError>(move |connection| {
                 authorized_bucket(connection, &selection.target.bucket, &selection.restore)?;
+                require_policy(
+                    connection,
+                    &selection.target.bucket,
+                    SoftDeletedRequest::Restore,
+                )?;
                 let now = objects::PublicationTime::read(clock.as_ref())?;
                 purge_expired(connection, &selection.target.bucket, now.time.try_into()?)?;
                 let transaction = connection.transaction()?;

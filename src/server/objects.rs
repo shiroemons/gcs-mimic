@@ -372,11 +372,6 @@ async fn list(
         .catalog
         .list_objects(params.query.clone(), params.max_results, access)
         .await?;
-    if ctx.config.log_level == crate::diagnostics::LogLevel::Debug
-        && params.empty_soft_deleted_message(&page, None).is_some()
-    {
-        log_empty_soft_deleted_listing(ctx, access, params, &page).await;
-    }
     if params.empty_page {
         // The recorded `maxResults=0` listing held only its kind: no items, prefixes or token.
         return Ok(Written::live(
@@ -390,40 +385,6 @@ async fn list(
         items: page.items.iter().map(ObjectVersion::from).collect(),
     };
     Ok(Written::live(value, subjects))
-}
-
-/// Explains an empty soft-deleted listing in debug logs. Diagnostic reads must not change the
-/// successful listing response, so their failures are only logged.
-async fn log_empty_soft_deleted_listing(
-    ctx: ObjectCtx<'_>,
-    access: &BucketAccess,
-    params: &json::ObjectListParams,
-    page: &crate::storage::ObjectListPage,
-) {
-    match ctx
-        .state
-        .catalog
-        .get_bucket(&params.query.bucket, access)
-        .await
-    {
-        Ok(Some(bucket)) => {
-            if let Some(message) =
-                params.empty_soft_deleted_message(page, bucket.soft_delete_policy.as_ref())
-            {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Debug,
-                    "soft_deleted_listing_empty",
-                    serde_json::json!({"message":message}),
-                );
-            }
-        }
-        Ok(None) => {}
-        Err(error) => crate::diagnostics::emit(
-            crate::diagnostics::LogLevel::Debug,
-            "soft_deleted_listing_diagnostic_failed",
-            serde_json::json!({"message":"Cannot inspect softDeletePolicy after listing; retry the bucket metadata request", "cause":error.to_string()}),
-        ),
-    }
 }
 
 async fn update(

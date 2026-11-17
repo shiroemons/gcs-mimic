@@ -472,6 +472,7 @@ impl StorageCause for ObjectError {
             | Self::UnlockedRetentionOverrideRequired
             | Self::LockedRetention
             | Self::ObjectNotSoftDeleted
+            | Self::SoftDeletePolicyRequired(_)
             | Self::Denied(_)
             | Self::Forbidden
             | Self::NotModified

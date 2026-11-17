@@ -3,6 +3,11 @@
 Scope: DESIGN-084 (PARTIAL), JSON-OBJECTS-011 (PARTIAL), JSON-BUCKETS-010
 (NOT_STARTED). Statuses and HTTP responses remain unchanged.
 
+Superseded on 2026-11-17: a `softDeleted=true` listing without a positive policy
+now answers Cloud Storage's 400 invalid instead of an empty 200 (case
+`obj-gaps-json`; see [soft delete and restore](sdk-soft-delete-restore.md)), so the
+debug event below no longer exists. The rest of this record is historical.
+
 ## Acceptance
 
 - local-auth-gap-recorded: record googleauth 1.17.6's ignored JSON token_uri,

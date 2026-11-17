@@ -99,11 +99,11 @@ _, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &stor
 bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
 ```
 
-Check Go's returned `err` before deleting. An unset policy returns an empty 200
-for `softDeleted=true` (Google returns 400): this is an owner-approved local
-choice. Previously retained generations remain listable after disabling the
-policy. With `--log-level debug`, an empty policy-free listing explains the
-reason and gives `softDeletePolicy.retentionDurationSeconds=604800` as a repair.
+Check Go's returned `err` before deleting. Without a positive policy a
+`softDeleted=true` listing or read and a restore answer 400 invalid, as Cloud
+Storage does, so set a policy before testing soft delete. Generations retained
+under an earlier policy are refused the same way while the policy is off and
+reachable again once it is positive.
 
 | Bucket retention call | gcs-mimic behavior |
 | --- | --- |

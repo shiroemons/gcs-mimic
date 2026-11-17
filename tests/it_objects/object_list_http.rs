@@ -512,7 +512,13 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
             .0,
         400
     );
-    assert!(names(&server.list("softDeleted=true")).is_empty());
+    // The bucket has no soft delete policy, so Cloud Storage refuses the listing outright.
+    let (status, value) = server.request("GET", "/storage/v1/b/test-bucket/o?softDeleted=true", "");
+    assert_eq!(status, 400, "{value}");
+    assert_eq!(
+        value["error"]["message"],
+        "Soft delete policy is required to list soft-deleted versions"
+    );
     let (status, value) = server.request(
         "GET",
         "/storage/v1/b/test-bucket/o?softDeleted=true&versions=true",

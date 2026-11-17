@@ -37,10 +37,12 @@ _, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &stor
 bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
 ```
 
-Goでは削除前に`err`を確認してください。未設定の`softDeleted=true`を空の200にする
-動作（公式は400）はオーナー承認済みです。`--log-level debug`では、ポリシー未設定の
-空一覧に理由と`retentionDurationSeconds=604800`の修正例をリクエストごとに1行出します。
-応答は変えていません。[今回の検証](../en/slices/sdk-local-auth-softdelete-notes.md)を参照してください。
+Goでは削除前に`err`を確認してください。正の保持期間を持つポリシーがないバケットでは、
+`softDeleted=true`の一覧・取得とrestoreが、Cloud Storageと同じく400 invalidになります
+（2026-11-17に録画、ケース`obj-gaps-json`）。それまでのgcs-mimicは空の一覧と404を
+返していました。以前のポリシーで保持中の世代も、ポリシーが無効なあいだは同じく拒否され、
+正のポリシーに戻すと再び使えます（この状態は録画していません）。ポリシー未設定の空一覧を
+説明していたデバッグログは、あわせて廃止しました。
 
 有効なバケットではJSON・XMLの削除と、バージョニング無効時のアップロード・copy・rewrite・
 compose・move宛先上書きで、古い世代の本文を残します。バージョニング有効時の宛先上書きは
@@ -51,9 +53,9 @@ noncurrentにし、その世代を明示して削除するとsoft-deletedにな�
 通常の取得・一覧から削除済み世代を隠し、`softDeleted=true`でメタデータを取得できます。
 GETには`generation`が必要で、`alt=media`は使えません。一覧は既存の絞り込みとページングを使い、
 `versions=true`との併用を拒否します。
-ポリシーのないバケット（以前のバケットや既定0で作ったバケット）と0を明示したバケットは同じ扱いです。`softDeleted=true`の一覧は200で、保持中の世代がなければ
-空になります。該当世代がなければメタデータGETとrestoreは404を返します。
-公式の一覧・restoreはポリシーなしの400を定めており、この扱いはローカルの仕様差です。
+ポリシーのないバケット（以前のバケットや既定0で作ったバケット）と0を明示したバケットは同じ扱いです。
+どちらも`softDeleted=true`の一覧・メタデータGETとrestoreを、世代を探す前にCloud Storageと
+同じ400 invalidと文言で拒否します（2026-11-17に録画）。
 
 `POST /storage/v1/b/BUCKET/o/OBJECT/restore?generation=N`は新しいlive世代を作り、
 metagenerationを1に戻します。元の削除済み世代は期限まで残ります。同名のlive世代と前提条件を

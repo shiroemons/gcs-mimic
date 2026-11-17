@@ -142,13 +142,26 @@ fn bucket_soft_delete_get_list_and_restore_round_trip() {
         .json_ok();
     assert!(live.get("items").is_none(), "{live}");
 
-    // A recreated live bucket blocks restore and never sees the retained objects.
-    let recreated = create(&server, "soft-bucket", None);
+    // A recreated live bucket blocks restore and never sees the retained objects. It needs a
+    // policy of its own to list soft-deleted objects at all, and drops it again so that its
+    // deletion below stays permanent.
+    let recreated = create(
+        &server,
+        "soft-bucket",
+        Some(r#"{"retentionDurationSeconds":"604800"}"#),
+    );
     assert_ne!(recreated["generation"], generation);
     let hidden = server
         .request("GET", "/storage/v1/b/soft-bucket/o?softDeleted=true", "")
         .json_ok();
     assert!(hidden.get("items").is_none(), "{hidden}");
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/soft-bucket",
+            r#"{"softDeletePolicy":{"retentionDurationSeconds":"0"}}"#,
+        )
+        .json_ok();
     server
         .request(
             "POST",
@@ -460,14 +473,14 @@ fn unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once() {
         1,
         "the overwritten body must not stay on disk"
     );
-    let listed = server
+    // Without a policy nothing is retained, and soft-deleted requests are refused outright.
+    server
         .request(
             "GET",
             "/storage/v1/b/genuine-default/o?softDeleted=true",
             "",
         )
-        .json_ok();
-    assert!(listed.get("items").is_none(), "{listed}");
+        .json_reason_value(400, "invalid");
 
     server
         .request("DELETE", "/storage/v1/b/genuine-default/o/object", "")
@@ -482,7 +495,7 @@ fn unconfigured_native_server_frees_overwritten_and_deleted_bodies_at_once() {
             ),
             "",
         )
-        .json_reason_value(404, "notFound");
+        .json_reason_value(400, "invalid");
 }
 
 #[test]
