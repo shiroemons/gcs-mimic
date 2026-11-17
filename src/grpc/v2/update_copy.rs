@@ -1095,6 +1095,8 @@ impl Storage {
 }
 
 #[cfg(test)]
+mod event_hold_release;
+#[cfg(test)]
 mod object_keys;
 #[cfg(test)]
 mod rewrite_keys;

@@ -37,6 +37,7 @@ pub(super) fn object_record(
         hard_delete_time: None,
         event_based_hold: crate::object::Hold::Unset,
         temporary_hold: crate::object::Hold::Held,
+        event_based_hold_release_time: None,
         custom_time: Some("2026-10-20T01:02:03.123456789Z".into()),
         retention_expiration_time: None,
         retention: None,

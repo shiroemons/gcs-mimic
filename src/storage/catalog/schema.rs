@@ -267,6 +267,11 @@ pub(super) const STEPS: &[Step] = &[
         resumable::RUNNING_HASH_SCHEMA,
         Some(resumable::validate_running_hash),
     ),
+    Step::statements(
+        object_hold::RELEASE_TIME_SCHEMA_VERSION,
+        object_hold::RELEASE_TIME_SCHEMA,
+        None,
+    ),
 ];
 
 #[expect(

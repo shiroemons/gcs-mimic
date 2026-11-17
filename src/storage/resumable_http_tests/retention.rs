@@ -1,14 +1,66 @@
 use super::AuthProfile::{Permissive, Strict};
 use super::{Harness, Reply};
-use crate::storage::test_fixtures::PERMISSIVE;
+use crate::object::{ObjectError, unix_nanos::UnixNanos};
+use crate::storage::test_fixtures::{PERMISSIVE, live};
 use serde_json::{Value, json};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 
 async fn call(h: &Harness, method: &str, path: &str, body: Value) -> Reply {
     h.request(method, path, ADMIN, body.to_string().as_bytes())
         .await
+}
+
+fn at(seconds: u64) -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(seconds)
+}
+
+async fn upload(h: &Harness, name: &str) {
+    let reply = h
+        .request(
+            "POST",
+            &format!("/upload/storage/v1/b/bucket/o?uploadType=media&name={name}"),
+            ADMIN,
+            b"data",
+        )
+        .await;
+    assert_eq!(reply.status, 200, "{}", reply.json());
+}
+
+/// Sends a metadata update of `name` and returns the updated resource.
+async fn update(h: &Harness, method: &str, name: &str, body: Value) -> Value {
+    let reply = call(h, method, &format!("/storage/v1/b/bucket/o/{name}"), body).await;
+    assert_eq!(reply.status, 200, "{}", reply.json());
+    reply.json()
+}
+
+/// A delete and an overwrite of `name` are both refused until `until`, which the denial names.
+async fn assert_retained_until(h: &Harness, name: &str, until: SystemTime) {
+    let expected = format!(
+        "Object 'bucket/{name}' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
+        crate::object::retention::pacific_rfc3339(UnixNanos::from(until))
+    );
+    let deleted = h
+        .request(
+            "DELETE",
+            &format!("/storage/v1/b/bucket/o/{name}"),
+            ADMIN,
+            b"",
+        )
+        .await;
+    let overwritten = h
+        .request(
+            "POST",
+            &format!("/upload/storage/v1/b/bucket/o?uploadType=media&name={name}"),
+            ADMIN,
+            b"new",
+        )
+        .await;
+    for reply in [deleted, overwritten] {
+        reply.error(403, "retentionPolicyNotMet");
+        assert_eq!(reply.json()["error"]["message"], expected);
+    }
 }
 
 async fn policy(h: &Harness, value: Value) -> Value {
@@ -403,6 +455,113 @@ async fn retention_and_both_holds_are_independent() {
             assert_eq!(h.request("DELETE", &path, ADMIN, b"").await.status, 204);
         }
         h.clock.set(UNIX_EPOCH + Duration::from_secs(1000));
+    }
+    h.stop().await;
+}
+
+/// "Retention duration of the objects begins from the moment event-based hold transitioned from
+/// true to false" (Objects resource, `eventBasedHold`), so an object created long before the
+/// period is retained again once its hold is released. While the hold is held the deadline is
+/// unknown and omitted (`retention_expire_time` in the pinned v2 and v1 protos). The release
+/// survives a restart.
+#[tokio::test]
+async fn releasing_an_event_based_hold_restarts_the_bucket_retention_period() {
+    let h = Harness::start(1024, Permissive, None).await;
+    h.clock.set(at(1000));
+    policy(&h, json!({"retentionPeriod":"10"})).await;
+    upload(&h, "held").await;
+    let held = update(&h, "PATCH", "held", json!({"eventBasedHold":true})).await;
+    assert!(held.get("retentionExpirationTime").is_none(), "{held}");
+    h.clock.set(at(2000));
+    let released = update(&h, "PATCH", "held", json!({"eventBasedHold":false})).await;
+    assert_eq!(released["eventBasedHold"], false);
+    assert_eq!(
+        released["retentionExpirationTime"],
+        "1970-01-01T00:33:30.000Z"
+    );
+    assert_retained_until(&h, "held", at(2010)).await;
+    // Restating the released hold is not another release.
+    h.clock.set(at(2005));
+    let restated = update(&h, "PATCH", "held", json!({"eventBasedHold":false})).await;
+    assert_eq!(
+        restated["retentionExpirationTime"],
+        "1970-01-01T00:33:30.000Z"
+    );
+    h.clock.set(at(2010) - Duration::from_micros(1));
+    assert_retained_until(&h, "held", at(2010)).await;
+    let dir = h.dir.0.clone();
+    let clock = h.clock.clone();
+    h.stop.send(()).unwrap();
+    h.server.await.unwrap().unwrap();
+    h.state.catalog.close().await.unwrap();
+    let reopened = crate::storage::Catalog::open_with_clock(&dir, clock.clone())
+        .await
+        .unwrap();
+    let object = reopened
+        .get_object(live("bucket", "held"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(object.retention_expiration_time, Some(at(2010)));
+    let refused = reopened
+        .delete_object(live("bucket", "held"), Default::default(), PERMISSIVE)
+        .await;
+    assert!(
+        matches!(refused, Err(ObjectError::ObjectRetentionNotMet(_))),
+        "{refused:?}"
+    );
+    clock.set(at(2010));
+    reopened
+        .delete_object(live("bucket", "held"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    reopened.close().await.unwrap();
+}
+
+/// A PUT releases the holds it does not name, so dropping a held event-based hold restarts the
+/// period like sending false does. Releasing a hold that was never held, or a temporary hold,
+/// leaves the period counting from creation.
+#[tokio::test]
+async fn only_releasing_a_held_event_based_hold_restarts_the_period() {
+    let h = Harness::start(1024, Permissive, None).await;
+    h.clock.set(at(1000));
+    policy(&h, json!({"retentionPeriod":"10"})).await;
+    for name in ["put-omits", "put-false", "never-held", "temporary"] {
+        upload(&h, name).await;
+    }
+    for name in ["put-omits", "put-false"] {
+        update(&h, "PATCH", name, json!({"eventBasedHold":true})).await;
+    }
+    update(&h, "PATCH", "temporary", json!({"temporaryHold":true})).await;
+    h.clock.set(at(2000));
+    for (name, body) in [
+        ("put-omits", json!({})),
+        ("put-false", json!({"eventBasedHold":false})),
+    ] {
+        let replaced = update(&h, "PUT", name, body).await;
+        assert_eq!(
+            replaced["retentionExpirationTime"], "1970-01-01T00:33:30.000Z",
+            "{name}"
+        );
+        assert_retained_until(&h, name, at(2010)).await;
+    }
+    for (name, body) in [
+        ("never-held", json!({"eventBasedHold":false})),
+        ("temporary", json!({"temporaryHold":false})),
+    ] {
+        let released = update(&h, "PATCH", name, body).await;
+        assert_eq!(
+            released["retentionExpirationTime"], "1970-01-01T00:16:50.000Z",
+            "{name}"
+        );
+        let deleted = h
+            .request(
+                "DELETE",
+                &format!("/storage/v1/b/bucket/o/{name}"),
+                ADMIN,
+                b"",
+            )
+            .await;
+        assert_eq!(deleted.status, 204, "{name}");
     }
     h.stop().await;
 }

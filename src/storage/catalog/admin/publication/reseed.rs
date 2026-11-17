@@ -401,7 +401,16 @@ fn check_guards(
     match mode {
         SeedMode::Replace => {
             let now = crate::storage::catalog::unix_micros(clock.now())?;
-            let held: bool = sql::scalar(transaction, "SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR objects.time_created + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)", [now]).map_err(objects_error)?;
+            let held: bool = sql::scalar(
+                transaction,
+                concat!(
+                    "SELECT EXISTS(SELECT 1 FROM objects JOIN buckets ON objects.bucket = buckets.name WHERE event_based_hold = 1 OR temporary_hold = 1 OR ",
+                    crate::storage::catalog::objects::retention_start!("objects."),
+                    " + json_extract(buckets.retention_policy, '$.retention_period') * 1000000 > ?1 OR retain_until_time > ?1)"
+                ),
+                [now],
+            )
+            .map_err(objects_error)?;
             if held {
                 return Err(AdminError::Hold);
             }

@@ -10,12 +10,23 @@ use super::sql;
 use crate::object::Hold;
 use rusqlite::{Row, types::Type};
 
+#[cfg(test)]
+mod release_tests;
+
 /// Schema 48. Rows written earlier read as unset (0) or held (1): a stored 0 cannot show
 /// whether the hold was ever set, and reporting a `false` that Cloud Storage might not have
 /// reported would be invented information.
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN temporary_hold_released INTEGER NOT NULL DEFAULT 0 CHECK(temporary_hold_released IN (0, 1) AND (temporary_hold = 0 OR temporary_hold_released = 0));
 ALTER TABLE objects ADD COLUMN event_based_hold_released INTEGER NOT NULL DEFAULT 0 CHECK(event_based_hold_released IN (0, 1) AND (event_based_hold = 0 OR event_based_hold_released = 0));
 PRAGMA user_version = 48;";
+
+/// Schema 57. When an event-based hold last went from held to released, in microseconds: the
+/// bucket retention period of the generation counts from then. Rows written earlier keep NULL
+/// and count from creation, as they did before, even if their hold was released.
+pub(super) const RELEASE_TIME_SCHEMA_VERSION: i64 = 57;
+pub(super) const RELEASE_TIME_SCHEMA: &str =
+    "ALTER TABLE objects ADD COLUMN event_based_hold_release_time INTEGER;
+PRAGMA user_version = 57;";
 
 /// The column pair (`hold`, `hold_released`) that stores a state.
 pub(super) struct HoldColumns {

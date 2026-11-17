@@ -323,15 +323,19 @@ fn validate_retention_expiration(
     let Some(policy) = &record.retention_policy else {
         return Ok(());
     };
-    let latest_creation = i64::try_from(
+    let latest_start = i64::try_from(
         i128::from(crate::clock::RFC3339_MAX_MICROS)
             - i128::from(policy.retention_period) * i128::from(crate::clock::MICROS_PER_SECOND),
     )
     .map_err(unavailable)?;
     let invalid: bool = sql::scalar(
         connection,
-        "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND time_created > ?2)",
-        rusqlite::params![record.name, latest_creation],
+        concat!(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND ",
+            super::objects::retention_start!(""),
+            " > ?2)"
+        ),
+        rusqlite::params![record.name, latest_start],
     )?;
     if invalid {
         return Err(CatalogError::InvalidMetadata("Bucket retention would place an existing object's expiration outside the supported RFC3339 UTC range".into()));

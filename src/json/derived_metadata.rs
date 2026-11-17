@@ -332,7 +332,7 @@ mod tests {
     fn metadata_edits_cannot_add_up_past_what_a_copy_may_inherit() {
         let mut record = crate::json::object_tests::record();
         let edit = |update: ObjectMetadataUpdate, record: &mut ObjectRecord| {
-            update.apply_to_existing(record)
+            update.apply_to_existing(record, std::time::SystemTime::UNIX_EPOCH)
         };
         edit(
             ObjectMetadataUpdate {

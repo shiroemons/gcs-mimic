@@ -97,11 +97,9 @@ impl BucketPublication {
 
     pub(in crate::storage::catalog) fn retention_expiration(
         &self,
-        created: std::time::SystemTime,
+        record: &ObjectRecord,
     ) -> Result<Option<std::time::SystemTime>, ObjectError> {
-        self.retention_period
-            .map(|period| expiration_after(created, period))
-            .transpose()
+        policy_expiration(record, self.retention_period)
     }
 
     fn soft_delete_deadline(&self, micros: i64) -> Result<Option<UnixMicros>, ObjectError> {
@@ -185,6 +183,7 @@ impl PublicationDefaults {
                 Hold::Unset
             },
             temporary_hold: Hold::Unset,
+            event_based_hold_release_time: None,
             custom_time: None,
             retention_expiration_time: None,
             retention: None,
@@ -202,8 +201,18 @@ pub(in crate::storage::catalog) fn retention_expiration(
         "SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1",
         [&record.bucket],
     )?;
+    policy_expiration(record, period)
+}
+
+/// The bucket policy deadline of `record`, as the catalog derives `retention_expiration_time`
+/// when it reads the row: none without a policy or while the period has not started.
+fn policy_expiration(
+    record: &ObjectRecord,
+    period: Option<u64>,
+) -> Result<Option<std::time::SystemTime>, ObjectError> {
     period
-        .map(|period| expiration_after(record.time_created, period))
+        .zip(record.retention_period_start())
+        .map(|(period, start)| expiration_after(start, period))
         .transpose()
 }
 
@@ -376,12 +385,14 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         GenerationAssignment::Imported(generation) => generation.get(),
     };
     let (mut record, prepared) = prepare(generation)?;
-    // Reused records must not carry a previous generation's class-change history into publication.
+    // Reused records must not carry a previous generation's class-change history into publication,
+    // nor a hold release: a new generation's retention period starts at its creation.
     record.time_storage_class_updated = None;
+    record.event_based_hold_release_time = None;
     if let Some(owner) = &mut record.owner {
         super::super::object_owner::canonicalize(owner, owner_profile);
     }
-    record.retention_expiration_time = bucket.retention_expiration(record.time_created)?;
+    record.retention_expiration_time = bucket.retention_expiration(&record)?;
     let now = system_time_micros(micros)?;
     // A retained live version may become noncurrent, but it cannot be replaced outright.
     if bucket.versioning == Versioning::Disabled
@@ -392,7 +403,7 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
         previous.check_object_retention(now)?;
     }
     retention::validate_publication(transaction, &record, now)?;
-    validate_publication_timestamps(&record)?;
+    validate_timestamps(&record)?;
     let retention = retention::columns(record.retention.as_ref())?;
     let event = HoldColumns::from(record.event_based_hold);
     let temporary = HoldColumns::from(record.temporary_hold);
@@ -470,7 +481,9 @@ pub(in crate::storage::catalog) fn publish_in_transaction<T>(
     })
 }
 
-fn validate_publication_timestamps(record: &ObjectRecord) -> Result<(), ObjectError> {
+/// Refuses a record whose times, or the retention deadline computed from them, a response could
+/// not render.
+pub(super) fn validate_timestamps(record: &ObjectRecord) -> Result<(), ObjectError> {
     let outside = || {
         ObjectError::InvalidFixedMetadata("Object timestamps and computed retention expiration must remain within the supported RFC3339 UTC range".into())
     };

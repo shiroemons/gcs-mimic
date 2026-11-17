@@ -332,6 +332,68 @@ async fn bucket_and_object_retention_delay_delete_until_the_later_exact_expiry()
     catalog.close().await.unwrap();
 }
 
+/// Releasing an event-based hold restarts the bucket retention period, so a Delete rule that was
+/// long due waits for the restarted deadline rather than creation plus the period, and the
+/// maintenance pass wakes for it.
+#[tokio::test]
+async fn releasing_an_event_based_hold_delays_delete_until_the_restarted_retention_expiry() {
+    let (catalog, clock) = memory().await;
+    let mut record = bucket("bucket", "project");
+    record.lifecycle =
+        crate::bucket::lifecycle::LifecycleRules::for_test(vec![delete(json!({"age":1}))]).into();
+    record.retention_policy = Some(crate::bucket::RetentionPolicy {
+        retention_period: 3600,
+        effective_time: clock.now(),
+        is_locked: false,
+    });
+    catalog.insert_bucket(record).await.unwrap();
+    catalog
+        .put_object(
+            crate::storage::ObjectUpload {
+                metadata: ObjectMetadataUpdate {
+                    event_based_hold: Some(true),
+                    ..Default::default()
+                },
+                ..permissive_upload("bucket", "object", 100)
+            },
+            body(vec![Bytes::from_static(b"held")]),
+        )
+        .await
+        .unwrap();
+    clock.advance(DAY * 2);
+    let held = execute(&catalog).await;
+    assert_eq!((held.blocked, held.next), (1, None));
+    catalog
+        .update_object_metadata(
+            live("bucket", "object"),
+            Default::default(),
+            ObjectMetadataUpdate {
+                event_based_hold: Some(false),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    let until = clock.now() + Duration::from_secs(3600);
+    let released = execute(&catalog).await;
+    assert_eq!(
+        (released.deleted, released.blocked, released.next),
+        (0, 1, Some(until))
+    );
+    clock.set(until - Duration::from_micros(1));
+    assert_eq!(
+        catalog.maintain_resumable_sessions().await.unwrap(),
+        Some(until)
+    );
+    assert!(exists(&catalog, live("bucket", "object")).await);
+    clock.set(until);
+    catalog.maintain_resumable_sessions().await.unwrap();
+    assert!(!exists(&catalog, live("bucket", "object")).await);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn restored_objects_restart_lifecycle_age_at_their_new_creation_time() {
     let (catalog, clock) = memory().await;

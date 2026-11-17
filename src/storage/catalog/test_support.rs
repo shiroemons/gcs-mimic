@@ -97,9 +97,26 @@ pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connec
         .unwrap();
 }
 
+/// Restores schema 56, before objects kept the time their event-based hold was released.
+pub(crate) fn downgrade_event_hold_release_schema(connection: &rusqlite::Connection) {
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name = 'event_based_hold_release_time')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection
+            .execute_batch("ALTER TABLE objects DROP COLUMN event_based_hold_release_time;")
+            .unwrap();
+    }
+}
+
 /// Restores schema 55, before sessions kept a running digest. Fixtures built before schema 7
 /// have no session table, so the column is not there to drop.
 pub(crate) fn downgrade_running_hash_schema(connection: &rusqlite::Connection) {
+    downgrade_event_hold_release_schema(connection);
     let present: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('resumable_sessions') WHERE name = 'running_hash')",

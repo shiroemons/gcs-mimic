@@ -1628,6 +1628,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         hard_delete_time: None,
         event_based_hold: crate::object::Hold::Unset,
         temporary_hold: crate::object::Hold::Unset,
+        event_based_hold_release_time: None,
         custom_time: None,
         retention_expiration_time: None,
         retention: None,

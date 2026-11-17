@@ -107,7 +107,7 @@ reachable again once it is positive.
 
 | Bucket retention call | gcs-mimic behavior |
 | --- | --- |
-| Go `BucketAttrs.RetentionPolicy` / Ruby `bucket.retention_period = 3600` | JSON insert/PATCH/PUT persist a period from 1 to 3,155,759,999 seconds and expose effectiveTime/isLocked. Unlocked policies can be changed or removed; PATCH null clears the policy. Objects expose creation time plus the current period as retentionExpirationTime. |
+| Go `BucketAttrs.RetentionPolicy` / Ruby `bucket.retention_period = 3600` | JSON insert/PATCH/PUT persist a period from 1 to 3,155,759,999 seconds and expose effectiveTime/isLocked. Unlocked policies can be changed or removed; PATCH null clears the policy. Objects expose creation time plus the current period as retentionExpirationTime; releasing an event-based hold restarts the period, and the field is omitted while that hold is held. |
 | Go `BucketHandle.If(...).LockRetentionPolicy` / Ruby `bucket.lock_retention_policy!` | Requires the current metageneration and storage.buckets.update in strict mode. A locked policy cannot be removed or shortened: 400 badRequestException explains the lock and gives a valid extension example. IAM denial remains 403 forbidden. Test locks only on emulator buckets. |
 | Delete or replace a retained object, including XML PUT, move source and compose source deletion | Returns 403 retentionPolicyNotMet until expiration; holds independently keep blocking deletion/replacement. No new setting is required. See the [retention contract](slices/sdk-retention-policy.md) for unsupported interactions. |
 

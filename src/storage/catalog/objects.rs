@@ -39,18 +39,39 @@ pub(crate) use list_query::{FoldersAsPrefixes, ListQueryError};
 use super::object_hold::HoldColumns;
 
 const CHUNK_SIZE: usize = 64 * 1024;
+// When the bucket retention period of an object row starts, as
+// `ObjectRecord::retention_period_start` computes it apart from the held case, which callers
+// decide. `$table` qualifies the columns where a join makes them ambiguous.
+macro_rules! retention_start {
+    ($table:literal) => {
+        concat!(
+            "MAX(",
+            $table,
+            "time_created, COALESCE(",
+            $table,
+            "event_based_hold_release_time, ",
+            $table,
+            "time_created))"
+        )
+    };
+}
+pub(super) use retention_start;
 // A literal macro lets per-request queries build static SQL with concat!, which
 // the connection's prepared statement cache reuses without formatting.
 macro_rules! object_columns {
     () => {
-        "bucket, name, generation, metageneration, content_type, size,
+        concat!(
+            "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
     time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
-    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket) AS retention_expiration_time, soft_delete_time, hard_delete_time,
+    CASE WHEN event_based_hold = 0 THEN ",
+            retention_start!(""),
+            " + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket) END AS retention_expiration_time, soft_delete_time, hard_delete_time,
     retention_mode, retain_until_time, customer_key_sha256, md5_available, owner,
     retain_until_sub_micro_nanos, temporary_hold_released, event_based_hold_released,
-    time_storage_class_updated"
+    time_storage_class_updated, event_based_hold_release_time"
+        )
     };
 }
 // The object point read and every listing seek decode this row, so it is read by position;
@@ -90,6 +111,7 @@ sql::column_positions!(enum ObjectColumn {
     TemporaryHoldReleased => "temporary_hold_released",
     EventBasedHoldReleased => "event_based_hold_released",
     TimeStorageClassUpdated => "time_storage_class_updated",
+    EventBasedHoldReleaseTime => "event_based_hold_release_time",
 });
 const SELECT_LIVE_OBJECT: &str = concat!(
     "SELECT ",
@@ -133,7 +155,7 @@ pub(super) use publication::{
     last_generation, next_generation, publish_in_transaction, publish_version,
     retention_expiration,
 };
-use publication::{RetirementContext, retire_previous};
+use publication::{RetirementContext, retire_previous, validate_timestamps};
 pub(crate) use reader::ObjectReader;
 pub(super) use reader::ReaderData;
 use reclaim::{JOURNAL_CONFLICT, live_journal_error};
@@ -280,64 +302,10 @@ impl Catalog {
                     &entries,
                     &access,
                     principals.as_ref(),
-                ).map_err(acl_update_error)?;
+                )
+                .map_err(acl_update_error)?;
             }
-            let previous_retention = record.retention;
-            let previous_event_hold = record.event_based_hold;
-            let override_unlocked = update.override_unlocked_retention;
-            update.reject_past_retention(clock.now())?;
-            update.apply_to_existing(&mut record)?;
-            if record.event_based_hold.is_held() && !previous_event_hold.is_held() && record.retention.is_some() {
-                return Err(ObjectError::InvalidFixedMetadata(
-                    "Retention and event based holds cannot be configured together.".into(),
-                ));
-            }
-            if record.retention != previous_retention {
-                retention::validate_publication(&transaction, &record, clock.now())?;
-                crate::object::retention::check_transition(
-                    previous_retention.as_ref(),
-                    record.retention.as_ref(),
-                    override_unlocked,
-                )?;
-            }
-            let retention = retention::columns(record.retention.as_ref())?;
-            let event = HoldColumns::from(record.event_based_hold);
-            let temporary = HoldColumns::from(record.temporary_hold);
-            record.metageneration = record
-                .metageneration
-                .checked_add(1)
-                .ok_or_else(|| object_unavailable("metageneration exhausted"))?;
-            let micros = unix_micros(clock.now())?;
-            record.updated = system_time_micros(micros)?;
-            let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
-            sql::exec(&transaction,
-                    "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
-                    content_encoding = ?6, content_disposition = ?7, content_language = ?8,
-                    cache_control = ?9, metadata = ?10, event_based_hold = ?11,
-                    temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16,
-                    retain_until_sub_micro_nanos = ?17,
-                    temporary_hold_released = ?18, event_based_hold_released = ?19
-                    WHERE bucket = ?1 AND name = ?2 AND generation = ?12", params![
-                        bucket,
-                        name,
-                        record.metageneration,
-                        micros,
-                        record.content_type,
-                        record.content_encoding,
-                        record.content_disposition,
-                        record.content_language,
-                        record.cache_control,
-                        metadata,
-                        event.held,
-                        record.generation,
-                        temporary.held,
-                        record.custom_time,
-                        retention.mode,
-                        retention.until,
-                        retention.sub_micro,
-                        temporary.released,
-                        event.released
-                    ])?;
+            store_metadata_update(&transaction, &mut record, update, clock.as_ref())?;
             super::change_journal::object(
                 &transaction,
                 super::change_journal::origin(&access),
@@ -374,6 +342,90 @@ impl Catalog {
         self.reclaim_after_commit().await;
         Ok(())
     }
+}
+
+/// Applies `update` to the selected generation at the clock's time and stores the result in the
+/// caller's transaction.
+fn store_metadata_update(
+    transaction: &Transaction<'_>,
+    record: &mut ObjectRecord,
+    update: ObjectMetadataUpdate,
+    clock: &dyn Clock,
+) -> Result<(), ObjectError> {
+    let previous_retention = record.retention;
+    let previous_event_hold = record.event_based_hold;
+    let override_unlocked = update.override_unlocked_retention;
+    update.reject_past_retention(clock.now())?;
+    let micros = unix_micros(clock.now())?;
+    let now = system_time_micros(micros)?;
+    update.apply_to_existing(record, now)?;
+    if record.event_based_hold.is_held()
+        && !previous_event_hold.is_held()
+        && record.retention.is_some()
+    {
+        return Err(ObjectError::InvalidFixedMetadata(
+            "Retention and event based holds cannot be configured together.".into(),
+        ));
+    }
+    if record.retention != previous_retention {
+        retention::validate_publication(transaction, record, clock.now())?;
+        crate::object::retention::check_transition(
+            previous_retention.as_ref(),
+            record.retention.as_ref(),
+            override_unlocked,
+        )?;
+    }
+    // The deadline read with the row is stale once the event-based hold is set, which suspends
+    // the bucket retention period, or released, which restarts it.
+    record.retention_expiration_time = retention_expiration(transaction, record)?;
+    validate_timestamps(record)?;
+    let retention = retention::columns(record.retention.as_ref())?;
+    let event = HoldColumns::from(record.event_based_hold);
+    let temporary = HoldColumns::from(record.temporary_hold);
+    let event_released = record
+        .event_based_hold_release_time
+        .map(unix_micros)
+        .transpose()?;
+    record.metageneration = record
+        .metageneration
+        .checked_add(1)
+        .ok_or_else(|| object_unavailable("metageneration exhausted"))?;
+    record.updated = now;
+    let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
+    sql::exec(
+        transaction,
+        "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
+        content_encoding = ?6, content_disposition = ?7, content_language = ?8,
+        cache_control = ?9, metadata = ?10, event_based_hold = ?11,
+        temporary_hold = ?13, custom_time = ?14, retention_mode = ?15, retain_until_time = ?16,
+        retain_until_sub_micro_nanos = ?17,
+        temporary_hold_released = ?18, event_based_hold_released = ?19,
+        event_based_hold_release_time = ?20
+        WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
+        params![
+            record.bucket,
+            record.name,
+            record.metageneration,
+            micros,
+            record.content_type,
+            record.content_encoding,
+            record.content_disposition,
+            record.content_language,
+            record.cache_control,
+            metadata,
+            event.held,
+            record.generation,
+            temporary.held,
+            record.custom_time,
+            retention.mode,
+            retention.until,
+            retention.sub_micro,
+            temporary.released,
+            event.released,
+            event_released
+        ],
+    )?;
+    Ok(())
 }
 
 /// Shared selection preserves protocol conditions and access.
@@ -829,6 +881,10 @@ pub(super) fn read_object(row: &Row<'_>) -> rusqlite::Result<StoredObject> {
                 row,
                 C::TemporaryHold.index(),
                 C::TemporaryHoldReleased.index(),
+            )?,
+            event_based_hold_release_time: micros_column(
+                row,
+                C::EventBasedHoldReleaseTime.index(),
             )?,
             custom_time: row.get(C::CustomTime.index())?,
             retention_expiration_time: micros_column(row, C::RetentionExpiration.index())?,

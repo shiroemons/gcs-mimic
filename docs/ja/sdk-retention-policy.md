@@ -9,7 +9,7 @@ JSON APIのinsert・PATCH・PUTで`retentionPolicy.retentionPeriod`を設定で�
 `effectiveTime`は期間を設定したリクエストの時刻です（同じ期間を指定し直しても変わりません）。Cloud Storageは1回の観測でリクエストの約60秒後を返しましたが、保護はすぐに効いていたため、意図的な差分としてリクエスト時刻のままにしています。
 ロックされていなければ期間を変更でき、PATCHの`retentionPolicy:null`で削除できます。
 PUTで保持設定を省略した場合、fake-gcs-serverのプロファイルは保持し、ネイティブのプロファイルはロックされていない設定を消します（ロック済みは残ります）。明示したnullは削除します。オブジェクトには作成時刻と現在の期間から
-計算した`retentionExpirationTime`を返します。
+計算した`retentionExpirationTime`を返します。イベントベースホールドを解除すると、保持期間は解除した時刻から数え直します。ホールド中は期限が決まらないため、このフィールドを返しません（googleapisのstorage v1・v2のprotoの記述に従っています）。
 
 保持期間中の削除と同名上書き、copy・rewrite・composeの宛先上書き、move元の削除、
 composeの元オブジェクト削除は`403 retentionPolicyNotMet`になります。

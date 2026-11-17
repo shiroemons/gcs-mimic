@@ -593,3 +593,71 @@ async fn strict_list_buckets_without_project_only_sees_listable_projects() {
     );
     storage.state.catalog.close().await.unwrap();
 }
+
+/// Both legacy update forms release a held event-based hold, a patch by sending false and an
+/// update by leaving it out, and either starts the bucket retention period again. The deadline
+/// is absent while the hold is held, as the v1 `retention_expiration_time` comment states.
+#[tokio::test]
+async fn legacy_updates_releasing_the_event_based_hold_restart_the_retention_period() {
+    let seconds = |seconds: u64| UNIX_EPOCH + Duration::from_secs(seconds);
+    let expiration = |seconds: i64| Some(prost_types::Timestamp { seconds, nanos: 0 });
+    let dir = TestDir::new();
+    let clock = Arc::new(crate::clock::ManualClock::new(seconds(1000)));
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    let mut record = bucket("held", "p1");
+    record.retention_policy = Some(crate::bucket::RetentionPolicy {
+        retention_period: 10,
+        effective_time: seconds(1000),
+        is_locked: false,
+    });
+    catalog.insert_bucket(record).await.unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    tx.send(Ok(crate::object::UploadChunk::End)).await.unwrap();
+    drop(tx);
+    let mut upload = crate::storage::test_fixtures::permissive_upload("held", "object", 1024);
+    upload.metadata.event_based_hold = Some(true);
+    catalog.put_object(upload, rx).await.unwrap();
+    let storage = Storage {
+        state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
+        max_object_bytes: 1024,
+        compat_profile: crate::config::CompatProfile::FakeGcsServer,
+    };
+    let patch = |held: bool| {
+        Request::new(pb::PatchObjectRequest {
+            bucket: "held".into(),
+            object: "object".into(),
+            metadata: Some(pb::Object {
+                event_based_hold: Some(held),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    };
+    clock.set(seconds(2000));
+    let released = Legacy::patch_object(&storage, patch(false)).await.unwrap();
+    assert_eq!(
+        released.get_ref().retention_expiration_time,
+        expiration(2010)
+    );
+    let held = Legacy::patch_object(&storage, patch(true)).await.unwrap();
+    assert_eq!(held.get_ref().retention_expiration_time, None);
+    clock.set(seconds(3000));
+    let replaced = Legacy::update_object(
+        &storage,
+        Request::new(pb::UpdateObjectRequest {
+            bucket: "held".into(),
+            object: "object".into(),
+            metadata: Some(pb::Object::default()),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        replaced.get_ref().retention_expiration_time,
+        expiration(3010)
+    );
+    storage.state.catalog.close().await.unwrap();
+}

@@ -39,6 +39,13 @@ impl Hold {
     pub(crate) fn is_held(self) -> bool {
         self == Self::Held
     }
+
+    /// Whether changing this state to `next` releases a hold in force. Only this transition
+    /// restarts the bucket retention period of an event-based hold: setting a hold, or releasing
+    /// one that was not held, leaves the period where it was.
+    pub(crate) fn released_by(self, next: Self) -> bool {
+        self.is_held() && !next.is_held()
+    }
 }
 
 impl From<Option<bool>> for Hold {
@@ -108,8 +115,13 @@ pub struct ObjectRecord {
     pub event_based_hold: Hold,
     #[serde(default)]
     pub temporary_hold: Hold,
+    /// When the event-based hold last went from held to released, at the catalog's microsecond
+    /// precision. Older serialized records and generations never released have none.
+    #[serde(default)]
+    pub(crate) event_based_hold_release_time: Option<SystemTime>,
     pub custom_time: Option<String>,
-    /// Bucket retention policy expiration only; object retention is kept in `retention`.
+    /// Bucket retention policy expiration only, counted from [`Self::retention_period_start`];
+    /// object retention is kept in `retention`.
     pub retention_expiration_time: Option<SystemTime>,
     pub(crate) retention: Option<retention::ObjectRetention>,
     /// SHA-256 of the customer-supplied AES256 key; the key itself is never stored.
@@ -142,6 +154,24 @@ impl ObjectRecord {
 
     pub(crate) fn has_hold(&self) -> bool {
         self.event_based_hold.is_held() || self.temporary_hold.is_held()
+    }
+
+    /// When the bucket retention period of this generation starts: at creation, or when its
+    /// event-based hold was last released, since "retention duration of the objects begins from
+    /// the moment event-based hold transitioned from true to false" (Objects resource,
+    /// `eventBasedHold`). `None` while that hold is held: "retention expiration is unknown until
+    /// the hold is removed" (`retention_expire_time` in the pinned v2 and v1 protos). A release
+    /// recorded under a clock set back before creation still counts from creation.
+    pub(crate) fn retention_period_start(&self) -> Option<SystemTime> {
+        if self.event_based_hold.is_held() {
+            return None;
+        }
+        Some(
+            self.event_based_hold_release_time
+                .map_or(self.time_created, |released| {
+                    released.max(self.time_created)
+                }),
+        )
     }
 
     /// The stored fixed metadata fields with their JSON names, in the order updates report them.
@@ -437,13 +467,23 @@ impl ObjectMetadataUpdate {
         Ok(())
     }
 
-    /// Applies the update to a published generation, where a PUT also clears the holds it omits.
-    /// Edits of one field at a time may not add up past what a later copy could inherit.
-    pub(crate) fn apply_to_existing(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
+    /// Applies the update to a published generation at `now`, where a PUT also clears the holds
+    /// it omits. Releasing a held event-based hold, by either, records `now` as the start of the
+    /// bucket retention period. Edits of one field at a time may not add up past what a later
+    /// copy could inherit.
+    pub(crate) fn apply_to_existing(
+        self,
+        record: &mut ObjectRecord,
+        now: SystemTime,
+    ) -> Result<(), ObjectError> {
+        let event_based_hold = record.event_based_hold;
         if self.write == WriteMode::Replace {
             record.clear_holds();
         }
         self.apply(record)?;
+        if event_based_hold.released_by(record.event_based_hold) {
+            record.event_based_hold_release_time = Some(now);
+        }
         Self::inheriting(record).check_encoded_size()
     }
 
