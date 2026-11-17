@@ -261,6 +261,63 @@ async fn multipart_upload_content_types_must_agree_and_plain_bodies_are_media() 
     h.stop().await;
 }
 
+// Recorded 2026-11-17 (case obj-gaps-uploads): the initiation itself is refused, so no session
+// exists to upload into.
+#[tokio::test]
+async fn resumable_initiation_types_must_agree_when_both_are_declared() {
+    let h = Harness::start(1000, Permissive, None).await;
+    let refused = h
+        .initiate(
+            "name=conflict",
+            "Content-Type: application/json\r\nX-Upload-Content-Type: text/plain\r\n",
+            br#"{"contentType":"text/csv"}"#,
+        )
+        .await;
+    assert_eq!(refused.status, 400);
+    assert_eq!(refused.headers["content-type"], "text/html; charset=UTF-8");
+    assert!(!refused.headers.contains_key("location"));
+    assert!(
+        refused.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Content-Type specified in the upload (text/plain) does not match Content-Type specified in metadata (text/csv).")
+    );
+    let json = "Content-Type: application/json\r\n";
+    for (name, headers, body, stored) in [
+        (
+            "agreeing",
+            format!("{json}X-Upload-Content-Type: text/csv\r\n"),
+            r#"{"contentType":"text/csv"}"#,
+            "text/csv",
+        ),
+        (
+            "metadata-only",
+            json.to_owned(),
+            r#"{"contentType":"text/csv"}"#,
+            "text/csv",
+        ),
+        (
+            "header-only",
+            "X-Upload-Content-Type: text/plain\r\n".to_owned(),
+            "",
+            "text/plain",
+        ),
+        ("undeclared", String::new(), "", "application/octet-stream"),
+    ] {
+        let started = h
+            .initiate(&format!("name={name}"), &headers, body.as_bytes())
+            .await;
+        assert_eq!(started.status, 200, "{name}");
+        let path = h.path(&started);
+        let finished = h
+            .request("PUT", &path, "Content-Range: bytes 0-2/3\r\n", b"a,b")
+            .await;
+        assert_eq!(finished.status, 200, "{name}");
+        assert_eq!(finished.json()["contentType"], stored, "{name}");
+    }
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn media_conditionals_keep_the_representation_headers() {
     let h = Harness::start(1000, Permissive, None).await;

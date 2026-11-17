@@ -11,6 +11,9 @@ use crate::{
 };
 use hyper::{HeaderMap, Method, Uri};
 
+/// The stored type of an upload that declares none, in its headers or its metadata.
+const DEFAULT_CONTENT_TYPE: &str = "application/octet-stream";
+
 /// The resumable session a request continues.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UploadSession {
@@ -92,8 +95,8 @@ pub(crate) fn unsigned(value: &str) -> Result<u64, JsonError> {
 /// What a resumable initiation declares in its headers.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UploadHeaders {
-    /// `X-Upload-Content-Type`, or `application/octet-stream` when absent or empty.
-    pub(crate) mime: String,
+    /// `X-Upload-Content-Type`, unless absent or empty.
+    pub(crate) mime: Option<String>,
     /// The `X-Goog-Hash` digests, which this route keeps verifying.
     pub(crate) expected: ExpectedHashes,
     /// `X-Upload-Content-Length`, which binds the session's total unless it is 0.
@@ -116,22 +119,23 @@ pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, Js
     if total.is_some_and(|n| n > max) {
         return Err(ObjectError::TooLarge.into());
     }
-    let mime = single(headers, "x-upload-content-type")?
-        .filter(|value| !value.is_empty())
-        .unwrap_or("application/octet-stream");
+    let declared = single(headers, "x-upload-content-type")?.filter(|value| !value.is_empty());
     let mut clean = headers.clone();
     clean.remove("x-upload-content-type");
     clean.remove("x-upload-content-length");
     clean.remove("origin");
     clean.insert(
         "content-type",
-        mime.parse()
+        declared
+            .unwrap_or(DEFAULT_CONTENT_TYPE)
+            .parse()
             .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
     );
     let expected = super::objects::declared_hashes(&clean)?;
+    // Runs even without a declared type: it also validates the initiation's other headers.
     let mime = upload_content_type(&clean)?;
     Ok(UploadHeaders {
-        mime,
+        mime: declared.map(|_| mime),
         expected,
         total,
     })
@@ -141,7 +145,8 @@ pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, Js
 /// name and parameters, the upload headers and the caller's access.
 pub(crate) struct Initiation {
     pub(crate) name: Option<String>,
-    pub(crate) mime: String,
+    /// `X-Upload-Content-Type`, unless absent or empty.
+    pub(crate) mime: Option<String>,
     pub(crate) expected: ExpectedHashes,
     pub(crate) params: ObjectInsertParams,
     pub(crate) access: BucketAccess,
@@ -181,7 +186,17 @@ pub(crate) fn options(
         expected,
     } = multipart_metadata_of(super::resource_object(&value)?, name, expected)?;
     super::declare_content_encoding(&mut metadata, encoding)?;
-    let content_type = metadata.content_type.value().cloned().unwrap_or(mime);
+    // Cloud Storage refused an initiation whose metadata contentType disagrees with
+    // X-Upload-Content-Type, with the multipart message (case obj-gaps-uploads).
+    if let (Some(declared), Some(upload)) = (metadata.content_type.value(), &mime) {
+        super::check_declared_content_type(declared, upload)?;
+    }
+    let content_type = metadata
+        .content_type
+        .value()
+        .cloned()
+        .or(mime)
+        .unwrap_or_else(|| DEFAULT_CONTENT_TYPE.to_owned());
     // Persisted with the session so completion applies the ACL the initiation requested.
     metadata.predefined_acl = params.predefined_acl;
     Ok((

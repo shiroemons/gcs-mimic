@@ -511,7 +511,15 @@ async fn python_advisory_content_type_rejects_empty_malformed_and_duplicate_valu
 #[tokio::test]
 async fn python_upload_content_type_is_advisory_after_initiation() {
     let h = Harness::start(1000, Permissive, None).await;
-    let init = h.initiate("name=python", "Content-Type: application/json\r\nX-Upload-Content-Type: text/advisory\r\nX-Upload-Content-Length: 3\r\n", br#"{"contentType":"text/metadata"}"#).await;
+    // The initiation's two types must agree (recorded 2026-11-17); the chunk's own types are
+    // then ignored.
+    let init = h
+        .initiate(
+            "name=python",
+            "Content-Type: application/json\r\nX-Upload-Content-Type: text/metadata\r\nX-Upload-Content-Length: 3\r\n",
+            br#"{"contentType":"text/metadata"}"#,
+        )
+        .await;
     assert_eq!(init.status, 200);
     let reply = h
         .request(

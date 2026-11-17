@@ -746,7 +746,15 @@ async fn initiation_returns_opaque_fixed_location_and_status_without_publication
 #[tokio::test]
 async fn initiation_preserves_encoded_names_metadata_and_query_precedence() {
     let h = Harness::start(1000, Permissive, None).await;
-    let reply=h.initiate("name=%E6%97%A5%2F%25&contentEncoding=gzip&projection=full","Content-Type: application/json\r\nX-Upload-Content-Type: image/png\r\nX-Upload-Content-Length: 0\r\n",br#"{"name":"ignored","bucket":null,"contentType":"application/test","metadata":{"key":"value"}}"#).await;
+    // Without X-Upload-Content-Type the metadata names the type; a header that disagrees with
+    // it is refused (resumable_initiation_types_must_agree_when_both_are_declared).
+    let reply = h
+        .initiate(
+            "name=%E6%97%A5%2F%25&contentEncoding=gzip&projection=full",
+            "Content-Type: application/json\r\nX-Upload-Content-Length: 0\r\n",
+            br#"{"name":"ignored","bucket":null,"contentType":"application/test","metadata":{"key":"value"}}"#,
+        )
+        .await;
     assert_eq!(
         reply.status,
         200,
