@@ -169,6 +169,7 @@ where
         delete_permission,
         now,
     )?;
+    destination.metadata.reject_past_retention(now)?;
     if destination
         .expected
         .md5

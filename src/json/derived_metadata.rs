@@ -1,6 +1,6 @@
 use super::JsonError;
 use crate::bucket::StorageClass;
-use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord, Patch};
+use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 use serde_json::{Map, Value};
 
 /// Rewrite preserves composite identity in the same location/class and collapses its component
@@ -106,18 +106,11 @@ pub(crate) fn derived_metadata_of(
     {
         return Err(JsonError::required("You must specify an object name."));
     }
+    // Holds, a custom time and a retention apply as on an upload: Cloud Storage copied and
+    // rewrote an object held and with the requested custom time, and refused a retention in a
+    // bucket without object retention as publication does (recorded 2026-11-13, case
+    // obj-unsupported-derived).
     parsed.update.validate().map_err(JsonError::from)?;
-    if parsed.update.temporary_hold == Some(true) {
-        return Err(JsonError::unsupported_object(
-            "temporaryHold on copy/rewrite",
-        ));
-    }
-    if parsed.update.custom_time.value().is_some() {
-        return Err(JsonError::unsupported_object("customTime on copy/rewrite"));
-    }
-    if parsed.update.retention != Patch::Keep {
-        return Err(JsonError::unsupported_object("retention on copy/rewrite"));
-    }
     for key in ["name", "bucket"] {
         if let Some(value) = parsed.unchanged.remove(key)
             && !value.is_string()
@@ -168,6 +161,7 @@ pub(crate) fn derived_metadata_of(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::Patch;
 
     #[test]
     fn bucket_class_patch_keeps_error_contracts() {

@@ -218,3 +218,53 @@ sent **43** requests for an XML probe of empty `Cache-Control`,
 not merged: the harness passes headers to curl, which drops a header whose value
 is empty, so neither side received them and the question stays open. Neither
 run received an HTTP 429, and both deleted every bucket they created.
+
+## Fourth recording: derived-write options
+
+Recorded on **2026-11-17**. Aligning copy, rewrite and compose with the
+2026-11-13 [unsupported-option probes](unsupported-option-probes.md) left three
+questions those probes did not ask: a destination retention in a bucket with
+object retention, `destinationPredefinedAcl` under uniform access, and what an
+objects.patch `predefinedAcl` does to the ACL and under uniform access. New
+steps in three existing cases asked them, with the project and access token
+again supplied only through environment variables:
+
+```sh
+cargo xtask differential run --cases <directory-with-the-three-cases> \
+  --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --out compatibility/differential/reference/gcs.json
+```
+
+- Requests sent to Cloud Storage: **76** for the three cases, then **29** for
+  `bkt-gaps-settings` alone, with no HTTP 429. In the first run uniform access
+  left the project owners without object read or update permission, and Cloud
+  Storage answered the copy, rewrite, compose and PATCH with 403 before it
+  looked at the ACL. The case now first gives the project owners
+  `roles/storage.objectAdmin` on its bucket, and the second run's recording of
+  it replaced the first. One more run of that case sent its requests but wrote
+  no recording, and stopped before its report printed a count: the harness
+  learned the project number when it created the case bucket but did not hide
+  it in later messages, so its leak check refused the file. The harness now
+  hides such a number in every later step.
+- Resources: the harness's shared bucket, one bucket of its own and one bucket
+  created with `enableObjectRetention`, in us-central1 with soft delete off and
+  objects of a few bytes. Each retention was Unlocked and was removed with
+  `overrideUnlockedRetention` before its object was deleted; no retention was
+  locked.
+- Cleanup: every bucket was deleted and confirmed 404, each run's final listing
+  found nothing left, and a listing of the project afterwards showed only its
+  three buckets that predate the harness.
+
+The reference now holds **130** cases and **2112** requests.
+
+| Case | Question | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `obj-retention-unlocked` | An Unlocked retention on a copy, rewrite and compose destination in a bucket with object retention | 200, and each destination holds the retention | Matched since aligned (was 400 `badRequest`) |
+| `bkt-gaps-settings` | `destinationPredefinedAcl=private` on a copy, rewrite and compose under uniform access | 400 `invalid` `Cannot insert legacy ACL for an object when uniform bucket-level access is enabled.` and a documentation link, as for an upload | Matched since aligned (was 400 `invalidArgument` with guidance) |
+| `bkt-gaps-settings` | objects.patch with `predefinedAcl=private` under uniform access | 400 `invalid` `Cannot update access control for an object when uniform bucket-level access is enabled.` and a documentation link | Differs: 400 `badRequest`, `predefinedAcl` unsupported on a PATCH (declared) |
+| `obj-unsupported-inputs` | The ACL after objects.patch with `predefinedAcl=private` | The owner's OWNER grant alone | Differs: the PATCH is refused and the ACL keeps its project grants (declared) |
+
+The 2026-11-13 steps of `obj-unsupported-derived` for `temporaryHold`,
+`customTime`, `destinationPredefinedAcl` and a retention in a bucket without
+object retention now match as well, and their markers were removed.

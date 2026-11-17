@@ -55,6 +55,7 @@ pub(crate) use buckets::{
     validate_bucket_name,
 };
 pub(crate) use checksum::decode_hash;
+pub(crate) use compose::ComposeParams;
 pub(crate) use csek::{
     copy_keys, insert_response_headers, object_resource_keyed, request_key, source_key,
 };

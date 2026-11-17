@@ -836,9 +836,23 @@ impl UniformAccess {
 /// The resource a predefined ACL query parameter would apply to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PredefinedAclTarget {
+    /// An object method that applies no predefined ACL.
     Object,
     /// A media, multipart or resumable upload, which applies `predefinedAcl` outside UBLA.
     ObjectUpload,
+    /// A copy, rewrite or compose, which applies `destinationPredefinedAcl` outside UBLA.
+    DerivedObject,
+}
+
+impl PredefinedAclTarget {
+    /// The query parameter whose canned ACL this target applies.
+    fn applied_key(self) -> Option<&'static str> {
+        match self {
+            Self::Object => None,
+            Self::ObjectUpload => Some("predefinedAcl"),
+            Self::DerivedObject => Some("destinationPredefinedAcl"),
+        }
+    }
 }
 
 /// What a bucket write does with its predefined ACL query parameters.
@@ -928,37 +942,54 @@ pub(crate) fn bucket_predefined_acls(
     })
 }
 
+/// Refuses the predefined ACL query parameters an object write cannot apply for this caller and
+/// bucket, before any body is read; publication rechecks the bucket in its transaction.
 pub(crate) fn reject_predefined_acl(
     query: Option<&str>,
     uniform_access: UniformAccess,
     target: PredefinedAclTarget,
+    access: &crate::bucket::BucketAccess,
 ) -> Result<(), JsonError> {
     let query = super::parse_query(query.unwrap_or_default())?;
-    for key in [
+    // Documented for uploads: an anonymous caller cannot name a canned ACL. Its object belongs
+    // to the project owners team, so the caller would choose the ACL of an object it does not
+    // own. A copy, rewrite or compose publishes the same kind of object, as an XML copy with
+    // x-goog-acl does, so the rule covers them too.
+    if let Some(key) = target.applied_key()
+        && query.contains_key(key)
+        && matches!(
+            access,
+            crate::bucket::BucketAccess::Policy { identity: None, .. }
+        )
+    {
+        return Err(JsonError::invalid_argument(format!(
+            "Anonymous callers cannot specify {key}; authenticate or omit {key}"
+        )));
+    }
+    let present = [
         "predefinedAcl",
         "predefinedDefaultObjectAcl",
         "destinationPredefinedAcl",
-    ] {
-        let applied = target == PredefinedAclTarget::ObjectUpload
-            && key == "predefinedAcl"
-            && uniform_access == UniformAccess::Disabled;
-        if query.contains_key(key) && !applied {
-            return Err(match (uniform_access, target) {
-                // The refusal the publishing transaction gives (reason invalid, recorded
-                // 2026-11-17), checked here before any body is read.
-                (UniformAccess::Enabled, PredefinedAclTarget::ObjectUpload)
-                    if key == "predefinedAcl" =>
-                {
-                    crate::object::ObjectError::UniformAccessPredefinedAcl.into()
-                }
-                (UniformAccess::Enabled, _) => JsonError::invalid_argument(format!(
+    ]
+    .into_iter()
+    .filter(|key| query.contains_key(*key));
+    for key in present {
+        let applies = target.applied_key() == Some(key);
+        match uniform_access {
+            UniformAccess::Disabled if applies => {}
+            // The refusal the publishing transaction gives (reason invalid, recorded
+            // 2026-11-17), checked here before any body is read.
+            UniformAccess::Enabled if applies => {
+                return Err(crate::object::ObjectError::UniformAccessPredefinedAcl.into());
+            }
+            UniformAccess::Enabled => {
+                return Err(JsonError::invalid_argument(format!(
                     "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
-                )),
-                (
-                    UniformAccess::Disabled,
-                    PredefinedAclTarget::Object | PredefinedAclTarget::ObjectUpload,
-                ) => JsonError::unsupported_object(key).at_parameter(key),
-            });
+                )));
+            }
+            UniformAccess::Disabled => {
+                return Err(JsonError::unsupported_object(key).at_parameter(key));
+            }
         }
     }
     Ok(())

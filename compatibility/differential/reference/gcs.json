@@ -19546,6 +19546,7 @@
       ]
     },
     {
+      "bucket": "none",
       "error": null,
       "id": "obj-retention-unlocked",
       "steps": [
@@ -19705,6 +19706,89 @@
               "content-type": "application/json; charset=UTF-8",
               "etag": "<etag:bare>",
               "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "dddd021482c45148",
+          "name": "copy-with-retention",
+          "request": "POST /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1/copyTo/b/<new_bucket>/o/obj-retention-unlocked-1-copy?fields=name%2Cretention",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-retention-unlocked-1-copy",
+                "retention": {
+                  "mode": "Unlocked",
+                  "retainUntilTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f2bae849b7b3d06c",
+          "name": "rewrite-with-retention",
+          "request": "POST /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1/rewriteTo/b/<new_bucket>/o/obj-retention-unlocked-1-rw?fields=done%2Cresource%28name%2Cretention%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "resource": {
+                  "name": "obj-retention-unlocked-1-rw",
+                  "retention": {
+                    "mode": "Unlocked",
+                    "retainUntilTime": "<time:f3>"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e9f1e7100cd5c273",
+          "name": "compose-with-retention",
+          "request": "POST /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-cmp/compose?fields=name%2Cretention",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-retention-unlocked-1-cmp",
+                "retention": {
+                  "mode": "Unlocked",
+                  "retainUntilTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
               "vary": "Origin, X-Origin",
               "x-harness-body-framing": "content-length:<ok>"
             },
@@ -20143,6 +20227,180 @@
           "fingerprint": "ea2dafdf0664c066",
           "name": "delete-object",
           "request": "DELETE /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1?generation=<gen>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "cf777ef8d03ed461",
+          "name": "clear-copy-retention",
+          "request": "PATCH /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-copy?overrideUnlockedRetention=true",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<new_bucket>",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<new_bucket>/obj-retention-unlocked-1-copy/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-copy?generation=<generation:16>&alt=media",
+                "metageneration": "2",
+                "name": "obj-retention-unlocked-1-copy",
+                "selfLink": "<www-host>/storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-copy",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0c33c64da70d234b",
+          "name": "clear-rewrite-retention",
+          "request": "PATCH /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-rw?overrideUnlockedRetention=true",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<new_bucket>",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<new_bucket>/obj-retention-unlocked-1-rw/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-rw?generation=<generation:16>&alt=media",
+                "metageneration": "2",
+                "name": "obj-retention-unlocked-1-rw",
+                "selfLink": "<www-host>/storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-rw",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ec1b18d938f433bc",
+          "name": "clear-compose-retention",
+          "request": "PATCH /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-cmp?overrideUnlockedRetention=true",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<new_bucket>",
+                "componentCount": 1,
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<new_bucket>/obj-retention-unlocked-1-cmp/<generation:16>",
+                "kind": "storage#object",
+                "mediaLink": "<host>/download/storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-cmp?generation=<generation:16>&alt=media",
+                "metageneration": "2",
+                "name": "obj-retention-unlocked-1-cmp",
+                "selfLink": "<www-host>/storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-cmp",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0767913e99c05325",
+          "name": "delete-copy",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-copy",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "6f02fb9881b8e4e7",
+          "name": "delete-rewrite",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-rw",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "df6d8e4459e77d2e",
+          "name": "delete-compose",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/obj-retention-unlocked-1-cmp",
           "response": {
             "body": {
               "kind": "empty"
@@ -42250,6 +42508,36 @@
           }
         },
         {
+          "fingerprint": "0908a43c4a72e321",
+          "name": "get-acl-after-predefined-acl",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src?fields=acl%28entity%2Crole%29%2Cowner&projection=full",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "owner": {
+                  "entity": "user-<email>"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
           "fingerprint": "5fc70644a79e2365",
           "name": "cleanup-source",
           "request": "DELETE /storage/v1/b/<bucket>/o/obj-unsupported-inputs-1-src",
@@ -51117,6 +51405,53 @@
       "id": "bkt-gaps-settings",
       "steps": [
         {
+          "fingerprint": "dcc9195e6ffdd312",
+          "name": "grant-object-admin",
+          "request": "PUT /storage/v1/b/<bucket>/iam",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bindings": [
+                  {
+                    "members": [
+                      "projectEditor:<project>",
+                      "projectOwner:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketOwner"
+                  },
+                  {
+                    "members": [
+                      "projectViewer:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketReader"
+                  },
+                  {
+                    "members": [
+                      "projectOwner:<project>"
+                    ],
+                    "role": "roles/storage.objectAdmin"
+                  }
+                ],
+                "etag": "<etag:str>",
+                "kind": "storage#policy",
+                "resourceId": "projects/_/buckets/<bucket>",
+                "version": 1
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
           "fingerprint": "7a8bb7c5208d54c0",
           "name": "enable-ubla",
           "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration",
@@ -51167,6 +51502,157 @@
                     }
                   ],
                   "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "ded28f5e5408a9a7",
+          "name": "upload-source-under-ubla",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name&name=bkt-gaps-settings-1-src&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-gaps-settings-1-src"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "9a6cfd7020432283",
+          "name": "copy-predefined-acl-under-ubla",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-src/copyTo/b/<bucket>/o/bkt-gaps-settings-1-copy?destinationPredefinedAcl=private&fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "cc16628ca3e51f1b",
+          "name": "rewrite-predefined-acl-under-ubla",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-src/rewriteTo/b/<bucket>/o/bkt-gaps-settings-1-rw?destinationPredefinedAcl=private&fields=done%2Cresource%28name%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "3511abed1d8a800b",
+          "name": "compose-predefined-acl-under-ubla",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-cmp/compose?destinationPredefinedAcl=private&fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "e7ae1b57fa1df01c",
+          "name": "patch-predefined-acl-under-ubla",
+          "request": "PATCH /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-src?fields=name&predefinedAcl=private",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
                 }
               }
             },
@@ -51409,6 +51895,121 @@
                     }
                   ],
                   "message": "No such object: <bucket>/bkt-gaps-settings-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "5fc70644a79e2365",
+          "name": "cleanup-source",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-src",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "6209ce6f9fd1c5f2",
+          "name": "cleanup-copy",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-copy",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-settings-1-copy",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-settings-1-copy"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "7373a630193c2ca8",
+          "name": "cleanup-rewrite",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-rw",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-settings-1-rw",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-settings-1-rw"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "10c5e6206cc346df",
+          "name": "cleanup-compose",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-settings-1-cmp",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-settings-1-cmp",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-settings-1-cmp"
                 }
               }
             },
@@ -54028,7 +54629,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2007,
+  "requests": 2112,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

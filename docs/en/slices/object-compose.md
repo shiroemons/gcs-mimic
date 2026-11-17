@@ -61,8 +61,10 @@ ordinary objects as one. The same object listed twice contributes twice.
 | ifMetagenerationMatch | Destination live metadata match; authoritative check in the same transaction; cannot silently ignore a stale revision |
 | fields | Existing Object selector validates before mutation; filters successful Object only; errors remain complete; the pinned schema already permits componentCount |
 | Undeclared queries | Pinned Discovery revision 20261013 declares no method or global projection parameter for compose; projection=full/noAcl returns 400 invalidParameter; other undeclared query parameters, including ifGenerationNotMatch and ifMetagenerationNotMatch, are ignored as Cloud Storage did on 2026-11-13 (cases `obj-undeclared-query-writes` and `obj-mutation-not-match`); compose omits ACL/owner without a projection setting |
-| Unsupported queries | destinationPredefinedAcl, kmsKeyName, dropContextGroups, unsupported condition variants and recognized unsupported common query semantics return an explicit 400 badRequest, and userProject is ignored; malformed or duplicated supported parameters return 400 according to shared query rules |
-| Unsupported destination features | ACL/owner, contexts, customTime, customerEncryption/KMS, temporaryHold, retention and soft-delete fields return 501; they never silently alter or grant permissions |
+| destinationPredefinedAcl | Replaces the bucket's default object ACL on the composed object as `predefinedAcl` does on an upload; an unknown value returns 400 invalidParameter, an anonymous caller 400 invalidArgument as on an upload, uniform access Cloud Storage's 400 invalid refusal and public access prevention 412 for a public value. Cloud Storage applied it (case `obj-unsupported-derived`, recorded 2026-11-13) and refused it under uniform access (case `bkt-gaps-settings`, recorded 2026-11-17) |
+| Unsupported queries | kmsKeyName, dropContextGroups, unsupported condition variants and recognized unsupported common query semantics return an explicit 400 badRequest, and userProject is ignored; malformed or duplicated supported parameters return 400 according to shared query rules |
+| Destination holds, customTime and retention | temporaryHold, customTime and retention apply as on an upload: a retention needs a bucket with object retention, a future time and storage.objects.setRetention. Cloud Storage stored all three (cases `obj-unsupported-derived`, recorded 2026-11-13, and `obj-retention-unlocked`, recorded 2026-11-17) |
+| Unsupported destination features | ACL/owner, contexts, customerEncryption/KMS and soft-delete fields are rejected; they never silently alter or grant permissions |
 | Destination storageClass, name, generation and size | A storageClass that differs from the components' class returns Cloud Storage's 400 `Cannot compose object with destination storage class <class> from source components that have different storage classes (<class>).`, and one equal to it is accepted (an inference); the path names the destination even when the destination resource names another object; output-only generation and size are ignored. Recorded on 2026-11-13 (case `obj-compose-inputs`, [provider probes](../evidence/provider-differential-gap-probes.md)) |
 | Headers | Existing authentication, transport, telemetry and bounded invocation-token rules; customer encryption, billing, copy-source encryption, method override, write ETag/date conditions and unsupported X-Goog-* semantics fail closed; request Content-Type describes JSON and never becomes destination contentType |
 
@@ -109,8 +111,9 @@ combined; revocation during transfer prevents publication. Anonymous public GET
 permission alone does not authorize compose. No listing permission is required
 for explicit source names. As a local safety rule, deleteSourceObjects=true also
 requires storage.objects.delete even when the destination does not exist.
-Retention/context permission checks are outside the
-supported subset because those inputs return 501.
+A destination retention also requires storage.objects.setRetention, as on an
+upload; context permission checks are outside the supported subset because
+those inputs are rejected.
 
 Success returns local 200 with an Object resource and no owner/acl fields, a fresh
 generation, metageneration 1, injected-clock timestamps, exact concatenated size,
@@ -184,9 +187,9 @@ questions, separately from that documented behavior scope:
 
 - Strict mode additionally requires storage.objects.delete for source deletion.
 - Any selected source under an event hold rejects the entire request with the
-  existing objectUnderActiveHold error before any catalog mutation. Temporary
-  holds and retention cannot be created in the current model and remain rejected
-  as input rather than simulated as deletable states.
+  existing objectUnderActiveHold error before any catalog mutation. When
+  deleteSourceObjects would remove a source, a temporary hold refuses it the
+  same way and an active retention with the retention error.
 - Duplicate source entries contribute bytes/count in order but delete once.
 - Sources with the destination name are excluded from hard deletion. Publish the
   new composite using normal destination overwrite rules: with versioning, its

@@ -30,6 +30,10 @@ UBLAが有効な場合のreasonは `invalidArgument` です。
 ACLを適用したふりはしません。
 その後、UBLAが無効なバケットへのアップロード（media・multipart・resumable）の
 `predefinedAcl` は適用するようになりました。
+2026-11-17からは、copy・rewrite・composeの `destinationPredefinedAcl` も
+アップロードと同じく適用します（ケース `obj-unsupported-derived`）。
+UBLAが有効な場合のオブジェクト書き込みは、Cloud Storageと同じ400 `invalid` で
+拒否します（ケース `bkt-gaps-settings`）。
 範囲と証跡は [英語の証跡](../en/evidence/upload-predefined-acl.md) にあります。
 copy・rewrite・compose・オブジェクトのPATCH/PUTは引き続き400で拒否します。
 

@@ -104,11 +104,7 @@ pub(super) async fn respond(
         }
         ObjectRequest::Move(params) => move_object(request, ctx, &access, params).await?,
         ObjectRequest::Copy(params) => derived::copy(request, ctx, access, params).await?,
-        ObjectRequest::Compose {
-            bucket,
-            name,
-            conditions,
-        } => derived::compose(request, ctx, access, bucket, name, conditions).await?,
+        ObjectRequest::Compose(params) => derived::compose(request, ctx, access, params).await?,
         ObjectRequest::Resumable(UploadRequest {
             bucket,
             name,
@@ -158,9 +154,10 @@ pub(super) async fn respond(
     Ok(boxed(response))
 }
 
-/// Uploads apply `predefinedAcl` outside uniform access; every other operation, and any
-/// predefined ACL under uniform access, keeps its explicit 400. Publication rechecks uniform
-/// access and public access prevention atomically.
+/// Uploads apply `predefinedAcl` and copy and compose `destinationPredefinedAcl` outside
+/// uniform access and for an authenticated caller; every other parameter, and any predefined ACL
+/// under uniform access or from an anonymous caller, keeps its explicit 400. Publication
+/// rechecks uniform access and public access prevention atomically.
 async fn check_predefined_acl(
     uri: &Uri,
     ctx: ObjectCtx<'_>,
@@ -168,16 +165,6 @@ async fn check_predefined_acl(
     operation: &ObjectRequest,
     access: &BucketAccess,
 ) -> Result<(), JsonError> {
-    let target = operation.predefined_acl_target();
-    // Documented: anonymous uploads cannot specify a predefined ACL. Their owner is the
-    // project owners team, so an anonymous caller could otherwise choose its object's ACL.
-    if target == json::PredefinedAclTarget::ObjectUpload
-        && matches!(access, BucketAccess::Policy { identity: None, .. })
-    {
-        return Err(JsonError::invalid_argument(
-            "Anonymous callers cannot specify predefinedAcl on upload; authenticate or omit predefinedAcl",
-        ));
-    }
     let record = ctx
         .state
         .catalog
@@ -187,7 +174,8 @@ async fn check_predefined_acl(
     json::reject_predefined_acl(
         uri.query(),
         json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
-        target,
+        operation.predefined_acl_target(),
+        access,
     )
 }
 
@@ -410,7 +398,7 @@ async fn update(
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
     let target = update.select_target(target)?;
     retention_access::authorize_update(
-        ctx.state,
+        &ctx.state.catalog,
         access,
         &target.bucket,
         &mut update.update,

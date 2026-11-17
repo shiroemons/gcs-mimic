@@ -36,8 +36,11 @@ API. The row stays PARTIAL for the pending cases listed below.
   400 invalidArgument; removing an absent configuration is a no-op. Setting
   retention on an object under an event-based hold, or together with
   `eventBasedHold:true`, fails. `retainUntilTime` may be at most 3,155,760,000
-  seconds after the current time. Copy, rewrite and compose reject `retention`
-  in their destination metadata with 400 badRequest and never inherit it.
+  seconds after the current time. Copy, rewrite and compose never inherit a
+  source's retention; since 2026-11-17 they apply a `retention` their
+  destination resource names under these upload rules, with the
+  setRetention permission, as Cloud Storage did (cases `obj-unsupported-derived`
+  and `obj-retention-unlocked`).
 - OBJRET-INTERACTIONS: holds and object retention protect independently; a hold
   is reported first. With a bucket retention policy both must be satisfied, and
   `retentionExpirationTime` reports the later deadline. Retained objects keep a

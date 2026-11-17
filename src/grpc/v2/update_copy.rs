@@ -775,7 +775,7 @@ impl Storage {
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
         let c = strict_conditions(ObjectConditions::from(&r))?;
         crate::server::authorize_retention_update(
-            &self.state,
+            &self.state.catalog,
             &access,
             bucket,
             &mut update,

@@ -355,7 +355,6 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         compose(&server, "destination", body).expect(400);
     }
     for query in [
-        "destinationPredefinedAcl=publicRead",
         "kmsKeyName=key",
         "callback=billed",
         "dropContextGroups=custom",
@@ -369,13 +368,18 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
             )
             .json_reason(400, "badRequest");
     }
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/destination/compose?destinationPredefinedAcl=publicReadWrite",
+            AUTH,
+            sources(&["a"]).to_string().as_bytes(),
+        )
+        .json_reason(400, "invalidParameter");
     for destination_body in [
         json!({"acl":[]}),
         json!({"kmsKeyName":"key"}),
-        json!({"retention":{}}),
         json!({"contexts":{}}),
-        json!({"temporaryHold":true}),
-        json!({"customTime":"2026-10-20T01:02:03Z"}),
         json!({"storageClass":"REGIONAL"}),
     ] {
         compose(

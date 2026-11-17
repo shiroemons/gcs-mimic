@@ -1,13 +1,13 @@
 use super::{
     JsonError, ObjectRequest, Projection,
     integer::take_long,
-    objects::{ConditionKeys, take_conditions},
+    objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query::{
         BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
         parse_query, projection, standard_parameters,
     },
 };
-use crate::{config::CompatProfile, object::ObjectConditions};
+use crate::{acl::PredefinedObjectAcl, config::CompatProfile, object::ObjectConditions};
 use hyper::{Method, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +20,8 @@ pub(crate) struct ObjectCopyParams {
     pub source_conditions: ObjectConditions,
     pub conditions: ObjectConditions,
     pub projection: Projection,
+    /// Replaces the destination bucket's default object ACL on the copy.
+    pub predefined_acl: Option<PredefinedObjectAcl>,
 }
 
 pub(super) fn route(
@@ -50,7 +52,7 @@ fn parse(
     let (bucket, name) = names(destination, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Object)?;
-    query.remove("destinationPredefinedAcl");
+    let predefined_acl = take_predefined_acl(&mut query, "destinationPredefinedAcl")?;
     standard_parameters(
         &mut query,
         &["destinationKmsKeyName", "dropContextGroups"],
@@ -84,6 +86,7 @@ fn parse(
         source_conditions,
         conditions,
         projection,
+        predefined_acl,
     }))
 }
 

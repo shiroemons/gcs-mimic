@@ -9,6 +9,7 @@
     {"name": "patch-wrong-kind", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"fields": "name,kind"}, "body": {"kind": "storage#bucket"}},
     {"name": "patch-empty-metadata-key", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"fields": "name,metadata"}, "body": {"metadata": {"": "v"}}, "local_choice": {"reason": "Not implemented yet; gcs-mimic rejects the option (SPEC-SDK-UNSUPPORTED).", "mimic_status": 400}},
     {"name": "patch-predefined-acl", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"predefinedAcl": "private", "fields": "name,metageneration"}, "body": {}, "local_choice": {"reason": "Not implemented yet; gcs-mimic rejects the option (SPEC-SDK-UNSUPPORTED).", "mimic_status": 400}},
+    {"name": "get-acl-after-predefined-acl", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-src", "query": {"projection": "full", "fields": "acl(entity,role),owner"}, "local_choice": {"reason": "gcs-mimic refused the PATCH before it, so the ACL keeps its project grants (SPEC-SDK-UNSUPPORTED).", "mimic_status": 200}},
     {"name": "cleanup-source", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-src", "compare": false, "always": true},
     {"name": "cleanup-kind", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-kind", "compare": false, "always": true},
     {"name": "cleanup-emptykey", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}-emptykey", "compare": false, "always": true},

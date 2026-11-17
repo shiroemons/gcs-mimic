@@ -100,10 +100,7 @@ pub(super) async fn respond(
     let destination_access = ctx
         .authorize(auth::OBJECTS_CREATE, &operation.names.destination.bucket)
         .await?;
-    if operation
-        .parameters
-        .contains_key("destinationPredefinedAcl")
-    {
+    if operation.predefined_acl.is_some() {
         let record = state
             .catalog
             .get_bucket(
@@ -115,7 +112,8 @@ pub(super) async fn respond(
         json::reject_predefined_acl(
             request.uri().query(),
             json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
-            json::PredefinedAclTarget::Object,
+            json::PredefinedAclTarget::DerivedObject,
+            &destination_access,
         )?;
     }
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
@@ -226,8 +224,16 @@ async fn execute(
     } else {
         let source = resolve_source(&catalog, &operation, &source_access, keys).await?;
         let mut destination = destination(&source.object, &operation, body.as_ref())?;
+        super::retention_access::authorize_upload(
+            &catalog,
+            &destination_access,
+            &names.destination.bucket,
+            &destination.metadata,
+        )
+        .await?;
         destination.metadata.customer_key_sha256 =
             keys.destination.map(crate::csek::CustomerKey::sha256);
+        destination.metadata.predefined_acl = operation.predefined_acl;
         catalog
             .check_upload(
                 &names.destination.bucket,

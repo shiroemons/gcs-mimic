@@ -13491,11 +13491,15 @@
         },
         {
           "id": "COMPOSE-UNSUPPORTED-INPUTS",
-          "description": "Recognized ACL/KMS/billing/contexts/retention/temporary holds return the documented local 501 with no mutation; a destination storageClass that differs from the components' class returns Cloud Storage's 400 (case obj-compose-inputs, recorded 2026-11-13); other provider questions are outside the declared scope in SPEC-COMPOSE-EDGES.",
+          "description": "A destination acl, KMS key or contexts and an unknown member are rejected with no mutation; a destination temporaryHold, customTime and retention and destinationPredefinedAcl apply as on an upload, as Cloud Storage applied them (cases obj-unsupported-derived, recorded 2026-11-13, obj-retention-unlocked and bkt-gaps-settings, recorded 2026-11-17); a destination storageClass that differs from the components' class returns Cloud Storage's 400 (case obj-compose-inputs, recorded 2026-11-13); other provider questions are outside the declared scope in SPEC-COMPOSE-EDGES.",
           "result": "PASS",
           "test_ids": [
             "compose_rejects_invalid_or_unsupported_input_without_mutation",
-            "compose_body_rejects_recognized_unsupported_and_unknown_semantics"
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+            "derived_writes_store_a_temporary_hold_and_custom_time",
+            "derived_writes_apply_destination_predefined_acl",
+            "object_retention_requires_enabled_bucket_and_no_event_hold",
+            "obj-unsupported-derived"
           ]
         },
         {
@@ -13530,6 +13534,10 @@
         "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
         "compose_body_checks_final_custom_metadata_size_before_transfer",
         "compose_rejects_invalid_or_unsupported_input_without_mutation",
+        "derived_writes_store_a_temporary_hold_and_custom_time",
+        "derived_writes_apply_destination_predefined_acl",
+        "object_retention_requires_enabled_bucket_and_no_event_hold",
+        "obj-unsupported-derived",
         "compose_method_body_and_selector_boundaries",
         "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
         "compose_rechecks_read_and_create_grants_after_streaming",
@@ -13561,6 +13569,18 @@
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "obj-unsupported-derived",
+            "derived_writes_store_a_temporary_hold_and_custom_time",
+            "derived_writes_apply_destination_predefined_acl",
+            "object_retention_requires_enabled_bucket_and_no_event_hold"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -13767,7 +13787,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The frozen local copy subset covers generation-pinned bounded bytes, metadata, strict get/create/delete checks, atomic conditions, holds/versioning, checksums, fields, composites and persistence. Contract: docs/en/slices/object-copy.md; historical evidence: docs/en/evidence/object-copy.md and docs/en/evidence/derived-objects.md. Non-token copy rechecks source read grants at publication while retaining selection-time generation/condition semantics; revocation returns 403 without destination or transfer residue. Schema 35 replay binds method/raw URI/base/raw body digest, both CSEK digests, profile/principal and both bucket incarnations. Publication atomically retains the resource/originally visible ACL snapshot across overwrite/deletion/restart, with current source-read/create checks; ACL-read loss omits ACL/owner, required-grant loss stays 403. Conflicts return 400 and mid-flight incarnation changes 412. The shared 4096-entry, ten-minute, 64 KiB cache drops its oldest record when full, so a retry past that window copies again as a new operation. Token admission conditions precede source lookup as an unverified local order. Contract: docs/en/slices/sdk-upload-replay.md. Final source passes 1262 Rust tests and all five SDKs (Go 57/57, other four 51/51): docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Transfers have no count limit by default; a configured max_rewrite_sessions limits only continuable rewrites, and seven-day rewrite expiry remains. Whole method stays PARTIAL for provider/full-projection parity.",
+      "notes": "The frozen local copy subset covers generation-pinned bounded bytes, metadata, strict get/create/delete checks, atomic conditions, holds/versioning, checksums, fields, composites and persistence. Contract: docs/en/slices/object-copy.md; historical evidence: docs/en/evidence/object-copy.md and docs/en/evidence/derived-objects.md. Non-token copy rechecks source read grants at publication while retaining selection-time generation/condition semantics; revocation returns 403 without destination or transfer residue. Schema 35 replay binds method/raw URI/base/raw body digest, both CSEK digests, profile/principal and both bucket incarnations. Publication atomically retains the resource/originally visible ACL snapshot across overwrite/deletion/restart, with current source-read/create checks; ACL-read loss omits ACL/owner, required-grant loss stays 403. Conflicts return 400 and mid-flight incarnation changes 412. The shared 4096-entry, ten-minute, 64 KiB cache drops its oldest record when full, so a retry past that window copies again as a new operation. Token admission conditions precede source lookup as an unverified local order. Contract: docs/en/slices/sdk-upload-replay.md. Final source passes 1262 Rust tests and all five SDKs (Go 57/57, other four 51/51): docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Transfers have no count limit by default; a configured max_rewrite_sessions limits only continuable rewrites, and seven-day rewrite expiry remains. A resource's temporaryHold, customTime and retention and the destinationPredefinedAcl query apply as on an upload, as Cloud Storage applied them (case obj-unsupported-derived). Whole method stays PARTIAL for provider/full-projection parity.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -13956,6 +13976,10 @@
         "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
         "copy_validates_checksums_and_holds_without_inheriting_source_hold",
         "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation",
+        "derived_writes_store_a_temporary_hold_and_custom_time",
+        "derived_writes_apply_destination_predefined_acl",
+        "object_retention_requires_enabled_bucket_and_no_event_hold",
+        "obj-unsupported-derived",
         "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
         "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
         "concurrent_copy_create_if_absent_publishes_exactly_one_generation",
@@ -18966,6 +18990,11 @@
         "rewrite_create_if_absent_race_has_one_atomic_winner",
         "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
         "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+        "rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time",
+        "derived_writes_store_a_temporary_hold_and_custom_time",
+        "derived_writes_apply_destination_predefined_acl",
+        "object_retention_requires_enabled_bucket_and_no_event_hold",
+        "obj-unsupported-derived",
         "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
         "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
         "rewrite_completion_replay_rejects_recreated_buckets",
@@ -19076,7 +19105,7 @@
         }
       ],
       "known_deviations": [
-        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS, contexts/retention and advanced metadata are explicitly rejected, not silently accepted; customer-supplied source and destination keys, including key rotation, have been supported since docs/en/slices/customer-supplied-keys.md (CSEK-COPY). The userProject billing query is ignored. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
+        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS, contexts and advanced metadata are explicitly rejected, not silently accepted; a destination temporaryHold, customTime and retention and destinationPredefinedAcl apply as on an upload, as Cloud Storage applied them (case obj-unsupported-derived); customer-supplied source and destination keys, including key rotation, have been supported since docs/en/slices/customer-supplied-keys.md (CSEK-COPY). The userProject billing query is ignored. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
       ],
       "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-11-13",
@@ -48108,17 +48137,17 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Acceptance contract: docs/en/slices/sdk-ubla-predefined-acl.md. Reject predefined ACL queries on bucket insert/PATCH/PUT and object insert/copy/rewrite/compose under enabled UBLA with 400 and corrective guidance; disabled UBLA retains shared unsupported responses. ACL CRUD and stored-entry preservation now belong to docs/en/slices/json-acl.md. Real canned ACL permission effects and broader ACL/UBLA/PAP interactions remain pending.",
+      "notes": "Acceptance contract: docs/en/slices/sdk-ubla-predefined-acl.md. Under enabled UBLA, predefined ACL queries on bucket insert/PATCH/PUT are rejected with 400 and corrective guidance, and object insert/copy/rewrite/compose ones with Cloud Storage's 400 invalid refusal (recorded 2026-11-17, case bkt-gaps-settings); without it an object upload applies predefinedAcl and a copy, rewrite or compose destinationPredefinedAcl. ACL CRUD and stored-entry preservation now belong to docs/en/slices/json-acl.md. Real canned ACL permission effects and broader ACL/UBLA/PAP interactions remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
-        {"id": "UBLA-PREDEFINED-ACL", "description": "Bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl and object insert/copy/rewrite/compose predefinedAcl/destinationPredefinedAcl return 400 with removal guidance under enabled UBLA, shared unsupported otherwise, without mutation.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
+        {"id": "UBLA-PREDEFINED-ACL", "description": "Under enabled UBLA, bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl return 400 with removal guidance, and object insert predefinedAcl and copy/rewrite/compose destinationPredefinedAcl return Cloud Storage's 400 invalid refusal (recorded 2026-11-17, case bkt-gaps-settings), without mutation. Without UBLA, object writes apply them.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"id":"ACL-USER-COMPARISON-BOUNDARY","description":"The shared ACL user matcher folds ASCII domain case only; local-part/non-email case and byte-exact ACL duplicate detection remain unchanged under SPEC-PRINCIPAL-EMAIL-CASE.","result":"PASS","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]},
         {"id": "PREDEFINED-ACL-EFFECTS", "description": "Actual ACL permission effects and remaining ACL/UBLA/PAP interactions are pending for the next ACL slice.", "result": "PENDING", "test_ids": []},
         {"id": "XML-CANNED-ACL-INTERACTIONS", "description": "XML x-goog-acl is rechecked against uniform access at publication, needs an identified caller, answers 412 under public access prevention, and a failed ACL write publishes nothing, on every XML write path.", "result": "PASS", "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes"]}
       ],
-      "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes", "xml::uniform_access_metadata_and_predefined_acl_rejections", "auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"],
+      "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes", "xml::uniform_access_metadata_and_predefined_acl_rejections", "derived_writes_apply_destination_predefined_acl", "bkt-gaps-settings", "auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"],
       "verification": [{"command": "cargo +1.99.1 test --locked --offline --test it_xml_auth xml_canned", "result": "PASS", "verified_at": "2026-11-09", "artifact": "docs/en/evidence/client-compat-0.16.0.md", "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes"]}, {"command": "cargo test --test auth_http --locked --offline uniform_access", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-ubla-predefined-acl.md", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]}, {"command":"CARGO_BUILD_JOBS=4 cargo test --lib auth::","result":"PASS","verified_at":"2026-11-04","artifact":"docs/en/evidence/authentication-foundation.md","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]}],
       "sdk_evidence": [],
       "known_deviations": ["Real canned ACL grants remain pending; ACL CRUD and stored-entry preservation are separately scoped in json-acl. SPEC-UBLA-EDGES records local error reason/message/precedence; remaining ACL/UBLA/PAP interactions and initialization-file uniform access are excluded from this slice.", "SPEC-PRINCIPAL-EMAIL-CASE: ACL-entry duplicates retain byte-exact detection while user grants ignore only domain case; local-part matching and provider duplicate behavior remain unverified."],

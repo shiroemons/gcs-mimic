@@ -2,7 +2,7 @@ use crate::{
     bucket::StorageClass,
     decimal::Grammar,
     json::{JsonError, WriteMode, object_metadata_from_map, validate_object_name},
-    object::{ComposeSource, ObjectMetadataUpdate, Patch},
+    object::{ComposeSource, ObjectMetadataUpdate},
 };
 use serde_json::{Map, Value};
 
@@ -40,7 +40,8 @@ fn parse(
     validate_object_name(&name)?;
     let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Object)?;
-    query.remove("destinationPredefinedAcl");
+    let predefined_acl =
+        super::objects::take_predefined_acl(&mut query, "destinationPredefinedAcl")?;
     // objects.compose declares no `ifGenerationNotMatch` or `ifMetagenerationNotMatch`, so
     // they fall to the undeclared-parameter rule below: Cloud Storage composed over the
     // current generation with `ifGenerationNotMatch` naming it (case obj-mutation-not-match).
@@ -78,11 +79,22 @@ fn parse(
     }
     // Cloud Storage ignored a query parameter it does not define, such as the gRPC-only
     // `deleteSourceObjects`: the sources survived a recorded compose that carried it.
-    Ok(crate::json::ObjectRequest::Compose {
+    Ok(crate::json::ObjectRequest::Compose(ComposeParams {
         bucket,
         name,
         conditions,
-    })
+        predefined_acl,
+    }))
+}
+
+/// The destination and options an objects.compose path and query name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ComposeParams {
+    pub bucket: String,
+    pub name: String,
+    pub conditions: crate::object::ObjectConditions,
+    /// Replaces the bucket's default object ACL on the composed object.
+    pub predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,16 +238,10 @@ fn destination_metadata(
         })
         .transpose()?;
     let metadata = object_metadata_from_map(&destination, WriteMode::Replace)?;
+    // Holds, a custom time and a retention apply as on an upload: Cloud Storage composed an
+    // object held and with the requested custom time (recorded 2026-11-13, case
+    // obj-unsupported-derived), and publication checks a retention against the bucket.
     metadata.update.validate().map_err(JsonError::from)?;
-    if metadata.update.temporary_hold == Some(true) {
-        return Err(JsonError::unsupported_object("temporaryHold on compose"));
-    }
-    if metadata.update.custom_time.value().is_some() {
-        return Err(JsonError::unsupported_object("customTime on compose"));
-    }
-    if metadata.update.retention != Patch::Keep {
-        return Err(JsonError::unsupported_object("retention on compose"));
-    }
     if let Some(key) = metadata.unchanged.keys().next() {
         return Err(JsonError::unsupported_object(key));
     }

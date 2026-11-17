@@ -71,8 +71,11 @@ already used.
 ## Not supported
 
 These keep their explicit 400 responses: object PATCH/PUT `predefinedAcl`,
-`destinationPredefinedAcl` on copy, rewrite and compose, bucket `predefinedAcl`
-and `predefinedDefaultObjectAcl`, and gRPC `predefined_acl` fields.
+bucket `predefinedAcl` and `predefinedDefaultObjectAcl`, and gRPC
+`predefined_acl` fields. Since 2026-11-17 `destinationPredefinedAcl` on copy,
+rewrite and compose applies the same canned entries at publication, as Cloud
+Storage did (case `obj-unsupported-derived`), and under uniform access draws
+the same 400 `invalid` refusal as an upload (case `bkt-gaps-settings`).
 
 ## XML API `x-goog-acl`
 

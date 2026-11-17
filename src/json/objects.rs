@@ -62,11 +62,7 @@ pub(crate) enum ObjectRequest {
     },
     Move(super::ObjectMoveParams),
     Copy(super::ObjectCopyParams),
-    Compose {
-        bucket: String,
-        name: String,
-        conditions: ObjectConditions,
-    },
+    Compose(super::ComposeParams),
     List(super::ObjectListParams),
     Update(ObjectUpdateParams),
     Insert(UploadRequest<String>),
@@ -94,7 +90,7 @@ impl ObjectRequest {
             Self::Multipart(request) | Self::Resumable(request) => request.params.projection,
             Self::Get { params, .. } => params.projection,
             // Restore validates projection but deliberately omits ACLs, as observed on the wire.
-            Self::Restore { .. } | Self::Compose { .. } | Self::Delete { .. } => Projection::NoAcl,
+            Self::Restore { .. } | Self::Compose(_) | Self::Delete { .. } => Projection::NoAcl,
         }
     }
 
@@ -106,7 +102,7 @@ impl ObjectRequest {
             Self::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
             Self::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
             Self::Update(params) => (auth::OBJECTS_UPDATE, &params.target.bucket),
-            Self::Compose { bucket, .. }
+            Self::Compose(super::ComposeParams { bucket, .. })
             | Self::Insert(UploadRequest { bucket, .. })
             | Self::Multipart(UploadRequest { bucket, .. })
             | Self::Resumable(UploadRequest { bucket, .. }) => (auth::OBJECTS_CREATE, bucket),
@@ -123,7 +119,7 @@ impl ObjectRequest {
             Self::Restore { .. }
             | Self::Move(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::Update(_)
             | Self::Insert(_)
             | Self::Multipart(_)
@@ -142,7 +138,7 @@ impl ObjectRequest {
             Self::Restore { .. }
             | Self::Move(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::Update(_)
             | Self::Resumable(_)
             | Self::Get { .. }
@@ -156,7 +152,7 @@ impl ObjectRequest {
             Self::Move(_) => false,
             Self::Restore { .. }
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::List(_)
             | Self::Update(_)
             | Self::Insert(_)
@@ -167,17 +163,17 @@ impl ObjectRequest {
         }
     }
 
-    /// What a `predefinedAcl` query parameter would apply to: an upload applies it outside
-    /// uniform bucket-level access.
+    /// What a predefined ACL query parameter would apply to: an upload applies
+    /// `predefinedAcl` and a copy or compose `destinationPredefinedAcl`, outside uniform
+    /// bucket-level access.
     pub(crate) fn predefined_acl_target(&self) -> PredefinedAclTarget {
         match self {
             Self::Insert(_) | Self::Multipart(_) | Self::Resumable(_) => {
                 PredefinedAclTarget::ObjectUpload
             }
+            Self::Copy(_) | Self::Compose(_) => PredefinedAclTarget::DerivedObject,
             Self::Restore { .. }
             | Self::Move(_)
-            | Self::Copy(_)
-            | Self::Compose { .. }
             | Self::List(_)
             | Self::Update(_)
             | Self::Get { .. }
@@ -200,7 +196,7 @@ impl ObjectRequest {
             Self::Restore { .. }
             | Self::Move(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::Insert(_)
             | Self::Multipart(_)
             | Self::Resumable(_)
@@ -215,7 +211,7 @@ impl ObjectRequest {
             Self::Restore { .. }
             | Self::Move(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::Update(_)
             | Self::Insert(_)
             | Self::Multipart(_)
@@ -232,7 +228,7 @@ impl ObjectRequest {
             Self::Restore { .. }
             | Self::Move(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::List(_)
             | Self::Insert(_)
             | Self::Multipart(_)
@@ -247,7 +243,7 @@ impl ObjectRequest {
             Self::Restore { .. }
             | Self::Move(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::List(_)
             | Self::Update(_)
             | Self::Insert(_)
@@ -264,7 +260,7 @@ impl ObjectRequest {
             Self::Get { params, .. } => params.media,
             Self::Insert(_)
             | Self::Copy(_)
-            | Self::Compose { .. }
+            | Self::Compose(_)
             | Self::Multipart(_)
             | Self::Resumable(_) => true,
             Self::Restore { .. }
@@ -553,6 +549,29 @@ struct UploadQuery {
     predefined_acl: Option<String>,
 }
 
+/// Removes and parses the canned ACL an object write names in `key`, so an invalid value fails
+/// before any body is read.
+pub(super) fn take_predefined_acl(
+    query: &mut BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<crate::acl::PredefinedObjectAcl>, JsonError> {
+    query
+        .remove(key)
+        .map(|value| parse_predefined_acl(key, &value))
+        .transpose()
+}
+
+fn parse_predefined_acl(
+    key: &str,
+    value: &str,
+) -> Result<crate::acl::PredefinedObjectAcl, JsonError> {
+    value.parse().map_err(|_| {
+        JsonError::invalid_parameter(format!(
+            "Invalid {key} {value:?}; use authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead (for example, {key}=publicRead)"
+        ))
+    })
+}
+
 /// The upload front end's answer to an upload type it does not serve: a bare text page.
 pub(crate) fn unsupported_upload_type() -> JsonError {
     JsonError::invalid_parameter("uploadType must be media, multipart or resumable")
@@ -574,15 +593,7 @@ fn parse_upload_query(
         super::validate_fixed_metadata("contentEncoding", encoding)?;
     }
     let predefined_acl = predefined_acl
-        .map(|value| {
-            value
-                .parse::<crate::acl::PredefinedObjectAcl>()
-                .map_err(|_| {
-                    JsonError::invalid_parameter(format!(
-                        "Invalid predefinedAcl {value:?}; use authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead (for example, predefinedAcl=publicRead)"
-                    ))
-                })
-        })
+        .map(|value| parse_predefined_acl("predefinedAcl", &value))
         .transpose()?;
     let upload_name = UploadName::take(&mut query)?;
     let projection = projection(&mut query)?;

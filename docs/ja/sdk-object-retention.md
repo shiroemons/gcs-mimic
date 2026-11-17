@@ -19,8 +19,11 @@ Lockedは同じかより後の時刻への延長だけを受け付け、短縮�
 `403 retentionPolicyNotMet`です。バージョニング有効のバケットでは、保持中のライブ世代を
 非現行にできますが、非現行世代の削除は拒否します。期限は注入クロックで判定します。
 機能が無効なバケット、event-based hold中のオブジェクト、100年を超える期限は
-400です。copy・rewrite・composeの宛先`retention`は`400 badRequest`で拒否し、
-コピー元の設定も引き継ぎません。ホールドとバケットの保持ポリシーとは独立に判定し、
+400です。copy・rewrite・composeはコピー元の設定を引き継ぎません。
+2026-11-17からは、宛先リソースに書いた`retention`をアップロードと同じ規則と
+setRetention権限で適用します。Cloud Storageも同じく適用しました
+（ケース`obj-unsupported-derived`・`obj-retention-unlocked`）。
+ホールドとバケットの保持ポリシーとは独立に判定し、
 `retentionExpirationTime`は両者のうち遅い期限を返します。
 
 strictモードでは、作成時の有効化に`storage.buckets.enableObjectRetention`、`retention`を含む

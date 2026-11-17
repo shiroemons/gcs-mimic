@@ -189,8 +189,13 @@ pub(super) async fn multipart(
         expected,
     } = json::multipart_metadata(&bytes, name, ExpectedHashes::default())?;
     json::declare_content_encoding(&mut metadata, content_encoding)?;
-    crate::server::retention_access::authorize_upload(ctx.state, &access, &bucket, &metadata)
-        .await?;
+    crate::server::retention_access::authorize_upload(
+        &ctx.state.catalog,
+        &access,
+        &bucket,
+        &metadata,
+    )
+    .await?;
     metadata.customer_key_sha256 = key.map(CustomerKey::sha256);
     metadata.predefined_acl = params.predefined_acl;
     if !name_known {

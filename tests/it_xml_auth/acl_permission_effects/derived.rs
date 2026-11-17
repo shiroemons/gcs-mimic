@@ -244,3 +244,103 @@ fn legacy_copy_completion_requires_iam_when_original_source_proof_is_absent() {
         result
     );
 }
+
+/// A copy, a rewrite and a compose of the test object to `{name}-copy`, `{name}-rewrite` and
+/// `{name}-compose` with `query`: each one's path, body and destination name.
+fn derived_writes(name: &str, query: &str) -> [(String, String, String); 3] {
+    let sources = json!({"sourceObjects":[{"name":"value"}]}).to_string();
+    [
+        ("copyTo", String::new()),
+        ("rewriteTo", String::new()),
+        ("compose", sources),
+    ]
+    .map(|(method, body)| {
+        let destination = format!("{name}-{}", method.trim_end_matches("To"));
+        let path = if method == "compose" {
+            format!("{BUCKET}/o/{destination}/compose?{query}")
+        } else {
+            format!("{OBJECT}/{method}/b/test-bucket/o/{destination}?{query}")
+        };
+        (path, body, destination)
+    })
+}
+
+/// `destinationPredefinedAcl` replaces the default object ACL on a copy, rewrite or compose as
+/// `predefinedAcl` does on an upload, under the same public access prevention check. Cloud
+/// Storage applied it on all three (recorded 2026-11-13, case obj-unsupported-derived).
+#[test]
+fn derived_writes_apply_destination_predefined_acl() {
+    use super::predefined_upload::{ADMIN_OWNER, absent, pairs, stored};
+    for backend in ["disk", "memory"] {
+        let data = TestDir::new();
+        let inputs = TestDir::new();
+        let server = Server::start(&data, &inputs, backend);
+        server.bucket();
+        // A stored default object ACL shows that the canned ACL replaces it.
+        server
+            .admin(
+                "POST",
+                &format!("{BUCKET}/defaultObjectAcl"),
+                json!({"entity":"user-reader@example.test","role":"READER"}),
+            )
+            .json_ok();
+        server.put(b"source bytes");
+        for (value, expected) in [
+            ("publicRead", vec![ADMIN_OWNER, ("allUsers", "READER")]),
+            (
+                "bucketOwnerRead",
+                vec![ADMIN_OWNER, ("project-owners-0", "READER")],
+            ),
+        ] {
+            let query = format!("destinationPredefinedAcl={value}");
+            for (path, body, destination) in derived_writes(value, &query) {
+                server
+                    .request("POST", &path, ADMIN, body.as_bytes())
+                    .json_ok();
+                assert_eq!(
+                    stored(&server, &destination),
+                    pairs(&expected),
+                    "{backend} {destination}"
+                );
+            }
+        }
+        // An anonymous caller may write and read every object here, yet cannot name the ACL
+        // of an object the project owners will own, as on an upload.
+        let iam = format!("{BUCKET}/iam");
+        server
+            .admin(
+                "PUT",
+                &iam,
+                json!({"bindings":[{"role":"roles/storage.objectAdmin","members":["allUsers"]}]}),
+            )
+            .json_ok();
+        for (path, body, destination) in
+            derived_writes("anonymous", "destinationPredefinedAcl=private")
+        {
+            let refused = server.request("POST", &path, "", body.as_bytes());
+            refused.json_reason(400, "invalidArgument");
+            assert_eq!(
+                serde_json::from_slice::<Value>(&refused.body).unwrap()["error"]["message"],
+                "Anonymous callers cannot specify destinationPredefinedAcl; authenticate or omit destinationPredefinedAcl",
+                "{path}"
+            );
+            absent(&server, &destination);
+        }
+        server.admin("PUT", &iam, json!({"bindings":[]})).json_ok();
+        server
+            .admin(
+                "PATCH",
+                BUCKET,
+                json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
+            )
+            .json_ok();
+        for (path, body, destination) in
+            derived_writes("public", "destinationPredefinedAcl=publicRead")
+        {
+            server
+                .request("POST", &path, ADMIN, body.as_bytes())
+                .json_reason(412, "conditionNotMet");
+            absent(&server, &destination);
+        }
+    }
+}

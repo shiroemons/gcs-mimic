@@ -568,29 +568,55 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
     delete(&h, "locked/o/held")
         .await
         .error(403, "retentionPolicyNotMet");
-    // Copy, rewrite and compose do not inherit or accept retention in this slice.
-    for (path, body) in [
-        (
-            "/storage/v1/b/locked/o/held/copyTo/b/locked/o/copied",
-            json!({"retention": retention("Unlocked", HOUR)}),
-        ),
-        (
-            "/storage/v1/b/locked/o/held/rewriteTo/b/locked/o/copied",
-            json!({"retention": retention("Unlocked", HOUR)}),
-        ),
-        (
-            "/storage/v1/b/locked/o/copied/compose",
-            json!({"sourceObjects":[{"name":"held"}],"destination":{"retention": retention("Unlocked", HOUR)}}),
-        ),
-    ] {
-        h.request("POST", path, ADMIN, body.to_string().as_bytes())
+    // Copy, rewrite and compose store the retention their resource names, under the rules an
+    // upload follows: Cloud Storage refused one in a bucket without object retention with the
+    // same 400 (recorded 2026-11-13, case obj-unsupported-derived).
+    let unlocked = json!({"retention": retention("Unlocked", HOUR)});
+    multipart(&h, "bucket", "source", json!({}), ADMIN).await;
+    for (path, name, body) in derived_writes("bucket", "source", &unlocked) {
+        let refused = h
+            .request("POST", &path, ADMIN, body.to_string().as_bytes())
+            .await;
+        refused.error(400, "invalid");
+        assert_eq!(
+            refused.json()["error"]["message"],
+            "Bucket does not have object retention enabled."
+        );
+        h.request("GET", &format!("/storage/v1/b/bucket/o/{name}"), ADMIN, b"")
             .await
-            .error(400, "badRequest");
+            .error(404, "notFound");
     }
+    let past = json!({"retention": retention("Unlocked", HALF_HOUR)});
+    set_clock(&h, START + 3600);
+    for (path, name, body) in derived_writes("locked", "held", &past) {
+        h.request("POST", &path, ADMIN, body.to_string().as_bytes())
+            .await
+            .error(400, "invalid");
+        h.request("GET", &format!("/storage/v1/b/locked/o/{name}"), ADMIN, b"")
+            .await
+            .error(404, "notFound");
+    }
+    set_clock(&h, START);
+    for (path, name, body) in derived_writes("locked", "held", &unlocked) {
+        let written = h
+            .request("POST", &path, ADMIN, body.to_string().as_bytes())
+            .await;
+        assert_eq!(written.status, 200, "{path} {}", written.json());
+        let stored = h
+            .request("GET", &format!("/storage/v1/b/locked/o/{name}"), ADMIN, b"")
+            .await
+            .json();
+        assert_eq!(
+            stored["retention"],
+            json!({"mode":"Unlocked","retainUntilTime":"2026-01-01T01:00:00.000Z"}),
+            "{name}"
+        );
+    }
+    // A copy without a resource does not inherit the source's retention.
     let copied = h
         .request(
             "POST",
-            "/storage/v1/b/locked/o/held/copyTo/b/locked/o/copied",
+            "/storage/v1/b/locked/o/held/copyTo/b/locked/o/inherited",
             ADMIN,
             b"",
         )
@@ -598,6 +624,29 @@ async fn object_retention_requires_enabled_bucket_and_no_event_hold() {
     assert_eq!(copied.status, 200, "{}", copied.json());
     assert!(copied.json().get("retention").is_none());
     h.stop().await;
+}
+
+/// A copy, a rewrite and a compose of `source` in `bucket`, each to its own destination, whose
+/// destination resource is `resource`: the path, the destination name and the body.
+fn derived_writes(bucket: &str, source: &str, resource: &Value) -> [(String, String, Value); 3] {
+    let object = format!("/storage/v1/b/{bucket}/o");
+    [
+        (
+            format!("{object}/{source}/copyTo/b/{bucket}/o/copied"),
+            "copied".into(),
+            resource.clone(),
+        ),
+        (
+            format!("{object}/{source}/rewriteTo/b/{bucket}/o/rewritten"),
+            "rewritten".into(),
+            resource.clone(),
+        ),
+        (
+            format!("{object}/composed/compose"),
+            "composed".into(),
+            json!({"sourceObjects":[{"name":source}],"destination":resource}),
+        ),
+    ]
 }
 
 #[tokio::test]
@@ -792,11 +841,27 @@ async fn object_retention_resumable_upload_and_strict_permissions() {
     )
     .await
     .error(403, "forbidden");
+    // A copy, rewrite or compose that names a retention needs setRetention as an upload does.
+    let unlocked = json!({"retention": retention("Unlocked", HOUR)});
+    for (path, name, body) in derived_writes("locked", "doc", &unlocked) {
+        h.request("POST", &path, VIEWER, body.to_string().as_bytes())
+            .await
+            .error(403, "forbidden");
+        h.request("GET", &format!("/storage/v1/b/locked/o/{name}"), ADMIN, b"")
+            .await
+            .error(404, "notFound");
+    }
     set_policy(&[
         "roles/storage.objectUser",
         "roles/storage.legacyBucketOwner",
     ])
     .await;
+    for (path, _, body) in derived_writes("locked", "doc", &unlocked) {
+        let written = h
+            .request("POST", &path, VIEWER, body.to_string().as_bytes())
+            .await;
+        assert_eq!(written.status, 200, "{path} {}", written.json());
+    }
     let extended = patch(
         &h,
         "locked/o/doc",

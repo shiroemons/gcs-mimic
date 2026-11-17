@@ -7,7 +7,7 @@ use crate::{
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
     json::{self, JsonError},
-    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
+    object::{ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ObjectCtx, RESOURCE_BODY_LIMIT,
         copy::{self, CopyBudget, CopyJob},
@@ -144,7 +144,15 @@ async fn copy_object(
         storage_class,
         expected,
     } = json::derived_metadata(body, &source.object)?;
+    crate::server::retention_access::authorize_upload(
+        &ctx.state.catalog,
+        &access,
+        &params.bucket,
+        &metadata,
+    )
+    .await?;
     metadata.customer_key_sha256 = keys.destination.map(CustomerKey::sha256);
+    metadata.predefined_acl = params.predefined_acl;
     let source_location = if source.object.component_count.is_some() {
         Some(
             catalog
@@ -187,10 +195,14 @@ pub(super) async fn compose(
     request: Request<Incoming>,
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
-    bucket: String,
-    name: String,
-    conditions: ObjectConditions,
+    params: json::ComposeParams,
 ) -> Result<Written, JsonError> {
+    let json::ComposeParams {
+        bucket,
+        name,
+        conditions,
+        predefined_acl,
+    } = params;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
     reject_headers(
@@ -206,7 +218,15 @@ pub(super) async fn compose(
     )?;
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut body = json::compose::parse_compose(&bytes, &bucket)?;
+    crate::server::retention_access::authorize_upload(
+        &ctx.state.catalog,
+        &access,
+        &bucket,
+        &body.destination,
+    )
+    .await?;
     body.destination.customer_key_sha256 = key.map(CustomerKey::sha256);
+    body.destination.predefined_acl = predefined_acl;
     let _wait = crate::server::begin_catalog_wait(ctx.activity).await;
     let record = ctx
         .state

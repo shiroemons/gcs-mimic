@@ -66,7 +66,7 @@ validators extend the frozen profile. Other methods return 405 with `Allow: POST
 | Source conditions | `ifSourceGenerationMatch`, `ifSourceGenerationNotMatch`, `ifSourceMetagenerationMatch`, `ifSourceMetagenerationNotMatch`; parse like the existing object conditions and compare with the selected source. Retain all four in the session. A failing mutation condition is locally 412 `conditionNotMet`; general NotMatch 304 wording remains the existing SPEC-008 gap. |
 | Destination conditions | `ifGenerationMatch`, `ifGenerationNotMatch`, `ifMetagenerationMatch`, `ifMetagenerationNotMatch`; preserve the basic-profile combinations. Match zero is create-if-absent; NotMatch zero requires a live destination. The transaction publishing the sole destination generation rechecks all conditions. Failed and racing writes preserve the winning destination. |
 | `destinationKmsKeyName` | Recognized but unavailable: 501; no fake encryption metadata success. |
-| `destinationPredefinedAcl` | Recognize all six documented enum values; valid values fail 501 because ACLs are unavailable, invalid enum fails 400. No copied source ACL or new public grant. |
+| `destinationPredefinedAcl` | The six documented values replace the destination bucket's default object ACL at publication, as `predefinedAcl` does on an upload; an unknown value fails 400 invalidParameter, an anonymous caller 400 invalidArgument as on an upload, uniform access 400 invalid and a public value under public access prevention 412. The session stores the value, so a continuation applies the one the first call named. No copied source ACL. Cloud Storage applied it (case `obj-unsupported-derived`, recorded 2026-11-13). |
 | `projection` | Default `noAcl`; accept `noAcl`/`full` under the frozen local profile, reject other values. Full owner/ACL fields and their extra permission parity remain pending. |
 | `userProject` | Ignored, and kept out of the rewrite token binding; a local bucket cannot enable Requester Pays. |
 | `fields` | Validate against the rewrite response schema; nested `resource(...)` uses Object fields. Filter the final response only, without changing byte counts, publication or stored completion. Invalid selectors fail before side effects. Errors remain unfiltered. A continuation cannot replace an initially supplied selector with another value. |
@@ -93,8 +93,10 @@ before publication. Mismatch is 400 without destination mutation.
 Path identity overrides body identity. Unknown/output-only body handling follows
 the copy contract and the basic-profile source question; no blanket new policy.
 
-ACL/owner, contexts, retention, temporaryHold, customTime and encryption semantics
-remain explicit unsupported cases. Composite sources retain component count in
+ACL/owner, contexts and encryption semantics remain explicit unsupported cases.
+A resource's temporaryHold, customTime and retention apply as on an upload, as
+Cloud Storage applied them (cases `obj-unsupported-derived` and
+`obj-retention-unlocked`). Composite sources retain component count in
 the same location/class or reset it to one when either changes, using the shared
 helper. Ordinary objects never gain component count. Composite resources omit
 MD5 and retain CRC32C.
@@ -122,8 +124,9 @@ Strict mode requires source `storage.objects.get` and destination
 authorization helpers, then recheck permissions and bucket incarnations in
 publication. A continuation is not a resumable-upload bearer capability: each
 call authenticates. Token possession cannot bypass revoked grants or recreated
-buckets. Unsupported retention/context inputs do not imply implemented
-`setRetention`, `createContext` or `dropContexts` permissions. Cover permitted
+buckets. A destination retention also requires `setRetention` on the first
+call, as on an upload; unsupported context inputs do not imply implemented
+`createContext` or `dropContexts` permissions. Cover permitted
 cross-bucket grants, missing source read, missing destination create,
 creator-only overwrite denial, anonymous denial, revocation and bucket recreation.
 

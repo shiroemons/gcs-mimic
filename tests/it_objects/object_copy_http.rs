@@ -567,12 +567,22 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
     let (dir, server) = setup(false);
     server.put("source", b"source").json_ok();
     for query in [
-        "destinationPredefinedAcl=publicRead",
         "destinationKmsKeyName=key",
         "callback=local",
         "dropContextGroups=custom",
     ] {
         copy(&server, "source", "target", &format!("?{query}"), b"").json_reason(400, "badRequest");
+    }
+    // `publicReadWrite` is a bucket ACL only.
+    for value in ["publicReadWrite", "bogus", ""] {
+        copy(
+            &server,
+            "source",
+            "target",
+            &format!("?destinationPredefinedAcl={value}"),
+            b"",
+        )
+        .json_reason(400, "invalidParameter");
     }
     // prettyPrint only selects the body layout; a non-boolean value is still rejected.
     copy(&server, "source", "pretty", "?prettyPrint=true", b"").json_ok();
@@ -591,9 +601,6 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
     copy(&server, "source", "undeclared", "?unknown=yes", b"").json_ok();
     for body in [
         br#"{"acl":[]}"#.as_slice(),
-        br#"{"temporaryHold":true}"#,
-        br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
-        br#"{"retention":{}}"#,
         br#"{"name":"target","generation":"1"}"#,
     ] {
         copy(&server, "source", "target", "", body).json_reason(400, "badRequest");
@@ -856,4 +863,60 @@ fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
         )
         .json_reason(403, "forbidden");
     assert_no_transfer_files(&dir);
+}
+
+/// Copy, rewrite and compose give their destination the temporary hold and custom time its
+/// resource names, as Cloud Storage did (recorded 2026-11-13, case obj-unsupported-derived).
+#[test]
+fn derived_writes_store_a_temporary_hold_and_custom_time() {
+    let (_dir, server) = setup(false);
+    // How the same custom time reads back after a metadata update.
+    server.put("reference", b"reference").json_ok();
+    let reference = server
+        .update(
+            "PATCH",
+            "reference",
+            &json!({"customTime":"2020-01-01T00:00:00Z"}),
+        )
+        .json_ok();
+    server.put("source", b"source").json_ok();
+    let resource = json!({"temporaryHold":true,"customTime":"2020-01-01T00:00:00Z"});
+    let body = resource.to_string();
+    let copied = copy(&server, "source", "copied", "", body.as_bytes()).json_ok();
+    let rewritten = server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/source/rewriteTo/b/test-bucket/o/rewritten",
+            ADMIN,
+            body.as_bytes(),
+        )
+        .json_ok()["resource"]
+        .clone();
+    let composed = server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/composed/compose",
+            ADMIN,
+            json!({"sourceObjects":[{"name":"source"}],"destination":resource})
+                .to_string()
+                .as_bytes(),
+        )
+        .json_ok();
+    for (name, written) in [
+        ("copied", copied),
+        ("rewritten", rewritten),
+        ("composed", composed),
+    ] {
+        assert_eq!(written["temporaryHold"], true, "{name}");
+        assert_eq!(written["customTime"], reference["customTime"], "{name}");
+        assert_eq!(server.get(name).json_ok()["temporaryHold"], true, "{name}");
+        server
+            .request(
+                "DELETE",
+                &format!("/storage/v1/b/test-bucket/o/{name}"),
+                ADMIN,
+                b"",
+            )
+            .hold_error_reason();
+    }
 }

@@ -118,8 +118,13 @@ pub(crate) async fn create_session(
     total: Option<u64>,
 ) -> Result<crate::storage::SessionId, JsonError> {
     let state = ctx.state;
-    super::retention_access::authorize_upload(state, &options.access, bucket, &options.metadata)
-        .await?;
+    super::retention_access::authorize_upload(
+        &state.catalog,
+        &options.access,
+        bucket,
+        &options.metadata,
+    )
+    .await?;
     let session = ctx
         .await_catalog(
             state

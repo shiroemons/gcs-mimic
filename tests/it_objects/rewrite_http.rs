@@ -54,16 +54,20 @@ fn rewrite_keeps_an_explicit_false_hold_and_ignores_null_custom_time() {
         assert!(result["resource"].get("customTime").is_none());
         assert_eq!(server.get("destination?alt=media").body, payload);
     }
-    let before = server.get("destination").json_ok();
-    server
+    // A time is stored, as Cloud Storage did (recorded 2026-11-13, case obj-unsupported-derived).
+    let timed = server
         .request(
             "POST",
             BASE,
             ADMIN,
             br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         )
-        .json_reason(400, "badRequest");
-    assert_eq!(server.get("destination").json_ok(), before);
+        .json_ok();
+    assert_eq!(timed["resource"]["customTime"], "2026-10-20T01:02:03Z");
+    assert_eq!(
+        server.get("destination").json_ok()["customTime"],
+        "2026-10-20T01:02:03Z"
+    );
 }
 
 #[test]
@@ -472,7 +476,6 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
     assert_eq!(server.get("destination?alt=media").body, payload);
     for query in [
         "destinationKmsKeyName=key",
-        "destinationPredefinedAcl=private",
         "callback=project",
         "dropContextGroups=custom",
     ] {
@@ -480,7 +483,15 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
             .request("POST", &format!("{BASE}?{query}"), ADMIN, b"")
             .json_reason(400, "badRequest");
     }
-    for field in ["acl", "retention", "contexts", "kmsKeyName"] {
+    server
+        .request(
+            "POST",
+            &format!("{BASE}?destinationPredefinedAcl=publicReadWrite"),
+            ADMIN,
+            b"",
+        )
+        .json_reason(400, "invalidParameter");
+    for field in ["acl", "contexts", "kmsKeyName"] {
         server
             .request(
                 "POST",
@@ -490,9 +501,6 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
             )
             .json_reason(400, "badRequest");
     }
-    server
-        .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
-        .json_reason(400, "badRequest");
     assert_eq!(
         first["resource"]["owner"],
         json!({"entity": "user-admin@example.test"})

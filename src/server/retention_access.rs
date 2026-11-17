@@ -4,20 +4,21 @@
 //! body includes `retention`, and overrideUnlockedRetention=true requires
 //! storage.objects.overrideUnlockedRetention. The override permission is checked whenever the
 //! flag is supplied with a retention change, before the catalog knows whether the change
-//! actually locks, shortens or removes an Unlocked configuration.
+//! actually locks, shortens or removes an Unlocked configuration. A copy, rewrite or compose
+//! that names a retention for its destination needs storage.objects.setRetention as an upload
+//! does.
 
-use super::{BucketAccess, JsonError, State, auth};
+use super::{BucketAccess, Catalog, JsonError, auth};
 use crate::object::{ObjectMetadataUpdate, Patch, retention::UnlockedOverride};
 
 async fn require(
-    state: &State,
+    catalog: &Catalog,
     access: &BucketAccess,
     bucket: &str,
     permission: auth::Permission,
 ) -> Result<(), JsonError> {
     if let BucketAccess::Policy { identity, .. } = access {
-        state
-            .catalog
+        catalog
             .bucket_access(bucket, identity.as_ref(), permission)
             .await?;
     }
@@ -25,19 +26,19 @@ async fn require(
 }
 
 pub(super) async fn authorize_upload(
-    state: &State,
+    catalog: &Catalog,
     access: &BucketAccess,
     bucket: &str,
     metadata: &ObjectMetadataUpdate,
 ) -> Result<(), JsonError> {
     if metadata.retention != Patch::Keep {
-        require(state, access, bucket, auth::OBJECTS_SET_RETENTION).await?;
+        require(catalog, access, bucket, auth::OBJECTS_SET_RETENTION).await?;
     }
     Ok(())
 }
 
 pub(crate) async fn authorize_update(
-    state: &State,
+    catalog: &Catalog,
     access: &BucketAccess,
     bucket: &str,
     update: &mut ObjectMetadataUpdate,
@@ -46,10 +47,10 @@ pub(crate) async fn authorize_update(
     if update.retention == Patch::Keep {
         return Ok(());
     }
-    require(state, access, bucket, auth::OBJECTS_SET_RETENTION).await?;
+    require(catalog, access, bucket, auth::OBJECTS_SET_RETENTION).await?;
     if retention_override == UnlockedOverride::Requested {
         require(
-            state,
+            catalog,
             access,
             bucket,
             auth::OBJECTS_OVERRIDE_UNLOCKED_RETENTION,
