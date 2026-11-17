@@ -45,6 +45,9 @@ pub(super) struct ObjectSpec {
 impl ObjectSpec {
     /// The publication request. It takes the attributes so their strings move into the request.
     pub(super) fn into_publication(self, attrs: ObjectAttrs, cap: u64) -> Publication {
+        // A source attribute is a plain string, so an empty one means the source left it unset;
+        // storing it would add an empty field that a JSON upload stores only when asked to.
+        let named = |value: String| Patch::nullable((!value.is_empty()).then_some(value));
         Publication {
             content_type: attrs.content_type,
             metadata: ObjectMetadataUpdate {
@@ -52,14 +55,10 @@ impl ObjectSpec {
                 acl: self.acl,
                 storage_class: Some(self.storage_class),
                 custom_time: Patch::nullable(self.custom_time),
-                content_encoding: Patch::Set(attrs.content_encoding),
-                content_disposition: Patch::Set(attrs.content_disposition),
-                // A new generation stores neither an empty language nor a cleared one, but
-                // validation refuses an empty contentLanguage, so an empty source clears it.
-                content_language: Patch::nullable(
-                    (!attrs.content_language.is_empty()).then_some(attrs.content_language),
-                ),
-                cache_control: Patch::Set(attrs.cache_control),
+                content_encoding: named(attrs.content_encoding),
+                content_disposition: named(attrs.content_disposition),
+                content_language: named(attrs.content_language),
+                cache_control: named(attrs.cache_control),
                 metadata: attrs.metadata.map_or(MapPatch::Clear, |entries| {
                     MapPatch::Merge(
                         entries

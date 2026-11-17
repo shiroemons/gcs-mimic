@@ -87,9 +87,8 @@ impl ObjectMetadataRequest {
 }
 
 /// Which write a metadata body describes. Only a mutation of an existing generation (PATCH or
-/// PUT) may carry `acl`, keeps empty content fields and ignores output-only fields Cloud
-/// Storage ignores there; uploads and derived writes reject `acl` and an empty
-/// `contentLanguage`.
+/// PUT) may carry `acl` and ignores output-only fields Cloud Storage ignores there; uploads and
+/// derived writes reject `acl`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BodyKind {
     Mutation,
@@ -170,17 +169,8 @@ fn metadata_from_map(
         NullValue::StoresEmpty
     };
     let metadata = custom_metadata(body, null)?;
-    match kind {
-        BodyKind::Mutation => {
-            unchanged.retain(|key, _| !IGNORED_ON_MUTATION.contains(&key.as_str()))
-        }
-        BodyKind::Creation => {
-            if body.get("contentLanguage").and_then(Value::as_str) == Some("") {
-                return Err(JsonError::invalid_argument(
-                    "contentLanguage must not be empty; use null to clear it",
-                ));
-            }
-        }
+    if kind == BodyKind::Mutation {
+        unchanged.retain(|key, _| !IGNORED_ON_MUTATION.contains(&key.as_str()));
     }
     let update = ObjectMetadataUpdate {
         acl: body
@@ -189,14 +179,14 @@ fn metadata_from_map(
             .transpose()?,
         predefined_acl: None,
         write: mode,
-        content_type: string(body, kind, "contentType")?,
-        content_encoding: string(body, kind, "contentEncoding")?,
-        content_disposition: string(body, kind, "contentDisposition")?,
-        content_language: string(body, kind, "contentLanguage")?,
-        cache_control: string(body, kind, "cacheControl")?,
+        content_type: string(body, "contentType")?,
+        content_encoding: string(body, "contentEncoding")?,
+        content_disposition: string(body, "contentDisposition")?,
+        content_language: string(body, "contentLanguage")?,
+        cache_control: string(body, "cacheControl")?,
         metadata,
         temporary_hold: hold(body, "temporaryHold"),
-        custom_time: string(body, kind, "customTime")?,
+        custom_time: string(body, "customTime")?,
         event_based_hold: hold(body, "eventBasedHold"),
         retention: body
             .get("retention")
@@ -370,11 +360,10 @@ impl From<&Value> for CustomMetadataValue {
     }
 }
 
-fn string(
-    body: &Map<String, Value>,
-    kind: BodyKind,
-    key: &str,
-) -> Result<Patch<String>, JsonError> {
+/// A string field of the resource. An empty string is a value: Cloud Storage stored the empty
+/// content fields a PATCH or an upload set (recorded 2026-11, cases obj-metadata-output-only and
+/// obj-gaps-json).
+fn string(body: &Map<String, Value>, key: &str) -> Result<Patch<String>, JsonError> {
     let Some(value) = body.get(key) else {
         return Ok(Patch::Keep);
     };
@@ -384,10 +373,7 @@ fn string(
     let value = value
         .as_str()
         .ok_or_else(|| JsonError::invalid_argument(format!("{key} must be a string or null")))?;
-    // Cloud Storage stores the empty strings a PATCH sets (recorded 2026-11).
-    if !(kind == BodyKind::Mutation && value.is_empty()) {
-        validate_fixed_metadata(key, value)?;
-    }
+    validate_fixed_metadata(key, value)?;
     Ok(Patch::Set(value.to_owned()))
 }
 

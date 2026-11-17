@@ -39,6 +39,15 @@ impl<T> Patch<T> {
             Self::Keep | Self::Clear => None,
         }
     }
+
+    /// Keeps, clears or replaces the stored value of the field this patch names.
+    pub(crate) fn apply_to(self, field: &mut Option<T>) {
+        match self {
+            Self::Keep => {}
+            Self::Clear => *field = None,
+            Self::Set(value) => *field = Some(value),
+        }
+    }
 }
 
 /// A change to a string map: custom object metadata or bucket labels.

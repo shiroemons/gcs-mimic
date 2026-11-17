@@ -860,6 +860,14 @@ fn metadata_bodies_select_generations_and_keep_empty_strings() {
         let stored = server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
             .json_ok();
+        // A copy keeps the emptied fields (recorded 2026-11-17).
+        let copied = server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/dir%2Ffile/copyTo/b/test-bucket/o/copy",
+                b"",
+            )
+            .json_ok();
         for key in [
             "contentLanguage",
             "contentDisposition",
@@ -868,16 +876,8 @@ fn metadata_bodies_select_generations_and_keep_empty_strings() {
         ] {
             assert_eq!(empty[key], "", "{method} {key}");
             assert_eq!(stored[key], "", "{method} {key}");
+            assert_eq!(copied[key], "", "{method} {key}");
         }
-        // A copy leaves the emptied fields unset rather than refusing them.
-        let copied = server
-            .request(
-                "POST",
-                "/storage/v1/b/test-bucket/o/dir%2Ffile/copyTo/b/test-bucket/o/copy",
-                b"",
-            )
-            .json_ok();
-        assert!(copied.get("contentLanguage").is_none(), "{method}");
     }
     // A query generation stays the selector; the body must repeat it.
     server

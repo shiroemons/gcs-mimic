@@ -713,7 +713,6 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         (b"[]", "invalidArgument"),
         (br#"{"contentType":7}"#, "invalidArgument"),
         (br#"{"bucket":null}"#, "invalidArgument"),
-        (br#"{"contentLanguage":""}"#, "invalidArgument"),
     ] {
         server
             .upload("name=existing", &wire(metadata, None, b"new", None))
@@ -945,6 +944,37 @@ fn obj_multipart_http_decodes_a_base64_media_part_and_names_third_part_types() {
         "Multipart writes with three parts must have application/json for the first and final part, but saw application/json; charset=UTF-8 and text/plain"
     );
     server.get("bad").json_reason(404, "notFound");
+}
+
+#[test]
+fn obj_multipart_http_stores_empty_content_fields() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    // Cloud Storage stored and returned each empty field (recorded 2026-11-17).
+    let metadata = json!({
+        "contentLanguage": "",
+        "contentDisposition": "",
+        "contentEncoding": "",
+        "cacheControl": "",
+    });
+    let stored = server
+        .upload(
+            "name=empty",
+            &wire(metadata.to_string().as_bytes(), None, b"hello", None),
+        )
+        .json_ok();
+    let read = server.get("empty").json_ok();
+    for key in [
+        "contentLanguage",
+        "contentDisposition",
+        "contentEncoding",
+        "cacheControl",
+    ] {
+        assert_eq!(stored[key], "", "{key}");
+        assert_eq!(read[key], "", "{key}");
+    }
+    assert_eq!(server.get("empty?alt=media").body, b"hello");
 }
 
 #[test]

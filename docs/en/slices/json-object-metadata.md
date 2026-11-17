@@ -62,16 +62,16 @@ malformed JSON returns 400 `parseError`. A PATCH with empty `contentLanguage`,
 `contentDisposition`, `contentEncoding` or `cacheControl` stores and returns the
 empty string, as Cloud Storage did on 2026-11-13 (case `obj-metadata-output-only`,
 [provider probes](../evidence/provider-differential-gap-probes.md)); until then an
-empty `contentLanguage` returned 400. Uploads keep refusing an empty
-`contentLanguage`. Output-only `size` and `md5Hash` (recorded) and `id`,
+empty `contentLanguage` returned 400. Uploads store them too, and a copy or
+rewrite keeps them, as Cloud Storage did on 2026-11-17 (case `obj-gaps-json`); an
+empty XML header still leaves its field unset, which is unrecorded. Output-only `size` and `md5Hash` (recorded) and `id`,
 `selfLink` and `timeCreated` (inferred) are ignored on PATCH and PUT, and a body
 `name` or `bucket` that disagrees with the path returns 400 `Value '<body>' in
 content does not agree with value '<path>'. This can happen when a value set
 through a parameter is inconsistent with a value set in the request.` Oversized JSON returns
 413 `uploadTooLarge`. `contentType:""` is a PATCH no-op; null removes it. When absent,
 metadata JSON omits contentType and media serves `application/octet-stream`.
-A PUT keeps empty content fields the same way (the recording covered PATCH);
-uploads and copies leave an empty content field unset on the new generation.
+A PUT keeps empty content fields the same way (the recording covered PATCH).
 Content-Language is limited to 100 characters (100 succeeds, 101 fails).
 Non-ASCII fixed header values and empty custom metadata keys conservatively return
 501 as unsupported semantics; custom values and nonempty keys retain Unicode.

@@ -275,13 +275,18 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
         predefined_acl: super::canned_acl::parse(headers)?,
         ..Default::default()
     };
+    // An empty header names no value and leaves the field unset. A JSON upload stores an empty
+    // string instead (recorded 2026-11-17); what Cloud Storage does with an empty XML header is
+    // unrecorded.
     for (name, field) in [
         ("cache-control", &mut metadata.cache_control),
         ("content-disposition", &mut metadata.content_disposition),
         ("content-encoding", &mut metadata.content_encoding),
         ("content-language", &mut metadata.content_language),
     ] {
-        *field = single(headers, name)?.map_or(Patch::Keep, |value| Patch::Set(value.to_owned()));
+        *field = single(headers, name)?
+            .filter(|value| !value.is_empty())
+            .map_or(Patch::Keep, |value| Patch::Set(value.to_owned()));
     }
     if let Some(class) = single(headers, "x-goog-storage-class")? {
         let class = StorageClass::from_name(class).map_err(|error| match error {

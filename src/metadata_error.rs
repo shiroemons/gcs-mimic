@@ -3,7 +3,6 @@
 #[derive(Debug, PartialEq, Eq)]
 pub enum MetadataError {
     FixedHeader(String),
-    EmptyLanguage,
     LongLanguage,
     CustomTime,
     ObjectStorageClass,
@@ -75,10 +74,6 @@ impl MetadataError {
         let path = |path: &str| path.split('.').map(name).collect::<Vec<_>>().join(".");
         match self {
             Self::FixedHeader(field) => format!("Invalid {} header value", name(field)),
-            Self::EmptyLanguage => format!(
-                "{} must not be empty; use null to clear it",
-                name("contentLanguage")
-            ),
             Self::LongLanguage => format!("{} exceeds 100 characters", name("contentLanguage")),
             Self::CustomTime => format!(
                 "Parse Error: Invalid value for type.googleapis.com/google.protobuf.Timestamp field: 'Field '{}', Illegal timestamp format; timestamps must end with 'Z' or have a valid timezone offset.'.",

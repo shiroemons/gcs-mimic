@@ -318,6 +318,28 @@ async fn resumable_initiation_types_must_agree_when_both_are_declared() {
     h.stop().await;
 }
 
+// Recorded 2026-11-17 (case obj-gaps-json): an initiation whose metadata names an empty
+// contentLanguage starts a session, and the object stores the empty string.
+#[tokio::test]
+async fn resumable_uploads_store_an_empty_content_language() {
+    let h = Harness::start(1000, Permissive, None).await;
+    let started = h
+        .initiate(
+            "name=empty-language",
+            "Content-Type: application/json\r\n",
+            br#"{"contentLanguage":""}"#,
+        )
+        .await;
+    assert_eq!(started.status, 200);
+    let path = h.path(&started);
+    let finished = h
+        .request("PUT", &path, "Content-Range: bytes 0-2/3\r\n", b"abc")
+        .await;
+    assert_eq!(finished.status, 200);
+    assert_eq!(finished.json()["contentLanguage"], "");
+    h.stop().await;
+}
+
 // Recorded 2026-11-17 (case obj-gaps-uploads): DELETE of a completed session answers 200 with
 // the stored object, as a status request does, and leaves the object and the session as they
 // were.

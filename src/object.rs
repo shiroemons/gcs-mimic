@@ -397,18 +397,12 @@ impl ObjectMetadataUpdate {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
-        self.validate_for(EmptyContent::Unset)
-    }
-
-    fn validate_for(&self, empty: EmptyContent) -> Result<(), ObjectError> {
         self.check_encoded_size()?;
         if let Some(value) = self.custom_time.value() {
             custom_time_key(value)?;
         }
         for (field, patch) in self.fixed_fields() {
-            if let Some(value) = patch.value()
-                && !empty.is_stored(value)
-            {
+            if let Some(value) = patch.value() {
                 validate_fixed_metadata(field, value)?;
             }
         }
@@ -445,16 +439,15 @@ impl ObjectMetadataUpdate {
         if self.write == WriteMode::Replace {
             record.clear_holds();
         }
-        self.apply_with(record, EmptyContent::Stored)?;
+        self.apply(record)?;
         Self::inheriting(record).check_encoded_size()
     }
 
     /// The update that gives a new object the editable metadata of `source`, except its holds.
-    /// An empty content field a metadata update stored is left unset on the new generation.
+    /// Empty content fields carry over: a copy kept the empty strings its source stored
+    /// (recorded 2026-11-17, case obj-gaps-json).
     pub(crate) fn inheriting(source: &ObjectRecord) -> Self {
-        let set = |value: &Option<String>| {
-            Patch::nullable(value.clone().filter(|value| !value.is_empty()))
-        };
+        let set = |value: &Option<String>| Patch::nullable(value.clone());
         Self {
             content_type: Patch::Set(source.content_type.clone()),
             content_encoding: set(&source.content_encoding),
@@ -474,12 +467,10 @@ impl ObjectMetadataUpdate {
         }
     }
 
+    /// Applies the update to a new generation. Empty content fields are stored as on an
+    /// existing one: an upload kept them (recorded 2026-11-17, case obj-gaps-json).
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
-        self.apply_with(record, EmptyContent::Unset)
-    }
-
-    fn apply_with(self, record: &mut ObjectRecord, empty: EmptyContent) -> Result<(), ObjectError> {
-        self.validate_for(empty)?;
+        self.validate()?;
         // Cloud Storage kept the current custom time for `null` and for a PUT that omits it
         // (both recorded as 200); only a time can change it, and never backwards.
         if let Patch::Set(value) = self.custom_time {
@@ -502,11 +493,7 @@ impl ObjectMetadataUpdate {
         if let Some(hold) = self.temporary_hold {
             record.temporary_hold = Hold::from(Some(hold));
         }
-        match self.retention {
-            Patch::Keep => {}
-            Patch::Clear => record.retention = None,
-            Patch::Set(retention) => record.retention = Some(retention),
-        }
+        self.retention.apply_to(&mut record.retention);
         if let Some(sha256) = self.customer_key_sha256 {
             record.customer_key_sha256 = Some(sha256);
         }
@@ -534,7 +521,7 @@ impl ObjectMetadataUpdate {
             (&mut record.content_language, self.content_language),
             (&mut record.cache_control, self.cache_control),
         ] {
-            empty.apply(field, patch);
+            patch.apply_to(field);
         }
         apply_custom_metadata(&mut record.metadata, self.metadata);
         // Merges can grow the stored custom metadata past what any one request carried. Fixed
@@ -543,41 +530,11 @@ impl ObjectMetadataUpdate {
             return Err(encoded_metadata_too_large());
         }
         for (field, value) in record.fixed_fields() {
-            if let Some(value) = value
-                && !empty.is_stored(value)
-            {
+            if let Some(value) = value {
                 validate_fixed_metadata(field, value)?;
             }
         }
         Ok(())
-    }
-}
-
-/// How a metadata write treats an empty content field (`contentEncoding`,
-/// `contentDisposition`, `contentLanguage` or `cacheControl`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EmptyContent {
-    /// A new generation leaves the field unset; an empty `contentLanguage` is refused.
-    Unset,
-    /// A metadata update of an existing generation stores the empty string: Cloud Storage
-    /// returned `""` for each of these after a JSON PATCH set them so (recorded 2026-11).
-    Stored,
-}
-
-impl EmptyContent {
-    fn is_stored(self, value: &str) -> bool {
-        self == Self::Stored && value.is_empty()
-    }
-
-    /// Stores an optional content field's patch; an empty value is unset on a new generation.
-    fn apply(self, field: &mut Option<String>, patch: Patch<String>) {
-        match patch {
-            Patch::Keep => {}
-            Patch::Clear => *field = None,
-            Patch::Set(value) => {
-                *field = (self.is_stored(&value) || !value.is_empty()).then_some(value);
-            }
-        }
     }
 }
 
@@ -1072,17 +1029,10 @@ impl From<crate::bucket::CatalogError> for ObjectError {
 }
 
 pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), ObjectError> {
-    if key == "contentLanguage" {
-        if value.is_empty() {
-            return Err(ObjectError::Metadata(
-                crate::metadata_error::MetadataError::EmptyLanguage,
-            ));
-        }
-        if value.chars().count() > 100 {
-            return Err(ObjectError::Metadata(
-                crate::metadata_error::MetadataError::LongLanguage,
-            ));
-        }
+    if key == "contentLanguage" && value.chars().count() > 100 {
+        return Err(ObjectError::Metadata(
+            crate::metadata_error::MetadataError::LongLanguage,
+        ));
     }
     if !value.is_ascii() {
         return Err(ObjectError::UnsupportedMetadata(

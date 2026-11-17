@@ -52090,6 +52090,86 @@
           }
         },
         {
+          "fingerprint": "aa72438b7002ceea",
+          "name": "multipart-empty-content-fields",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2CcontentLanguage%2CcontentDisposition%2CcontentEncoding%2CcacheControl&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "cacheControl": "",
+                "contentDisposition": "",
+                "contentEncoding": "",
+                "contentLanguage": "",
+                "name": "obj-gaps-json-1-empty"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "07461a900c1901fc",
+          "name": "patch-empty-content-fields",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-gaps-json-1-empty?fields=contentLanguage%2CcontentDisposition%2CcontentEncoding%2CcacheControl",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "cacheControl": "",
+                "contentDisposition": "",
+                "contentEncoding": "",
+                "contentLanguage": ""
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0faa292d58c92052",
+          "name": "copy-empty-content-fields",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-gaps-json-1-empty/copyTo/b/<bucket>/o/obj-gaps-json-1-empty2?fields=name%2CcontentLanguage%2CcontentDisposition%2CcontentEncoding%2CcacheControl",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "cacheControl": "",
+                "contentDisposition": "",
+                "contentEncoding": "",
+                "contentLanguage": "",
+                "name": "obj-gaps-json-1-empty2"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
           "fingerprint": "8b77585666460829",
           "name": "upload-gzip",
           "request": "POST /upload/storage/v1/b/<bucket>/o?contentEncoding=gzip&name=obj-gaps-json-1-gz&uploadType=media",
@@ -52320,6 +52400,44 @@
           "fingerprint": "e497f5dfb8298111",
           "name": "cleanup-lang",
           "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-lang",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "d0e1b5fc1bf1c784",
+          "name": "cleanup-empty",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-empty",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "0cd188ec7784ec5e",
+          "name": "cleanup-empty2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-empty2",
           "response": {
             "body": {
               "kind": "empty"
@@ -53910,7 +54028,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 1962,
+  "requests": 2007,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }
