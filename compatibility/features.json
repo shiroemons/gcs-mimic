@@ -34066,7 +34066,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-CSEK-LOCAL: object bytes are stored unencrypted on local disk (only the key fingerprint is persisted); XML HEAD without a key is a metadata read that omits x-goog-hash; resumable chunks may omit key headers; a key supplied for an unencrypted object's metadata returns resourceNotEncryptedWithCustomerEncryptionKey; keys are accepted over plain HTTP; legacy v1 gRPC requests cannot supply keys; on Storage v2 a key after a keyless write started fails with INVALID_ARGUMENT where Cloud Storage answers INTERNAL, and BidiReadObject, rewrite continuations and RestoreObject follow local rules (SPEC-GRPC-CSEK)."
+        "SPEC-CSEK-LOCAL: object bytes are stored unencrypted on local disk (only the key fingerprint is persisted); XML HEAD without a key is refused with 400 like the GET, as recorded on Cloud Storage on 2026-11-17; resumable chunks may omit key headers; a key supplied for an unencrypted object's metadata returns resourceNotEncryptedWithCustomerEncryptionKey; keys are accepted over plain HTTP; legacy v1 gRPC requests cannot supply keys; on Storage v2 a key after a keyless write started fails with INVALID_ARGUMENT where Cloud Storage answers INTERNAL, and BidiReadObject, rewrite continuations and RestoreObject follow local rules (SPEC-GRPC-CSEK)."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-15"

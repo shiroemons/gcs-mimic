@@ -96,8 +96,11 @@ dependency; the SHA-256 comes from the existing `ring` dependency.
 
 ## Local choices and pending work
 
-- XML HEAD without a key is treated as a metadata read. The HEAD reference
-  does not document this case; provider evidence is pending.
+- XML HEAD without a key is refused with 400 like the GET, while the JSON API
+  still serves the metadata without hashes. Cloud Storage answered this way in
+  the 2026-11-17 recording (case `xml-gaps-objects`); until then gcs-mimic
+  treated the HEAD as a metadata read. A matching `If-None-Match` does not get
+  past the key check.
 - Chunks of a resumable upload may omit the key; the official resumable guide
   does not state whether each chunk must repeat it.
 - A metadata GET or PATCH that supplies a key for an unencrypted object fails

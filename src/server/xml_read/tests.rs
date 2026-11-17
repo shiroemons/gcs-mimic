@@ -153,57 +153,48 @@ async fn encrypted_head_validators_do_not_bypass_data_key_checks() {
         StatusCode::OK
     );
     let raw_key = [7; 32];
-    let key = crate::base64::encode(&raw_key);
-    let hash =
-        crate::base64::encode(ring::digest::digest(&ring::digest::SHA256, &raw_key).as_ref());
-    let request = Request::builder()
-        .method("POST")
-        .uri("/upload/storage/v1/b/bucket/o?uploadType=media&name=encrypted")
-        .header("x-goog-encryption-algorithm", "AES256")
-        .header("x-goog-encryption-key", key)
-        .header("x-goog-encryption-key-sha256", hash)
-        .body(Incoming::Buffered(Full::new(bytes::Bytes::from_static(
-            b"body",
-        ))))
-        .unwrap();
+    let keyed = [
+        ("x-goog-encryption-algorithm", "AES256".to_owned()),
+        ("x-goog-encryption-key", crate::base64::encode(&raw_key)),
+        (
+            "x-goog-encryption-key-sha256",
+            crate::base64::encode(ring::digest::digest(&ring::digest::SHA256, &raw_key).as_ref()),
+        ),
+    ];
+    let respond = |method: &str, uri: &str, headers: &[(&str, String)], body: &'static [u8]| {
+        let request = headers
+            .iter()
+            .fold(
+                Request::builder().method(method).uri(uri),
+                |builder, (name, value)| builder.header(*name, value),
+            )
+            .body(Incoming::Buffered(Full::new(bytes::Bytes::from_static(
+                body,
+            ))))
+            .unwrap();
+        crate::server::routing::respond(request, ctx)
+    };
+    let upload = "/upload/storage/v1/b/bucket/o?uploadType=media&name=encrypted";
     assert_eq!(
-        crate::server::routing::respond(request, ctx).await.status(),
+        respond("POST", upload, &keyed, b"body").await.status(),
         StatusCode::OK
     );
-    let request = Request::builder()
-        .method("HEAD")
-        .uri("/bucket/encrypted")
-        .body(Incoming::Buffered(Full::new(bytes::Bytes::new())))
-        .unwrap();
-    let head = crate::server::routing::respond(request, ctx).await;
+    let object = "/bucket/encrypted";
+    let head = respond("HEAD", object, &keyed, b"").await;
     assert_eq!(head.status(), StatusCode::OK);
-    assert!(!head.headers().contains_key("x-goog-hash"));
-    let etag = head.headers()["etag"].clone();
-    for (method, status) in [
-        ("HEAD", StatusCode::NOT_MODIFIED),
-        ("GET", StatusCode::BAD_REQUEST),
-    ] {
-        let request = Request::builder()
-            .method(method)
-            .uri("/bucket/encrypted")
-            .header("if-none-match", etag.clone())
-            .body(Incoming::Buffered(Full::new(bytes::Bytes::new())))
-            .unwrap();
-        let response = crate::server::routing::respond(request, ctx).await;
-        assert_eq!(response.status(), status);
-        assert!(!response.headers().contains_key("x-goog-hash"));
-        if status == StatusCode::NOT_MODIFIED {
-            assert_eq!(response.headers()["etag"], etag);
-            assert!(response.headers().contains_key("expires"));
-            assert!(
-                response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap()
-                    .to_bytes()
-                    .is_empty()
+    let etag = head.headers()["etag"].to_str().unwrap().to_owned();
+    // Without the key the XML API refuses HEAD as it refuses GET (recorded 2026-11-17, case
+    // xml-gaps-objects), and naming the current validator does not get past that check.
+    for validator in [None, Some(("if-none-match", etag))] {
+        for method in ["HEAD", "GET"] {
+            let response = respond(method, object, validator.as_slice(), b"").await;
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "{method} {validator:?}"
             );
+            assert!(!response.headers().contains_key("x-goog-hash"));
+            assert!(!response.headers().contains_key("etag"));
         }
     }
     state.catalog.close().await.unwrap();

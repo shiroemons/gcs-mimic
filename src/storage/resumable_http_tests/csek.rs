@@ -409,13 +409,24 @@ async fn csek_xml_put_get_and_head() {
     assert_eq!(read.status, 200);
     assert_eq!(read.body, b"xml data");
     assert!(read.headers.contains_key("x-goog-hash"));
-    // HEAD is a metadata read: allowed without the key, but without plaintext hashes.
+    // Without the key HEAD is refused like GET, as Cloud Storage refused it (recorded
+    // 2026-11-17); with the key it reports the stored hashes.
     // The harness frames by Content-Length, so a closing connection ends the bodiless reply.
-    let head = h
+    let keyless = h
         .request("HEAD", "/bucket/xml", "Connection: close\r\n", b"")
         .await;
+    assert_eq!(keyless.status, 400);
+    assert!(!keyless.headers.contains_key("x-goog-hash"));
+    let head = h
+        .request(
+            "HEAD",
+            "/bucket/xml",
+            &format!("{}Connection: close\r\n", destination(&OLD)),
+            b"",
+        )
+        .await;
     assert_eq!(head.status, 200);
-    assert!(!head.headers.contains_key("x-goog-hash"));
+    assert!(head.headers.contains_key("x-goog-hash"));
     assert_eq!(head.headers["x-goog-encryption-algorithm"], "AES256");
     let mut invalid = destination(&OLD);
     invalid = invalid.replace("AES256", "AES128");
