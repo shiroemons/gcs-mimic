@@ -969,10 +969,7 @@ pub(crate) fn reject_predefined_acl(
     if let Some(key) = target.applied_key()
         && target.publishes()
         && query.contains_key(key)
-        && matches!(
-            access,
-            crate::bucket::BucketAccess::Policy { identity: None, .. }
-        )
+        && access.is_anonymous()
     {
         return Err(JsonError::invalid_argument(format!(
             "Anonymous callers cannot specify {key}; authenticate or omit {key}"

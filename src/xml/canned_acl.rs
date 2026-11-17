@@ -41,7 +41,7 @@ pub(super) async fn check(
     }
     // Documented for uploads: an anonymous object is owned by the project owners team, so an
     // anonymous caller could otherwise choose its object's ACL.
-    if matches!(access, BucketAccess::Policy { identity: None, .. }) {
+    if access.is_anonymous() {
         return Err(Error::invalid(
             "Anonymous callers cannot specify x-goog-acl on upload; authenticate or omit x-goog-acl",
         ));

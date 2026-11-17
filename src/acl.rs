@@ -729,7 +729,32 @@ impl AclRequest {
             Self::Omitted | Self::Entries(_) => None,
         }
     }
+
+    /// This request with the canned ACL a metadata write's parameter names. No recording shows
+    /// which one Cloud Storage keeps when a write names both, so that write is refused.
+    pub(crate) fn with_predefined(
+        self,
+        predefined: Option<PredefinedObjectAcl>,
+    ) -> Result<Self, ConflictingAcl> {
+        match (self, predefined) {
+            (request, None) => Ok(request),
+            (Self::Omitted, Some(acl)) => Ok(Self::Predefined(acl)),
+            (Self::Entries(_) | Self::Predefined(_), Some(_)) => Err(ConflictingAcl),
+        }
+    }
 }
+
+/// A metadata write named explicit ACL entries together with a canned ACL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ConflictingAcl;
+
+impl std::fmt::Display for ConflictingAcl {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("acl together with a predefined ACL")
+    }
+}
+
+impl std::error::Error for ConflictingAcl {}
 
 impl From<Option<Vec<AclEntry>>> for AclRequest {
     fn from(entries: Option<Vec<AclEntry>>) -> Self {

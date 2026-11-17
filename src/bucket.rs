@@ -954,6 +954,15 @@ impl BucketAccess {
             Self::Permissive | Self::Admin(_) => self.clone(),
         }
     }
+
+    /// A strict-profile caller without credentials. Permissive and administrative access are
+    /// not anonymous: they bypass authorization instead of lacking an identity.
+    pub(crate) fn is_anonymous(&self) -> bool {
+        match self {
+            Self::Policy { identity, .. } => identity.is_none(),
+            Self::Permissive | Self::Admin(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

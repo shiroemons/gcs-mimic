@@ -739,6 +739,13 @@ impl From<crate::auth::InvalidProjectId> for JsonError {
     }
 }
 
+/// The JSON API names the canned ACL parameter `predefinedAcl` on a metadata write.
+impl From<crate::acl::ConflictingAcl> for JsonError {
+    fn from(_: crate::acl::ConflictingAcl) -> Self {
+        Self::unsupported_object("acl together with predefinedAcl").at_parameter("predefinedAcl")
+    }
+}
+
 /// A refused `matchGlob` pattern is a malformed request; the pattern defect is the message.
 impl From<crate::match_glob::GlobError> for JsonError {
     fn from(error: crate::match_glob::GlobError) -> Self {
