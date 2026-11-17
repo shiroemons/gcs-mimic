@@ -51014,10 +51014,2892 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "none",
+      "error": null,
+      "id": "bkt-gaps-autoclass-off",
+      "steps": [
+        {
+          "fingerprint": "d157a3d2c71b5273",
+          "name": "create-autoclass-disabled",
+          "request": "POST /storage/v1/b?project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag:str>",
+                "generation": "<generation:str:19>",
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                },
+                "id": "<new_bucket>",
+                "kind": "storage#bucket",
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "1",
+                "name": "<new_bucket>",
+                "projectNumber": "<project-number:str>",
+                "satisfiesPZI": true,
+                "selfLink": "<www-host>/storage/v1/b/<new_bucket>",
+                "softDeletePolicy": {
+                  "retentionDurationSeconds": "0"
+                },
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3995200d4a69ce6f",
+          "name": "get-autoclass-disabled",
+          "request": "GET /storage/v1/b/<new_bucket>?fields=autoclass%2CstorageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "storageClass": "STANDARD"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a3d695b6228e6ced",
+          "name": "delete",
+          "request": "DELETE /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "bkt-gaps-settings",
+      "steps": [
+        {
+          "fingerprint": "7a8bb7c5208d54c0",
+          "name": "enable-ubla",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": true,
+                    "lockedTime": "<time:f3>"
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockedTime": "<time:f3>"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c8552cfd73f6540c",
+          "name": "upload-predefined-acl-under-ubla",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name&name=bkt-gaps-settings-1&predefinedAcl=private&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "7809b441467183fe",
+          "name": "alias-conflict-modern-true-alias-false",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ca9b65599563a9af",
+          "name": "get-after-conflict-modern-true",
+          "request": "GET /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "47462b72bbb7b37a",
+          "name": "alias-conflict-modern-false-alias-true",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": true,
+                    "lockedTime": "<time:f3>"
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockedTime": "<time:f3>"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ca9b65599563a9af",
+          "name": "get-after-conflict-modern-false",
+          "request": "GET /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": true,
+                    "lockedTime": "<time:f3>"
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": true,
+                    "lockedTime": "<time:f3>"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4f7dccb54fc4c2ce",
+          "name": "disable-ubla",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=iamConfiguration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "iamConfiguration": {
+                  "bucketPolicyOnly": {
+                    "enabled": false
+                  },
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {
+                    "enabled": false
+                  }
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "4197f13f606d979d",
+          "name": "lifecycle-matches-pattern",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "MatchesPattern is not available for this project <project-number>",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "MatchesPattern is not available for this project <project-number>"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "f47202acd2cb642e",
+          "name": "lifecycle-clear",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {}
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup-object",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-settings-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-settings-1",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-settings-1"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "grpc-gaps-bidi-read",
+      "steps": [
+        {
+          "fingerprint": "9561602a04fc0230",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=grpc-gaps-bidi-read-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "KAwGng==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/grpc-gaps-bidi-read-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "eB5eJF1ptWaXm4bijSPyxw==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/grpc-gaps-bidi-read-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "grpc-gaps-bidi-read-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/grpc-gaps-bidi-read-1",
+                "size": "10",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a6d24a0be3e6f89a",
+          "name": "bidi-read-one-range-past-end",
+          "request": "GRPC google.storage.v2.Storage/BidiReadObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 7,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "domain": "<host>",
+                    "reason": "GRPC_BIDI_READ_OBJECT_NOT_ALLOWLISTED"
+                  }
+                ],
+                "message": "The BidiReadObject RPC is not yet available for general use, or for bucket (<bucket>) or its project."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 7
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-bidi-read-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-gaps-json",
+      "steps": [
+        {
+          "fingerprint": "595b0ee020b5bc92",
+          "name": "upload",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-json-1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-json-1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-json-1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-json-1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-json-1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "43afee283026983c",
+          "name": "patch-if-match-current",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-gaps-json-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "a": "1"
+                },
+                "metageneration": "2"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d3e76e1e885fe779",
+          "name": "patch-if-match-stale",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-gaps-json-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "a": "2"
+                },
+                "metageneration": "3"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5f3c5910f5ca6b14",
+          "name": "put-if-match-other",
+          "request": "PUT /storage/v1/b/<bucket>/o/obj-gaps-json-1?fields=metadata%2Cmetageneration%2CcontentType",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "contentType": "text/plain",
+                "metadata": {
+                  "a": "3"
+                },
+                "metageneration": "4"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f787ffcfbab26118",
+          "name": "get-after-if-match",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-gaps-json-1?fields=metadata%2Cmetageneration",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "a": "3"
+                },
+                "metageneration": "4"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "bcfdeb01e5ee362b",
+          "name": "upload-soft-delete-probe",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-json-1-sd&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "ZxSp8g==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-json-1-sd/<gsd>",
+                "kind": "storage#object",
+                "md5Hash": "UMH1i+f15H4PU9ZMCUeDwg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-json-1-sd?generation=<gsd>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-json-1-sd",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-json-1-sd",
+                "size": "4",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "2121df0e80c1dfed",
+          "name": "delete-soft-delete-probe",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-sd",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "fae787982168f8f8",
+          "name": "list-soft-deleted-policy-off",
+          "request": "GET /storage/v1/b/<bucket>/o?prefix=obj-gaps-json-1-sd&softDeleted=true",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Soft delete policy is required to list soft-deleted versions",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Soft delete policy is required to list soft-deleted versions"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "d03bf1925e53b67b",
+          "name": "get-soft-deleted-policy-off",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-gaps-json-1-sd?generation=<gsd>&softDeleted=true",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Soft delete policy is required to request a soft-deleted version.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Soft delete policy is required to request a soft-deleted version."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "5aadd6017d6a2a9b",
+          "name": "restore-policy-off",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-gaps-json-1-sd/restore?fields=name&generation=<gsd>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "bucket soft delete policy must be set.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "bucket soft delete policy must be set."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "f2c29812bd4b920a",
+          "name": "upload-glob-slash",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-json-1-g%2Fa&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "MLX0qA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-json-1-g/a/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "A8fArOOV2AGC2weuLDDwNA==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-json-1-g%2Fa?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-json-1-g/a",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-json-1-g%2Fa",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8c8dbda3bf7b1937",
+          "name": "upload-glob-dash",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-json-1-g-a&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "9CFXLA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-json-1-g-a/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "gnfgkQ11AZW0SHl2FuCRrQ==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-json-1-g-a?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-json-1-g-a",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-json-1-g-a",
+                "size": "1",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c1907cd432cefec4",
+          "name": "list-glob-class-with-slash",
+          "request": "GET /storage/v1/b/<bucket>/o?fields=items%28name%29%2Cprefixes&matchGlob=obj-gaps-json-1-g%5B%2F-%5Da",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "obj-gaps-json-1-g-a"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "dbd6fc82df215b89",
+          "name": "list-glob-negated-class",
+          "request": "GET /storage/v1/b/<bucket>/o?fields=items%28name%29%2Cprefixes&matchGlob=obj-gaps-json-1-g%5B%21x%5Da",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "obj-gaps-json-1-g-a"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "01292802a84a86cb",
+          "name": "list-glob-question-mark",
+          "request": "GET /storage/v1/b/<bucket>/o?fields=items%28name%29%2Cprefixes&matchGlob=obj-gaps-json-1-g%3Fa",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "name": "obj-gaps-json-1-g-a"
+                  }
+                ]
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6976257b87811d9f",
+          "name": "compose-delete-source-null",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-gaps-json-1-cmp1/compose?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-gaps-json-1-cmp1",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6d636db5a3dd78e0",
+          "name": "compose-destination-null",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-gaps-json-1-cmp2/compose?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-gaps-json-1-cmp2",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "980ae1bd68aa8c49",
+          "name": "get-source-after-compose",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-gaps-json-1?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-gaps-json-1"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a174697951819f97",
+          "name": "multipart-empty-content-language",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2CcontentLanguage&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "contentLanguage": "",
+                "name": "obj-gaps-json-1-lang"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e160504c0fe72009",
+          "name": "resumable-start-empty-content-language",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-json-1-lang2&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-gaps-json-1-lang2&uploadType=resumable&upload_id=<upload-id>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "8b77585666460829",
+          "name": "upload-gzip",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?contentEncoding=gzip&name=obj-gaps-json-1-gz&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentEncoding": "gzip",
+                "contentType": "text/plain",
+                "crc32c": "2mOptQ==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-json-1-gz/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "z1at6cOdPqJ7AP4Mg/Hhnw==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-json-1-gz?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-json-1-gz",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-json-1-gz",
+                "size": "28",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "74aaacc0196ad572",
+          "name": "head-gzip-media",
+          "request": "HEAD /storage/v1/b/<bucket>/o/obj-gaps-json-1-gz?alt=media",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-type": "text/plain",
+              "etag": "<etag:weak>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "warning": "214 UploadServer gunzipped",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=2mOptQ==,md5=z1at6cOdPqJ7AP4Mg/Hhnw==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "gzip",
+              "x-goog-stored-content-length": "28",
+              "x-guploader-response-body-transformations": "gunzipped",
+              "x-harness-body-framing": "chunked"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "b970a75521114471",
+          "name": "head-gzip-media-accept-gzip",
+          "request": "HEAD /storage/v1/b/<bucket>/o/obj-gaps-json-1-gz?alt=media",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-disposition": "attachment",
+              "content-encoding": "gzip",
+              "content-type": "text/plain",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin, Accept-Encoding",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=2mOptQ==,md5=z1at6cOdPqJ7AP4Mg/Hhnw==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "gzip",
+              "x-goog-stored-content-length": "28",
+              "x-harness-body-framing": "chunked"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "99b0666aee589150",
+          "name": "cleanup-main",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "fadd223c0803e108",
+          "name": "cleanup-sd",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-sd",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-gaps-json-1-sd",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-gaps-json-1-sd"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "6f454024dcedef22",
+          "name": "cleanup-glob-slash",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-g%2Fa",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "d8f4fbdd67a6e72e",
+          "name": "cleanup-glob-dash",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-g-a",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "78eca02925974898",
+          "name": "cleanup-cmp1",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-cmp1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "17a82d597abad0d7",
+          "name": "cleanup-cmp2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-cmp2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "e497f5dfb8298111",
+          "name": "cleanup-lang",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-lang",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "5c55423b7ccc502a",
+          "name": "cleanup-gz",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-json-1-gz",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-gaps-uploads",
+      "steps": [
+        {
+          "fingerprint": "f11ab6981903d902",
+          "name": "start-md5-wrong",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-md5w&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-md5w&uploadType=resumable&upload_id=<u1>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1be74a3398714b9b",
+          "name": "final-chunk-md5-wrong",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize%2Cmd5Hash&uploadType=resumable&upload_id=<u1>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-md5w/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-md5w?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-md5w",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-md5w",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a8406b2bc462608c",
+          "name": "start-md5-right",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-md5r&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-md5r&uploadType=resumable&upload_id=<u2>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ec90e85c04d4d438",
+          "name": "final-chunk-md5-right",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize%2Cmd5Hash&uploadType=resumable&upload_id=<u2>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-md5r/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-md5r?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-md5r",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-md5r",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a57f9de0f93549c6",
+          "name": "start-delete-completed",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-del&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-del&uploadType=resumable&upload_id=<u3>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "2ef9642c7906811e",
+          "name": "complete-before-delete",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize&uploadType=resumable&upload_id=<u3>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-del/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-del",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "81d29089bc9fa7b5",
+          "name": "delete-completed-session",
+          "request": "DELETE /upload/storage/v1/b/<bucket>/o?uploadType=resumable&upload_id=<u3>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-del/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-del",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "63f35f4ab4e57e3f",
+          "name": "status-after-delete-completed",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize&uploadType=resumable&upload_id=<u3>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-del/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-del",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d0c9a23e63638804",
+          "name": "get-after-delete-completed",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del?fields=name%2Csize",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-gaps-uploads-1-del",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5ec3d467060fb94a",
+          "name": "start-unknown-query",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-q1&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-q1&uploadType=resumable&upload_id=<u4>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ba2e5e91a5ec5913",
+          "name": "chunk-with-unknown-query",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize&gcsmimicprobe=1&uploadType=resumable&upload_id=<u4>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-q1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-q1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q1",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "95dc774149355f58",
+          "name": "start-chunk-precondition",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-q2&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/plain; charset=utf-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "location": "<host>/upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-q2&uploadType=resumable&upload_id=<u5>",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3fcbe8a994b58a4a",
+          "name": "chunk-with-failing-if-generation-match",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize&ifGenerationMatch=1&uploadType=resumable&upload_id=<u5>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-q2/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q2?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-q2",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q2",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5c2a5e33b6878d05",
+          "name": "status-after-chunk-precondition",
+          "request": "PUT /upload/storage/v1/b/<bucket>/o?fields=name%2Csize&uploadType=resumable&upload_id=<u5>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/obj-gaps-uploads-1-q2/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q2?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "obj-gaps-uploads-1-q2",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q2",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "7a64f9fa793e0a7e",
+          "name": "start-content-type-conflict",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=obj-gaps-uploads-1-ct&uploadType=resumable",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Content-Type specified in the upload (text/plain) does not match Content-Type specified in metadata (text/csv). If it was a simple upload (uploadType=media), the Content-Type was specified as a bare header. If it was a multipart upload (uploadType=multipart), then the Content-Type was specified in the second part of the multipart. If it was a resumable upload (uploadType=resumable), then the Content-Type was specified with the X-Upload-Content-Type header with the start of the resumable session. For more information, see https://cloud.google.com/storage/docs/json_api/v1/how-tos/upload.\",\n    \"errors\": [\n      {\n        \"message\": \"Content-Type specified in the upload (text/plain) does not match Content-Type specified in metadata (text/csv). If it was a simple upload (uploadType=media), the Content-Type was specified as a bare header. If it was a multipart upload (uploadType=multipart), then the Content-Type was specified in the second part of the multipart. If it was a resumable upload (uploadType=resumable), then the Content-Type was specified with the X-Upload-Content-Type header with the start of the resumable session. For more information, see https://cloud.google.com/storage/docs/json_api/v1/how-tos/upload.\",\n        \"domain\": \"global\",\n        \"reason\": \"invalid\"\n      }\n    ]\n  }\n}\n"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "7ede4cf7c32db4d2",
+          "name": "multipart-7bit",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Csize%2Cmd5Hash&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "name": "obj-gaps-uploads-1-7bit",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "44109357097b5452",
+          "name": "multipart-8bit",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Csize%2Cmd5Hash&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "name": "obj-gaps-uploads-1-8bit",
+                "size": "5"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "2dbb0ad9539f883d",
+          "name": "multipart-quoted-printable",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Csize%2Cmd5Hash&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "md5Hash": "4Tii7vjPq6vSLvdUL7dV5w==",
+                "name": "obj-gaps-uploads-1-qp",
+                "size": "8"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6c7cf72649958f8e",
+          "name": "cleanup-md5w",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-md5w",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "5c0fd55c1ded984f",
+          "name": "cleanup-md5r",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-md5r",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "1a1feebb1fe10488",
+          "name": "cleanup-del",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-del",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "39b100d09da3f48f",
+          "name": "cleanup-q1",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "b0a2d8736c6e3550",
+          "name": "cleanup-q2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-q2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "ff0ae316b326a628",
+          "name": "cleanup-ct",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-ct",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/obj-gaps-uploads-1-ct",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/obj-gaps-uploads-1-ct"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "e2bf7277c1b5abd5",
+          "name": "cleanup-7bit",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-7bit",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "b526c7b9554cb1d8",
+          "name": "cleanup-8bit",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-8bit",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "4c4ac57434c8b1d2",
+          "name": "cleanup-qp",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-uploads-1-qp",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "xml-gaps-objects",
+      "steps": [
+        {
+          "fingerprint": "00f39c8e1261c81f",
+          "name": "put-owner-probe",
+          "request": "PUT /<bucket>/xml-gaps-objects-1-o",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "6cfcbec9ab7000c7",
+          "name": "list-v2-fetch-owner-true",
+          "request": "GET /<bucket>?fetch-owner=true&list-type=2&prefix=xml-gaps-objects-1-o",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "attrs": {
+                  "xmlns": "http://doc.s3.amazonaws.com/2006-03-01"
+                },
+                "children": [
+                  {
+                    "name": "Name",
+                    "text": "<bucket>"
+                  },
+                  {
+                    "name": "Prefix",
+                    "text": "xml-gaps-objects-1-o"
+                  },
+                  {
+                    "name": "KeyCount",
+                    "text": "1"
+                  },
+                  {
+                    "name": "IsTruncated",
+                    "text": "false"
+                  },
+                  {
+                    "children": [
+                      {
+                        "name": "Key",
+                        "text": "xml-gaps-objects-1-o"
+                      },
+                      {
+                        "name": "Generation",
+                        "text": "<generation:16>"
+                      },
+                      {
+                        "name": "MetaGeneration",
+                        "text": "1"
+                      },
+                      {
+                        "name": "LastModified",
+                        "text": "<time:f3>"
+                      },
+                      {
+                        "name": "ETag",
+                        "text": "<etag:quoted>"
+                      },
+                      {
+                        "name": "Size",
+                        "text": "1"
+                      },
+                      {
+                        "children": [
+                          {
+                            "name": "ID",
+                            "text": "<owner>"
+                          },
+                          {
+                            "name": "DisplayName",
+                            "text": "<owner>"
+                          }
+                        ],
+                        "name": "Owner"
+                      }
+                    ],
+                    "name": "Contents"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "ListBucketResult"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-goog-metageneration": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3392c060be3eec3a",
+          "name": "get-invalid-bucket-uppercase",
+          "request": "GET /Invalid_Bucket/xml-gaps-objects-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidBucketName"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The specified bucket is not valid."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Invalid bucket name: 'Invalid_Bucket'"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "f4cccc11d4c65512",
+          "name": "get-invalid-bucket-punctuation",
+          "request": "GET /gcsmimic!bad/xml-gaps-objects-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidBucketName"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The specified bucket is not valid."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Invalid bucket name: 'gcsmimic!bad'"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "62b8b2c941c6fc96",
+          "name": "get-encoded-slash-bucket",
+          "request": "GET /gcsmimic%2Fbad/xml-gaps-objects-1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "NoSuchBucket"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The specified bucket does not exist."
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "0cb033b6d44948ea",
+          "name": "upload-non-ascii-metadata",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=xml-gaps-objects-1-m1&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "c0midQ==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/xml-gaps-objects-1-m1/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "rnvibNqnQsoUgGjVrJDqyg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/xml-gaps-objects-1-m1?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "xml-gaps-objects-1-m1",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/xml-gaps-objects-1-m1",
+                "size": "2",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d5d2be0a23aac3b0",
+          "name": "patch-non-ascii-metadata",
+          "request": "PATCH /storage/v1/b/<bucket>/o/xml-gaps-objects-1-m1?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "k": "日本語"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "48fa40c459564f39",
+          "name": "xml-get-non-ascii-metadata",
+          "request": "GET /<bucket>/xml-gaps-objects-1-m1",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "m1"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=c0midQ==, md5=rnvibNqnQsoUgGjVrJDqyg==",
+              "x-goog-meta-k": "日本語",
+              "x-goog-metageneration": "2",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "2",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3e909c83a1a09ab7",
+          "name": "xml-head-non-ascii-metadata",
+          "request": "HEAD /<bucket>/xml-gaps-objects-1-m1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=c0midQ==, md5=rnvibNqnQsoUgGjVrJDqyg==",
+              "x-goog-meta-k": "日本語",
+              "x-goog-metageneration": "2",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "2",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "0bb1df677535e710",
+          "name": "upload-case-colliding-metadata",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=xml-gaps-objects-1-m2&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "YBlRgQ==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/xml-gaps-objects-1-m2/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "qvL4mZI3lwXayETAoqHUXw==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/xml-gaps-objects-1-m2?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "xml-gaps-objects-1-m2",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/xml-gaps-objects-1-m2",
+                "size": "2",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ff9a614807646dfd",
+          "name": "patch-case-colliding-metadata",
+          "request": "PATCH /storage/v1/b/<bucket>/o/xml-gaps-objects-1-m2?fields=metadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "Dup": "1",
+                  "dup": "2"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1097d29340e39954",
+          "name": "xml-get-case-colliding-metadata",
+          "request": "GET /<bucket>/xml-gaps-objects-1-m2",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "m2"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=YBlRgQ==, md5=qvL4mZI3lwXayETAoqHUXw==",
+              "x-goog-meta-dup": "1, 2",
+              "x-goog-metageneration": "2",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "2",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e2258e5653b0a2e2",
+          "name": "upload-compose-part",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?name=xml-gaps-objects-1-p&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "contentType": "text/plain",
+                "crc32c": "mnG7TA==",
+                "etag": "<etag:str>",
+                "generation": "<generation:str:16>",
+                "id": "<bucket>/xml-gaps-objects-1-p/<generation:16>",
+                "kind": "storage#object",
+                "md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+                "mediaLink": "<host>/download/storage/v1/b/<bucket>/o/xml-gaps-objects-1-p?generation=<generation:16>&alt=media",
+                "metageneration": "1",
+                "name": "xml-gaps-objects-1-p",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/o/xml-gaps-objects-1-p",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "timeCreated": "<time:f3>",
+                "timeFinalized": "<time:f3>",
+                "timeStorageClassUpdated": "<time:f3>",
+                "updated": "<time:f3>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "be9f382737cceee5",
+          "name": "compose",
+          "request": "POST /storage/v1/b/<bucket>/o/xml-gaps-objects-1-cmp/compose?fields=name%2Cetag",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag:str>",
+                "name": "xml-gaps-objects-1-cmp"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "7c85ab40d52030dd",
+          "name": "xml-head-composite",
+          "request": "HEAD /<bucket>/xml-gaps-objects-1-cmp",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "application/octet-stream",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-component-count": "2",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=/RCOgg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "10",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "c412f0a56fac2a49",
+          "name": "xml-get-composite-if-match-json-etag",
+          "request": "GET /<bucket>/xml-gaps-objects-1-cmp",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "PreconditionFailed"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "At least one of the pre-conditions you specified did not hold."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "If-Match:<cetag>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 412
+          }
+        },
+        {
+          "fingerprint": "862ad4e0842edb8d",
+          "name": "xml-get-plain-if-match-md5",
+          "request": "GET /<bucket>/xml-gaps-objects-1-p",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "hello"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=mnG7TA==, md5=XUFAKrxLKna5cZ2REBfFkg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "5",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "1bc26fddf6a39c91",
+          "name": "upload-encrypted",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Cetag&name=xml-gaps-objects-1-enc&uploadType=media",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "etag": "<etag:str>",
+                "name": "xml-gaps-objects-1-enc"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3f6c8ce310414d39",
+          "name": "xml-head-encrypted-without-key",
+          "request": "HEAD /<bucket>/xml-gaps-objects-1-enc",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "private, max-age=0",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "<time:http>",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "a104627aa227e500",
+          "name": "xml-get-encrypted-if-match-md5",
+          "request": "GET /<bucket>/xml-gaps-objects-1-enc",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "PreconditionFailed"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "At least one of the pre-conditions you specified did not hold."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "If-Match:5d41402abc4b2a76b9719d911017c592"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 412
+          }
+        },
+        {
+          "fingerprint": "3322af076fa05b6a",
+          "name": "xml-get-encrypted-if-match-json-etag",
+          "request": "GET /<bucket>/xml-gaps-objects-1-enc",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "PreconditionFailed"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "At least one of the pre-conditions you specified did not hold."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "If-Match:<eetag>"
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/xml; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "last-modified": "<time:http>",
+              "pragma": "no-cache",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 412
+          }
+        },
+        {
+          "fingerprint": "a00d0943c8dac6f8",
+          "name": "cleanup-o",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-gaps-objects-1-o",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "6e13b463a8a23663",
+          "name": "cleanup-m1",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-gaps-objects-1-m1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "8b8eef2bb7fbce94",
+          "name": "cleanup-m2",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-gaps-objects-1-m2",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "80110802afbefe5b",
+          "name": "cleanup-p",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-gaps-objects-1-p",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "10c5e6206cc346df",
+          "name": "cleanup-cmp",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-gaps-objects-1-cmp",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "75cc59590d119ba7",
+          "name": "cleanup-enc",
+          "request": "DELETE /storage/v1/b/<bucket>/o/xml-gaps-objects-1-enc",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
     }
   ],
   "format": 2,
-  "generated": "2026-11-16",
+  "generated": "2026-11-17",
   "recorded_dates": [
     "2026-11-01",
     "2026-11-02",
@@ -51025,9 +53907,10 @@
     "2026-11-09",
     "2026-11-13",
     "2026-11-15",
-    "2026-11-16"
+    "2026-11-16",
+    "2026-11-17"
   ],
-  "requests": 1843,
+  "requests": 1962,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

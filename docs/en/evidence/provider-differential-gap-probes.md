@@ -4,7 +4,7 @@ Recorded on **2026-11-13**. This evidence answers questions that open entries in
 the [gap ledger](../../../compatibility/gaps.json) asked of Cloud Storage, and
 records what gcs-mimic does after the follow-up changes. It covers only the
 request shapes listed below; it does not establish unrestricted Cloud Storage
-API parity.
+API parity. A third recording, on 2026-11-17, is described in the last section.
 
 ## Live recording
 
@@ -132,3 +132,76 @@ cargo xtask lint
 
 `cargo test` exited 0 with no failed test, and `cargo xtask lint` reported 0 new
 production violations.
+
+## Third recording: questions the ledger still held
+
+Recorded on **2026-11-17**. Six new cases sent the questions that open ledger
+entries still asked about implemented features, with the project and access
+token again supplied only through environment variables:
+
+```sh
+cargo xtask differential run --filter -gaps- --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out compatibility/differential/reference/gcs.json
+```
+
+- Requests sent to Cloud Storage: the first run sent **116** and could not be
+  merged, because Cloud Storage refused a resumable initiation whose session a
+  later step captured (that refusal was the answer the step asked for), so the
+  rest of that case did not run. After the step stopped capturing, a second run
+  of all six cases sent **119**. Neither run received an HTTP 429.
+- Resources per run: the harness's shared bucket, one bucket of its own and one
+  bucket a case created, all in us-central1 with soft delete off and objects of
+  a few bytes. The customer-supplied keys are fixed test values. No CMEK key,
+  Pub/Sub topic, HMAC key or retention lock was used.
+- Cleanup: every bucket was deleted and confirmed 404, and the final listing of
+  each run found nothing left.
+
+The reference now holds **130** cases and **1962** requests. "Declared" below
+means the step carries a `local_choice` whose reason names this recording and
+the gap, so the replay stays green while the difference stays visible; a marker
+is removed when gcs-mimic is aligned.
+
+| Case | Gap | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `obj-gaps-json` | SPEC-METADATA-IF-MATCH | If-Match on an object metadata PATCH or PUT is ignored: the current etag, a superseded etag and `"bogus"` all answer 200 and apply the change | Differs: 412 for a non-matching value (declared) |
+| `obj-gaps-json` | SPEC-SOFT-DELETE | On a bucket with soft delete off, a `softDeleted` listing, a `softDeleted` get and a restore are 400 invalid: `Soft delete policy is required to list soft-deleted versions`, `Soft delete policy is required to request a soft-deleted version.` and `bucket soft delete policy must be set.` | Differs: an empty listing, 404 and 404 (declared) |
+| `obj-gaps-json` | SPEC-LIST-GLOB-EDGES | The globs `[/-]`, `[!x]` and `?` never match a slash | Matched |
+| `obj-gaps-json` | SPEC-RUBY-DEFAULTS | Compose with `deleteSourceObjects: null` or `destination: null` succeeds and keeps the source | Matched |
+| `obj-gaps-json` | SPEC-015 | An empty `contentLanguage` is stored by a multipart upload and accepted by a resumable initiation; a media HEAD of a gzip-stored object answers like the GET without a body | Differs for the empty `contentLanguage`: 400 (declared). The HEAD matched; its body framing is ignored as in `obj-range-head` |
+| `obj-gaps-uploads` | SPEC-RSM-EDGES | A wrong `Content-MD5` on the final chunk is ignored; DELETE on a completed session is 200 with the object; an initiation whose metadata `contentType` disagrees with `X-Upload-Content-Type` is a text/html 400 invalid | Matched for `Content-MD5`. Differs for the DELETE (410) and the disagreeing initiation (200), both declared |
+| `obj-gaps-uploads` | SPEC-RSM-AUTH-CONDITIONS | A chunk PUT ignores an unknown query parameter and `ifGenerationMatch` | Matched |
+| `obj-gaps-uploads` | SPEC-016 | Media parts with transfer encoding 7bit, 8bit and quoted-printable are stored as sent, without decoding | Differs: 400 invalidParameter (declared) |
+| `xml-gaps-objects` | SPEC-CROSS-PROTOCOL-EXCLUSIONS | A version 2 listing with `fetch-owner=true` is 200 with an Owner for each object | Differs: 400 InvalidArgument (declared) |
+| `xml-gaps-objects` | SPEC-XML-PATH-ERROR | An invalid bucket segment is XML 400 InvalidBucketName; one with a percent-encoded slash is XML 404 NoSuchBucket | Differs: the JSON 404 unknown-route error (declared) |
+| `xml-gaps-objects` | SPEC-XML-INPUTS | A non-ASCII metadata value is served as raw UTF-8; the keys `Dup` and `dup` become one `x-goog-meta-dup: 2, 1`; the XML ETag of a composite or customer-encrypted object is not its JSON etag, nor for the encrypted one the plaintext MD5; an XML HEAD of an encrypted object without its key is 400 | Matched for the non-ASCII value. Differs for the colliding keys (400), both entity tags (200 with the JSON etag), the keyless HEAD (200) and the headers and Details of the encrypted object's 412 (declared) |
+| `bkt-gaps-settings` | SPEC-UBLA-EDGES | On a bucket with uniform access, the alias whose value changes the stored setting wins in both directions; an upload with `predefinedAcl=private` is 400 invalid | Matched for the aliases. The upload differs in reason and message (declared) |
+| `bkt-gaps-settings` | SPEC-LIFECYCLE-CONFIG | A `matchesPattern` condition is 400 invalid `MatchesPattern is not available for this project <project-number>` | Differs in reason and message (declared) |
+| `bkt-gaps-autoclass-off` | SPEC-RUBY-DEFAULTS | A bucket created with `autoclass.enabled` false carries no `autoclass` | Matched |
+| `grpc-gaps-bidi-read` | SPEC-GRPC-PENDING-RANGES | PERMISSION_DENIED with reason `GRPC_BIDI_READ_OBJECT_NOT_ALLOWLISTED`: BidiReadObject is not available to the recording project | Differs: the RPC is served (declared). The pending-range question stays open |
+
+Reading the reference for this run also showed ledger questions that earlier
+cases had already answered, and the ledger now says so: a past
+`retainUntilTime` is 400 (`obj-retention-unlocked`), a mismatching XML CRC32C is
+400 CrcMismatch (`xml-put-edges`), testIamPermissions without `permissions` is
+400 (`bkt-iam-pap-ubla`), `Range: bytes=abc` serves the whole object
+(`obj-download-range`), and a private XML object's default Cache-Control is
+`private, max-age=0` (`xml-object-crud`). gcs-mimic matches each in replay.
+
+Questions this run did not send, and why:
+
+- The harness refuses retention locks, HMAC key creation and public access, so
+  those answers under SPEC-RETENTION-POLICY, SPEC-HMAC-WIRE and SPEC-PAP-EDGES
+  stay unrecorded.
+- It sends every request with the measuring account's token, so anonymous,
+  invalid-credential and less-privileged callers (SPEC-017) stay unrecorded.
+- It has no step that waits, so lifecycle and Autoclass execution, configuration
+  propagation, hold-release timing and session expiry stay unrecorded.
+- A soft-deleted bucket would outlive the run, so SPEC-BUCKET-SOFT-DELETE was
+  not probed.
+- Questions that need thousands of objects or members, concurrent writers or
+  large copies were left out for cost.
+
+A replay of the merged reference on 2026-11-17 with `--fail-on-diff
+--fail-on-note` found all 130 cases `match`, the declared steps reported as
+local choices. No gcs-mimic source changed in this run.

@@ -1,0 +1,9 @@
+{
+  "id": "grpc-gaps-bidi-read",
+  "description": "Storage v2 BidiReadObject with three ranges, the second starting past the end of a 10-byte object: the status of the failing range and of the other pending ranges in BidiReadObjectError. Read handles are opaque and ignored. Checks SPEC-GRPC-PENDING-RANGES.",
+  "steps": [
+    {"name": "upload", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}"}, "headers": {"Content-Type": "text/plain"}, "body_text": "0123456789", "expect_status": 200},
+    {"name": "bidi-read-one-range-past-end", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage refuses BidiReadObject for the recording project with PERMISSION_DENIED GRPC_BIDI_READ_OBJECT_NOT_ALLOWLISTED, so the pending-range question stays open; gcs-mimic serves the RPC and reports the range past the end as OUT_OF_RANGE (SPEC-GRPC-PENDING-RANGES).", "mimic_status": 11},"protocol": "grpc", "rpc": "google.storage.v2.Storage/BidiReadObject", "headers": {"x-goog-request-params": "bucket=projects%2F_%2Fbuckets%2F{bucket}"}, "body": [{"readObjectSpec": {"bucket": "projects/_/buckets/{bucket}", "object": "{object}"}, "readRanges": [{"readOffset": "0", "readLength": "2", "readId": "1"}, {"readOffset": "100", "readLength": "2", "readId": "2"}, {"readOffset": "4", "readLength": "2", "readId": "3"}]}], "compare": {"ignore_body_paths": ["$.readHandle", "$[*].readHandle", "$.metadata", "$[*].metadata"]}},
+    {"name": "cleanup", "method": "DELETE", "path": "/storage/v1/b/{bucket}/o/{object}", "compare": false, "always": true}
+  ]
+}
