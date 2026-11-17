@@ -70,12 +70,19 @@ already used.
 
 ## Not supported
 
-These keep their explicit 400 responses: object PATCH/PUT `predefinedAcl`,
-bucket `predefinedAcl` and `predefinedDefaultObjectAcl`, and gRPC
-`predefined_acl` fields. Since 2026-11-17 `destinationPredefinedAcl` on copy,
-rewrite and compose applies the same canned entries at publication, as Cloud
-Storage did (case `obj-unsupported-derived`), and under uniform access draws
-the same 400 `invalid` refusal as an upload (case `bkt-gaps-settings`).
+These keep their explicit 400 responses: bucket `predefinedAcl` and
+`predefinedDefaultObjectAcl` on insert, and gRPC `predefined_acl` fields. Since
+2026-11-17 `destinationPredefinedAcl` on copy, rewrite and compose applies the
+same canned entries at publication, as Cloud Storage did (case
+`obj-unsupported-derived`), and under uniform access draws the same 400
+`invalid` refusal as an upload (case `bkt-gaps-settings`). An object PATCH or
+PUT with `predefinedAcl` replaces the existing ACL with the canned entries and
+the owner's grant, needs `storage.objects.setIamPolicy` like an `acl` body, and
+under uniform access is refused with 400 `invalid` `Cannot update access
+control for an object when uniform bucket-level access is enabled.` (cases
+`obj-unsupported-inputs` and `bkt-gaps-settings`). A request naming both
+`predefinedAcl` and an `acl` body is refused, since no recording shows which
+one wins.
 
 ## XML API `x-goog-acl`
 

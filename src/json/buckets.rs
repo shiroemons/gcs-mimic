@@ -842,6 +842,8 @@ pub(crate) enum PredefinedAclTarget {
     ObjectUpload,
     /// A copy, rewrite or compose, which applies `destinationPredefinedAcl` outside UBLA.
     DerivedObject,
+    /// A metadata PATCH or PUT, which replaces the ACL with `predefinedAcl` outside UBLA.
+    ObjectUpdate,
 }
 
 impl PredefinedAclTarget {
@@ -849,8 +851,16 @@ impl PredefinedAclTarget {
     fn applied_key(self) -> Option<&'static str> {
         match self {
             Self::Object => None,
-            Self::ObjectUpload => Some("predefinedAcl"),
+            Self::ObjectUpload | Self::ObjectUpdate => Some("predefinedAcl"),
             Self::DerivedObject => Some("destinationPredefinedAcl"),
+        }
+    }
+
+    /// Whether the write publishes a new object, whose canned ACL it chooses.
+    fn publishes(self) -> bool {
+        match self {
+            Self::ObjectUpload | Self::DerivedObject => true,
+            Self::Object | Self::ObjectUpdate => false,
         }
     }
 }
@@ -954,8 +964,10 @@ pub(crate) fn reject_predefined_acl(
     // Documented for uploads: an anonymous caller cannot name a canned ACL. Its object belongs
     // to the project owners team, so the caller would choose the ACL of an object it does not
     // own. A copy, rewrite or compose publishes the same kind of object, as an XML copy with
-    // x-goog-acl does, so the rule covers them too.
+    // x-goog-acl does, so the rule covers them too. A metadata write changes an existing
+    // object's ACL, which storage.objects.setIamPolicy governs instead.
     if let Some(key) = target.applied_key()
+        && target.publishes()
         && query.contains_key(key)
         && matches!(
             access,
@@ -977,10 +989,20 @@ pub(crate) fn reject_predefined_acl(
         let applies = target.applied_key() == Some(key);
         match uniform_access {
             UniformAccess::Disabled if applies => {}
-            // The refusal the publishing transaction gives (reason invalid, recorded
-            // 2026-11-17), checked here before any body is read.
+            // The refusal the publishing or updating transaction gives (reason invalid,
+            // recorded 2026-11-17), checked here before any body is read.
             UniformAccess::Enabled if applies => {
-                return Err(crate::object::ObjectError::UniformAccessPredefinedAcl.into());
+                return Err(match target {
+                    PredefinedAclTarget::ObjectUpdate => {
+                        crate::object::ObjectError::UniformAccessAclUpdate
+                    }
+                    PredefinedAclTarget::Object
+                    | PredefinedAclTarget::ObjectUpload
+                    | PredefinedAclTarget::DerivedObject => {
+                        crate::object::ObjectError::UniformAccessPredefinedAcl
+                    }
+                }
+                .into());
             }
             UniformAccess::Enabled => {
                 return Err(JsonError::invalid_argument(format!(

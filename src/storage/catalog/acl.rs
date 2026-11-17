@@ -87,6 +87,21 @@ impl PublicationAcl<'_> {
     }
 }
 
+/// The entries a metadata write's canned ACL stands for on `bucket`. Uniform access refuses it
+/// in Cloud Storage's words; the transaction rechecks what the request checked before it read
+/// the body.
+pub(super) fn predefined_object_entries(
+    connection: &Connection,
+    bucket: &str,
+    acl: crate::acl::PredefinedObjectAcl,
+) -> Result<Vec<AclEntry>, ObjectError> {
+    let row = bucket_row(connection, bucket)?.ok_or(ObjectError::BucketNotFound)?;
+    if row.uniform_access {
+        return Err(ObjectError::UniformAccessAclUpdate);
+    }
+    Ok(acl.entries(&row.project))
+}
+
 pub(super) fn effective_object_entries(
     connection: &Connection,
     record: &crate::object::ObjectRecord,

@@ -22,7 +22,9 @@ remain pending.
   [upload predefined ACL evidence](../evidence/upload-predefined-acl.md), and
   copy, rewrite and compose apply `destinationPredefinedAcl` (case
   `obj-unsupported-derived`). Under uniform access the object writes give
-  Cloud Storage's 400 invalid refusal (case `bkt-gaps-settings`).
+  Cloud Storage's 400 invalid refusal (case `bkt-gaps-settings`). An object
+  PATCH or PUT with `predefinedAcl` replaces the ACL, and under uniform access
+  gets Cloud Storage's own 400 invalid refusal for an ACL update (same case).
 - Schema 22 migrates existing buckets to disabled uniform access.
 - Pinned Go and Ruby high-level clients create, inspect and disable access;
   Go Writer predefined ACL fails without publishing an object.

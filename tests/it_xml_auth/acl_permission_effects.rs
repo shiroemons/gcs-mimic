@@ -18,6 +18,7 @@ mod owner;
 mod owner_authority;
 mod owner_publication;
 mod owner_replay;
+mod predefined_update;
 mod predefined_upload;
 mod read;
 mod xml_canned;

@@ -260,25 +260,27 @@ impl Catalog {
                 &access,
             )?;
             validate(&record)?;
-            match &update.acl {
-                crate::acl::AclRequest::Omitted => {}
+            let requested = match &update.acl {
+                crate::acl::AclRequest::Omitted => None,
                 crate::acl::AclRequest::Entries(entries) => {
-                    super::acl::replace_resource_acl(
-                        &transaction,
-                        super::acl::ResolvedAclTarget::Object {
-                            bucket: &bucket,
-                            name: &name,
-                            generation: record.generation,
-                        },
-                        entries,
-                        &access,
-                        principals.as_ref(),
-                    ).map_err(acl_update_error)?;
+                    Some(std::borrow::Cow::Borrowed(entries.as_slice()))
                 }
-                // No metadata write names a canned ACL yet.
-                crate::acl::AclRequest::Predefined(_) => {
-                    return Err(ObjectError::UnsupportedMetadata("predefinedAcl".into()));
-                }
+                crate::acl::AclRequest::Predefined(acl) => Some(std::borrow::Cow::Owned(
+                    super::acl::predefined_object_entries(&transaction, &bucket, *acl)?,
+                )),
+            };
+            if let Some(entries) = requested {
+                super::acl::replace_resource_acl(
+                    &transaction,
+                    super::acl::ResolvedAclTarget::Object {
+                        bucket: &bucket,
+                        name: &name,
+                        generation: record.generation,
+                    },
+                    &entries,
+                    &access,
+                    principals.as_ref(),
+                ).map_err(acl_update_error)?;
             }
             let previous_retention = record.retention;
             let previous_event_hold = record.event_based_hold;

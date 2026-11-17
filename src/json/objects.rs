@@ -41,6 +41,8 @@ pub(crate) struct ObjectUpdateParams {
     pub projection: Projection,
     pub mode: WriteMode,
     pub retention_override: UnlockedOverride,
+    /// `predefinedAcl`, which replaces the object's ACL.
+    pub predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
 }
 
 /// A media, multipart or resumable upload: the object it names and the options its query
@@ -163,8 +165,8 @@ impl ObjectRequest {
         }
     }
 
-    /// What a predefined ACL query parameter would apply to: an upload applies
-    /// `predefinedAcl` and a copy or compose `destinationPredefinedAcl`, outside uniform
+    /// What a predefined ACL query parameter would apply to: an upload and a metadata write
+    /// apply `predefinedAcl` and a copy or compose `destinationPredefinedAcl`, outside uniform
     /// bucket-level access.
     pub(crate) fn predefined_acl_target(&self) -> PredefinedAclTarget {
         match self {
@@ -172,10 +174,10 @@ impl ObjectRequest {
                 PredefinedAclTarget::ObjectUpload
             }
             Self::Copy(_) | Self::Compose(_) => PredefinedAclTarget::DerivedObject,
+            Self::Update(_) => PredefinedAclTarget::ObjectUpdate,
             Self::Restore { .. }
             | Self::Move(_)
             | Self::List(_)
-            | Self::Update(_)
             | Self::Get { .. }
             | Self::Delete { .. } => PredefinedAclTarget::Object,
         }
@@ -527,8 +529,6 @@ fn take_common_parameters(
         &["kmsKeyName"]
     } else if matches!(*method, Method::GET | Method::HEAD) {
         &["restoreToken"]
-    } else if method == Method::PATCH || method == Method::PUT {
-        &["predefinedAcl"]
     } else {
         &[]
     };
@@ -703,11 +703,15 @@ fn parse_named_object_query(
         } else {
             UnlockedOverride::NotRequested
         };
+        // Cloud Storage applied predefinedAcl=private on a PATCH (case obj-unsupported-inputs,
+        // recorded 2026-11-13); a PUT declares the same parameter.
+        let predefined_acl = take_predefined_acl(&mut query, "predefinedAcl")?;
         return Ok(ObjectRequest::Update(ObjectUpdateParams {
             target,
             conditions,
             projection,
             retention_override,
+            predefined_acl,
             mode: if method == Method::PUT {
                 WriteMode::Replace
             } else {

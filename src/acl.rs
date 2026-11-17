@@ -653,6 +653,10 @@ pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
 /// case bkt-gaps-settings).
 pub(crate) const UNIFORM_ACCESS_UPLOAD_ACL: &str = "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
 
+/// The 400 message for an object metadata write's `predefinedAcl` under uniform access
+/// (recorded 2026-11-17, case bkt-gaps-settings).
+pub(crate) const UNIFORM_ACCESS_UPDATE_ACL: &str = "Cannot update access control for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
+
 crate::config::string_enum! {
     no_default listed
     /// A JSON API object `predefinedAcl` value. `publicReadWrite` is bucket-only and is not one.

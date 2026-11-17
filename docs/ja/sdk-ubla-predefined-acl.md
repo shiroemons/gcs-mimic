@@ -34,6 +34,8 @@ ACLを適用したふりはしません。
 アップロードと同じく適用します（ケース `obj-unsupported-derived`）。
 UBLAが有効な場合のオブジェクト書き込みは、Cloud Storageと同じ400 `invalid` で
 拒否します（ケース `bkt-gaps-settings`）。
+オブジェクトのPATCH・PUTの `predefinedAcl` はACLを置き換えます。
+UBLAが有効な場合は、ACL更新についてのCloud Storage自身の400 `invalid` で拒否します（同じケース）。
 範囲と証跡は [英語の証跡](../en/evidence/upload-predefined-acl.md) にあります。
 copy・rewrite・compose・オブジェクトのPATCH/PUTは引き続き400で拒否します。
 

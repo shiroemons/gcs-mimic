@@ -262,8 +262,8 @@ The reference now holds **130** cases and **2112** requests.
 | --- | --- | --- | --- |
 | `obj-retention-unlocked` | An Unlocked retention on a copy, rewrite and compose destination in a bucket with object retention | 200, and each destination holds the retention | Matched since aligned (was 400 `badRequest`) |
 | `bkt-gaps-settings` | `destinationPredefinedAcl=private` on a copy, rewrite and compose under uniform access | 400 `invalid` `Cannot insert legacy ACL for an object when uniform bucket-level access is enabled.` and a documentation link, as for an upload | Matched since aligned (was 400 `invalidArgument` with guidance) |
-| `bkt-gaps-settings` | objects.patch with `predefinedAcl=private` under uniform access | 400 `invalid` `Cannot update access control for an object when uniform bucket-level access is enabled.` and a documentation link | Differs: 400 `badRequest`, `predefinedAcl` unsupported on a PATCH (declared) |
-| `obj-unsupported-inputs` | The ACL after objects.patch with `predefinedAcl=private` | The owner's OWNER grant alone | Differs: the PATCH is refused and the ACL keeps its project grants (declared) |
+| `bkt-gaps-settings` | objects.patch with `predefinedAcl=private` under uniform access | 400 `invalid` `Cannot update access control for an object when uniform bucket-level access is enabled.` and a documentation link | Matched since aligned (was 400 `badRequest`, `predefinedAcl` unsupported on a PATCH) |
+| `obj-unsupported-inputs` | The ACL after objects.patch with `predefinedAcl=private` | The owner's OWNER grant alone | Matched since aligned (the PATCH was refused and the ACL kept its project grants). The PATCH itself compares without `metageneration`, which trails by one because gcs-mimic still refuses the empty-key PATCH before it |
 
 The 2026-11-13 steps of `obj-unsupported-derived` for `temporaryHold`,
 `customTime`, `destinationPredefinedAcl` and a retention in a bucket without

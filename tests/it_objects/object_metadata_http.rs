@@ -613,11 +613,13 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         server
             .update(method, "", json!({"acl":null}))
             .metadata_error(400, "invalid");
-        for query in ["predefinedAcl=private", "callback=test"] {
-            server
-                .update(method, &format!("?{query}"), json!({}))
-                .metadata_error(400, "badRequest");
-        }
+        server
+            .update(method, "?callback=test", json!({}))
+            .metadata_error(400, "badRequest");
+        // `publicReadWrite` is a bucket ACL only.
+        server
+            .update(method, "?predefinedAcl=publicReadWrite", json!({}))
+            .metadata_error(400, "invalidParameter");
         for query in [
             "generation=x",
             "ifGenerationMatch=9223372036854775808",

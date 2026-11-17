@@ -133,10 +133,6 @@ fn declared_but_unsupported_and_unrecorded_methods_still_reject() {
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=other&kmsKeyName=key",
         ),
         ("GET", "/storage/v1/b/test-bucket/o/main?restoreToken=token"),
-        (
-            "PATCH",
-            "/storage/v1/b/test-bucket/o/main?predefinedAcl=private",
-        ),
     ] {
         server
             .request(method, path, AUTH, b"{}")

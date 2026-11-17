@@ -141,7 +141,8 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
 - Upload `predefinedAcl` (media, multipart, resumable) is applied as recorded in
   [upload predefined ACL evidence](../evidence/upload-predefined-acl.md), and
   copy, rewrite and compose apply `destinationPredefinedAcl` the same way.
-  Object PATCH/PUT `predefinedAcl` and bucket
+  Object PATCH/PUT `predefinedAcl` replaces the stored ACL through the same
+  path as an `acl` body, which it cannot accompany. Bucket insert
   `predefinedAcl`/`predefinedDefaultObjectAcl` keep their existing responses
   (DESIGN-019); `acl` in insert/copy/rewrite bodies remains unsupported.
 - Resumable-upload completion and rewrite responses do not render ACL fields;

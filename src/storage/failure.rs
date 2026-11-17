@@ -482,6 +482,7 @@ impl StorageCause for ObjectError {
             | Self::TooLarge
             | Self::InvalidFixedMetadata(_)
             | Self::UniformAccessPredefinedAcl
+            | Self::UniformAccessAclUpdate
             | Self::Metadata(_)
             | Self::InvalidDerivedArgument(_)
             | Self::ComposeClassMismatch { .. }

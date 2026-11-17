@@ -375,6 +375,23 @@ async fn list(
     Ok(Written::live(value, subjects))
 }
 
+/// The ACL a metadata write's body and `predefinedAcl` ask for together. No recording shows
+/// which one Cloud Storage keeps when a request names both, so that request is refused.
+fn with_predefined_acl(
+    body: crate::acl::AclRequest,
+    predefined: Option<crate::acl::PredefinedObjectAcl>,
+) -> Result<crate::acl::AclRequest, JsonError> {
+    use crate::acl::AclRequest;
+    match (body, predefined) {
+        (body, None) => Ok(body),
+        (AclRequest::Omitted, Some(acl)) => Ok(AclRequest::Predefined(acl)),
+        (AclRequest::Entries(_) | AclRequest::Predefined(_), Some(_)) => Err(
+            JsonError::unsupported_object("acl together with predefinedAcl")
+                .at_parameter("predefinedAcl"),
+        ),
+    }
+}
+
 async fn update(
     request: Request<Incoming>,
     ctx: ObjectCtx<'_>,
@@ -387,6 +404,7 @@ async fn update(
         projection,
         mode,
         retention_override,
+        predefined_acl,
     } = params;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let key = json::request_key(request.headers())?;
@@ -396,6 +414,8 @@ async fn update(
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
     let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
+    update.update.acl =
+        with_predefined_acl(std::mem::take(&mut update.update.acl), predefined_acl)?;
     let target = update.select_target(target)?;
     retention_access::authorize_update(
         &ctx.state.catalog,

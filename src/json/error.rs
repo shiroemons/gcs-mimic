@@ -1046,6 +1046,10 @@ impl From<ObjectError> for JsonError {
                 Self::invalid(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
                     .with_kind(ErrorKind::UniformAccessAcl)
             }
+            ObjectError::UniformAccessAclUpdate => {
+                Self::invalid(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
+                    .with_kind(ErrorKind::UniformAccessAcl)
+            }
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(&cause),
             ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {

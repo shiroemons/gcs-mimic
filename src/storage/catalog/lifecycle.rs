@@ -710,6 +710,7 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
         | ObjectError::HashMismatch(_)
         | ObjectError::TooLarge
         | ObjectError::UniformAccessPredefinedAcl
+        | ObjectError::UniformAccessAclUpdate
         | ObjectError::InvalidDerivedArgument(_)
         | ObjectError::ComposeClassMismatch { .. }
         | ObjectError::DerivedTransferNotFound

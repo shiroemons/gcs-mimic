@@ -841,6 +841,9 @@ pub(crate) enum ObjectError {
     /// A predefined ACL reached publication on a bucket with uniform access enabled. Typed
     /// because each protocol words this refusal differently.
     UniformAccessPredefinedAcl,
+    /// A metadata write named a predefined ACL on a bucket with uniform access enabled, which
+    /// Cloud Storage words apart from the publication refusal.
+    UniformAccessAclUpdate,
     Metadata(crate::metadata_error::MetadataError),
     InvalidDerivedArgument(String),
     /// A compose destination named a storage class its components do not share.
@@ -897,6 +900,9 @@ impl fmt::Display for ObjectError {
             Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),
             Self::UniformAccessPredefinedAcl => {
                 formatter.write_str(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
+            }
+            Self::UniformAccessAclUpdate => {
+                formatter.write_str(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
             }
             Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
@@ -960,6 +966,7 @@ impl TypedSource for ObjectError {
             | Self::TooLarge
             | Self::InvalidFixedMetadata(_)
             | Self::UniformAccessPredefinedAcl
+            | Self::UniformAccessAclUpdate
             | Self::InvalidDerivedArgument(_)
             | Self::ComposeClassMismatch { .. }
             | Self::DerivedTransferNotFound

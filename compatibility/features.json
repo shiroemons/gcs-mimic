@@ -18039,7 +18039,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed fields and custom keys; null deletes, final custom metadata stays within the local 40 KiB bound on encoded metadata (Cloud Storage enforced no 8 KiB limit, recorded 2026-11-15), conditions are atomic and persisted metadata reaches resource/media headers. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional project-plus-bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and the final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method remains PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PATCH body are ignored.",
+      "notes": "PATCH merges the five supported fixed fields and custom keys; null deletes, final custom metadata stays within the local 40 KiB bound on encoded metadata (Cloud Storage enforced no 8 KiB limit, recorded 2026-11-15), conditions are atomic and persisted metadata reaches resource/media headers. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional project-plus-bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and the final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method remains PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PATCH body are ignored. Since 2026-11-17 predefinedAcl replaces the ACL as an acl body does, which it cannot accompany, and uniform access refuses it in Cloud Storage's words (cases obj-unsupported-inputs and bkt-gaps-settings).",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -18247,6 +18247,10 @@
         }
       ],
       "test_ids": [
+        "obj-unsupported-inputs",
+        "bkt-gaps-settings",
+        "metadata_writes_replace_the_acl_with_predefined_acl",
+        "predefined_acl_updates_need_set_iam_policy_and_respect_access_settings",
         "obj-metadata-output-only",
         "obj-mutation-not-match",
         "obj-undeclared-query-writes",
@@ -19319,7 +19323,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PUT replaces the five supported fixed fields/custom map, clears omissions, atomically accepts identical GET output fields, preserves generation/blob/checksums and increments metageneration. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PUT body are ignored; a PUT releases a hold it does not name and answers with projection noAcl.",
+      "notes": "PUT replaces the five supported fixed fields/custom map, clears omissions, atomically accepts identical GET output fields, preserves generation/blob/checksums and increments metageneration. Contract/evidence: docs/en/slices/json-object-metadata.md, docs/en/evidence/object-metadata.md and docs/en/evidence/object-list-metadata.md. Unconditional bucket grants/revocation, retained versions/holds and scoped fields/read ETags remain verified in docs/en/evidence/bucket-iam.md, docs/en/slices/bucket-versioning-holds.md, docs/en/evidence/bucket-core-parity.md and docs/en/evidence/basic-json-fields-etag.md. Atomic resource ACL/query defaults and final clean-source five-SDK comparison pass in docs/en/slices/sdk-scorecard-integration.md and sdk-scorecard/results/2026-10-29-5. Whole method stays PARTIAL for broader policy, metadata/input/provider parity and profiles. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): unknown metadata members and a mistyped hold in a PUT body are ignored; a PUT releases a hold it does not name and answers with projection noAcl. Since 2026-11-17 predefinedAcl replaces the ACL as on a PATCH, where Cloud Storage applied it; on a PUT this is an inference from the shared parameter.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -19514,6 +19518,8 @@
         }
       ],
       "test_ids": [
+        "metadata_writes_replace_the_acl_with_predefined_acl",
+        "predefined_acl_updates_need_set_iam_policy_and_respect_access_settings",
         "obj-metadata-output-only",
         "obj-mutation-not-match",
         "obj-undeclared-query-writes",
@@ -48142,7 +48148,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
-        {"id": "UBLA-PREDEFINED-ACL", "description": "Under enabled UBLA, bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl return 400 with removal guidance, and object insert predefinedAcl and copy/rewrite/compose destinationPredefinedAcl return Cloud Storage's 400 invalid refusal (recorded 2026-11-17, case bkt-gaps-settings), without mutation. Without UBLA, object writes apply them.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
+        {"id": "UBLA-PREDEFINED-ACL", "description": "Under enabled UBLA, bucket insert/PATCH/PUT predefinedAcl/predefinedDefaultObjectAcl return 400 with removal guidance, and object insert/PATCH/PUT predefinedAcl and copy/rewrite/compose destinationPredefinedAcl return Cloud Storage's 400 invalid refusals (recorded 2026-11-17, case bkt-gaps-settings), without mutation. Without UBLA, object writes apply them.", "result": "PASS", "test_ids": ["xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"id":"ACL-USER-COMPARISON-BOUNDARY","description":"The shared ACL user matcher folds ASCII domain case only; local-part/non-email case and byte-exact ACL duplicate detection remain unchanged under SPEC-PRINCIPAL-EMAIL-CASE.","result":"PASS","test_ids":["auth::acl_identity::tests::email_domains_match_without_folding_local_ids_or_local_parts"]},
         {"id": "PREDEFINED-ACL-EFFECTS", "description": "Actual ACL permission effects and remaining ACL/UBLA/PAP interactions are pending for the next ACL slice.", "result": "PENDING", "test_ids": []},
         {"id": "XML-CANNED-ACL-INTERACTIONS", "description": "XML x-goog-acl is rechecked against uniform access at publication, needs an identified caller, answers 412 under public access prevention, and a failed ACL write publishes nothing, on every XML write path.", "result": "PASS", "test_ids": ["xml_canned::xml_canned_acl_is_rechecked_at_publication_with_the_recorded_error", "xml_canned::xml_canned_acl_needs_a_caller_and_respects_public_access_prevention", "xml_canned::xml_canned_acl_is_refused_after_multipart_initiation", "xml_canned::xml_canned_acl_write_failure_publishes_nothing_on_derived_writes"]}
