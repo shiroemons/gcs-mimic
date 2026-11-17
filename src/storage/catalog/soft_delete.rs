@@ -275,18 +275,17 @@ impl Catalog {
         self.run(move |connection| {
             let transaction = connection.transaction()?;
             let object_acl = objects::object_acl_authority(&transaction, &bucket, &access)?;
-            require_policy(&transaction, &bucket, SoftDeletedRequest::Get)?;
-            let selection = selected(
-                &transaction,
-                &bucket,
-                &name,
-                generation,
-                unix_micros(clock.now())?,
-            );
-            // A caller the bucket refused cannot learn that the generation is missing.
+            let now = unix_micros(clock.now())?;
+            let selection = require_policy(&transaction, &bucket, SoftDeletedRequest::Get)
+                .and_then(|()| selected(&transaction, &bucket, &name, generation, now));
+            // A caller the bucket refused cannot learn that the generation is missing, nor
+            // whether the bucket has a soft delete policy.
             let record = match (selection, object_acl) {
                 (Ok(stored), None) => stored.record,
-                (Err(ObjectError::ObjectNotFound), Some(check)) => return Err(check.refusal()),
+                (
+                    Err(ObjectError::ObjectNotFound | ObjectError::SoftDeletePolicyRequired(_)),
+                    Some(check),
+                ) => return Err(check.refusal()),
                 (Err(error), _) => return Err(error),
                 (Ok(stored), Some(check)) => {
                     if !super::acl::object_granted(

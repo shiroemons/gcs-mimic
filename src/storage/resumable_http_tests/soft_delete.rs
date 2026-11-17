@@ -605,6 +605,20 @@ async fn retained_generations_are_refused_while_the_policy_is_off() {
     h.stop().await;
 }
 
+// A soft-deleted read is authorized through object ACLs when the bucket refuses the caller, and
+// such a caller must not learn whether the bucket keeps soft-deleted generations at all.
+#[tokio::test]
+async fn a_caller_the_bucket_refuses_cannot_learn_the_soft_delete_policy() {
+    let h = Harness::start(1024, Strict, None).await;
+    let read = "/storage/v1/b/bucket/o/missing?softDeleted=true&generation=1";
+    let creator = "Authorization: Bearer creator\r\n";
+    assert_eq!(h.request("GET", read, creator, b"").await.status, 403);
+    h.request("GET", read, ADMIN, b"")
+        .await
+        .error(400, "invalid");
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn restore_accepts_the_empty_json_object_the_cpp_sdk_sends() {
     let h = Harness::start(1024, Permissive, None).await;
