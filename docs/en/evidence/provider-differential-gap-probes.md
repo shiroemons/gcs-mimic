@@ -164,18 +164,18 @@ is removed when gcs-mimic is aligned.
 
 | Case | Gap | Cloud Storage answer | gcs-mimic |
 | --- | --- | --- | --- |
-| `obj-gaps-json` | SPEC-METADATA-IF-MATCH | If-Match on an object metadata PATCH or PUT is ignored: the current etag, a superseded etag and `"bogus"` all answer 200 and apply the change | Differs: 412 for a non-matching value (declared) |
-| `obj-gaps-json` | SPEC-SOFT-DELETE | On a bucket with soft delete off, a `softDeleted` listing, a `softDeleted` get and a restore are 400 invalid: `Soft delete policy is required to list soft-deleted versions`, `Soft delete policy is required to request a soft-deleted version.` and `bucket soft delete policy must be set.` | Differs: an empty listing, 404 and 404 (declared) |
+| `obj-gaps-json` | SPEC-METADATA-IF-MATCH | If-Match on an object metadata PATCH or PUT is ignored: the current etag, a superseded etag and `"bogus"` all answer 200 and apply the change | Matched since aligned (was 412 for a non-matching value) |
+| `obj-gaps-json` | SPEC-SOFT-DELETE | On a bucket with soft delete off, a `softDeleted` listing, a `softDeleted` get and a restore are 400 invalid: `Soft delete policy is required to list soft-deleted versions`, `Soft delete policy is required to request a soft-deleted version.` and `bucket soft delete policy must be set.` | Matched since aligned (was an empty listing, 404 and 404) |
 | `obj-gaps-json` | SPEC-LIST-GLOB-EDGES | The globs `[/-]`, `[!x]` and `?` never match a slash | Matched |
 | `obj-gaps-json` | SPEC-RUBY-DEFAULTS | Compose with `deleteSourceObjects: null` or `destination: null` succeeds and keeps the source | Matched |
-| `obj-gaps-json` | SPEC-015 | An empty `contentLanguage` is stored by a multipart upload and accepted by a resumable initiation; a media HEAD of a gzip-stored object answers like the GET without a body | Differs for the empty `contentLanguage`: 400 (declared). The HEAD matched; its body framing is ignored as in `obj-range-head` |
-| `obj-gaps-uploads` | SPEC-RSM-EDGES | A wrong `Content-MD5` on the final chunk is ignored; DELETE on a completed session is 200 with the object; an initiation whose metadata `contentType` disagrees with `X-Upload-Content-Type` is a text/html 400 invalid | Matched for `Content-MD5`. Differs for the DELETE (410) and the disagreeing initiation (200), both declared |
+| `obj-gaps-json` | SPEC-015 | An empty `contentLanguage` is stored by a multipart upload and accepted by a resumable initiation; a multipart upload also stores empty `contentDisposition`, `contentEncoding` and `cacheControl`, and a copy keeps all four (follow-up run); a media HEAD of a gzip-stored object answers like the GET without a body | Matched since aligned (was 400 for the empty `contentLanguage`, and a copy dropped the empty fields). The HEAD matched; its body framing is ignored as in `obj-range-head` |
+| `obj-gaps-uploads` | SPEC-RSM-EDGES | A wrong `Content-MD5` on the final chunk is ignored; DELETE on a completed session is 200 with the object; an initiation whose metadata `contentType` disagrees with `X-Upload-Content-Type` is a text/html 400 invalid | Matched for `Content-MD5`; the DELETE (was 410) and the disagreeing initiation (was 200) matched since aligned |
 | `obj-gaps-uploads` | SPEC-RSM-AUTH-CONDITIONS | A chunk PUT ignores an unknown query parameter and `ifGenerationMatch` | Matched |
-| `obj-gaps-uploads` | SPEC-016 | Media parts with transfer encoding 7bit, 8bit and quoted-printable are stored as sent, without decoding | Differs: 400 invalidParameter (declared) |
+| `obj-gaps-uploads` | SPEC-016 | Media parts with transfer encoding 7bit, 8bit and quoted-printable are stored as sent, without decoding | Matched since aligned (was 400 invalidParameter) |
 | `xml-gaps-objects` | SPEC-CROSS-PROTOCOL-EXCLUSIONS | A version 2 listing with `fetch-owner=true` is 200 with an Owner for each object | Differs: 400 InvalidArgument (declared) |
-| `xml-gaps-objects` | SPEC-XML-PATH-ERROR | An invalid bucket segment is XML 400 InvalidBucketName; one with a percent-encoded slash is XML 404 NoSuchBucket | Differs: the JSON 404 unknown-route error (declared) |
-| `xml-gaps-objects` | SPEC-XML-INPUTS | A non-ASCII metadata value is served as raw UTF-8; the keys `Dup` and `dup` become one `x-goog-meta-dup: 2, 1`; the XML ETag of a composite or customer-encrypted object is not its JSON etag, nor for the encrypted one the plaintext MD5; an XML HEAD of an encrypted object without its key is 400 | Matched for the non-ASCII value. Differs for the colliding keys (400), both entity tags (200 with the JSON etag), the keyless HEAD (200) and the headers and Details of the encrypted object's 412 (declared) |
-| `bkt-gaps-settings` | SPEC-UBLA-EDGES | On a bucket with uniform access, the alias whose value changes the stored setting wins in both directions; an upload with `predefinedAcl=private` is 400 invalid | Matched for the aliases. The upload differs in reason and message (declared) |
+| `xml-gaps-objects` | SPEC-XML-PATH-ERROR | An invalid bucket segment is XML 400 InvalidBucketName; one with a percent-encoded slash is XML 404 NoSuchBucket | Matched since aligned (was the JSON 404 unknown-route error) |
+| `xml-gaps-objects` | SPEC-XML-INPUTS | A non-ASCII metadata value is served as raw UTF-8; the keys `Dup` and `dup` become one `x-goog-meta-dup: 1, 2`; the XML ETag of a composite or customer-encrypted object is not its JSON etag, nor for the encrypted one the plaintext MD5; an XML HEAD of an encrypted object without its key is 400 | Matched for the non-ASCII value; the colliding keys (was 400) and the keyless HEAD (was 200) matched since aligned. Differs for both entity tags (200 with the JSON etag) and the headers and Details of the encrypted object's 412 (declared) |
+| `bkt-gaps-settings` | SPEC-UBLA-EDGES | On a bucket with uniform access, the alias whose value changes the stored setting wins in both directions; an upload with `predefinedAcl=private` is 400 invalid | Matched for the aliases; the upload matched since aligned (was 400 invalidArgument with local guidance) |
 | `bkt-gaps-settings` | SPEC-LIFECYCLE-CONFIG | A `matchesPattern` condition is 400 invalid `MatchesPattern is not available for this project <project-number>` | Differs in reason and message (declared) |
 | `bkt-gaps-autoclass-off` | SPEC-RUBY-DEFAULTS | A bucket created with `autoclass.enabled` false carries no `autoclass` | Matched |
 | `grpc-gaps-bidi-read` | SPEC-GRPC-PENDING-RANGES | PERMISSION_DENIED with reason `GRPC_BIDI_READ_OBJECT_NOT_ALLOWLISTED`: BidiReadObject is not available to the recording project | Differs: the RPC is served (declared). The pending-range question stays open |
@@ -205,3 +205,16 @@ Questions this run did not send, and why:
 A replay of the merged reference on 2026-11-17 with `--fail-on-diff
 --fail-on-note` found all 130 cases `match`, the declared steps reported as
 local choices. No gcs-mimic source changed in this run.
+
+### Alignment the same day
+
+gcs-mimic was then aligned with the answers the table marks "since aligned",
+and each aligned step lost its `local_choice` marker. One follow-up run recorded
+`obj-gaps-json` again with three more steps (empty content fields on a
+multipart upload, the same PATCH, and a copy) and sent **45** requests; the
+reference then held **130** cases and **2007** requests. A second follow-up run
+sent **43** requests for an XML probe of empty `Cache-Control`,
+`Content-Disposition`, `Content-Language` and `Content-Encoding` headers and was
+not merged: the harness passes headers to curl, which drops a header whose value
+is empty, so neither side received them and the question stays open. Neither
+run received an HTTP 429, and both deleted every bucket they created.
