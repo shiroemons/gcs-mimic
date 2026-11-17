@@ -899,7 +899,12 @@ fn error_items_name_the_rejected_parameter_or_header() {
     server
         .request("GET", "/storage/v1/b/parity/o/value?versions=true", "", b"")
         .status(404);
-    let unknown = server.request("GET", "/storage/v1/b/parity/iam?unknown=value", "", b"");
+    let unknown = server.request(
+        "GET",
+        "/storage/v1/b/parity/storageLayout?unknown=value",
+        "",
+        b"",
+    );
     unknown.status(400);
     assert!(item(&unknown).get("location").is_none());
     assert!(item(&unknown).get("locationType").is_none());

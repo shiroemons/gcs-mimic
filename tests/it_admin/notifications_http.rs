@@ -224,13 +224,6 @@ fn notification_requests_reject_invalid_input_without_mutation() {
         ),
         (
             "GET",
-            format!("{CONFIGS}?bogus=1"),
-            b"",
-            400,
-            "invalidParameter",
-        ),
-        (
-            "GET",
             format!("{CONFIGS}?fields=bogus"),
             b"",
             400,
@@ -256,7 +249,16 @@ fn notification_requests_reject_invalid_input_without_mutation() {
             .request(method, &path, "", body)
             .json_reason(status, reason);
     }
+    // The listing has no entity tag and ignores the validators, as Cloud Storage did (case
+    // bkt-probe-collection-validators); a configuration get keeps refusing them.
     let reply = server.request("GET", CONFIGS, "If-None-Match: \"1\"\r\n", b"");
+    assert_eq!(reply.json_ok(), json!({"kind": "storage#notifications"}));
+    let reply = server.request(
+        "GET",
+        &format!("{CONFIGS}/1"),
+        "If-None-Match: \"1\"\r\n",
+        b"",
+    );
     reply.json_reason(400, "badRequest");
     assert!(ids(&server, "").is_empty());
     assert_eq!(metageneration(&server), "1");

@@ -512,12 +512,16 @@ fn parse_iam(
                 "optionsRequestedPolicyVersion must be an integer",
             ));
         }
-        finish(&query)?;
-        Ok(BucketRequest::GetIam { bucket })
-    } else {
-        finish(&query)?;
-        Ok(BucketRequest::SetIam { bucket })
     }
+    // Cloud Storage read the policy with an undeclared `gcsmimicUnknown=1` (case
+    // bkt-probe-undeclared-query-resources); setIamPolicy shares this parser. fake-gcs-server
+    // has no IAM route, so its profile keeps rejecting one.
+    finish_for_profile(&query, profile)?;
+    Ok(if *method == Method::GET {
+        BucketRequest::GetIam { bucket }
+    } else {
+        BucketRequest::SetIam { bucket }
+    })
 }
 
 pub(crate) fn route_with_profile(
@@ -651,7 +655,7 @@ fn parse(
             let projection = projection(&mut query)?;
             query.remove("predefinedAcl");
             query.remove("predefinedDefaultObjectAcl");
-            finish_bucket(&query, profile)?;
+            finish_for_profile(&query, profile)?;
             Ok(BucketRequest::Insert(InsertParams {
                 project,
                 projection,
@@ -664,7 +668,7 @@ fn parse(
         }
         BucketMethod::Delete { bucket } => {
             let conditions = conditions(&mut query)?;
-            finish_bucket(&query, profile)?;
+            finish_for_profile(&query, profile)?;
             Ok(BucketRequest::Delete { bucket, conditions })
         }
     }
@@ -702,7 +706,7 @@ fn parse_bucket_item(
     }
     let conditions = conditions(query)?;
     let projection = projection_or(query, default_projection)?;
-    finish_bucket(query, profile)?;
+    finish_for_profile(query, profile)?;
     let params = GetParams {
         conditions,
         projection,
@@ -747,7 +751,7 @@ fn parse_bucket_list(
         .filter(|token| !token.is_empty())
         .map(|token| decode_page_token(&token, &project, &prefix))
         .transpose()?;
-    finish_bucket(query, profile)?;
+    finish_for_profile(query, profile)?;
     Ok(BucketRequest::List(ListParams {
         project,
         projection,
@@ -921,9 +925,12 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, 
     })
 }
 
-/// Bucket reads and writes ignore a query parameter they do not define, as Cloud Storage does for
-/// `append=false` on insert and PATCH (recorded 2026-10-31). The fake-gcs-server profile rejects it.
-fn finish_bucket(
+/// [`finish`] in the fake-gcs-server profile only. The native profile ignores a query parameter
+/// the method does not declare, as Cloud Storage did on every JSON method recorded with one (for
+/// example `append=false` on a bucket insert and PATCH, recorded 2026-10-31). A method whose
+/// fake-gcs-server route reads only the parameters it knows skips `finish` in both profiles
+/// instead.
+pub(super) fn finish_for_profile(
     query: &BTreeMap<String, String>,
     profile: CompatProfile,
 ) -> Result<(), JsonError> {

@@ -148,12 +148,12 @@ impl ObjectRequest {
         }
     }
 
-    /// Cloud Storage sends no ETag header with a move response, though the body has an etag.
+    /// Cloud Storage sends no ETag header with a move or restore response, though the body has
+    /// an etag; a get with the same `fields` sent one (case obj-probe-undeclared-query-move-restore).
     pub(crate) fn sends_etag_header(&self) -> bool {
         match self {
-            Self::Move(_) => false,
-            Self::Restore { .. }
-            | Self::Copy(_)
+            Self::Move(_) | Self::Restore { .. } => false,
+            Self::Copy(_)
             | Self::Compose(_)
             | Self::List(_)
             | Self::Update(_)

@@ -2065,13 +2065,43 @@ const ALLOWED_RESOURCES_VARY: &str = "X-Goog-Allowed-Resources";
 /// The `Cache-Control` of IAM policy reads, whose provider value has not been recorded.
 const IAM_POLICY_CACHE_CONTROL: &str = "no-cache";
 
+/// What a metadata read that evaluates `If-Match` and `If-None-Match` returns, which sets its
+/// `Cache-Control` and the form of a failed `If-Match`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValidatedRead {
+    Object,
+    Bucket,
+    Policy,
+    /// A bucket, default object or object ACL listing, validated by its owner's entity tag.
+    AclList,
+}
+
+impl ValidatedRead {
+    fn cache_control(self) -> &'static str {
+        match self {
+            Self::Object | Self::Bucket | Self::AclList => json::RESOURCE_CACHE_CONTROL,
+            Self::Policy => IAM_POLICY_CACHE_CONTROL,
+        }
+    }
+
+    /// Whether a failed `If-Match` names the header and carries the ETag, as Cloud Storage
+    /// answered an object metadata read (case obj-download-validators) and the ACL listings
+    /// (case bkt-probe-collection-validators). No failing bucket or policy read was recorded.
+    fn names_failed_if_match(self) -> bool {
+        match self {
+            Self::Object | Self::AclList => true,
+            Self::Bucket | Self::Policy => false,
+        }
+    }
+}
+
 fn read_metadata_response(
     headers: &hyper::HeaderMap,
     etag: &str,
     mut value: serde_json::Value,
     fields: &json::Fields,
     query: QueryPrecondition,
-    cache_control: &'static str,
+    read: ValidatedRead,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let not_modified = match etag_not_modified(headers, etag) {
         Ok(not_modified) => not_modified || query == QueryPrecondition::NotModified,
@@ -2083,7 +2113,7 @@ fn read_metadata_response(
                 "conditionNotMet",
                 "Precondition Failed",
             );
-            if value.get("kind").and_then(serde_json::Value::as_str) != Some("storage#object") {
+            if !read.names_failed_if_match() {
                 return Err(error);
             }
             let mut response = error.at_if_match().into_response();
@@ -2109,7 +2139,7 @@ fn read_metadata_response(
     }
     response_headers.insert(
         "cache-control",
-        hyper::header::HeaderValue::from_static(cache_control),
+        hyper::header::HeaderValue::from_static(read.cache_control()),
     );
     Ok(response)
 }
@@ -2123,7 +2153,7 @@ fn response_fields(
     match selection {
         json::FieldSelection::Ignored => Ok(json::Fields::whole()),
         json::FieldSelection::Query(schema) => json::Fields::from_query(query, schema),
-        json::FieldSelection::TestPermissions => Ok(json::test_permissions_query(query)?.1),
+        json::FieldSelection::TestPermissions => Ok(json::test_permissions_query(query)?.fields),
     }
 }
 

@@ -3,7 +3,7 @@
 //! Routing, request validation and rendering only; persistence and authorization live in the
 //! catalog. Configurations are stored and read back, but no Pub/Sub message is ever published.
 
-use super::{Fields, JsonError, Schema, buckets::encode_segment, query};
+use super::{EtagConditions, Fields, JsonError, Schema, buckets::encode_segment, query};
 use crate::{
     config::CompatProfile,
     notification::{
@@ -55,6 +55,18 @@ impl NotificationRequest {
         match self {
             Self::Insert { .. } => true,
             Self::List { .. } | Self::Get { .. } | Self::Delete { .. } => false,
+        }
+    }
+
+    /// How the request's entity-tag condition headers are treated. The listing sends no ETag,
+    /// and Cloud Storage listed the configurations with `If-None-Match: *` and with a bogus
+    /// `If-Match` (case bkt-probe-collection-validators), as it does HMAC keys.
+    pub(crate) fn etag_conditions(&self) -> EtagConditions {
+        match self {
+            Self::List { .. } => EtagConditions::Ignored,
+            Self::Insert { .. } | Self::Get { .. } | Self::Delete { .. } => {
+                EtagConditions::Unsupported
+            }
         }
     }
 }
@@ -120,7 +132,10 @@ fn parse(
     };
     let fields = Fields::take(&mut query, schema)?;
     query::common(&mut query)?;
-    query::finish(&query)?;
+    // What remains is undeclared and ignored in both profiles. Cloud Storage listed the
+    // configurations and answered the get of a missing one with 404 despite `gcsmimicUnknown=1`
+    // (case bkt-probe-undeclared-query-resources); insert and delete share this parser.
+    // fake-gcs-server reads no query parameter on its notification routes.
     Ok((request, fields))
 }
 
@@ -480,11 +495,6 @@ mod tests {
                 "invalidParameter",
             ),
             (
-                "/storage/v1/b/bucket/notificationConfigs?unknown=1",
-                400,
-                "invalidParameter",
-            ),
-            (
                 "/storage/v1/b/bucket/notificationConfigs?fields=bogus",
                 400,
                 "invalidParameter",
@@ -514,6 +524,30 @@ mod tests {
             "/storage/v1/b/bucket/notificationConfigs/1?userProject=p",
         ] {
             assert!(routed(Method::GET, path).unwrap().is_ok(), "{path}");
+        }
+    }
+
+    /// Cloud Storage listed the configurations and looked one up with `gcsmimicUnknown=1` (case
+    /// bkt-probe-undeclared-query-resources), and fake-gcs-server reads no query parameter here.
+    #[test]
+    fn every_method_ignores_an_undeclared_parameter_in_both_profiles() {
+        for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
+            for (method, path) in [
+                (Method::GET, "/storage/v1/b/bucket/notificationConfigs"),
+                (Method::POST, "/storage/v1/b/bucket/notificationConfigs"),
+                (Method::GET, "/storage/v1/b/bucket/notificationConfigs/1"),
+                (Method::DELETE, "/storage/v1/b/bucket/notificationConfigs/1"),
+            ] {
+                let path = format!("{path}?gcsmimicUnknown=1&fields=kind");
+                let parsed = route(&method, &uri(&path), profile).unwrap();
+                assert!(parsed.is_ok(), "{profile:?} {method} {path}");
+            }
+            // A recognized parameter gcs-mimic does not implement is still refused.
+            let path = "/storage/v1/b/bucket/notificationConfigs?gcsmimicUnknown=1&callback=p";
+            let error = route(&Method::GET, &uri(path), profile)
+                .unwrap()
+                .unwrap_err();
+            assert_eq!(error.reason, "badRequest", "{profile:?}");
         }
     }
 

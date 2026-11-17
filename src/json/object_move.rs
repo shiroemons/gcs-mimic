@@ -2,8 +2,8 @@ use super::{
     JsonError, ObjectRequest, Projection,
     objects::{ConditionKeys, match_and_not_match, take_conditions},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode, finish,
-        parse_query, projection, standard_parameters,
+        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
+        finish_for_profile, parse_query, projection, standard_parameters,
     },
 };
 use crate::{
@@ -82,7 +82,10 @@ fn parse(
     }
     let source_conditions = exclusive_conditions(&mut query, ConditionKeys::Source)?;
     let destination_conditions = exclusive_conditions(&mut query, ConditionKeys::Plain)?;
-    finish(&query)?;
+    // Cloud Storage moved an object whose request carried an undeclared `gcsmimicUnknown=1`
+    // (case obj-probe-undeclared-query-move-restore). fake-gcs-server has no move route, so its
+    // profile keeps rejecting one.
+    finish_for_profile(&query, profile)?;
     Ok(ObjectRequest::Move(ObjectMoveParams {
         names: MoveNames {
             bucket,

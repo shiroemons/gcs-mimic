@@ -5,9 +5,10 @@
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::{encode_segment, timestamp};
 use super::page_token::{self, CursorTag};
-use super::query::{Decoding, common, decode, finish, parse_query};
+use super::query::{Decoding, common, decode, finish_for_profile, parse_query};
 use super::{Fields, JsonError, Schema};
 use crate::auth::ProjectId;
+use crate::config::CompatProfile;
 use crate::storage::Page;
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyRecord, HmacKeyState};
 use hyper::{Method, StatusCode, Uri};
@@ -88,6 +89,7 @@ pub(crate) struct HmacKeyUpdate {
 pub(crate) fn route_project(
     method: &Method,
     uri: &Uri,
+    profile: CompatProfile,
 ) -> Option<Result<(ProjectRequest, Fields), JsonError>> {
     let rest = uri.path().strip_prefix("/storage/v1/projects/")?;
     let mut segments = rest.split('/');
@@ -98,7 +100,7 @@ pub(crate) fn route_project(
         return None;
     }
     let call = ProjectCall::select(collection, item, method)?;
-    Some(call.and_then(|call| parse(call, project, uri.query().unwrap_or_default())))
+    Some(call.and_then(|call| parse(call, project, uri.query().unwrap_or_default(), profile)))
 }
 
 /// A project method, chosen once from the path and the HTTP method. `A` is an HMAC key's
@@ -184,6 +186,7 @@ fn parse(
     call: ProjectCall<&str>,
     project: &str,
     raw: &str,
+    profile: CompatProfile,
 ) -> Result<(ProjectRequest, Fields), JsonError> {
     let project = ProjectId::try_from(decode(project, Decoding::Path)?)?;
     let call = call.decode_access_id()?;
@@ -245,7 +248,10 @@ fn parse(
         },
         ProjectCall::ServiceAccount => ProjectRequest::GetServiceAccount { project },
     };
-    finish(&query)?;
+    // What remains is undeclared. The native profile ignores it, as Cloud Storage listed HMAC
+    // keys with `gcsmimicUnknown=1` (case bkt-probe-undeclared-query-resources); fake-gcs-server
+    // has no project route, so its profile keeps refusing one.
+    finish_for_profile(&query, profile)?;
     Ok((request, fields))
 }
 
@@ -503,7 +509,15 @@ mod tests {
     }
 
     fn route(method: Method, path: &str) -> Result<ProjectRequest, JsonError> {
-        route_project(&method, &path.parse().unwrap())
+        route_in(CompatProfile::Native, method, path)
+    }
+
+    fn route_in(
+        profile: CompatProfile,
+        method: Method,
+        path: &str,
+    ) -> Result<ProjectRequest, JsonError> {
+        route_project(&method, &path.parse().unwrap(), profile)
             .expect("project route")
             .map(|(request, _)| request)
     }
@@ -560,7 +574,8 @@ mod tests {
             "/storage/v1/projects/p/hmacKeys/",
         ] {
             assert!(
-                route_project(&Method::GET, &path.parse().unwrap()).is_none(),
+                route_project(&Method::GET, &path.parse().unwrap(), CompatProfile::Native)
+                    .is_none(),
                 "{path}"
             );
         }
@@ -590,7 +605,7 @@ mod tests {
             for method in refused {
                 // `%ZZ` is not percent-encoding, so parsing would reject the project first.
                 let uri = format!("/storage/v1/projects/p%ZZ/{path}?unknown=1");
-                let error = route_project(&method, &uri.parse().unwrap())
+                let error = route_project(&method, &uri.parse().unwrap(), CompatProfile::Native)
                     .unwrap()
                     .unwrap_err();
                 assert_eq!(
@@ -632,7 +647,6 @@ mod tests {
             "maxResults=4294967296",
             "showDeletedKeys=yes",
             "pageToken=bogus",
-            "unknown=1",
         ] {
             assert_eq!(
                 route(
@@ -645,7 +659,10 @@ mod tests {
                 "{query}"
             );
         }
-        // The Requester Pays billing project is ignored, as on every JSON method.
+        // The Requester Pays billing project is ignored, as on every JSON method, and so is an
+        // undeclared parameter, which Cloud Storage ignored on the HMAC key list (case
+        // bkt-probe-undeclared-query-resources). fake-gcs-server has no project route, so its
+        // profile refuses the undeclared one.
         assert!(
             route(
                 Method::GET,
@@ -653,6 +670,18 @@ mod tests {
             )
             .is_ok()
         );
+        for path in [
+            "/storage/v1/projects/p/hmacKeys?gcsmimicUnknown=1",
+            "/storage/v1/projects/p/hmacKeys/a?gcsmimicUnknown=1",
+            "/storage/v1/projects/p/serviceAccount?gcsmimicUnknown=1",
+        ] {
+            assert!(route(Method::GET, path).is_ok(), "{path}");
+            let error = route_in(CompatProfile::FakeGcsServer, Method::GET, path).unwrap_err();
+            assert_eq!(
+                error.message, "Unknown query parameter for this method: gcsmimicUnknown",
+                "{path}"
+            );
+        }
         assert_eq!(
             route(
                 Method::GET,
@@ -667,7 +696,8 @@ mod tests {
                 &Method::GET,
                 &"/storage/v1/projects/p/hmacKeys?fields=items(bogus)"
                     .parse()
-                    .unwrap()
+                    .unwrap(),
+                CompatProfile::Native,
             )
             .unwrap()
             .is_err()

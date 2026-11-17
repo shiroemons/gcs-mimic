@@ -3,7 +3,7 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    EmptyJsonBody, QueryPrecondition, RESOURCE_BODY_LIMIT, State,
+    EmptyJsonBody, QueryPrecondition, RESOURCE_BODY_LIMIT, State, ValidatedRead,
     acl::{self, AclSubjects, BucketVersion, Rendered},
     authorize_bucket, authorize_project, bucket_access, empty_response, json_response_selected,
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
@@ -434,7 +434,7 @@ async fn get_iam(
         json::policy_resource(&policy, bucket),
         fields,
         QueryPrecondition::Unmatched,
-        super::IAM_POLICY_CACHE_CONTROL,
+        ValidatedRead::Policy,
     )
 }
 
@@ -573,7 +573,7 @@ async fn get(
         resource.value,
         fields,
         query,
-        json::RESOURCE_CACHE_CONTROL,
+        ValidatedRead::Bucket,
     )
 }
 

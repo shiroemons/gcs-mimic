@@ -5,6 +5,7 @@ use crate::auth::{
 };
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 pub(super) fn route_test_permissions(
     method: &Method,
@@ -29,16 +30,28 @@ fn parse_test_permissions(
             Some("GET"),
         ));
     }
-    let (permissions, _) = test_permissions_query(uri.query())?;
+    let parsed = test_permissions_query(uri.query())?;
+    // Cloud Storage tested permissions with an undeclared `gcsmimicUnknown=1` (case
+    // bkt-probe-undeclared-query-resources). fake-gcs-server has no IAM route, so its profile
+    // keeps rejecting one.
+    query::finish_for_profile(&parsed.undeclared, profile)?;
     Ok(BucketRequest::TestIam {
         bucket,
-        permissions,
+        permissions: parsed.permissions,
     })
 }
 
-pub(crate) fn test_permissions_query(
-    raw: Option<&str>,
-) -> Result<(Vec<crate::auth::Permission>, Fields), JsonError> {
+/// A testIamPermissions query, whose `permissions` may repeat.
+#[derive(Debug)]
+pub(crate) struct TestPermissionsQuery {
+    pub(crate) permissions: Vec<crate::auth::Permission>,
+    pub(crate) fields: Fields,
+    /// The parameters the method does not declare, which its route accepts or rejects for the
+    /// profile.
+    undeclared: BTreeMap<String, String>,
+}
+
+pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermissionsQuery, JsonError> {
     let raw = raw.unwrap_or_default();
     if raw.len() > 16 * 1024 {
         return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
@@ -62,11 +75,14 @@ pub(crate) fn test_permissions_query(
             JsonError::required("Required parameter: permissions").at_parameter("permissions")
         );
     }
-    let mut query = query::parse_query(&rest.join("&"))?;
-    let fields = Fields::take(&mut query, Schema::TestIamPermissionsResponse)?;
-    query::common(&mut query)?;
-    query::finish(&query)?;
-    Ok((permissions, fields))
+    let mut undeclared = query::parse_query(&rest.join("&"))?;
+    let fields = Fields::take(&mut undeclared, Schema::TestIamPermissionsResponse)?;
+    query::common(&mut undeclared)?;
+    Ok(TestPermissionsQuery {
+        permissions,
+        fields,
+        undeclared,
+    })
 }
 
 fn invalid(message: impl Into<String>) -> JsonError {

@@ -63024,6 +63024,738 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "bkt-probe-undeclared-query-writes",
+      "steps": [
+        {
+          "fingerprint": "2c55924fba2a0891",
+          "name": "bucket-project-number",
+          "request": "GET /storage/v1/b/<bucket>?fields=projectNumber",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "projectNumber": "<project-number:str>"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d31d0a18aca49b47",
+          "name": "bucket-acl-patch",
+          "request": "PATCH /storage/v1/b/<bucket>/acl/project-viewers-<project-number>?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "entity": "project-viewers-<project-number>",
+                "etag": "<etag:str>",
+                "id": "<bucket>/project-viewers-<project-number>",
+                "kind": "storage#bucketAccessControl",
+                "projectTeam": {
+                  "projectNumber": "<project-number:str>",
+                  "team": "viewers"
+                },
+                "role": "READER",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-viewers-<project-number>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "86deaf52f62f4be5",
+          "name": "bucket-acl-update",
+          "request": "PUT /storage/v1/b/<bucket>/acl/project-viewers-<project-number>?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "entity": "project-viewers-<project-number>",
+                "etag": "<etag:str>",
+                "id": "<bucket>/project-viewers-<project-number>",
+                "kind": "storage#bucketAccessControl",
+                "projectTeam": {
+                  "projectNumber": "<project-number:str>",
+                  "team": "viewers"
+                },
+                "role": "READER",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-viewers-<project-number>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "39675b0000c72f61",
+          "name": "bucket-acl-delete",
+          "request": "DELETE /storage/v1/b/<bucket>/acl/project-viewers-<project-number>?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "75cde2960143dbab",
+          "name": "bucket-acl-list-after-delete",
+          "request": "GET /storage/v1/b/<bucket>/acl",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-owners-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-editors-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-editors-<project-number>"
+                  }
+                ],
+                "kind": "storage#bucketAccessControls"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a32233186c90556d",
+          "name": "bucket-acl-insert",
+          "request": "POST /storage/v1/b/<bucket>/acl?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "<bucket>",
+                "entity": "project-viewers-<project-number>",
+                "etag": "<etag:str>",
+                "id": "<bucket>/project-viewers-<project-number>",
+                "kind": "storage#bucketAccessControl",
+                "projectTeam": {
+                  "projectNumber": "<project-number:str>",
+                  "team": "viewers"
+                },
+                "role": "READER",
+                "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-viewers-<project-number>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "75cde2960143dbab",
+          "name": "bucket-acl-list-after-insert",
+          "request": "GET /storage/v1/b/<bucket>/acl",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-owners-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-owners-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-editors-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-editors-<project-number>"
+                  },
+                  {
+                    "bucket": "<bucket>",
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-viewers-<project-number>",
+                    "kind": "storage#bucketAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER",
+                    "selfLink": "<www-host>/storage/v1/b/<bucket>/acl/project-viewers-<project-number>"
+                  }
+                ],
+                "kind": "storage#bucketAccessControls"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "ad2bf3985b2fb0e9",
+          "name": "default-acl-patch",
+          "request": "PATCH /storage/v1/b/<bucket>/defaultObjectAcl/project-viewers-<project-number>?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "entity": "project-viewers-<project-number>",
+                "etag": "<etag:str>",
+                "kind": "storage#objectAccessControl",
+                "projectTeam": {
+                  "projectNumber": "<project-number:str>",
+                  "team": "viewers"
+                },
+                "role": "READER"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "97735cbbb94b6185",
+          "name": "default-acl-update",
+          "request": "PUT /storage/v1/b/<bucket>/defaultObjectAcl/project-viewers-<project-number>?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "entity": "project-viewers-<project-number>",
+                "etag": "<etag:str>",
+                "kind": "storage#objectAccessControl",
+                "projectTeam": {
+                  "projectNumber": "<project-number:str>",
+                  "team": "viewers"
+                },
+                "role": "READER"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "15ea996d90980a01",
+          "name": "default-acl-delete",
+          "request": "DELETE /storage/v1/b/<bucket>/defaultObjectAcl/project-viewers-<project-number>?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "25d0347b0dd17b11",
+          "name": "default-acl-list-after-delete",
+          "request": "GET /storage/v1/b/<bucket>/defaultObjectAcl",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  }
+                ],
+                "kind": "storage#objectAccessControls"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "85491f5e03156b6f",
+          "name": "default-acl-insert",
+          "request": "POST /storage/v1/b/<bucket>/defaultObjectAcl?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "entity": "project-viewers-<project-number>",
+                "etag": "<etag:str>",
+                "kind": "storage#objectAccessControl",
+                "projectTeam": {
+                  "projectNumber": "<project-number:str>",
+                  "team": "viewers"
+                },
+                "role": "READER"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "25d0347b0dd17b11",
+          "name": "default-acl-list-after-insert",
+          "request": "GET /storage/v1/b/<bucket>/defaultObjectAcl",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "items": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "etag": "<etag:str>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "etag": "<etag:str>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "etag": "<etag:str>",
+                    "kind": "storage#objectAccessControl",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  }
+                ],
+                "kind": "storage#objectAccessControls"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d87f7ce066060bc5",
+          "name": "iam-set-default-bindings",
+          "request": "PUT /storage/v1/b/<bucket>/iam?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bindings": [
+                  {
+                    "members": [
+                      "projectEditor:<project>",
+                      "projectOwner:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketOwner"
+                  },
+                  {
+                    "members": [
+                      "projectViewer:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketReader"
+                  }
+                ],
+                "etag": "<etag:str>",
+                "kind": "storage#policy",
+                "resourceId": "projects/_/buckets/<bucket>",
+                "version": 1
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "69ae96e98ed1cab6",
+          "name": "iam-get-after-set",
+          "request": "GET /storage/v1/b/<bucket>/iam",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bindings": [
+                  {
+                    "members": [
+                      "projectEditor:<project>",
+                      "projectOwner:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketOwner"
+                  },
+                  {
+                    "members": [
+                      "projectViewer:<project>"
+                    ],
+                    "role": "roles/storage.legacyBucketReader"
+                  }
+                ],
+                "etag": "<etag:str>",
+                "kind": "storage#policy",
+                "resourceId": "projects/_/buckets/<bucket>",
+                "version": 1
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e368e6dbacd656e9",
+          "name": "notification-insert-missing-topic",
+          "request": "POST /storage/v1/b/<bucket>/notificationConfigs?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cloud Pub/Sub topic '//pubsub.googleapis.com/projects/<project>/topics/gcs-mimic-diff-no-such-topic' not found, or user 'service-<project-number>@gs-project-accounts.iam.gserviceaccount.com' does not have permission to it.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cloud Pub/Sub topic '//pubsub.googleapis.com/projects/<project>/topics/gcs-mimic-diff-no-such-topic' not found, or user 'service-<project-number>@gs-project-accounts.iam.gserviceaccount.com' does not have permission to it."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "03d649eac425dd5d",
+          "name": "notification-delete-missing",
+          "request": "DELETE /storage/v1/b/<bucket>/notificationConfigs/999999?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The requested resource was not found.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The requested resource was not found."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "9daec48eb0c686d8",
+          "name": "hmac-key-get-missing",
+          "request": "GET /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Access ID not found in project.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "Access ID not found in project."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "12de09951cd8ac21",
+          "name": "hmac-key-update-missing",
+          "request": "PUT /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Access ID not found in project.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "Access ID not found in project."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "36035a5ec74fc019",
+          "name": "hmac-key-delete-missing",
+          "request": "DELETE /storage/v1/projects/<project>/hmacKeys/GOOGNOSUCHKEYID000000?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Access ID not found in project.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "Access ID not found in project."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "206600b36c3c0964",
+          "name": "service-account-get",
+          "request": "GET /storage/v1/projects/<project>/serviceAccount?gcsmimicUnknown=1",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "email_address": "service-<project-number>@gs-project-accounts.iam.gserviceaccount.com",
+                "kind": "storage#serviceAccount"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -63038,7 +63770,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2483,
+  "requests": 2513,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

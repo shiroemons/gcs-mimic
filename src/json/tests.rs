@@ -282,6 +282,7 @@ fn object_and_project_query_booleans_use_the_same_parser() {
             &format!("/storage/v1/projects/p/hmacKeys?showDeletedKeys={wire}")
                 .parse()
                 .unwrap(),
+            crate::config::CompatProfile::Native,
         )
         .unwrap()
         .map(|(request, _)| request)

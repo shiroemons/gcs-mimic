@@ -105,9 +105,10 @@ Cloud Storage on 2026-11-01 (SPEC-JSON-UNKNOWN-QUERY); recognized but unsupporte
 `callback` are still rejected, and `userProject`, `quotaUser` and `userIp` are ignored (SPEC-SDK-UNSUPPORTED). The fake-gcs-server profile returns 400
 `invalidParameter` for any unknown query name on a bucket method. objects.delete and objects.list
 ignore an undeclared name in both profiles, as Cloud Storage and fake-gcs-server did on 2026-11-13;
-`@google-cloud/storage` 9.0.0 sends one on both. The other object methods return 400
-`invalidParameter` for one in both profiles (SPEC-JSON-UNKNOWN-QUERY-OBJECTS), except the
-`response-content-disposition` and `response-content-type` overrides that object reads ignore. The
+`@google-cloud/storage` 9.0.0 sends one on both. The other object, ACL, IAM, notification and
+HMAC key methods ignore one in the native profile, as Cloud Storage did on 2026-11-13 and
+2026-11-17; the fake-gcs-server profile ignores one only on the routes fake-gcs-server v1.56.1
+serves (SPEC-JSON-UNKNOWN-QUERY-OBJECTS, resolved). The
 local raw query cap is 16 KiB.
 Non-insert methods require an empty body.
 

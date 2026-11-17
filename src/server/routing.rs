@@ -601,7 +601,7 @@ async fn respond_routed(
     if let Some(parsed) = json::route_object_with_profile(method, uri, profile) {
         return respond_json_object(request, ctx, parsed).await;
     }
-    if let Some(parsed) = json::route_project(method, uri) {
+    if let Some(parsed) = json::route_project(method, uri, profile) {
         return respond_project(request, ctx, parsed).await;
     }
     if let Some(parsed) = json::route_with_profile(method, uri, profile, &ctx.config.seed_project) {

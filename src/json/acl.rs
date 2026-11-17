@@ -8,7 +8,7 @@ use super::{
     integer::take_int64,
     objects::revision_etag,
     parse_query,
-    query::{common, finish},
+    query::{common, finish_for_profile},
     validate_bucket_name_for_profile, validate_object_name,
 };
 use crate::{
@@ -132,6 +132,22 @@ impl PathTarget<'_> {
             Self::Object(_) => AclKind::Object,
         }
     }
+
+    /// Whether fake-gcs-server v1.56.1 registers an ACL route for `selection` on this target,
+    /// whose handler reads only the query parameters it knows. It serves the list, insert, get,
+    /// update and delete of bucket and object ACLs. It has no default object ACL route, and its
+    /// object PATCH route takes a PATCH of an object ACL entry as an object name.
+    fn served_by_fake_gcs_server(self, selection: Selection<'_>) -> bool {
+        match (self, selection) {
+            (Self::DefaultObject, _) | (_, Selection::Entry(EntryMethod::Patch, _)) => false,
+            (
+                Self::Bucket | Self::Object(_),
+                Selection::List
+                | Selection::Insert
+                | Selection::Entry(EntryMethod::Get | EntryMethod::Update | EntryMethod::Delete, _),
+            ) => true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +202,7 @@ fn parse_route(
 ) -> Result<AclRequest, JsonError> {
     let bucket = decode(bucket, Decoding::Path)?;
     validate_bucket_name_for_profile(&bucket, profile)?;
+    let served_by_fake_gcs_server = target.served_by_fake_gcs_server(selection);
     let operation = match selection {
         Selection::List => AclOperation::List,
         Selection::Insert => AclOperation::Write(AclWrite::Insert),
@@ -223,14 +240,13 @@ fn parse_route(
             }
         }
     };
-    // Cloud Storage listed an object's ACL with an undeclared `gcsmimicUnknown=1` (case
-    // obj-undeclared-query-writes), and fake-gcs-server reads only the parameters it knows. The
-    // other ACL methods keep rejecting one until their treatment is recorded.
-    if !matches!(
-        (&target, &operation),
-        (AclTarget::Object { .. }, AclOperation::List)
-    ) {
-        finish(&query)?;
+    // Cloud Storage ignored an undeclared `gcsmimicUnknown=1` on the object ACL list (case
+    // obj-undeclared-query-writes), on the object ACL get, patch, update, delete and insert and on
+    // the bucket and default object ACL list and get (case obj-probe-undeclared-query-acls); the
+    // bucket and default object ACL writes share this parser. The fake-gcs-server profile follows
+    // fake-gcs-server, which ignores one only on the routes it serves.
+    if !served_by_fake_gcs_server {
+        finish_for_profile(&query, profile)?;
     }
     Ok(AclRequest {
         target,
@@ -640,11 +656,6 @@ mod tests {
         for (path, reason) in [
             ("/storage/v1/b/Bad/acl", "invalidParameter"),
             (
-                "/storage/v1/b/bucket/acl?ifMetagenerationMatch=1",
-                "invalidParameter",
-            ),
-            ("/storage/v1/b/bucket/acl?generation=1", "invalidParameter"),
-            (
                 "/storage/v1/b/bucket/o/x/acl?generation=x",
                 "invalidParameter",
             ),
@@ -661,12 +672,18 @@ mod tests {
             let error = route(Method::GET, path).unwrap().unwrap_err();
             assert_eq!(error.reason, reason, "{path}");
         }
-        // The Requester Pays billing project is ignored, as on every JSON method.
-        assert!(
-            route(Method::GET, "/storage/v1/b/bucket/acl?userProject=p")
-                .unwrap()
-                .is_ok()
-        );
+        // The Requester Pays billing project is ignored, as on every JSON method. A condition or
+        // generation the bucket ACL list does not declare is an undeclared parameter, which
+        // Cloud Storage ignored on every ACL method (case obj-probe-undeclared-query-acls).
+        for path in [
+            "/storage/v1/b/bucket/acl?userProject=p",
+            "/storage/v1/b/bucket/acl?ifMetagenerationMatch=1",
+            "/storage/v1/b/bucket/acl?generation=1",
+        ] {
+            let request = route(Method::GET, path).unwrap().unwrap();
+            assert_eq!(request.conditions, BucketConditions::default(), "{path}");
+            assert_eq!(request.target, AclTarget::Bucket("bucket".into()), "{path}");
+        }
         assert!(
             route(
                 Method::GET,
@@ -675,6 +692,52 @@ mod tests {
             .unwrap()
             .is_ok()
         );
+    }
+
+    /// Cloud Storage ignored an undeclared parameter on every recorded ACL method (cases
+    /// obj-undeclared-query-writes and obj-probe-undeclared-query-acls). fake-gcs-server v1.56.1
+    /// has no default object ACL route and no ACL PATCH route, so its profile rejects one there.
+    #[test]
+    fn undeclared_parameters_are_ignored_where_each_profile_serves_the_method() {
+        for collection in [
+            "/storage/v1/b/bucket/acl",
+            "/storage/v1/b/bucket/defaultObjectAcl",
+            "/storage/v1/b/bucket/o/x/acl",
+        ] {
+            for (method, entity) in [
+                (Method::GET, ""),
+                (Method::POST, ""),
+                (Method::GET, "/allUsers"),
+                (Method::PUT, "/allUsers"),
+                (Method::DELETE, "/allUsers"),
+                (Method::PATCH, "/allUsers"),
+            ] {
+                let uri = format!("{collection}{entity}?gcsmimicUnknown=1")
+                    .parse()
+                    .unwrap();
+                let native = route_acl(&method, &uri, CompatProfile::Native).unwrap();
+                assert!(native.is_ok(), "{method} {uri}");
+                let fake = route_acl(&method, &uri, CompatProfile::FakeGcsServer).unwrap();
+                if collection.ends_with("/defaultObjectAcl") || method == Method::PATCH {
+                    let error = fake.unwrap_err();
+                    assert_eq!(error.reason, "invalidParameter", "{method} {uri}");
+                    assert_eq!(
+                        error.message, "Unknown query parameter for this method: gcsmimicUnknown",
+                        "{method} {uri}"
+                    );
+                } else {
+                    assert!(fake.is_ok(), "{method} {uri}");
+                }
+            }
+        }
+        // A recognized parameter gcs-mimic does not implement is still refused in both profiles.
+        let uri = "/storage/v1/b/bucket/acl?gcsmimicUnknown=1&callback=p"
+            .parse()
+            .unwrap();
+        for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
+            let error = route_acl(&Method::GET, &uri, profile).unwrap().unwrap_err();
+            assert_eq!(error.reason, "badRequest", "{profile:?}");
+        }
     }
 
     #[test]

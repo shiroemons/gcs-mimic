@@ -121,17 +121,18 @@ fn test_permissions_validates_route_queries_and_response_fields() {
             "permissions":["storage.objects.get", "storage.objects.create"]
         })
     );
-    // The Requester Pays billing project is ignored, as on every JSON method.
-    assert_eq!(
-        server
-            .get("", &format!("{path}?{query}&userProject=project-a"))
-            .success()
-            .json(),
-        server.get("", &format!("{path}?{query}")).success().json()
-    );
-    server
-        .get("", &format!("{path}?{query}&unknown=true"))
-        .auth_error(400, "invalidParameter");
+    // The Requester Pays billing project is ignored, as on every JSON method, and so is an
+    // undeclared parameter, as Cloud Storage did (case bkt-probe-undeclared-query-resources).
+    for ignored in ["userProject=project-a", "unknown=true"] {
+        assert_eq!(
+            server
+                .get("", &format!("{path}?{query}&{ignored}"))
+                .success()
+                .json(),
+            server.get("", &format!("{path}?{query}")).success().json(),
+            "{ignored}"
+        );
+    }
     server
         .get("", &format!("{path}?{query}&fields=missing"))
         .auth_error(400, "invalidParameter");
@@ -906,7 +907,6 @@ fn iam_rejects_queries_paths_and_bodies() {
         "optionsRequestedPolicyVersion=",
         "optionsRequestedPolicyVersion=true",
         "optionsRequestedPolicyVersion=1&optionsRequestedPolicyVersion=3",
-        "unknown=value",
         "unknown=%ff",
     ] {
         server
@@ -925,10 +925,11 @@ fn iam_rejects_queries_paths_and_bodies() {
             .json();
         assert_eq!(policy["version"], 1, "{version}");
     }
-    // The billing project is ignored, and an empty selection selects nothing as a whitespace one
-    // did on the IAM policy (case bkt-edges-fields).
+    // The billing project and an undeclared parameter are ignored, as Cloud Storage did (cases
+    // bkt-edges-fields and bkt-probe-undeclared-query-resources), and an empty selection selects
+    // nothing as a whitespace one did on the IAM policy (case bkt-edges-fields).
     let policy = server.get(ADMIN, IAM).success().json();
-    for query in ["userProject=project-a", "userProject="] {
+    for query in ["userProject=project-a", "userProject=", "unknown=value"] {
         assert_eq!(
             server
                 .get(ADMIN, &format!("{IAM}?{query}"))
@@ -945,14 +946,18 @@ fn iam_rejects_queries_paths_and_bodies() {
             .json(),
         json!({})
     );
-    server
+    // A parameter only getIamPolicy declares is undeclared on setIamPolicy, which shares its
+    // parser and ignores it too; writing the policy back leaves its bindings as they were.
+    let written = server
         .request(
             "PUT",
             &format!("{IAM}?optionsRequestedPolicyVersion=1"),
             ADMIN,
-            b"{}",
+            policy.to_string().as_bytes(),
         )
-        .auth_error(400, "invalidParameter");
+        .success()
+        .json();
+    assert_eq!(written["bindings"], policy["bindings"]);
     server
         .get(ADMIN, "/storage/v1/b/BAD/iam")
         .auth_error(400, "invalidParameter");

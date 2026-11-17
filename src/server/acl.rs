@@ -2,8 +2,8 @@
 
 use super::RequestBody as Incoming;
 use super::{
-    State, authorize_bucket, bucket_access, empty_response, json_response_selected,
-    require_empty_body,
+    QueryPrecondition, State, ValidatedRead, authorize_bucket, bucket_access, empty_response,
+    json_response_selected, read_metadata_response, require_empty_body,
 };
 use crate::{
     acl::{AclEntry, AclKind, AclTarget},
@@ -109,18 +109,24 @@ pub(super) async fn respond(
     if !operation.accepts_body() {
         require_empty_body(request.headers())?;
     }
-    let mut etag = None;
     let mut value = match &operation {
         AclOperation::List => {
             let acl = read(state, &target, conditions, &access).await?;
             let owner = AclOwner::of(&acl.target, acl.metageneration);
-            etag = Some(owner.etag());
-            json::acl::acl_list_resource(base, owner, &acl.entries)
+            // The listing carries its owner's entity tag, and Cloud Storage evaluated
+            // `If-None-Match` and `If-Match` against it (case bkt-probe-collection-validators).
+            return read_metadata_response(
+                request.headers(),
+                &owner.etag(),
+                json::acl::acl_list_resource(base, owner, &acl.entries),
+                &fields,
+                QueryPrecondition::Unmatched,
+                ValidatedRead::AclList,
+            );
         }
         AclOperation::Get(entity) => {
             let acl = read(state, &target, conditions, &access).await?;
             let owner = AclOwner::of(&acl.target, acl.metageneration);
-            etag = Some(owner.etag());
             let entry = acl
                 .entries
                 .iter()
@@ -179,11 +185,12 @@ pub(super) async fn respond(
             )
         }
     };
-    let mut response = json_response_selected(&mut value, &fields, json::ResponseCache::Unrecorded);
-    if let Some(etag) = etag.and_then(|etag| etag.parse().ok()) {
-        response.headers_mut().insert("etag", etag);
-    }
-    Ok(response)
+    // An entry resource carries its owner's `etag`, which becomes the ETag header.
+    Ok(json_response_selected(
+        &mut value,
+        &fields,
+        json::ResponseCache::Unrecorded,
+    ))
 }
 
 /// A bucket at the metageneration a response rendered it.

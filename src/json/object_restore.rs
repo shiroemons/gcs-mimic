@@ -3,8 +3,8 @@ use super::{
     integer::take_long,
     objects::{ConditionKeys, take_conditions},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode, finish,
-        parse_query, projection, standard_parameters,
+        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
+        finish_for_profile, parse_query, projection, standard_parameters,
     },
 };
 use crate::{config::CompatProfile, object::ObjectTarget};
@@ -71,7 +71,10 @@ fn parse(
     // Unlike a move, Cloud Storage evaluates a Match and NotMatch pair on a restore instead of
     // refusing it (recorded 2026-11-15).
     let conditions = take_conditions(&mut query, ConditionKeys::Plain)?;
-    finish(&query)?;
+    // Cloud Storage restored an object whose request carried an undeclared `gcsmimicUnknown=1`
+    // (case obj-probe-undeclared-query-move-restore). fake-gcs-server has no restore route, so
+    // its profile keeps rejecting one.
+    finish_for_profile(&query, profile)?;
     Ok(ObjectRequest::Restore {
         target: ObjectTarget::new(bucket, name, generation),
         conditions,

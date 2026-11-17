@@ -689,3 +689,39 @@ Storage.
 
 Inferred, not recorded: malformed or `null` values of these three fields are
 ignored the same way, as for `size` and `md5Hash`.
+
+## Eleventh recording: open gap probes
+
+Recorded on **2026-11-17** in two live runs, with the project and access token
+again supplied only through environment variables. The first run recorded seven
+new cases whose IDs contain `-probe-`; the second recorded one more case for the
+methods the first left unrecorded:
+
+```sh
+cargo xtask differential run --filter -probe- --record <partial-reference>
+cargo xtask differential run --filter bkt-probe-undeclared-query-writes --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out <merged-reference>
+```
+
+- Requests sent to Cloud Storage: **173** and **30**, with no HTTP 429.
+- Resources: the shared bucket of each run, three buckets of the cases' own and
+  one bucket created by a case with a 7-day soft delete policy. Every bucket was
+  emptied, deleted and confirmed 404; no retention lock, HMAC key, Pub/Sub topic
+  or IAM member other than the default legacy bindings was created.
+
+The reference now holds **147** cases and **2513** requests.
+
+| Case | Gap | Cloud Storage answer | gcs-mimic before |
+| --- | --- | --- | --- |
+| `obj-probe-noncurrent-delete-conditions` | SPEC-VERSION-DELETE-CONDITIONS | Every DELETE condition compares with the selected noncurrent generation, with and without a live generation: a failing match is 412, a failing not-match an empty 304; with one holding and one failing, the failing one decides | Matched |
+| `bkt-probe-collection-validators` | SPEC-JSON-ETAG-COLLECTIONS | The bucket ACL, default object ACL and object ACL listings answer `If-None-Match: *` with 304 and `If-Match: "bogus"` with 412; the notification and HMAC key listings send no ETag and ignore both | 200 on the ACL listings; 400 on the notification listing |
+| `obj-probe-undeclared-query-move-restore`, `obj-probe-undeclared-query-acls`, `bkt-probe-undeclared-query-resources`, `bkt-probe-undeclared-query-writes` | SPEC-JSON-UNKNOWN-QUERY-OBJECTS | `gcsmimicUnknown=1` is ignored on objects.move and restore, every object, bucket and default object ACL method, bucket IAM get, set and test, notification list, get, insert and delete, HMAC key list, get, update and delete, the service account and the managed folder list; a successful restore sends no ETag header | 400 `Unknown query parameter for this method` |
+| `obj-probe-resumable-alias-session` | SPEC-RSM-DISCOVERY-PATH | A session started on `/resumable/upload/storage/v1` keeps that path in its Location, and its chunk, status and final requests answer like the upload session URI | Location under `/upload`; PUT on the alias routed to the XML API (400) |
+| `obj-probe-upload-hashes` | SPEC-010 | A wrong Content-MD5 alone is ignored; X-Goog-Hash on a resumable initiation is ignored; on the final request a wrong value is 400 with the `Provided … doesn't match calculated …` message and covers the whole object | Verified the initiation header (400 at completion) |
+
+gcs-mimic now gives each recorded answer and the replay of all eight cases
+matches, except the two managed folder steps, which stay declared local
+choices because gcs-mimic does not implement managed folders. The
+fake-gcs-server profile keeps refusing an undeclared parameter on the methods
+fake-gcs-server v1.56.1 does not serve.

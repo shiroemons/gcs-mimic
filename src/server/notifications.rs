@@ -22,7 +22,7 @@ pub(super) async fn respond(
         operation.bucket(),
     )
     .await?;
-    json::validate_read_condition_headers(request.headers(), json::EtagConditions::Unsupported)?;
+    json::validate_read_condition_headers(request.headers(), operation.etag_conditions())?;
     if !operation.accepts_body() {
         require_empty_body(request.headers())?;
     }
