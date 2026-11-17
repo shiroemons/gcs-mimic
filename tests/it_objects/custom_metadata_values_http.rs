@@ -79,18 +79,30 @@ fn object_and_array_values_are_dropped_while_other_keys_apply() {
     assert_eq!(merged["metadata"], json!({"keep":"1","new":"2"}));
     let replaced = write(&server, "PUT", r#"{"k":"v","o":{"x":"1"}}"#);
     assert_eq!(replaced["metadata"], json!({"k":"v"}));
-    // The empty-key refusal does not depend on whether the value would be stored.
-    for metadata in [r#"{"":1}"#, r#"{"":{"x":"1"}}"#] {
-        server
-            .request(
-                "PATCH",
-                OBJECT,
-                "",
-                format!(r#"{{"metadata":{metadata}}}"#).as_bytes(),
-            )
-            .json_reason(400, "badRequest");
-    }
-    assert_eq!(server.get("object").json_ok()["metadata"], json!({"k":"v"}));
+}
+
+/// Cloud Storage stored an empty custom metadata key from a multipart insert, a PATCH and a
+/// copy, and a null removed it (recorded 2026-11-17, cases obj-unsupported-inputs and
+/// obj-gaps-empty-metadata-key). Its values follow the rules of every other key.
+#[test]
+fn an_empty_key_is_stored_copied_and_removed_like_any_key() {
+    let (_dir, server) = setup();
+    let stored = write(&server, "PATCH", r#"{"":1,"k":"v"}"#);
+    assert_eq!(stored["metadata"], json!({"":"1","k":"v"}));
+    let copied = server
+        .request(
+            "POST",
+            &format!("{OBJECT}/copyTo/b/test-bucket/o/copy"),
+            "",
+            br#"{"metadata":{"":"c"}}"#,
+        )
+        .json_ok();
+    assert_eq!(copied["metadata"], json!({"":"c"}));
+    let removed = write(&server, "PATCH", r#"{"":null}"#);
+    assert_eq!(removed["metadata"], json!({"k":"v"}));
+    // An object value is dropped for the empty key as for any other key.
+    let kept = write(&server, "PATCH", r#"{"":{"x":"1"},"n":"2"}"#);
+    assert_eq!(kept["metadata"], json!({"k":"v","n":"2"}));
 }
 
 #[test]

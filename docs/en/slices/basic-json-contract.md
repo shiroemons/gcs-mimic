@@ -177,8 +177,8 @@ Non-upload methods with generation select first and compare that same record.
 
 The final custom metadata map has no 8 KiB limit, as Cloud Storage enforced
 none when recorded; fixed and custom metadata stay within a local 40 KiB once
-encoded as JSON. Empty custom values survive; empty keys/non-ASCII fixed header
-values return 501.
+encoded as JSON. Empty custom values and an empty custom key survive; non-ASCII
+fixed header values return 501.
 Metadata changes preserve immutable data identity and use the injected clock.
 Unchanged server-managed metadata may be round-tripped inside the transaction;
 changed/unknown/unmodeled output input returns 501 under SPEC-015. All metadata

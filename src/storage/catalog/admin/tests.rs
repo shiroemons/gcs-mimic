@@ -1364,7 +1364,6 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
         "contentDisposition",
         "contentLanguage",
         "cacheControl",
-        "custom-key",
         "direct-content-type",
     ] {
         let mut publication = request(None);
@@ -1384,10 +1383,6 @@ async fn admin_invalid_metadata_cannot_replace_a_readable_generation() {
             }
             "cacheControl" => {
                 publication.metadata.cache_control = Patch::Set("public\u{7f}".into())
-            }
-            "custom-key" => {
-                publication.metadata.metadata =
-                    MapPatch::Merge(BTreeMap::from([(String::new(), Some("value".into()))]))
             }
             _ => unreachable!(),
         }

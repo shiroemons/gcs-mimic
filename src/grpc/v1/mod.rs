@@ -288,11 +288,6 @@ fn metadata(
             "legacy object metadata outside content fields, custom metadata and holds",
         ));
     }
-    if let MapPatch::Merge(entries) = &update.metadata
-        && entries.contains_key("")
-    {
-        return Err(ObjectError::UnsupportedMetadata("empty custom metadata key".into()).into());
-    }
     update.check_encoded_size()?;
     Ok(update)
 }

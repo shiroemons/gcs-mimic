@@ -26,9 +26,9 @@ pub(super) fn from_proto(
     for path in paths {
         match path.as_str() {
             "metadata" => update.metadata = masked_metadata(&object.metadata),
-            path if let Some(key) = path.strip_prefix("metadata.")
-                && !key.is_empty() =>
-            {
+            // `metadata.` names the empty key, which Cloud Storage updated (recorded 2026-11-17,
+            // case obj-gaps-empty-metadata-key); the pinned Go SDK sends it for that key.
+            path if let Some(key) = path.strip_prefix("metadata.") => {
                 update
                     .metadata
                     .merge_entry(key.into(), object.metadata.get(key).cloned());
@@ -224,18 +224,21 @@ mod tests {
     }
 
     #[test]
-    fn a_metadata_mask_merges_entries_and_clears_on_none() {
+    fn a_metadata_mask_merges_entries_clears_on_none_and_names_the_empty_key() {
         let cleared = from_proto(&pb::Object::default(), &["metadata".into()]).unwrap();
         assert_eq!(cleared.metadata, MapPatch::Clear);
         let object = pb::Object {
-            metadata: [("added".into(), "value".into())].into(),
+            metadata: [(String::new(), "empty".into())].into(),
             ..Default::default()
         };
-        let update = from_proto(&object, &["metadata".into()]).unwrap();
-        assert_eq!(
-            update.metadata,
-            MapPatch::Merge([("added".into(), Some("value".into()))].into())
-        );
+        for path in ["metadata", "metadata."] {
+            let update = from_proto(&object, &[path.into()]).unwrap();
+            assert_eq!(
+                update.metadata,
+                MapPatch::Merge([(String::new(), Some("empty".into()))].into()),
+                "{path}"
+            );
+        }
     }
 
     #[test]

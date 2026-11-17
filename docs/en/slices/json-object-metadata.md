@@ -73,8 +73,10 @@ through a parameter is inconsistent with a value set in the request.` Oversized 
 metadata JSON omits contentType and media serves `application/octet-stream`.
 A PUT keeps empty content fields the same way (the recording covered PATCH).
 Content-Language is limited to 100 characters (100 succeeds, 101 fails).
-Non-ASCII fixed header values and empty custom metadata keys conservatively return
-501 as unsupported semantics; custom values and nonempty keys retain Unicode.
+Non-ASCII fixed header values conservatively return 501 as unsupported semantics;
+custom keys and values retain Unicode. An empty custom metadata key is stored,
+copied and removed with null like any other key, as Cloud Storage did on
+2026-11-17 (case `obj-gaps-empty-metadata-key`).
 
 `generation` selects only the live version; other values return 404 `notFound`.
 All four generation/metageneration match and not-match parameters use the existing

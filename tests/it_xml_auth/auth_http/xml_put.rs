@@ -75,7 +75,7 @@ fn expect_continue(server: &Server, path: &str, headers: &str, length: usize) ->
 fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     let (_config, data, mut server) = iam::fixture();
     let headers = format!(
-        "{ADMIN}Content-Type: text/plain; charset=UTF-8\r\nContent-MD5: {MD5}\r\nx-goog-hash: crc32c={CRC}\r\nx-goog-hash: md5={MD5}\r\nCache-Control: private, max-age=73\r\nContent-Disposition: attachment; filename=hello.txt\r\nContent-Encoding: gzip\r\nContent-Language: en\r\nX-Goog-Meta-Project: example\r\nx-goog-meta-empty:\r\n"
+        "{ADMIN}Content-Type: text/plain; charset=UTF-8\r\nContent-MD5: {MD5}\r\nx-goog-hash: crc32c={CRC}\r\nx-goog-hash: md5={MD5}\r\nCache-Control: private, max-age=73\r\nContent-Disposition: attachment; filename=hello.txt\r\nContent-Encoding: gzip\r\nContent-Language: en\r\nX-Goog-Meta-Project: example\r\nx-goog-meta-empty:\r\nx-goog-meta-: bare\r\n"
     );
     let put = server.request("PUT", OBJECT, &headers, b"hello world");
     put.expect(200);
@@ -112,6 +112,8 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     assert_eq!(get.headers["content-language"], "en");
     assert_eq!(get.headers["x-goog-meta-project"], "example");
     assert_eq!(get.headers["x-goog-meta-empty"], "");
+    // A bare `x-goog-meta-` names the empty key both ways, as on Cloud Storage.
+    assert_eq!(get.headers["x-goog-meta-"], "bare");
     let metadata = server.get(ADMIN, JSON_OBJECT).success().json();
     assert_eq!(metadata["contentType"], "text/plain; charset=UTF-8");
     assert_eq!(metadata["contentEncoding"], "gzip");
@@ -123,7 +125,7 @@ fn xml_put_metadata_hashes_empty_and_encoded_paths_round_trip() {
     assert_eq!(metadata["cacheControl"], "private, max-age=73");
     assert_eq!(
         metadata["metadata"],
-        json!({"project":"example", "empty":""})
+        json!({"project":"example", "empty":"", "":"bare"})
     );
     assert_eq!(metadata["md5Hash"], MD5);
     assert_eq!(metadata["crc32c"], CRC);
@@ -347,7 +349,6 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
             "InvalidArgument",
         ),
         ("x-goog-gcs-idempotency-token: \r\n", "InvalidArgument"),
-        ("x-goog-meta-: value\r\n", "InvalidArgument"),
         (
             "X-Goog-Meta-Name: one\r\nx-goog-meta-name: two\r\n",
             "ExcessHeaderValues",

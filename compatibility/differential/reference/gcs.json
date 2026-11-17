@@ -54615,6 +54615,671 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "obj-gaps-empty-metadata-key",
+      "steps": [
+        {
+          "fingerprint": "b2b1ac8cc60d7d0f",
+          "name": "json-insert-empty-key",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2Cmetadata&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "": "v",
+                  "k": "w"
+                },
+                "name": "obj-gaps-empty-metadata-key-1-j"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e6f3ee509d74d975",
+          "name": "xml-get-empty-key",
+          "request": "GET /<bucket>/obj-gaps-empty-metadata-key-1-j",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "x"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-meta-": "v",
+              "x-goog-meta-k": "w",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "STANDARD",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "409926cdce79c990",
+          "name": "grpc-get-empty-key",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "": "v",
+                  "k": "w"
+                },
+                "name": "obj-gaps-empty-metadata-key-1-j"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "ce9914a271ce208e",
+          "name": "json-copy-empty-key",
+          "request": "POST /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-j/copyTo/b/<bucket>/o/obj-gaps-empty-metadata-key-1-c?fields=name%2Cmetadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "": "c"
+                },
+                "name": "obj-gaps-empty-metadata-key-1-c"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "41b2d89d91e168e6",
+          "name": "json-patch-remove-empty-key",
+          "request": "PATCH /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-c?fields=name%2Cmetadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "obj-gaps-empty-metadata-key-1-c"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "abaad4fafb1def9c",
+          "name": "grpc-update-empty-key",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2839306131,
+                  "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                },
+                "contentType": "text/plain",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metadata": {
+                  "": "g",
+                  "k": "w"
+                },
+                "metageneration": "2",
+                "name": "obj-gaps-empty-metadata-key-1-j",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "1",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "6eb6d6e53cba3288",
+          "name": "grpc-update-metadata-mask-other-key",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2839306131,
+                  "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                },
+                "contentType": "text/plain",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metadata": {
+                  "": "g",
+                  "k": "w",
+                  "n": "1"
+                },
+                "metageneration": "3",
+                "name": "obj-gaps-empty-metadata-key-1-j",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "1",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "e144287168acce3b",
+          "name": "grpc-update-empty-key-path",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2839306131,
+                  "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                },
+                "contentType": "text/plain",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metadata": {
+                  "": "d",
+                  "k": "w",
+                  "n": "1"
+                },
+                "metageneration": "4",
+                "name": "obj-gaps-empty-metadata-key-1-j",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "1",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "3b2d6b9665dadd50",
+          "name": "grpc-update-metadata-mask-empty-map",
+          "request": "GRPC google.storage.v2.Storage/UpdateObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  },
+                  {
+                    "email": "<email>",
+                    "entity": "user-<email>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/obj-gaps-empty-metadata-key-1-j/<generation:16>/user-<email>",
+                    "role": "OWNER"
+                  }
+                ],
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2839306131,
+                  "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                },
+                "contentType": "text/plain",
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "5",
+                "name": "obj-gaps-empty-metadata-key-1-j",
+                "owner": {
+                  "entity": "user-<email>"
+                },
+                "size": "1",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "7d4d03e003adb558",
+          "name": "grpc-write-empty-key",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/obj-gaps-empty-metadata-key-1-g/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/obj-gaps-empty-metadata-key-1-g/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/obj-gaps-empty-metadata-key-1-g/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/obj-gaps-empty-metadata-key-1-g/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2839306131,
+                    "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                  },
+                  "contentType": "text/plain",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metadata": {
+                    "": "v"
+                  },
+                  "metageneration": "1",
+                  "name": "obj-gaps-empty-metadata-key-1-g",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "1",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "c814283a64583255",
+          "name": "xml-put-empty-key",
+          "request": "PUT /<bucket>/obj-gaps-empty-metadata-key-1-x",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "e6fc106a200e1a67",
+          "name": "json-get-xml-put",
+          "request": "GET /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-x?fields=name%2Cmetadata",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "metadata": {
+                  "": "v"
+                },
+                "name": "obj-gaps-empty-metadata-key-1-x"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "93b287628fb1daa1",
+          "name": "cleanup-j",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-j",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "885c41abefb8cf9c",
+          "name": "cleanup-c",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-c",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "b386a65588c74c60",
+          "name": "cleanup-g",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-g",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "42b433a3d9e2abd3",
+          "name": "cleanup-x",
+          "request": "DELETE /storage/v1/b/<bucket>/o/obj-gaps-empty-metadata-key-1-x",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -54629,7 +55294,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2112,
+  "requests": 2137,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

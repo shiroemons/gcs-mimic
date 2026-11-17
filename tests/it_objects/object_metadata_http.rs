@@ -714,9 +714,6 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             json!({"contentDisposition":"attachment; filename=雪"}),
         )
         .metadata_error(400, "badRequest");
-    server
-        .update("PATCH", "", json!({"metadata":{"":"value"}}))
-        .metadata_error(400, "badRequest");
     let compressed = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x4b\x4c\x4a\x06\x00\xc2\x41\x24\x35\x03\x00\x00\x00";
     let uploaded = server
         .request(

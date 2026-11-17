@@ -302,16 +302,15 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     if let Some(value) = single(headers, super::CUSTOM_TIME)? {
         metadata.custom_time = Patch::Set(super::custom_time(value)?);
     }
+    // A bare `x-goog-meta-` names the empty key, which Cloud Storage stored (recorded
+    // 2026-11-17, case obj-gaps-empty-metadata-key). `name` comes from this map, so `single`
+    // finds the header.
     let mut custom = BTreeMap::new();
     for name in headers.keys() {
-        if let Some(key) = name.as_str().strip_prefix("x-goog-meta-") {
-            if key.is_empty() {
-                return Err(Error::invalid("Custom metadata requires a key."));
-            }
-            // `name` comes from this map, so the header is present.
-            if let Some(value) = single(headers, name.as_str())? {
-                custom.insert(key.to_owned(), Some(value.to_owned()));
-            }
+        if let Some(key) = name.as_str().strip_prefix("x-goog-meta-")
+            && let Some(value) = single(headers, name.as_str())?
+        {
+            custom.insert(key.to_owned(), Some(value.to_owned()));
         }
     }
     metadata.metadata = MapPatch::Merge(custom);

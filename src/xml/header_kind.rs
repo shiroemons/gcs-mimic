@@ -8,7 +8,7 @@ pub(super) enum HeaderKind {
     Signing,
     /// `x-amz-decoded-content-length`, the size of an aws-chunked body.
     DecodedLength,
-    /// `x-goog-meta-*`, including the empty key that metadata parsing rejects.
+    /// `x-goog-meta-*`, including a bare `x-goog-meta-` that names the empty key.
     CustomMetadata,
     /// Customer-supplied key headers, the billing project, the generation preconditions, the
     /// API client and the idempotency token: read alike by every object operation.

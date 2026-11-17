@@ -4,7 +4,7 @@ Recorded on **2026-11-13**. This evidence answers questions that open entries in
 the [gap ledger](../../../compatibility/gaps.json) asked of Cloud Storage, and
 records what gcs-mimic does after the follow-up changes. It covers only the
 request shapes listed below; it does not establish unrestricted Cloud Storage
-API parity. A third recording, on 2026-11-17, is described in the last section.
+API parity. Later recordings, on 2026-11-17, are described in the last sections.
 
 ## Live recording
 
@@ -263,8 +263,66 @@ The reference now holds **130** cases and **2112** requests.
 | `obj-retention-unlocked` | An Unlocked retention on a copy, rewrite and compose destination in a bucket with object retention | 200, and each destination holds the retention | Matched since aligned (was 400 `badRequest`) |
 | `bkt-gaps-settings` | `destinationPredefinedAcl=private` on a copy, rewrite and compose under uniform access | 400 `invalid` `Cannot insert legacy ACL for an object when uniform bucket-level access is enabled.` and a documentation link, as for an upload | Matched since aligned (was 400 `invalidArgument` with guidance) |
 | `bkt-gaps-settings` | objects.patch with `predefinedAcl=private` under uniform access | 400 `invalid` `Cannot update access control for an object when uniform bucket-level access is enabled.` and a documentation link | Matched since aligned (was 400 `badRequest`, `predefinedAcl` unsupported on a PATCH) |
-| `obj-unsupported-inputs` | The ACL after objects.patch with `predefinedAcl=private` | The owner's OWNER grant alone | Matched since aligned (the PATCH was refused and the ACL kept its project grants). The PATCH itself compares without `metageneration`, which trails by one because gcs-mimic still refuses the empty-key PATCH before it |
+| `obj-unsupported-inputs` | The ACL after objects.patch with `predefinedAcl=private` | The owner's OWNER grant alone | Matched since aligned (the PATCH was refused and the ACL kept its project grants). The PATCH compared without `metageneration` until gcs-mimic stored the empty key ([fifth recording](#fifth-recording-empty-custom-metadata-key)): the refused empty-key PATCH before it had left the count one behind |
 
 The 2026-11-13 steps of `obj-unsupported-derived` for `temporaryHold`,
 `customTime`, `destinationPredefinedAcl` and a retention in a bucket without
 object retention now match as well, and their markers were removed.
+
+## Fifth recording: empty custom metadata key
+
+Recorded on **2026-11-17**. The 2026-11-13
+[unsupported-option probes](unsupported-option-probes.md) showed that Cloud
+Storage stores an empty custom metadata key from a JSON multipart insert and an
+objects.patch. They did not show how the key reads back over the XML API and
+Storage v2, whether those protocols accept it on a write, or what a Storage v2
+`metadata` update mask does with it. The new case `obj-gaps-empty-metadata-key`
+asked, with the project and access token again supplied only through
+environment variables:
+
+```sh
+cargo xtask differential run --cases <directory-with-the-case> \
+  --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out compatibility/differential/reference/gcs.json
+```
+
+- Requests sent to Cloud Storage: **22**, **23** and **25** in three runs of
+  the case, with no HTTP 429. The first run showed that an UpdateObject with the
+  `metadata` mask kept a stored key the request did not name. The second added
+  an update with another key, to tell a merge from special handling of the
+  empty key, and the third added the `metadata.` path and an empty map. Only the
+  third run's recording was merged.
+- Resources: the harness's shared bucket and four objects of one byte.
+- Cleanup: every object and bucket was deleted and confirmed 404, and each
+  run's final listing found nothing left.
+
+The reference now holds **131** cases and **2137** requests.
+
+| Step | Request | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `json-insert-empty-key` | JSON multipart insert with metadata `{"":"v","k":"w"}` | 200, both keys stored | Matched since aligned (was 400 `badRequest`) |
+| `xml-get-empty-key` | XML GET of that object | 200 with `x-goog-meta-: v` and `x-goog-meta-k: w` | Matched since aligned |
+| `grpc-get-empty-key` | Storage v2 GetObject with read mask `name,metadata` | Metadata `{"":"v","k":"w"}` | Matched since aligned |
+| `json-copy-empty-key` | JSON copy whose body sets metadata `{"":"c"}` | 200, the destination holds `{"":"c"}` alone | Matched since aligned (was 400 `badRequest`) |
+| `json-patch-remove-empty-key` | objects.patch with `{"metadata":{"":null}}` | 200, the key is removed and no metadata remains | Matched since aligned (was 400 `badRequest`) |
+| `grpc-update-empty-key` | UpdateObject, mask `metadata`, metadata `{"":"g"}` | `{"":"g","k":"w"}`: the stored `k` stays | Matched since aligned (was UNIMPLEMENTED) |
+| `grpc-update-metadata-mask-other-key` | UpdateObject, mask `metadata`, metadata `{"n":"1"}` | `{"":"g","k":"w","n":"1"}`: the mask merges | Matched since aligned (gcs-mimic replaced the map) |
+| `grpc-update-empty-key-path` | UpdateObject, mask `metadata.`, metadata `{"":"d"}` | `{"":"d","k":"w","n":"1"}` | Matched since aligned (the path was UNIMPLEMENTED) |
+| `grpc-update-metadata-mask-empty-map` | UpdateObject, mask `metadata`, no metadata | The map is cleared | Matched since aligned |
+| `grpc-write-empty-key` | WriteObject with metadata `{"":"v"}` | The object holds `{"":"v"}` | Matched since aligned (was UNIMPLEMENTED) |
+| `xml-put-empty-key` | XML PUT with a bare `x-goog-meta-: v` header | 200 | Matched since aligned (was 400 `InvalidArgument` `Custom metadata requires a key.`) |
+| `json-get-xml-put` | JSON GET of that object | Metadata `{"":"v"}` | Matched since aligned |
+
+gcs-mimic now stores an empty key on every write that carries custom metadata
+and merges a Storage v2 `metadata` mask into the stored map, clearing it when
+the request names no key. The pinned Go SDK 1.71.0 sends that bare path only
+with an empty map, to delete every key, and `metadata.KEY` paths otherwise. The
+two `obj-unsupported-inputs` markers for the empty key were removed, and that
+case's objects.patch `predefinedAcl` step compares its `metageneration` again.
+An empty key on a JSON PUT, a resumable initiation, a rewrite or compose
+destination, a Storage v2 ComposeObject or RewriteObject destination and the
+legacy Storage v1 adapter is inferred from the recorded writes that share its
+parsing. An XML POST policy form still refuses a bare `x-goog-meta-` field, and
+a Storage v2 bucket `labels` mask still replaces the labels; no recording covers
+either.

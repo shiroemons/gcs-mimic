@@ -520,7 +520,6 @@ enum ObjectField {
     ContentDisposition,
     ContentLanguage,
     CacheControl,
-    Metadata,
     Acl,
     Created,
     Updated,
@@ -541,7 +540,6 @@ impl ObjectField {
             Self::ContentDisposition => "ContentDisposition",
             Self::ContentLanguage => "ContentLanguage",
             Self::CacheControl => "CacheControl",
-            Self::Metadata => "Metadata",
             Self::Acl => "ACL",
             Self::Created => "Created",
             Self::Updated => "Updated",
@@ -570,9 +568,6 @@ impl ObjectField {
             | Self::ContentLanguage
             | Self::CacheControl => {
                 "Restore native-compatible fixed metadata: ASCII without control characters and contentLanguage at most 100 characters."
-            }
-            Self::Metadata => {
-                "Restore unique, nonempty custom metadata keys with string values from the original snapshot."
             }
             Self::Acl
             | Self::CustomTime
@@ -797,7 +792,7 @@ pub(super) fn check_object_fields(
     })
 }
 
-/// Reports every content field and custom metadata key that native publication would refuse.
+/// Reports every content field that native publication would refuse.
 fn check_fixed_metadata(
     report: &mut Reporter,
     relative: &str,
@@ -838,15 +833,6 @@ fn check_fixed_metadata(
                 value.clone(),
             )?);
         }
-    }
-    if attrs.metadata.as_ref().is_some_and(|m| m.contains_key("")) {
-        fixed_metadata = Err(reject(
-            report,
-            relative,
-            ObjectField::Metadata,
-            "empty custom metadata key is unsupported",
-            String::new(),
-        )?);
     }
     Ok(fixed_metadata)
 }

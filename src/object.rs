@@ -403,16 +403,6 @@ impl ObjectMetadataUpdate {
                 validate_fixed_metadata(field, value)?;
             }
         }
-        let names_empty_key = match &self.metadata {
-            MapPatch::Keep | MapPatch::Clear => false,
-            MapPatch::Merge(entries) => entries.contains_key(""),
-            MapPatch::Replace(entries) => entries.contains_key(""),
-        };
-        if names_empty_key {
-            return Err(ObjectError::UnsupportedMetadata(
-                "empty custom metadata key".into(),
-            ));
-        }
         Ok(())
     }
 

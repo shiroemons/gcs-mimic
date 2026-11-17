@@ -282,9 +282,6 @@ fn custom_metadata_entries(
 ) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
     let mut changes = BTreeMap::new();
     for (key, value) in entries {
-        if key.is_empty() {
-            return Err(JsonError::unsupported_object("empty custom metadata key"));
-        }
         let change = match (CustomMetadataValue::from(value), null) {
             (CustomMetadataValue::Store(text), NullValue::Removes | NullValue::StoresEmpty) => {
                 Some(text)
