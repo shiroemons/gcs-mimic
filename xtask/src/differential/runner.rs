@@ -305,6 +305,11 @@ fn run_case(
     let mut norm = base.clone();
     norm.add_literal(buckets.bucket, "<bucket>");
     norm.add_literal(buckets.new_bucket, "<new_bucket>");
+    // A number the case bucket's creation or an earlier case revealed: a message can name it
+    // without carrying it in a field, as Cloud Storage's matchesPattern refusal does.
+    for number in seen.iter() {
+        norm.add_literal(number, "<project-number>");
+    }
     let mut outcome = CaseOutcome {
         id: case.id.clone(),
         steps: Vec::new(),
@@ -647,6 +652,47 @@ mod tests {
             "no shared bucket without a shared case"
         );
         assert_eq!(run.cases[0].steps[0].request, "GET /storage/v1/b/<bucket>");
+    }
+
+    #[test]
+    fn a_project_number_from_the_case_bucket_creation_is_hidden_in_later_messages() {
+        /// Reveals the project number when the case bucket is created, and names it only in
+        /// the text of every later answer.
+        struct Numbered;
+        impl Transport for Numbered {
+            fn send(&self, request: &Request) -> Result<Response, String> {
+                let (status, body) = if request.method == "POST" {
+                    (200, json!({"projectNumber": "424242"}))
+                } else {
+                    (
+                        400,
+                        json!({"error": {"message": "projects/424242 cannot use this"}}),
+                    )
+                };
+                Ok(Response {
+                    status,
+                    headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+                    body: body.to_string().into_bytes(),
+                })
+            }
+            fn requests(&self) -> u64 {
+                0
+            }
+        }
+        let value = json!({"id": "own", "description": "d", "bucket": "own",
+            "steps": [{"name": "get", "method": "GET", "path": "/storage/v1/b/{bucket}"}]});
+        let own = parse_case(&value, "own").unwrap();
+        let run = run_side(&side_with(&Numbered), &[own], &names());
+        let Ok(response) = &run.cases[0].steps[0].result else {
+            panic!("no response");
+        };
+        let NormBody::Json(body) = &response.body else {
+            panic!("not json");
+        };
+        assert_eq!(
+            body["error"]["message"],
+            "projects/<project-number> cannot use this"
+        );
     }
 
     #[test]
