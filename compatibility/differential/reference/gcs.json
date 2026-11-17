@@ -55280,6 +55280,651 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "grpc-gaps-derived-checksums",
+      "steps": [
+        {
+          "fingerprint": "e2d1cd875c0c5e81",
+          "name": "write-source",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-src/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-src/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-src/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-src/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "contentType": "text/plain",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-gaps-derived-checksums-1-src",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "269d2e0c53fd1b57",
+          "name": "compose-matching-crc32c",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "bucket": "projects/_/buckets/<bucket>",
+                "checksums": {
+                  "crc32c": 2591144780
+                },
+                "componentCount": 1,
+                "createTime": "<time:f3>",
+                "etag": "<etag:str>",
+                "eventBasedHold": false,
+                "finalizeTime": "<time:f6>",
+                "generation": "<generation:str:16>",
+                "metageneration": "1",
+                "name": "grpc-gaps-derived-checksums-1-cmp-crc",
+                "size": "5",
+                "storageClass": "STANDARD",
+                "updateStorageClassTime": "<time:f3>",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "c3d0d85f1c109224",
+          "name": "compose-matching-md5",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Invalid argument."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Invalid argument."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "2260791c1a2a4788",
+          "name": "compose-wrong-md5",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Invalid argument."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Invalid argument."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "4836087447cfeda2",
+          "name": "compose-wrong-crc32c",
+          "request": "GRPC google.storage.v2.Storage/ComposeObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The CRC32C you specified did not match what we computed."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The CRC32C you specified did not match what we computed."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "1a795a59c476aea0",
+          "name": "get-after-wrong-crc32c",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 5,
+                "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-cmp-bad"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 5
+          }
+        },
+        {
+          "fingerprint": "a592364eab126bf6",
+          "name": "rewrite-matching-crc32c",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-crc/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-crc/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-crc/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-crc/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-gaps-derived-checksums-1-rw-crc",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "3c25e821e6990365",
+          "name": "rewrite-matching-md5",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "5",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-md5/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-md5/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-md5/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/grpc-gaps-derived-checksums-1-rw-md5/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2591144780,
+                    "md5Hash": "XUFAKrxLKna5cZ2REBfFkg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "grpc-gaps-derived-checksums-1-rw-md5",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "5",
+                  "storageClass": "STANDARD",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "5"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "5524efa9942d1589",
+          "name": "rewrite-wrong-md5",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed."
+                      }
+                    ]
+                  }
+                ],
+                "message": "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "fa615d7273798866",
+          "name": "rewrite-short-md5",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Provided value (AAAA) is not a base64-encoded 128-bit MD5 hash."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Provided value (AAAA) is not a base64-encoded 128-bit MD5 hash."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "5fc70644a79e2365",
+          "name": "cleanup-src",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-src",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "d693282d4a8d3b56",
+          "name": "cleanup-cmp-crc",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-cmp-crc",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "90736ae487188570",
+          "name": "cleanup-cmp-md5",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-cmp-md5",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-cmp-md5",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-cmp-md5"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "e37a2f15c41229da",
+          "name": "cleanup-cmp-bad-md5",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-cmp-bad-md5",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-cmp-bad-md5",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-cmp-bad-md5"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "a0f5a23a6824f95d",
+          "name": "cleanup-rw-crc",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-rw-crc",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "b8c347ee9680563f",
+          "name": "cleanup-rw-md5",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-rw-md5",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "aadac7bae7420345",
+          "name": "cleanup-rw-bad-md5",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-rw-bad-md5",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-rw-bad-md5",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-rw-bad-md5"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "7fa2ee4d28200b32",
+          "name": "cleanup-rw-short-md5",
+          "request": "DELETE /storage/v1/b/<bucket>/o/grpc-gaps-derived-checksums-1-rw-short-md5",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-rw-short-md5",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/grpc-gaps-derived-checksums-1-rw-short-md5"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -55294,7 +55939,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2137,
+  "requests": 2164,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

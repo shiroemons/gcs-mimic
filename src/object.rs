@@ -650,6 +650,15 @@ pub(crate) enum HashMismatch {
     },
 }
 
+impl HashMismatch {
+    pub(crate) const fn algorithm(&self) -> HashAlgorithm {
+        match self {
+            Self::Crc32c { .. } => HashAlgorithm::Crc32c,
+            Self::Md5 { .. } => HashAlgorithm::Md5,
+        }
+    }
+}
+
 impl fmt::Display for HashMismatch {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

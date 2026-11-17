@@ -1,7 +1,7 @@
 use super::{
     Storage, access_status, convert, iam, names, pb,
     routing::{Route, Routes},
-    status::unsupported,
+    status::{invalid_field, unsupported},
 };
 use crate::{
     acl::{AclRequest, PredefinedObjectAcl},
@@ -14,7 +14,7 @@ use crate::{
     grpc::validate::{self, NegativeGeneration, strict_bucket_conditions, strict_conditions},
     json,
     object::{
-        ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectTarget,
+        ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectTarget,
         generation::{Generation, InvalidGeneration},
     },
     server::authorize_bucket,
@@ -155,19 +155,75 @@ struct RewriteOptions {
     source_generation: Option<Generation>,
     max_bytes_per_call: Option<NonZeroU64>,
     keys: CopyKeys,
+    expected: ExpectedHashes,
+}
+
+/// Cloud Storage's answer to a ComposeObject or RewriteObject checksum of `algorithm` that the
+/// object it would write does not match: INVALID_ARGUMENT with a `BadRequest` repeating the
+/// message (recorded 2026-11-13 and 2026-11-17, cases grpc-unsupported-options and
+/// grpc-gaps-derived-checksums). Unlike the JSON message, it names neither digest.
+fn checksum_mismatch(algorithm: HashAlgorithm) -> Status {
+    invalid_field(algorithm.mismatch_message())
+}
+
+/// Cloud Storage's answer to an MD5 declared for an object that has none: it refused one on a
+/// ComposeObject, whose result is composite, whether or not it matched (recorded 2026-11-17).
+fn md5_unavailable() -> Status {
+    invalid_field("Invalid argument.")
+}
+
+/// A failed ComposeObject, worded as Cloud Storage words a declared checksum the composed object
+/// did not match. Damaged stored data stays a storage failure.
+fn compose_failure(error: ObjectError) -> Status {
+    if let ObjectError::HashMismatch(mismatch) = &error {
+        return checksum_mismatch(mismatch.algorithm());
+    }
+    error.into()
+}
+
+/// The CRC32C a ComposeObject declares; a composite object has no MD5 to declare.
+fn compose_checksums(checksums: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
+    let Some(checksums) = checksums else {
+        return Ok(ExpectedHashes::default());
+    };
+    if !checksums.md5_hash.is_empty() {
+        return Err(md5_unavailable());
+    }
+    Ok(ExpectedHashes {
+        md5: None,
+        crc32c: checksums.crc32c,
+    })
+}
+
+/// The digests a RewriteObject declares. Cloud Storage checked both against the source, and
+/// named an MD5 of another length in base64 (recorded 2026-11-17).
+fn rewrite_checksums(checksums: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
+    let Some(checksums) = checksums else {
+        return Ok(ExpectedHashes::default());
+    };
+    let md5 = match checksums.md5_hash.as_slice() {
+        [] => None,
+        digest => Some(<[u8; 16]>::try_from(digest).map_err(|_| {
+            invalid_field(format!(
+                "Provided value ({}) is not a base64-encoded 128-bit MD5 hash.",
+                crate::base64::encode(digest)
+            ))
+        })?),
+    };
+    Ok(ExpectedHashes {
+        md5,
+        crc32c: checksums.crc32c,
+    })
 }
 
 fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<RewriteOptions, Status> {
     let keys = super::customer_key::copy_keys(r)?;
-    if !r.destination_kms_key.is_empty()
-        || r.object_checksums
-            .as_ref()
-            .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
-    {
+    if !r.destination_kms_key.is_empty() {
         return Err(unsupported(
-            "RewriteObject destination_kms_key/object_checksums; omit these options",
+            "RewriteObject destination_kms_key; omit destination_kms_key",
         ));
     }
+    let expected = rewrite_checksums(r.object_checksums.as_ref())?;
     let invalid = || {
         Status::invalid_argument(
             "source_generation must be positive or omitted; max_bytes_rewritten_per_call must be a multiple of 1048576",
@@ -183,6 +239,7 @@ fn check_rewrite_request(r: &pb::RewriteObjectRequest) -> Result<RewriteOptions,
         source_generation,
         max_bytes_per_call: NonZeroU64::new(max_bytes_per_call),
         keys,
+        expected,
     })
 }
 
@@ -224,11 +281,20 @@ fn rewrite_parameters(r: &pb::RewriteObjectRequest, options: RewriteOptions) -> 
             "ifSourceMetagenerationNotMatch",
             decimal(r.if_source_metageneration_not_match),
         ),
-        // Last, so the sessions stored before it keep their spelling.
+        // Last, so the sessions stored before them keep their spelling. A continuation that
+        // repeats the checksums is checked against the ones the first call verified.
         (
             "destinationPredefinedAcl",
             (!r.destination_predefined_acl.is_empty())
                 .then(|| r.destination_predefined_acl.clone()),
+        ),
+        (
+            "objectChecksums.crc32c",
+            options.expected.crc32c.map(|crc32c| crc32c.to_string()),
+        ),
+        (
+            "objectChecksums.md5Hash",
+            options.expected.md5.map(|md5| crate::base64::encode(&md5)),
         ),
     ] {
         if let Some(value) = value {
@@ -484,6 +550,17 @@ impl Storage {
                 options.keys.source,
             )
             .await?;
+        // A rewrite reproduces the source's bytes, so the declared digests are checked against
+        // its hashes before any session starts; a refused rewrite writes nothing. A source with
+        // no MD5 to show, such as a composite one, refuses a declared MD5 as a compose does
+        // (inferred: no rewrite of such a source was recorded).
+        if options.expected.md5.is_some() && !source.object.has_md5() {
+            return Err(md5_unavailable());
+        }
+        options
+            .expected
+            .verify(&source.object.hashes())
+            .map_err(|mismatch| checksum_mismatch(mismatch.algorithm()))?;
         let mut metadata = resource
             .map(super::object_update::for_write)
             .unwrap_or_else(|| super::object_update::inherited(&source.object));
@@ -848,15 +925,10 @@ impl Storage {
     ) -> Result<Response<pb::Object>, Status> {
         let mut r = request.into_inner();
         let key = super::customer_key::key(r.common_object_request_params.as_ref())?;
-        if !r.kms_key.is_empty()
-            || r.object_checksums
-                .as_ref()
-                .is_some_and(|c| c.crc32c.is_some() || !c.md5_hash.is_empty())
-        {
-            return Err(unsupported(
-                "ComposeObject kms_key/object_checksums; omit these options",
-            ));
+        if !r.kms_key.is_empty() {
+            return Err(unsupported("ComposeObject kms_key; omit kms_key"));
         }
+        let declared = compose_checksums(r.object_checksums.as_ref())?;
         let o = r.destination.take().ok_or_else(|| {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
@@ -908,7 +980,10 @@ impl Storage {
             },
             metadata,
             storage_class: None,
-            declared: ExpectedHashes::default(),
+            // The catalog checks a declared CRC32C against the one it combines from the sources
+            // before reading them, so a refused compose leaves no object (recorded 2026-11-17,
+            // case grpc-gaps-derived-checksums).
+            declared,
             recorded: ExpectedHashes::default(),
             conditions: strict_conditions(ObjectConditions::from(&r))?,
             access,
@@ -927,7 +1002,8 @@ impl Storage {
                 },
                 self.max_object_bytes,
             )
-            .await?;
+            .await
+            .map_err(compose_failure)?;
         // Cloud Storage answers ComposeObject without acl or owner, unlike WriteObject and
         // RewriteObject, unless it names a canned ACL (case grpc-unsupported-options).
         let hashes = crate::csek::StoredHashes::Revealed;
@@ -1169,6 +1245,19 @@ mod tests {
         assert_eq!(
             parameters(&canned),
             r#"{"ifGenerationMatch":"0","destinationPredefinedAcl":"private"}"#
+        );
+        // Declared checksums bind after it, for the same reason.
+        let checked = pb::RewriteObjectRequest {
+            destination_predefined_acl: "private".into(),
+            object_checksums: Some(pb::ObjectChecksums {
+                crc32c: Some(1),
+                md5_hash: vec![0; 16],
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            parameters(&checked),
+            r#"{"destinationPredefinedAcl":"private","objectChecksums.crc32c":"1","objectChecksums.md5Hash":"AAAAAAAAAAAAAAAAAAAAAA=="}"#
         );
     }
 
@@ -2920,18 +3009,177 @@ mod tests {
         }
     }
 
+    /// A refused derived write answers INVALID_ARGUMENT with one `BadRequest` violation that
+    /// repeats `message`, as Cloud Storage did.
+    #[track_caller]
+    fn assert_bad_request<T>(result: Result<T, Status>, message: &str) {
+        use crate::grpc::generated::google::rpc::{BadRequest, Status as RpcStatus};
+        use prost::Message;
+        let status = assert_code(result, Code::InvalidArgument);
+        assert_eq!(status.message(), message);
+        let details = RpcStatus::decode(status.details()).unwrap();
+        let violations = BadRequest::decode(details.details[0].value.as_slice()).unwrap();
+        assert_eq!(violations.field_violations[0].description, message);
+    }
+
+    /// ComposeObject and RewriteObject check a declared checksum against the object they would
+    /// write and write nothing when it disagrees, as Cloud Storage did (cases
+    /// grpc-unsupported-options and grpc-gaps-derived-checksums).
+    #[tokio::test]
+    async fn grpc_derived_writes_verify_request_checksums() {
+        let (s, _dir) = setup().await;
+        let source = upload(&s, "source", 4).await;
+        let checksums = |crc32c: Option<u32>, md5: &[u8]| {
+            Some(pb::ObjectChecksums {
+                crc32c,
+                md5_hash: md5.to_vec(),
+            })
+        };
+        let compose = |name: &str, object_checksums| pb::ComposeObjectRequest {
+            destination: Some(pb::Object {
+                bucket: RESOURCE.into(),
+                name: name.into(),
+                ..Default::default()
+            }),
+            source_objects: vec![pb::compose_object_request::SourceObject {
+                name: "source".into(),
+                ..Default::default()
+            }],
+            object_checksums,
+            ..Default::default()
+        };
+        let composed = s
+            .compose_object(
+                Request::new(compose("composed", checksums(Some(source.crc32c), &[]))),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(composed.checksums.unwrap().crc32c, Some(source.crc32c));
+        let crc32c = HashAlgorithm::Crc32c.mismatch_message();
+        for (object_checksums, message) in [
+            (checksums(Some(source.crc32c ^ 1), &[]), crc32c),
+            // A composite object has no MD5, so even the source's own is refused.
+            (checksums(None, &source.md5), "Invalid argument."),
+        ] {
+            assert_bad_request(
+                s.compose_object(Request::new(compose("refused", object_checksums)), None)
+                    .await,
+                message,
+            );
+        }
+        assert!(stored_object(&s, "refused").await.is_none());
+
+        let rewrite = |name: &str, object_checksums| pb::RewriteObjectRequest {
+            source_bucket: RESOURCE.into(),
+            source_object: "source".into(),
+            destination_bucket: RESOURCE.into(),
+            destination_name: name.into(),
+            object_checksums,
+            ..Default::default()
+        };
+        let rewritten = s
+            .rewrite_object(
+                Request::new(rewrite(
+                    "rewritten",
+                    checksums(Some(source.crc32c), &source.md5),
+                )),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(rewritten.done);
+        let mut wrong_md5 = source.md5;
+        wrong_md5[0] ^= 1;
+        for (object_checksums, message) in [
+            (checksums(Some(source.crc32c ^ 1), &source.md5), crc32c),
+            (
+                checksums(Some(source.crc32c), &wrong_md5),
+                HashAlgorithm::Md5.mismatch_message(),
+            ),
+            (
+                checksums(None, &[0; 3]),
+                "Provided value (AAAA) is not a base64-encoded 128-bit MD5 hash.",
+            ),
+        ] {
+            assert_bad_request(
+                s.rewrite_object(Request::new(rewrite("refused", object_checksums)), None)
+                    .await,
+                message,
+            );
+        }
+        // The composite copy holds the same bytes, yet has no MD5 to match, as on a compose.
+        let composite = pb::RewriteObjectRequest {
+            source_object: "composed".into(),
+            ..rewrite("refused", checksums(None, &source.md5))
+        };
+        assert_bad_request(
+            s.rewrite_object(Request::new(composite), None).await,
+            "Invalid argument.",
+        );
+        assert!(stored_object(&s, "refused").await.is_none());
+        s.state.catalog.close().await.unwrap();
+    }
+
+    /// A rewrite token binds the checksums its first call verified: a continuation that names
+    /// others is refused, and one that repeats them carries on.
+    #[tokio::test]
+    async fn grpc_rewrite_tokens_bind_declared_checksums() {
+        let (s, _dir) = setup().await;
+        let source = upload(&s, "source", 3 * 1024 * 1024).await;
+        let declared = |crc32c| {
+            Some(pb::ObjectChecksums {
+                crc32c: Some(crc32c),
+                md5_hash: Vec::new(),
+            })
+        };
+        // Another location splits the rewrite into calls of the given size.
+        let request = pb::RewriteObjectRequest {
+            source_bucket: RESOURCE.into(),
+            source_object: "source".into(),
+            destination_bucket: "projects/_/buckets/update-copy-other".into(),
+            destination_name: "target".into(),
+            max_bytes_rewritten_per_call: 1024 * 1024,
+            object_checksums: declared(source.crc32c),
+            ..Default::default()
+        };
+        let first = s
+            .rewrite_object(Request::new(request.clone()), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!first.done);
+        let continued = pb::RewriteObjectRequest {
+            rewrite_token: first.rewrite_token,
+            ..request
+        };
+        let other = pb::RewriteObjectRequest {
+            object_checksums: declared(source.crc32c ^ 1),
+            ..continued.clone()
+        };
+        let refused = assert_code(
+            s.rewrite_object(Request::new(other), None).await,
+            Code::InvalidArgument,
+        );
+        assert_eq!(
+            refused.message(),
+            "rewrite_token does not match the request; repeat the original parameters"
+        );
+        let second = s
+            .rewrite_object(Request::new(continued), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(second.total_bytes_rewritten, 2 * 1024 * 1024);
+        s.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_derived_writes_reject_unsupported_options_without_creating_objects() {
         let (s, _dir) = setup().await;
         let source = upload(&s, "source", 4).await;
-        let crc32c = pb::ObjectChecksums {
-            crc32c: Some(1),
-            ..Default::default()
-        };
-        let md5 = pb::ObjectChecksums {
-            md5_hash: vec![0; 16],
-            ..Default::default()
-        };
         let kms_key = "projects/p/locations/l/keyRings/r/cryptoKeys/k";
         let composed = pb::Object {
             bucket: RESOURCE.into(),
@@ -2946,25 +3194,14 @@ mod tests {
             }],
             ..Default::default()
         };
-        for request in [
-            pb::ComposeObjectRequest {
-                kms_key: kms_key.into(),
-                ..compose.clone()
-            },
-            pb::ComposeObjectRequest {
-                object_checksums: Some(crc32c.clone()),
-                ..compose.clone()
-            },
-            pb::ComposeObjectRequest {
-                object_checksums: Some(md5.clone()),
-                ..compose.clone()
-            },
-        ] {
-            assert_unsupported(
-                s.compose_object(Request::new(request), None).await,
-                "ComposeObject kms_key/object_checksums",
-            );
-        }
+        let request = pb::ComposeObjectRequest {
+            kms_key: kms_key.into(),
+            ..compose.clone()
+        };
+        assert_unsupported(
+            s.compose_object(Request::new(request), None).await,
+            "ComposeObject kms_key",
+        );
         let request = pb::ComposeObjectRequest {
             destination: Some(pb::Object {
                 storage_class: "NEARLINE".into(),
@@ -2985,25 +3222,14 @@ mod tests {
             destination_name: "rewritten".into(),
             ..Default::default()
         };
-        for request in [
-            pb::RewriteObjectRequest {
-                destination_kms_key: kms_key.into(),
-                ..rewrite.clone()
-            },
-            pb::RewriteObjectRequest {
-                object_checksums: Some(crc32c.clone()),
-                ..rewrite.clone()
-            },
-            pb::RewriteObjectRequest {
-                object_checksums: Some(md5.clone()),
-                ..rewrite.clone()
-            },
-        ] {
-            assert_unsupported(
-                s.rewrite_object(Request::new(request), None).await,
-                "RewriteObject destination_kms_key/object_checksums",
-            );
-        }
+        let request = pb::RewriteObjectRequest {
+            destination_kms_key: kms_key.into(),
+            ..rewrite.clone()
+        };
+        assert_unsupported(
+            s.rewrite_object(Request::new(request), None).await,
+            "RewriteObject destination_kms_key",
+        );
         assert!(stored_object(&s, "rewritten").await.is_none());
 
         let restore = pb::RestoreObjectRequest {

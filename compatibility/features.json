@@ -22770,10 +22770,19 @@
       "acceptance_cases": [
         {
           "id": "grpc_unsupported_option_rejections",
-          "description": "destination_predefined_acl, kms_key, object_checksums, storage_class, temporary_hold and custom_time return UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "description": "kms_key and a destination storage_class return UNIMPLEMENTED with ErrorInfo and create no destination.",
           "result": "PASS",
           "test_ids": [
             "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
+          "id": "grpc_derived_request_checksums",
+          "description": "object_checksums.crc32c is checked against the CRC32C combined from the sources before any byte is read; a mismatch returns INVALID_ARGUMENT 'The CRC32C you specified did not match what we computed.' with a BadRequest repeating it and publishes nothing, and any md5_hash returns INVALID_ARGUMENT 'Invalid argument.', as Cloud Storage answered (cases grpc-unsupported-options and grpc-gaps-derived-checksums, recorded 2026-11-13 and 2026-11-17).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_verify_request_checksums",
+            "grpc-gaps-derived-checksums"
           ]
         },
         {
@@ -22798,6 +22807,8 @@
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "grpc_derived_writes_verify_request_checksums",
+        "grpc-gaps-derived-checksums",
         "grpc_derived_writes_store_a_temporary_hold_and_custom_time",
         "destination_acls_refuse_anonymous_callers_and_unknown_values",
         "grpc_masks_reject_unsupported_and_accept_defaults",
@@ -22808,6 +22819,17 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "grpc-gaps-derived-checksums",
+            "grpc_derived_writes_verify_request_checksums",
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22869,7 +22891,7 @@
         "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "RPC-STORAGE-011",
@@ -24060,10 +24082,21 @@
       "acceptance_cases": [
         {
           "id": "grpc_unsupported_option_rejections",
-          "description": "destination_kms_key, destination_predefined_acl, object_checksums, temporary_hold and custom_time return UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "description": "destination_kms_key returns UNIMPLEMENTED with ErrorInfo and creates no destination.",
           "result": "PASS",
           "test_ids": [
             "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
+          "id": "grpc_derived_request_checksums",
+          "description": "object_checksums is checked against the source's stored hashes before a session starts, CRC32C first: a mismatch returns INVALID_ARGUMENT with Cloud Storage's CRC32C or MD5 message and a BadRequest repeating it, an MD5 that is not 16 bytes returns 'Provided value (<base64>) is not a base64-encoded 128-bit MD5 hash.', and nothing is written; a source that shows no MD5 refuses a declared one with 'Invalid argument.' (inferred from ComposeObject); the declared checksums bind into the rewrite token, so a continuation naming others is refused as a token mismatch; copied bytes that fail the source's recorded digests are reported as damaged storage, not as a client checksum. Cloud Storage answered the same (cases grpc-unsupported-options and grpc-gaps-derived-checksums, recorded 2026-11-13 and 2026-11-17).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_verify_request_checksums",
+            "grpc_rewrite_tokens_bind_declared_checksums",
+            "rewrite_tokens_bind_the_stored_parameter_spelling",
+            "grpc-gaps-derived-checksums"
           ]
         },
         {
@@ -24088,6 +24121,10 @@
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "grpc_derived_writes_verify_request_checksums",
+        "grpc_rewrite_tokens_bind_declared_checksums",
+        "rewrite_tokens_bind_the_stored_parameter_spelling",
+        "grpc-gaps-derived-checksums",
         "grpc_object_updates_and_rewrites_apply_predefined_acls",
         "grpc_derived_writes_store_a_temporary_hold_and_custom_time",
         "destination_acls_refuse_anonymous_callers_and_unknown_values",
@@ -24099,6 +24136,19 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "grpc-gaps-derived-checksums",
+            "grpc_derived_writes_verify_request_checksums",
+            "grpc_rewrite_tokens_bind_declared_checksums",
+            "rewrite_tokens_bind_the_stored_parameter_spelling",
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -24160,7 +24210,7 @@
         "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "RPC-STORAGE-022",

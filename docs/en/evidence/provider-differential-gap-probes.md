@@ -326,3 +326,84 @@ legacy Storage v1 adapter is inferred from the recorded writes that share its
 parsing. An XML POST policy form still refuses a bare `x-goog-meta-` field, and
 a Storage v2 bucket `labels` mask still replaces the labels; no recording covers
 either.
+
+## Sixth recording: Storage v2 request checksums on derived writes
+
+Recorded on **2026-11-17**. The 2026-11-13 case `grpc-unsupported-options`
+showed that Cloud Storage refuses a wrong `object_checksums` CRC32C on
+ComposeObject and RewriteObject with INVALID_ARGUMENT, where gcs-mimic rejected
+the field as UNIMPLEMENTED. It did not show what a matching checksum does, how
+an MD5 is treated, or whether a refused compose leaves an object. The new case
+`grpc-gaps-derived-checksums` asked, against a source holding `hello` (CRC32C
+2591144780, MD5 `XUFAKrxLKna5cZ2REBfFkg==`), with the project and access token
+again supplied only through environment variables:
+
+```sh
+cargo xtask differential run --cases <directory-with-the-case> \
+  --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out compatibility/differential/reference/gcs.json
+```
+
+- Requests sent to Cloud Storage: **27** in each of two runs, with no HTTP 429.
+  In the first run the four RewriteObject steps sent an
+  `x-goog-request-params` naming only `bucket`, and Cloud Storage refused them
+  at routing with INVALID_ARGUMENT before reading the checksums. The case was
+  corrected to name `source_bucket` and `bucket`, as the other rewrite cases do,
+  and run again; only the second run's recording was merged.
+- Resources: the harness's shared bucket and five-byte objects.
+- Cleanup: every object and bucket was deleted and confirmed 404, and each
+  run's final listing found nothing left.
+
+The reference now holds **132** cases and **2164** requests.
+
+| Step | Request | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `compose-matching-crc32c` | ComposeObject, CRC32C 2591144780 | Completed, `componentCount` 1 | Matched since aligned (was UNIMPLEMENTED) |
+| `compose-matching-md5` | ComposeObject, the source's MD5 | INVALID_ARGUMENT `Invalid argument.` | Matched since aligned (was UNIMPLEMENTED) |
+| `compose-wrong-md5` | ComposeObject, MD5 of zeros | INVALID_ARGUMENT `Invalid argument.` | Matched since aligned (was UNIMPLEMENTED) |
+| `compose-wrong-crc32c` | ComposeObject, CRC32C 1 | INVALID_ARGUMENT `The CRC32C you specified did not match what we computed.` | Matched since aligned (was UNIMPLEMENTED) |
+| `get-after-wrong-crc32c` | GetObject of that destination | NOT_FOUND: nothing was published | Matched |
+| `rewrite-matching-crc32c` | RewriteObject, CRC32C 2591144780 | Completed, `done` | Matched since aligned (was UNIMPLEMENTED), apart from `resource.contentType` |
+| `rewrite-matching-md5` | RewriteObject, the source's MD5 | Completed, `done` | Matched since aligned (was UNIMPLEMENTED), apart from `resource.contentType` |
+| `rewrite-wrong-md5` | RewriteObject, MD5 of zeros | INVALID_ARGUMENT `The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed.` | Matched since aligned (was UNIMPLEMENTED) |
+| `rewrite-short-md5` | RewriteObject, a 3-byte MD5 | INVALID_ARGUMENT `Provided value (AAAA) is not a base64-encoded 128-bit MD5 hash.` | Matched since aligned (was UNIMPLEMENTED) |
+
+Every refusal carried a `google.rpc.BadRequest` whose one field violation
+repeats the message, and no refused request wrote a destination. The JSON API
+rewrite ignores a supplied `md5Hash` (recorded 2026-11-13), so the MD5 check is
+specific to Storage v2.
+
+gcs-mimic now verifies `object_checksums` on both RPCs. ComposeObject checks a
+declared CRC32C against the CRC32C combined from its sources before any byte is
+read and refuses any MD5, which a composite object does not have. RewriteObject
+checks the MD5's length, then the declared CRC32C and MD5 against the source's
+stored hashes before a session starts, and binds them into the rewrite token
+after `destinationPredefinedAcl` (`objectChecksums.crc32c`,
+`objectChecksums.md5Hash`), so a continuation that repeats other checksums is
+refused as a token mismatch. The two `grpc-unsupported-options` markers for the
+wrong checksum were removed, and `kms_key` and `destination_kms_key` stay
+UNIMPLEMENTED. A request with both a wrong CRC32C and a wrong MD5 reports the
+CRC32C first, following the upload order. A rewrite whose source shows no MD5,
+such as a composite object, refuses a declared MD5 with `Invalid argument.` as
+a compose does. Neither is recorded.
+
+A derived write now keeps the digests a client declared apart from the digests
+recorded for the bytes it copies. Every copy, rewrite and compose, over JSON, XML
+and Storage v2, checks that the copied bytes reproduce the source's recorded
+digests, and a failure there is reported as damaged stored data (JSON 503
+`backendError`, Storage v2 UNAVAILABLE) rather than as a checksum the client
+specified. Only a declared digest fails as the client's error: on a JSON copy,
+a JSON rewrite's CRC32C and a resumable upload's final check, the message is
+the recorded multipart upload wording,
+`Provided CRC32C "…" doesn't match calculated CRC32C "…".`, which replaces the
+generic `The supplied checksum does not match the uploaded data`; Cloud Storage's
+wording for those paths is not recorded.
+
+One difference outside the checksums remains open. Cloud Storage answered the
+two completed RewriteObject calls without `resource.contentType`, although the
+source had `text/plain`, as it did for the `grpc-csek` rewrites and the
+`rewrite-custom-time` step; gcs-mimic copies the source's value. Rewrites in
+`grpc-unsupported-options` of a source updated through a wildcard mask did carry
+`contentType`. The two new rewrite steps compare without it; no recording yet
+explains when a Storage v2 rewrite drops it.
