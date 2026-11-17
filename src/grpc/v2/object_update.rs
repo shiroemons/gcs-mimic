@@ -61,7 +61,7 @@ pub(super) fn from_proto(
                 update.event_based_hold = Some(object.event_based_hold.unwrap_or(false))
             }
             "acl" => {
-                update.acl = Some(acl_entries(
+                update.acl = crate::acl::AclRequest::Entries(acl_entries(
                     AclKind::Object,
                     object.acl.iter().map(|entry| (&entry.entity, &entry.role)),
                 )?)

@@ -176,8 +176,8 @@ fn metadata_from_map(
         acl: body
             .get("acl")
             .map(|value| super::acl::parse_entries(value, crate::acl::AclKind::Object))
-            .transpose()?,
-        predefined_acl: None,
+            .transpose()?
+            .into(),
         write: mode,
         content_type: string(body, "contentType")?,
         content_encoding: string(body, "contentEncoding")?,

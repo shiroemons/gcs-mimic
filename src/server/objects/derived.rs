@@ -152,7 +152,7 @@ async fn copy_object(
     )
     .await?;
     metadata.customer_key_sha256 = keys.destination.map(CustomerKey::sha256);
-    metadata.predefined_acl = params.predefined_acl;
+    metadata.acl = params.predefined_acl.into();
     let source_location = if source.object.component_count.is_some() {
         Some(
             catalog
@@ -226,7 +226,7 @@ pub(super) async fn compose(
     )
     .await?;
     body.destination.customer_key_sha256 = key.map(CustomerKey::sha256);
-    body.destination.predefined_acl = predefined_acl;
+    body.destination.acl = predefined_acl.into();
     let _wait = crate::server::begin_catalog_wait(ctx.activity).await;
     let record = ctx
         .state

@@ -228,7 +228,7 @@ impl UploadCommit {
                 origin: super::super::change_journal::origin(&self.access),
                 notification_mode: NotificationMode::for_access(&self.access),
                 owner_profile: self.principals.as_ref(),
-                acl: super::super::acl::PublicationAcl::requested(self.metadata.predefined_acl),
+                acl: super::super::acl::PublicationAcl::requested(&self.metadata.acl),
             },
             |generation| {
                 let mut record = self.record(generation, defaults)?;
@@ -266,7 +266,7 @@ impl UploadCommit {
     ) -> Result<Journaled, ObjectError> {
         super::super::admin::apply_acl(
             transaction,
-            self.metadata.acl.as_deref(),
+            self.metadata.acl.entries(),
             &self.access,
             record,
         )?;

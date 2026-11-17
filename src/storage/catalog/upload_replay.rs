@@ -907,7 +907,10 @@ mod tests {
         }
     }
 
-    /// Replay identities survive restarts and upgrades; their versioned encoding is fixed.
+    /// Replay identities survive restarts and upgrades; their versioned encoding is fixed. A
+    /// request names explicit entries or a canned ACL, so the pinned state names the entries
+    /// alone; the encoding gave it this digest before the two shared one field as well. The
+    /// state pinned earlier also named a canned ACL, which no request can.
     #[test]
     fn fingerprint_encoding_has_a_stable_golden_digest() {
         let metadata = ObjectMetadataUpdate {
@@ -917,7 +920,7 @@ mod tests {
                 ("alpha".to_owned(), None),
                 ("mid".to_owned(), Some("3".to_owned())),
             ])),
-            acl: Some(vec![
+            acl: crate::acl::AclRequest::Entries(vec![
                 crate::acl::AclEntry {
                     entity: "user-b@example.test".parse().unwrap(),
                     role: crate::acl::AclRole::Owner,
@@ -948,7 +951,7 @@ mod tests {
         let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(
             hex,
-            "9800c73b1029a34e7809af2ace71da8e6668531db720b33ce2f448732d4735d7"
+            "af270fbb830cad906ada2c0a5471095cbe55f56ba39cd84cfa6c8ab8a8dc7a54"
         );
         let replace = ObjectMetadataUpdate {
             metadata: MapPatch::Replace(BTreeMap::from([

@@ -377,7 +377,7 @@ async fn write_upload(
                 ));
             }
             super::canned_acl::check(
-                headers.metadata.predefined_acl,
+                headers.metadata.acl.predefined(),
                 &path.target.bucket,
                 &access,
                 ctx,

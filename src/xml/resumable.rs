@@ -125,7 +125,7 @@ pub(crate) async fn start(
         .map_err(|error| anonymous_error(error, caller))?;
     let options = options(request.headers(), put::Signing::of(&request), access)?;
     super::canned_acl::check(
-        options.metadata.predefined_acl,
+        options.metadata.acl.predefined(),
         &object.bucket,
         &options.access,
         ctx,

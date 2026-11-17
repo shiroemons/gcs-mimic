@@ -109,7 +109,6 @@ impl Canonical {
         // Exhaustive fields make changes to the persisted request format a deliberate choice.
         let ObjectMetadataUpdate {
             acl,
-            predefined_acl,
             write,
             content_type,
             content_encoding,
@@ -125,14 +124,16 @@ impl Canonical {
             customer_key_sha256,
             storage_class,
         } = metadata;
-        self.optional(acl.as_ref(), |encoded, entries| {
+        // The bytes of the two optional fields the request once kept apart: explicit entries,
+        // then a canned ACL.
+        self.optional(acl.entries(), |encoded, entries| {
             encoded.u64(entries.len() as u64);
             for entry in entries {
                 encoded.text(entry.entity.as_str());
                 encoded.text(entry.role.as_str());
             }
         });
-        self.optional(*predefined_acl, |encoded, acl| encoded.text(acl.as_str()));
+        self.optional(acl.predefined(), |encoded, acl| encoded.text(acl.as_str()));
         self.0.update(&[match write {
             WriteMode::Patch => 0,
             WriteMode::Replace => 1,
@@ -216,18 +217,20 @@ mod tests {
 
     #[test]
     fn every_metadata_field_contributes_to_request_identity() {
+        // The populated options name a canned ACL; both other requests differ from it.
         let mut metadata =
             crate::storage::catalog::resumable::golden_tests::populated_options().metadata;
-        metadata.acl = Some(vec![crate::acl::AclEntry {
-            entity: "allUsers".parse().unwrap(),
-            role: crate::acl::AclRole::Reader,
-        }]);
         metadata.override_unlocked_retention =
             crate::object::retention::UnlockedOverride::Requested;
         let expected = request(&metadata).digest().unwrap();
         let mutations: [fn(&mut ObjectMetadataUpdate); 17] = [
-            |value| value.acl = None,
-            |value| value.predefined_acl = None,
+            |value| value.acl = crate::acl::AclRequest::Omitted,
+            |value| {
+                value.acl = crate::acl::AclRequest::Entries(vec![crate::acl::AclEntry {
+                    entity: "allUsers".parse().unwrap(),
+                    role: crate::acl::AclRole::Reader,
+                }])
+            },
             |value| value.write = WriteMode::Patch,
             |value| value.content_type = Patch::Keep,
             |value| value.content_encoding = Patch::Keep,

@@ -55,7 +55,6 @@ impl<T, C> Metadata<T, C> {
         custom: impl Fn(C) -> Option<CustomMetadata>,
     ) -> Result<ObjectMetadataUpdate, InvalidOptions> {
         Ok(ObjectMetadataUpdate {
-            acl: None,
             write: if self.replace == Some(true) {
                 WriteMode::Replace
             } else {
@@ -75,7 +74,7 @@ impl<T, C> Metadata<T, C> {
             retention: super::super::objects::retention::from_session(&self.retention)?,
             customer_key_sha256: self.customer_key_sha256,
             storage_class: self.storage_class,
-            predefined_acl: self
+            acl: self
                 .predefined_acl
                 .map(|value| {
                     value
@@ -83,7 +82,8 @@ impl<T, C> Metadata<T, C> {
                         .and_then(|value| value.parse::<crate::acl::PredefinedObjectAcl>().ok())
                         .ok_or_else(|| InvalidOptions::new("invalid resumable predefinedAcl"))
                 })
-                .transpose()?,
+                .transpose()?
+                .into(),
             override_unlocked_retention: crate::object::retention::UnlockedOverride::NotRequested,
         })
     }
@@ -156,6 +156,16 @@ impl StoredOptions {
         bucket_project: Option<&str>,
     ) -> Result<Self, CatalogError> {
         let m = &options.metadata;
+        let predefined_acl = match &m.acl {
+            crate::acl::AclRequest::Omitted => None,
+            crate::acl::AclRequest::Predefined(acl) => Some(acl.as_str().into()),
+            // No upload names explicit entries, and the session document has no place for them.
+            crate::acl::AclRequest::Entries(_) => {
+                return Err(unavailable(
+                    "explicit ACL entries cannot be persisted with a resumable session",
+                ));
+            }
+        };
         let metadata = Metadata {
             replace: Some(m.write == WriteMode::Replace),
             event_based_hold: m.event_based_hold.into(),
@@ -171,7 +181,7 @@ impl StoredOptions {
                 .map_err(unavailable)?,
             customer_key_sha256: m.customer_key_sha256,
             storage_class: m.storage_class,
-            predefined_acl: m.predefined_acl.map(|value| value.as_str().into()),
+            predefined_acl,
         };
         let access = match &options.access {
             BucketAccess::Permissive => None,

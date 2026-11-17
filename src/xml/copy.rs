@@ -170,7 +170,7 @@ pub(super) async fn respond(
     }
     let options = options(request.headers(), put::Signing::of(&request))?;
     super::canned_acl::check(
-        options.metadata.predefined_acl,
+        options.metadata.acl.predefined(),
         &operation.target.bucket,
         &access,
         ctx,
@@ -238,7 +238,7 @@ fn destination(
     access: BucketAccess,
 ) -> Result<DerivedDestination, Error> {
     let destination_key = options.metadata.customer_key_sha256;
-    let predefined_acl = options.metadata.predefined_acl;
+    let acl = std::mem::take(&mut options.metadata.acl);
     let storage_class = options
         .metadata
         .storage_class
@@ -259,7 +259,7 @@ fn destination(
     };
     metadata.customer_key_sha256 = destination_key;
     // The directive selects metadata; the ACL applies to the destination under either value.
-    metadata.predefined_acl = predefined_acl;
+    metadata.acl = acl;
     let expected = crate::object::ExpectedHashes {
         md5: options.expected.md5.or(Some(source.md5)),
         crc32c: options.expected.crc32c.or(Some(source.crc32c)),

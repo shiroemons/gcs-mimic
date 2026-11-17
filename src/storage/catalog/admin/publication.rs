@@ -1212,7 +1212,7 @@ fn record_publication_metadata(
     }
     apply_acl(
         transaction,
-        entry.request.metadata.acl.as_deref(),
+        entry.request.metadata.acl.entries(),
         access,
         record,
     )?;

@@ -198,7 +198,7 @@ pub(crate) fn options(
         .or(mime)
         .unwrap_or_else(|| DEFAULT_CONTENT_TYPE.to_owned());
     // Persisted with the session so completion applies the ACL the initiation requested.
-    metadata.predefined_acl = params.predefined_acl;
+    metadata.acl = params.predefined_acl.into();
     Ok((
         name,
         ResumableOptions {

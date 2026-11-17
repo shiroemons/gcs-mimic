@@ -60,8 +60,7 @@ pub(in crate::storage::catalog) fn populated_options() -> ResumableOptions {
     ResumableOptions {
         content_type: "text/plain".into(),
         metadata: ObjectMetadataUpdate {
-            acl: None,
-            predefined_acl: Some(crate::acl::PredefinedObjectAcl::PublicRead),
+            acl: crate::acl::AclRequest::Predefined(crate::acl::PredefinedObjectAcl::PublicRead),
             write: crate::object::WriteMode::Replace,
             content_type: Patch::Set("text/custom".into()),
             content_encoding: Patch::Set("gzip".into()),

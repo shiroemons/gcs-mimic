@@ -272,7 +272,7 @@ pub(super) fn content_type_and_hashes(
 pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
         customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
-        predefined_acl: super::canned_acl::parse(headers)?,
+        acl: super::canned_acl::parse(headers)?.into(),
         ..Default::default()
     };
     // An empty header names no value and leaves the field unset. A JSON upload stores an empty
@@ -427,7 +427,7 @@ pub(crate) async fn respond(
         Framing::Required,
     )?;
     super::canned_acl::check(
-        metadata.predefined_acl,
+        metadata.acl.predefined(),
         &operation.target.bucket,
         &access,
         ctx,

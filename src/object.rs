@@ -299,10 +299,7 @@ pub(crate) fn custom_time_key(value: &str) -> Result<UnixNanos, ObjectError> {
 /// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
-    pub(crate) acl: Option<Vec<crate::acl::AclEntry>>,
-    /// Replaces the bucket's default object ACL for a newly published generation. Only
-    /// publication reads it; the JSON API accepts it on uploads alone.
-    pub(crate) predefined_acl: Option<crate::acl::PredefinedObjectAcl>,
+    pub(crate) acl: crate::acl::AclRequest,
     /// A PUT resets the content fields, custom metadata and holds it does not name.
     pub write: WriteMode,
     pub content_type: Patch<String>,

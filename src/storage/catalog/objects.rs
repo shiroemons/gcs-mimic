@@ -260,18 +260,25 @@ impl Catalog {
                 &access,
             )?;
             validate(&record)?;
-            if let Some(entries) = &update.acl {
-                super::acl::replace_resource_acl(
-                    &transaction,
-                    super::acl::ResolvedAclTarget::Object {
-                        bucket: &bucket,
-                        name: &name,
-                        generation: record.generation,
-                    },
-                    entries,
-                    &access,
-                    principals.as_ref(),
-                ).map_err(acl_update_error)?;
+            match &update.acl {
+                crate::acl::AclRequest::Omitted => {}
+                crate::acl::AclRequest::Entries(entries) => {
+                    super::acl::replace_resource_acl(
+                        &transaction,
+                        super::acl::ResolvedAclTarget::Object {
+                            bucket: &bucket,
+                            name: &name,
+                            generation: record.generation,
+                        },
+                        entries,
+                        &access,
+                        principals.as_ref(),
+                    ).map_err(acl_update_error)?;
+                }
+                // No metadata write names a canned ACL yet.
+                crate::acl::AclRequest::Predefined(_) => {
+                    return Err(ObjectError::UnsupportedMetadata("predefinedAcl".into()));
+                }
             }
             let previous_retention = record.retention;
             let previous_event_hold = record.event_based_hold;

@@ -233,7 +233,7 @@ async fn execute(
         .await?;
         destination.metadata.customer_key_sha256 =
             keys.destination.map(crate::csek::CustomerKey::sha256);
-        destination.metadata.predefined_acl = operation.predefined_acl;
+        destination.metadata.acl = operation.predefined_acl.into();
         catalog
             .check_upload(
                 &names.destination.bucket,

@@ -52,7 +52,7 @@ impl ObjectSpec {
             content_type: attrs.content_type,
             metadata: ObjectMetadataUpdate {
                 retention: Patch::nullable(self.retention),
-                acl: self.acl,
+                acl: self.acl.into(),
                 storage_class: Some(self.storage_class),
                 custom_time: Patch::nullable(self.custom_time),
                 content_encoding: named(attrs.content_encoding),

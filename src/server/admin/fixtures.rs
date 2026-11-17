@@ -166,7 +166,7 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, Json
         .remove("acl")
         .map(|acl| fixture_acl(&acl))
         .transpose()?
-        .flatten();
+        .unwrap_or_default();
     check_fixture_members(fields)?;
     let bytes = serde_json::to_vec(&value)
         .map_err(|_| JsonError::invalid_argument("Invalid fixture metadata"))?;
@@ -305,7 +305,7 @@ fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), 
     Ok(())
 }
 
-fn fixture_acl(acl: &Value) -> Result<Option<Vec<crate::acl::AclEntry>>, JsonError> {
+fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, JsonError> {
     if let Some(entries) = acl.as_array() {
         for entry in entries.iter().filter_map(Value::as_object) {
             for (field, value) in entry {

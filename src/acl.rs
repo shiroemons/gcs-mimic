@@ -697,6 +697,48 @@ impl PredefinedObjectAcl {
     }
 }
 
+/// The object ACL a write asks for. A request names explicit entries or a canned ACL, never
+/// both, so one value holds either.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum AclRequest {
+    /// A new generation takes the bucket's default object ACL; a metadata write keeps the ACL.
+    #[default]
+    Omitted,
+    /// Replaces the ACL: a metadata write's `acl` or an administrative publication's entries.
+    Entries(Vec<AclEntry>),
+    /// Replaces the ACL with canned entries: `predefinedAcl`, `destinationPredefinedAcl` or
+    /// `x-goog-acl`.
+    Predefined(PredefinedObjectAcl),
+}
+
+impl AclRequest {
+    pub(crate) fn entries(&self) -> Option<&[AclEntry]> {
+        match self {
+            Self::Entries(entries) => Some(entries),
+            Self::Omitted | Self::Predefined(_) => None,
+        }
+    }
+
+    pub(crate) fn predefined(&self) -> Option<PredefinedObjectAcl> {
+        match self {
+            Self::Predefined(acl) => Some(*acl),
+            Self::Omitted | Self::Entries(_) => None,
+        }
+    }
+}
+
+impl From<Option<Vec<AclEntry>>> for AclRequest {
+    fn from(entries: Option<Vec<AclEntry>>) -> Self {
+        entries.map_or(Self::Omitted, Self::Entries)
+    }
+}
+
+impl From<Option<PredefinedObjectAcl>> for AclRequest {
+    fn from(acl: Option<PredefinedObjectAcl>) -> Self {
+        acl.map_or(Self::Omitted, Self::Predefined)
+    }
+}
+
 /// An `x-goog-acl` value the XML API does not define, kept for the error that names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct InvalidCannedAcl<'a>(pub(crate) &'a str);

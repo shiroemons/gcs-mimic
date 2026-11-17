@@ -75,8 +75,15 @@ pub(super) enum PublicationAcl<'a> {
 }
 
 impl PublicationAcl<'_> {
-    pub(super) fn requested(predefined: Option<crate::acl::PredefinedObjectAcl>) -> Self {
-        predefined.map_or(Self::InheritDefault, Self::Predefined)
+    /// Explicit entries start from the inherited ACL as well: an administrative publication
+    /// replaces it once the generation exists (`admin::apply_acl`).
+    pub(super) fn requested(request: &crate::acl::AclRequest) -> Self {
+        match request {
+            crate::acl::AclRequest::Predefined(acl) => Self::Predefined(*acl),
+            crate::acl::AclRequest::Omitted | crate::acl::AclRequest::Entries(_) => {
+                Self::InheritDefault
+            }
+        }
     }
 }
 
