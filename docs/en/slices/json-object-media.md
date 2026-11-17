@@ -17,11 +17,11 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | Item | Integrated decision |
 | --- | --- |
 | 1 | Read failures retain `ObjectError::NotModified` and return an empty 304; mutations use 412. Missing selected resources take 404 precedence; failed match conditions take precedence over failed not-match conditions. These precedence/mutation choices remain local rules under SPEC-008. |
-| 2 | Both media prefixes serve 200 directly. Ordinary-prefix 303 redirection is an explicit unimplemented deviation (SPEC-009). |
+| 2 | Both media prefixes serve 200 (206 for a range) directly, without a redirect. Cloud Storage answered `alt=media` on the ordinary `/storage/v1` prefix the same way in the 2026-11-01 recording (cases `obj-download-range`, `obj-download-gzip` and `obj-compose`), so the error catalog's 303 rule does not apply to these requests (SPEC-009, resolved). |
 | 3 | The direct download route is supported from request-endpoints documentation, not a nonexistent Discovery field; non-media direct-download requests return 400 `notDownload`. |
 | 4 | Generation selectors are get/delete-only and projection is insert/get-only; other misplaced parameters fail 400. Signed int64 values are accepted without a leading plus; selectors that do not identify the live positive generation yield 404. |
 | 5 | Since 2026-11-01 `X-Goog-Hash` is not examined on JSON media and multipart uploads: Cloud Storage stored uploads whose header named a wrong, malformed, unknown-algorithm, conflicting, repeated, upper-case or wrong-length hash with the computed hashes (cases `obj-upload-checksums` and, on 2026-11-13, `obj-upload-hash-edges`); a resumable initiation, which was not recorded, still validates it. `Content-MD5` is not examined, as the recorded `obj-upload-checksums` differential case showed Cloud Storage storing an upload whose header named the wrong digest. Duplicate handling and mismatch reason `invalid` are local choices (SPEC-010). |
-| 6 | Missing Content-Type is accepted as a local convenience and stored as `application/octet-stream`; this does not claim Google's upload-header acceptance (SPEC-011). |
+| 6 | An upload without Content-Type is accepted and stores no content type, so the resource omits `contentType`, as Cloud Storage answered in the 2026-11-01 recording (case `obj-upload-content-type`). A download of such an object is served as `application/octet-stream`, the Object resource's documented default (SPEC-011, resolved). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
 | 9 | Unsupported ETag conditions, If-Range, encryption and custom metadata headers follow their separate contracts. Single byte ranges follow the [range contract](json-object-range.md). Media/multipart tokens use bounded persistent [upload replay](sdk-upload-replay.md), with or without conditions. GET/DELETE accept tokens without replay; retries re-execute (SPEC-013). |
@@ -31,8 +31,9 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 The [preconditions guide](https://docs.cloud.google.com/storage/docs/request-preconditions)
 assigns 304 to false not-match conditions; the JSON error catalog also describes failed
 preconditions under 412. Mutation and combined-condition precedence remain local rules
-under SPEC-008. The ordinary media endpoint returns direct 200 locally despite the error
-catalog's 303 rule; the get page does not explain that redirect (SPEC-009). Discovery
+under SPEC-008. The error catalog describes a 303 `mediaDownloadRedirect`, but Cloud
+Storage answered `alt=media` on the ordinary prefix with a direct 200 or 206 in the
+2026-11-01 recording, and gcs-mimic does the same (SPEC-009, resolved). Discovery
 revision `20261013` confirms media download support but has no `mediaDownload.path`; the
 [request-endpoints reference](https://docs.cloud.google.com/storage/docs/request-endpoints)
 independently establishes the optional download prefix.
@@ -40,8 +41,9 @@ independently establishes the optional download prefix.
 The [data-validation guide](https://docs.cloud.google.com/storage/docs/data-validation)
 explicitly supports JSON media `X-Goog-Hash`, but the recorded Cloud Storage
 uploads ignored it, so the emulator does too. A wrong JSON `Content-MD5` alone and
-X-Goog-Hash on resumable requests remain SPEC-010. Missing upload Content-Type acceptance is a local
-convenience, distinct from the Object resource's default serving MIME type (SPEC-011).
+X-Goog-Hash on resumable requests remain SPEC-010. Cloud Storage accepted an upload without
+Content-Type and stored no type in the 2026-11-01 recording; the Object resource's default
+serving MIME type covers its download (SPEC-011, resolved).
 Generation/hash header parity and exact opaque ID/ETag/link encodings remain SPEC-012;
 `timeFinalized` is emitted for this finalized-only subset. Unsupported headers and
 method-specific parameters fail explicitly; GET/DELETE retry-token acceptance without
@@ -173,7 +175,7 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 
 | Header | Decision |
 | --- | --- |
-| `Content-Type` on insert | Valid media type becomes stored `contentType`; missing is accepted locally as `application/octet-stream` (SPEC-011); no extension inference |
+| `Content-Type` on insert | Valid media type becomes stored `contentType`; missing stores no type and the resource omits `contentType`, as recorded (SPEC-011); no extension inference |
 | `Content-Length` | Honor framing and cap; known oversize can fail before reading; no unchecked allocation based on the value |
 | `Transfer-Encoding: chunked` | Supported bounded stream with unknown final length; full cap/checksum validation still applies |
 | `X-Goog-Hash` on insert | Not examined on media and multipart uploads since 2026-11-01, as recorded on Cloud Storage (cases `obj-upload-checksums` and `obj-upload-hash-edges`); the stored hashes are computed from the bytes |
@@ -403,11 +405,11 @@ results in the feature ledger; source research and successful validation are not
 | No. / ID | Observable assertion | Evidence owner |
 | --- | --- | --- |
 | 1 / OBJ-MEDIA-001 | Upload, metadata, media, direct download and delete paths/verbs; endpoint misuse and 405 Allow | Adapter + wire |
-| 2 / OBJ-MEDIA-002 | Ordinary media GET has documented redirect or a declared direct-200 deviation; redirect retains encoded name, conditions and configured base | Integration; SPEC-009 |
+| 2 / OBJ-MEDIA-002 | Ordinary media GET answers a direct 200 (206 for a range) without redirect, as Cloud Storage did in the 2026-11-01 recording | Integration + replay; SPEC-009 (resolved) |
 | 3 / OBJ-MEDIA-003 | Media requires uploadType and name; query name is decoded once; no metadata-only insert succeeds | Adapter |
 | 4 / OBJ-MEDIA-004 | All method/common parameter decisions above, defaults, unknown/misplaced names and encoded duplicate keys | Adapter |
 | 5 / OBJ-MEDIA-005 | Signed int64 boundaries, overflow, invalid syntax, plus signs, duplicate conditions and query cap | Adapter |
-| 6 / OBJ-MEDIA-006 | No Content-Type behavior is reconciled; supplied MIME type persists without extension inference | Adapter + wire; SPEC-011 |
+| 6 / OBJ-MEDIA-006 | An upload without Content-Type stores no type, as recorded; a supplied MIME type persists without extension inference | Adapter + wire + replay; SPEC-011 (resolved) |
 | 7 / OBJ-MEDIA-007 | Zero-length and binary/non-UTF-8 body round trips exactly; Object-shaped JSON remains raw bytes | Storage + wire |
 | 8 / OBJ-MEDIA-008 | Content-Length and chunked/unknown length produce identical bytes/metadata without payload collection | Storage + wire |
 | 9 / OBJ-MEDIA-009 | Exact configured size cap succeeds; cap+1 fails 413 without publication; known oversize rejected early | Storage + wire |

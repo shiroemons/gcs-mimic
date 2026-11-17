@@ -14943,7 +14943,7 @@
         },
         {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and GET replay; retained-generation reads and bounded JSON GET gzip expansion are supported locally. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS. SPEC-008 combined/missing-selected-resource/authorization precedence, SPEC-012/017 exact error/header parity, SPEC-009 redirect behavior and provider-exact transcoding/public-ACL details remain pending.",
+          "description": "Implement full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and GET replay; retained-generation reads and bounded JSON GET gzip expansion are supported locally. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS. SPEC-008 combined/missing-selected-resource/authorization precedence, SPEC-012/017 exact error/header parity and provider-exact transcoding/public-ACL details remain pending.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -15844,7 +15844,6 @@
         }
       ],
       "known_deviations": [
-        "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
         "Single untranscoded JSON byte ranges work; JSON GET gzip expansion ignores Range and sends full 200. JSON media reads ignore If-Range, as the 2026-11-01 recording showed Cloud Storage doing, while metadata GETs reject a standalone If-Range with a local 400; userProject is ignored; scoped fields/read ETags and retained versions work. Full ACL/owner and provider-exact transcoding/fallback/header parity remain pending under SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS, SPEC-012 and SPEC-015.",
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
@@ -28650,7 +28649,6 @@
         }
       ],
       "known_deviations": [
-        "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
         "SPEC-015: on object PATCH and PUT a body generation selects the generation when the query names none, and output-only size and md5Hash (case obj-metadata-output-only, recorded 2026-11-13), a superseded etag, metageneration and updated (case obj-stale-body-update, recorded 2026-11-17) and id, selfLink and timeCreated (inferred) are ignored, as Cloud Storage did; identical values of other server-managed fields are accepted, while other changed/unmodeled output, unknown input and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. An empty custom metadata key is stored, copied and removed like any other key, as Cloud Storage did (case obj-gaps-empty-metadata-key, 2026-11-17). ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: metadata-update tokens still execute without replay and can increment metageneration again; media/multipart/copy use bounded persistent replay. JSON GET/media HEAD and XML GET/HEAD gzip expansion are supported locally; doubly compressed objects (application/gzip stored with gzip encoding) are always gunzipped as Cloud Storage did (case obj-gzip-double, recorded 2026-11-13); provider-exact transcoding/full public ACL semantics remain pending. Effective allUsers grants select stored/public-default Cache-Control; nonpublic JSON stays no-cache. See docs/en/evidence/public-object-reads.md and docs/en/slices/sdk-scorecard-integration.md.",
         "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; fixed and custom metadata are held to the local 40 KiB bound on encoded metadata before media/staging and rechecked at publication, with no 8 KiB custom metadata limit, as Cloud Storage enforced none (recorded 2026-11-15)."
@@ -29001,7 +28999,7 @@
         {"id": "CUSTOM-TIME-SET", "description": "Upload, PATCH and PUT accept RFC 3339 customTime; malformed values fail with 400.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog"]},
         {"id": "CUSTOM-TIME-MONOTONIC", "description": "Equal/later instants succeed; clearing/backdating and omitted PUT fail atomically; PATCH omission preserves the value. Error displays preserve pre-epoch dates instead of reflecting them after 1970.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic", "object::custom_time_tests::custom_time_errors_preserve_dates_before_the_epoch"]},
         {"id": "SDK-DEFAULT-CALLS", "description": "Go Writer/Update and Ruby create_file/custom_time= work with default SDK calls.", "result": "PASS", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]},
-        {"id": "PROVIDER-WIRE", "description": "Exact null and failure wire parity remains pending under SPEC-OBJECT-HOLDS-CUSTOMTIME.", "result": "PENDING", "test_ids": []}
+        {"id": "PROVIDER-WIRE", "description": "The recorded null, PUT omission and failure answers match (case obj-holds-customtime, 2026-11-01); a customTime of a non-string JSON type and an impossible calendar date remain unrecorded under SPEC-EVENT-HOLD-WIRE.", "result": "PENDING", "test_ids": []}
       ],
       "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog", "TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time", "object::custom_time_tests::custom_time_errors_preserve_dates_before_the_epoch"],
       "verification": [
@@ -29013,7 +29011,7 @@
         {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.308.0", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime"]},
         {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["ruby-object-holds-custom-time"]}
       ],
-      "known_deviations": ["Exact provider null and error reasons/messages remain pending under SPEC-OBJECT-HOLDS-CUSTOMTIME; lifecycle and additional interactions are outside this slice."],
+      "known_deviations": ["Unrecorded customTime input edges (a non-string JSON type, an impossible calendar date) remain local choices under SPEC-EVENT-HOLD-WIRE; lifecycle and additional interactions are outside this slice."],
       "implemented_in": "9ea4446309aff8d2e16bc6c0e984cb37877cbd5d",
       "last_verified": "2026-10-27"
     },
@@ -31325,7 +31323,7 @@
         }
       ],
       "known_deviations": [
-        "SPEC-009/012: ordinary media GET is direct 200 and JSON header parity/opaque identifiers remain scoped local choices.",
+        "SPEC-012: JSON header parity and opaque identifiers remain scoped local choices.",
         "Single ranges, selected historical media, scoped ETag conditions and strict project/bucket grants are supported. JSON GET gzip expansion is bounded and ignores Range with full 200; JSON media reads ignore If-Range as recorded on 2026-11-01. Double-compression handling and provider-exact transcoding remain pending. See docs/en/slices/sdk-scorecard-integration.md."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
@@ -34033,7 +34031,7 @@
         {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["ruby-object-holds-custom-time"]}
       ],
       "known_deviations": [
-        "Exact provider event-hold omission/null/PUT/error precedence and propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporaryHold:null and customTime errors are local choices under SPEC-OBJECT-HOLDS-CUSTOMTIME. Retention interactions remain unsupported."
+        "Hold null and mistyped values outside the recorded states, error precedence and propagation remain local choices (SPEC-EVENT-HOLD-WIRE); the recorded temporaryHold null and customTime answers match (case obj-holds-customtime). Retention interactions remain unsupported."
       ],
       "implemented_in": "9ea4446309aff8d2e16bc6c0e984cb37877cbd5d",
       "last_verified": "2026-10-27"

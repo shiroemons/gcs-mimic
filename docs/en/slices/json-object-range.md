@@ -179,8 +179,8 @@ selection and exhaustive error headers are not independently verified.
 Proposed open gap `SPEC-RANGE-VALIDATORS`: establish the JSON If-Range ETag/date
 subset before implementation; local 501 remains visible. Extend SPEC-012 to
 track the partial response header presence and opaque ETag questions above.
-Retain SPEC-015 for unavailable transcoding and SPEC-009 for the ordinary JSON
-endpoint's direct response instead of production redirect behavior.
+Retain SPEC-015 for unavailable transcoding. The ordinary JSON endpoint's direct
+response matches the 2026-11-01 recording (SPEC-009, resolved).
 
 No XML/gRPC adapter, multipart/byteranges response, version history, public IAM/ACL
 policy, decompression or parallel downloader is added. No real Google bucket,
