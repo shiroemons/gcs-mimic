@@ -23501,11 +23501,11 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "grpc_unsupported_option_rejections",
-          "description": "predefined_acl returns UNIMPLEMENTED with ErrorInfo without changing content_type or metageneration.",
+          "id": "grpc_object_predefined_acl",
+          "description": "predefined_acl replaces the object ACL as a JSON PATCH predefinedAcl does, as Cloud Storage applied private (case grpc-unsupported-options, recorded 2026-11-13); a request that also updates acl returns INVALID_ARGUMENT.",
           "result": "PASS",
           "test_ids": [
-            "grpc_updates_reject_predefined_acls_without_changing_metadata"
+            "grpc_object_updates_and_rewrites_apply_predefined_acls"
           ]
         },
         {
@@ -23575,7 +23575,8 @@
             "obj-gaps-empty-metadata-key",
             "a_metadata_mask_merges_entries_clears_on_none_and_names_the_empty_key",
             "object_validation_uses_proto_field_names_and_keeps_error_details",
-            "grpc_update_masks"
+            "grpc_update_masks",
+            "grpc_object_updates_and_rewrites_apply_predefined_acls"
           ]
         },
         {
