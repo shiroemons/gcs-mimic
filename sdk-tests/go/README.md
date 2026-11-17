@@ -520,5 +520,5 @@ review and full native suite results.
 - [Bucket delete requires an empty bucket](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete)
 - [Live JSON Discovery contract](https://storage.googleapis.com/$discovery/rest?version=v1)
 - [Module proxy and retraction contracts](https://go.dev/ref/mod)
-- [setup-go v7.0.0 release](https://github.com/actions/setup-go/releases/tag/v7.0.0)
-- [setup-go immutable commit](https://api.github.com/repos/actions/setup-go/git/ref/tags/v7.0.0)
+- [setup-go v7.1.0 release](https://github.com/actions/setup-go/releases/tag/v7.1.0)
+- [setup-go immutable commit](https://api.github.com/repos/actions/setup-go/git/ref/tags/v7.1.0)

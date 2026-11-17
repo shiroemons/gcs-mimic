@@ -147,7 +147,7 @@ test READMEs.
 
 ## C++
 
-The scorecard runs google-cloud-cpp 3.13.0, built from source with GCC 16.2.0
+The scorecard runs google-cloud-cpp 3.14.0, built from source with GCC 16.2.0
 for its REST transport only, so no gRPC listener is needed. The
 [C++ example](../../examples/cpp/README.md) builds the same SDK in Docker and
 shows the client options; `CLOUD_STORAGE_EMULATOR_ENDPOINT`, when set,

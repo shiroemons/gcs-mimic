@@ -1292,3 +1292,30 @@ The composer:2.11.2 index was rebuilt to add a linux/riscv64 manifest. Its linux
 | `cargo xtask dependencies check --scope release` at `2026-11-16T08:13:50Z` | Exit 0 with 42 `CURRENT` lines |
 
 The Go and PHP SDK suites and the Go module's tests run in `just pre-push` on the release source.
+
+## Refresh: 2026-11-17
+
+The scheduled freshness check on 2026-11-17 reported four development-only updates; the release-scoped check was current. All four are adopted.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| actions/setup-go | v7.0.0 (`b7ad1dad31e06c5925ef5d2fc7ad053ef454303e`) | v7.1.0 (`d8cbb8045d7f43706b9177cceb36c1f91a6644d5`, released 2026-11-17T03:01:17Z) | `.github/workflows/ci.yaml` |
+| google.golang.org/genproto | v0.0.0-20261110000943-09e21b237f2c | v0.0.0-20261116203732-fd2c7689a808 (revision `fd2c7689a80894d782f5bb941a953b6cc9eff5b9`, the proxy's `@latest`) | `sdk-tests/go` |
+| Testcontainers (NuGet) | 4.16.0 | 4.17.0 (1,537,560-byte nupkg, SHA-256 `004cd9318bb285845475ec0d826cf9339c48fc6269d23689d2c6812c9df75698`) | `sdk-tests/dotnet` |
+| google-cloud-cpp | v3.13.0 | v3.14.0 (released 2026-11-16T20:17:21Z; 19,320,778-byte tag archive, SHA-256 `2f5648f6c1c57532d9146b2c22b649f5f68bdcb50932e3610d6885d5a8b6efc8`) | `sdk-scorecard/cpp/Dockerfile` |
+
+[setup-go v7.1.0](https://github.com/actions/setup-go/releases/tag/v7.1.0) exposes Go environment variables as outputs, accepts native Go version syntax and rc/beta versions in `go.mod`, and updates its bundled dependencies; it still runs on node24, and its LICENSE is unchanged. The new genproto revision changes only the module's CI workflow, `go.mod` and `go.sum`: no file under `googleapis/storage`, which holds the legacy Storage v1 stubs the suite imports, differs, its LICENSE is unchanged and its `go.mod` still requires Go 1.26.0. `go mod tidy` changes no other requirement; `go/`, `sdk-scorecard/go` and `go/sourceexport` hold genproto only as an indirect requirement and keep it. Testcontainers 4.17.0 keeps the MIT license and the same dependency set, so the lock file changes only its own entry in both target frameworks. [google-cloud-cpp v3.14.0](https://github.com/googleapis/google-cloud-cpp/releases/tag/v3.14.0) changes Storage only to lock a mutex before reading metadata in `ObjectDescriptorImpl::Read`; its common libraries enforce REST path encoding. Its storage client still has no public API for restoring a soft-deleted bucket, so the probe's unsupported reason for `bucket.soft_delete_restore`, the shared case catalog and the documents that name the current version now give 3.14.0. Earlier records that name the version a run used keep it.
+
+### Validation performed on 2026-11-17
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-17T13:01:15Z` | Exit 0 with 144 `CURRENT` lines; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`, and Rust `slim-trixie` differs only on the undeclared linux/riscv64 platform |
+| `cargo xtask dependencies check --scope release` at `2026-11-17T13:02:13Z` | Exit 0 with 42 `CURRENT` lines |
+| `cargo test --locked -p xtask` | 290 passed, 0 failed |
+| `go vet ./...` in `sdk-tests/go` | Passed |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-dotnet` | Go suite: 92 passed, the HTTPS-only V2 signing test skipped; .NET suite passed on net10.0 and net11.0 |
+| `bash sdk-scorecard/run.sh --out <dir> gcs-mimic` | The C++ probe built from the v3.14.0 archive and passed 61 of 61 cases (1 n/a). The other SDKs passed every case except the .NET `sdk.update_object_implicit_preconditions`, which expects 412 for a stale UpdateObject that sends no query condition: since metadata writes ignore If-Match (2026-11-17), the stale body's `etag` is refused as an unsupported setting instead. The .NET probe uses none of the updated inputs |
+| `GCSM_IMAGE=<image> bash sdk-tests/dotnet/run.sh --container` against Docker Desktop 29.9.3 | Passed on net10.0 and net11.0 with Testcontainers 4.17.0. Another local Docker-compatible runtime let the start-container call Docker.DotNet sends time out after 100 seconds with 4.16.0 and 4.17.0 alike, with and without the Ryuk reaper, so that failure belongs to the runtime |
+
+Both checks ran with `GITHUB_TOKEN` set, as the scheduled workflow does: an earlier unauthenticated run in the same hour reached GitHub's 60-request limit and stopped at HTTP 403.

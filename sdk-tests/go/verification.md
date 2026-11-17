@@ -2,9 +2,17 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## genproto update: 2026-11-17
+
+Current pins are Go 1.27.4, Storage v1.71.0, API v0.315.0, OAuth2 v0.38.0 and genproto v0.0.0-20261116203732-fd2c7689a808.
+`go get google.golang.org/genproto@v0.0.0-20261116203732-fd2c7689a808` and `go mod tidy` change only the genproto requirement and its `go.sum` lines; the new revision changes no file under `googleapis/storage`, which holds the legacy v1 stubs the suite uses.
+`go vet ./...` passed, and `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-dotnet` ran the suite with 92 tests passing and the HTTPS-only V2 signing test skipped.
+No harness migration was required.
+See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md#refresh-2026-11-17).
+
 ## Go 1.27.4 and API update: 2026-11-11
 
-Current pins are Go 1.27.4, Storage v1.70.0, API v0.312.0, OAuth2 v0.38.0 and genproto v0.0.0-20261110000943-09e21b237f2c.
+The 2026-11-11 pins were Go 1.27.4, Storage v1.70.0, API v0.312.0, OAuth2 v0.38.0 and genproto v0.0.0-20261110000943-09e21b237f2c.
 `GOTOOLCHAIN=go1.27.4 go get toolchain@go1.27.4 google.golang.org/api@v0.312.0` and `go mod tidy` also raise github.com/googleapis/enterprise-certificate-proxy to v0.3.25 and golang.org/x/sync to v0.25.0.
 `go mod verify` and `go vet ./...` passed, and `scripts/sdk-go.sh --with-dotnet` later ran the suite with 90 tests passing and the HTTPS-only V2 signing test skipped.
 No harness migration was required.

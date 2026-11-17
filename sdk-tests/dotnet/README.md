@@ -1,7 +1,7 @@
 # Official .NET HTTP SDK and Testcontainers
 
 `global.json` pins .NET SDK 11.0.100. `Scenario.csproj` pins Storage 5.0.0 and
-Testcontainers 4.16.0; `packages.lock.json` records the complete graph.
+Testcontainers 4.17.0; `packages.lock.json` records the complete graph.
 The project targets `net10.0` and `net11.0`, so the suite keeps proving the LTS
 runtime while it also runs on the newest one. `run.sh` runs every mode, including
 `--container`, once per target framework, prints `== .NET SDK suite on <framework>`

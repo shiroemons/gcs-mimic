@@ -31,7 +31,7 @@ RUN mkdir /src && tar -xJf /dl/nlohmann-json.tar.xz -C /src --strip-components=1
  && cmake --build /build && cmake --install /build \
  && rm -rf /src /build /dl/nlohmann-json.tar.xz
 
-# google_cloud_cpp_common 3.13.0 includes <opentelemetry/...> headers unconditionally, even with
+# google_cloud_cpp_common 3.14.0 includes <opentelemetry/...> headers unconditionally, even with
 # the opentelemetry feature disabled; the header-only API satisfies them without the SDK.
 ADD --checksum=sha256:85aae7a42d7b71d17e510ddebc85db622d9078cc6d29cf9fb7373014b063859f https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.30.0.tar.gz /dl/opentelemetry-cpp.tar.gz
 RUN mkdir /src && tar -xzf /dl/opentelemetry-cpp.tar.gz -C /src --strip-components=1 \
@@ -42,7 +42,7 @@ RUN mkdir /src && tar -xzf /dl/opentelemetry-cpp.tar.gz -C /src --strip-componen
 
 # "storage" alone also enables monitoring, trace, opentelemetry and universe_domain
 # (cmake/GoogleCloudCppFeatures.cmake), which require gRPC and Protobuf; the REST client does not.
-ADD --checksum=sha256:3fefa2ca821ec8dd26f2d5ffc89611e74259c76a459fce3fd3cf46013785e423 https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.13.0.tar.gz /dl/google-cloud-cpp.tar.gz
+ADD --checksum=sha256:2f5648f6c1c57532d9146b2c22b649f5f68bdcb50932e3610d6885d5a8b6efc8 https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v3.14.0.tar.gz /dl/google-cloud-cpp.tar.gz
 RUN mkdir /src && tar -xzf /dl/google-cloud-cpp.tar.gz -C /src --strip-components=1 \
  && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=${CXX_STD} \
       -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
