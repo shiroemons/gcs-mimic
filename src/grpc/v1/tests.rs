@@ -473,6 +473,52 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// A legacy bucket carries the number JSON and Storage v2 render for its project, which names
+/// the project in a listing; an update may send it back as fetched but may not change it.
+#[tokio::test]
+async fn a_legacy_bucket_carries_its_project_number() {
+    let dir = TestDir::new();
+    let storage = storage(&dir, Auth::permissive()).await;
+    let number = crate::project::ProjectNumber::of("p2");
+    let fetched = Legacy::get_bucket(
+        &storage,
+        Request::new(pb::GetBucketRequest {
+            bucket: "list-a".into(),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap()
+    .into_inner();
+    assert_eq!(fetched.project_number, i64::try_from(number).unwrap());
+    let listed = Legacy::list_buckets(&storage, list(&number.to_string(), None, 0, ""))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(names(&listed), ["list-a"]);
+    assert_eq!(listed.items[0].project_number, fetched.project_number);
+    let update = |metadata: pb::Bucket| {
+        Legacy::update_bucket(
+            &storage,
+            Request::new(pb::UpdateBucketRequest {
+                bucket: "list-a".into(),
+                metadata: Some(metadata),
+                ..Default::default()
+            }),
+        )
+    };
+    let changed = pb::Bucket {
+        project_number: fetched.project_number + 1,
+        ..fetched.clone()
+    };
+    let refused = update(changed).await.unwrap_err();
+    assert!(refused.message().contains("project_number"), "{refused:?}");
+    let updated = update(fetched.clone()).await.unwrap().into_inner();
+    assert_eq!(updated.metageneration, fetched.metageneration + 1);
+    assert_eq!(updated.project_number, fetched.project_number);
+    storage.state.catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn list_buckets_without_project_spans_projects_with_paging() {
     let dir = TestDir::new();

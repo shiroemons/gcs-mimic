@@ -26428,7 +26428,7 @@
         },
         {
           "id": "BEHAVIOR-COMMON-014-PROJECT-NUMBER",
-          "description": "A project ID of decimal digits within 64 bits is that number, leading zeros included; any other ID renders 100000000000 plus the SHA-256 of the ID modulo 900000000000 (floci-gcp's derivation) in projectNumber, Storage v2 Bucket.project, project-team ACL entities, IAM-to-ACL mapping, the service agent address and the REGIONAL class refusal. A request names its project by ID or by that number in the JSON project parameter (bucket insert and list, soft-deleted list), the JSON project path (service account, HMAC keys), the XML x-goog-project-id header and the Storage v2 and legacy v1 project fields; a number resolves before authorization to the ID the identity file or the catalog (buckets, soft-deleted buckets, HMAC keys) knows by it. Bucket and HMAC key page tokens bind the number, so a listing continues under either spelling, and tokens bound to a spelling before still open. Storage v2 projects/0 is INVALID_ARGUMENT 'Project id: 0 is invalid or not found' with a BadRequest repeating it. Opening a schema 54 catalog renames the stored zero-numbered teams of a named project's bucket, default object, object, soft-deleted bucket and retained object ACLs in one transaction. Recorded 2026-11-17 (case prj-number-inputs; docs/en/evidence/provider-differential-gap-probes.md#eighth-recording-project-numbers-as-input).",
+          "description": "A project ID of decimal digits within 64 bits is that number, leading zeros included; any other ID renders 100000000000 plus the SHA-256 of the ID modulo 900000000000 (floci-gcp's derivation) in projectNumber, Storage v2 Bucket.project, the legacy v1 Bucket.project_number (0 for a number beyond int64), project-team ACL entities, IAM-to-ACL mapping, the service agent address and the REGIONAL class refusal. A request names its project by ID or by that number in the JSON project parameter (bucket insert and list, soft-deleted list), the JSON project path (service account, HMAC keys), the XML x-goog-project-id header and the Storage v2 and legacy v1 project fields; a number resolves before authorization to the ID the identity file or the catalog (buckets, soft-deleted buckets, HMAC keys) knows by it. Bucket and HMAC key page tokens bind the number, so a listing continues under either spelling, and tokens bound to a spelling before still open. Storage v2 projects/0 is INVALID_ARGUMENT 'Project id: 0 is invalid or not found' with a BadRequest repeating it. Opening a schema 54 catalog renames the stored zero-numbered teams of a named project's bucket, default object, object, soft-deleted bucket and retained object ACLs in one transaction. Recorded 2026-11-17 (case prj-number-inputs; docs/en/evidence/provider-differential-gap-probes.md#eighth-recording-project-numbers-as-input).",
           "result": "PASS",
           "test_ids": [
             "an_id_derives_a_stable_twelve_digit_number",
@@ -26437,6 +26437,7 @@
             "a_number_no_known_project_has_names_a_project_of_its_own",
             "strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything",
             "grpc_lists_a_project_by_the_number_its_buckets_render",
+            "a_legacy_bucket_carries_its_project_number",
             "project_name_takes_back_rendered_numbers_and_rejects_zero",
             "page_tokens_keep_their_bytes_and_open",
             "hmac_key_list_tokens_keep_their_bytes_and_open",
@@ -26462,6 +26463,7 @@
         "a_number_no_known_project_has_names_a_project_of_its_own",
         "strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything",
         "grpc_lists_a_project_by_the_number_its_buckets_render",
+        "a_legacy_bucket_carries_its_project_number",
         "project_name_takes_back_rendered_numbers_and_rejects_zero",
         "page_tokens_keep_their_bytes_and_open",
         "hmac_key_list_tokens_keep_their_bytes_and_open",
@@ -26493,6 +26495,7 @@
             "a_number_no_known_project_has_names_a_project_of_its_own",
             "strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything",
             "grpc_lists_a_project_by_the_number_its_buckets_render",
+            "a_legacy_bucket_carries_its_project_number",
             "project_name_takes_back_rendered_numbers_and_rejects_zero",
             "page_tokens_keep_their_bytes_and_open",
             "hmac_key_list_tokens_keep_their_bytes_and_open",

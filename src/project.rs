@@ -45,6 +45,16 @@ impl ProjectNumber {
     }
 }
 
+/// Protobuf carries a project number as `int64` (the legacy gRPC `Bucket.project_number`). Only
+/// a project named by a number beyond that range, nineteen digits or more, has none there.
+impl TryFrom<ProjectNumber> for i64 {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(number: ProjectNumber) -> Result<Self, Self::Error> {
+        Self::try_from(number.0)
+    }
+}
+
 impl fmt::Display for ProjectNumber {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)

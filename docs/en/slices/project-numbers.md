@@ -21,8 +21,11 @@ of its ID.
   so a project ID used against both emulators renders alike. Project `local`
   is `902648055030`.
 - NUMBER-RENDERED: the number appears as JSON `projectNumber` (native profile),
-  Storage v2 `Bucket.project` (`projects/{number}`), the project-team entities
-  of the `projectPrivate` ACL and of predefined ACLs (`project-owners-{number}`),
+  Storage v2 `Bucket.project` (`projects/{number}`), the legacy v1
+  `Bucket.project_number` (an int64: a number beyond its range, which only a
+  project named by nineteen or more digits has, stays `0`), the project-team
+  entities of the `projectPrivate` ACL and of predefined ACLs
+  (`project-owners-{number}`),
   the IAM-to-ACL mapping of `projectOwner:ID` style members, the service agent
   `service-{number}@gs-project-accounts.iam.gserviceaccount.com`, and the
   `Project {number} may not create storageClass ...` refusal. The
@@ -83,6 +86,7 @@ Cloud Storage reports.
 `a_number_no_known_project_has_names_a_project_of_its_own`,
 `strict_mode_reaches_a_granted_project_by_number_before_it_owns_anything`,
 `grpc_lists_a_project_by_the_number_its_buckets_render`,
+`a_legacy_bucket_carries_its_project_number`,
 `entity_alt_names_only_teams_of_the_buckets_project`,
 `project_name_takes_back_rendered_numbers_and_rejects_zero`,
 `page_tokens_keep_their_bytes_and_open`,

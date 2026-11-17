@@ -5,6 +5,7 @@ use crate::{
     },
     config::CompatProfile,
     object::{MapPatch, ObjectError, ObjectRecord},
+    project::ProjectNumber,
 };
 use serde_json::{Map, Value, json};
 use tonic::Status;
@@ -13,6 +14,9 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
     pb::Bucket {
         name: record.name.clone(),
         id: record.name.clone(),
+        // The number JSON `projectNumber` and Storage v2 `projects/N` render for the project. A
+        // number int64 cannot hold stays unset, as every project's was before numbers existed.
+        project_number: i64::try_from(ProjectNumber::of(&record.project)).unwrap_or_default(),
         metageneration: record.metageneration,
         location: record.location.as_str().into(),
         location_type: record.location.kind().as_str().into(),
