@@ -12,7 +12,8 @@ use crate::{
     },
     object::{ObjectError, ObjectRecord},
     storage::{
-        ChunkEnd, ChunkWait, ResumableChunk, ResumableOptions, SessionState,
+        ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, ResumableError, ResumableOptions,
+        SessionLease, SessionState, Written,
         failure::{BackendFailure, object_unavailable},
     },
     time_limit::TimeLimit,
@@ -136,7 +137,7 @@ pub(crate) async fn create_session(
 }
 
 pub(super) fn incomplete(
-    offset: u64,
+    progress: Progress,
     headers: &hyper::HeaderMap,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let override_status = resumable::single(headers, "x-guploader-no-308")? == Some("yes");
@@ -149,11 +150,8 @@ pub(super) fn incomplete(
         "content-type",
         HeaderValue::from_static("text/plain; charset=utf-8"),
     );
-    // A decimal byte range is always a valid header value.
-    if offset > 0
-        && let Ok(range) = HeaderValue::try_from(format!("bytes=0-{}", offset - 1))
-    {
-        response.headers_mut().insert("range", range);
+    if progress.offset > 0 {
+        add_persisted_headers(response.headers_mut(), progress);
     }
     if override_status {
         response.headers_mut().insert(
@@ -165,6 +163,33 @@ pub(super) fn incomplete(
         .headers_mut()
         .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(boxed(response))
+}
+
+/// Describes the persisted bytes of a session that holds some: their range, and the digests
+/// Cloud Storage sent beside it on the chunk's and a later status request's 308 (recorded
+/// 2026-11-15, case obj-resumable-declared-length): the CRC32C in `x-goog-running-hash` and the
+/// hex MD5 in `x-range-md5`. The XML session URI sends them too by inference.
+fn add_persisted_headers(headers: &mut hyper::HeaderMap, progress: Progress) {
+    // Decimal, base64 and hex text is always a valid header value.
+    let range = format!("bytes=0-{}", progress.offset.saturating_sub(1));
+    let digests = progress.hashes.map(|hashes| {
+        [
+            (
+                "x-goog-running-hash",
+                format!(
+                    "crc32c={}",
+                    crate::base64::encode(&hashes.crc32c.to_be_bytes())
+                ),
+            ),
+            ("x-range-md5", crate::hashing::encode_lower(&hashes.md5)),
+        ]
+    });
+    let fields = std::iter::once(("range", range)).chain(digests.into_iter().flatten());
+    for (name, value) in fields {
+        if let Ok(value) = HeaderValue::try_from(value) {
+            headers.insert(name, value);
+        }
+    }
 }
 
 /// What a chunk request's body is, derived from its Content-Range.
@@ -192,8 +217,6 @@ struct Extent {
 struct ChunkPlan {
     start: u64,
     length: u64,
-    /// `start + length`, checked for overflow when the plan was made.
-    end: u64,
     total: Option<u64>,
     kind: ChunkKind,
     finalize: bool,
@@ -317,6 +340,21 @@ fn open_extent(
     }
 }
 
+/// Why a chunk request cannot be planned.
+enum Refusal {
+    /// Refuses this request and leaves the session as it was.
+    Request(JsonError),
+    /// A data chunk with an open total that runs past the session's total. Cloud Storage
+    /// failed the JSON session on it (recorded 2026-11-15, case obj-resumable-declared-length).
+    Overrun(Overrun),
+}
+
+impl From<JsonError> for Refusal {
+    fn from(error: JsonError) -> Self {
+        Self::Request(error)
+    }
+}
+
 fn plan_chunk(
     headers: &hyper::HeaderMap,
     range: Option<Range>,
@@ -324,7 +362,7 @@ fn plan_chunk(
     session: &SessionPosition,
     max_bytes: u64,
     target: &SessionTarget<'_>,
-) -> Result<ChunkPlan, JsonError> {
+) -> Result<ChunkPlan, Refusal> {
     let Extent {
         start,
         length,
@@ -333,7 +371,7 @@ fn plan_chunk(
     } = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
-                return Err(JsonError::session_protocol("Status requires an empty body"));
+                return Err(JsonError::session_protocol("Status requires an empty body").into());
             }
             Extent {
                 start: session.offset,
@@ -355,7 +393,8 @@ fn plan_chunk(
             if session.offset != 0 && session.state != SessionState::Complete {
                 return Err(JsonError::session_protocol(
                     "Content-Range required after the first chunk",
-                ));
+                )
+                .into());
             }
             let length = length.ok_or_else(|| {
                 JsonError::session_protocol("Content-Length required without Content-Range")
@@ -369,18 +408,29 @@ fn plan_chunk(
         }
     };
     if start > session.offset {
-        return Err(JsonError::session_protocol("Upload offset leaves a gap"));
+        return Err(JsonError::session_protocol("Upload offset leaves a gap").into());
     }
     let end = start
         .checked_add(length)
         .ok_or_else(|| JsonError::session_protocol("Upload offset overflow"))?;
     if end > max_bytes || total.is_some_and(|n| n > max_bytes) {
-        return Err(ObjectError::TooLarge.into());
+        return Err(JsonError::from(ObjectError::TooLarge).into());
     }
     if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset)
         || session.total.is_some_and(|n| end > n)
     {
-        return Err(JsonError::session_protocol("Inconsistent upload total"));
+        return Err(match (total, session.total) {
+            // Only an open total reaches here with a known session total: the chunk overruns it.
+            (None, Some(declared))
+                if session.state == SessionState::Active && target.name.is_none() =>
+            {
+                Refusal::Overrun(Overrun {
+                    received: length,
+                    room: declared.saturating_sub(start),
+                })
+            }
+            _ => JsonError::session_protocol("Inconsistent upload total").into(),
+        });
     }
     let total = total.or(session.total);
     let finalize = match kind {
@@ -397,12 +447,11 @@ fn plan_chunk(
                 "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained {length} bytes, which does not meet this requirement."
             )
         };
-        return Err(JsonError::session_protocol(message));
+        return Err(JsonError::session_protocol(message).into());
     }
     Ok(ChunkPlan {
         start,
         length,
-        end,
         total,
         kind,
         finalize,
@@ -426,7 +475,7 @@ pub(super) async fn session_response(
             .await?;
         return Ok(match cancellation {
             Cancellation::Cancelled => {
-                boxed(JsonError::from(crate::storage::ResumableError::Cancelled).into_response())
+                boxed(JsonError::from(ResumableError::Cancelled).into_response())
             }
             Cancellation::Completed {
                 mut resource,
@@ -509,7 +558,7 @@ pub(crate) async fn transfer(
         .await_session_writer(state.catalog.lock_resumable_session(id, bucket))
         .await?;
     if name.is_some_and(|name| name != lease.session.name) {
-        return Err(crate::storage::ResumableError::NotFound.into());
+        return Err(ResumableError::NotFound.into());
     }
     let session = &lease.session;
     // Chunks may repeat the initiation key (as SDKs do) but never introduce or replace one;
@@ -522,14 +571,17 @@ pub(crate) async fn transfer(
         total: session.total,
         state: session.state,
     };
-    let plan = plan_chunk(
+    let plan = match plan_chunk(
         &headers,
         range,
         length,
         &position,
         config.max_object_bytes,
         &target,
-    )?;
+    ) {
+        Ok(plan) => plan,
+        Err(refusal) => return Err(refuse(refusal, &lease, ctx).await),
+    };
     let status_only = plan.kind == ChunkKind::Status && !plan.finalize;
     // Validate the override before any bytes can be acknowledged.
     resumable::single(&headers, "x-guploader-no-308")?;
@@ -572,21 +624,20 @@ pub(crate) async fn transfer(
     }
     if status_only {
         json::read_body(request.into_body(), 0).await?;
-        let offset = session.offset;
+        let progress = session.progress()?;
         state.catalog.prepare_resumable_status(&lease).await?;
         if plan.total != session.total {
-            ctx.await_catalog(
-                state
-                    .catalog
-                    .checkpoint_resumable_session(&mut lease, offset, plan.total),
-            )
+            ctx.await_catalog(state.catalog.checkpoint_resumable_session(
+                &mut lease,
+                progress.offset,
+                plan.total,
+            ))
             .await?;
         }
-        return incomplete(offset, &headers).map(Transfer::Incomplete);
+        return incomplete(progress, &headers).map(Transfer::Incomplete);
     }
     // The session lease holds an activity lease, so no exclusive job can run here.
     let permit = state.catalog.admit_object_upload()?;
-    let offset = session.offset.max(plan.end);
     let view = CompletionView::of(&session.options)?;
     let render = completion_renderer(&session.options, ctx.endpoints.api_base_url().to_owned());
     let (catalog_wait, progress) = watch::channel(ChunkWait::Transfer);
@@ -603,8 +654,25 @@ pub(crate) async fn transfer(
         .write_resumable_session(lease, chunk, body, permit, render);
     let upload = async { upload.await.map_err(JsonError::from) };
     match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
-        Some(resource) => view.respond(ctx, resource).await.map(Transfer::Complete),
-        None => incomplete(offset, &headers).map(Transfer::Incomplete),
+        Written::Complete(resource) => view.respond(ctx, resource).await.map(Transfer::Complete),
+        Written::Open(progress) => incomplete(progress, &headers).map(Transfer::Incomplete),
+    }
+}
+
+/// The answer to a chunk that cannot be planned. An overrun first fails the session, so that
+/// every later request on it repeats the refusal.
+async fn refuse(refusal: Refusal, lease: &SessionLease, ctx: ObjectCtx<'_>) -> JsonError {
+    match refusal {
+        Refusal::Request(error) => error,
+        Refusal::Overrun(overrun) => {
+            let failed = ctx
+                .await_catalog(ctx.state.catalog.reject_resumable_overrun(lease, overrun))
+                .await;
+            match failed {
+                Ok(()) => ResumableError::Overrun(overrun).into(),
+                Err(error) => error.into(),
+            }
+        }
     }
 }
 
@@ -677,10 +745,10 @@ impl CompletionView {
 async fn stream_chunk(
     body: Incoming,
     ctx: ObjectCtx<'_>,
-    upload: impl std::future::Future<Output = Result<Option<serde_json::Value>, JsonError>>,
+    upload: impl std::future::Future<Output = Result<Written, JsonError>>,
     sender: UploadSender,
     progress: watch::Receiver<ChunkWait>,
-) -> Result<Option<serde_json::Value>, JsonError> {
+) -> Result<Written, JsonError> {
     let producer = async {
         stream_upload(body, &sender, ctx.config.max_object_bytes, None)
             .await

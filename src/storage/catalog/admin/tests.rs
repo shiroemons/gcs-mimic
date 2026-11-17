@@ -1540,6 +1540,7 @@ async fn finalize_session(
             },
         )
         .await
+        .map(crate::storage::Written::into_completion)
 }
 
 #[tokio::test]

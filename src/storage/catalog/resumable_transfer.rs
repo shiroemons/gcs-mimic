@@ -1,7 +1,8 @@
 use super::{
     Catalog, UploadGuard,
     resumable::{
-        ResumableError, ResumableOptions, SessionLease, SessionState, TerminalReason, read_session,
+        Appended, Overrun, Progress, ResumableError, ResumableOptions, SessionLease, SessionState,
+        TerminalReason, read_session,
     },
     transfer_io::Output,
 };
@@ -9,9 +10,10 @@ use super::{
     objects::{self, authorized_bucket, check_publication, lookup},
     system_time_micros, unix_micros,
 };
-use crate::hashing::Hashes;
+use crate::hashing::{Hasher, Hashes};
 use crate::object::{ObjectError, ObjectRecord, ObjectTarget, UploadChunk};
 use crate::storage::catalog::{bucket_incarnation, sql};
+use crate::storage::failure::BackendFailure;
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 use std::io;
@@ -54,6 +56,25 @@ impl ChunkEnd {
     }
 }
 
+/// Where a chunk left its session.
+#[derive(Debug)]
+pub(crate) enum Written {
+    /// The upload stays open with this much persisted.
+    Open(Progress),
+    /// The chunk completed the upload: the stored resource, which retries replay.
+    Complete(Value),
+}
+
+#[cfg(test)]
+impl Written {
+    pub(crate) fn into_completion(self) -> Option<Value> {
+        match self {
+            Self::Complete(resource) => Some(resource),
+            Self::Open(_) => None,
+        }
+    }
+}
+
 pub(crate) struct ResumableChunk {
     pub start: u64,
     pub length: u64,
@@ -70,16 +91,32 @@ use super::fault::{self, Step};
 #[cfg(test)]
 mod tests;
 
+/// A chunk's body, durable in the session's staged file but not yet checkpointed.
+struct Received {
+    file: Output,
+    /// Body bytes, including any that repeat the persisted prefix.
+    length: u64,
+    /// The session's running digest continued over the bytes appended to the file.
+    running_hash: Option<Hasher>,
+}
+
 async fn receive_chunk(
     catalog: &Catalog,
     lease: &SessionLease,
     chunk: &ResumableChunk,
     body: &mut mpsc::Receiver<Result<UploadChunk, io::Error>>,
     cancellation: &mut oneshot::Receiver<()>,
-) -> Result<(Output, u64), ObjectError> {
+) -> Result<Received, ObjectError> {
     #[cfg(test)]
     let data_dir = &catalog.0.data_dir;
     let durable = lease.session.offset;
+    let mut running_hash = lease
+        .session
+        .running_hash
+        .as_ref()
+        .map(|state| Hasher::resume(state, durable))
+        .transpose()
+        .map_err(object_unavailable)?;
     let mut file = Output::open_readable(catalog, &lease.session.blob_id, durable).await?;
     let closing = catalog.0.admin_shutdown.notified();
     tokio::pin!(closing);
@@ -114,7 +151,11 @@ async fn receive_chunk(
                     if discard < bytes.len() {
                         #[cfg(test)]
                         fault::hit(data_dir, Step::BodyWrite).map_err(object_unavailable)?;
-                        file.write(bytes.get(discard..).ok_or_else(|| object_unavailable("invalid resumable discard offset"))?).await?;
+                        let appended = bytes.get(discard..).ok_or_else(|| object_unavailable("invalid resumable discard offset"))?;
+                        file.write(appended).await?;
+                        if let Some(hasher) = &mut running_hash {
+                            hasher.update(appended);
+                        }
                     }
                     received = next;
                 }
@@ -134,14 +175,18 @@ async fn receive_chunk(
         file.finish().await.map(|()| received)
     }
     .await;
-    let received = match transfer {
-        Ok(received) => received,
+    let length = match transfer {
+        Ok(length) => length,
         Err(error) => {
             file.rollback(durable).await?;
             return Err(error);
         }
     };
-    Ok((file, received))
+    Ok(Received {
+        file,
+        length,
+        running_hash,
+    })
 }
 
 /// Inside the publication transaction: the session is still active and unexpired, and its
@@ -204,14 +249,17 @@ impl Catalog {
         mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         permit: UploadGuard,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
-    ) -> Result<Option<Value>, ResumableError> {
+    ) -> Result<Written, ResumableError> {
         let catalog = self.clone();
         let (_request, mut cancellation) = oneshot::channel::<()>();
         crate::task::spawn_supervised("resumable-chunk", async move {
             let _permit = permit;
-            let (file, received) =
-                receive_chunk(&catalog, &lease, &chunk, &mut body, &mut cancellation).await?;
-            let end = chunk.start + received;
+            let Received {
+                file,
+                length,
+                running_hash,
+            } = receive_chunk(&catalog, &lease, &chunk, &mut body, &mut cancellation).await?;
+            let end = chunk.start + length;
             // An open-ended body completes the object at its EOF. If it ends inside the
             // persisted prefix, the checkpoint rejects the total and nothing was appended.
             let total = chunk.end.total(end);
@@ -219,24 +267,33 @@ impl Catalog {
             #[cfg(test)]
             fault::hit(&catalog.0.data_dir, Step::Checkpoint).map_err(object_unavailable)?;
             chunk.catalog_wait.send_replace(ChunkWait::Catalog);
+            let appended = Appended {
+                output: file,
+                running_hash: running_hash.as_ref().map(Hasher::save),
+            };
             let file = catalog
                 .checkpoint_resumable_output(
                     &mut lease,
                     offset,
                     total,
                     Some(&chunk.options),
-                    Some(file),
+                    Some(appended),
                 )
                 .await?
                 .ok_or_else(|| object_unavailable("missing upload checkpoint output"))?;
             chunk.catalog_wait.send_replace(ChunkWait::Transfer);
             if !chunk.end.finalizes() {
-                return Ok(None);
+                return lease.session.progress().map(Written::Open);
             }
+            // Completion digests the staged file itself rather than trusting the running
+            // digest: the stored checksums must describe the bytes being published.
             let result = catalog
                 .finalize_resumable(&lease, chunk.options, file, chunk.catalog_wait, render)
                 .await;
-            catalog.resolve_resumable_finalization(&lease, result).await
+            catalog
+                .resolve_resumable_finalization(&lease, result)
+                .await
+                .map(Written::Complete)
         })
         .await
         .map_err(object_unavailable)?
@@ -246,9 +303,9 @@ impl Catalog {
         &self,
         lease: &SessionLease,
         result: Result<Value, ResumableError>,
-    ) -> Result<Option<Value>, ResumableError> {
+    ) -> Result<Value, ResumableError> {
         let error = match result {
-            Ok(value) => return Ok(Some(value)),
+            Ok(value) => return Ok(value),
             Err(error) => error,
         };
         let id = lease.session.id;
@@ -271,7 +328,9 @@ impl Catalog {
                 .backend
                 .finish_draft(&lease.session.blob_id)
                 .map_err(object_unavailable)?;
-            return Ok(session.completion);
+            return session
+                .completion
+                .ok_or_else(|| object_unavailable(BackendFailure::MissingCompletion).into());
         }
         if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {
             if self.0.backend.is_memory() {
@@ -317,6 +376,16 @@ impl Catalog {
             .await
     }
 
+    /// Ends the session on a chunk past its total; later requests repeat `overrun`.
+    pub(crate) async fn reject_resumable_overrun(
+        &self,
+        lease: &SessionLease,
+        overrun: Overrun,
+    ) -> Result<(), ResumableError> {
+        self.fail_resumable_session(lease, TerminalReason::Overrun(overrun))
+            .await
+    }
+
     async fn fail_resumable_session(
         &self,
         lease: &SessionLease,
@@ -328,7 +397,7 @@ impl Catalog {
         let data_dir = self.0.data_dir.clone();
         let changed = self.run_upload::<_, ObjectError>(move |connection| {
             let transaction = sql::immediate(connection)?;
-            let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', ?2) WHERE id = ?1 AND state = 'ACTIVE'", params![id, reason])?;
+            let changed = sql::exec(&transaction, "UPDATE resumable_sessions SET state = 'CANCELLED', options = json_set(options, '$.terminal_error', json(?2)) WHERE id = ?1 AND state = 'ACTIVE'", params![id, sql::Json(reason)])?;
             if changed == 1 {
                 objects::journal_deletion(&transaction, &blob_id)?;
             }

@@ -3,6 +3,7 @@ use crate::common::process::declare_server;
 
 mod phase_deadlines;
 mod resumable_open_end;
+mod resumable_progress;
 mod upload_admission;
 mod upload_replay;
 
@@ -1310,6 +1311,12 @@ fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
     let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
     status.expect(308);
     assert_eq!(status.headers["range"], format!("bytes=0-{}", prefix - 1));
+    // The digests were checkpointed with the offset, so the lost tail is not in them.
+    let (crc32c, md5) = resumable_progress::RECORDED_DIGESTS;
+    assert_eq!(
+        resumable_progress::digests(&status),
+        (Some(crc32c), Some(md5))
+    );
     let final_reply = Reply::framed(send_resumable_chunk(
         &server,
         &path,
@@ -1348,6 +1355,11 @@ fn resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes() {
             assert_eq!(acknowledged.headers["x-http-status-code-override"], "308");
         }
         assert!(acknowledged.body.is_empty());
+        let (crc32c, md5) = resumable_progress::RECORDED_DIGESTS;
+        assert_eq!(
+            resumable_progress::digests(&acknowledged),
+            (Some(crc32c), Some(md5))
+        );
         server.child.kill().unwrap();
         assert!(!server.child.wait().unwrap().success());
         drop(server);
@@ -1356,6 +1368,11 @@ fn resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes() {
         let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
         status.expect(308);
         assert_eq!(status.headers["range"], acknowledged.headers["range"]);
+        // A restart resumes the checkpointed digests without rereading the staged bytes.
+        assert_eq!(
+            resumable_progress::digests(&status),
+            resumable_progress::digests(&acknowledged)
+        );
         let total = prefix.len() + 4;
         let final_reply = server.request(
             "PUT",

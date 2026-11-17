@@ -30220,7 +30220,7 @@
         },
         {
           "id": "RSM-INIT-006",
-          "description": "A declared X-Upload-Content-Length of 0 leaves the total open, as Cloud Storage answered in differential case obj-resumable-declared-length (2026-11-15): a 256 KiB chunk with an open total gets 308 and the upload completes at any size, the PHP SDK's gs:// write sequence. A nonzero declared length still refuses a longer chunk.",
+          "description": "A declared X-Upload-Content-Length of 0 leaves the total open, as Cloud Storage answered in differential case obj-resumable-declared-length (2026-11-15): a 256 KiB chunk with an open total gets 308 and the upload completes at any size, the PHP SDK's gs:// write sequence. A nonzero declared length still refuses a longer chunk; since 2026-11-17 an open-total chunk past it also fails the session, as recorded (RSM-CHUNK-012 on BEHAVIOR-OBJECT-011).",
           "result": "PASS",
           "test_ids": [
             "a_declared_length_of_zero_leaves_the_total_open",
@@ -30369,7 +30369,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All ten scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission, object caps and open-ended final ranges (bytes start-*/total, the Node.js default single-request upload). Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md and docs/en/evidence/differential-harness.md. SPEC-RSM-EDGES retains unrecorded malformed/concurrent errors and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded. JSON session-protocol failures use bare text/plain bodies without cache-control, expires, pragma or vary, as recorded for status 308, malformed Content-Range and unknown sessions. The 2026-11-02 isolated-session recording establishes a persistent plain 400 after a syntax error and the clientClosedRequest JSON 499 envelope on cancellation and later status. A chunk whose last byte lies at or past its own declared total fails the session with the recorded plain 400 for every later request (case obj-resumable-edges, 2026-11-13); duplicate headers and other offset/total inconsistencies remain retryable local 400; larger non-multiple chunks retain local wording, while the recorded sub-256-KiB rejection uses Cloud Storage wording. Other terminal validation failures retain local plain 410. Checksum declaration conflicts, x-goog-hash, final metadata and catalog validation failures keep their JSON envelope and reason. Initiation and JSON errors carry their recorded caching headers; upload front-end errors omit x-content-type-options where recorded.",
+      "notes": "All twelve scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission, object caps, open-ended final ranges (bytes start-*/total, the Node.js default single-request upload), running digests on 308 and declared-length overruns. Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md and docs/en/evidence/differential-harness.md. SPEC-RSM-EDGES retains unrecorded malformed/concurrent errors and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded. JSON session-protocol failures use bare text/plain bodies without cache-control, expires, pragma or vary, as recorded for status 308, malformed Content-Range and unknown sessions. The 2026-11-02 isolated-session recording establishes a persistent plain 400 after a syntax error and the clientClosedRequest JSON 499 envelope on cancellation and later status. A chunk whose last byte lies at or past its own declared total fails the session with the recorded plain 400 for every later request (case obj-resumable-edges, 2026-11-13). An open-total chunk running past the session's total (a nonzero X-Upload-Content-Length) fails the JSON session too, with the recorded plain 400 'Invalid request.  There were N byte(s) (or more) in the request body.  There should have been M byte(s) according to the Content-Range header.' for every later request (case obj-resumable-declared-length, 2026-11-15; SPEC-RESUMABLE-DECLARED-LENGTH-OVERRUN, resolved 2026-11-17); N is the chunk length its Content-Range states, where Cloud Storage counted the bytes it had read, so the case does not compare that body. Every 308 after data carries x-goog-running-hash and x-range-md5, the CRC32C and hex MD5 of the persisted bytes, which each chunk checkpoint saves with the offset (catalog schema 56), as recorded in the same case (SPEC-RESUMABLE-RUNNING-HASH, resolved 2026-11-17); sessions staged before schema 56 report no digests. Duplicate headers, a chunk naming its own conflicting total and other offset/total inconsistencies remain retryable local 400; larger non-multiple chunks retain local wording, while the recorded sub-256-KiB rejection uses Cloud Storage wording. Other terminal validation failures retain local plain 410. Checksum declaration conflicts, x-goog-hash, final metadata and catalog validation failures keep their JSON envelope and reason. Initiation and JSON errors carry their recorded caching headers; upload front-end errors omit x-content-type-options where recorded.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -30483,9 +30483,42 @@
             "open_ended_final_chunk_power_loss_keeps_the_old_or_new_object",
             "node-migration-default-save"
           ]
+        },
+        {
+          "id": "RSM-CHUNK-011",
+          "description": "positive/restart: Every 308 after data, the chunk's and a later status query's, carries x-goog-running-hash: crc32c=<base64 big-endian CRC32C> and x-range-md5: <lowercase hex MD5> of the persisted bytes beside Range, crc32c=374w4A== and c946b71bb69c07daf25470742c967e7c for 262144 bytes of a as recorded (case obj-resumable-declared-length, 2026-11-15); a session holding no data sends none of the three. A resent prefix keeps its original bytes in the digests. The catalog column resumable_sessions.running_hash (schema 56) is saved in the same UPDATE as the offset and must cover exactly that offset, so a SIGKILL before the offset commit leaves the lost tail out and a restart resumes the digests without rereading staged bytes. Sessions staged before schema 56 report no digests and still complete. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PASS",
+          "test_ids": [
+            "each_308_after_data_reports_the_digests_of_the_persisted_bytes",
+            "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
+            "checkpoint_resumes_both_digests",
+            "a_running_hash_must_cover_the_persisted_offset",
+            "a_session_staged_before_running_digests_reports_none_and_still_completes",
+            "obj-resumable-declared-length"
+          ]
+        },
+        {
+          "id": "RSM-CHUNK-012",
+          "description": "negative: On a JSON session URI, an open-total chunk (bytes a-b/*) whose end runs past the session's total fails the session: it and every later status query or chunk answer 400 text/plain without cache headers, 'Invalid request.  There were N byte(s) (or more) in the request body.  There should have been M byte(s) according to the Content-Range header.' with M the total minus the chunk's start and N the chunk length its Content-Range states, and no object is created, as recorded (case obj-resumable-declared-length, 2026-11-15). The reason persists in the session options as terminal_error {\"overrun\":{\"received\":N,\"room\":M}} beside the older \"aborted\" and \"content-range\" strings. A chunk naming its own conflicting total is refused alone with 400 Inconsistent upload total and the session stays usable. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PASS",
+          "test_ids": [
+            "a_chunk_past_the_declared_length_fails_the_session",
+            "terminal_reasons_keep_the_strings_earlier_releases_stored",
+            "obj-resumable-declared-length"
+          ]
         }
       ],
       "test_ids": [
+        "obj-resumable-declared-length",
+        "each_308_after_data_reports_the_digests_of_the_persisted_bytes",
+        "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+        "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
+        "checkpoint_resumes_both_digests",
+        "a_running_hash_must_cover_the_persisted_offset",
+        "a_session_staged_before_running_digests_reports_none_and_still_completes",
+        "a_chunk_past_the_declared_length_fails_the_session",
+        "terminal_reasons_keep_the_strings_earlier_releases_stored",
         "obj-resumable-edges",
         "a_chunk_that_overruns_its_total_fails_the_session",
         "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
@@ -30517,6 +30550,31 @@
         "a_writer_that_keeps_working_past_the_budget_reports_a_busy_session"
       ],
       "verification": [
+        {
+          "command": "cargo +1.100.0 test --locked --offline --test it_protocol -- resumable_progress resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes (4 passed); cargo +1.100.0 test --locked --offline --lib -- checkpoint_resumes_both_digests terminal_reasons_keep_the_strings_earlier_releases_stored a_running_hash_must_cover_the_persisted_offset a_session_staged_before_running_digests_reports_none_and_still_completes (4 passed); macOS",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/slices/resumable-upload.md",
+          "test_ids": [
+            "each_308_after_data_reports_the_digests_of_the_persisted_bytes",
+            "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
+            "checkpoint_resumes_both_digests",
+            "a_running_hash_must_cover_the_persisted_offset",
+            "a_session_staged_before_running_digests_reports_none_and_still_completes",
+            "a_chunk_past_the_declared_length_fails_the_session",
+            "terminal_reasons_keep_the_strings_earlier_releases_stored"
+          ]
+        },
+        {
+          "command": "cargo test --workspace (3936 passed, 0 failed, 1 ignored); cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note (139 of 139 cases match, the running-digest headers and the five-* status and headers of obj-resumable-declared-length now compared)",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/slices/resumable-upload.md",
+          "test_ids": [
+            "obj-resumable-declared-length"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -30635,7 +30693,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-OBJECT-012",
@@ -30655,29 +30713,32 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All four local status cases pass: zero-body numeric/unknown query, absent Range at zero prefix, durable Range across restart, invalid-input rejection and completed original-resource snapshots without another generation after overwrite. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. Failed/completed-session retention and empty-final/error edge parity remain explicit local choices under SPEC-RSM-EDGES, not invocation-token response replay or complete objects.insert parity.",
+      "notes": "All four local status cases pass: zero-body numeric/unknown query, absent Range at zero prefix, durable Range across restart, invalid-input rejection and completed original-resource snapshots without another generation after overwrite. A 308 after data also carries x-goog-running-hash and x-range-md5 of the persisted bytes, as Cloud Storage's status reply did (case obj-resumable-declared-length; SPEC-RESUMABLE-RUNNING-HASH, resolved 2026-11-17). Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. Failed/completed-session retention and empty-final/error edge parity remain explicit local choices under SPEC-RSM-EDGES, not invocation-token response replay or complete objects.insert parity.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-STATUS-001",
-          "description": "positive/boundary: Empty PUT bytes */N (N>0) and */* before data return 308 with no Range and no object; */0 completes the empty object. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "positive/boundary: Empty PUT bytes */N (N>0) and */* before data return 308 with no Range, no x-goog-running-hash or x-range-md5 and no object, as recorded for empty status replies; */0 completes the empty object. Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
             "initiation_returns_opaque_fixed_location_and_status_without_publication",
-            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite"
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+            "each_308_after_data_reports_the_digests_of_the_persisted_bytes"
           ]
         },
         {
           "id": "RSM-STATUS-002",
-          "description": "positive: Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart. Contract: docs/en/slices/resumable-upload.md.",
+          "description": "positive: Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart. Since 2026-11-17 the 308 also carries x-goog-running-hash and x-range-md5, the CRC32C and hex MD5 of the persisted bytes, which survive a restart unchanged (SPEC-RESUMABLE-RUNNING-HASH, case obj-resumable-declared-length). Contract: docs/en/slices/resumable-upload.md.",
           "result": "PASS",
           "test_ids": [
             "initiation_session_cap_and_status_prefix_are_bounded",
             "sessions_persist_options_offsets_deadline_and_exclusive_admission",
             "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
-            "TestObjectResumableRetriesLostChunkResponse"
+            "TestObjectResumableRetriesLostChunkResponse",
+            "each_308_after_data_reports_the_digests_of_the_persisted_bytes",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes"
           ]
         },
         {
@@ -30708,9 +30769,21 @@
         "invalid_initiation_and_status_leave_no_session_or_file",
         "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix",
         "TestObjectResumableWriter",
-        "TestObjectResumableRetriesLostChunkResponse"
+        "TestObjectResumableRetriesLostChunkResponse",
+        "each_308_after_data_reports_the_digests_of_the_persisted_bytes",
+        "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes"
       ],
       "verification": [
+        {
+          "command": "cargo +1.100.0 test --locked --offline --test it_protocol -- resumable_progress resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes (4 passed); macOS",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/slices/resumable-upload.md",
+          "test_ids": [
+            "each_308_after_data_reports_the_digests_of_the_persisted_bytes",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -30757,7 +30830,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-OBJECT-013",
@@ -43281,7 +43354,8 @@
       "known_deviations": [
         "Chunk requests share the JSON session rules, including X-GUploader-No-308, x-goog-hash and final x-goog-meta-* handling; XML-specific provider behavior for these headers is unverified.",
         "Session errors other than 404 NoSuchUpload map through the generic local XML error codes; a cancel of a completed session also answers 204.",
-        "The completed response is derived from the stored JSON object resource, so the same session completed through the JSON session URI replays consistently but the XML headers are not provider-verified."
+        "The completed response is derived from the stored JSON object resource, so the same session completed through the JSON session URI replays consistently but the XML headers are not provider-verified.",
+        "A 308 after data carries x-goog-running-hash and x-range-md5 of the persisted bytes, as Cloud Storage's JSON session URI does (SPEC-RESUMABLE-RUNNING-HASH); the XML session URI's reply is inferred, not recorded. An open-total chunk past the session's total is refused alone and the XML session stays usable, where the JSON session URI fails the session as recorded (SPEC-RESUMABLE-DECLARED-LENGTH-OVERRUN); Cloud Storage's XML answer is unrecorded."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-31"

@@ -48,6 +48,7 @@ async fn chunk(
             |record| Ok(json!({"generation": record.generation, "size":record.size})),
         )
         .await
+        .map(crate::storage::Written::into_completion)
 }
 
 fn expected() -> crate::hashing::Hashes {

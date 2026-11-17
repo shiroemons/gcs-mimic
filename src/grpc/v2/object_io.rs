@@ -80,7 +80,9 @@ fn session_status(error: ResumableError) -> Status {
             Status::not_found("Upload session not found; start a new resumable write")
         }
         ResumableError::Invalid(message) => Status::invalid_argument(message),
-        ResumableError::InvalidContentRange => Status::invalid_argument(error.to_string()),
+        ResumableError::InvalidContentRange | ResumableError::Overrun(_) => {
+            Status::invalid_argument(error.to_string())
+        }
         ResumableError::Object(error) => object_status(error),
     }
 }

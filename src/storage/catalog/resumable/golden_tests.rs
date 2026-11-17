@@ -7,7 +7,7 @@ fn unknown_stored_storage_class_is_catalog_corruption() {
     for class in ["unknown", "RAPID"] {
         let mut options = encode_options(&populated_options()).unwrap();
         options["metadata"]["storageClass"] = json!(class);
-        let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params!["0".repeat(64), "0".repeat(32), options.to_string()], read_session).unwrap_err();
+        let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL,NULL", params!["0".repeat(64), "0".repeat(32), options.to_string()], read_session).unwrap_err();
         assert!(
             matches!(
                 crate::storage::failure::unavailable(error),
@@ -159,7 +159,7 @@ fn invalid_session_identifiers_report_their_own_columns() {
         ("0".repeat(64), "invalid".into(), 1),
         ("0".repeat(64), "A".repeat(32), 1),
     ] {
-        let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params![id,blob,options], read_session).unwrap_err();
+        let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL,NULL", params![id,blob,options], read_session).unwrap_err();
         assert!(
             matches!(error, rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, _) if index == column)
         );
@@ -168,4 +168,110 @@ fn invalid_session_identifiers_report_their_own_columns() {
             CatalogError::Corrupt(_)
         ));
     }
+}
+
+#[test]
+fn terminal_reasons_keep_the_strings_earlier_releases_stored() {
+    let overrun = Overrun {
+        received: 262_144,
+        room: 5,
+    };
+    for (reason, stored, state) in [
+        (
+            TerminalReason::Aborted,
+            json!("aborted"),
+            SessionState::Aborted,
+        ),
+        (
+            TerminalReason::ContentRange,
+            json!("content-range"),
+            SessionState::InvalidContentRange,
+        ),
+        (
+            TerminalReason::Overrun(overrun),
+            json!({"overrun": {"received": 262_144, "room": 5}}),
+            SessionState::Overrun(overrun),
+        ),
+    ] {
+        assert_eq!(serde_json::to_value(reason).unwrap(), stored);
+        let mut options = encode_options(&populated_options()).unwrap();
+        options["terminal_error"] = stored;
+        assert_eq!(
+            session_row(&options, "CANCELLED", 0, None).unwrap().state,
+            state
+        );
+        // Only a cancelled session carries a terminal reason.
+        assert!(session_row(&options, "ACTIVE", 0, None).is_err());
+    }
+    let mut options = encode_options(&populated_options()).unwrap();
+    for unknown in [
+        json!("expired"),
+        json!({"overrun": {"received": 1}}),
+        json!(5),
+    ] {
+        options["terminal_error"] = unknown;
+        assert!(session_row(&options, "CANCELLED", 0, None).is_err());
+    }
+}
+
+#[test]
+fn a_running_hash_must_cover_the_persisted_offset() {
+    let options = encode_options(&populated_options()).unwrap();
+    let mut hasher = Hasher::default();
+    hasher.update(b"abc");
+    let state = hasher.save();
+    let stored = state.to_bytes();
+    let session = session_row(&options, "ACTIVE", 3, Some(&stored)).unwrap();
+    assert_eq!(session.running_hash, Some(state));
+    assert_eq!(
+        session.progress().unwrap(),
+        Progress {
+            offset: 3,
+            hashes: Some(hasher.finish()),
+        }
+    );
+    // A session an earlier release staged has no digest.
+    let legacy = session_row(&options, "ACTIVE", 3, None).unwrap();
+    assert_eq!(legacy.progress().unwrap().hashes, None);
+    let mut unknown_format = stored;
+    unknown_format[0] = 2;
+    for (offset, bytes) in [
+        (4, &stored[..]),
+        (3, &unknown_format[..]),
+        (3, &stored[..100]),
+    ] {
+        let error = session_row(&options, "ACTIVE", offset, Some(bytes)).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                rusqlite::Error::FromSqlConversionFailure(12, rusqlite::types::Type::Blob, _)
+            ),
+            "{offset} {error}"
+        );
+        assert!(matches!(
+            crate::storage::failure::unavailable(error),
+            CatalogError::Corrupt(_)
+        ));
+    }
+}
+
+/// Reads one session row with `options`, `state`, `offset` and the stored running digest.
+fn session_row(
+    options: &Value,
+    state: &str,
+    offset: u64,
+    running_hash: Option<&[u8]>,
+) -> rusqlite::Result<ResumableSession> {
+    Connection::open_in_memory().unwrap().query_row(
+        "SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,?4,0,604800000,?5,NULL,?6",
+        params![
+            "0".repeat(64),
+            "0".repeat(32),
+            options.to_string(),
+            offset,
+            state,
+            running_hash
+        ],
+        read_session,
+    )
 }

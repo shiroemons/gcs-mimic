@@ -44,6 +44,7 @@ async fn complete(catalog: &Catalog, id: &str) -> serde_json::Value {
         )
         .await
         .unwrap()
+        .into_completion()
         .unwrap()
 }
 

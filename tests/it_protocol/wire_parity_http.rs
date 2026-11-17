@@ -54,7 +54,7 @@ fn varint(bytes: &mut Vec<u8>, mut value: u64) {
     bytes.push(value as u8);
 }
 
-fn base64(bytes: &[u8]) -> String {
+pub(super) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {

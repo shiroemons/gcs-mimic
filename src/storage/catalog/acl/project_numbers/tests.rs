@@ -99,8 +99,9 @@ async fn version_54_catalog(dir: &TestDir) {
     catalog.close().await.unwrap();
     let owners =
         r#"[{"entity":"project-owners-0","role":"OWNER"},{"entity":"allUsers","role":"READER"}]"#;
-    rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
-        .unwrap()
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    crate::storage::catalog::test_support::downgrade_running_hash_schema(&connection);
+    connection
         .execute_batch(&format!(
             "INSERT INTO acl_bucket_entries VALUES ('named', 'bucket', '{owners}');
              INSERT INTO acl_bucket_entries VALUES ('named', 'defaultObject', '[{{\"entity\":\"project-viewers-0\",\"role\":\"READER\"}}]');
@@ -147,7 +148,7 @@ async fn opening_an_older_catalog_renames_zero_numbered_teams_to_the_owning_proj
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, SCHEMA_VERSION);
+    assert_eq!(version, crate::storage::catalog::CATALOG_SCHEMA_VERSION);
     let renamed = format!(
         r#"[{{"entity":"project-owners-{LOCAL}","role":"OWNER"}},{{"entity":"allUsers","role":"READER"}}]"#
     );

@@ -34,7 +34,9 @@ pub(crate) use catalog::UploadAclSnapshot;
 pub(crate) use catalog::acl::{AclChange, AclError, AclProjection, AclState, ObjectAcl};
 pub(crate) use catalog::{AppendError, AppendWriter, Finality, ReadableMetadata};
 pub use catalog::{Catalog, DataDirState};
-pub(crate) use catalog::{ChunkEnd, ChunkWait, ResumableChunk};
+pub(crate) use catalog::{
+    ChunkEnd, ChunkWait, Overrun, Progress, ResumableChunk, SessionLease, Written,
+};
 pub(crate) use catalog::{CopyReplaySource, ReplayInvocation, UploadCheck};
 pub(crate) use catalog::{DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedTransfer};
 pub(crate) use catalog::{

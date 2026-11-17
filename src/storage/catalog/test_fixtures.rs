@@ -106,7 +106,7 @@ pub(crate) async fn fill_cancelled_sessions(catalog: &Catalog, count: i64) {
         .run::<_, crate::bucket::CatalogError>(move |connection| {
             super::sql::exec(
                 connection,
-                "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO resumable_sessions SELECT printf('%064x', n), printf('%032x', n), bucket, name, incarnation, options, total, 0, created + n, deadline + n, 'CANCELLED', NULL FROM ids CROSS JOIN (SELECT * FROM resumable_sessions ORDER BY deadline DESC, id LIMIT 1)",
+                "WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < ?1) INSERT INTO resumable_sessions SELECT printf('%064x', n), printf('%032x', n), bucket, name, incarnation, options, total, 0, created + n, deadline + n, 'CANCELLED', NULL, NULL FROM ids CROSS JOIN (SELECT * FROM resumable_sessions ORDER BY deadline DESC, id LIMIT 1)",
                 [count],
             )?;
             Ok(())

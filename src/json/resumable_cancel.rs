@@ -51,6 +51,7 @@ async fn completion(catalog: &Catalog, id: &str, bucket: &str) -> Result<Cancell
         SessionState::Active
         | SessionState::Cancelled
         | SessionState::Aborted
-        | SessionState::InvalidContentRange => Err(ResumableError::Gone.into()),
+        | SessionState::InvalidContentRange
+        | SessionState::Overrun(_) => Err(ResumableError::Gone.into()),
     }
 }

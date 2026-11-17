@@ -76,7 +76,7 @@ identifier to the caller, but provider diagnostic headers are not exact parity.
 | bucket and name | Existing JSON validation and single decoding; path bucket and query name override string/null metadata values as on multipart. Preserve encoded names; never turn names into file paths |
 | body and Content-Type | Empty metadata body or a JSON Object, at most 64 KiB; nonempty metadata uses application/json. Reuse fixed/custom metadata and MD5/CRC32C parsing, including the local 40 KiB bound on encoded metadata; Cloud Storage enforced no 8 KiB custom-metadata cap and stored a null value as the empty string (recorded 2026-11-15) |
 | X-Upload-Content-Type | Optional object MIME type, distinct from metadata request Content-Type. When both it and a nonempty metadata contentType are declared they must agree, or the initiation is refused with Cloud Storage's 400 invalid text/html reply and no session (recorded 2026-11-17, case `obj-gaps-uploads`); otherwise whichever is declared is stored, then application/octet-stream |
-| X-Upload-Content-Length | Optional nonnegative total; omission and 0 mean unknown, as Cloud Storage answered for a declared 0 followed by open-total chunks and by a 5-byte final chunk (differential case `obj-resumable-declared-length`, recorded 2026-11-15; the PHP SDK's `gs://` writes declare 0). A nonzero value binds the total. Reject malformed/duplicate/overflow values and known totals above max_object_bytes before staging |
+| X-Upload-Content-Length | Optional nonnegative total; omission and 0 mean unknown, as Cloud Storage answered for a declared 0 followed by open-total chunks and by a 5-byte final chunk (differential case `obj-resumable-declared-length`, recorded 2026-11-15; the PHP SDK's `gs://` writes declare 0). A nonzero value binds the total, and an open-total chunk running past it fails the session (see [Chunk writes and status](#chunk-writes-and-status)). Reject malformed/duplicate/overflow values and known totals above max_object_bytes before staging |
 | ifGenerationMatch/NotMatch | Persist signed-64-bit nonnegative conditions, including match zero for create-if-absent; recheck at finalization |
 | ifMetagenerationMatch/NotMatch | Persist existing positive signed-64-bit conditions and combine atomically with generation conditions at finalization |
 | projection and contentEncoding | Preserve the existing scoped Object projection and stored encoding behavior; full does not invent ACL/owner fields or transcoding |
@@ -124,7 +124,7 @@ is routed through the XML adapter.
 | Request | Required behavior |
 | --- | --- |
 | Content-Range: bytes start-end/N | Inclusive nonnegative offsets; body length equals end-start+1; N is consistent with prior known total and end is less than N. An end at or past its own N fails the session: that request and every later status, data or finalization request return the plain 400 `Failed to parse Content-Range header.` and no object is created, as Cloud Storage did on 2026-11-13 (case `obj-resumable-edges`, [provider probes](../evidence/provider-differential-gap-probes.md)) |
-| Content-Range: bytes start-end/* | Unknown total; accepted prefix remains incomplete until a final request supplies the total |
+| Content-Range: bytes start-end/* | Unknown total; accepted prefix remains incomplete until a final request supplies the total. On a JSON session URI, an end at or past a total the session already holds (a nonzero `X-Upload-Content-Length`, or by inference a total an earlier request declared) fails the session: that request and every later status or data request return a plain 400 `Invalid request.  There were N byte(s) (or more) in the request body.  There should have been M byte(s) according to the Content-Range header.`, where M is the session total minus start and N is end-start+1, and no object is created, as Cloud Storage did on 2026-11-15 (case `obj-resumable-declared-length`). Cloud Storage's N counted the bytes it had read before refusing (77840 for a 262144-byte chunk), which depends on its buffering, so the case compares status and headers but not this body. The XML session URI still refuses only the request; its provider answer is unrecorded |
 | Content-Range: bytes start-*/* | The body carries the rest of the object from start, and the request always completes it. A declared Content-Length, or a total declared at initiation, fixes the end; otherwise a chunked body is bounded by max_object_bytes minus start (413 past it) and its EOF sets the total. An empty body completes the persisted prefix |
 | Content-Range: bytes start-*/N | Same, with a known total: start must not exceed N, N must match any initiation total, and a declared Content-Length must equal N-start (400 before the body is read). A chunked body ending before N or running past it fails with 400 badRequest and acknowledges nothing |
 | Malformed open ranges | `*-*`, a missing or signed start, a missing total, `**` or a nondecimal total return 400 invalidParameter. A start past the persisted offset is a gap; a body ending inside the persisted prefix cannot shrink the object (400, prefix unchanged) |
@@ -152,6 +152,22 @@ are persisted. The next offset is last+1, never the number of bytes the client
 merely attempted. Status responses have empty bodies. Distinguish 200 with the
 override header from terminal 200 with an Object resource and no override.
 
+Beside Range, every 308 after data, the chunk's own and a later status
+query's, including the 200 form that `X-GUploader-No-308: yes` selects,
+carries the digests of the persisted bytes:
+`x-goog-running-hash: crc32c=<base64 of the big-endian CRC32C>` and
+`x-range-md5: <lowercase hex MD5>`. For 262144 bytes of `a` they are
+`crc32c=374w4A==` and `c946b71bb69c07daf25470742c967e7c`, as Cloud Storage sent
+on both replies (case `obj-resumable-declared-length`, recorded 2026-11-15). A
+session holding no data sends none of the three headers, matching the recorded
+empty status replies. The digests describe the persisted prefix only: a resent
+overlap keeps its original bytes in them, and a lost unacknowledged tail is not
+in them. The XML session URI's 308 sends the same headers by inference; its
+provider reply is unrecorded. A session staged by a release before catalog
+schema 56 has no running digest and sends neither header, and still completes
+normally. Storage v2 resumable writes keep the digest internally and report
+nothing new.
+
 Persisted bytes are immutable. Repeated or overlapping chunks drain/discard the
 already persisted prefix using bounded buffers, append only the unseen tail,
 and never overwrite acknowledged bytes, even when resent bytes differ.
@@ -159,11 +175,19 @@ A future offset with a gap, malformed/duplicate ranges, reversed/overflowing
 offsets, conflicting totals, wrong body length or an invalid nonfinal chunk
 return 400 without publication. An unparsable JSON Content-Range terminalizes
 the session when its syntax is invalid: later requests repeat the recorded
-plain 400. Duplicate headers and inconsistent offsets/totals remain retryable
-400 errors; their persistence has not been recorded. A Content-Range value
+plain 400, and an open-total chunk past the session's total terminalizes it
+as described in the table above. Duplicate headers and inconsistent
+offsets/totals, including a chunk that names its own total in conflict with
+the session's (such as `bytes 0-5/6` after a declared 5, refused with
+`Inconsistent upload total`), remain retryable 400 errors; their persistence
+has not been recorded. A Content-Range value
 rejected by header text decoding, including non-visible-ASCII bytes, is also a
-retryable 400 under an unrecorded local choice. The terminal syntax error and
-its cleanup journal commit together and survive restart; an undersized
+retryable 400 under an unrecorded local choice. The terminal syntax and
+overrun errors and their cleanup journal commit together and survive restart;
+the session options document stores the reason in `terminal_error`, where an
+overrun is `{"overrun":{"received":N,"room":M}}` beside the strings `"aborted"`
+and `"content-range"` that earlier releases stored and still read, so no
+catalog migration was needed. An undersized
 nonfinal chunk alone leaves the session retryable. Other exact error choices
 remain local. Serializing writers per session gives
 one ordered append; a competing request waits up to `catalog_wait_timeout_ms` for
@@ -174,7 +198,10 @@ progress concurrently.
 
 An interrupted request may leave no newly acknowledged bytes. The local
 contract checkpoints a chunk only after complete transport EOF, file sync and
-the short offset transaction. Truncate any uncommitted tail to the durable
+the short offset transaction, which saves the running CRC32C and MD5 of the
+persisted bytes in the same SQL `UPDATE` as the new offset. A restart,
+including a SIGKILL before the offset commit, therefore resumes the digests
+without rereading the staged bytes. Truncate any uncommitted tail to the durable
 offset before another writer or status result can acknowledge it. Never mark
 a partial chunk complete because a producer/channel disappeared. Clients can
 resend a chunk in full or query the persisted prefix first. Timeout/disconnect
@@ -341,22 +368,34 @@ Add a transactional migration from the existing validated catalog schema to
 an indexed session table: random capability ID, opaque staging/blob ID,
 bucket incarnation/owner, logical name, initiating authorization context,
 bounded metadata/checksum/condition fields, optional total, committed offset,
-created/deadline timestamps, state and bounded completion resource. Index
-deadline and opaque blob references. Keep session fields out of ordinary
-object listing. Validate migrations and session invariants before readiness;
-reject future/corrupt schemas read-only. No body transfer holds a transaction.
+running digest of the persisted bytes, created/deadline timestamps, state and
+bounded completion resource. Index deadline and opaque blob references. Keep
+session fields out of ordinary object listing. Validate migrations and session
+invariants before readiness; reject future/corrupt schemas read-only. No body
+transfer holds a transaction.
+
+Catalog schema 56 adds the nullable column `resumable_sessions.running_hash` by
+`ALTER TABLE`. Its value is a versioned 101-byte envelope: a format byte, the
+big-endian byte count, the serialized md-5 0.11 hasher state and the big-endian
+CRC32C. Reading a session validates it: the value must decode and cover exactly
+the session's persisted offset, otherwise the catalog reports corruption.
+Sessions staged by schema 55 or earlier keep NULL, report no digests and
+complete normally.
 
 The SQL transaction and filesystem rename are **not one atomic operation**:
 
 1. Allocate an opaque staging file on the data volume; insert its session
    after durable file creation. Unreferenced files from a crash are orphans.
 2. For each complete request, append beyond the last committed offset, sync
-   the file, then commit offset/total. A crash before offset commit leaves a
-   removable tail; a crash after commit must preserve every acknowledged byte.
-3. Finalization hashes by bounded disk reads if resumed state needs rebuilding,
-   syncs the file, publishes it under its opaque immutable blob ID by the
-   existing same-filesystem rename/directory-sync protocol, then commits Object
-   and COMPLETE session snapshot together with conditions and deletion journal.
+   the file, then commit offset/total and the running digest in one `UPDATE`.
+   A crash before offset commit leaves a removable tail outside the digest; a
+   crash after commit must preserve every acknowledged byte.
+3. Finalization digests the staged file by bounded disk reads for the stored
+   checksums, so they describe the published bytes rather than the
+   checkpointed digest, syncs the file, publishes it under its opaque
+   immutable blob ID by the existing same-filesystem rename/directory-sync
+   protocol, then commits Object and COMPLETE session snapshot together with
+   conditions and deletion journal.
 4. After a precommit crash, an ACTIVE session whose staging path is missing but
    whose recorded immutable blob exists is restored to staging before reuse.
    Its durable offset, metadata and total remain authoritative. An ambiguous
@@ -399,8 +438,10 @@ not additional independent features.
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-008 | positive | SDK POST with no-308 header gets HTTP 200 plus override 308 and correct Range; final response removes override |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-009 | resource/boundary | Exact object cap succeeds; cap+1 known/unknown/offset stream fails 413; large/slow upload uses bounded server buffers |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-010 | positive/negative/boundary | Open ranges `bytes start-*/*` and `bytes start-*/N` complete chunked, declared-length, empty and resumed bodies with exact bytes; malformed, gap, total-conflict, short/long, prefix-shrinking and over-cap requests fail without advancing the prefix; injected write/flush/sync/checkpoint failures and power loss keep the acknowledged prefix or the complete object |
-| BEHAVIOR-OBJECT-012 | RSM-STATUS-001 | positive/boundary | Empty PUT `bytes */N` (N>0) and `bytes */*` before data return 308 with no Range and no object; `bytes */0` completes the empty object |
-| BEHAVIOR-OBJECT-012 | RSM-STATUS-002 | positive | Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart |
+| BEHAVIOR-OBJECT-011 | RSM-CHUNK-011 | positive/restart | Every 308 after data carries `x-goog-running-hash` and `x-range-md5` of the persisted bytes with the recorded values, and none of the three persisted-prefix headers before data; a resent overlap keeps the original bytes in the digests; a SIGKILL before the offset commit leaves the lost tail out and a restart resumes the digests; a running hash that does not cover the persisted offset is corruption; a session staged before schema 56 reports none and still completes |
+| BEHAVIOR-OBJECT-011 | RSM-CHUNK-012 | negative | An open-total chunk past the session's total fails the JSON session with the recorded plain 400 for it and every later request, with no object; the reason persists as `terminal_error` beside the older string reasons; a chunk naming its own conflicting total is refused alone and the session completes later |
+| BEHAVIOR-OBJECT-012 | RSM-STATUS-001 | positive/boundary | Empty PUT `bytes */N` (N>0) and `bytes */*` before data return 308 with no Range, no digest headers and no object; `bytes */0` completes the empty object |
+| BEHAVIOR-OBJECT-012 | RSM-STATUS-002 | positive | Persisted prefix returns Range bytes=0-last with `x-goog-running-hash` and `x-range-md5` of the persisted bytes, empty body and same offset and digests across repeated queries/restart |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-003 | positive | Completed status returns 200 Object snapshot even after later overwrite, never allocates a new generation |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-004 | negative | Invalid token/total/range or nonempty status body cannot mutate destination or report false completion |
 | BEHAVIOR-OBJECT-013 | RSM-CANCEL-001 | positive/permission | Anonymous delegate DELETE cancels active session with a 499 clientClosedRequest JSON envelope, removes staging and preserves old object |
@@ -454,7 +495,21 @@ against Cloud Storage, and `a_declared_length_of_zero_leaves_the_total_open`.
 A gcs-mimic-only scorecard run the same day at `dae7d641`, with no uncommitted
 change (`bash sdk-scorecard/run.sh --out "$TMPDIR/scorecard-declared-length" gcs-mimic`),
 passes PHP's `sdk.stream_wrapper` and every other case for all nine SDKs.
-The same recording leaves two gaps open: SPEC-RESUMABLE-DECLARED-LENGTH-OVERRUN
-(a chunk past a nonzero declared length fails the whole session on Cloud
-Storage) and SPEC-RESUMABLE-RUNNING-HASH (a 308 after data carries
-`x-goog-running-hash` and `x-range-md5`).
+The same recording showed two more differences, both resolved on 2026-11-17.
+SPEC-RESUMABLE-DECLARED-LENGTH-OVERRUN: an open-total chunk past a nonzero
+declared length now fails the whole JSON session, and the case compares the
+three `five-*` steps without their body (`a_chunk_past_the_declared_length_fails_the_session`,
+`terminal_reasons_keep_the_strings_earlier_releases_stored`).
+SPEC-RESUMABLE-RUNNING-HASH: a 308 after data now carries
+`x-goog-running-hash` and `x-range-md5`, checkpointed with the offset in
+catalog schema 56, and the `zero-open-chunk` and `zero-status` steps compare
+both headers (`each_308_after_data_reports_the_digests_of_the_persisted_bytes`,
+`resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail`,
+`resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes`,
+`checkpoint_resumes_both_digests`, `a_running_hash_must_cover_the_persisted_offset`,
+`a_session_staged_before_running_digests_reports_none_and_still_completes`).
+Inferred and unrecorded: the XML session URI's digest headers, and a total
+declared by an earlier request bounding an open-total chunk like a nonzero
+`X-Upload-Content-Length`. A chunk that names its own conflicting total, the
+XML session URI's answer to an overrun and a completed session keep their
+earlier behavior, and none of them is recorded.

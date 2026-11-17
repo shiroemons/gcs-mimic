@@ -679,7 +679,11 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
             .await
             .unwrap()
             .session,
-        session
+        // A session staged before schema 56 has no running digest.
+        crate::storage::ResumableSession {
+            running_hash: None,
+            ..session
+        }
     );
     catalog.close().await.unwrap();
     std::fs::remove_dir_all(dir).unwrap();

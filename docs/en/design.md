@@ -531,9 +531,12 @@ write side by side, and completion and abort wait for the whole upload within th
 Maintenance and session trimming skip a held writer instead of waiting. Repeated/overlapping writes
 must discard the acknowledged prefix with bounded buffers and append only the
 unseen tail. Persisted bytes remain immutable. A chunk checkpoint requires
-complete transport EOF, file sync and a short offset transaction; interruption
+complete transport EOF, file sync and a short offset transaction, which also
+saves the running CRC32C and MD5 of the persisted bytes; interruption
 or a disappearing producer must not acknowledge a partial request. Status must
-report the durable offset after truncating any uncommitted tail.
+report the durable offset after truncating any uncommitted tail, and every 308
+after data carries those digests in `x-goog-running-hash` and `x-range-md5`, as
+Cloud Storage's did.
 
 Finalization must validate complete length and whole-object hashes before
 publication. Its transaction must re-evaluate the initiating identity's current
@@ -553,7 +556,9 @@ The contract requires a transactional migration from the validated catalog to
 an indexed persistent session table. Store the random capability ID, opaque
 staging/blob ID, bucket incarnation/owner, logical name, initiating authorization
 context, bounded metadata/checksums/conditions, optional total, committed offset,
-creation/deadline timestamps, state and bounded completion resource. Index
+the running digest of the persisted bytes (schema 56; NULL for sessions staged
+earlier, which report no digests), creation/deadline timestamps, state and
+bounded completion resource. Index
 deadlines and blob references; exclude session fields from ordinary object lists.
 Validate schema and session invariants before readiness, rejecting future or
 corrupt schemas read-only. No body transfer may hold a SQL transaction.
@@ -587,9 +592,11 @@ exclusive data-directory lock, the required protocol is:
 1. Create and durably record an opaque staging file on the data volume before
    inserting the session. A crash leaving an unreferenced file creates an orphan.
 2. Append beyond the committed offset, sync after complete request EOF, then
-   commit the offset/total. Before that commit, a crash may leave a tail to
-   truncate; afterward, all acknowledged bytes must survive restart.
-3. Rebuild hashes by bounded disk reads when resumed state requires it. Sync
+   commit the offset/total and the running digest in one statement. Before that
+   commit, a crash may leave a tail to truncate, which the digest never covers;
+   afterward, all acknowledged bytes and their digest must survive restart.
+3. Digest the staged file by bounded disk reads for the stored checksums, so
+   they describe the published bytes rather than the running digest. Sync
    and publish the file under its recorded immutable blob ID using the existing
    same-filesystem rename/directory-sync protocol, then commit Object state and
    the COMPLETE resource snapshot together with conditions and deletion journal.

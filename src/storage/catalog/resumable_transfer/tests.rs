@@ -149,6 +149,7 @@ fn resumable_retention_overflow_reports_the_stored_period_as_corrupt() {
         deadline: UNIX_EPOCH + Duration::from_secs(604800),
         state: SessionState::Active,
         completion: None,
+        running_hash: None,
     };
     for period in [10, i64::MAX] {
         connection
@@ -188,4 +189,85 @@ fn resumable_retention_overflow_reports_the_stored_period_as_corrupt() {
             );
         }
     }
+}
+
+async fn append(catalog: &Catalog, id: &str, start: u64, bytes: &'static [u8]) -> Written {
+    let lease = catalog.lock_resumable_session(id, "bucket").await.unwrap();
+    let chunk = ResumableChunk {
+        start,
+        length: bytes.len() as u64,
+        end: ChunkEnd::Exact {
+            total: Some(8),
+            finalize: start + bytes.len() as u64 == 8,
+        },
+        options: lease.session.options.clone(),
+        catalog_wait: watch::channel(ChunkWait::Transfer).0,
+    };
+    let body = crate::storage::test_fixtures::body(vec![bytes::Bytes::from_static(bytes)]);
+    catalog
+        .write_resumable_session(
+            lease,
+            chunk,
+            body,
+            catalog.admit_object_upload().unwrap(),
+            |record| serde_json::to_value(record.hashes()).map_err(ObjectError::backend),
+        )
+        .await
+        .unwrap()
+}
+
+fn digest(bytes: &[u8]) -> Hashes {
+    let mut hasher = Hasher::default();
+    hasher.update(bytes);
+    hasher.finish()
+}
+
+#[tokio::test]
+async fn a_session_staged_before_running_digests_reports_none_and_still_completes() {
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    crate::storage::test_fixtures::seed_bucket(&catalog).await;
+    let id = catalog
+        .create_resumable_session(
+            "bucket",
+            "object",
+            ResumableOptions::new(BucketAccess::Permissive),
+            Some(8),
+        )
+        .await
+        .unwrap()
+        .id
+        .to_string();
+    let Written::Open(progress) = append(&catalog, &id, 0, b"part").await else {
+        panic!("a partial chunk leaves the upload open");
+    };
+    assert_eq!(
+        progress,
+        Progress {
+            offset: 4,
+            hashes: Some(digest(b"part"))
+        }
+    );
+    catalog.close().await.unwrap();
+    // Schema 55 had no running digest column.
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    super::super::test_support::downgrade_running_hash_schema(&connection);
+    connection.pragma_update(None, "user_version", 55).unwrap();
+    drop(connection);
+
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let session = catalog.resumable_session(&id, "bucket").await.unwrap();
+    assert_eq!(
+        session.progress().unwrap(),
+        Progress {
+            offset: 4,
+            hashes: None
+        }
+    );
+    // Completion digests the staged bytes, so the stored checksums cover the whole object.
+    let Written::Complete(resource) = append(&catalog, &id, 4, b"tail").await else {
+        panic!("the final chunk completes the upload");
+    };
+    assert_eq!(resource, serde_json::to_value(digest(b"parttail")).unwrap());
+    catalog.close().await.unwrap();
 }

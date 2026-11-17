@@ -9,10 +9,12 @@ use crate::storage::{
 
 use crate::{
     bucket::BucketAccess,
+    hashing::{Hasher, HasherState, Hashes},
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate},
     storage::failure::{BackendCause, object_unavailable},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 #[cfg(test)]
 use std::path::PathBuf;
@@ -50,8 +52,23 @@ CREATE TABLE resumable_sessions (
 CREATE INDEX resumable_sessions_deadline ON resumable_sessions(deadline, id);
 PRAGMA user_version = 7;";
 
-macro_rules! session_columns {
+/// Schema version 56: the running digest of the bytes a session has persisted, saved with each
+/// checkpoint so that a status reply can report it and a restart resumes it without rereading
+/// the staged bytes. Sessions an earlier release staged keep NULL and report no digest.
+pub(super) const RUNNING_HASH_SCHEMA_VERSION: i64 = 56;
+pub(super) const RUNNING_HASH_SCHEMA: &str = "ALTER TABLE resumable_sessions ADD COLUMN running_hash BLOB CHECK(running_hash IS NULL OR length(running_hash) = 101);
+PRAGMA user_version = 56;";
+const _: () = assert!(crate::hashing::HASHER_STATE_BYTES == 101);
+
+/// The columns of schema version 7, which [`validate`] reads before a catalog is upgraded.
+macro_rules! session_columns_v7 {
     () => { "id, blob_id, bucket, name, incarnation, options, total, offset, created, deadline, state, completion" };
+}
+
+macro_rules! session_columns {
+    () => {
+        concat!(session_columns_v7!(), ", running_hash")
+    };
 }
 
 /// One session by ID, with the columns [`read_session`] reads, for sibling modules that cannot
@@ -69,6 +86,30 @@ pub(crate) enum SessionState {
     Cancelled,
     Aborted,
     InvalidContentRange,
+    Overrun(Overrun),
+}
+
+/// A chunk that carried more bytes than the session's total left room for. Cloud Storage
+/// refused it, failed the session and repeated the same refusal for every later request
+/// (recorded 2026-11-15, case obj-resumable-declared-length).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Overrun {
+    /// The bytes the chunk's `Content-Range` carries. Cloud Storage counted the bytes it had
+    /// read when it noticed, so its count depends on its buffering.
+    pub received: u64,
+    /// The bytes between the chunk's start and the session's total.
+    pub room: u64,
+}
+
+impl fmt::Display for Overrun {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { received, room } = self;
+        write!(
+            f,
+            "Invalid request.  There were {received} byte(s) (or more) in the request body.  There should have been {room} byte(s) according to the Content-Range header."
+        )
+    }
 }
 
 /// The stored `state` column.
@@ -86,17 +127,15 @@ sql::text_enum!(StoredState, "invalid upload state", {
 });
 
 /// Why the emulator cancelled a session. Kept in the options document's `terminal_error`, so
-/// catalogs written before these reasons need no migration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// catalogs written before these reasons need no migration: the reasons without data are the
+/// strings earlier releases wrote there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub(super) enum TerminalReason {
     Aborted,
     ContentRange,
+    Overrun(Overrun),
 }
-
-sql::text_enum!(TerminalReason, "invalid upload terminal reason", {
-    Aborted => "aborted",
-    ContentRange => "content-range",
-});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResumableOptions {
@@ -152,6 +191,32 @@ pub(crate) struct ResumableSession {
     pub deadline: SystemTime,
     pub state: SessionState,
     pub completion: Option<Value>,
+    /// The digests of the `offset` persisted bytes, continued by each chunk; `None` for a
+    /// session an earlier release staged.
+    pub running_hash: Option<HasherState>,
+}
+
+impl ResumableSession {
+    pub(crate) fn progress(&self) -> Result<Progress, ResumableError> {
+        let hashes = self
+            .running_hash
+            .as_ref()
+            .map(HasherState::digest)
+            .transpose()
+            .map_err(object_unavailable)?;
+        Ok(Progress {
+            offset: self.offset,
+            hashes,
+        })
+    }
+}
+
+/// How much of an open upload a session has persisted, as a status reply reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Progress {
+    pub offset: u64,
+    /// The digests of those bytes; `None` for a session an earlier release staged.
+    pub hashes: Option<Hashes>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -160,6 +225,7 @@ pub(crate) enum ResumableError {
     Gone,
     Cancelled,
     InvalidContentRange,
+    Overrun(Overrun),
     Invalid(String),
     Object(ObjectError),
 }
@@ -171,6 +237,7 @@ impl fmt::Display for ResumableError {
             Self::Gone => f.write_str("upload session is no longer active"),
             Self::Cancelled => f.write_str("clientClosedRequest"),
             Self::InvalidContentRange => f.write_str("Failed to parse Content-Range header."),
+            Self::Overrun(overrun) => overrun.fmt(f),
             Self::Invalid(message) => f.write_str(message),
             Self::Object(error) => error.fmt(f),
         }
@@ -184,6 +251,7 @@ impl std::error::Error for ResumableError {
             | Self::Gone
             | Self::Cancelled
             | Self::InvalidContentRange
+            | Self::Overrun(_)
             | Self::Invalid(_) => None,
         }
     }
@@ -300,7 +368,7 @@ fn stage_session(
         .map_err(unavailable)?;
     sql::exec(
         transaction,
-        "INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)",
+        "INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL,?10)",
         params![
             request.id,
             request.blob_id,
@@ -310,7 +378,8 @@ fn stage_session(
             encoded,
             total,
             created,
-            deadline
+            deadline,
+            Hasher::default().save().to_bytes()
         ],
     )
     .map_err(unavailable)?;
@@ -361,16 +430,53 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
         "invalid resumable catalog state",
     )?;
     // Row by row: nothing bounds how many sessions a catalog holds, so neither may this check.
+    // It runs before an older catalog is upgraded, so it reads the version-7 columns.
     let mut statement = connection.prepare_cached(concat!(
         "SELECT ",
-        session_columns!(),
-        " FROM resumable_sessions ORDER BY id"
+        session_columns_v7!(),
+        ", NULL FROM resumable_sessions ORDER BY id"
     ))?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         read_session(row)?;
     }
     Ok(())
+}
+
+/// Every stored running digest decodes and covers exactly its session's persisted bytes.
+pub(super) fn validate_running_hash(connection: &Connection) -> Result<(), CatalogError> {
+    let mut statement = connection.prepare_cached(
+        "SELECT offset, running_hash FROM resumable_sessions WHERE running_hash IS NOT NULL ORDER BY id",
+    )?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        running_hash(row, 0, 1)?;
+    }
+    Ok(())
+}
+
+/// The running digest in `hash_column`, which must cover the session offset in
+/// `offset_column`.
+fn running_hash(
+    row: &Row<'_>,
+    offset_column: usize,
+    hash_column: usize,
+) -> rusqlite::Result<Option<HasherState>> {
+    use rusqlite::types::Type;
+    let offset: u64 = row.get(offset_column)?;
+    let Some(bytes) = row.get::<_, Option<Vec<u8>>>(hash_column)? else {
+        return Ok(None);
+    };
+    let state = HasherState::from_bytes(&bytes)
+        .map_err(|error| sql::conversion_error(hash_column, Type::Blob, error))?;
+    if state.bytes() != offset {
+        return Err(sql::conversion_error(
+            hash_column,
+            Type::Blob,
+            "upload running hash does not cover the persisted offset",
+        ));
+    }
+    Ok(Some(state))
 }
 
 impl Catalog {
@@ -470,6 +576,7 @@ impl Catalog {
             SessionState::Cancelled => return Err(ResumableError::Cancelled),
             SessionState::Aborted => return Err(ResumableError::Gone),
             SessionState::InvalidContentRange => return Err(ResumableError::InvalidContentRange),
+            SessionState::Overrun(overrun) => return Err(ResumableError::Overrun(overrun)),
             SessionState::Active | SessionState::Complete => {}
         }
         Ok(session)
@@ -529,29 +636,21 @@ impl Catalog {
         offset: u64,
         total: Option<u64>,
     ) -> Result<(), ResumableError> {
-        self.checkpoint_resumable_options(lease, offset, total, None)
-            .await
-    }
-
-    pub(super) async fn checkpoint_resumable_options(
-        &self,
-        lease: &mut SessionLease,
-        offset: u64,
-        total: Option<u64>,
-        options: Option<&ResumableOptions>,
-    ) -> Result<(), ResumableError> {
-        self.checkpoint_resumable_output(lease, offset, total, options, None)
+        self.checkpoint_resumable_output(lease, offset, total, None, None)
             .await
             .map(|_| ())
     }
 
+    /// Persists the session's new offset and total, with what a chunk `appended` and the
+    /// options its request settled. The running digest and the offset share one update, so
+    /// a restart resumes the digest exactly where the persisted bytes end.
     pub(super) async fn checkpoint_resumable_output(
         &self,
         lease: &mut SessionLease,
         offset: u64,
         total: Option<u64>,
         options: Option<&ResumableOptions>,
-        mut output: Option<super::transfer_io::Output>,
+        appended: Option<Appended>,
     ) -> Result<Option<super::transfer_io::Output>, ResumableError> {
         self.check_lease_owner(lease)?;
         if self.0.clock.now() >= lease.session.deadline {
@@ -583,8 +682,26 @@ impl Catalog {
                 "Upload options exceed 64 KiB".into(),
             ));
         }
+        let (mut output, running_hash) = appended
+            .map(
+                |Appended {
+                     output,
+                     running_hash,
+                 }| (Some(output), running_hash),
+            )
+            .unwrap_or_default();
+        if running_hash
+            .as_ref()
+            .is_some_and(|state| state.bytes() != offset)
+        {
+            return Err(ResumableError::Object(object_unavailable(
+                "upload running hash does not cover the checkpoint offset",
+            )));
+        }
+        let stored_hash = running_hash.as_ref().map(HasherState::to_bytes);
+        // Bytes the catalog did not digest leave the session without a running digest.
         let (changed, output) = self.run::<_, CatalogError>(move |connection| {
-            let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded])?;
+            let changed = sql::exec(connection, "UPDATE resumable_sessions SET offset = ?1, total = ?2, options = coalesce(?6, options), running_hash = iif(?1 = ?4, coalesce(?7, running_hash), ?7) WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![offset, total, id, old, now, encoded, stored_hash])?;
             if changed == 1 && let Some(output) = &mut output { output.acknowledge(offset); }
             Ok((changed, output))
         }).await?;
@@ -598,8 +715,19 @@ impl Catalog {
         if let Some(options) = options {
             lease.session.options = options.clone();
         }
+        if running_hash.is_some() || offset != old {
+            lease.session.running_hash = running_hash;
+        }
         Ok(output)
     }
+}
+
+/// The bytes a chunk appended to its session, already durable when they are checkpointed.
+pub(super) struct Appended {
+    pub(super) output: super::transfer_io::Output,
+    /// The session's running digest continued over the appended bytes; `None` while the
+    /// session has none.
+    pub(super) running_hash: Option<HasherState>,
 }
 
 pub(super) fn encode_options(o: &ResumableOptions) -> Result<Value, CatalogError> {
@@ -678,13 +806,11 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
     let stored: StoredState = row.get(10)?;
     let invalid_state = || sql::conversion_error(10, Type::Text, "invalid upload state");
     // Keep terminal reasons in the versioned options document so existing catalogs need no migration.
-    let reason = match options.get("terminal_error") {
-        None => None,
-        Some(Value::String(reason)) => {
-            Some(TerminalReason::parse(reason).ok_or_else(invalid_state)?)
-        }
-        Some(_) => return Err(invalid_state()),
-    };
+    let reason = options
+        .get("terminal_error")
+        .map(TerminalReason::deserialize)
+        .transpose()
+        .map_err(|_| invalid_state())?;
     let state = match (stored, reason) {
         (StoredState::Active, None) => SessionState::Active,
         (StoredState::Complete, None) => SessionState::Complete,
@@ -692,6 +818,9 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
         (StoredState::Cancelled, Some(TerminalReason::Aborted)) => SessionState::Aborted,
         (StoredState::Cancelled, Some(TerminalReason::ContentRange)) => {
             SessionState::InvalidContentRange
+        }
+        (StoredState::Cancelled, Some(TerminalReason::Overrun(overrun))) => {
+            SessionState::Overrun(overrun)
         }
         (StoredState::Active | StoredState::Complete, Some(_)) => return Err(invalid_state()),
     };
@@ -715,6 +844,7 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
                     .map_err(|error| sql::conversion_error(11, Type::Text, error))
             })
             .transpose()?,
+        running_hash: running_hash(row, 7, 12)?,
     })
 }
 

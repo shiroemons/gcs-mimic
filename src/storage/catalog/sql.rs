@@ -524,15 +524,11 @@ mod tests {
             (HmacKeyState::Deleted, "DELETED"),
         ]);
         {
-            use crate::storage::catalog::resumable::{StoredState, TerminalReason};
+            use crate::storage::catalog::resumable::StoredState;
             text_values(&[
                 (StoredState::Active, "ACTIVE"),
                 (StoredState::Complete, "COMPLETE"),
                 (StoredState::Cancelled, "CANCELLED"),
-            ]);
-            text_values(&[
-                (TerminalReason::Aborted, "aborted"),
-                (TerminalReason::ContentRange, "content-range"),
             ]);
         }
         text_values(&[

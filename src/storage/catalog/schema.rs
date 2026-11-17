@@ -262,6 +262,11 @@ pub(super) const STEPS: &[Step] = &[
         acl::project_numbers::SCHEMA_VERSION,
         acl::project_numbers::migrate,
     ),
+    Step::statements(
+        resumable::RUNNING_HASH_SCHEMA_VERSION,
+        resumable::RUNNING_HASH_SCHEMA,
+        Some(resumable::validate_running_hash),
+    ),
 ];
 
 #[expect(

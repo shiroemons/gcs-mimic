@@ -641,7 +641,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
             })
             .await;
         if hashes.starts_with("md5=rXa") && hashes.ends_with("srP9bA==") {
-            assert!(result.unwrap().is_some());
+            assert!(result.unwrap().into_completion().is_some());
         } else {
             assert!(matches!(
                 result,

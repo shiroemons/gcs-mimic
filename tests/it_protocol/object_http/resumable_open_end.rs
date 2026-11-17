@@ -4,9 +4,9 @@
 //! or only when it reaches a declared total.
 use super::*;
 
-const CHUNK: usize = 256 * 1024;
+pub(super) const CHUNK: usize = 256 * 1024;
 
-fn session(server: &Server, name: &str, headers: &str) -> String {
+pub(super) fn session(server: &Server, name: &str, headers: &str) -> String {
     let reply = server.request(
         "POST",
         &format!("/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name={name}"),
@@ -21,7 +21,7 @@ fn session(server: &Server, name: &str, headers: &str) -> String {
 }
 
 /// Asserts a 200 response and returns its body as JSON (empty for initiation).
-fn completed(reply: &Reply) -> Value {
+pub(super) fn completed(reply: &Reply) -> Value {
     let body = String::from_utf8_lossy(&reply.body);
     reply.expect_with(200, format_args!("{body}"));
     if reply.body.is_empty() {
@@ -52,7 +52,7 @@ fn put_chunked(server: &Server, path: &str, range: &str, body: &[u8]) -> Reply {
     Reply::framed(stream)
 }
 
-fn put(server: &Server, path: &str, range: &str, body: &[u8]) -> Reply {
+pub(super) fn put(server: &Server, path: &str, range: &str, body: &[u8]) -> Reply {
     server.request("PUT", path, &format!("Content-Range: {range}\r\n"), body)
 }
 
@@ -68,19 +68,19 @@ fn put_prefix(server: &Server, path: &str, object: &[u8]) {
     assert_eq!(reply.headers["range"], format!("bytes=0-{}", CHUNK - 1));
 }
 
-fn status(server: &Server, path: &str) -> Reply {
+pub(super) fn status(server: &Server, path: &str) -> Reply {
     let reply = put(server, path, "bytes */*", b"");
     reply.expect(308);
     reply
 }
 
-fn media(server: &Server, name: &str) -> Vec<u8> {
+pub(super) fn media(server: &Server, name: &str) -> Vec<u8> {
     let reply = server.get(&format!("{name}?alt=media"));
     reply.expect(200);
     reply.body
 }
 
-fn pattern(length: usize) -> Vec<u8> {
+pub(super) fn pattern(length: usize) -> Vec<u8> {
     (0..length).map(|i| (i % 251) as u8).collect()
 }
 

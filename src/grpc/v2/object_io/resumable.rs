@@ -4,7 +4,7 @@ use super::write::{
 };
 use super::*;
 use crate::grpc::v2::stored;
-use crate::storage::{ChunkEnd, ChunkWait};
+use crate::storage::{ChunkEnd, ChunkWait, Written};
 
 impl Storage {
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -246,13 +246,19 @@ impl Storage {
                 stored::completion,
             );
             let (sent, written_record) = tokio::join!(producer, write);
-            let completion = written_record.map_err(session_status)?;
+            let written_record = written_record.map_err(session_status)?;
             sent?;
-            let result = if let Some(value) = completion.as_ref() {
-                let resource = self.completed_resource(Some(value), caller, bucket).await?;
-                WriteStatus::Resource(resource)
-            } else {
-                WriteStatus::PersistedSize(crate::grpc::convert::signed(written, "persisted_size")?)
+            let result = match written_record {
+                Written::Complete(value) => {
+                    let resource = self
+                        .completed_resource(Some(&value), caller, bucket)
+                        .await?;
+                    WriteStatus::Resource(resource)
+                }
+                Written::Open(_) => WriteStatus::PersistedSize(crate::grpc::convert::signed(
+                    written,
+                    "persisted_size",
+                )?),
             };
             let reported = if message.finish_write || message.flush || message.state_lookup {
                 send_status(responses, &result).await?

@@ -916,6 +916,8 @@ impl From<crate::storage::ResumableError> for JsonError {
                 Self::invalid_parameter("Failed to parse Content-Range header.")
                     .with_plain(&CONTENT_RANGE_TEXT)
             }
+            // The recorded refusal is a bare text page without cache fields.
+            ResumableError::Overrun(overrun) => Self::session_protocol(overrun.to_string()),
             ResumableError::Object(error) => error.into(),
         }
     }

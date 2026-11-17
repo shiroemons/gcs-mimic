@@ -8,16 +8,12 @@ use md5::{
 };
 use std::io;
 
-#[cfg(test)]
 const STATE_FORMAT: u8 = 1;
 const MD5_STATE_BYTES: usize = <Md5 as SerializableState>::SerializedStateSize::USIZE;
 const _: () = assert!(MD5_STATE_BYTES == 88);
-#[cfg(test)]
-const MD5_STATE_START: usize = 1 + size_of::<u64>();
-#[cfg(test)]
-const CRC32C_START: usize = MD5_STATE_START + MD5_STATE_BYTES;
-#[cfg(test)]
-pub(crate) const HASHER_STATE_BYTES: usize = CRC32C_START + size_of::<u32>();
+/// The envelope: the format, the byte count, md-5's state and the CRC32C.
+pub(crate) const HASHER_STATE_BYTES: usize =
+    1 + size_of::<u64>() + MD5_STATE_BYTES + size_of::<u32>();
 
 #[derive(Clone, Default)]
 pub(crate) struct Hasher {
@@ -26,60 +22,77 @@ pub(crate) struct Hasher {
     bytes: u64,
 }
 
+/// A [`Hasher`] frozen at a byte count, in the versioned envelope a checkpoint persists: the
+/// format byte, the big-endian byte count, md-5's serialized state and the big-endian CRC32C.
 /// Format 1 pins md-5 0.11's ABI; incompatible upgrades require rehashing bodies.
-#[derive(Clone)]
-#[cfg(test)]
-pub(crate) struct HasherState(Hasher);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HasherState {
+    bytes: u64,
+    md5: [u8; MD5_STATE_BYTES],
+    crc32c: u32,
+}
 
 fn invalid_state() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid serialized hash state")
 }
 
-#[cfg(test)]
+/// The byte count md-5's format-1 state records: 16 chaining bytes, a little-endian block
+/// count, then the length of the buffered partial block.
+fn md5_byte_count(state: &[u8; MD5_STATE_BYTES]) -> Option<u64> {
+    let (_chaining, rest) = state.split_first_chunk::<16>()?;
+    let (blocks, rest) = rest.split_first_chunk::<8>()?;
+    let buffered = rest.first()?;
+    u64::from_le_bytes(*blocks)
+        .checked_mul(64)?
+        .checked_add(u64::from(*buffered))
+}
+
 impl HasherState {
-    pub(crate) fn bytes(&self) -> u64 {
-        self.0.bytes
+    pub(crate) const fn bytes(&self) -> u64 {
+        self.bytes
     }
 
     pub(crate) fn to_bytes(&self) -> [u8; HASHER_STATE_BYTES] {
-        let mut bytes = [0; HASHER_STATE_BYTES];
-        bytes[0] = STATE_FORMAT;
-        bytes[1..MD5_STATE_START].copy_from_slice(&self.0.bytes.to_be_bytes());
-        bytes[MD5_STATE_START..CRC32C_START].copy_from_slice(self.0.md5.serialize().as_slice());
-        bytes[CRC32C_START..].copy_from_slice(&self.0.crc32c.to_be_bytes());
-        bytes
+        let fields = [STATE_FORMAT]
+            .into_iter()
+            .chain(self.bytes.to_be_bytes())
+            .chain(self.md5)
+            .chain(self.crc32c.to_be_bytes());
+        let mut envelope = [0; HASHER_STATE_BYTES];
+        for (slot, byte) in envelope.iter_mut().zip(fields) {
+            *slot = byte;
+        }
+        envelope
     }
 
+    /// Parses an envelope, refusing one whose MD5 state disagrees with its byte count or does
+    /// not decode, so a resumed digest never continues from a corrupt prefix.
     pub(crate) fn from_bytes(input: &[u8]) -> io::Result<Self> {
-        let input: &[u8; HASHER_STATE_BYTES] = input.try_into().map_err(|_| invalid_state())?;
-        if input[0] != STATE_FORMAT {
+        let (format, rest) = input.split_first().ok_or_else(invalid_state)?;
+        let (bytes, rest) = rest.split_first_chunk().ok_or_else(invalid_state)?;
+        let (md5, crc32c) = rest.split_first_chunk().ok_or_else(invalid_state)?;
+        let crc32c = <[u8; 4]>::try_from(crc32c).map_err(|_| invalid_state())?;
+        let state = Self {
+            bytes: u64::from_be_bytes(*bytes),
+            md5: *md5,
+            crc32c: u32::from_be_bytes(crc32c),
+        };
+        if *format != STATE_FORMAT || md5_byte_count(&state.md5) != Some(state.bytes) {
             return Err(invalid_state());
         }
-        let bytes = u64::from_be_bytes(
-            input[1..MD5_STATE_START]
-                .try_into()
-                .map_err(|_| invalid_state())?,
-        );
-        let state = SerializedState::<Md5>::try_from(&input[MD5_STATE_START..CRC32C_START])
-            .map_err(|_| invalid_state())?;
-        // Format 1 has 16 chaining bytes, a little-endian block count, then buffer length.
-        let blocks = u64::from_le_bytes(state[16..24].try_into().map_err(|_| invalid_state())?);
-        let observed = blocks
-            .checked_mul(64)
-            .and_then(|n| n.checked_add(u64::from(state[24])))
-            .ok_or_else(invalid_state)?;
-        if observed != bytes {
-            return Err(invalid_state());
-        }
-        Ok(Self(Hasher {
-            md5: Md5::deserialize(&state).map_err(|_| invalid_state())?,
-            crc32c: u32::from_be_bytes(
-                input[CRC32C_START..]
-                    .try_into()
-                    .map_err(|_| invalid_state())?,
-            ),
-            bytes,
-        }))
+        state.md5()?;
+        Ok(state)
+    }
+
+    fn md5(&self) -> io::Result<Md5> {
+        let state =
+            SerializedState::<Md5>::try_from(self.md5.as_slice()).map_err(|_| invalid_state())?;
+        Md5::deserialize(&state).map_err(|_| invalid_state())
+    }
+
+    /// The digests of every byte the state has consumed.
+    pub(crate) fn digest(&self) -> io::Result<Hashes> {
+        Hasher::resume(self, self.bytes).map(Hasher::finish)
     }
 }
 
@@ -131,16 +144,24 @@ impl Hasher {
             crc32c: self.crc32c,
         }
     }
-    #[cfg(test)]
     pub(crate) fn save(&self) -> HasherState {
-        HasherState(self.clone())
+        HasherState {
+            bytes: self.bytes,
+            md5: self.md5.serialize().into(),
+            crc32c: self.crc32c,
+        }
     }
-    #[cfg(test)]
-    pub(crate) fn resume(state: HasherState, offset: u64) -> io::Result<Self> {
-        if state.bytes() != offset {
+
+    /// Continues the digests of a checkpoint whose bytes end at `offset`.
+    pub(crate) fn resume(state: &HasherState, offset: u64) -> io::Result<Self> {
+        if state.bytes != offset {
             return Err(invalid_state());
         }
-        Ok(state.0)
+        Ok(Self {
+            md5: state.md5()?,
+            crc32c: state.crc32c,
+            bytes: state.bytes,
+        })
     }
 }
 
@@ -162,8 +183,15 @@ mod tests {
         assert_eq!(state, expected);
         let parsed = HasherState::from_bytes(&state).unwrap();
         assert_eq!(parsed.bytes(), 65_537);
-        assert!(Hasher::resume(parsed.clone(), 65_536).is_err());
-        let mut hash = Hasher::resume(parsed, 65_537).unwrap();
+        assert_eq!(
+            parsed.digest().unwrap(),
+            Hashes {
+                md5: Md5::digest(&bytes[..65_537]).into(),
+                crc32c: crc32c::crc32c(&bytes[..65_537])
+            }
+        );
+        assert!(Hasher::resume(&parsed, 65_536).is_err());
+        let mut hash = Hasher::resume(&parsed, 65_537).unwrap();
         hash.update(&bytes[65_537..]);
         assert_eq!(
             hash.finish(),
@@ -172,6 +200,10 @@ mod tests {
                 crc32c: crc32c::crc32c(&bytes)
             }
         );
+        assert_eq!(
+            HasherState::from_bytes(&[]).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         let mut bad = state;
         bad[0] = 2;
         assert!(HasherState::from_bytes(&bad).is_err());
@@ -179,6 +211,7 @@ mod tests {
         bad[8] ^= 1;
         assert!(HasherState::from_bytes(&bad).is_err());
         assert!(HasherState::from_bytes(&state[..100]).is_err());
+        assert!(HasherState::from_bytes(&[state.as_slice(), &[0]].concat()).is_err());
     }
 
     #[test]

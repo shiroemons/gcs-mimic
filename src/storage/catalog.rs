@@ -40,8 +40,10 @@ mod upload_replay;
 pub(crate) use resumable::ResumableError;
 #[cfg(test)]
 pub(crate) use resumable::ResumableSession;
-pub(crate) use resumable::{ResumableOptions, SessionId, SessionState};
-pub(crate) use resumable_transfer::{ChunkEnd, ChunkWait, ResumableChunk};
+pub(crate) use resumable::{
+    Overrun, Progress, ResumableOptions, SessionId, SessionLease, SessionState,
+};
+pub(crate) use resumable_transfer::{ChunkEnd, ChunkWait, ResumableChunk, Written};
 pub(crate) use upload_replay::UploadAclSnapshot;
 pub(crate) use upload_replay::{CopyReplay, CopyReplaySource, ReplayInvocation, UploadCheck};
 
@@ -149,7 +151,7 @@ use schema::{initialize_catalog, upgrade, validate_schema, validate_schema_versi
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-pub(super) const CATALOG_SCHEMA_VERSION: i64 = acl::project_numbers::SCHEMA_VERSION;
+pub(super) const CATALOG_SCHEMA_VERSION: i64 = resumable::RUNNING_HASH_SCHEMA_VERSION;
 /// Matches `length(CAST(.. AS BLOB)) <= 65536` on the session, rewrite, notification, appendable,
 /// upload replay and multipart documents (schema versions 7, 11, 28, 34, 35 and 37). Those
 /// schema texts are frozen history: raising this needs a migration such as
