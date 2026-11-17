@@ -1247,16 +1247,26 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
             .get(ADMIN, "/storage/v1/b/rejected-create")
             .auth_error(404, "notFound");
     }
-    let routes = [
+    // An upload gets Cloud Storage's refusal (recorded 2026-11-17).
+    for route in [
         "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=rejected&predefinedAcl=publicRead",
         "/upload/storage/v1/b/iam-bucket/o?uploadType=multipart&predefinedAcl=publicRead",
         "/upload/storage/v1/b/iam-bucket/o?uploadType=resumable&name=rejected&predefinedAcl=publicRead",
+        "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=rejected&%70redefinedAcl=publicRead",
+    ] {
+        let reply = server.request("POST", route, ADMIN, b"{}");
+        reply.auth_error(400, "invalid");
+        assert_eq!(
+            reply.json()["error"]["message"],
+            "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
+        );
+    }
+    let derived = [
         "/storage/v1/b/iam-bucket/o/object/copyTo/b/iam-bucket/o/rejected?destinationPredefinedAcl=publicRead",
         "/storage/v1/b/iam-bucket/o/object/rewriteTo/b/iam-bucket/o/rejected?destinationPredefinedAcl=publicRead",
         "/storage/v1/b/iam-bucket/o/rejected/compose?destinationPredefinedAcl=publicRead",
-        "/upload/storage/v1/b/iam-bucket/o?uploadType=media&name=rejected&%70redefinedAcl=publicRead",
     ];
-    for route in routes {
+    for route in derived {
         let reply = server.request("POST", route, ADMIN, b"{}");
         reply.auth_error(400, "invalidArgument");
         assert!(
@@ -1280,7 +1290,7 @@ fn uniform_access_metadata_and_predefined_acl_rejections() {
         .success();
     // Without uniform access uploads apply predefinedAcl; copy, rewrite and compose still
     // reject destinationPredefinedAcl explicitly.
-    for route in &routes[3..6] {
+    for route in derived {
         let reply = server.request("POST", route, ADMIN, b"{}");
         assert_eq!(
             reply.json()["error"]["errors"][0]["reason"],

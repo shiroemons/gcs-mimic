@@ -255,15 +255,13 @@ fn multipart_and_resumable_uploads_apply_predefined_acl_at_publication() {
                 ADMIN,
                 b"bytes",
             ),
-            "invalidArgument",
+            "invalid",
         ),
     ] {
         reply.json_reason(400, reason);
-        assert!(
-            serde_json::from_slice::<Value>(&reply.body).unwrap()["error"]["message"]
-                .as_str()
-                .unwrap()
-                .starts_with("Cannot insert legacy ACL for an object when uniform bucket-level access is enabled")
+        assert_eq!(
+            serde_json::from_slice::<Value>(&reply.body).unwrap()["error"]["message"],
+            "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access"
         );
     }
     absent(&server, "late-uniform");

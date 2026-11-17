@@ -648,9 +648,10 @@ pub(crate) fn project_private(project: &str) -> Vec<AclEntry> {
     .collect()
 }
 
-/// The 400 message for an upload `predefinedAcl` under uniform access. It begins with the
-/// sentence Cloud Storage returns, then adds the local remedy.
-pub(crate) const UNIFORM_ACCESS_UPLOAD_ACL: &str = "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled; remove predefinedAcl (for example, omit predefinedAcl=publicRead) and use bucket IAM permissions";
+/// The 400 message for an upload `predefinedAcl` or XML `x-goog-acl` under uniform access, as
+/// Cloud Storage words it for both APIs (recorded 2026-11-09 for XML and 2026-11-17 for JSON,
+/// case bkt-gaps-settings).
+pub(crate) const UNIFORM_ACCESS_UPLOAD_ACL: &str = "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access";
 
 crate::config::string_enum! {
     no_default listed

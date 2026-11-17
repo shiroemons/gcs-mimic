@@ -52,13 +52,16 @@ are not allowed since public access prevention is enforced." A resumable
 initiation with `bucketOwnerRead` produced the same ACL at completion as a media
 upload. On a bucket with uniform bucket-level access, every value returned 400
 "Cannot insert legacy ACL for an object when uniform bucket-level access is
-enabled." Project, bucket and principal names are omitted.
+enabled." Project, bucket and principal names are omitted. A later recording
+(case `bkt-gaps-settings`, 2026-11-17) showed the full answer: reason `invalid`
+and the sentence followed by `Read more at
+https://cloud.google.com/storage/docs/uniform-bucket-level-access`. gcs-mimic
+answers with that reason and message, the one its XML `x-goog-acl` refusal
+already used.
 
 ## Local choices
 
-- The uniform-access 400 uses reason `invalidArgument`; its message begins with
-  the observed sentence and adds the remedy. The 412 keeps the shared public
-  access prevention message.
+- The 412 keeps the shared public access prevention message.
 - The documentation states that anonymous users cannot specify a predefined ACL
   on upload; strict anonymous uploads with `predefinedAcl` fail with 400
   `invalidArgument` before the body is read. The provider status is unverified.

@@ -944,10 +944,12 @@ pub(crate) fn reject_predefined_acl(
             && uniform_access == UniformAccess::Disabled;
         if query.contains_key(key) && !applied {
             return Err(match (uniform_access, target) {
+                // The refusal the publishing transaction gives (reason invalid, recorded
+                // 2026-11-17), checked here before any body is read.
                 (UniformAccess::Enabled, PredefinedAclTarget::ObjectUpload)
                     if key == "predefinedAcl" =>
                 {
-                    JsonError::invalid_argument(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
+                    crate::object::ObjectError::UniformAccessPredefinedAcl.into()
                 }
                 (UniformAccess::Enabled, _) => JsonError::invalid_argument(format!(
                     "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"

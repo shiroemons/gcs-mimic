@@ -319,9 +319,7 @@ impl Error {
 
     /// The 400 for `x-goog-acl` on a bucket with uniform access enabled (observed 2026-11-09).
     fn uniform_access_acl() -> Self {
-        Self::invalid_argument(
-            "Cannot insert legacy ACL for an object when uniform bucket-level access is enabled. Read more at https://cloud.google.com/storage/docs/uniform-bucket-level-access",
-        )
+        Self::invalid_argument(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
     }
 
     /// The 400 for `x-amz-copy-source` without an AWS signature (observed 2026-11-09).
