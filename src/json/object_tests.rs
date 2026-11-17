@@ -790,7 +790,7 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
             ]);
         }
         let headers = header_map(entries);
-        // Media uploads do not examine the header; resumable initiation still reads it.
+        // Media uploads do not examine the header; an XML PUT still reads it.
         assert_eq!(
             upload_content_type(&headers).unwrap(),
             "text/plain; charset=utf-8",

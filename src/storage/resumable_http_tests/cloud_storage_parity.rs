@@ -195,6 +195,111 @@ async fn media_upload_ignores_declared_hashes_and_stores_the_computed_ones() {
     h.stop().await;
 }
 
+/// Recorded 2026-11-17 (case obj-probe-upload-hashes): sessions whose initiation named a wrong
+/// or a correct crc32c or md5 in `X-Goog-Hash` completed with the computed hashes. Malformed,
+/// unknown and repeated values are ignored as on media uploads, by inference, and an ignored
+/// value cannot conflict with the final request's.
+#[tokio::test]
+async fn resumable_initiation_ignores_declared_hashes() {
+    let h = Harness::start(1000, Permissive, None).await;
+    for (index, declared) in [
+        "crc32c=AAAAAA==",
+        "md5=AAAAAAAAAAAAAAAAAAAAAA==",
+        "crc32c=mnG7TA==",
+        "md5=XUFAKrxLKna5cZ2REBfFkg==",
+        "crc32c=!!",
+        "sha1=AAAA",
+        "crc32c=mnG7TA==,crc32c=AAAAAA==",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (finish, headers) in [
+            ("bare", "Content-Range: bytes 0-4/5\r\n"),
+            (
+                "hashed",
+                "Content-Range: bytes 0-4/5\r\nX-Goog-Hash: crc32c=mnG7TA==,md5=XUFAKrxLKna5cZ2REBfFkg==\r\n",
+            ),
+        ] {
+            let started = h
+                .initiate(
+                    &format!("name=init-{index}-{finish}"),
+                    &format!("X-Goog-Hash: {declared}\r\n"),
+                    b"",
+                )
+                .await;
+            assert_eq!(started.status, 200, "{declared}");
+            let finished = h.request("PUT", &h.path(&started), headers, b"hello").await;
+            assert_eq!(finished.status, 200, "{declared} {finish}");
+            let object = finished.json();
+            assert_eq!(object["crc32c"], "mnG7TA==", "{declared} {finish}");
+            assert_eq!(
+                object["md5Hash"], "XUFAKrxLKna5cZ2REBfFkg==",
+                "{declared} {finish}"
+            );
+        }
+    }
+    h.stop().await;
+}
+
+/// Recorded 2026-11-17 (case obj-probe-upload-hashes): the final request's `X-Goog-Hash`
+/// names the whole object, so the crc32c of only the last chunk is refused. A hash the
+/// initiation's metadata declares is kept with the session and verified at completion, as are
+/// the hashes that earlier releases also kept from the initiation's header.
+#[tokio::test]
+async fn resumable_completion_verifies_whole_object_and_metadata_hashes() {
+    let h = Harness::start(1024 * 1024, Permissive, None).await;
+    let chunk = vec![b'a'; 256 * 1024];
+    for (declared, status) in [("ySLq0Q==", 200), ("mnG7TA==", 400)] {
+        let started = h
+            .initiate(&format!("name=two-chunk-{status}"), "", b"")
+            .await;
+        let path = h.path(&started);
+        let first = h
+            .request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &chunk)
+            .await;
+        assert_eq!(first.status, 308);
+        let headers = format!(
+            "Content-Range: bytes 262144-262148/262149\r\nX-Goog-Hash: crc32c={declared}\r\n"
+        );
+        let finished = h.request("PUT", &path, &headers, b"hello").await;
+        assert_eq!(finished.status, status, "{declared}");
+        if status == 400 {
+            assert_eq!(
+                finished.json()["error"]["message"],
+                "Provided CRC32C \"mnG7TA==\" doesn't match calculated CRC32C \"ySLq0Q==\"."
+            );
+        }
+    }
+    let started = h
+        .initiate(
+            "name=metadata-hash",
+            "Content-Type: application/json\r\n",
+            br#"{"crc32c":"AAAAAA=="}"#,
+        )
+        .await;
+    let finished = h
+        .request(
+            "PUT",
+            &h.path(&started),
+            "Content-Range: bytes 0-4/5\r\n",
+            b"hello",
+        )
+        .await;
+    assert_eq!(finished.status, 400);
+    assert_eq!(
+        finished.json()["error"]["message"],
+        "Provided CRC32C \"AAAAAA==\" doesn't match calculated CRC32C \"mnG7TA==\"."
+    );
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/metadata-hash", "", b"")
+            .await
+            .status,
+        404
+    );
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn multipart_metadata_hash_mismatch_names_both_digests() {
     let h = Harness::start(1000, Permissive, None).await;

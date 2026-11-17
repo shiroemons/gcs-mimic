@@ -1,5 +1,6 @@
 //! The Discovery resumable protocol path `POST /resumable/upload/storage/v1/b/{bucket}/o`,
-//! where gcloud storage (apitools) initiates resumable uploads.
+//! where gcloud storage (apitools) initiates resumable uploads, and the session URI that an
+//! initiation there returns on the same path.
 
 use crate::common;
 use common::TestDir;
@@ -8,17 +9,23 @@ use common::effects::{Reply, Server};
 
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 const PROTOCOL_PATH: &str = "/resumable/upload/storage/v1/b/test-bucket/o";
+const UPLOAD_PATH: &str = "/upload/storage/v1/b/test-bucket/o";
 
-/// The session path of a successful initiation, relative to the advertised API base URL.
-fn session_path(reply: &Reply) -> String {
+/// The `Location` path of a successful initiation, relative to the advertised API base URL.
+fn location_path(reply: &Reply) -> String {
     reply.expect(200);
     let location = &reply.headers["location"];
     let path = location.strip_prefix("http://127.0.0.1:4443").unwrap();
-    assert!(
-        path.starts_with("/upload/storage/v1/b/test-bucket/o?") && path.contains("upload_id="),
-        "{location}"
-    );
+    assert!(path.contains("upload_id="), "{location}");
     path.to_owned()
+}
+
+/// The session path of a successful initiation on the protocol path, which keeps that path
+/// (recorded 2026-11-17, case obj-probe-resumable-alias-session).
+fn session_path(reply: &Reply) -> String {
+    let path = location_path(reply);
+    assert!(path.starts_with(&format!("{PROTOCOL_PATH}?")), "{path}");
+    path
 }
 
 #[test]
@@ -85,6 +92,92 @@ fn resumable_protocol_path_initiates_the_same_session_as_the_upload_path() {
     }
 }
 
+/// Recorded 2026-11-17 (case obj-probe-resumable-alias-session): Cloud Storage served a chunk
+/// with an open total, a status query and the final chunk on the alias session URI as on the
+/// upload session URI. POST (the Go transport's form) and the cancelling DELETE are served
+/// there too, as on the upload session URI, by inference.
+#[test]
+fn resumable_protocol_path_serves_its_session_uri_like_the_upload_session_uri() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, false);
+    server.bucket();
+    let path = session_path(&server.request(
+        "POST",
+        &format!("{PROTOCOL_PATH}?uploadType=resumable&name=alias.txt"),
+        "",
+        br#"{"contentType":"text/plain"}"#,
+    ));
+    assert!(
+        path.starts_with(&format!(
+            "{PROTOCOL_PATH}?name=alias.txt&uploadType=resumable&upload_id="
+        )),
+        "{path}"
+    );
+    let chunk = vec![b'a'; 256 * 1024];
+    let open = server.request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &chunk);
+    let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
+    for reply in [&open, &status] {
+        reply.expect(308);
+        assert_eq!(reply.headers["range"], "bytes=0-262143");
+        assert_eq!(reply.headers["x-goog-running-hash"], "crc32c=374w4A==");
+        assert_eq!(
+            reply.headers["x-range-md5"],
+            "c946b71bb69c07daf25470742c967e7c"
+        );
+    }
+    let object = server
+        .request(
+            "PUT",
+            &path,
+            "Content-Range: bytes 262144-262148/262149\r\n",
+            b"hello",
+        )
+        .json_ok();
+    assert_eq!(object["name"], "alias.txt");
+    assert_eq!(object["contentType"], "text/plain");
+    assert_eq!(object["size"], "262149");
+    assert_eq!(object["crc32c"], "ySLq0Q==");
+    assert_eq!(server.get("alias.txt").json_ok()["size"], "262149");
+
+    let posted = session_path(&server.request(
+        "POST",
+        &format!("{PROTOCOL_PATH}?uploadType=resumable&name=posted.txt"),
+        "",
+        b"",
+    ));
+    server
+        .request("POST", &posted, "Content-Range: bytes 0-2/3\r\n", b"abc")
+        .json_ok();
+    assert_eq!(server.get("posted.txt?alt=media").body, b"abc");
+
+    let initiate = |prefix: &str| {
+        server.request(
+            "POST",
+            &format!("{prefix}?uploadType=resumable&name=cancelled.txt"),
+            "",
+            b"",
+        )
+    };
+    let alias = session_path(&initiate(PROTOCOL_PATH));
+    let upload = location_path(&initiate(UPLOAD_PATH));
+    assert!(upload.starts_with(&format!("{UPLOAD_PATH}?")), "{upload}");
+    for (method, range) in [("DELETE", ""), ("PUT", "Content-Range: bytes */*\r\n")] {
+        let on_alias = server.request(method, &alias, range, b"");
+        let on_upload = server.request(method, &upload, range, b"");
+        assert_ne!(on_alias.status, 200, "{method}");
+        assert_eq!(on_alias.status, on_upload.status, "{method}");
+        assert_eq!(on_alias.body, on_upload.body, "{method}");
+    }
+    // An unknown session answers as on the upload session URI.
+    let query = "uploadType=resumable&upload_id=abc";
+    let on_alias = server.request("POST", &format!("{PROTOCOL_PATH}?{query}"), "", b"x");
+    let on_upload = server.request("POST", &format!("{UPLOAD_PATH}?{query}"), "", b"x");
+    assert_ne!(on_alias.status, 200);
+    assert_eq!(on_alias.status, on_upload.status);
+    assert_eq!(on_alias.body, on_upload.body);
+    server.get("cancelled.txt").expect(404);
+}
+
 #[test]
 fn resumable_protocol_path_rejects_other_upload_types_like_the_upload_path() {
     let dir = TestDir::new();
@@ -101,7 +194,6 @@ fn resumable_protocol_path_rejects_other_upload_types_like_the_upload_path() {
         "uploadType=media&name=x",
         "uploadType=multipart",
         "uploadType=bogus&name=x",
-        "uploadType=resumable&upload_id=abc",
     ] {
         let reply = server.request("POST", &format!("{PROTOCOL_PATH}?{query}"), "", b"x");
         assert_eq!(reply.status, bogus.status, "{query}");
@@ -223,5 +315,22 @@ fn resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api() {
     let initiated = server.request("POST", &format!("{PROTOCOL_PATH}?uploads"), "", b"");
     initiated.expect(200);
     assert!(String::from_utf8_lossy(&initiated.body).contains("<UploadId>"));
+    // An XML resumable session URI for that object has the alias session's path and
+    // `upload_id`, but no `uploadType`, so its requests stay with the XML API too.
+    let started = server.request("POST", PROTOCOL_PATH, "x-goog-resumable: start\r\n", b"");
+    started.expect(201);
+    let location = &started.headers["location"];
+    let session = location.strip_prefix("http://127.0.0.1:4443").unwrap();
+    assert!(
+        session.starts_with(&format!("{PROTOCOL_PATH}?upload_id=")),
+        "{location}"
+    );
+    server
+        .request("PUT", session, "", b"xml session")
+        .expect(200);
+    assert_eq!(
+        server.request("GET", PROTOCOL_PATH, "", b"").body,
+        b"xml session"
+    );
     server.request("DELETE", PROTOCOL_PATH, "", b"").expect(204);
 }

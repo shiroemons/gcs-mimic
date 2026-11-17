@@ -60,8 +60,10 @@ was `d73dfb3c3be52245625b951b9c0bcf65163c549f`; fetched file SHA-256
 Both match the earlier source pins. Proto generation conditions, UpdateObject
 and WriteObject are cross-checks; RPC statuses, update masks and transport
 defaults cannot settle JSON status conflicts. Discovery has download support
-flags but no `mediaDownload.path`; its resumable path discrepancy remains
-SPEC-RSM-DISCOVERY-PATH. Schema presence alone establishes no launch stage.
+flags but no `mediaDownload.path`. Its resumable protocol path serves
+initiation, data and finalization like the upload path, as recorded on
+2026-11-17 (SPEC-RSM-DISCOVERY-PATH, resolved). Schema presence alone
+establishes no launch stage.
 
 ## Shared request and response rules
 
@@ -318,7 +320,7 @@ for resumable uploads with multiple data requests,
 exact mismatch reasons/precedence, exhaustive download-header presence,
 transcoded/range-byte validation and composite/XML/gRPC/encrypted objects.
 Move these to JSON-OBJECTS-007-PENDING (GET headers also
-JSON-OBJECTS-005-PENDING), SPEC-010/012/016 and SPEC-RSM-EDGES. Composite
+JSON-OBJECTS-005-PENDING), SPEC-012/016 and SPEC-RSM-EDGES. Composite
 checksums remain order 11. The multipart header rule goes to SPEC-016;
 multi-request resumable MD5 goes to SPEC-RSM-EDGES because the guide's
 chunked-object limitation does not explicitly resolve JSON resumable MD5.
@@ -435,9 +437,9 @@ downgraded.
 | BEHAVIOR-COMMON-011: identical server-managed input accepted; changed/unknown/unmodeled, empty-key and non-ASCII values 501; ACL/IAM/advanced fields absent | JSON-OBJECTS-010-PENDING, JSON-OBJECTS-015-PENDING and JSON-OBJECTS-007-PENDING / SPEC-015; JSON-OBJECTS-010-METADATA-BOUNDARIES and JSON-OBJECTS-015-METADATA-BOUNDARIES keep passing boundary evidence |
 | BEHAVIOR-COMMON-011: tokens without replay; repeated metageneration changes; gzip expansion/double compression and full public ACL absent; allUsers cache delivered | JSON-OBJECTS-007-PENDING, JSON-OBJECTS-010-PENDING and JSON-OBJECTS-015-PENDING / SPEC-013/015 retain retry/input questions; JSON-OBJECTS-005-PENDING / SPEC-012/015 and BEHAVIOR-OBJECT-015-PENDING retain gzip/public-ACL/cache-header questions. Preserve public-read cache evidence and distinguish implemented IAM grants from missing ACL semantics |
 | BEHAVIOR-COMMON-011: multipart query-name versus metadata-name advisory order; atomic publication; bounded upload replay | JSON-OBJECTS-007-PENDING / SPEC-008/013/016 and its existing JSON-OBJECTS-007-MULTIPART-PRECONDITIONS-TOKENS case; [upload replay](sdk-upload-replay.md) supersedes the original generation-match-only rule; provider timing/cache parity remains pending, local publication safety remains required |
-| BEHAVIOR-OBJECT-005: SPEC-010/016 Content-MD5 501, checksum parser/reasons and conflicting/unknown third-part fields; resumable/composite absent | JSON-OBJECTS-007-PENDING / SPEC-010/016 and SPEC-RSM-EDGES; retain multipart header and multi-request resumable MD5 exclusions. Replace stale resumable-absent wording with the delivered declared subset and open edges; composite stays order 11 |
+| BEHAVIOR-OBJECT-005: SPEC-016 checksum parser and conflicting/unknown third-part fields; resumable/composite absent | JSON-OBJECTS-007-PENDING / SPEC-016 and SPEC-RSM-EDGES; retain multipart header and multi-request resumable MD5 exclusions. Replace stale resumable-absent wording with the delivered declared subset and open edges; composite stays order 11 |
 | BEHAVIOR-OBJECT-005: header/size/admission/advisory/body/hash/publication order | JSON-OBJECTS-007-PENDING / SPEC-008/017; retain its MEDIA-SAFETY/ADMISSION cases and DESIGN-073 publication evidence |
-| BEHAVIOR-COMMON-007: SPEC-008/010 condition/missing precedence and checksum parser/mismatch reasons | The method parity cases above retain SPEC-008; JSON-OBJECTS-007-PENDING retains SPEC-010/016 checksum errors |
+| BEHAVIOR-COMMON-007: SPEC-008 condition/missing precedence and SPEC-016 checksum parser rules | The method parity cases above retain SPEC-008; JSON-OBJECTS-007-PENDING retains SPEC-016 checksum errors |
 | BEHAVIOR-COMMON-007: local 501, production permission and complete status/header parity absent | Broad method PENDING destinations above, PATCH-ACL-BILLING-PROJECTION and PUT-ACL-BILLING-PROJECTION; SPEC-012/017 and the existing unsupported-field gaps; local 501 stays explicit rejection |
 | BEHAVIOR-COMMON-007: inactivity suspended during advisory/post-EOF waits; 503/catalog/absolute deadlines; unknown commit outcome; unbounded filesystem/catalog close and unchanged SQLite busy timeout | JSON-OBJECTS-007-PENDING and existing transfer/publication cases; DESIGN-070-PENDING, DESIGN-073-PENDING and DESIGN-082-PENDING retain resource/SDK limits. Preserve all configured bounds and unknown-outcome warnings as local guarantees, without claiming provider timing |
 | BEHAVIOR-COMMON-007: deferred reclaim retried at startup; repeated failure blocks readiness; no background scheduler | JSON-OBJECTS-007-PENDING, JSON-OBJECTS-004-PENDING and DESIGN-074-PENDING; preserve startup-failure and committed-mutation PASS evidence; distinguish this non-session rule from delivered resumable maintenance |

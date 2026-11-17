@@ -56,7 +56,15 @@ not establish every invalid-range, terminal-retention or lifetime boundary.
 Discovery revision `20261013` lists a resumable protocol path under
 `/resumable/upload/storage/v1`, whereas the method guide and pinned generated
 Go client use `/upload/storage/v1` with `uploadType=resumable`. The guide/SDK
-path is required; the Discovery alias is tracked by SPEC-RSM-DISCOVERY-PATH.
+path is required. The Discovery alias is served too: an initiation there
+returns a session URI on the alias, whose chunk, status and final requests
+answer like those on the upload path, as Cloud Storage did on 2026-11-17
+(case `obj-probe-resumable-alias-session`; SPEC-RSM-DISCOVERY-PATH, resolved).
+Only a target whose query names `uploadType` is taken, so the XML object
+`upload/storage/v1/b/{bucket}/o` in a bucket named `resumable`, including its
+XML session URI with `upload_id` alone, stays with the XML API. POST, DELETE
+and OPTIONS on the alias session URI follow the upload session URI without a
+recording (SPEC-RSM-EDGES).
 storage-testbench is comparison-only and was not executed or used to resolve
 the contract. Slice-start dependency results are recorded in
 [the freshness log](../evidence/resumable-upload-dependencies.txt).
@@ -484,8 +492,9 @@ ChunkSize=0 nor disabling automatic checksum is an acceptable workaround.
 Record executed wire/catalog/SDK/resource/restart commands and artifacts before
 promoting any row. CASE completion does not close broader JSON insert or Go
 integration requirements. Source questions/local choices are recorded in
-SPEC-RSM-DISCOVERY-PATH, SPEC-RSM-EDGES, SPEC-RSM-AUTH-CONDITIONS and
-SPEC-RSM-LOCATION. SPEC-013 response replay remains separate and OPEN.
+SPEC-RSM-EDGES, SPEC-RSM-AUTH-CONDITIONS and SPEC-RSM-LOCATION
+(SPEC-RSM-DISCOVERY-PATH is resolved). SPEC-013 response replay remains
+separate and OPEN.
 No conformance, performance, container build or real-cloud result is asserted
 by this contract document.
 

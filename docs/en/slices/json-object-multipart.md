@@ -117,7 +117,7 @@ framing and must never become the stored object content type.
 big-endian CRC32C. Validate all supplied values against incrementally computed
 hashes of the exact media bytes. Checksum mismatch returns 400, as documented by
 the data-validation guide. Hash syntax and exact error reasons remain local rules
-under SPEC-010. The optional third part is `application/json`, bounded to 16 MiB,
+under SPEC-016. The optional third part is `application/json`, bounded to 16 MiB,
 and may contain only these two checksum fields. An empty object is accepted.
 Conflicting metadata/header/third-part declarations and other third-part keys return
 400 locally; identical declarations are allowed. Publication waits for validation

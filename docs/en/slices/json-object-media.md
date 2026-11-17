@@ -20,7 +20,7 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | 2 | Both media prefixes serve 200 (206 for a range) directly, without a redirect. Cloud Storage answered `alt=media` on the ordinary `/storage/v1` prefix the same way in the 2026-11-01 recording (cases `obj-download-range`, `obj-download-gzip` and `obj-compose`), so the error catalog's 303 rule does not apply to these requests (SPEC-009, resolved). |
 | 3 | The direct download route is supported from request-endpoints documentation, not a nonexistent Discovery field; non-media direct-download requests return 400 `notDownload`. |
 | 4 | Generation selectors are get/delete-only and projection is insert/get-only; other misplaced parameters fail 400. Signed int64 values are accepted without a leading plus; selectors that do not identify the live positive generation yield 404. |
-| 5 | Since 2026-11-01 `X-Goog-Hash` is not examined on JSON media and multipart uploads: Cloud Storage stored uploads whose header named a wrong, malformed, unknown-algorithm, conflicting, repeated, upper-case or wrong-length hash with the computed hashes (cases `obj-upload-checksums` and, on 2026-11-13, `obj-upload-hash-edges`); a resumable initiation, which was not recorded, still validates it. `Content-MD5` is not examined, as the recorded `obj-upload-checksums` differential case showed Cloud Storage storing an upload whose header named the wrong digest. Duplicate handling and mismatch reason `invalid` are local choices (SPEC-010). |
+| 5 | Since 2026-11-01 `X-Goog-Hash` is not examined on JSON media and multipart uploads: Cloud Storage stored uploads whose header named a wrong, malformed, unknown-algorithm, conflicting, repeated, upper-case or wrong-length hash with the computed hashes (cases `obj-upload-checksums` and, on 2026-11-13, `obj-upload-hash-edges`). Since 2026-11-17 a resumable initiation ignores it too, and only the requests on the session URI declare hashes, as Cloud Storage did (case `obj-probe-upload-hashes`): a wrong value on the final request answers 400 `invalid` with Cloud Storage's message, and on a multi-chunk session it covers the whole object. `Content-MD5` is not examined, as Cloud Storage stored uploads whose header alone named the wrong digest (`obj-upload-checksums`, `obj-probe-upload-hashes`). SPEC-010 is resolved; malformed, unknown-algorithm and repeated forms on session requests remain local choices under SPEC-RSM-EDGES. |
 | 6 | An upload without Content-Type is accepted and stores no content type, so the resource omits `contentType`, as Cloud Storage answered in the 2026-11-01 recording (case `obj-upload-content-type`). A download of such an object is served as `application/octet-stream`, the Object resource's documented default (SPEC-011, resolved). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
@@ -40,8 +40,9 @@ independently establishes the optional download prefix.
 
 The [data-validation guide](https://docs.cloud.google.com/storage/docs/data-validation)
 explicitly supports JSON media `X-Goog-Hash`, but the recorded Cloud Storage
-uploads ignored it, so the emulator does too. A wrong JSON `Content-MD5` alone and
-X-Goog-Hash on resumable requests remain SPEC-010. Cloud Storage accepted an upload without
+uploads and resumable initiations ignored it, so the emulator does too; the final
+request of a resumable session still verifies it, as recorded on 2026-11-17 (SPEC-010,
+resolved). Cloud Storage accepted an upload without
 Content-Type and stored no type in the 2026-11-01 recording; the Object resource's default
 serving MIME type covers its download (SPEC-011, resolved).
 Generation/hash header parity and exact opaque ID/ETag/link encodings remain SPEC-012;
@@ -179,7 +180,7 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Content-Length` | Honor framing and cap; known oversize can fail before reading; no unchecked allocation based on the value |
 | `Transfer-Encoding: chunked` | Supported bounded stream with unknown final length; full cap/checksum validation still applies |
 | `X-Goog-Hash` on insert | Not examined on media and multipart uploads since 2026-11-01, as recorded on Cloud Storage (cases `obj-upload-checksums` and `obj-upload-hash-edges`); the stored hashes are computed from the bytes |
-| `Content-MD5` on insert | Not examined and never treated as validation, matching the recorded `obj-upload-checksums` differential case (SPEC-010) |
+| `Content-MD5` on insert | Not examined and never treated as validation, matching the recorded `obj-upload-checksums` and `obj-probe-upload-hashes` cases (SPEC-010, resolved) |
 | `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range is ignored, as Cloud Storage honored the Range without evaluating it. |
 | `If-Match`, `If-None-Match` | Evaluated against the served ETag on media reads; query generation conditions remain separate |
 | `Content-Encoding` | One `gzip` coding is decoded as transport compression and the decoded bytes are stored (see [HTTP ingress](http-ingress.md)); other codings fail 400 |
@@ -247,7 +248,7 @@ Never expose internal SQLite, filesystem or blob identifiers. A 304/204 has no J
 | Missing required uploadType/name | 400 | `required` |
 | Invalid name/query/int64/hash syntax | 400 | `invalidParameter` (hash parser reason is a local choice) |
 | Unsupported alt value | 400 | `invalidAltValue` |
-| Checksum mismatch | 400 | `invalid`; exact Google reason unverified, SPEC-010 |
+| Checksum mismatch | 400 | `invalid` with Cloud Storage's `Provided … doesn't match calculated …` message, as recorded for metadata and resumable final-request hashes |
 | Body stream aborted / nonempty body on get/delete | 400 | `badRequest` / `invalidArgument`, local mapping |
 | Non-media request on direct download endpoint | 400 | `notDownload` |
 | Unknown upload prefix / wrong verb on recognized object path | 404 / 405 | Local route rejection; production `notUpload`/`wrongUrlForUpload` bodies are not reproduced |
@@ -416,9 +417,9 @@ results in the feature ledger; source research and successful validation are not
 | 10 / OBJ-MEDIA-010 | Midstream disconnect/error, deadline and cancellation preserve old data and leave no visible partial object | Storage + integration |
 | 11 / OBJ-MEDIA-011 | MD5 and CRC32C match independent known vectors, including empty data and multiple chunks | Storage |
 | 12 / OBJ-MEDIA-012 | Header MD5-only, CRC32C-only and both, including repeated header fields, validate complete body | Adapter + storage + wire |
-| 13 / OBJ-MEDIA-013 | Base64 alphabet/padding and 16/4-byte lengths rejected when invalid; algorithm duplicates/unknown algorithms have explicit local policy | Adapter; SPEC-010 |
+| 13 / OBJ-MEDIA-013 | Base64 alphabet/padding and 16/4-byte lengths rejected when invalid; algorithm duplicates/unknown algorithms have explicit local policy | Adapter; SPEC-RSM-EDGES for session requests |
 | 14 / OBJ-MEDIA-014 | Either checksum mismatch returns 400 and preserves prior generation/bytes; success is impossible when only one hash matches | Storage + wire |
-| 15 / OBJ-MEDIA-015 | Content-MD5 alone/with X-Goog-Hash follows reconciled policy and never creates false validation success | Adapter + wire; SPEC-010 |
+| 15 / OBJ-MEDIA-015 | Content-MD5 alone/with X-Goog-Hash follows the recorded policy and never creates false validation success | Adapter + wire + replay; SPEC-010 (resolved) |
 | 16 / OBJ-MEDIA-016 | Resource kind/identity/name/bucket/numeric strings, MIME, class, hashes, ETag, timestamps and links match selected record | Adapter + wire |
 | 17 / OBJ-MEDIA-017 | noAcl defaults; full's ACL/owner omission is explicit; all unsupported fields remain absent; finalization-time decision recorded | Adapter; SPEC-012 |
 | 18 / OBJ-MEDIA-018 | Overwrite identical/different data, including frozen-clock operations, changes generation and resets metageneration to 1 | Storage |

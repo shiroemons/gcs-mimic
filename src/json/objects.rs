@@ -889,8 +889,9 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
     Ok(content_type.to_owned())
 }
 
-/// The hashes a resumable initiation declares with `X-Goog-Hash`. Recorded JSON media uploads
-/// ignored the header, but the resumable route was not recorded, so it keeps verifying.
+/// The hashes an XML PUT declares with `X-Goog-Hash`. The JSON upload routes do not read the
+/// header this way: recorded media and multipart uploads and resumable initiations ignored it,
+/// and only the requests on a resumable session URI declare hashes with it.
 pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, JsonError> {
     let mut hashes = ExpectedHashes::default();
     // A repeated algorithm is refused even with an equal value, before it is decoded.

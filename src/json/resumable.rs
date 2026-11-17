@@ -92,13 +92,15 @@ pub(crate) fn unsigned(value: &str) -> Result<u64, JsonError> {
         .map_err(|_| JsonError::invalid_parameter("Upload integer overflow"))
 }
 
-/// What a resumable initiation declares in its headers.
+/// What a resumable initiation declares in its headers. `X-Goog-Hash` is not among them:
+/// Cloud Storage accepted an initiation naming a wrong crc32c or md5 and completed the session
+/// with the computed hashes (recorded 2026-11-17, case obj-probe-upload-hashes), as it ignores
+/// the header on media and multipart uploads. Only the metadata's `crc32c` and `md5Hash` and
+/// the requests on the session URI declare hashes the completion verifies.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UploadHeaders {
     /// `X-Upload-Content-Type`, unless absent or empty.
     pub(crate) mime: Option<String>,
-    /// The `X-Goog-Hash` digests, which this route keeps verifying.
-    pub(crate) expected: ExpectedHashes,
     /// `X-Upload-Content-Length`, which binds the session's total unless it is 0.
     pub(crate) total: Option<u64>,
 }
@@ -131,12 +133,10 @@ pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, Js
             .parse()
             .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
     );
-    let expected = super::objects::declared_hashes(&clean)?;
     // Runs even without a declared type: it also validates the initiation's other headers.
     let mime = upload_content_type(&clean)?;
     Ok(UploadHeaders {
         mime: declared.map(|_| mime),
-        expected,
         total,
     })
 }
@@ -147,7 +147,6 @@ pub(crate) struct Initiation {
     pub(crate) name: Option<String>,
     /// `X-Upload-Content-Type`, unless absent or empty.
     pub(crate) mime: Option<String>,
-    pub(crate) expected: ExpectedHashes,
     pub(crate) params: ObjectInsertParams,
     pub(crate) access: BucketAccess,
     pub(crate) origin: Option<String>,
@@ -161,7 +160,6 @@ pub(crate) fn options(
     let Initiation {
         name,
         mime,
-        expected,
         params,
         access,
         origin,
@@ -184,7 +182,11 @@ pub(crate) fn options(
         name,
         update: mut metadata,
         expected,
-    } = multipart_metadata_of(super::resource_object(&value)?, name, expected)?;
+    } = multipart_metadata_of(
+        super::resource_object(&value)?,
+        name,
+        ExpectedHashes::default(),
+    )?;
     super::declare_content_encoding(&mut metadata, encoding)?;
     // Cloud Storage refused an initiation whose metadata contentType disagrees with
     // X-Upload-Content-Type, with the multipart message (case obj-gaps-uploads).
@@ -305,7 +307,8 @@ pub(crate) fn final_options(
         }
     }
     upload_content_type(&clean)?;
-    // An equal value agrees with the initiation's declaration; a different one conflicts.
+    // An equal value agrees with the metadata's or an earlier chunk's declaration; a different
+    // one conflicts.
     checksum::each_declared_hash(headers, "Invalid x-goog-hash", |algorithm, value| {
         options
             .expected

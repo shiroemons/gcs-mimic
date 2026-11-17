@@ -155,33 +155,48 @@ pub(super) async fn respond_classified(
     response
 }
 
+/// The JSON upload path, under which the media, multipart and resumable uploads live.
+const UPLOAD_PREFIX: &str = "/upload/storage/v1/b/";
+/// The Discovery resumable protocol path, an alias of [`UPLOAD_PREFIX`].
+const PROTOCOL_PREFIX: &str = "/resumable/upload/storage/v1/b/";
+
 /// What a request on the Discovery resumable protocol path asks for, kept as a request
 /// extension once the path is rewritten.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProtocolUpload {
-    /// `uploadType=resumable` initiation, served as on `/upload/storage/v1`.
+    /// `uploadType=resumable` initiation, served as on `/upload/storage/v1`, whose session URI
+    /// keeps the alias path.
     Resumable,
-    /// Any other upload type, or a session request, which only `/upload/storage/v1` serves.
+    /// A request on the session URI such an initiation returned, served as the same request on
+    /// the `/upload/storage/v1` session URI.
+    Session,
+    /// Any other upload type, which only `/upload/storage/v1` serves.
     Other,
 }
 
 /// `storage.objects.insert` defines its resumable protocol at
 /// `POST /resumable/upload/storage/v1/b/{bucket}/o`, and gcloud storage (apitools) initiates
-/// resumable uploads there. Path-style, that path would otherwise name the XML object
-/// `upload/storage/v1/b/{bucket}/o` in a bucket called `resumable`, so only a path-style POST of
-/// exactly that shape with an `uploadType` query parameter, which XML requests never send, is
-/// taken; it is rewritten to `/upload/storage/v1/b/{bucket}/o` with the same query.
-/// `selected` is what the XML API would select at the original target.
+/// resumable uploads there. Cloud Storage returned a session URI on the same path and served
+/// its chunk, status and final requests like those on `/upload/storage/v1` (recorded
+/// 2026-11-17, case obj-probe-resumable-alias-session).
+///
+/// Path-style, that path would otherwise name the XML object `upload/storage/v1/b/{bucket}/o`
+/// in a bucket called `resumable`, so only a path-style target of exactly that shape whose
+/// query names `uploadType` is taken: a POST without `upload_id` (an initiation or another
+/// upload type), or a request of any method with `upload_id` (the session URI, which repeats
+/// the initiation's `uploadType`). The XML API never sends `uploadType`; its own session URI
+/// carries `upload_id` alone and refuses any other parameter, so neither reading loses an XML
+/// request. A taken request is rewritten to `/upload/storage/v1/b/{bucket}/o` with the same
+/// query. `selected` is what the XML API would select at the original target.
 fn protocol_upload<B>(
     request: &Request<B>,
     selected: Option<&xml::ObjectPath>,
 ) -> Option<(hyper::Uri, ProtocolUpload)> {
-    const PREFIX: &str = "/resumable/upload/storage/v1/b/";
     let uri = request.uri();
-    if request.method() != Method::POST {
-        return None;
-    }
-    let bucket = uri.path().strip_prefix(PREFIX)?.strip_suffix("/o")?;
+    let bucket = uri
+        .path()
+        .strip_prefix(PROTOCOL_PREFIX)?
+        .strip_suffix("/o")?;
     if bucket.is_empty() || bucket.contains('/') {
         return None;
     }
@@ -193,15 +208,20 @@ fn protocol_upload<B>(
         return None;
     }
     let query = json::parse_query(uri.query().unwrap_or_default()).ok()?;
-    let kind = if query.get("uploadType")? == "resumable" && !query.contains_key("upload_id") {
+    let upload_type = query.get("uploadType")?;
+    let kind = if query.contains_key("upload_id") {
+        ProtocolUpload::Session
+    } else if request.method() != Method::POST {
+        return None;
+    } else if upload_type == "resumable" {
         ProtocolUpload::Resumable
     } else {
         ProtocolUpload::Other
     };
     let mut parts = uri.clone().into_parts();
     let path_and_query = match uri.query() {
-        Some(query) => format!("/upload/storage/v1/b/{bucket}/o?{query}"),
-        None => format!("/upload/storage/v1/b/{bucket}/o"),
+        Some(query) => format!("{UPLOAD_PREFIX}{bucket}/o?{query}"),
+        None => format!("{UPLOAD_PREFIX}{bucket}/o"),
     };
     parts.path_and_query = Some(path_and_query.parse().ok()?);
     Some((hyper::Uri::from_parts(parts).ok()?, kind))
@@ -209,6 +229,16 @@ fn protocol_upload<B>(
 
 fn is_unsupported_protocol_upload(request: &Request<Incoming>) -> bool {
     request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Other)
+}
+
+/// The path, up to the bucket, of the session URI a JSON resumable initiation returns: the
+/// Discovery alias for an initiation sent there, whose session requests are rewritten like it.
+pub(super) fn session_path_prefix<B>(request: &Request<B>) -> &'static str {
+    if request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Resumable) {
+        PROTOCOL_PREFIX
+    } else {
+        UPLOAD_PREFIX
+    }
 }
 
 async fn route(
@@ -253,8 +283,9 @@ async fn route_xml(
 
 /// Wraps CORS headers around the routed JSON response. CORS never authorizes a request.
 async fn route_json(mut request: Request<Incoming>, ctx: RequestCtx<'_>) -> Response<ResponseBody> {
-    // Only resumable initiation is served on the Discovery protocol path. Other upload types
-    // answer before a method override or upload Content-Encoding is read, as JSON with CORS.
+    // Only resumable initiations and their sessions are served on the Discovery protocol path.
+    // Other upload types answer before a method override or upload Content-Encoding is read,
+    // as JSON with CORS.
     if is_unsupported_protocol_upload(&request) {
         return respond_json_cors(request, ctx).await;
     }
@@ -932,24 +963,73 @@ mod tests {
             "/upload/storage/v1/b/bucket/o?uploadType=resumable"
         );
         assert!(request.extensions().get::<ProtocolUpload>() == Some(&ProtocolUpload::Resumable));
+        // Its session URI keeps the alias path; an initiation on the upload path does not.
+        assert_eq!(session_path_prefix(&request), PROTOCOL_PREFIX);
+        let (_, request) = classify(
+            &Config::default(),
+            Method::POST,
+            "/upload/storage/v1/b/bucket/o?uploadType=resumable",
+            "localhost:4443",
+        );
+        assert_eq!(session_path_prefix(&request), UPLOAD_PREFIX);
+    }
+
+    #[test]
+    fn requests_on_an_alias_session_uri_are_answered_by_the_upload_session_uri() {
+        let query = "name=o&uploadType=resumable&upload_id=abc";
+        for method in [Method::PUT, Method::POST, Method::DELETE, Method::OPTIONS] {
+            let (target, request) = classify(
+                &Config::default(),
+                method.clone(),
+                &format!("/resumable/upload/storage/v1/b/bucket/o?{query}"),
+                "localhost:4443",
+            );
+            assert!(matches!(target, Target::Json), "{method}");
+            assert_eq!(
+                request.uri().to_string(),
+                format!("/upload/storage/v1/b/bucket/o?{query}"),
+                "{method}"
+            );
+            assert_eq!(
+                request.extensions().get::<ProtocolUpload>(),
+                Some(&ProtocolUpload::Session),
+                "{method}"
+            );
+            assert_eq!(session_path_prefix(&request), UPLOAD_PREFIX, "{method}");
+        }
     }
 
     #[test]
     fn a_bucket_named_resumable_keeps_its_xml_object_path() {
-        // Without `uploadType` the path names an object in the bucket `resumable`.
-        let (target, request) = classify(
-            &Config::default(),
-            Method::POST,
-            "/resumable/upload/storage/v1/b/bucket/o",
-            "localhost:4443",
-        );
-        let Target::XmlObject(object) = target else {
-            panic!("expected an XML object path");
-        };
-        assert_eq!(object.bucket, "resumable");
-        assert_eq!(object.name(), "upload/storage/v1/b/bucket/o");
-        assert_eq!(request.uri(), "/resumable/upload/storage/v1/b/bucket/o");
-        assert!(request.extensions().get::<ProtocolUpload>().is_none());
+        // Without `uploadType` the path names an object in the bucket `resumable`, including
+        // the XML session URI of that object, which carries `upload_id` alone. A request other
+        // than POST is taken only on a session URI.
+        for (method, target) in [
+            (Method::POST, "/resumable/upload/storage/v1/b/bucket/o"),
+            (Method::PUT, "/resumable/upload/storage/v1/b/bucket/o"),
+            (
+                Method::PUT,
+                "/resumable/upload/storage/v1/b/bucket/o?upload_id=abc",
+            ),
+            (
+                Method::DELETE,
+                "/resumable/upload/storage/v1/b/bucket/o?upload_id=abc",
+            ),
+            (
+                Method::PUT,
+                "/resumable/upload/storage/v1/b/bucket/o?uploadType=resumable",
+            ),
+        ] {
+            let (classified, request) =
+                classify(&Config::default(), method.clone(), target, "localhost:4443");
+            let Target::XmlObject(object) = classified else {
+                panic!("expected an XML object path for {method} {target}");
+            };
+            assert_eq!(object.bucket, "resumable");
+            assert_eq!(object.name(), "upload/storage/v1/b/bucket/o");
+            assert_eq!(request.uri(), target);
+            assert!(request.extensions().get::<ProtocolUpload>().is_none());
+        }
     }
 
     #[test]

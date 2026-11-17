@@ -2560,9 +2560,7 @@ async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_t
 #[tokio::test]
 async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried() {
     let h = Harness::start(1000, Permissive, None).await;
-    let init = h
-        .initiate("name=bad-checksum", "X-Goog-Hash: crc32c=AAAAAA==\r\n", b"")
-        .await;
+    let init = h.initiate("name=bad-checksum", "", b"").await;
     let path = h.path(&init);
     let id = path.split("upload_id=").nth(1).unwrap();
     let session = h
@@ -2573,7 +2571,9 @@ async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried(
         .unwrap();
     let shard = h.dir.0.join("blobs").join(&session.blob_id.to_hex()[..2]);
     std::fs::write(&shard, b"cleanup failure").unwrap();
-    let response = h.request("PUT", &path, "", b"hello").await;
+    let response = h
+        .request("PUT", &path, "X-Goog-Hash: crc32c=AAAAAA==\r\n", b"hello")
+        .await;
     assert_eq!(response.status, 400);
     assert_eq!(response.json()["error"]["errors"][0]["reason"], "invalid");
     assert!(h.state.catalog.resumable_maintenance_error().is_some());
