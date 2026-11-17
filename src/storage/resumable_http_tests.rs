@@ -2116,8 +2116,11 @@ async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_
         );
         assert_ne!(finalized.status == 200, cancelled.status == 499);
         if finalized.status == 200 {
-            assert!(matches!(cancelled.status, 410 | 503));
-            assert_eq!(h.request("DELETE", &path, "", b"").await.status, 410);
+            // A DELETE that finds the session complete answers with its object.
+            assert!(matches!(cancelled.status, 200 | 503));
+            let deleted = h.request("DELETE", &path, "", b"").await;
+            assert_eq!(deleted.status, 200);
+            assert_eq!(deleted.json(), finalized.json());
         } else {
             assert_eq!(cancelled.status, 499);
             assert!(matches!(finalized.status, 499 | 503));

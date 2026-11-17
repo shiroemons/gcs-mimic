@@ -8,6 +8,7 @@ use crate::{
     json::{
         self, JsonError, ObjectInsertParams,
         resumable::{self, Range},
+        resumable_cancel::Cancellation,
     },
     object::{ObjectError, ObjectRecord},
     storage::{
@@ -410,15 +411,23 @@ pub(super) async fn session_response(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, JsonError> {
     if request.method() == hyper::Method::DELETE {
-        return ctx
+        let cancellation = ctx
             .await_session_writer(json::resumable_cancel::cancel_response(
                 request,
                 bucket,
                 id,
                 &ctx.state.catalog,
             ))
-            .await
-            .map(boxed);
+            .await?;
+        return Ok(match cancellation {
+            Cancellation::Cancelled => {
+                boxed(JsonError::from(crate::storage::ResumableError::Cancelled).into_response())
+            }
+            Cancellation::Completed(mut completion) => {
+                super::context::rebase_stored_links(ctx.endpoints, &mut completion);
+                boxed(json_response(&completion))
+            }
+        });
     }
     let target = SessionTarget {
         bucket,

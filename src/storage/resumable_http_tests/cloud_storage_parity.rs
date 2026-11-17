@@ -318,6 +318,41 @@ async fn resumable_initiation_types_must_agree_when_both_are_declared() {
     h.stop().await;
 }
 
+// Recorded 2026-11-17 (case obj-gaps-uploads): DELETE of a completed session answers 200 with
+// the stored object, as a status request does, and leaves the object and the session as they
+// were.
+#[tokio::test]
+async fn deleting_a_completed_session_returns_its_object() {
+    let h = Harness::start(1000, Permissive, None).await;
+    let started = h
+        .initiate("name=done", "X-Upload-Content-Type: text/plain\r\n", b"")
+        .await;
+    let path = h.path(&started);
+    let finished = h
+        .request("PUT", &path, "Content-Range: bytes 0-4/5\r\n", b"hello")
+        .await;
+    assert_eq!(finished.status, 200);
+    let deleted = h.request("DELETE", &path, "", b"").await;
+    assert_eq!(deleted.status, 200);
+    assert_eq!(
+        deleted.headers["content-type"],
+        "application/json; charset=UTF-8"
+    );
+    assert_eq!(deleted.json(), finished.json());
+    let status = h
+        .request("PUT", &path, "Content-Range: bytes */5\r\n", b"")
+        .await;
+    assert_eq!(status.status, 200);
+    assert_eq!(status.json(), finished.json());
+    let media = h
+        .request("GET", "/storage/v1/b/bucket/o/done?alt=media", "", b"")
+        .await;
+    assert_eq!(media.body, b"hello");
+    // A body still makes the request malformed, whatever the session's state.
+    assert_eq!(h.request("DELETE", &path, "", b"x").await.status, 400);
+    h.stop().await;
+}
+
 // Recorded 2026-11-17 (case bkt-unsupported-settings): a regional bucket refuses both objectives
 // and names its location type, even in a PATCH that changes nothing else.
 #[tokio::test]

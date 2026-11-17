@@ -9,7 +9,7 @@
 
     {"name": "start-delete-completed", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "name": "{object}-del"}, "headers": {"Content-Type": "application/json", "X-Upload-Content-Type": "text/plain"}, "body": {}, "capture": {"u3": "header:location?upload_id"}, "compare": {"ignore_headers": ["location", "x-guploader-uploadid"]}, "expect_status": 200},
     {"name": "complete-before-delete", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{u3}", "fields": "name,size"}, "headers": {"Content-Range": "bytes 0-4/5"}, "body_text": "hello", "expect_status": 200},
-    {"name": "delete-completed-session", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage answers DELETE on a completed resumable session with 200 and the object resource; gcs-mimic answers 410 (SPEC-RSM-EDGES).", "mimic_status": 410}, "method": "DELETE", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{u3}"}},
+    {"name": "delete-completed-session", "method": "DELETE", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{u3}"}},
     {"name": "status-after-delete-completed", "method": "PUT", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "resumable", "upload_id": "{u3}", "fields": "name,size"}, "headers": {"Content-Range": "bytes */5"}, "body_text": ""},
     {"name": "get-after-delete-completed", "method": "GET", "path": "/storage/v1/b/{bucket}/o/{object}-del", "query": {"fields": "name,size"}},
 

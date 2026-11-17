@@ -4,7 +4,10 @@ use crate::test_support::{TestDir, eventually_async};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
     clock::{Clock, ManualClock},
-    json::resumable_cancel::cancel_response,
+    json::{
+        JsonError,
+        resumable_cancel::{Cancellation, cancel_response},
+    },
     storage::{Catalog, ResumableError},
 };
 use http_body_util::BodyExt;
@@ -45,9 +48,17 @@ async fn cancel_wire(catalog: &Catalog, id: &str, body: &[u8]) -> u16 {
                 let catalog = catalog.clone();
                 let id = server_id.clone();
                 async move {
-                    let response = cancel_response(request, "bucket", &id, &catalog)
-                        .await
-                        .unwrap_or_else(|error| error.into_response());
+                    let response = match cancel_response(request, "bucket", &id, &catalog).await {
+                        Ok(Cancellation::Cancelled) => {
+                            JsonError::from(ResumableError::Cancelled).into_response()
+                        }
+                        Ok(Cancellation::Completed(completion)) => {
+                            hyper::Response::new(http_body_util::Full::new(
+                                hyper::body::Bytes::from(completion.to_string()),
+                            ))
+                        }
+                        Err(error) => error.into_response(),
+                    };
                     Ok::<_, Infallible>(response.map(|body| body.boxed_unsync()))
                 }
             }),
@@ -162,7 +173,7 @@ async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap().execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = '{}', total = 0 WHERE id = ?1", [&session.id]).unwrap();
     assert_eq!(
         cancel_wire(&catalog, &session.id.to_string(), b"").await,
-        410
+        200
     );
     assert!(stage.exists());
     catalog.close().await.unwrap();
@@ -684,7 +695,7 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
     );
     assert_eq!(
         cancel_wire(&catalog, &session.id.to_string(), b"").await,
-        410
+        200
     );
     assert_eq!(std::fs::read(&blob).unwrap(), b"published");
     clock.set(session.deadline);

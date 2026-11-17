@@ -234,7 +234,11 @@ Unrecorded terminal validation failures retain local **410** before seven days
 from initiation; terminal sessions return **404** at or after that deadline;
 an unknown token returns 404. Cancellation changes no live object. Serialize
 cancel/finalize races: exactly one terminal transition wins, and cancel cannot
-delete a completed object. Completed-session DELETE returns local 410.
+delete a completed object. A DELETE of a completed JSON session returns
+**200** with the stored completion resource, as a status request does, and
+leaves the object and the session as they were; Cloud Storage answered so
+(case `obj-gaps-uploads`, recorded 2026-11-17). The XML session URI and gRPC
+`CancelResumableWrite` keep refusing a completed session, which is unrecorded.
 
 Lifetime is **604800 seconds from initiation**, never sliding on activity.
 Use `Clock::now()` and a persisted absolute deadline. At now >= deadline the
