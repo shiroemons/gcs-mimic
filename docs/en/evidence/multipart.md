@@ -99,8 +99,8 @@ MD013 is disabled for existing long API tables, URLs and commands, and MD024 use
 ## Limits and next slice
 
 SPEC-016 retains transport errors/trailers mapped to 400 `invalidParameter`,
-headers-only parts requiring an additional CRLF, binary-only transfer encoding
-(7bit/8bit rejected), MIME cap accounting, local contentType precedence and final
+headers-only parts requiring an additional CRLF, transfer encodings other than
+binary, base64, 7bit, 8bit and quoted-printable, MIME cap accounting, local contentType precedence and final
 MD5/empty-object/equal/conflicting/unknown checksum declarations. Malformed final
 JSON uses `parseError`; these exact local errors lack real-service differential
 evidence. Shared empty/duplicate token validation also reaches objects.list and

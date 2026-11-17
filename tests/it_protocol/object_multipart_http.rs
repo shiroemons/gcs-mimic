@@ -948,6 +948,36 @@ fn obj_multipart_http_decodes_a_base64_media_part_and_names_third_part_types() {
 }
 
 #[test]
+fn obj_multipart_http_stores_seven_bit_eight_bit_and_quoted_printable_parts_as_sent() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    // Cloud Storage stored these media parts byte for byte and left `=3D` encoded (recorded
+    // 2026-11-17).
+    for (encoding, name) in [
+        ("7bit", "seven"),
+        ("8bit", "eight"),
+        ("quoted-printable", "qp"),
+    ] {
+        let part = format!("text/plain\r\nContent-Transfer-Encoding: {encoding}");
+        let stored = server
+            .upload(
+                &format!("name={name}"),
+                &wire(b"{}", Some(&part), b"hello=3D", None),
+            )
+            .json_ok();
+        assert_eq!(stored["size"], "8", "{encoding}");
+        assert_eq!(stored["md5Hash"], "4Tii7vjPq6vSLvdUL7dV5w==", "{encoding}");
+        assert_eq!(server.get(&format!("{name}?alt=media")).body, b"hello=3D");
+    }
+    let unknown = Some("text/plain\r\nContent-Transfer-Encoding: x-uuencode");
+    server
+        .upload("name=bad", &wire(b"{}", unknown, b"hello", None))
+        .json_reason(400, "invalidParameter");
+    server.get("bad").json_reason(404, "notFound");
+}
+
+#[test]
 fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);

@@ -397,7 +397,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             delimiter,
             framing,
             flavor,
-            encoding: PartEncoding::Binary,
+            encoding: PartEncoding::Identity,
             metadata_type: None,
             eof: false,
             closed: false,
@@ -580,7 +580,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         let encoding = PartEncoding::try_from(&headers)?;
         match part {
             PartKind::Metadata => {
-                encoding.require_binary()?;
+                encoding.require_identity()?;
                 json_part_type(value.as_deref())?;
             }
             PartKind::Media => {
@@ -596,7 +596,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// Read one bounded part header block; form-data callers need Content-Disposition.
     pub(crate) async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
         let headers = self.header_block().await?;
-        PartEncoding::try_from(&headers)?.require_binary()?;
+        PartEncoding::try_from(&headers)?.require_identity()?;
         Ok(headers)
     }
 
@@ -720,7 +720,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             return Ok(expected);
         }
         let headers = self.header_block().await?;
-        PartEncoding::try_from(&headers)?.require_binary()?;
+        PartEncoding::try_from(&headers)?.require_identity()?;
         let value = part_content_type(&headers)?;
         if json_part_type(value.as_deref()).is_err() {
             // Cloud Storage's wording (recorded 2026-11-13 for a text/plain third part).

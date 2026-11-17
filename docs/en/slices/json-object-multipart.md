@@ -238,8 +238,10 @@ delimiter returns the text/plain 400 `Missing end boundary in multipart body.`;
 Cloud Storage answered both ways and decoded base64 (case
 `obj-multipart-mime-edges`,
 [recorded 2026-11-13](../evidence/provider-differential-gap-probes.md)).
-Folded/duplicate part headers and other Content-Transfer-Encoding values
-(including `7bit` and `8bit`) return 400 `invalidParameter`. Delimiter
+A media part declared `7bit`, `8bit` or `quoted-printable` is stored as sent,
+without decoding, as Cloud Storage stored it (case `obj-gaps-uploads`, recorded
+2026-11-17). Folded/duplicate part headers and other Content-Transfer-Encoding
+values return 400 `invalidParameter`. Delimiter
 spaces/tabs are supported. These remaining restrictions are local compatibility
 limits, not independently verified Google errors. No CPU/RSS performance claim is
 made.

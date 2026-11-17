@@ -7,26 +7,34 @@ use bytes::Bytes;
 use hyper::HeaderMap;
 
 /// How the media part's bytes are encoded on the wire. Cloud Storage decodes a `base64` media
-/// part and stores the decoded bytes (recorded 2026-11-13); `binary`, or no header, sends them
-/// as they are.
+/// part and stores the decoded bytes (recorded 2026-11-13).
 #[derive(Debug, Default)]
 pub(super) enum PartEncoding {
+    /// The bytes are stored as sent.
     #[default]
-    Binary,
+    Identity,
     Base64(Base64Part),
 }
 
-/// The encoding a part's headers declare: `binary`, `base64` or none.
+/// The encodings stored as sent. Cloud Storage stored a media part declared `7bit`, `8bit` or
+/// `quoted-printable` byte for byte, without decoding `=3D` (recorded 2026-11-17, case
+/// obj-gaps-uploads).
+const IDENTITY_ENCODINGS: [&str; 4] = ["binary", "7bit", "8bit", "quoted-printable"];
+
+/// The encoding a part's headers declare: one of [`IDENTITY_ENCODINGS`], `base64` or none.
 impl TryFrom<&HeaderMap> for PartEncoding {
     type Error = JsonError;
 
     fn try_from(headers: &HeaderMap) -> Result<Self, JsonError> {
         let Some(value) = headers.get("content-transfer-encoding") else {
-            return Ok(Self::Binary);
+            return Ok(Self::Identity);
         };
         let value = value.to_str().map_err(|_| invalid())?.trim();
-        if value.eq_ignore_ascii_case("binary") {
-            Ok(Self::Binary)
+        if IDENTITY_ENCODINGS
+            .iter()
+            .any(|identity| value.eq_ignore_ascii_case(identity))
+        {
+            Ok(Self::Identity)
         } else if value.eq_ignore_ascii_case("base64") {
             Ok(Self::Base64(Base64Part::default()))
         } else {
@@ -37,9 +45,9 @@ impl TryFrom<&HeaderMap> for PartEncoding {
 
 impl PartEncoding {
     /// Requires a part other than the media part to be sent as it is.
-    pub(super) fn require_binary(self) -> Result<(), JsonError> {
+    pub(super) fn require_identity(self) -> Result<(), JsonError> {
         match self {
-            Self::Binary => Ok(()),
+            Self::Identity => Ok(()),
             Self::Base64(_) => Err(invalid()),
         }
     }
@@ -48,7 +56,7 @@ impl PartEncoding {
     /// incomplete quantum to the next chunk.
     pub(super) fn decode(&mut self, raw: Bytes) -> Result<Bytes, JsonError> {
         match self {
-            Self::Binary => Ok(raw),
+            Self::Identity => Ok(raw),
             Self::Base64(part) => part.decode(&raw),
         }
     }
@@ -56,7 +64,7 @@ impl PartEncoding {
     /// Ends the part: a base64 part must not stop inside a quantum.
     pub(super) fn finish(self) -> Result<(), JsonError> {
         match self {
-            Self::Binary => Ok(()),
+            Self::Identity => Ok(()),
             Self::Base64(part) if part.carry.is_empty() => Ok(()),
             Self::Base64(_) => Err(invalid()),
         }
@@ -133,27 +141,27 @@ mod tests {
     }
 
     #[test]
-    fn declared_encodings_are_binary_or_base64() {
-        let mut headers = HeaderMap::new();
-        assert!(matches!(
-            PartEncoding::try_from(&headers),
-            Ok(PartEncoding::Binary)
-        ));
-        headers.insert("content-transfer-encoding", "BASE64".parse().unwrap());
-        let encoding = PartEncoding::try_from(&headers).unwrap();
-        assert!(matches!(encoding, PartEncoding::Base64(_)));
-        assert!(encoding.require_binary().is_err());
-        headers.insert("content-transfer-encoding", " binary ".parse().unwrap());
-        assert!(
+    fn declared_encodings_are_identities_or_base64() {
+        let declared = |value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("content-transfer-encoding", value.parse().unwrap());
             PartEncoding::try_from(&headers)
-                .unwrap()
-                .require_binary()
-                .is_ok()
-        );
-        headers.insert(
-            "content-transfer-encoding",
-            "quoted-printable".parse().unwrap(),
-        );
-        assert!(PartEncoding::try_from(&headers).is_err());
+        };
+        assert!(matches!(
+            PartEncoding::try_from(&HeaderMap::new()),
+            Ok(PartEncoding::Identity)
+        ));
+        let encoding = declared("BASE64").unwrap();
+        assert!(matches!(encoding, PartEncoding::Base64(_)));
+        assert!(encoding.require_identity().is_err());
+        for identity in [" binary ", "7BIT", "8bit", "Quoted-Printable"] {
+            assert!(
+                declared(identity).unwrap().require_identity().is_ok(),
+                "{identity}"
+            );
+        }
+        for unknown in ["x-uuencode", "binary, base64", ""] {
+            assert!(declared(unknown).is_err(), "{unknown:?}");
+        }
     }
 }
