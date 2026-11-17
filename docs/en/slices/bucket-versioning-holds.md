@@ -183,9 +183,13 @@ performance benchmark is claimed.
   explicit revision, but the method-specific wording does not settle every
   combination, particularly not-match with no live version. The negative and
   successful selected-generation cases in
-  `versioned_delete_and_permanent_generation_delete` preserve this rule; exact
-  provider behavior needs authoritative clarification or authorized differential
-  verification before the integration ledger can claim this gap closed.
+  `versioned_delete_and_permanent_generation_delete` preserve this rule. The
+  2026-11-17 recording (case `obj-probe-noncurrent-delete-conditions`) confirms
+  it on Cloud Storage: each condition compares with the selected noncurrent
+  generation, with another live generation and with none, a failing match answers
+  412, a failing not-match an empty 304, and with one condition holding and the
+  other failing the failing one decides. gcs-mimic matches every step, so
+  SPEC-VERSION-DELETE-CONDITIONS is resolved.
 - Compared with the pinned source, persistent history, Google generation ordering,
   generation-aware paging and actual holds intentionally provide stronger effects.
   The source backend difference is explicit; a disk-backed emulator must not lose
