@@ -479,11 +479,7 @@ fn fill_stage(
     super::super::fault::file_synced(data_dir, &target.metadata()?);
     changed(before, fsutil::stat_identity(source)?)?;
     let hashes = hasher.finish();
-    if expected.md5.is_some_and(|md5| md5 != hashes.md5)
-        || expected.crc32c.is_some_and(|crc| crc != hashes.crc32c)
-    {
-        return Err(AdminError::Checksum);
-    }
+    expected.verify(&hashes).map_err(|_| AdminError::Checksum)?;
     Ok(Staged { size, hashes })
 }
 
@@ -798,11 +794,7 @@ fn stage_memory(
     }
     changed(before, fsutil::stat_identity(source)?)?;
     let hashes = hasher.finish();
-    if expected.md5.is_some_and(|hash| hash != hashes.md5)
-        || expected.crc32c.is_some_and(|hash| hash != hashes.crc32c)
-    {
-        return Err(AdminError::Checksum);
-    }
+    expected.verify(&hashes).map_err(|_| AdminError::Checksum)?;
     stage.publish(id.to_hex())?;
     Ok(Staged { size, hashes })
 }
@@ -1024,19 +1016,7 @@ fn validate_staged_entry(entry: &BatchPublication) -> Result<(), ObjectError> {
     if entry.staged.size > entry.request.max_bytes {
         return Err(ObjectError::TooLarge);
     }
-    if entry
-        .request
-        .expected
-        .md5
-        .is_some_and(|hash| hash != entry.staged.hashes.md5)
-        || entry
-            .request
-            .expected
-            .crc32c
-            .is_some_and(|hash| hash != entry.staged.hashes.crc32c)
-    {
-        return Err(ObjectError::ChecksumMismatch);
-    }
+    entry.request.expected.verify(&entry.staged.hashes)?;
     Ok(())
 }
 

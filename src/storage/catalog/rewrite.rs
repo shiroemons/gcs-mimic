@@ -276,10 +276,12 @@ fn encode(
     destination: Incarnation,
 ) -> Result<String, ObjectError> {
     let binding = &start.binding;
+    // A rewrite checks the digests a client declares before its session starts and binds them
+    // to the token, so the session keeps only those its copied bytes must reproduce.
     let options = resumable::ResumableOptions {
         content_type: start.destination.content_type.clone(),
         metadata: start.destination.metadata.clone(),
-        expected: start.destination.expected,
+        expected: start.destination.recorded,
         conditions: start.destination.conditions,
         ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
     };
@@ -369,7 +371,8 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
             content_type: options.content_type,
             metadata: options.metadata,
             storage_class: request.class,
-            expected: options.expected,
+            declared: Default::default(),
+            recorded: options.expected,
             conditions: options.conditions,
             access: BucketAccess::Permissive,
         },

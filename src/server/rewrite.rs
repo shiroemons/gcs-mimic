@@ -321,10 +321,11 @@ fn destination(
         expected: supplied,
     } = json::derived_metadata_of(body, source)?;
     // Rewrite ignores a supplied md5Hash: Cloud Storage completed one with a wrong md5Hash using
-    // the source's hash (recorded 2026-11-13). A crc32c mismatch still fails.
-    if supplied.crc32c.is_some_and(|hash| hash != source.crc32c) {
-        return Err(ObjectError::ChecksumMismatch.into());
-    }
+    // the source's hash (recorded 2026-11-13). A crc32c mismatch still fails, before any byte
+    // is copied; its wording follows the recorded upload mismatch.
+    supplied
+        .verify_crc32c(source.crc32c)
+        .map_err(ObjectError::from)?;
     let content_type = metadata
         .content_type
         .value()
@@ -337,10 +338,8 @@ fn destination(
         content_type,
         metadata,
         storage_class: class,
-        expected: crate::object::ExpectedHashes {
-            md5: Some(source.md5),
-            crc32c: Some(source.crc32c),
-        },
+        declared: Default::default(),
+        recorded: source.hashes().into(),
         conditions: request.conditions,
         access: BucketAccess::Permissive,
     })

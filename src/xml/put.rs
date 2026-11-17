@@ -9,8 +9,8 @@ use crate::{
     json,
     metadata_error::MetadataError,
     object::{
-        ExpectedHashes, HashAlgorithm, MapPatch, ObjectConditions, ObjectError,
-        ObjectMetadataUpdate, Patch,
+        Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, MapPatch,
+        ObjectConditions, ObjectError, ObjectMetadataUpdate, Patch,
     },
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response, stream_upload},
     storage::ObjectUpload,
@@ -258,13 +258,11 @@ pub(super) fn content_type_and_hashes(
     if let Some(md5) = single(headers, "content-md5")? {
         let content_md5 = json::decode_hash::<16>(md5)
             .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid Content-MD5."))?;
-        if expected.md5.is_some_and(|value| value != content_md5) {
-            return Err(Error::new(
-                XmlCode::InvalidDigest,
-                "Conflicting MD5 declarations.",
-            ));
-        }
-        expected.md5 = Some(content_md5);
+        expected
+            .agree(Checksum::Md5(content_md5))
+            .map_err(|ChecksumConflict(_)| {
+                Error::new(XmlCode::InvalidDigest, "Conflicting MD5 declarations.")
+            })?;
     }
     Ok((content_type, expected))
 }
@@ -332,38 +330,36 @@ fn upload_error(
         clippy::wildcard_enum_match_arm,
         reason = "every other object error keeps the shared XML object mapping"
     )]
-    let crc_failed = match &error {
-        ObjectError::HashMismatch(mismatch) => mismatch.algorithm == HashAlgorithm::Crc32c,
-        ObjectError::ChecksumMismatch => expected.md5.is_none() && expected.crc32c.is_some(),
+    let (algorithm, details) = match &error {
+        ObjectError::HashMismatch(mismatch) => match **mismatch {
+            HashMismatch::Crc32c { expected, computed } => (
+                HashAlgorithm::Crc32c,
+                Some(format!(
+                    "{object}, CRC mismatch (expected: {}, actual: {})",
+                    crc_detail(expected),
+                    crc_detail(computed)
+                )),
+            ),
+            HashMismatch::Md5 { .. } => (HashAlgorithm::Md5, Some(object)),
+        },
+        ObjectError::ChecksumMismatch if expected.md5.is_none() && expected.crc32c.is_some() => {
+            (HashAlgorithm::Crc32c, None)
+        }
+        ObjectError::ChecksumMismatch => (HashAlgorithm::Md5, Some(object)),
         _ => return storage_error(error, caller),
     };
-    if crc_failed {
-        let mut failure = Error::new(
-            XmlCode::CrcMismatch,
-            "The CRC32C you specified did not match what we computed.",
-        );
-        if let ObjectError::HashMismatch(mismatch) = &error {
-            failure.details = Some(format!(
-                "{object}, CRC mismatch (expected: {}, actual: {})",
-                crc_detail(&mismatch.provided),
-                crc_detail(&mismatch.calculated)
-            ));
-        }
-        return failure;
-    }
-    Error::new(
-        XmlCode::BadDigest,
-        "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed.",
-    )
-    .with_details(object)
+    let code = match algorithm {
+        HashAlgorithm::Crc32c => XmlCode::CrcMismatch,
+        HashAlgorithm::Md5 => XmlCode::BadDigest,
+    };
+    let mut failure = Error::new(code, algorithm.mismatch_message());
+    failure.details = details;
+    failure
 }
 
 /// A CRC32C as Cloud Storage prints it in a mismatch: unpadded hex, then the base64 form.
-fn crc_detail(digest: &[u8]) -> String {
-    let value = digest
-        .iter()
-        .fold(0_u64, |value, byte| (value << 8) | u64::from(*byte));
-    format!("0x{value:x} ({})", json::base64(digest))
+fn crc_detail(crc32c: u32) -> String {
+    format!("0x{crc32c:x} ({})", json::base64(&crc32c.to_be_bytes()))
 }
 
 #[expect(

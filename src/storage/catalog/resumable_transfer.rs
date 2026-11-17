@@ -364,12 +364,11 @@ impl Catalog {
         catalog_wait: watch::Sender<ChunkWait>,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<Value, ResumableError> {
-        let (Hashes { md5, crc32c: crc }, length) = file.hashes().await?;
-        if options.expected.md5.is_some_and(|v| v != md5)
-            || options.expected.crc32c.is_some_and(|v| v != crc)
-        {
-            return Err(ObjectError::ChecksumMismatch.into());
-        }
+        let (hashes, length) = file.hashes().await?;
+        options
+            .expected
+            .verify(&hashes)
+            .map_err(ObjectError::from)?;
         if Some(length) != lease.session.total || length != lease.session.offset {
             return Err(
                 ObjectError::BodyAborted("Final length does not match total".into()).into(),
@@ -443,7 +442,7 @@ impl Catalog {
                             options,
                             generation,
                             defaults,
-                            Hashes { md5, crc32c: crc },
+                            hashes,
                             length,
                         )?;
                         if let Some(owner) = &mut record.owner {

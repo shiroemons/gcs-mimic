@@ -142,8 +142,9 @@ async fn copy_object(
     let json::DerivedMetadata {
         update: mut metadata,
         storage_class,
-        expected,
+        expected: declared,
     } = json::derived_metadata(body, &source.object)?;
+    let recorded = source.object.hashes().into();
     crate::server::retention_access::authorize_upload(
         &ctx.state.catalog,
         &access,
@@ -175,7 +176,8 @@ async fn copy_object(
             content_type: String::new(),
             metadata,
             storage_class,
-            expected,
+            declared,
+            recorded,
             conditions: params.conditions,
             access,
             component_count: None,
@@ -240,7 +242,10 @@ pub(super) async fn compose(
                 metadata: body.destination,
                 content_type: String::new(),
                 storage_class: body.storage_class,
-                expected: Default::default(),
+                // The JSON composite-object guide ignores supplied destination hashes; the
+                // catalog records the combined CRC32C itself.
+                declared: Default::default(),
+                recorded: Default::default(),
                 component_count: None,
             },
             body.sources,

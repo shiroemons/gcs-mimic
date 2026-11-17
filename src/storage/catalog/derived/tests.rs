@@ -71,10 +71,7 @@ async fn md5_availability_survives_restart_without_component_count() {
             metadata: None,
         },
         destination: DerivedDestination {
-            expected: ExpectedHashes {
-                md5: Some(original.md5),
-                crc32c: Some(original.crc32c),
-            },
+            recorded: original.hashes().into(),
             ..destination("rewrite")
         },
         source_conditions: Default::default(),
@@ -634,14 +631,28 @@ async fn destination_race_has_one_winner_and_failed_publication_cleans_staging()
     ));
     assert_eq!(bytes(&catalog, "target").await, b"contents");
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+    // A digest the client declared fails as the client's mistake; one recorded for the copied
+    // bytes fails as damaged storage. Neither publishes.
     let transfer = ready(&catalog, "source").await;
     let mut target = destination("target");
-    target.expected.crc32c = Some(0);
-    assert_eq!(
-        catalog
-            .publish_derived(&transfer.id, target, |_, _| Ok(()))
-            .await,
-        Err(ObjectError::ChecksumMismatch)
+    target.declared.crc32c = Some(0);
+    let refused = catalog
+        .publish_derived(&transfer.id, target, |_, _| Ok(()))
+        .await;
+    assert!(
+        matches!(&refused, Err(ObjectError::HashMismatch(mismatch))
+            if matches!(**mismatch, crate::object::HashMismatch::Crc32c { expected: 0, .. })),
+        "{refused:?}"
+    );
+    let transfer = ready(&catalog, "source").await;
+    let mut target = destination("target");
+    target.recorded.crc32c = Some(0);
+    let refused = catalog
+        .publish_derived(&transfer.id, target, |_, _| Ok(()))
+        .await;
+    assert!(
+        matches!(&refused, Err(ObjectError::Corrupt(_))),
+        "{refused:?}"
     );
     assert_eq!(bytes(&catalog, "target").await, b"contents");
     catalog.close().await.unwrap();
@@ -1357,7 +1368,7 @@ async fn cleanup_failure_preserves_original_publication_error() {
     fs::create_dir(&snapshot).unwrap();
     let mut target = destination("copy");
     target.conditions.if_generation_match = Some(0);
-    target.expected.crc32c = Some(0);
+    target.recorded.crc32c = Some(0);
     assert_eq!(
         catalog
             .publish_derived(&transfer.id, target, |_, _| Ok(()))

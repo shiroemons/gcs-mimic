@@ -2,6 +2,7 @@
 
 use crate::{
     bucket::StorageClass,
+    hashing::Hashes,
     storage::failure::{BackendCause, IoCause, Link, TypedSource},
 };
 use std::{collections::BTreeMap, fmt, time::SystemTime};
@@ -122,6 +123,14 @@ impl ObjectRecord {
 
     pub(crate) fn has_md5(&self) -> bool {
         self.md5_availability == Md5Availability::Available && self.component_count.is_none()
+    }
+
+    /// The digests of the stored bytes, which a copy of them must reproduce.
+    pub(crate) const fn hashes(&self) -> Hashes {
+        Hashes {
+            md5: self.md5,
+            crc32c: self.crc32c,
+        }
     }
 
     /// A PUT replaces the resource, so a hold it does not name returns to never set (recorded:
@@ -581,7 +590,8 @@ pub(crate) struct ObjectConditions {
     pub if_metageneration_not_match: Option<i64>,
 }
 
-/// Client-declared hashes validated after the body has been streamed.
+/// Digests a write's bytes must have, checked once they are all known: declared by a client,
+/// or recorded for the bytes a copy reproduces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExpectedHashes {
     pub md5: Option<[u8; 16]>,
@@ -626,13 +636,40 @@ pub(crate) struct RetainedObject {
     pub until: UnixNanos,
 }
 
-/// Which stored hash an upload's declared hash disagreed with, and both digests.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct HashMismatch {
-    pub algorithm: HashAlgorithm,
-    pub provided: Vec<u8>,
-    pub calculated: Vec<u8>,
+/// A digest the bytes were expected to have and the one computed from them, at the width of its
+/// algorithm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HashMismatch {
+    Crc32c {
+        expected: u32,
+        computed: u32,
+    },
+    Md5 {
+        expected: [u8; 16],
+        computed: [u8; 16],
+    },
 }
+
+impl fmt::Display for HashMismatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Crc32c { expected, computed } => {
+                write!(
+                    formatter,
+                    "CRC32C {expected:08x} expected, {computed:08x} computed"
+                )
+            }
+            Self::Md5 { expected, computed } => write!(
+                formatter,
+                "MD5 {} expected, {} computed",
+                crate::hashing::encode_lower(expected),
+                crate::hashing::encode_lower(computed)
+            ),
+        }
+    }
+}
+
+impl std::error::Error for HashMismatch {}
 
 /// A digest algorithm an upload can declare.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -648,6 +685,34 @@ impl HashAlgorithm {
             Self::Crc32c => "CRC32C",
             Self::Md5 => "MD5",
         }
+    }
+
+    /// Cloud Storage's message for a declared digest of this algorithm that the bytes did not
+    /// match, worded alike by an XML PUT and by Storage v2 ComposeObject and RewriteObject
+    /// (recorded 2026-11-13 and 2026-11-17).
+    pub(crate) const fn mismatch_message(self) -> &'static str {
+        match self {
+            Self::Crc32c => "The CRC32C you specified did not match what we computed.",
+            Self::Md5 => {
+                "The MD5 you specified in Content-MD5 or x-goog-hash did not match what we computed."
+            }
+        }
+    }
+}
+
+/// Both digests of known bytes, declared so that a copy of them is verified.
+impl From<Hashes> for ExpectedHashes {
+    fn from(Hashes { md5, crc32c }: Hashes) -> Self {
+        Self {
+            md5: Some(md5),
+            crc32c: Some(crc32c),
+        }
+    }
+}
+
+impl From<HashMismatch> for ObjectError {
+    fn from(mismatch: HashMismatch) -> Self {
+        Self::HashMismatch(Box::new(mismatch))
     }
 }
 
@@ -685,6 +750,41 @@ impl ExpectedHashes {
             Checksum::Md5(digest) => self.md5 = Some(digest),
             Checksum::Crc32c(digest) => self.crc32c = Some(digest),
         }
+    }
+
+    /// Checks the declared digests against the ones computed from the bytes, CRC32C first, and
+    /// reports the first that disagrees, with both values.
+    pub(crate) fn verify(&self, computed: &Hashes) -> Result<(), HashMismatch> {
+        self.verify_crc32c(computed.crc32c)?;
+        match self.md5.filter(|expected| *expected != computed.md5) {
+            Some(expected) => Err(HashMismatch::Md5 {
+                expected,
+                computed: computed.md5,
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Checks a declared CRC32C alone, for bytes whose MD5 is never computed, such as a
+    /// composite object's.
+    pub(crate) fn verify_crc32c(&self, computed: u32) -> Result<(), HashMismatch> {
+        match self.crc32c.filter(|expected| *expected != computed) {
+            Some(expected) => Err(HashMismatch::Crc32c { expected, computed }),
+            None => Ok(()),
+        }
+    }
+
+    /// Combines two declarations of the same bytes; a digest both name must agree.
+    pub(crate) fn merge(mut self, other: Self) -> Result<Self, ChecksumConflict> {
+        let declared = other
+            .md5
+            .map(Checksum::Md5)
+            .into_iter()
+            .chain(other.crc32c.map(Checksum::Crc32c));
+        for checksum in declared {
+            self.agree(checksum)?;
+        }
+        Ok(self)
     }
 
     /// Records `checksum`; an earlier value of its algorithm must be equal.
@@ -822,9 +922,13 @@ pub(crate) enum ObjectError {
     /// 304 over JSON (recorded 2026-11 for patch, update, delete, media upload and copy), while
     /// gRPC still reports a failed precondition.
     WriteNotModified,
+    /// Two declarations of a digest disagreed, a digest without a typed algorithm (a signed
+    /// payload's SHA-256) did not match, or a mirrored file's fingerprint no longer matches the
+    /// record it was published as.
     ChecksumMismatch,
-    /// The streamed body disagreed with a declared hash; the same failure as
-    /// [`Self::ChecksumMismatch`], with both digests for the JSON message.
+    /// The bytes disagreed with a digest the client declared, named with both values for the
+    /// JSON message. Bytes that fail a digest recorded for their source are [`Self::Corrupt`].
+    /// Boxed to keep [`ObjectError`] small.
     HashMismatch(Box<HashMismatch>),
     TooLarge,
     InvalidFixedMetadata(String),

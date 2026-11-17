@@ -665,8 +665,12 @@ impl AppendWriter {
         max_bytes: u64,
     ) -> Result<ObjectRecord, AppendError> {
         self.flush().await?;
-        if expected_crc32c.is_some_and(|crc| crc != self.crc32c) {
-            return Err(ObjectError::ChecksumMismatch.into());
+        if let Some(expected) = expected_crc32c.filter(|crc| *crc != self.crc32c) {
+            let mismatch = crate::object::HashMismatch::Crc32c {
+                expected,
+                computed: self.crc32c,
+            };
+            return Err(ObjectError::from(mismatch).into());
         }
         // Unlike `append` and `flush`, the guard may stay in this future: finalization only
         // reads the data file, and a dropped publication either commits on the catalog

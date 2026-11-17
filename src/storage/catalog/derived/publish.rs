@@ -11,7 +11,11 @@ pub(crate) struct DerivedDestination {
     pub content_type: String,
     pub metadata: ObjectMetadataUpdate,
     pub storage_class: Option<crate::bucket::StorageClass>,
-    pub expected: ExpectedHashes,
+    /// Digests the client declared for the new object; a mismatch is the client's error.
+    pub declared: ExpectedHashes,
+    /// Digests recorded for the bytes the transfer copies; a mismatch means stored data is
+    /// damaged, which is no fault of the request.
+    pub recorded: ExpectedHashes,
     pub conditions: ObjectConditions,
     pub access: BucketAccess,
     pub component_count: Option<i64>,
@@ -170,17 +174,13 @@ where
         now,
     )?;
     destination.metadata.reject_past_retention(now)?;
-    if destination
-        .expected
-        .md5
-        .is_some_and(|hash| hash != hashes.md5)
-        || destination
-            .expected
-            .crc32c
-            .is_some_and(|hash| hash != hashes.crc32c)
-    {
-        return Err(ObjectError::ChecksumMismatch);
-    }
+    destination.recorded.verify(&hashes).map_err(|mismatch| {
+        ObjectError::Corrupt(crate::storage::failure::BackendCause::with_source(
+            "copied bytes do not reproduce their source's recorded digest",
+            mismatch,
+        ))
+    })?;
+    destination.declared.verify(&hashes)?;
     let time = system_time_micros(micros)?;
     let version = objects::NewVersion {
         blob_id: id,
@@ -242,7 +242,8 @@ impl DerivedDestination {
             content_type: String::new(),
             metadata: Default::default(),
             storage_class: None,
-            expected: Default::default(),
+            declared: Default::default(),
+            recorded: Default::default(),
             conditions: Default::default(),
             access,
             component_count: None,

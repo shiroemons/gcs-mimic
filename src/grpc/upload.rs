@@ -1,6 +1,6 @@
 use crate::{
     hashing::Hasher,
-    object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
+    object::{ChecksumConflict, ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
 };
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -121,12 +121,9 @@ impl Intake {
     }
 
     pub(super) async fn finish(self, sender: &Sender, end: EndMarker) -> Result<(), IntakeError> {
-        let actual = self.hasher.finish();
-        if self.expected.md5.is_some_and(|md5| md5 != actual.md5)
-            || self.expected.crc32c.is_some_and(|crc| crc != actual.crc32c)
-        {
-            return Err(IntakeError::ObjectChecksum);
-        }
+        self.expected
+            .verify(&self.hasher.finish())
+            .map_err(|_| IntakeError::ObjectChecksum)?;
         let end = match end {
             EndMarker::Plain => UploadChunk::End,
             EndMarker::WithHashes => UploadChunk::EndWithHashes(self.expected),
@@ -152,15 +149,9 @@ pub(super) fn merge_hashes(
     first: ExpectedHashes,
     next: ExpectedHashes,
 ) -> Result<ExpectedHashes, IntakeError> {
-    if first.md5.zip(next.md5).is_some_and(|(a, b)| a != b)
-        || first.crc32c.zip(next.crc32c).is_some_and(|(a, b)| a != b)
-    {
-        return Err(IntakeError::ConflictingChecksums);
-    }
-    Ok(ExpectedHashes {
-        md5: first.md5.or(next.md5),
-        crc32c: first.crc32c.or(next.crc32c),
-    })
+    first
+        .merge(next)
+        .map_err(|ChecksumConflict(_)| IntakeError::ConflictingChecksums)
 }
 
 pub(super) async fn stage(sender: &Sender, data: &Bytes) -> Result<(), IntakeError> {

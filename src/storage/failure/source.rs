@@ -276,6 +276,7 @@ leaf_sources!(
     crate::import::codec::TimestampError,
     crate::json::JsonError,
     crate::notification::NotificationDecodeError,
+    crate::object::HashMismatch,
     crate::source_tree::watch::WatchLimit,
     crate::storage::opaque_id::InvalidOpaqueId,
     crate::storage::admin::NestedFileJob,

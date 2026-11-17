@@ -1022,14 +1022,20 @@ impl From<ObjectError> for JsonError {
             ObjectError::ActiveHold(held) => held.into(),
             ObjectError::ObjectRetentionNotMet(retained) => retained.into(),
             ObjectError::HashMismatch(mismatch) => {
-                let (label, noun) = match mismatch.algorithm {
-                    crate::object::HashAlgorithm::Crc32c => ("CRC32C", "CRC32C"),
-                    crate::object::HashAlgorithm::Md5 => ("MD5 hash", "MD5 hash"),
+                let (name, expected, computed) = match *mismatch {
+                    crate::object::HashMismatch::Crc32c { expected, computed } => (
+                        "CRC32C",
+                        super::base64(&expected.to_be_bytes()),
+                        super::base64(&computed.to_be_bytes()),
+                    ),
+                    crate::object::HashMismatch::Md5 { expected, computed } => (
+                        "MD5 hash",
+                        super::base64(&expected),
+                        super::base64(&computed),
+                    ),
                 };
                 Self::invalid(format!(
-                    "Provided {label} \"{}\" doesn't match calculated {noun} \"{}\".",
-                    super::base64(&mismatch.provided),
-                    super::base64(&mismatch.calculated)
+                    "Provided {name} \"{expected}\" doesn't match calculated {name} \"{computed}\"."
                 ))
             }
             ObjectError::ChecksumMismatch => Self::new(

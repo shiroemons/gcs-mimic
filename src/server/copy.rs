@@ -252,7 +252,7 @@ mod tests {
         let json::DerivedMetadata {
             update: metadata,
             storage_class,
-            expected,
+            expected: declared,
         } = json::derived_metadata(body, &source.object).unwrap();
         DerivedDestination {
             bucket: "bucket".into(),
@@ -260,7 +260,8 @@ mod tests {
             content_type: String::new(),
             metadata,
             storage_class,
-            expected,
+            declared,
+            recorded: source.object.hashes().into(),
             ..DerivedDestination::new(BucketAccess::Permissive)
         }
     }

@@ -10,7 +10,7 @@ use crate::{
     hashing::{Hasher, Hashes},
     notification::NotificationMode,
     object::{
-        ExpectedHashes, HashAlgorithm, HashMismatch, Hold, ObjectConditions, ObjectError,
+        ChecksumConflict, ExpectedHashes, Hold, ObjectConditions, ObjectError,
         ObjectMetadataUpdate, ObjectRecord, ObjectTarget, UploadChunk,
     },
 };

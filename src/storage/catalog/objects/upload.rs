@@ -582,16 +582,9 @@ pub(in crate::storage::catalog) async fn write_stream(
         let chunk = match chunk {
             UploadChunk::End => break,
             UploadChunk::EndWithHashes(hashes) => {
-                if hashes.md5.zip(expected.md5).is_some_and(|(a, b)| a != b)
-                    || hashes
-                        .crc32c
-                        .zip(expected.crc32c)
-                        .is_some_and(|(a, b)| a != b)
-                {
-                    return Err(ObjectError::ChecksumMismatch);
-                }
-                expected.md5 = expected.md5.or(hashes.md5);
-                expected.crc32c = expected.crc32c.or(hashes.crc32c);
+                expected = expected
+                    .merge(hashes)
+                    .map_err(|ChecksumConflict(_)| ObjectError::ChecksumMismatch)?;
                 break;
             }
             UploadChunk::Data(chunk) => chunk,
@@ -613,21 +606,9 @@ pub(in crate::storage::catalog) async fn write_stream(
             }
         }
     }
-    let Hashes { md5, crc32c } = hasher.finish();
-    if let Some(provided) = expected.crc32c.filter(|value| *value != crc32c) {
-        return Err(ObjectError::HashMismatch(Box::new(HashMismatch {
-            algorithm: HashAlgorithm::Crc32c,
-            provided: provided.to_be_bytes().to_vec(),
-            calculated: crc32c.to_be_bytes().to_vec(),
-        })));
-    }
-    if let Some(provided) = expected.md5.filter(|value| *value != md5) {
-        return Err(ObjectError::HashMismatch(Box::new(HashMismatch {
-            algorithm: HashAlgorithm::Md5,
-            provided: provided.to_vec(),
-            calculated: md5.to_vec(),
-        })));
-    }
+    let hashes = hasher.finish();
+    expected.verify(&hashes)?;
+    let Hashes { md5, crc32c } = hashes;
     if let UploadSink::Disk(staged) = file {
         staged.make_durable().await?;
     }

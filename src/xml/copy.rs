@@ -260,17 +260,14 @@ fn destination(
     metadata.customer_key_sha256 = destination_key;
     // The directive selects metadata; the ACL applies to the destination under either value.
     metadata.acl = acl;
-    let expected = crate::object::ExpectedHashes {
-        md5: options.expected.md5.or(Some(source.md5)),
-        crc32c: options.expected.crc32c.or(Some(source.crc32c)),
-    };
     Ok(DerivedDestination {
         bucket: operation.target.bucket,
         name: operation.target.name,
         content_type: String::new(),
         metadata,
         storage_class,
-        expected,
+        declared: options.expected,
+        recorded: source.hashes().into(),
         conditions: options.conditions,
         access,
         component_count: None,

@@ -646,7 +646,7 @@ async fn php_chunk_hashes_persist_and_validate_the_whole_object() {
             assert!(matches!(
                 result,
                 Err(crate::storage::ResumableError::Object(
-                    crate::object::ObjectError::ChecksumMismatch
+                    crate::object::ObjectError::HashMismatch(_)
                 ))
             ));
             let record = catalog

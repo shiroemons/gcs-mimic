@@ -97,7 +97,8 @@ fn populated_request_keeps_its_json_bytes() {
             name: "destination".into(),
             content_type: options.content_type,
             metadata: options.metadata,
-            expected: options.expected,
+            declared: Default::default(),
+            recorded: options.expected,
             conditions: options.conditions,
             access: BucketAccess::Permissive,
             storage_class: Some(crate::bucket::StorageClass::Coldline),
@@ -144,7 +145,7 @@ fn populated_request_keeps_its_json_bytes() {
     );
     assert_eq!(session.source_key_sha256, start.source_key_sha256);
     assert_eq!(session.source_conditions, start.source_conditions);
-    assert_eq!(session.destination.expected, start.destination.expected);
+    assert_eq!(session.destination.recorded, start.destination.recorded);
     assert_eq!(session.destination.conditions, start.destination.conditions);
     assert_eq!(
         session.destination.content_type,

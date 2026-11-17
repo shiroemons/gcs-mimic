@@ -7,7 +7,8 @@ use crate::{
     bucket::{BucketAccess, StorageClass},
     clock::Clock,
     object::{
-        ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
+        ComposeSource, ExpectedHashes, HashMismatch, ObjectConditions, ObjectError, ObjectRecord,
+        ObjectTarget,
     },
 };
 use rusqlite::Connection;
@@ -34,14 +35,18 @@ struct Combined {
 }
 
 impl Combined {
-    /// Sets the destination's class, component count and expected checksum.
-    fn apply(&self, destination: &mut DerivedDestination) {
+    /// Checks a CRC32C the request declared against the combined one before any byte is read,
+    /// then sets the destination's class, component count and the checksum its bytes must
+    /// reproduce. A composite object has no MD5; the adapters refuse a declared one.
+    fn apply(&self, destination: &mut DerivedDestination) -> Result<(), HashMismatch> {
+        destination.declared.verify_crc32c(self.crc32c)?;
         destination.storage_class = Some(self.storage_class);
         destination.component_count = Some(self.component_count);
-        destination.expected = ExpectedHashes {
+        destination.recorded = ExpectedHashes {
             md5: None,
             crc32c: Some(self.crc32c),
         };
+        Ok(())
     }
 }
 
@@ -242,7 +247,7 @@ impl Catalog {
             &*self.0.clock,
             destination.storage_class,
         )?;
-        combined.apply(&mut destination);
+        combined.apply(&mut destination)?;
         let keys = combined.keys;
         let transfer = self
             .begin_derived_ephemeral(
