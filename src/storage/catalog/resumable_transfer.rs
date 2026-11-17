@@ -392,7 +392,7 @@ impl Catalog {
                 let (_, delete_permission) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
                 let bucket = objects::BucketPublication::load(&transaction, &session.bucket)?;
-                let storage_class = bucket.storage_class(options.metadata.storage_class);
+                let storage_class = bucket.storage_class(options.metadata.storage_class)?;
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(
                     previous.as_ref(),

@@ -11,7 +11,7 @@ fn stale_conditions_and_invalid_storage_classes_keep_wire_precedence() {
     server.bucket();
     server.put("source", b"source").json_ok();
     let before = server.put("held", b"preserved").json_ok();
-    for class in ["REGIONAL", "standard", "UNKNOWN"] {
+    for class in ["RAPID", "standard", "UNKNOWN"] {
         let metadata = json!({"name":"held","storageClass":class}).to_string();
         let bucket_metadata = json!({"storageClass":class}).to_string();
         let multipart = format!(
@@ -94,11 +94,11 @@ fn stale_conditions_and_invalid_storage_classes_keep_wire_precedence() {
                     "conditionNotMet",
                     "At least one of the pre-conditions you specified did not hold.".to_owned(),
                 )
-            } else if class == "REGIONAL" {
+            } else if class == "RAPID" {
                 (400, "badRequest", if matches!(label, "resumable" | "multipart") {
-                    "gcs-mimic does not support object API setting storageClass=REGIONAL: storageClass requires a region or zone; omit this option or header (for example, use projection=noAcl)."
+                    "gcs-mimic does not support object API setting storageClass=RAPID: storageClass requires a zonal bucket; omit this option or header (for example, use projection=noAcl)."
                 } else {
-                    "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                    "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
                 }.to_owned())
             } else {
                 (400, "invalid", match label {
@@ -121,8 +121,8 @@ fn stale_conditions_and_invalid_storage_classes_keep_wire_precedence() {
             b"x",
         );
         assert_eq!(reply.status, 400, "xml {class}");
-        let message = if class == "REGIONAL" {
-            "gcs-mimic does not support XML API storageClass=REGIONAL: storageClass requires a region or zone; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
+        let message = if class == "RAPID" {
+            "gcs-mimic does not support XML API storageClass=RAPID: storageClass requires a zonal bucket; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
         } else {
             "Invalid x-goog-storage-class; use STANDARD, NEARLINE, COLDLINE or ARCHIVE."
         };

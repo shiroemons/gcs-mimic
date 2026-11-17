@@ -120,11 +120,14 @@ pub(super) async fn respond(
                 access,
                 ctx,
             )
-            .await;
+            .await
+            .map_err(JsonError::for_upload);
         }
         ObjectRequest::List(params) => list(request.headers(), ctx, &access, &params).await?,
         ObjectRequest::Update(params) => update(request, ctx, &access, params).await?,
-        ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target).await?,
+        ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target)
+            .await
+            .map_err(JsonError::for_upload)?,
         ObjectRequest::Insert(target) => upload::insert(request, ctx, access, target).await?,
         ObjectRequest::Get {
             target,

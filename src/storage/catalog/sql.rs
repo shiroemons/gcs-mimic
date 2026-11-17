@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn unknown_stored_storage_class_is_catalog_corruption() {
         let connection = Connection::open_in_memory().unwrap();
-        for class in ["unknown", "standard", "REGIONAL", "RAPID", ""] {
+        for class in ["unknown", "standard", "RAPID", ""] {
             let error = row(&connection, "SELECT ?1", [class], |row| {
                 row.get::<_, crate::bucket::StorageClass>(0)
             })
@@ -487,6 +487,7 @@ mod tests {
             (StorageClass::Coldline, "COLDLINE"),
             (StorageClass::Archive, "ARCHIVE"),
             (StorageClass::MultiRegional, "MULTI_REGIONAL"),
+            (StorageClass::Regional, "REGIONAL"),
             (
                 StorageClass::DurableReducedAvailability,
                 "DURABLE_REDUCED_AVAILABILITY",

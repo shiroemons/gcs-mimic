@@ -288,7 +288,7 @@ pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Erro
     }
     if let Some(class) = single(headers, "x-goog-storage-class")? {
         let class = StorageClass::from_name(class).map_err(|error| match error {
-            InvalidStorageClass::RequiresLocation => Error::unsupported(
+            InvalidStorageClass::RequiresZone => Error::unsupported(
                 &MetadataError::UnsupportedObjectStorageClass(class.to_owned()).to_string(),
             ),
             InvalidStorageClass::Unknown => Error::invalid(

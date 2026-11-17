@@ -613,6 +613,10 @@ impl Catalog {
                             return Err(object_unavailable(BackendFailure::RewriteSessionLimit));
                         }
                     }
+                    // Cloud Storage refused a class the destination cannot hold on the first
+                    // call, before any byte was copied (recorded 2026-11-17).
+                    super::objects::BucketPublication::load(connection, &start.destination.bucket)?
+                        .check_class(start.destination.storage_class)?;
                     let request = encode(
                         &start,
                         incarnation(connection, &start.binding.source.bucket)?,

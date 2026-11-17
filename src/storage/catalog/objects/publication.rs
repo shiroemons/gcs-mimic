@@ -1,5 +1,6 @@
 use super::super::UnixMicros;
 use super::*;
+use crate::bucket::{ClassLocationConflict, Location};
 use std::num::NonZeroI64;
 
 /// The new version a publication transaction records: its blob, how its generation is
@@ -31,6 +32,9 @@ pub(in crate::storage::catalog) struct BucketPublication {
     retention_period: Option<u64>,
     /// How long a removed generation stays soft deleted; `None` removes it at once.
     soft_delete_seconds: Option<NonZeroI64>,
+    /// With the project, what a requested class must fit.
+    location: Location,
+    project: String,
 }
 
 impl BucketPublication {
@@ -38,36 +42,57 @@ impl BucketPublication {
         connection: &Connection,
         bucket: &str,
     ) -> Result<Self, ObjectError> {
-        let (default_class, autoclass, versioning, default_event_hold, retention_period, soft_delete_seconds) = sql::row(
+        sql::row(
             connection,
-            "SELECT storage_class, autoclass, versioning_enabled, default_event_based_hold, json_extract(retention_policy, '$.retention_period'), COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0) FROM buckets WHERE name = ?1",
+            "SELECT storage_class, autoclass, versioning_enabled, default_event_based_hold, json_extract(retention_policy, '$.retention_period'), COALESCE(json_extract(soft_delete_policy, '$.retention_duration_seconds'), 0), location, project FROM buckets WHERE name = ?1",
             [bucket],
-            |row| Ok((row.get(0)?, row.get::<_, Option<sql::Json<_>>>(1)?, row.get::<_, bool>(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
-        ).optional()?.ok_or(ObjectError::BucketNotFound)?;
-        Ok(Self {
-            default_class,
-            autoclass: autoclass.map(|json| json.0),
-            versioning: if versioning {
-                Versioning::Enabled
-            } else {
-                Versioning::Disabled
+            |row| {
+                Ok(Self {
+                    default_class: row.get(0)?,
+                    autoclass: row
+                        .get::<_, Option<sql::Json<_>>>(1)?
+                        .map(|json| json.0),
+                    versioning: if row.get(2)? {
+                        Versioning::Enabled
+                    } else {
+                        Versioning::Disabled
+                    },
+                    default_event_hold: row.get(3)?,
+                    retention_period: row.get(4)?,
+                    soft_delete_seconds: NonZeroI64::new(row.get(5)?)
+                        .filter(|seconds| seconds.is_positive()),
+                    location: row.get(6)?,
+                    project: row.get(7)?,
+                })
             },
-            default_event_hold,
-            retention_period,
-            soft_delete_seconds: NonZeroI64::new(soft_delete_seconds)
-                .filter(|seconds| seconds.is_positive()),
-        })
+        )
+        .optional()?
+        .ok_or(ObjectError::BucketNotFound)
     }
 
+    /// Refuses a requested class the bucket's location cannot hold.
+    pub(in crate::storage::catalog) fn check_class(
+        &self,
+        requested: Option<StorageClass>,
+    ) -> Result<(), ObjectError> {
+        if let Some(class) = requested {
+            ClassLocationConflict::check(class, self.location, &self.project)?;
+        }
+        Ok(())
+    }
+
+    /// The class a new generation receives. A requested class must fit the bucket's location
+    /// even where Autoclass replaces it, an order no recording covers.
     pub(in crate::storage::catalog) fn storage_class(
         &self,
         requested: Option<StorageClass>,
-    ) -> StorageClass {
-        crate::bucket::autoclass::object_storage_class(
+    ) -> Result<StorageClass, ObjectError> {
+        self.check_class(requested)?;
+        Ok(crate::bucket::autoclass::object_storage_class(
             self.autoclass.as_ref(),
             requested,
             self.default_class,
-        )
+        ))
     }
 
     pub(in crate::storage::catalog) fn retention_expiration(

@@ -4,7 +4,7 @@ use crate::object::{MapPatch, Patch};
 #[test]
 fn unknown_stored_storage_class_is_catalog_corruption() {
     let connection = Connection::open_in_memory().unwrap();
-    for class in ["unknown", "REGIONAL", "RAPID"] {
+    for class in ["unknown", "RAPID"] {
         let mut options = encode_options(&populated_options()).unwrap();
         options["metadata"]["storageClass"] = json!(class);
         let error = connection.query_row("SELECT ?1,?2,'bucket','object','00000000000000000000000000000001',?3,NULL,0,0,604800000,'ACTIVE',NULL", params!["0".repeat(64), "0".repeat(32), options.to_string()], read_session).unwrap_err();

@@ -307,6 +307,16 @@ impl Error {
         ))
     }
 
+    /// Cloud Storage's XML refusal of a storage class the bucket's location cannot hold, whose
+    /// `Details` carries the JSON API's message (recorded 2026-11-17).
+    fn class_location(details: String) -> Self {
+        Self::new(
+            XmlCode::InvalidLocationConstraintStorageClassCombination,
+            "The combination of location and storage class specified is not supported for your project. In particular, regional locations do not support Multi-Regional Storage, and multi-regional locations do not support Regional Storage.",
+        )
+        .with_details(details)
+    }
+
     /// Cloud Storage's generic 400, whose `Details` says what was wrong.
     fn invalid_argument(details: impl Into<String>) -> Self {
         Self::invalid("Invalid argument.").with_details(details)
@@ -381,6 +391,9 @@ impl From<JsonError> for Error {
     fn from(error: JsonError) -> Self {
         if error.kind == json::ErrorKind::UniformAccessAcl {
             return Self::uniform_access_acl();
+        }
+        if error.kind == json::ErrorKind::ClassLocation {
+            return Self::class_location(error.message);
         }
         // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
         #[expect(

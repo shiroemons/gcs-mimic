@@ -94,21 +94,16 @@ async fn blob(catalog: &Catalog, name: &str) -> String {
         .unwrap()
 }
 
+/// Each legacy class lives in its own location type, so a multi-region bucket covers
+/// MULTI_REGIONAL and a regional one REGIONAL, each with the classes every location holds.
 #[tokio::test]
 async fn every_supported_transition_and_inert_pair_obey_exact_age_deadlines() {
     use StorageClass::{
-        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Standard,
+        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Regional, Standard,
     };
-    let classes = [
-        Standard,
-        MultiRegional,
-        DurableReducedAvailability,
-        Nearline,
-        Coldline,
-        Archive,
-    ];
     let supported = [
         (DurableReducedAvailability, MultiRegional),
+        (DurableReducedAvailability, Regional),
         (DurableReducedAvailability, Nearline),
         (DurableReducedAvailability, Coldline),
         (DurableReducedAvailability, Archive),
@@ -118,14 +113,36 @@ async fn every_supported_transition_and_inert_pair_obey_exact_age_deadlines() {
         (MultiRegional, Nearline),
         (MultiRegional, Coldline),
         (MultiRegional, Archive),
+        (Regional, Nearline),
+        (Regional, Coldline),
+        (Regional, Archive),
         (Nearline, Coldline),
         (Nearline, Archive),
         (Coldline, Archive),
     ];
-    for from in classes {
-        for to in classes {
+    for (location, legacy) in [("US", MultiRegional), ("US-CENTRAL1", Regional)] {
+        let classes = [
+            Standard,
+            legacy,
+            DurableReducedAvailability,
+            Nearline,
+            Coldline,
+            Archive,
+        ];
+        for (from, to) in classes
+            .into_iter()
+            .flat_map(|from| classes.map(|to| (from, to)))
+        {
             let (catalog, clock) = memory().await;
-            create(&catalog, vec![transition(to, json!({"age":1}))]).await;
+            let mut record = bucket("bucket", "project");
+            record.location = location.parse().unwrap();
+            record.lifecycle =
+                crate::bucket::lifecycle::LifecycleRules::for_test(vec![transition(
+                    to,
+                    json!({"age":1}),
+                )])
+                .into();
+            catalog.insert_bucket(record).await.unwrap();
             let original = put_class(&catalog, "object", from).await;
             let original_blob = blob(&catalog, "object").await;
             assert_eq!(original.storage_class_updated(), original.time_created);
@@ -164,59 +181,70 @@ async fn every_supported_transition_and_inert_pair_obey_exact_age_deadlines() {
     }
 }
 
+/// A transition to a class the bucket's location cannot hold is refused when configured, as
+/// Cloud Storage refused it (recorded 2026-11-17). A rule an earlier release stored that way
+/// stays inert.
 #[tokio::test]
-async fn location_incompatible_transitions_are_stored_but_inert() {
-    for (location, kind, target, expected) in [
-        ("US-CENTRAL1", "region", StorageClass::MultiRegional, 0),
-        ("US", "multi-region", StorageClass::MultiRegional, 1),
-        ("NAM4", "dual-region", StorageClass::MultiRegional, 1),
+async fn location_incompatible_transitions_are_refused_and_stored_ones_stay_inert() {
+    for (location, target, fits) in [
+        ("US-CENTRAL1", StorageClass::MultiRegional, false),
+        ("US", StorageClass::MultiRegional, true),
+        ("NAM4", StorageClass::MultiRegional, true),
+        ("US-CENTRAL1", StorageClass::Regional, true),
+        ("US", StorageClass::Regional, false),
+        ("NAM4", StorageClass::Regional, false),
     ] {
         let (catalog, clock) = memory().await;
         let mut record = bucket("bucket", "project");
         record.location = location.parse().unwrap();
-        assert_eq!(record.location.kind().as_str(), kind);
-        record.lifecycle = crate::bucket::lifecycle::LifecycleRules::for_test(vec![transition(
-            target,
-            json!({"age":1}),
-        )])
-        .into();
         catalog.insert_bucket(record).await.unwrap();
         let original =
             put_class(&catalog, "object", StorageClass::DurableReducedAvailability).await;
-        assert_eq!(
-            catalog
-                .get_bucket("bucket", PERMISSIVE)
-                .await
-                .unwrap()
-                .unwrap()
-                .lifecycle
-                .rules()
-                .unwrap()
-                .into_iter()
-                .count(),
-            1
-        );
+        let configured = vec![transition(target, json!({"age":1}))];
+        let patched = catalog
+            .patch_bucket(
+                "bucket",
+                BucketMetadataUpdate {
+                    lifecycle: Some(crate::bucket::lifecycle::LifecycleRules::for_test(
+                        configured.clone(),
+                    )),
+                    ..Default::default()
+                },
+                Default::default(),
+                PERMISSIVE,
+            )
+            .await;
+        if fits {
+            patched.unwrap();
+        } else {
+            assert!(
+                matches!(
+                    patched,
+                    Err(CatalogError::Metadata(
+                        crate::metadata_error::MetadataError::ClassLocation(_)
+                    ))
+                ),
+                "{location} {target:?}"
+            );
+            store_rules(&catalog, &configured).await;
+        }
         clock.advance(DAY);
         counts(
             execute(&catalog).await,
-            expected,
+            u64::from(fits),
             0,
             0,
-            (expected == 1).then_some(clock.now() + COALESCE),
+            fits.then_some(clock.now() + COALESCE),
         );
         assert_eq!(
             current(&catalog, "object").await.storage_class,
-            if expected == 1 {
-                target
-            } else {
-                original.storage_class
-            }
+            if fits { target } else { original.storage_class }
         );
-        // An incompatible transition must not hide a valid colder target or its deadline.
-        if kind == "region" {
-            rules(
+        // A stored incompatible transition must not hide a valid colder target or its deadline.
+        if !fits {
+            store_rules(
                 &catalog,
-                vec![
+                &[
                     transition(target, json!({"age":1})),
                     transition(StorageClass::Coldline, json!({"age":2})),
                 ],
@@ -238,6 +266,22 @@ async fn location_incompatible_transitions_are_stored_but_inert() {
         }
         catalog.close().await.unwrap();
     }
+}
+
+/// Writes `rules` past today's validation, as an earlier release could have stored them.
+async fn store_rules(catalog: &Catalog, rules: &[Value]) {
+    let encoded = Value::Array(rules.to_vec()).to_string();
+    catalog
+        .run::<_, CatalogError>(move |connection| {
+            sql::exec(
+                connection,
+                "UPDATE buckets SET lifecycle = ?1 WHERE name = 'bucket'",
+                [encoded],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
 }
 
 /// A location type that no release wrote cannot tell which transitions the bucket allows, so

@@ -1,6 +1,6 @@
 use super::*;
 use crate::bucket::{
-    Location, LocationKind, Versioning,
+    ClassLocationConflict, Location, LocationKind, Versioning,
     lifecycle::{BucketLifecycle, LifecycleRules},
 };
 use std::num::NonZeroU64;
@@ -305,7 +305,8 @@ fn insert_bucket_with_policy(
         BucketLifecycle::Rules(rules) => rules.clone(),
         BucketLifecycle::Unreadable { values, .. } => LifecycleRules::from_values(values)?,
     };
-    crate::bucket::lifecycle::validate_location(&lifecycle, record.location.kind())?;
+    ClassLocationConflict::check(record.storage_class, record.location, &record.project)?;
+    crate::bucket::lifecycle::validate_location(&lifecycle, record.location, &record.project)?;
     let created = unix_micros(record.time_created)?;
     // Times outside the nanosecond i64 range (before 1677) fall back to the microsecond value.
     let created_nanos = unix_timestamp(record.time_created, 1)

@@ -167,9 +167,9 @@ mod tests {
     fn bucket_class_patch_keeps_error_contracts() {
         for (class, reason, message) in [
             (
-                "REGIONAL",
+                "RAPID",
                 "badRequest",
-                "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).",
+                "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name).",
             ),
             ("standard", "invalid", "Invalid storage class \"standard\""),
             ("UNKNOWN", "invalid", "Invalid storage class \"UNKNOWN\""),
@@ -190,7 +190,7 @@ mod tests {
     fn storage_class_callers_keep_error_contracts() {
         let source = crate::json::object_tests::record();
         let mut snapshots = Vec::new();
-        for class in ["REGIONAL", "standard", "UNKNOWN"] {
+        for class in ["RAPID", "standard", "UNKNOWN"] {
             let insert = serde_json::json!({"name":"bucket","storageClass":class}).to_string();
             let lifecycle = serde_json::json!({"name":"bucket","lifecycle":{"rule":[{"action":{"type":"SetStorageClass","storageClass":class},"condition":{"age":1}}]}}).to_string();
             let rewrite = serde_json::json!({"storageClass":class}).to_string();
@@ -234,31 +234,31 @@ mod tests {
             serde_json::json!([
                 [
                     "insert",
-                    "REGIONAL",
+                    "RAPID",
                     400,
                     "badRequest",
-                    "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                    "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
                 ],
                 [
                     "lifecycle",
-                    "REGIONAL",
+                    "RAPID",
                     400,
                     "badRequest",
-                    "gcs-mimic does not support bucket API setting lifecycle.rule[0].action.storageClass=REGIONAL: storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                    "gcs-mimic does not support bucket API setting lifecycle.rule[0].action.storageClass=RAPID: storageClass requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
                 ],
                 [
                     "rewrite",
-                    "REGIONAL",
+                    "RAPID",
                     400,
                     "badRequest",
-                    "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                    "gcs-mimic does not support bucket API setting storageClass RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
                 ],
                 [
                     "object",
-                    "REGIONAL",
+                    "RAPID",
                     400,
                     "badRequest",
-                    "gcs-mimic does not support object API setting storageClass=REGIONAL: storageClass requires a region or zone; omit this option or header (for example, use projection=noAcl)."
+                    "gcs-mimic does not support object API setting storageClass=RAPID: storageClass requires a zonal bucket; omit this option or header (for example, use projection=noAcl)."
                 ],
                 [
                     "insert",

@@ -189,7 +189,7 @@ fn populated_request_keeps_its_json_bytes() {
             "{field}"
         );
     }
-    for class in ["unknown", "REGIONAL", "RAPID"] {
+    for class in ["unknown", "RAPID"] {
         let mut invalid: Value = serde_json::from_str(&encoded).unwrap();
         invalid["class"] = json!(class);
         let error = connection

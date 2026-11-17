@@ -55925,6 +55925,2163 @@
           }
         }
       ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "bkt-gaps-legacy-class-create-multi-regional",
+      "steps": [
+        {
+          "fingerprint": "2607c28354492ff9",
+          "name": "create-region-multi-regional",
+          "request": "POST /storage/v1/b?fields=location%2ClocationType%2CstorageClass&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "a3d695b6228e6ced",
+          "name": "delete-bucket",
+          "request": "DELETE /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "The specified bucket does not exist.",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "The specified bucket does not exist."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "bkt-gaps-legacy-class-create-region",
+      "steps": [
+        {
+          "fingerprint": "6dd30eecb4d4cdde",
+          "name": "create-dual-region-regional",
+          "request": "POST /storage/v1/b?fields=location%2ClocationType%2CstorageClass&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint NAM4.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint NAM4."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "1eeaad8705cf9adb",
+          "name": "create-region-regional",
+          "request": "POST /storage/v1/b?fields=location%2ClocationType%2CstorageClass&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a3d695b6228e6ced",
+          "name": "delete-bucket",
+          "request": "DELETE /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "shared",
+      "error": null,
+      "id": "bkt-gaps-legacy-class-multi-region",
+      "steps": [
+        {
+          "fingerprint": "14010f8426e31382",
+          "name": "create-us-regional",
+          "request": "POST /storage/v1/b?fields=location%2ClocationType%2CstorageClass&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "5911e537aaffeaca",
+          "name": "create-us-standard",
+          "request": "POST /storage/v1/b?fields=location%2ClocationType%2CstorageClass&project=<project>",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "location": "US",
+                "locationType": "multi-region",
+                "storageClass": "STANDARD"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "102c4da38d79b94e",
+          "name": "patch-class-regional",
+          "request": "PATCH /storage/v1/b/<new_bucket>?fields=storageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "033282e8a6484a23",
+          "name": "upload-class-regional",
+          "request": "POST /upload/storage/v1/b/<new_bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.\",\n    \"errors\": [\n      {\n        \"message\": \"Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.\",\n        \"domain\": \"global\",\n        \"reason\": \"invalid\"\n      }\n    ]\n  }\n}\n"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "9c23a6dbb5b56f40",
+          "name": "upload-class-standard",
+          "request": "POST /upload/storage/v1/b/<new_bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-gaps-legacy-class-multi-region-1-s",
+                "storageClass": "STANDARD"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "5f50be520377af41",
+          "name": "xml-put-class-regional",
+          "request": "PUT /<new_bucket>/bkt-gaps-legacy-class-multi-region-1-x",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidLocationConstraintStorageClassCombination"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The combination of location and storage class specified is not supported for your project. In particular, regional locations do not support Multi-Regional Storage, and multi-regional locations do not support Regional Storage."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "7ff69e1221bf55ad",
+          "name": "rewrite-to-regional",
+          "request": "POST /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-s/rewriteTo/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-rw?fields=done%2Cresource%28name%2CstorageClass%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "1aef6f56c3fd605f",
+          "name": "compose-class-regional",
+          "request": "POST /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-c/compose?fields=name%2CstorageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot compose object with destination storage class REGIONAL from source components that have different storage classes (STANDARD).",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot compose object with destination storage class REGIONAL from source components that have different storage classes (STANDARD)."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "5373107e0d2dccd1",
+          "name": "lifecycle-set-class-regional",
+          "request": "PATCH /storage/v1/b/<new_bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "a758437d58211bed",
+          "name": "lifecycle-match-regional",
+          "request": "PATCH /storage/v1/b/<new_bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "2edf604d231ae94b",
+          "name": "lifecycle-set-class-multi-regional",
+          "request": "PATCH /storage/v1/b/<new_bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "lifecycle": {
+                  "rule": [
+                    {
+                      "action": {
+                        "storageClass": "MULTI_REGIONAL",
+                        "type": "SetStorageClass"
+                      },
+                      "condition": {
+                        "matchesStorageClass": [
+                          "DURABLE_REDUCED_AVAILABILITY"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d2ed1f0c84e3720b",
+          "name": "grpc-write-class-regional",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "30b7549da4c1db4b",
+          "name": "grpc-update-bucket-class-regional",
+          "request": "GRPC google.storage.v2.Storage/UpdateBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "475acd9cd41945d4",
+          "name": "grpc-rewrite-class-regional",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "b4dcfda84a31067c",
+          "name": "patch-class-multi-regional",
+          "request": "PATCH /storage/v1/b/<new_bucket>?fields=storageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "storageClass": "MULTI_REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "b0ed933c7848d9f3",
+          "name": "upload-default-class",
+          "request": "POST /upload/storage/v1/b/<new_bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-gaps-legacy-class-multi-region-1-d",
+                "storageClass": "MULTI_REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "d242bc404ac035dc",
+          "name": "cleanup-r",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-r",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-r",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-r"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "1e0ef7d1e542acc9",
+          "name": "cleanup-s",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-s",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "d9d166c1125c7b16",
+          "name": "cleanup-x",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-x",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-x",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-x"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "6f02fb9881b8e4e7",
+          "name": "cleanup-rw",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-rw",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-rw",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-rw"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "d52beffd17a06979",
+          "name": "cleanup-c",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-c",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-c",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-c"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "fb287d6b82d5827d",
+          "name": "cleanup-g",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-g",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-g",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-g"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "e1656cb5e5bb633d",
+          "name": "cleanup-gr",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-gr",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-gr",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <new_bucket>/bkt-gaps-legacy-class-multi-region-1-gr"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "ac6aa6c526c520d2",
+          "name": "cleanup-d",
+          "request": "DELETE /storage/v1/b/<new_bucket>/o/bkt-gaps-legacy-class-multi-region-1-d",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "a3d695b6228e6ced",
+          "name": "delete-bucket",
+          "request": "DELETE /storage/v1/b/<new_bucket>",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "bucket": "own",
+      "error": null,
+      "id": "bkt-gaps-legacy-class-region",
+      "steps": [
+        {
+          "fingerprint": "09614319e546983d",
+          "name": "patch-class-multi-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=storageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "9f2650eecc771d5c",
+          "name": "patch-class-dra",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=storageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "storageClass": "DURABLE_REDUCED_AVAILABILITY"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "08cf85d1611abf77",
+          "name": "patch-class-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=storageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "eab7c001cc2d2c83",
+          "name": "get-bucket-class",
+          "request": "GET /storage/v1/b/<bucket>?fields=storageClass%2Clocation%2ClocationType",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "private, max-age=0, must-revalidate, no-transform",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "<time:http>",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "a691f9312181977e",
+          "name": "upload-default-class",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-gaps-legacy-class-region-1-d",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "bfc15f36c71a4ff3",
+          "name": "upload-class-multi-regional",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "text",
+              "value": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.\",\n    \"errors\": [\n      {\n        \"message\": \"Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.\",\n        \"domain\": \"global\",\n        \"reason\": \"invalid\"\n      }\n    ]\n  }\n}\n"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "b06841e8cf9624a7",
+          "name": "upload-class-standard",
+          "request": "POST /upload/storage/v1/b/<bucket>/o?fields=name%2CstorageClass&uploadType=multipart",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-gaps-legacy-class-region-1-s",
+                "storageClass": "STANDARD"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "96baf8aba255c0a2",
+          "name": "xml-put-class-regional",
+          "request": "PUT /<bucket>/bkt-gaps-legacy-class-region-1-x",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "content-type": "text/html; charset=UTF-8",
+              "etag": "<etag:quoted>",
+              "vary": "Origin",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "3496c62d9e7412c1",
+          "name": "xml-put-class-multi-regional",
+          "request": "PUT /<bucket>/bkt-gaps-legacy-class-region-1-xm",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "children": [
+                  {
+                    "name": "Code",
+                    "text": "InvalidLocationConstraintStorageClassCombination"
+                  },
+                  {
+                    "name": "Message",
+                    "text": "The combination of location and storage class specified is not supported for your project. In particular, regional locations do not support Multi-Regional Storage, and multi-regional locations do not support Regional Storage."
+                  },
+                  {
+                    "name": "Details",
+                    "text": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                  }
+                ],
+                "declaration": "xml version=\"1.0\" encoding=\"UTF-8\"",
+                "name": "Error"
+              }
+            },
+            "headers": {
+              "content-type": "application/xml; charset=UTF-8",
+              "vary": "Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "cd1d555ad2655061",
+          "name": "xml-head-class-regional",
+          "request": "HEAD /<bucket>/bkt-gaps-legacy-class-region-1-x",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-type": "text/plain",
+              "etag": "<etag:quoted>",
+              "expires": "<time:http>",
+              "last-modified": "<time:http>",
+              "x-goog-generation": "<generation:16>",
+              "x-goog-hash": "crc32c=qTxfkw==, md5=ndTkYSaMgDT1yFZOFVxnpg==",
+              "x-goog-metageneration": "1",
+              "x-goog-storage-class": "REGIONAL",
+              "x-goog-stored-content-encoding": "identity",
+              "x-goog-stored-content-length": "1",
+              "x-harness-body-framing": "content-length:<head>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "7265b57c2600d874",
+          "name": "rewrite-to-regional",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-s/rewriteTo/b/<bucket>/o/bkt-gaps-legacy-class-region-1-r?fields=done%2Cresource%28name%2CstorageClass%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "resource": {
+                  "name": "bkt-gaps-legacy-class-region-1-r",
+                  "storageClass": "REGIONAL"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "f08896b66f7edbf5",
+          "name": "rewrite-to-multi-regional",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-s/rewriteTo/b/<bucket>/o/bkt-gaps-legacy-class-region-1-rm?fields=done%2Cresource%28name%2CstorageClass%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "e80b03e2d1b7eb66",
+          "name": "rewrite-regional-to-standard",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-d/rewriteTo/b/<bucket>/o/bkt-gaps-legacy-class-region-1-rs?fields=done%2Cresource%28name%2CstorageClass%29",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "resource": {
+                  "name": "bkt-gaps-legacy-class-region-1-rs",
+                  "storageClass": "STANDARD"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "dc1ae0c43e14e2ab",
+          "name": "compose-default-class",
+          "request": "POST /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-c/compose?fields=name%2CstorageClass",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (REGIONAL).",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (REGIONAL)."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "d84048cd4049ea20",
+          "name": "lifecycle-set-class-multi-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "07e42bbb640d6a8a",
+          "name": "lifecycle-set-class-regional-from-dra",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "lifecycle": {
+                  "rule": [
+                    {
+                      "action": {
+                        "storageClass": "REGIONAL",
+                        "type": "SetStorageClass"
+                      },
+                      "condition": {
+                        "matchesStorageClass": [
+                          "DURABLE_REDUCED_AVAILABILITY"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "7c136eef9a4f5e09",
+          "name": "lifecycle-match-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "lifecycle": {
+                  "rule": [
+                    {
+                      "action": {
+                        "storageClass": "NEARLINE",
+                        "type": "SetStorageClass"
+                      },
+                      "condition": {
+                        "age": 3650,
+                        "matchesStorageClass": [
+                          "REGIONAL"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        },
+        {
+          "fingerprint": "47fca5eab800c544",
+          "name": "lifecycle-match-multi-regional",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=lifecycle",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 400,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1.",
+                      "reason": "invalid"
+                    }
+                  ],
+                  "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 400
+          }
+        },
+        {
+          "fingerprint": "0da9b12a5c339ddb",
+          "name": "grpc-write-class-regional",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-g/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-g/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-g/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-g/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2839306131,
+                    "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                  },
+                  "contentType": "text/plain",
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "bkt-gaps-legacy-class-region-1-g",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "1",
+                  "storageClass": "REGIONAL",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                }
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "e2ca8495dfc3d042",
+          "name": "grpc-write-class-multi-regional",
+          "request": "GRPC google.storage.v2.Storage/WriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "405e33a8e53f1cdd",
+          "name": "grpc-get-object-class",
+          "request": "GRPC google.storage.v2.Storage/GetObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "bkt-gaps-legacy-class-region-1-d",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "ae00e7197953c684",
+          "name": "grpc-get-bucket-class",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "projects/_/buckets/<bucket>",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "5d0ec5edc3d1cc1f",
+          "name": "grpc-update-bucket-class-multi-regional",
+          "request": "GRPC google.storage.v2.Storage/UpdateBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "3dc3b139c3385bc1",
+          "name": "grpc-update-bucket-class-regional",
+          "request": "GRPC google.storage.v2.Storage/UpdateBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "acl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-owners-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-editors-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "id": "<bucket>/project-viewers-<project-number>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  }
+                ],
+                "bucketId": "<bucket>",
+                "createTime": "<time:f3>",
+                "defaultObjectAcl": [
+                  {
+                    "entity": "project-owners-<project-number>",
+                    "entityAlt": "project-owners-<project>",
+                    "etag": "<etag:str>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "owners"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-editors-<project-number>",
+                    "entityAlt": "project-editors-<project>",
+                    "etag": "<etag:str>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "editors"
+                    },
+                    "role": "OWNER"
+                  },
+                  {
+                    "entity": "project-viewers-<project-number>",
+                    "entityAlt": "project-viewers-<project>",
+                    "etag": "<etag:str>",
+                    "projectTeam": {
+                      "projectNumber": "<project-number:str>",
+                      "team": "viewers"
+                    },
+                    "role": "READER"
+                  }
+                ],
+                "etag": "<etag:str>",
+                "iamConfig": {
+                  "publicAccessPrevention": "enforced",
+                  "uniformBucketLevelAccess": {}
+                },
+                "labels": {
+                  "gcs-mimic-differential": "1"
+                },
+                "lifecycle": {
+                  "rule": [
+                    {
+                      "action": {
+                        "storageClass": "NEARLINE",
+                        "type": "SetStorageClass"
+                      },
+                      "condition": {
+                        "ageDays": 3650,
+                        "matchesStorageClass": [
+                          "REGIONAL"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "location": "US-CENTRAL1",
+                "locationType": "region",
+                "metageneration": "6",
+                "name": "projects/_/buckets/<bucket>",
+                "owner": {
+                  "entity": "project-owners-<project-number>"
+                },
+                "project": "projects/<project-number>",
+                "softDeletePolicy": {
+                  "retentionDuration": "0s"
+                },
+                "storageClass": "REGIONAL",
+                "updateTime": "<time:f3>"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "ae00e7197953c684",
+          "name": "grpc-get-bucket-class-after-update",
+          "request": "GRPC google.storage.v2.Storage/GetBucket",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "projects/_/buckets/<bucket>",
+                "storageClass": "REGIONAL"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "add851169b7abd64",
+          "name": "grpc-rewrite-class-regional",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "done": true,
+                "objectSize": "1",
+                "resource": {
+                  "acl": [
+                    {
+                      "entity": "project-owners-<project-number>",
+                      "entityAlt": "project-owners-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-gr/<generation:16>/project-owners-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "owners"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-editors-<project-number>",
+                      "entityAlt": "project-editors-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-gr/<generation:16>/project-editors-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "editors"
+                      },
+                      "role": "OWNER"
+                    },
+                    {
+                      "entity": "project-viewers-<project-number>",
+                      "entityAlt": "project-viewers-<project>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-gr/<generation:16>/project-viewers-<project-number>",
+                      "projectTeam": {
+                        "projectNumber": "<project-number:str>",
+                        "team": "viewers"
+                      },
+                      "role": "READER"
+                    },
+                    {
+                      "email": "<email>",
+                      "entity": "user-<email>",
+                      "etag": "<etag:str>",
+                      "id": "<bucket>/bkt-gaps-legacy-class-region-1-gr/<generation:16>/user-<email>",
+                      "role": "OWNER"
+                    }
+                  ],
+                  "bucket": "projects/_/buckets/<bucket>",
+                  "checksums": {
+                    "crc32c": 2839306131,
+                    "md5Hash": "ndTkYSaMgDT1yFZOFVxnpg=="
+                  },
+                  "createTime": "<time:f3>",
+                  "etag": "<etag:str>",
+                  "eventBasedHold": false,
+                  "finalizeTime": "<time:f6>",
+                  "generation": "<generation:str:16>",
+                  "metageneration": "1",
+                  "name": "bkt-gaps-legacy-class-region-1-gr",
+                  "owner": {
+                    "entity": "user-<email>"
+                  },
+                  "size": "1",
+                  "storageClass": "REGIONAL",
+                  "updateStorageClassTime": "<time:f3>",
+                  "updateTime": "<time:f3>"
+                },
+                "totalBytesRewritten": "1"
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 0
+          }
+        },
+        {
+          "fingerprint": "c319429cce01734b",
+          "name": "grpc-rewrite-class-multi-regional",
+          "request": "GRPC google.storage.v2.Storage/RewriteObject",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "code": 3,
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.BadRequest",
+                    "fieldViolations": [
+                      {
+                        "description": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+                      }
+                    ]
+                  }
+                ],
+                "message": "Project <project-number> may not create storageClass MULTI_REGIONAL buckets with locationConstraint US-CENTRAL1."
+              }
+            },
+            "headers": {
+              "content-type": "application/grpc+json"
+            },
+            "status": 3
+          }
+        },
+        {
+          "fingerprint": "872bd14636a207df",
+          "name": "cleanup-d",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-d",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "0eead220997e7f7a",
+          "name": "cleanup-m",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-m",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-m",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-m"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "ff5f6e48c267f88c",
+          "name": "cleanup-s",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-s",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "42b433a3d9e2abd3",
+          "name": "cleanup-x",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-x",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "51941d6f5b1fa8e0",
+          "name": "cleanup-xm",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-xm",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-xm",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-xm"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "c8dd85cde597c739",
+          "name": "cleanup-r",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-r",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "2906af8a91813222",
+          "name": "cleanup-rm",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-rm",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-rm",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-rm"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "fbdd35f4dd6441c4",
+          "name": "cleanup-rs",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-rs",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "885c41abefb8cf9c",
+          "name": "cleanup-c",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-c",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-c",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-c"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "b386a65588c74c60",
+          "name": "cleanup-g",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-g",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "8a2fa4f844a757e1",
+          "name": "cleanup-gm",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-gm",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-gm",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-gm"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "feaf98b89b6502d2",
+          "name": "cleanup-gr",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-gr",
+          "response": {
+            "body": {
+              "kind": "empty"
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 204
+          }
+        },
+        {
+          "fingerprint": "18bf3401aa022c67",
+          "name": "cleanup-grm",
+          "request": "DELETE /storage/v1/b/<bucket>/o/bkt-gaps-legacy-class-region-1-grm",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "error": {
+                  "code": 404,
+                  "errors": [
+                    {
+                      "domain": "global",
+                      "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-grm",
+                      "reason": "notFound"
+                    }
+                  ],
+                  "message": "No such object: <bucket>/bkt-gaps-legacy-class-region-1-grm"
+                }
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 404
+          }
+        },
+        {
+          "fingerprint": "adc8763a815adc19",
+          "name": "cleanup-settings",
+          "request": "PATCH /storage/v1/b/<bucket>?fields=name",
+          "response": {
+            "body": {
+              "kind": "json",
+              "value": {
+                "name": "<bucket>"
+              }
+            },
+            "headers": {
+              "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+              "content-type": "application/json; charset=UTF-8",
+              "etag": "<etag:bare>",
+              "expires": "Mon, 01 Jan 1990 00:00:00 GMT",
+              "pragma": "no-cache",
+              "vary": "Origin, X-Origin",
+              "x-harness-body-framing": "content-length:<ok>"
+            },
+            "status": 200
+          }
+        }
+      ]
     }
   ],
   "format": 2,
@@ -55939,7 +58096,7 @@
     "2026-11-16",
     "2026-11-17"
   ],
-  "requests": 2164,
+  "requests": 2255,
   "source": "live",
   "tools": "storage.proto d73dfb3c3be52245625b951b9c0bcf65163c549f; grpcurl 1.9.4; grpcurl silently drops request fields that are not in the pinned proto"
 }

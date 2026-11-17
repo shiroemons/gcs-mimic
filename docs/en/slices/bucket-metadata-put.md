@@ -123,9 +123,11 @@ on insert, rather than PATCH key deletion. Shared label rules allow at most
 of at most 63 Unicode characters containing lowercase/international letters,
 numbers, underscore or hyphen. Omitted storageClass preserves the current class.
 The resource/Discovery STANDARD default applies only when a bucket is created.
-Supported classes are STANDARD, NEARLINE, COLDLINE, ARCHIVE, MULTI_REGIONAL
-and DURABLE_REDUCED_AVAILABILITY; REGIONAL/RAPID return 400 badRequest, invalid/null/empty
-class 400. The implementation shares validation tables with insert/PATCH.
+Supported classes are STANDARD, NEARLINE, COLDLINE, ARCHIVE, MULTI_REGIONAL,
+REGIONAL and DURABLE_REDUCED_AVAILABILITY; a legacy class the bucket's location
+cannot hold returns 400 invalid (since 2026-11-17), RAPID returns 400 badRequest,
+invalid/null/empty class 400. The implementation shares validation tables with
+insert/PATCH.
 
 Omitted versioning and defaultEventBasedHold preserve current settings.
 Explicit versioning:{} still disables versioning, as does omitted enabled inside

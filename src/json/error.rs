@@ -145,6 +145,9 @@ pub(crate) enum ErrorKind {
     InvalidArgument,
     /// Lets the XML adapter give this refusal Cloud Storage's own XML wording.
     UniformAccessAcl,
+    /// A storage class the bucket's location cannot hold, which the XML and Storage v2 adapters
+    /// answer with Cloud Storage's own code and details.
+    ClassLocation,
     /// Parse failures whose wire reason the legacy bucket adapter changes to `invalid`.
     LegacyParseError,
     MalformedJson,
@@ -367,6 +370,25 @@ impl JsonError {
         self
     }
 
+    /// A semantic metadata refusal; `unsupported` words a recognized setting gcs-mimic lacks in
+    /// the API that refused it.
+    fn metadata(
+        error: &crate::metadata_error::MetadataError,
+        unsupported: fn(&str) -> Self,
+    ) -> Self {
+        let message = error.to_string();
+        if matches!(
+            error,
+            crate::metadata_error::MetadataError::ClassLocation(_)
+        ) {
+            Self::invalid(message).with_kind(ErrorKind::ClassLocation)
+        } else if error.unsupported() {
+            unsupported(&message)
+        } else {
+            Self::invalid(message)
+        }
+    }
+
     fn missing_bucket() -> Self {
         Self::new(StatusCode::NOT_FOUND, "notFound", BUCKET_NOT_FOUND)
             .with_kind(ErrorKind::MissingBucket)
@@ -541,6 +563,17 @@ impl JsonError {
     pub(crate) fn html_typed(mut self) -> Self {
         self.html_typed = true;
         self
+    }
+
+    /// An upload's refusal as the upload front end labels it: a class the bucket's location
+    /// cannot hold left as `text/html` too (recorded 2026-11-17 on a multipart insert), although
+    /// gcs-mimic finds it in the catalog.
+    pub(crate) fn for_upload(self) -> Self {
+        if self.kind == ErrorKind::ClassLocation {
+            self.html_typed()
+        } else {
+            self
+        }
     }
 
     /// A session-protocol failure (a `Content-Range` that cannot be used, a gap or total that
@@ -843,13 +876,7 @@ impl From<CatalogError> for JsonError {
                 "Public access prevention is enforced",
             ),
             CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
-            CatalogError::Metadata(error) => {
-                if error.unsupported() {
-                    Self::unsupported(&error.to_string())
-                } else {
-                    Self::invalid(error.to_string())
-                }
-            }
+            CatalogError::Metadata(error) => Self::metadata(&error, Self::unsupported),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
                 Self::storage_capacity(&cause)
@@ -970,13 +997,7 @@ impl From<ObjectError> for JsonError {
         match error {
             ObjectError::BucketNotFound => Self::missing_bucket(),
             ObjectError::Component(failure) => failure.into(),
-            ObjectError::Metadata(error) => {
-                if error.unsupported() {
-                    Self::unsupported_object(&error.to_string())
-                } else {
-                    Self::invalid(error.to_string())
-                }
-            }
+            ObjectError::Metadata(error) => Self::metadata(&error, Self::unsupported_object),
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
             ObjectError::ComposeClassMismatch { .. } => Self::invalid(error.to_string()),
             ObjectError::DerivedTransferIncomplete => {

@@ -380,7 +380,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         json!({"acl":[]}),
         json!({"kmsKeyName":"key"}),
         json!({"contexts":{}}),
-        json!({"storageClass":"REGIONAL"}),
+        json!({"storageClass":"RAPID"}),
     ] {
         compose(
             &server,

@@ -602,8 +602,8 @@ fn native_storage_class_and_fixed_metadata_validation_matches_import_eligibility
         ),
         (
             "StorageClass",
-            json!("REGIONAL"),
-            "storageClass requires a region or zone",
+            json!("RAPID"),
+            "storageClass RAPID requires a zonal bucket",
         ),
         (
             "ContentDisposition",
@@ -656,7 +656,7 @@ fn native_storage_class_and_fixed_metadata_validation_matches_import_eligibility
                 !finding["diagnostic"]["fix"]
                     .as_str()
                     .unwrap()
-                    .contains("REGIONAL")
+                    .contains("RAPID")
             );
         }
     }

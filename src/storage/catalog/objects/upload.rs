@@ -179,7 +179,7 @@ impl UploadCommit {
             super::super::upload_replay::make_room(transaction, micros)?;
         }
         let bucket = BucketPublication::load(transaction, &self.bucket)?;
-        let storage_class = bucket.storage_class(self.metadata.storage_class);
+        let storage_class = bucket.storage_class(self.metadata.storage_class)?;
         let previous = lookup(transaction, &self.bucket, &self.name)?;
         // Rechecked under the write lock so a concurrent create cannot be overwritten.
         check_publication(

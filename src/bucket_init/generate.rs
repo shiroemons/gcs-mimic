@@ -94,7 +94,7 @@ pub const UPLOAD_HEADERS: [&str; 2] = ["Content-Type", "x-goog-resumable"];
 /// The methods browser downloads use: `GET` reads an object and `HEAD` its metadata.
 pub const DOWNLOAD_METHODS: [&str; 2] = ["GET", "HEAD"];
 
-/// The storage classes a prompt offers. The legacy `MULTI_REGIONAL` and
+/// The storage classes a prompt offers. The legacy `MULTI_REGIONAL`, `REGIONAL` and
 /// `DURABLE_REDUCED_AVAILABILITY` stay valid in a document but are not offered for new buckets.
 pub fn storage_classes() -> [&'static str; 4] {
     use crate::bucket::StorageClass;

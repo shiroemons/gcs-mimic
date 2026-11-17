@@ -165,7 +165,7 @@ where
         super::super::upload_replay::make_room(transaction, micros)?;
     }
     let bucket = objects::BucketPublication::load(transaction, &destination.bucket)?;
-    let storage_class = bucket.storage_class(destination.storage_class);
+    let storage_class = bucket.storage_class(destination.storage_class)?;
     let previous = objects::lookup(transaction, &destination.bucket, &destination.name)?;
     objects::check_publication(
         previous.as_ref(),

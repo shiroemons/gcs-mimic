@@ -20,10 +20,15 @@ Delete・SetStorageClass・AbortIncompleteMultipartUploadを受け付けます�
 SetStorageClassには既存のバケット作成で使えるstorageClassが必要です。
 条件の型、負数、不正な日付、空の条件、100件を超えるルール、全ルールで合計1000件を超える
 prefix・suffixを拒否します。AbortIncompleteMultipartUploadの条件はage・matchesPrefix・
-matchesSuffixに限ります。legacyのmatchesStorageClassはバケットのlocationTypeと照合します。
+matchesSuffixに限ります。
 不正な入力は400、対応範囲外のmatchesPattern・サイズ条件は共通の400未対応応答になります。
-SetStorageClassのREGIONAL・RAPIDやmatchesStorageClassのRAPIDも、
-配列内のフィールド位置を示す共通の未対応応答になります。
+RAPIDは、SetStorageClassでもmatchesStorageClassでも、配列内のフィールド位置を示す
+共通の未対応応答になります。
+SetStorageClassの移行先やmatchesStorageClassに、バケットの所在地が保持できない
+レガシークラス（リージョン以外のREGIONAL、リージョンのMULTI_REGIONAL）を指定すると、
+2026-11-17に記録したCloud Storageと同じく400 invalid
+`Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.`
+で拒否します。リージョンのバケットではREGIONALを指定できます。
 
 受け入れケースはLIFECYCLE-INSERT-STORE、LIFECYCLE-PATCH-REPLACE、
 LIFECYCLE-PATCH-CLEAR、LIFECYCLE-UPDATE-REPLACE、LIFECYCLE-VALIDATE-ACTION、

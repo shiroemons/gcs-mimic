@@ -47,7 +47,7 @@ the legacy service, as the earlier insert/object-metadata contracts record.
 | `bucket_patch_merges_labels_class_and_preserves_resources` | Omitted fields; set, replace, remove and remove missing labels; empty values | Merge only supplied label keys, retain omitted values; null key removes; empty string is stored |
 | `bucket_patch_empty_null_and_invalid_inputs` | `labels:{}`, `labels:null`, empty object/body, invalid JSON/types | Empty map/object preserves settings and an empty object leaves the metageneration alone, null map clears; empty wire body/invalid input is 400 |
 | `bucket_patch_label_boundaries_and_classes` | 64/65 final keys, invalid key/value, Unicode/63/64 characters | Same insert label rules, maximum 64 final labels; validation and update are atomic |
-| `bucket_patch_label_boundaries_and_classes` | Supported/unsupported/default storage classes | STANDARD, NEARLINE, COLDLINE, ARCHIVE, MULTI_REGIONAL, DURABLE_REDUCED_AVAILABILITY; REGIONAL/RAPID return 501; invalid/null/empty class returns 400 |
+| `bucket_patch_label_boundaries_and_classes` | Supported/unsupported/default storage classes | STANDARD, NEARLINE, COLDLINE, ARCHIVE, MULTI_REGIONAL, DURABLE_REDUCED_AVAILABILITY; REGIONAL in a multi-region bucket returns 400 invalid (since 2026-11-17); RAPID returns 400 badRequest; invalid/null/empty class returns 400 |
 | `bucket_patch_unsupported_and_output_inputs_preserve_state` | Recognized unsupported settings, unknown and output-only fields | Unsupported settings return 501 without mutation, even null/empty; unknown/output-only inputs cannot override stored identity |
 | `bucket_patch_conditions_and_query_contract` | match/not-match/both, signed int64 boundaries and malformed/duplicate values, missing bucket | Failed valid comparisons return 412; missing bucket 404; malformed query 400; no read-style 304 |
 | `bucket_patch_conditions_and_query_contract` | projection, predefined ACL queries, unsupported common queries | noAcl/full return modeled fields; invalid projection 400; unsupported common queries such as callback return 400 badRequest without mutation; userProject is ignored |
@@ -132,9 +132,11 @@ field is persisted or treated as supported behavior.
 
 The `versioning` object likewise ignores unknown children while applying only
 the optional boolean `enabled`. Empty labels values remain distinct from null
-removal. REGIONAL and RAPID need unsupported region/zone placement; accepting
-their names would imply settings that neither profile can enforce. The class
-set is shared with insert rather than duplicated in the adapter.
+removal. RAPID needs unsupported zonal placement; accepting its name would imply
+settings that neither profile can enforce. Since 2026-11-17 REGIONAL is stored
+on a region bucket, and a legacy class the bucket's location cannot hold is
+refused as Cloud Storage refused it. The class set is shared with insert rather
+than duplicated in the adapter.
 
 Strict authentication is resolved before routing; query syntax precedes bucket
 permission checks; permission precedes body parsing; inside the transaction,

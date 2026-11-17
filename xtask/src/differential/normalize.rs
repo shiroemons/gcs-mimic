@@ -135,6 +135,13 @@ fn scrub_project_team_number(text: &str) -> String {
     out
 }
 
+/// Replaces the emulator's `0` in Cloud Storage's refusal of a class the bucket location cannot
+/// hold, `Project <number> may not create storageClass ...`; a recorded real number is already
+/// `<project-number>`.
+fn scrub_project_sentence_number(text: &str) -> String {
+    text.replace("Project 0 may not ", "Project <project-number> may not ")
+}
+
 /// Replaces `generation=<digits>` so URLs and ids compare by shape.
 fn scrub_generation(text: &str) -> String {
     let mut out = String::new();
@@ -292,9 +299,8 @@ impl Normalizer {
         for (value, placeholder) in &self.literals {
             out = out.replace(value.as_str(), placeholder);
         }
-        scrub_emails(&scrub_upload_ids(&scrub_generation(
-            &scrub_project_team_number(&out),
-        )))
+        let numbered = scrub_project_sentence_number(&scrub_project_team_number(&out));
+        scrub_emails(&scrub_upload_ids(&scrub_generation(&numbered)))
     }
 
     pub(crate) fn json(&self, value: &Value) -> Value {
@@ -727,6 +733,18 @@ mod tests {
         );
         assert_eq!(out["name"], "obj-0");
         assert_eq!(out["other"], "project-owners-05 and project-owners-");
+    }
+
+    #[test]
+    fn emulator_project_number_is_hidden_in_the_class_location_refusal() {
+        let n = normalizer();
+        assert_eq!(
+            n.text(
+                "Project 0 may not create storageClass REGIONAL buckets with locationConstraint US."
+            ),
+            "Project <project-number> may not create storageClass REGIONAL buckets with locationConstraint US."
+        );
+        assert_eq!(n.text("Project 05 may not"), "Project 05 may not");
     }
 
     #[test]

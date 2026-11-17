@@ -6,7 +6,7 @@ pub enum MetadataError {
     LongLanguage,
     CustomTime,
     ObjectStorageClass,
-    StorageClassRequiresLocation,
+    StorageClassRequiresZone,
     InvalidUpdateStorageClass(String),
     UnsupportedObjectStorageClass(String),
     Lifecycle {
@@ -28,6 +28,9 @@ pub enum MetadataError {
     AutoclassStorageClass,
     AutoclassLifecycle,
     UniformAccessLocked,
+    /// A class the bucket's location cannot hold. Typed because the XML and Storage v2
+    /// adapters give this refusal their own code and details.
+    ClassLocation(crate::bucket::ClassLocationConflict),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,7 +67,7 @@ impl MetadataError {
     pub(crate) fn unsupported(&self) -> bool {
         matches!(
             self,
-            Self::StorageClassRequiresLocation
+            Self::StorageClassRequiresZone
                 | Self::UnsupportedObjectStorageClass(_)
                 | Self::LifecycleClass { .. }
         )
@@ -83,12 +86,12 @@ impl MetadataError {
                 "Invalid object {}; use STANDARD, NEARLINE, COLDLINE or ARCHIVE",
                 name("storageClass")
             ),
-            Self::StorageClassRequiresLocation => {
-                format!("{} requires a region or zone", name("storageClass"))
+            Self::StorageClassRequiresZone => {
+                format!("{} RAPID requires a zonal bucket", name("storageClass"))
             }
             Self::InvalidUpdateStorageClass(value) => format!("Invalid storage class \"{value}\""),
             Self::UnsupportedObjectStorageClass(value) => format!(
-                "{}={value}: {} requires a region or zone",
+                "{}={value}: {} requires a zonal bucket",
                 name("storageClass"),
                 name("storageClass")
             ),
@@ -98,7 +101,7 @@ impl MetadataError {
                 example.message(name)
             ),
             Self::LifecycleClass { field, value } => format!(
-                "lifecycle.{}={value}: {} requires a region or zone",
+                "lifecycle.{}={value}: {} requires a zonal bucket",
                 path(field),
                 name("storageClass")
             ),
@@ -124,6 +127,7 @@ impl MetadataError {
                 "Uniform bucket-level access has been enabled for 90 consecutive days and cannot be disabled; keep {}.enabled=true",
                 name("uniformBucketLevelAccess")
             ),
+            Self::ClassLocation(conflict) => conflict.to_string(),
         }
     }
 }

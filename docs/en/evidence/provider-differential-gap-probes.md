@@ -407,3 +407,132 @@ source had `text/plain`, as it did for the `grpc-csek` rewrites and the
 `grpc-unsupported-options` of a source updated through a wildcard mask did carry
 `contentType`. The two new rewrite steps compare without it; no recording yet
 explains when a Storage v2 rewrite drops it.
+
+## Seventh recording: legacy storage classes and bucket location
+
+Recorded on **2026-11-17**. The 2026-11-13 case `bkt-unsupported-settings`
+showed that Cloud Storage stores the legacy `REGIONAL` class on a regional
+bucket, in a lifecycle action and on an object, where gcs-mimic refused it as
+needing a region or zone. It did not show where `REGIONAL` is refused, what
+`MULTI_REGIONAL` does in a region, or how the XML API and Storage v2 answer.
+Four new cases asked, with the project and access token again supplied only
+through environment variables:
+
+```sh
+cargo xtask differential run --filter bkt-gaps-legacy-class- \
+  --record <partial-reference>
+cargo xtask differential merge compatibility/differential/reference/gcs.json \
+  <partial-reference> --add-new --out compatibility/differential/reference/gcs.json
+```
+
+- Requests sent to Cloud Storage: **91** in one run, with no HTTP 429.
+- Resources: the harness's shared bucket; its own us-central1 bucket for
+  `bkt-gaps-legacy-class-region`; and the buckets the cases created, one in
+  us-central1 with the `REGIONAL` class and one in `US`. Every other creation
+  was refused. Objects held one byte, in classes priced as Standard storage
+  without a minimum storage duration.
+- Cleanup: every object and bucket was deleted and confirmed 404, and the
+  final listing found nothing left.
+
+The reference now holds **136** cases and **2255** requests.
+
+Every refusal of a class the bucket location cannot hold carried the same text,
+`Project <project-number> may not create storageClass <CLASS> buckets with
+locationConstraint <LOCATION>.`, called *the conflict* below. Over JSON it was
+400 `invalid`; over XML it was 400 `InvalidLocationConstraintStorageClassCombination`
+with the Message `The combination of location and storage class specified is
+not supported for your project. In particular, regional locations do not
+support Multi-Regional Storage, and multi-regional locations do not support
+Regional Storage.` and the conflict as Details; over Storage v2 it was
+INVALID_ARGUMENT with a `google.rpc.BadRequest` repeating it.
+
+In the harness's regional bucket (`bkt-gaps-legacy-class-region`):
+
+| Step | Request | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `patch-class-multi-regional` | PATCH `storageClass` `MULTI_REGIONAL` | The conflict for `US-CENTRAL1` | Matched since aligned (was 200) |
+| `patch-class-dra` | PATCH `DURABLE_REDUCED_AVAILABILITY` | 200 | Matched |
+| `patch-class-regional`, `get-bucket-class` | PATCH `REGIONAL`, then GET | 200, `REGIONAL`, `locationType` `region` | Matched since aligned (was 400 `badRequest`) |
+| `upload-default-class` | Multipart insert naming no class | 200, `REGIONAL` from the bucket default | Matched since aligned |
+| `upload-class-multi-regional` | Multipart insert with `MULTI_REGIONAL` | The conflict, the JSON envelope sent as `text/html` | Matched since aligned (was 200) |
+| `xml-put-class-regional`, `xml-head-class-regional` | XML PUT with `x-goog-storage-class: REGIONAL`, then HEAD | 200; HEAD shows `x-goog-storage-class: REGIONAL` | Matched since aligned (was 400 `InvalidArgument`) |
+| `xml-put-class-multi-regional` | XML PUT with `MULTI_REGIONAL` | The XML conflict | Matched since aligned (was 200) |
+| `rewrite-to-regional` | JSON rewrite of a `STANDARD` object to `REGIONAL` | Done, `REGIONAL` | Matched since aligned (was 400 `badRequest`) |
+| `rewrite-to-multi-regional` | JSON rewrite to `MULTI_REGIONAL` | The conflict | Matched since aligned (was done) |
+| `rewrite-regional-to-standard` | JSON rewrite of a `REGIONAL` object to `STANDARD` | Done, `STANDARD` | Matched since aligned |
+| `compose-default-class` | Compose of a `STANDARD` and a `REGIONAL` object, no class named | 400 `invalid` `Cannot compose object with destination storage class STANDARD from source components that have different storage classes (REGIONAL).` | Matched since aligned (the message was `Compose sources must use the same storage class`) |
+| `lifecycle-set-class-multi-regional` | SetStorageClass `MULTI_REGIONAL` from `DURABLE_REDUCED_AVAILABILITY` | The conflict | Matched since aligned (gcs-mimic stored the rule, inert) |
+| `lifecycle-set-class-regional-from-dra` | SetStorageClass `REGIONAL` from `DURABLE_REDUCED_AVAILABILITY` | 200, stored | Matched since aligned (was 400 `badRequest`) |
+| `lifecycle-match-regional` | SetStorageClass `NEARLINE` for `matchesStorageClass` `REGIONAL` | 200, stored | Matched |
+| `lifecycle-match-multi-regional` | Delete for `matchesStorageClass` `MULTI_REGIONAL` | The conflict | Matched since aligned (gcs-mimic used its own wording) |
+| `grpc-write-class-regional` | WriteObject with `storage_class` `REGIONAL` | Completed, `REGIONAL` | Matched since aligned (was UNIMPLEMENTED) |
+| `grpc-write-class-multi-regional` | WriteObject with `MULTI_REGIONAL` | The Storage v2 conflict | Matched since aligned (was completed) |
+| `grpc-get-object-class`, `grpc-get-bucket-class` | GetObject and GetBucket with read masks | `REGIONAL` | Matched since aligned |
+| `grpc-update-bucket-class-multi-regional` | UpdateBucket, mask `storage_class`, `MULTI_REGIONAL` | The Storage v2 conflict | Matched since aligned (was completed) |
+| `grpc-update-bucket-class-regional`, `grpc-get-bucket-class-after-update` | UpdateBucket to `REGIONAL`, then GetBucket | Completed, `REGIONAL` | Matched since aligned (was UNIMPLEMENTED), apart from fields named below |
+| `grpc-rewrite-class-regional` | RewriteObject with destination `storage_class` `REGIONAL` | Done, `REGIONAL` | Matched since aligned (was UNIMPLEMENTED) |
+| `grpc-rewrite-class-multi-regional` | RewriteObject to `MULTI_REGIONAL` | The Storage v2 conflict | Matched since aligned (was done) |
+
+In a `US` bucket the case created (`bkt-gaps-legacy-class-multi-region`):
+
+| Step | Request | Cloud Storage answer | gcs-mimic |
+| --- | --- | --- | --- |
+| `create-us-regional` | Bucket insert in `US` with `REGIONAL` | The conflict for `US` | Matched since aligned (was 400 `badRequest`) |
+| `patch-class-regional` | PATCH `REGIONAL` | The conflict | Matched since aligned (was 400 `badRequest`) |
+| `upload-class-regional` | Multipart insert with `REGIONAL` | The conflict, sent as `text/html` | Matched since aligned (was 400 `badRequest`) |
+| `xml-put-class-regional` | XML PUT with `REGIONAL` | The XML conflict | Matched since aligned (was 400 `InvalidArgument`) |
+| `rewrite-to-regional` | JSON rewrite to `REGIONAL` | The conflict | Matched since aligned (was 400 `badRequest`) |
+| `compose-class-regional` | Compose of a `STANDARD` object naming `REGIONAL` | 400 `invalid` `Cannot compose object with destination storage class REGIONAL from source components that have different storage classes (STANDARD).`, not the conflict | Matched since aligned (was 400 `badRequest`) |
+| `lifecycle-set-class-regional`, `lifecycle-match-regional` | SetStorageClass `REGIONAL`; Delete for `matchesStorageClass` `REGIONAL` | The conflict | Matched since aligned |
+| `lifecycle-set-class-multi-regional` | SetStorageClass `MULTI_REGIONAL` from `DURABLE_REDUCED_AVAILABILITY` | 200, stored | Matched |
+| `grpc-write-class-regional`, `grpc-update-bucket-class-regional`, `grpc-rewrite-class-regional` | WriteObject, UpdateBucket and RewriteObject naming `REGIONAL` | The Storage v2 conflict | Matched since aligned (was UNIMPLEMENTED) |
+| `patch-class-multi-regional`, `upload-default-class` | PATCH `MULTI_REGIONAL`, then a multipart insert naming no class | 200; the object is `MULTI_REGIONAL` | Matched |
+
+Bucket creation alone (`bkt-gaps-legacy-class-create-region` and
+`bkt-gaps-legacy-class-create-multi-regional`): `REGIONAL` in `nam4` gave the
+conflict for `NAM4`, `REGIONAL` in `us-central1` was created with
+`locationType` `region`, and `MULTI_REGIONAL` in `us-central1` gave the
+conflict for `US-CENTRAL1`. gcs-mimic matches since aligned; it refused both
+`REGIONAL` creations as unsupported and created the `MULTI_REGIONAL` bucket.
+
+gcs-mimic now stores `REGIONAL` and checks every requested class against the
+bucket's location type in the catalog: on bucket insert, PATCH, PUT and Storage
+v2 UpdateBucket, on lifecycle rules (actions and matched classes), on every
+object publication, when an appendable object is created, when a rewrite
+session starts, before any byte is copied, and when a resumable upload is
+initiated. A lifecycle transition from `DURABLE_REDUCED_AVAILABILITY` to
+`REGIONAL` runs in a region bucket, and `REGIONAL` objects move to `NEARLINE`,
+`COLDLINE` and `ARCHIVE` at their age deadline, as the documented table allows.
+A rule an earlier release stored against a location, such as a regional
+`MULTI_REGIONAL` target, stays inert. A compose of components with different
+classes now uses the recorded message. The three `REGIONAL` markers in
+`bkt-unsupported-settings` were removed. `RAPID` stays unsupported, with the
+message `storageClass RAPID requires a zonal bucket`.
+
+gcs-mimic has no project registry. As in a bucket's `projectNumber`, the
+conflict names the numeric project ID, or `0` for any other local project, and
+the differential normalizer replaces `Project 0 may not` with the
+`<project-number>` placeholder that hides a recorded number.
+
+Inferred, not recorded: `MULTI_REGIONAL` in a dual-region is accepted, as the
+documentation says; resumable initiation refuses a class the location cannot
+hold, with the envelope sent as `text/html` like the multipart insert, rather
+than at finalization; a requested class must fit the location even in an
+Autoclass bucket, which stores `STANDARD`; an XML copy that inherits a source
+class the destination cannot hold is refused; an XML bucket creation naming such
+a class gets the XML conflict; several differing compose classes are separated
+by a comma and a space.
+
+Differences outside the classes remain open. The full Storage v2 UpdateBucket
+response of `grpc-update-bucket-class-regional` compares without `acl`,
+`defaultObjectAcl`, `createTime`, `updateTime` and `softDeletePolicy`: gcs-mimic
+omits `entityAlt` from bucket ACL entries, writes timestamps with six
+fractional digits where Cloud Storage gives three, and includes
+`softDeletePolicy.effectiveTime` for a bucket whose soft delete is off. These
+are tracked under SPEC-RESPONSE-WIRE-REMAINING.
+
+A replay of the merged reference with `--fail-on-diff --fail-on-note` on
+2026-11-17 found all **136** cases `match`, with no differing fields, notes or
+errors. The same source passed the workspace tests (3914 passed, 0 failed and
+1 ignored across 19 test binaries), the production lint gate with 0 new
+violations, `bash scripts/check-docs.sh` and `cargo xtask compatibility check`.

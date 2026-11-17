@@ -20,5 +20,6 @@ mod it_objects {
     mod rewrite_http;
     mod sdk_object_wire_http;
     mod sdk_ruby_defaults_http;
+    mod storage_class_location_http;
     mod undeclared_query_http;
 }

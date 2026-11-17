@@ -2,6 +2,7 @@ use super::{bucket_update::acl_entries, pb, status::unsupported};
 use crate::{
     acl::AclKind,
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
+    metadata_error::MetadataError,
     object::{
         MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, Patch, WriteMode,
         retention::{ObjectRetention, RetentionMode},
@@ -96,9 +97,13 @@ pub(super) fn validate(update: &ObjectMetadataUpdate) -> Result<(), Status> {
 }
 
 pub(super) fn input_error(error: ObjectError) -> Status {
-    if let ObjectError::Metadata(error) = error {
-        let message = error.message(super::bucket_update::proto_field);
-        return if error.unsupported() {
+    // A class the bucket's location cannot hold names no field, so it keeps the shared mapping
+    // and its BadRequest.
+    if let ObjectError::Metadata(metadata) = &error
+        && !matches!(metadata, MetadataError::ClassLocation(_))
+    {
+        let message = metadata.message(super::bucket_update::proto_field);
+        return if metadata.unsupported() {
             super::status::unsupported(&format!("unsupported metadata change: {message}"))
         } else {
             Status::invalid_argument(message)

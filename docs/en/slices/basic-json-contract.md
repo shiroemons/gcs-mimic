@@ -152,8 +152,11 @@ lifecycle; unchanged location is compared case-insensitively without relocation.
 Unknown/output-only input handling, no-effect revision increments and
 legacy PUT omission preservation remain local choices under SPEC-BUCKET-PATCH/PUT,
 without real-GCS verification. Classes are STANDARD, NEARLINE,
-COLDLINE, ARCHIVE, MULTI_REGIONAL and DURABLE_REDUCED_AVAILABILITY; REGIONAL/RAPID
-are 501. Default class updates do not rewrite existing objects.
+COLDLINE, ARCHIVE, MULTI_REGIONAL, REGIONAL and DURABLE_REDUCED_AVAILABILITY;
+REGIONAL fits only a region bucket and MULTI_REGIONAL only another location type,
+and a class the location cannot hold is 400 `invalid` as Cloud Storage answered
+(recorded 2026-11-17). RAPID is 400 `badRequest` as unsupported. Default class
+updates do not rewrite existing objects.
 
 ## Frozen object methods
 

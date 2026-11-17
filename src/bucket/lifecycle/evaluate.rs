@@ -1,8 +1,6 @@
 //! Pure lifecycle selection for one live or noncurrent object version.
 
-use super::{
-    LifecycleAction, LifecycleCondition, LifecycleDate, LifecycleMatchClass, LifecycleRule,
-};
+use super::{LifecycleAction, LifecycleCondition, LifecycleDate, LifecycleRule};
 use crate::bucket::StorageClass;
 use crate::object::unix_nanos::UnixNanos;
 use std::time::{Duration, SystemTime};
@@ -96,6 +94,7 @@ impl PlannedAction {
                 StorageClass::Coldline => Priority::Coldline,
                 StorageClass::Nearline => Priority::Nearline,
                 StorageClass::MultiRegional
+                | StorageClass::Regional
                 | StorageClass::Standard
                 | StorageClass::DurableReducedAvailability => Priority::Legacy,
             },
@@ -115,13 +114,16 @@ fn planned_action(action: LifecycleAction, current: StorageClass) -> Option<Plan
 
 fn supported_transition(current: StorageClass, target: StorageClass) -> bool {
     use StorageClass::{
-        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Standard,
+        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Regional, Standard,
     };
     match current {
         DurableReducedAvailability => {
-            matches!(target, Nearline | Coldline | Archive | MultiRegional)
+            matches!(
+                target,
+                Nearline | Coldline | Archive | MultiRegional | Regional
+            )
         }
-        Standard | MultiRegional => matches!(target, Nearline | Coldline | Archive),
+        Standard | MultiRegional | Regional => matches!(target, Nearline | Coldline | Archive),
         Nearline => matches!(target, Coldline | Archive),
         Coldline => target == Archive,
         Archive => false,
@@ -181,7 +183,7 @@ fn static_conditions_match(condition: &LifecycleCondition, facts: &VersionFacts<
         && (condition.matches_storage_class.is_empty()
             || condition
                 .matches_storage_class
-                .contains(&LifecycleMatchClass::Supported(facts.storage_class)))
+                .contains(&facts.storage_class))
         && condition
             .size_above_bytes
             .is_none_or(|size| facts.size > size.bytes())

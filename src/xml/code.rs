@@ -38,6 +38,8 @@ pub(super) enum XmlCode {
     AccessDenied,
     PreconditionFailed,
     UploadBrokenConnection,
+    /// A storage class the bucket's location cannot hold.
+    InvalidLocationConstraintStorageClassCombination,
     /// The XML API lists a socket that was not read from or written to in time under 400.
     RequestTimeout,
     Csek(CsekError),
@@ -100,6 +102,7 @@ impl XmlCode {
             | Self::InvalidPolicyDocument
             | Self::EntityTooSmall
             | Self::ContentLengthRangeInHeaderIsInvalid
+            | Self::InvalidLocationConstraintStorageClassCombination
             | Self::RequestTimeout
             | Self::Csek(_) => StatusCode::BAD_REQUEST,
         }
@@ -134,6 +137,9 @@ impl XmlCode {
             Self::InvalidPolicyDocument => "InvalidPolicyDocument",
             Self::EntityTooSmall => "EntityTooSmall",
             Self::ContentLengthRangeInHeaderIsInvalid => "ContentLengthRangeInHeaderIsInvalid",
+            Self::InvalidLocationConstraintStorageClassCombination => {
+                "InvalidLocationConstraintStorageClassCombination"
+            }
             Self::BucketNotEmpty => "BucketNotEmpty",
             Self::BucketNameUnavailable => "BucketNameUnavailable",
             Self::RetentionPolicyNotMet => "RetentionPolicyNotMet",

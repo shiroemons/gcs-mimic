@@ -44,8 +44,9 @@ cases pass.
   retirement using initiation age and name conditions.
 - XML and initialization-file lifecycle configuration depend on their own
   configuration features.
-- Deliberately unsupported: matchesPattern and REGIONAL/RAPID object/action
-  classes. Rejection and metadata round trips do not establish execution.
+- Deliberately unsupported: matchesPattern and RAPID object/action classes.
+  Rejection and metadata round trips do not establish execution. REGIONAL is
+  supported since 2026-11-17 where the bucket location fits it.
 - Authorized real-provider evidence remains necessary for remaining default
   normalization, validation error details, propagation and asynchronous timing.
   Separate Delete interaction cases track object-retained live archiving,
@@ -91,9 +92,13 @@ daysSinceCustomTime, daysSinceNoncurrentTime, isLive, matchesStorageClass,
 matchesPrefix, matchesSuffix, noncurrentTimeBefore, numNewerVersions,
 sizeAboveBytes and sizeBelowBytes.
 Delete and AbortIncompleteMultipartUpload omit action.storageClass;
-SetStorageClass requires it. Valid but unsupported classes, including REGIONAL
-and RAPID for actions and RAPID for matchesStorageClass, use the common
-unsupported response with the indexed field path. Invalid class names include
+SetStorageClass requires it. The valid but unsupported RAPID class, for actions
+and for matchesStorageClass, uses the common unsupported response with the
+indexed field path. A legacy class the bucket location cannot hold, REGIONAL
+outside a region or MULTI_REGIONAL in one, as an action or matched class, is
+400 invalid `Project <number> may not create storageClass <CLASS> buckets with
+locationConstraint <LOCATION>.`, as Cloud Storage answered (recorded
+2026-11-17). Invalid class names include
 a supported example in the error. Errors return 400 invalidArgument in native mode
 and 400 invalid in fake-gcs-server mode, with valid examples. Recognized
 unsupported conditions retain the common 400 badRequest response.
@@ -157,7 +162,8 @@ when a rule is evaluated; caching their midnight is not part of this change.
 Age zero follows the guide over the conflicting protobuf description; see the
 [source conflict](lifecycle-execution-research.md#google-contract).
 Location restrictions on legacy transitions belong to the sweep, which has the
-bucket location. REGIONAL and RAPID action classes remain unsupported.
+bucket location; since 2026-11-17 configuration also refuses them. RAPID action
+classes remain unsupported.
 
 Until the sweep applies class transitions, its `evaluate_delete_only` entry point
 never selects SetStorageClass. It also defers every Delete rule containing

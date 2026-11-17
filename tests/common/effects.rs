@@ -90,6 +90,16 @@ impl Server {
         media: &[u8],
         headers: &str,
     ) -> Reply {
+        self.multipart_in("test-bucket", boundary, metadata, media, headers)
+    }
+    pub(crate) fn multipart_in(
+        &self,
+        bucket: &str,
+        boundary: &str,
+        metadata: &str,
+        media: &[u8],
+        headers: &str,
+    ) -> Reply {
         let mut body = format!("--{boundary}\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: text/plain\r\n\r\n").into_bytes();
         body.extend_from_slice(media);
         body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
@@ -101,7 +111,7 @@ impl Server {
         }
         .request_eof(
             "POST",
-            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart",
+            &format!("/upload/storage/v1/b/{bucket}/o?uploadType=multipart"),
             &format!("{headers}Content-Type: multipart/related; boundary={boundary}\r\n"),
             &body,
         )

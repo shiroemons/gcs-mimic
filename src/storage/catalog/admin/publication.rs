@@ -1101,7 +1101,7 @@ fn publish_checked_entry(
     let name = entry.name.as_str();
     let (_, delete_permission) = objects::authorized_bucket(transaction, bucket, &access)?;
     let publication = objects::BucketPublication::load(transaction, bucket)?;
-    let storage_class = publication.storage_class(entry.request.metadata.storage_class);
+    let storage_class = publication.storage_class(entry.request.metadata.storage_class)?;
     let previous = objects::lookup(transaction, bucket, name)?;
     objects::check_publication(
         previous.as_ref(),

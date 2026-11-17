@@ -80,7 +80,10 @@ the checked bucket contract does not explicitly specify case folding, so lowerca
 as unsupported. Storage classes are the Discovery values `STANDARD`, `NEARLINE`, `COLDLINE`,
 `ARCHIVE`, `MULTI_REGIONAL`, `DURABLE_REDUCED_AVAILABILITY`; `REGIONAL` and `RAPID` return
 501 because their required region/zone locations are outside this subset. This slice records
-bucket defaults only and implements no object placement or class transitions.
+bucket defaults only and implements no object placement or class transitions. Later slices
+added regional locations, and since 2026-11-17 `REGIONAL` is stored in a region bucket while
+a legacy class the location cannot hold is refused as Cloud Storage refused it; `RAPID`
+remains unsupported.
 
 Soft delete, retention, lifecycle, default ACLs and organization policy defaults are
 not simulated. In particular, Google's default soft-delete retention is not applied: deleting
@@ -296,7 +299,8 @@ These IDs describe observable assertions; catalog cases remain integration oblig
 7. The current storage-class guide describes `RAPID` and its zonal restriction, while the
    checked Discovery storageClass description lists only the seven older classes. This is
    not evidence of absence: RAPID is recognized and rejected as unsupported, not accepted or
-   treated as a typo. REGIONAL is also rejected because this subset has no regional locations.
+   treated as a typo. REGIONAL was also rejected because this subset had no regional locations;
+   it is stored in a region bucket since 2026-11-17.
 
 ## Adapter integration API
 

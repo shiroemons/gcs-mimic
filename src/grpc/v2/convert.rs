@@ -637,6 +637,7 @@ mod tests {
             "COLDLINE",
             "ARCHIVE",
             "MULTI_REGIONAL",
+            "REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
             record.storage_class = class.parse().unwrap();

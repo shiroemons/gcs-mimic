@@ -50,30 +50,38 @@ impl Combined {
     }
 }
 
-/// Combines source checksums and component counts; a `requested` destination class must match
-/// the sources'.
+/// Combines source checksums and component counts. Every source must have the destination's
+/// class: the `requested` one or, without it, the first source's.
 fn combine_sources(
     sources: &[DerivedSource],
     disposal: SourceDisposal,
     clock: &dyn Clock,
     requested: Option<StorageClass>,
 ) -> Result<Combined, ObjectError> {
-    let class = sources
+    let first = sources
         .first()
         .ok_or_else(|| {
             ObjectError::InvalidDerivedArgument("Compose requires at least one source".into())
         })?
         .object
         .storage_class;
+    let class = requested.unwrap_or(first);
+    let mut differing = Vec::new();
+    for source_class in sources.iter().map(|source| source.object.storage_class) {
+        if source_class != class && !differing.contains(&source_class) {
+            differing.push(source_class);
+        }
+    }
+    if !differing.is_empty() {
+        return Err(ObjectError::ComposeClassMismatch {
+            destination: class,
+            sources: differing,
+        });
+    }
     let mut crc = 0;
     let mut count = 0_i64;
     let mut keys = BTreeSet::new();
     for source in sources {
-        if source.object.storage_class != class {
-            return Err(ObjectError::InvalidDerivedArgument(
-                "Compose sources must use the same storage class".into(),
-            ));
-        }
         if disposal == SourceDisposal::Delete {
             source.object.check_retention(clock.now())?;
         }
@@ -86,14 +94,6 @@ fn combine_sources(
             .saturating_add(source.object.component_count.unwrap_or(1))
             .min(i32::MAX as i64);
         keys.insert((source.object.name.clone(), source.object.generation));
-    }
-    if let Some(requested) = requested
-        && requested != class
-    {
-        return Err(ObjectError::ComposeClassMismatch {
-            requested,
-            sources: class,
-        });
     }
     Ok(Combined {
         keys,

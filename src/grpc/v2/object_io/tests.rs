@@ -1064,7 +1064,9 @@ async fn grpc_io_write_spec_storage_class() {
     assert_eq!(stored.storage_class.as_str(), "COLDLINE");
     for (class, code) in [
         ("GLACIER", tonic::Code::InvalidArgument),
-        ("REGIONAL", tonic::Code::Unimplemented),
+        ("RAPID", tonic::Code::Unimplemented),
+        // The multi-region bucket cannot hold the legacy REGIONAL class (recorded 2026-11-17).
+        ("REGIONAL", tonic::Code::InvalidArgument),
     ] {
         let mut bad = request.clone();
         let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
@@ -1098,7 +1100,7 @@ async fn grpc_class_and_stale_conditions_keep_error_precedence() {
         .await
         .unwrap();
     let mut snapshots = Vec::new();
-    for class in ["REGIONAL", "standard", "UNKNOWN"] {
+    for class in ["RAPID", "standard", "UNKNOWN"] {
         let mut request = message("held", b"x");
         let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
             &mut request.first_message
@@ -1192,7 +1194,7 @@ async fn grpc_class_and_stale_conditions_keep_error_precedence() {
         );
     }
     let mut expected = Vec::new();
-    for class in ["REGIONAL", "standard", "UNKNOWN"] {
+    for class in ["RAPID", "standard", "UNKNOWN"] {
         for label in [
             "write",
             "start-resumable",
@@ -1205,11 +1207,11 @@ async fn grpc_class_and_stale_conditions_keep_error_precedence() {
                     "FailedPrecondition",
                     "At least one of the pre-conditions you specified did not hold.".to_owned(),
                 )
-            } else if class == "REGIONAL" {
+            } else if class == "RAPID" {
                 ("Unimplemented", if matches!(label, "write" | "start-resumable") {
-                    "gcs-mimic does not support gRPC unsupported metadata change: storage_class=REGIONAL: storage_class requires a region or zone; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+                    "gcs-mimic does not support gRPC unsupported metadata change: storage_class=RAPID: storage_class requires a zonal bucket; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
                 } else {
-                    "gcs-mimic does not support bucket API setting storage_class requires a region or zone; omit this setting (for example, create a bucket with only name)."
+                    "gcs-mimic does not support bucket API setting storage_class RAPID requires a zonal bucket; omit this setting (for example, create a bucket with only name)."
                 }.to_owned())
             } else {
                 ("InvalidArgument", match label {

@@ -560,7 +560,7 @@ impl ObjectField {
                 "Use an exact supported object storageClass such as STANDARD; empty, lowercase and unknown values are invalid."
             }
             Self::StorageClassUnsupported => {
-                "Use an adapter supporting regional/zonal placement; REGIONAL and RAPID cannot be preserved by native publication."
+                "Use an adapter supporting zonal placement; RAPID cannot be preserved by native publication."
             }
             Self::ContentType
             | Self::ContentEncoding
@@ -717,9 +717,9 @@ pub(super) fn check_object_fields(
         Ok(class) => Ok(class),
         Err(error) => {
             let (field, reason) = match error {
-                InvalidStorageClass::RequiresLocation => (
+                InvalidStorageClass::RequiresZone => (
                     ObjectField::StorageClassUnsupported,
-                    "object storageClass requires a region or zone",
+                    "object storageClass RAPID requires a zonal bucket",
                 ),
                 InvalidStorageClass::Unknown => (
                     ObjectField::StorageClassInvalid,

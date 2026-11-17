@@ -36,6 +36,7 @@ storage_classes! {
     Coldline,
     Archive,
     MultiRegional,
+    Regional,
     DurableReducedAvailability,
 }
 
@@ -47,8 +48,74 @@ impl StorageClass {
             Self::Coldline => "COLDLINE",
             Self::Archive => "ARCHIVE",
             Self::MultiRegional => "MULTI_REGIONAL",
+            Self::Regional => "REGIONAL",
             Self::DurableReducedAvailability => "DURABLE_REDUCED_AVAILABILITY",
         }
+    }
+
+    /// Whether a bucket of `kind` can hold the class. Cloud Storage keeps the legacy REGIONAL
+    /// class to regions and MULTI_REGIONAL to multi-regions (recorded 2026-11-17); a dual-region
+    /// refused REGIONAL and is assumed to accept MULTI_REGIONAL, as the documentation says.
+    pub(crate) const fn fits(self, kind: LocationKind) -> bool {
+        match self {
+            Self::Regional => matches!(kind, LocationKind::Region),
+            Self::MultiRegional => !matches!(kind, LocationKind::Region),
+            Self::Standard
+            | Self::Nearline
+            | Self::Coldline
+            | Self::Archive
+            | Self::DurableReducedAvailability => true,
+        }
+    }
+}
+
+/// A storage class that a bucket's location cannot hold. Cloud Storage gives the same refusal
+/// wherever a request names the class: a bucket's default, an object's class and a lifecycle
+/// action or condition (recorded 2026-11-17).
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClassLocationConflict {
+    project_number: String,
+    class: StorageClass,
+    location: Location,
+}
+
+impl ClassLocationConflict {
+    /// Checks `class` against a bucket of `project` in `location`.
+    pub(crate) fn check(
+        class: StorageClass,
+        location: Location,
+        project: &str,
+    ) -> Result<(), Self> {
+        if class.fits(location.kind()) {
+            return Ok(());
+        }
+        Err(Self {
+            project_number: crate::acl::project_number(project),
+            class,
+            location,
+        })
+    }
+}
+
+impl fmt::Display for ClassLocationConflict {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "Project {} may not create storageClass {} buckets with locationConstraint {}.",
+            self.project_number,
+            self.class.as_str(),
+            self.location.as_str()
+        )
+    }
+}
+
+impl std::error::Error for ClassLocationConflict {}
+
+impl From<ClassLocationConflict> for CatalogError {
+    fn from(conflict: ClassLocationConflict) -> Self {
+        Self::Metadata(crate::metadata_error::MetadataError::ClassLocation(
+            conflict,
+        ))
     }
 }
 
@@ -64,16 +131,16 @@ impl fmt::Debug for StorageClass {
 /// Why a name is not a storage class the emulator stores; each caller words its own refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InvalidStorageClass {
-    /// `REGIONAL` and `RAPID` are real classes, but they need a region or zone.
-    RequiresLocation,
+    /// `RAPID` is a real class, but it needs a zonal bucket.
+    RequiresZone,
     Unknown,
 }
 
 impl From<InvalidStorageClass> for CatalogError {
     fn from(error: InvalidStorageClass) -> Self {
         match error {
-            InvalidStorageClass::RequiresLocation => {
-                Self::Metadata(crate::metadata_error::MetadataError::StorageClassRequiresLocation)
+            InvalidStorageClass::RequiresZone => {
+                Self::Metadata(crate::metadata_error::MetadataError::StorageClassRequiresZone)
             }
             InvalidStorageClass::Unknown => {
                 Self::InvalidMetadata("The storage class you specified is not valid.".into())
@@ -93,7 +160,8 @@ impl StorageClass {
             "ARCHIVE" => Ok(Self::Archive),
             "MULTI_REGIONAL" => Ok(Self::MultiRegional),
             "DURABLE_REDUCED_AVAILABILITY" => Ok(Self::DurableReducedAvailability),
-            "REGIONAL" | "RAPID" => Err(InvalidStorageClass::RequiresLocation),
+            "REGIONAL" => Ok(Self::Regional),
+            "RAPID" => Err(InvalidStorageClass::RequiresZone),
             _ => Err(InvalidStorageClass::Unknown),
         }
     }
@@ -526,7 +594,7 @@ pub(crate) fn validate_update_storage_class(class: &str) -> Result<StorageClass,
         InvalidStorageClass::Unknown => CatalogError::Metadata(
             crate::metadata_error::MetadataError::InvalidUpdateStorageClass(class.into()),
         ),
-        InvalidStorageClass::RequiresLocation => error.into(),
+        InvalidStorageClass::RequiresZone => error.into(),
     })
 }
 
@@ -798,17 +866,50 @@ mod tests {
             "COLDLINE",
             "ARCHIVE",
             "MULTI_REGIONAL",
+            "REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
             assert!(validate_storage_class(class).is_ok(), "{class}");
         }
-        for class in ["REGIONAL", "RAPID"] {
+        assert_eq!(
+            validate_storage_class("RAPID"),
+            Err(CatalogError::Metadata(
+                crate::metadata_error::MetadataError::StorageClassRequiresZone
+            ))
+        );
+    }
+
+    #[test]
+    fn legacy_classes_fit_only_their_location_type() {
+        let [region, dual, multi] = ["US-CENTRAL1", "NAM4", "US"]
+            .map(|name| name.parse::<Location>().expect("an official location"));
+        for (class, fitting) in [
+            (StorageClass::Regional, vec![region]),
+            (StorageClass::MultiRegional, vec![dual, multi]),
+            (StorageClass::Standard, vec![region, dual, multi]),
+            (
+                StorageClass::DurableReducedAvailability,
+                vec![region, dual, multi],
+            ),
+        ] {
+            for location in [region, dual, multi] {
+                assert_eq!(
+                    ClassLocationConflict::check(class, location, "local").is_ok(),
+                    fitting.contains(&location),
+                    "{class:?} in {}",
+                    location.as_str()
+                );
+            }
+        }
+        // A numeric project ID is its own number; another local project has number 0.
+        for (project, number) in [("local", "0"), ("123456", "123456")] {
             assert_eq!(
-                validate_storage_class(class),
-                Err(CatalogError::Metadata(
-                    crate::metadata_error::MetadataError::StorageClassRequiresLocation
-                )),
-                "{class}"
+                ClassLocationConflict::check(StorageClass::Regional, multi, project)
+                    .unwrap_err()
+                    .to_string(),
+                format!(
+                    "Project {number} may not create storageClass REGIONAL buckets with locationConstraint US."
+                )
             );
         }
         for class in ["standard", "", "UNKNOWN", " STANDARD"] {

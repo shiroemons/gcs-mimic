@@ -827,7 +827,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     assert!(matches!(
         "RAPID".parse::<crate::bucket::StorageClass>(),
         Err(CatalogError::Metadata(
-            crate::metadata_error::MetadataError::StorageClassRequiresLocation
+            crate::metadata_error::MetadataError::StorageClassRequiresZone
         ))
     ));
     assert_eq!(

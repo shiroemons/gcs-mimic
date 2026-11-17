@@ -3123,6 +3123,74 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// The legacy REGIONAL class lives only in a region. Cloud Storage refused it in a
+    /// multi-region bucket on UpdateBucket and RewriteObject with a BadRequest, and served it in
+    /// a regional one (recorded 2026-11-17, cases bkt-gaps-legacy-class-*).
+    #[tokio::test]
+    async fn grpc_regional_class_follows_the_bucket_location() {
+        let (s, _dir) = setup().await;
+        upload(&s, "source", 4).await;
+        let regional = json!({"name":"update-copy-regional","location":"us-central1","storageClass":"REGIONAL"});
+        s.state
+            .catalog
+            .insert_bucket(
+                json::parse_insert(
+                    regional.to_string().as_bytes(),
+                    "local-project",
+                    std::time::SystemTime::now(),
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let update = |bucket: &str| pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: format!("projects/_/buckets/{bucket}"),
+                storage_class: "REGIONAL".into(),
+                ..Default::default()
+            }),
+            update_mask: fixtures::mask(&["storage_class"]),
+            ..Default::default()
+        };
+        let rewrite = |bucket: &str| pb::RewriteObjectRequest {
+            source_bucket: RESOURCE.into(),
+            source_object: "source".into(),
+            destination_bucket: format!("projects/_/buckets/{bucket}"),
+            destination_name: "rewritten".into(),
+            destination: Some(pb::Object {
+                storage_class: "REGIONAL".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let refused =
+            "Project 0 may not create storageClass REGIONAL buckets with locationConstraint US.";
+        assert_bad_request(
+            s.update_bucket(Request::new(update("update-copy-bucket")), None)
+                .await,
+            refused,
+        );
+        assert_bad_request(
+            s.rewrite_object(Request::new(rewrite("update-copy-bucket")), None)
+                .await,
+            refused,
+        );
+        assert!(stored_object(&s, "rewritten").await.is_none());
+        let updated = s
+            .update_bucket(Request::new(update("update-copy-regional")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(updated.storage_class, "REGIONAL");
+        let rewritten = s
+            .rewrite_object(Request::new(rewrite("update-copy-regional")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(rewritten.resource.unwrap().storage_class, "REGIONAL");
+        s.state.catalog.close().await.unwrap();
+    }
+
     /// A rewrite token binds the checksums its first call verified: a continuation that names
     /// others is refused, and one that repeats them carries on.
     #[tokio::test]

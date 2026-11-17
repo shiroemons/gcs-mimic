@@ -779,7 +779,8 @@ fields are absent. No dry-run report is publication authority or a losslessness
 certificate. Memory exports remain a separate unavailable format.
 
 Native storage-class and fixed-header validation is shared with API parsing:
-unsupported REGIONAL/RAPID placement, non-ASCII/control-character header
+unsupported RAPID placement (a legacy class is checked against the bucket
+location only when the object is published), non-ASCII/control-character header
 values and over-100-character contentLanguage values block inspection. Source
 corruption carries its field, reason and cause-specific remedy; a missing
 sidecar is an attribute-missing finding, not a generic filesystem failure.

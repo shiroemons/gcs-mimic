@@ -127,6 +127,10 @@ impl From<crate::json::JsonError> for Status {
         if error.kind == crate::json::ErrorKind::NotModified {
             error.message = NOT_MODIFIED.into();
         }
+        // Cloud Storage repeats this refusal in a BadRequest (recorded 2026-11-17).
+        if error.kind == crate::json::ErrorKind::ClassLocation {
+            return invalid_field(error.message);
+        }
         if error.kind == crate::json::ErrorKind::Unsupported {
             return unsupported_message(error.message);
         }

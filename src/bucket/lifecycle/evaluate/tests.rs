@@ -464,18 +464,16 @@ fn name_conditions_match_any_entry_case_sensitively_and_combine_with_and() {
 #[test]
 fn storage_class_conditions_match_any_list_entry() {
     let mut facts = version();
-    for class in [
-        StorageClass::Standard,
-        StorageClass::MultiRegional,
-        StorageClass::DurableReducedAvailability,
-        StorageClass::Nearline,
-        StorageClass::Coldline,
-        StorageClass::Archive,
-    ] {
+    for &class in StorageClass::ALL {
+        let other = if class == StorageClass::Regional {
+            StorageClass::Archive
+        } else {
+            StorageClass::Regional
+        };
         facts.storage_class = class;
         assert_evaluation(
             &[delete(
-                json!({"matchesStorageClass":["REGIONAL",class.as_str()]}),
+                json!({"matchesStorageClass":[other.as_str(), class.as_str()]}),
             )],
             &facts,
             created(&facts),
@@ -483,7 +481,7 @@ fn storage_class_conditions_match_any_list_entry() {
             None,
         );
         assert_evaluation(
-            &[delete(json!({"matchesStorageClass":["REGIONAL"]}))],
+            &[delete(json!({"matchesStorageClass":[other.as_str()]}))],
             &facts,
             created(&facts),
             None,
@@ -586,20 +584,33 @@ fn abort_rules_never_select_an_object_action_or_deadline() {
 #[test]
 fn only_documented_storage_class_transitions_are_selected() {
     use StorageClass::{
-        Archive, Coldline, DurableReducedAvailability as Dra, MultiRegional, Nearline, Standard,
+        Archive, Coldline, DurableReducedAvailability as Dra, MultiRegional, Nearline, Regional,
+        Standard,
     };
-    let classes = [Standard, MultiRegional, Dra, Nearline, Coldline, Archive];
+    let classes = [
+        Standard,
+        MultiRegional,
+        Regional,
+        Dra,
+        Nearline,
+        Coldline,
+        Archive,
+    ];
     let transitions = [
         (Dra, Nearline),
         (Dra, Coldline),
         (Dra, Archive),
         (Dra, MultiRegional),
+        (Dra, Regional),
         (Standard, Nearline),
         (Standard, Coldline),
         (Standard, Archive),
         (MultiRegional, Nearline),
         (MultiRegional, Coldline),
         (MultiRegional, Archive),
+        (Regional, Nearline),
+        (Regional, Coldline),
+        (Regional, Archive),
         (Nearline, Coldline),
         (Nearline, Archive),
         (Coldline, Archive),
@@ -626,19 +637,28 @@ fn only_documented_storage_class_transitions_are_selected() {
     }
 }
 
+/// MULTI_REGIONAL and REGIONAL never share a bucket, whose location holds only one of them, so
+/// each legacy class is checked with the classes every location holds.
 #[test]
 fn reachable_actions_have_distinct_priorities() {
     use StorageClass::{
-        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Standard,
+        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Regional, Standard,
     };
-    let classes = [
-        Standard,
-        MultiRegional,
-        DurableReducedAvailability,
-        Nearline,
-        Coldline,
-        Archive,
-    ];
+    for classes in [MultiRegional, Regional].map(|legacy| {
+        [
+            Standard,
+            legacy,
+            DurableReducedAvailability,
+            Nearline,
+            Coldline,
+            Archive,
+        ]
+    }) {
+        reachable_actions_differ(classes);
+    }
+}
+
+fn reachable_actions_differ(classes: [StorageClass; 6]) {
     for current in classes {
         let actions = std::iter::once(LifecycleAction::Delete)
             .chain(classes.map(LifecycleAction::SetStorageClass))
@@ -761,12 +781,12 @@ fn a_class_dependent_delete_yields_even_when_it_became_due_first() {
 #[test]
 fn supported_class_transitions_form_an_acyclic_graph() {
     use StorageClass::{
-        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Standard,
+        Archive, Coldline, DurableReducedAvailability, MultiRegional, Nearline, Regional, Standard,
     };
     fn rank(class: StorageClass) -> u8 {
         match class {
             DurableReducedAvailability => 0,
-            Standard | MultiRegional => 1,
+            Standard | MultiRegional | Regional => 1,
             Nearline => 2,
             Coldline => 3,
             Archive => 4,

@@ -6,6 +6,7 @@ use crate::{
         autoclass::AutoclassUpdate,
     },
     json::JsonError,
+    metadata_error::MetadataError,
     object::MapPatch,
 };
 use tonic::Status;
@@ -30,6 +31,8 @@ pub(super) fn from_proto(
 )]
 pub(super) fn input_error(error: CatalogError) -> Status {
     match error {
+        // Names no field, so it keeps the shared mapping and its BadRequest.
+        error @ CatalogError::Metadata(MetadataError::ClassLocation(_)) => error.into(),
         CatalogError::Metadata(reason) => {
             let message = reason.message(proto_field);
             if reason.unsupported() {

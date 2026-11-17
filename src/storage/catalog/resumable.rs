@@ -271,6 +271,10 @@ fn stage_session(
 ) -> Result<(), ResumableError> {
     let (_, delete_permission) =
         super::objects::authorized_bucket(transaction, &request.bucket, &request.options.access)?;
+    // Refuses a class the bucket's location cannot hold before any byte arrives rather than at
+    // publication; no recording shows when Cloud Storage refuses it.
+    super::objects::BucketPublication::load(transaction, &request.bucket)?
+        .check_class(request.options.metadata.storage_class)?;
     let previous = super::objects::lookup(transaction, &request.bucket, &request.name)?;
     let now = catalog.0.clock.now();
     super::objects::check_publication(

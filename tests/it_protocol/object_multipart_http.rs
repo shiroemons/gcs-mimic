@@ -690,7 +690,7 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
     server
         .upload(
             "name=existing",
-            &wire(br#"{"storageClass":"REGIONAL"}"#, None, b"new", None),
+            &wire(br#"{"storageClass":"RAPID"}"#, None, b"new", None),
         )
         .json_reason(400, "badRequest");
     for (value, reason) in [

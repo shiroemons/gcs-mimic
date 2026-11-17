@@ -331,11 +331,19 @@ pub struct ObjectMetadataUpdate {
     pub storage_class: Option<StorageClass>,
 }
 
+impl From<crate::bucket::ClassLocationConflict> for ObjectError {
+    fn from(conflict: crate::bucket::ClassLocationConflict) -> Self {
+        Self::Metadata(crate::metadata_error::MetadataError::ClassLocation(
+            conflict,
+        ))
+    }
+}
+
 pub(crate) fn validate_object_storage_class(class: &str) -> Result<StorageClass, ObjectError> {
     use crate::{bucket::InvalidStorageClass, metadata_error::MetadataError};
     StorageClass::from_name(class).map_err(|error| {
         ObjectError::Metadata(match error {
-            InvalidStorageClass::RequiresLocation => {
+            InvalidStorageClass::RequiresZone => {
                 MetadataError::UnsupportedObjectStorageClass(class.into())
             }
             InvalidStorageClass::Unknown => MetadataError::ObjectStorageClass,
@@ -949,10 +957,12 @@ pub(crate) enum ObjectError {
     UniformAccessAclUpdate,
     Metadata(crate::metadata_error::MetadataError),
     InvalidDerivedArgument(String),
-    /// A compose destination named a storage class its components do not share.
+    /// Compose components whose classes are not all the destination's: the class the request
+    /// named or, without one, the first component's.
     ComposeClassMismatch {
-        requested: StorageClass,
-        sources: StorageClass,
+        destination: StorageClass,
+        /// The other component classes, each once in component order; never empty.
+        sources: Vec<StorageClass>,
     },
     DerivedTransferNotFound,
     DerivedTransferExpired,
@@ -1009,12 +1019,20 @@ impl fmt::Display for ObjectError {
             }
             Self::Metadata(error) => error.fmt(formatter),
             Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
-            // Cloud Storage's wording (recorded 2026-11-13).
-            Self::ComposeClassMismatch { requested, sources } => write!(
+            // Cloud Storage's wording (recorded 2026-11-13 for a named class and 2026-11-17 for
+            // mixed components); the separator between several classes is not recorded.
+            Self::ComposeClassMismatch {
+                destination,
+                sources,
+            } => write!(
                 formatter,
                 "Cannot compose object with destination storage class {} from source components that have different storage classes ({}).",
-                requested.as_str(),
-                sources.as_str()
+                destination.as_str(),
+                sources
+                    .iter()
+                    .map(|class| class.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             Self::DerivedTransferNotFound => formatter.write_str("derived transfer not found"),
             Self::DerivedTransferExpired => formatter.write_str("derived transfer expired"),

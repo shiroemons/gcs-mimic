@@ -381,6 +381,25 @@ fn xml_bucket_creation_uses_configured_default_and_preserves_explicit_location()
     server
         .request("HEAD", "/invalid-location", "", "")
         .expect(404);
+    // A class the location cannot hold gets the XML refusal Cloud Storage gave an object of that
+    // class (recorded 2026-11-17); its answer to an XML bucket creation was not recorded.
+    let regional_in_us = "<CreateBucketConfiguration><LocationConstraint>US</LocationConstraint><StorageClass>REGIONAL</StorageClass></CreateBucketConfiguration>";
+    let refused = server.request("PUT", "/regional-in-us", PROJECT, regional_in_us);
+    refused.expect(400);
+    assert!(
+        refused
+            .body
+            .contains("<Code>InvalidLocationConstraintStorageClassCombination</Code>"),
+        "{}",
+        refused.body
+    );
+    server
+        .request("HEAD", "/regional-in-us", "", "")
+        .expect(404);
+    let regional = "<CreateBucketConfiguration><LocationConstraint>us-central1</LocationConstraint><StorageClass>REGIONAL</StorageClass></CreateBucketConfiguration>";
+    server
+        .request("PUT", "/regional-in-region", PROJECT, regional)
+        .expect(200);
 }
 
 #[test]

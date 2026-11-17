@@ -447,6 +447,7 @@ mod tests {
             "COLDLINE",
             "ARCHIVE",
             "MULTI_REGIONAL",
+            "REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
             let input = format!(

@@ -1363,15 +1363,17 @@ fn bkt_ins_003_location_and_storage_class_subset() {
             "invalid"
         );
     }
-    for class in ["REGIONAL", "RAPID"] {
-        let body = json!({"name":"abc", "storageClass":class});
-        assert_eq!(
-            parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH)
-                .unwrap_err()
-                .status,
-            StatusCode::BAD_REQUEST
-        );
-    }
+    let rapid = json!({"name":"abc", "storageClass":"RAPID"});
+    assert_eq!(
+        parse_insert(rapid.to_string().as_bytes(), "p", UNIX_EPOCH)
+            .unwrap_err()
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    // The catalog checks a class against the location; parsing keeps the legacy class.
+    let regional = json!({"name":"abc", "location":"us-east1", "storageClass":"REGIONAL"});
+    let bucket = parse_insert(regional.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
+    assert_eq!(bucket.storage_class.as_str(), "REGIONAL");
 }
 
 #[test]

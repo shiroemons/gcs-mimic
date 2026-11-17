@@ -42,9 +42,10 @@ fn bit(class: StorageClass) -> u8 {
         StorageClass::DurableReducedAvailability => 0,
         StorageClass::Standard => 1,
         StorageClass::MultiRegional => 2,
-        StorageClass::Nearline => 3,
-        StorageClass::Coldline => 4,
-        StorageClass::Archive => 5,
+        StorageClass::Regional => 3,
+        StorageClass::Nearline => 4,
+        StorageClass::Coldline => 5,
+        StorageClass::Archive => 6,
     }
 }
 
@@ -105,11 +106,7 @@ impl<'a> OracleRule<'a> {
     fn candidate(&self, class: StorageClass, now: SystemTime) -> Option<PlannedAction> {
         if self.due.is_none_or(|due| due > now)
             || (!self.rule.condition.matches_storage_class.is_empty()
-                && !self
-                    .rule
-                    .condition
-                    .matches_storage_class
-                    .contains(&LifecycleMatchClass::Supported(class)))
+                && !self.rule.condition.matches_storage_class.contains(&class))
         {
             return None;
         }
@@ -146,7 +143,7 @@ fn baseline(
         .filter_map(|rule| rule.candidate(class, now))
         .min_by_key(|action| match action {
             PlannedAction::Delete => 0,
-            PlannedAction::SetStorageClass(class) => 64 - bit(*class),
+            PlannedAction::SetStorageClass(class) => 128 - bit(*class),
         })
 }
 

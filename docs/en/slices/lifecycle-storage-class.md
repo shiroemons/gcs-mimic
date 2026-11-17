@@ -12,13 +12,13 @@ The supported transitions are:
 
 | Source | Destinations |
 | --- | --- |
-| `DURABLE_REDUCED_AVAILABILITY` | `MULTI_REGIONAL`, `NEARLINE`, `COLDLINE`, `ARCHIVE` |
-| `STANDARD`, `MULTI_REGIONAL` | `NEARLINE`, `COLDLINE`, `ARCHIVE` |
+| `DURABLE_REDUCED_AVAILABILITY` | `MULTI_REGIONAL`, `REGIONAL`, `NEARLINE`, `COLDLINE`, `ARCHIVE` |
+| `STANDARD`, `MULTI_REGIONAL`, `REGIONAL` | `NEARLINE`, `COLDLINE`, `ARCHIVE` |
 | `NEARLINE` | `COLDLINE`, `ARCHIVE` |
 | `COLDLINE` | `ARCHIVE` |
 | `ARCHIVE` | None |
 
-Unlisted or identical transitions are accepted but inert. `MULTI_REGIONAL` is eligible only in multi-region or dual-region buckets. Unknown location kinds do not transition; this defensive catalog check does not establish zonal-bucket support. `REGIONAL` and `RAPID` object/action classes remain unsupported. Autoclass validation rejects transition rules and `matchesStorageClass` without changing stored rules or objects. Enabling Autoclass after removing rules updates the class time of changed live/noncurrent classes; soft-deleted and already-Standard classes retain theirs.
+Unlisted or identical transitions are accepted but inert. `MULTI_REGIONAL` is eligible only in multi-region or dual-region buckets and `REGIONAL` only in region buckets. Since 2026-11-17 configuration refuses a SetStorageClass target or `matchesStorageClass` class the bucket location cannot hold with Cloud Storage's 400 `invalid` `Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.` (recorded; see the [seventh gap recording](../evidence/provider-differential-gap-probes.md#seventh-recording-legacy-storage-classes-and-bucket-location)); a rule an earlier release stored that way stays inert. Unknown location kinds do not transition; this defensive catalog check does not establish zonal-bucket support. The `RAPID` object/action class remains unsupported. `DURABLE_REDUCED_AVAILABILITY` to `REGIONAL` and the three transitions from a `REGIONAL` source run in a region bucket under test. Autoclass validation rejects transition rules and `matchesStorageClass` without changing stored rules or objects. Enabling Autoclass after removing rules updates the class time of changed live/noncurrent classes; soft-deleted and already-Standard classes retain theirs.
 
 Selection uses current rules and facts at the physical pass time. A matching Delete without `matchesStorageClass` wins. If every matching Delete has a storage-class condition and an applicable transition exists, the transition wins instead. Among transitions, the coldest eligible supported destination wins regardless of rule order. Applicable means its conditions match now and the transition table and bucket location permit an actual class change. Inert or future transitions cannot defer Delete. After a class change, the same transaction re-evaluates the new class at the same time: a Delete still matching that class runs immediately.
 
@@ -66,9 +66,9 @@ Metageneration increment, class timestamps and metadata notifications follow gen
 
 | Acceptance | Executed test evidence |
 | --- | --- |
-| Full represented transition table and exact age boundaries | `every_supported_transition_and_inert_pair_obey_exact_age_deadlines` |
+| Transition table among the six classes other than `REGIONAL` and exact age boundaries | `every_supported_transition_and_inert_pair_obey_exact_age_deadlines` |
 | In-place metadata, ETag, stable bytes and no repeated transition | `a_selected_storage_class_action_updates_metadata_once` |
-| Location limits and Autoclass configuration rejection | `location_incompatible_transitions_are_stored_but_inert`, `autoclass_rejects_transition_configuration_without_changing_objects_or_rules` |
+| Location limits and Autoclass configuration rejection | `location_incompatible_transitions_are_refused_and_stored_ones_stay_inert`, `a_lifecycle_class_must_fit_the_bucket_location`, `autoclass_rejects_transition_configuration_without_changing_objects_or_rules` |
 | Current priority, inert/future targets, independent Delete and same-pass re-evaluation | `a_class_dependent_delete_yields_only_to_an_applicable_transition`, `an_independent_delete_wins_even_when_a_class_dependent_delete_also_matches`, `a_delete_matching_the_resulting_class_still_runs_in_the_same_transaction` |
 | Late first pass and disabled-to-enabled execution | `a_late_first_pass_transitions_before_an_old_class_delete`, `enabling_or_replacing_rules_evaluates_current_class_candidates` |
 | Current rules, immediate Custom-Time and unchanged noncurrent history | `newly_configured_rules_choose_current_candidates_without_replaying_old_deadlines`, `newly_configured_rules_preserve_the_observed_noncurrent_time`, `backdated_custom_time_is_effective_immediately_on_upload_or_patch` |

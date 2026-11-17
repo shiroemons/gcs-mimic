@@ -7816,7 +7816,7 @@
         },
         {
           "id": "PATCH-CLASS",
-          "description": "Change supported default storageClass without rewriting objects; invalid/null/empty class is 400 and unsupported region/zone classes are 501.",
+          "description": "Change supported default storageClass without rewriting objects; invalid/null/empty class is 400, a legacy class the bucket's location cannot hold is 400 invalid and the unsupported zonal RAPID class is 400 badRequest.",
           "result": "PASS",
           "test_ids": [
             "bucket_patch_label_boundaries_and_classes",
@@ -13388,14 +13388,17 @@
       "acceptance_cases": [
         {
           "id": "PROVIDER-GAP-PROBES",
-          "description": "Compose at the path name when the destination resource names another object, ignore an output-only destination generation and size, refuse a destination storageClass that differs from the components with Cloud Storage's 400, ignore an undeclared query parameter and the undeclared ifGenerationNotMatch, and keep the recorded duplicate-source, self-source, MIME default, unknown-field and destination crc32c answers (cases obj-compose-inputs, obj-undeclared-query-writes and obj-mutation-not-match, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md).",
+          "description": "Compose at the path name when the destination resource names another object, ignore an output-only destination generation and size, refuse a destination storageClass that differs from the components with Cloud Storage's 400, ignore an undeclared query parameter and the undeclared ifGenerationNotMatch, and keep the recorded duplicate-source, self-source, MIME default, unknown-field and destination crc32c answers (cases obj-compose-inputs, obj-undeclared-query-writes and obj-mutation-not-match, recorded 2026-11-13; docs/en/evidence/provider-differential-gap-probes.md). Components of different classes are refused with the same 400 invalid 'Cannot compose object with destination storage class <class> from source components that have different storage classes (<others>).', the destination class being the requested one or else the first component's, before any check of the class against the bucket location (cases bkt-gaps-legacy-class-region and bkt-gaps-legacy-class-multi-region, recorded 2026-11-17; the separator between several differing classes is inferred).",
           "result": "PASS",
           "test_ids": [
             "obj-compose-inputs",
             "obj-undeclared-query-writes",
             "obj-mutation-not-match",
             "compose_writes_the_path_object_when_the_destination_names_another",
-            "compose_ignores_the_not_match_conditions_it_does_not_declare"
+            "compose_ignores_the_not_match_conditions_it_does_not_declare",
+            "compose_components_must_share_the_destination_class",
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region"
           ]
         },
         {
@@ -13520,6 +13523,9 @@
         "obj-mutation-not-match",
         "compose_writes_the_path_object_when_the_destination_names_another",
         "compose_ignores_the_not_match_conditions_it_does_not_declare",
+        "compose_components_must_share_the_destination_class",
+        "bkt-gaps-legacy-class-region",
+        "bkt-gaps-legacy-class-multi-region",
         "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
         "ruby_default_compose",
         "ruby-default-compose",
@@ -13569,6 +13575,17 @@
         "storage::catalog::derived::tests::transfers_past_the_former_quota_survive_reopening_and_recovery_pages_through_them"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region",
+            "compose_components_must_share_the_destination_class"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -26692,14 +26709,14 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT.",
+      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; the zonal RAPID class fails as unsupported. Since 2026-11-17 the legacy REGIONAL class is supported and every class is checked against the bucket's location type as Cloud Storage checked it (cases bkt-gaps-legacy-class-*, docs/en/evidence/provider-differential-gap-probes.md#seventh-recording-legacy-storage-classes-and-bucket-location): REGIONAL only in a region, MULTI_REGIONAL only outside one. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "BEHAVIOR-BUCKET-004-BUCKET",
-          "description": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail.",
+          "description": "The slice's supported storageClass defaults and metadata survive catalog operations; the unsupported zonal RAPID class fails.",
           "result": "PASS",
           "test_ids": [
             "bkt_http_crud_metadata_conditions_and_errors",
@@ -26708,7 +26725,7 @@
         },
         {
           "id": "OBJECT-CLASS-ON-WRITE",
-          "description": "JSON multipart/resumable storageClass, XML PUT x-goog-storage-class and gRPC WriteObjectSpec storage_class store STANDARD/NEARLINE/COLDLINE/ARCHIVE and read it back; null/omitted uses the bucket default; unknown/lowercase/empty/non-string classes are 400 and REGIONAL/RAPID keep the unsupported error; rewrite class changes still apply; Autoclass buckets store STANDARD; object PATCH keeps storageClass output-only. docs/en/slices/bucket-autoclass-storage-class.md.",
+          "description": "JSON multipart/resumable storageClass, XML PUT x-goog-storage-class and gRPC WriteObjectSpec storage_class store STANDARD/NEARLINE/COLDLINE/ARCHIVE and the legacy classes the bucket's location fits and read it back; null/omitted uses the bucket default; unknown/lowercase/empty/non-string classes are 400 and RAPID keeps the unsupported error; rewrite class changes still apply; Autoclass buckets store STANDARD; object PATCH keeps storageClass output-only. docs/en/slices/bucket-autoclass-storage-class.md.",
           "result": "PASS",
           "test_ids": [
             "object_storage_class_on_write_json_xml_and_autoclass",
@@ -26718,14 +26735,33 @@
           ]
         },
         {
+          "id": "LEGACY-CLASS-LOCATION",
+          "description": "The legacy REGIONAL class is stored only in a region and MULTI_REGIONAL only in a dual- or multi-region (the dual-region case inferred from the documentation); DURABLE_REDUCED_AVAILABILITY fits every location. Bucket insert, PATCH, PUT and Storage v2 UpdateBucket, object uploads over every adapter including resumable initiation, JSON and Storage v2 rewrite before any byte is copied, and lifecycle SetStorageClass actions and matchesStorageClass conditions refuse a class the location cannot hold, as does an XML bucket creation (inferred), with Cloud Storage's 'Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.': JSON 400 invalid (text/html on a multipart insert and resumable initiation), XML 400 InvalidLocationConstraintStorageClassCombination with that text as Details, Storage v2 INVALID_ARGUMENT with a BadRequest repeating it. The project number is the numeric project ID, or 0 for another local project. Recorded 2026-11-17 (cases bkt-gaps-legacy-class-region, bkt-gaps-legacy-class-multi-region, bkt-gaps-legacy-class-create-region and bkt-gaps-legacy-class-create-multi-regional).",
+          "result": "PASS",
+          "test_ids": [
+            "legacy_classes_fit_only_their_location_type",
+            "a_bucket_class_must_fit_the_location_type",
+            "an_object_class_must_fit_the_bucket_location",
+            "an_xml_put_names_the_conflict_in_its_details",
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "grpc_regional_class_follows_the_bucket_location",
+            "grpc_io_write_spec_storage_class",
+            "xml_bucket_creation_uses_configured_default_and_preserves_explicit_location",
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region",
+            "bkt-gaps-legacy-class-create-region",
+            "bkt-gaps-legacy-class-create-multi-regional"
+          ]
+        },
+        {
           "id": "BEHAVIOR-BUCKET-004-PENDING",
-          "description": "Apply storage classes to Autoclass transitions and supported region/zone interactions; lifecycle SetStorageClass transitions are delivered under BEHAVIOR-LIFECYCLE-003, and classes remain metadata without placement, billing or minimum-duration effects.",
+          "description": "Apply storage classes to Autoclass transitions and zonal RAPID interactions; lifecycle SetStorageClass transitions are delivered under BEHAVIOR-LIFECYCLE-003, the location fit of legacy classes under LEGACY-CLASS-LOCATION, and classes remain metadata without placement, billing or minimum-duration effects.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "PATCH-CLASS",
-          "description": "Change supported default storageClass without rewriting objects; invalid/null/empty class is 400 and unsupported region/zone classes are 501.",
+          "description": "Change supported default storageClass without rewriting objects; invalid/null/empty class is 400, a legacy class the bucket's location cannot hold is 400 invalid and the unsupported zonal RAPID class is 400 badRequest.",
           "result": "PASS",
           "test_ids": [
             "bucket_patch_label_boundaries_and_classes",
@@ -26752,9 +26788,40 @@
         "object_storage_class_on_write_json_xml_and_autoclass",
         "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
         "xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
-        "grpc_io_write_spec_storage_class"
+        "grpc_io_write_spec_storage_class",
+        "legacy_classes_fit_only_their_location_type",
+        "a_bucket_class_must_fit_the_location_type",
+        "an_object_class_must_fit_the_bucket_location",
+        "an_xml_put_names_the_conflict_in_its_details",
+        "a_lifecycle_class_must_fit_the_bucket_location",
+        "grpc_regional_class_follows_the_bucket_location",
+        "xml_bucket_creation_uses_configured_default_and_preserves_explicit_location",
+        "bkt-gaps-legacy-class-region",
+        "bkt-gaps-legacy-class-multi-region",
+        "bkt-gaps-legacy-class-create-region",
+        "bkt-gaps-legacy-class-create-multi-regional"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region",
+            "bkt-gaps-legacy-class-create-region",
+            "bkt-gaps-legacy-class-create-multi-regional",
+            "legacy_classes_fit_only_their_location_type",
+            "a_bucket_class_must_fit_the_location_type",
+            "an_object_class_must_fit_the_bucket_location",
+            "an_xml_put_names_the_conflict_in_its_details",
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "grpc_regional_class_follows_the_bucket_location",
+            "grpc_io_write_spec_storage_class",
+            "xml_bucket_creation_uses_configured_default_and_preserves_explicit_location"
+          ]
+        },
         {
           "command": "cargo test --locked --lib && cargo test --locked --test bucket_autoclass_http --test object_multipart_http --test auth_http",
           "result": "PASS",
@@ -26816,10 +26883,11 @@
       ],
       "known_deviations": [
         "Bucket and object classes are metadata only; lifecycle SetStorageClass rewrites the stored class (BEHAVIOR-LIFECYCLE-003), while Autoclass transitions, object placement, billing, minimum storage duration and retrieval-fee effects are absent.",
-        "XML x-goog-storage-class accepts only exact uppercase class names; provider case handling is unverified."
+        "XML x-goog-storage-class accepts only exact uppercase class names; provider case handling is unverified.",
+        "Unrecorded legacy-class details are inferred: MULTI_REGIONAL in a dual-region is accepted, as the documentation says; resumable initiation refuses a class the location cannot hold before any byte arrives; a requested class must fit the location even in an Autoclass bucket, which stores STANDARD; an XML copy that inherits a source class the destination's location cannot hold is refused; an XML bucket creation gets the XML refusal of an object write. gcs-mimic has no project registry, so the refusal names project 0 for a non-numeric project ID."
       ],
       "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-BUCKET-005",
@@ -34328,7 +34396,7 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Validated metadata storage and insert/get/list/PATCH/PUT round trips, schema 23 to 24 migration and ordinary Go/Ruby lifecycle APIs. Thirteen scoped condition fields include sizeAboveBytes/sizeBelowBytes as int64 strings or numbers from 0 through 5 TiB; stored values and HTTP responses normalize them to decimal strings. Invalid sizes leave state unchanged. Existing stored rows are not rewritten; typed conversion preserves their values, and new writes use canonical field order. Three actions, nonnegative int32 values, calendar dates, 100 rules and 1000 total prefixes/suffixes are bounded. Stored Delete and supported SetStorageClass rules now execute through the bounded sweep, including class-dependent Delete, location restrictions and applied-class preservation after rule replacement. XML multipart abort executes with initiation-age/name conditions, Busy exclusion and transactional part reclamation. XML and initializer lifecycle configuration remain unsupported. Contract and verification: docs/en/slices/sdk-lifecycle-config.md, docs/en/slices/lifecycle-execution.md, docs/en/slices/lifecycle-storage-class.md and docs/en/slices/lifecycle-multipart-abort.md. Unsupported class transitions remain accepted but inert; location-dependent legacy matchesStorageClass combinations are checked.",
+      "notes": "Validated metadata storage and insert/get/list/PATCH/PUT round trips, schema 23 to 24 migration and ordinary Go/Ruby lifecycle APIs. Thirteen scoped condition fields include sizeAboveBytes/sizeBelowBytes as int64 strings or numbers from 0 through 5 TiB; stored values and HTTP responses normalize them to decimal strings. Invalid sizes leave state unchanged. Existing stored rows are not rewritten; typed conversion preserves their values, and new writes use canonical field order. Three actions, nonnegative int32 values, calendar dates, 100 rules and 1000 total prefixes/suffixes are bounded. Stored Delete and supported SetStorageClass rules now execute through the bounded sweep, including class-dependent Delete, location restrictions and applied-class preservation after rule replacement. XML multipart abort executes with initiation-age/name conditions, Busy exclusion and transactional part reclamation. XML and initializer lifecycle configuration remain unsupported. Contract and verification: docs/en/slices/sdk-lifecycle-config.md, docs/en/slices/lifecycle-execution.md, docs/en/slices/lifecycle-storage-class.md and docs/en/slices/lifecycle-multipart-abort.md. Unsupported class transitions remain accepted but inert. Since 2026-11-17 a SetStorageClass target or matchesStorageClass class the bucket's location cannot hold is refused with Cloud Storage's recorded class/location message, REGIONAL included; a rule an earlier release stored that way stays inert.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -34475,11 +34543,11 @@
         },
         {
           "id": "storage-class-execution",
-          "description": "Accepted supported transitions execute in place under the local scheduler; unsupported pairs and incompatible locations remain inert.",
+          "description": "Accepted supported transitions execute in place under the local scheduler; unsupported pairs remain inert, a target the bucket's location cannot hold is refused on configuration, and such a rule stored by an earlier release stays inert.",
           "result": "PASS",
           "test_ids": [
             "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-            "location_incompatible_transitions_are_stored_but_inert"
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert"
           ]
         },
         {
@@ -34521,10 +34589,15 @@
           "test_ids": []
         },
         {
-          "id": "unsupported-regional-class",
-          "description": "Deliberately unsupported: REGIONAL object and action classes are outside the StorageClass model; accepting a legacy match name does not implement that class.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "regional-class-location",
+          "description": "REGIONAL is a SetStorageClass target and a matchesStorageClass class in a region bucket; a target or matched class the bucket's location cannot hold (REGIONAL outside a region, MULTI_REGIONAL in one) is refused without mutation with Cloud Storage's 400 invalid 'Project <number> may not create storageClass <CLASS> buckets with locationConstraint <LOCATION>.', which replaces the local matchesStorageClass location message (recorded 2026-11-17, cases bkt-gaps-legacy-class-region and bkt-gaps-legacy-class-multi-region).",
+          "result": "PASS",
+          "test_ids": [
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region"
+          ]
         },
         {
           "id": "unsupported-rapid-class",
@@ -34582,14 +34655,29 @@
         "name_lists_and_strict_size_conditions_use_published_names_and_data_bytes",
         "replacing_applied_transition_rules_preserves_the_new_class_until_a_matching_delete",
         "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-        "location_incompatible_transitions_are_stored_but_inert",
+        "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
         "class_dependent_delete_without_a_transition_uses_the_stored_class",
         "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline",
         "multipart_abort_age_uses_initiation_and_exact_shared_deadlines",
         "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
-        "multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory"
+        "multipart_abort_reclaims_parts_without_notifications_on_disk_and_memory",
+        "a_lifecycle_class_must_fit_the_bucket_location",
+        "bkt-gaps-legacy-class-region",
+        "bkt-gaps-legacy-class-multi-region"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region",
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -34623,7 +34711,7 @@
             "name_lists_and_strict_size_conditions_use_published_names_and_data_bytes",
             "replacing_applied_transition_rules_preserves_the_new_class_until_a_matching_delete",
             "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-            "location_incompatible_transitions_are_stored_but_inert",
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
             "class_dependent_delete_without_a_transition_uses_the_stored_class",
             "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline"
           ]
@@ -34767,11 +34855,11 @@
         }
       ],
       "known_deviations": [
-        "Delete, supported class transitions and XML multipart abort execute under deterministic local scheduling without provider propagation or infrastructure timing. Multipart age zero at UTC midnight is an unverified local decision. XML lifecycle and initialization-file lifecycle configuration remain unsupported; matchesPattern retains the shared unsupported response. Storage v2 cannot represent size conditions and rejects reads requesting lifecycle; masked reads excluding it succeed. Its mutation precheck uses a metageneration match, with bounded retries for implicit matches, but neither updates nor retention locking prevent same-name recreation with the same metageneration between precheck and mutation. BucketRecord still stores JSON values decoded at validation boundaries. REGIONAL and RAPID object/action classes remain outside the existing StorageClass model. SPEC-LIFECYCLE-CONFIG records default normalization and unverified provider error detail; the behavior row remains PARTIAL.",
+        "Delete, supported class transitions and XML multipart abort execute under deterministic local scheduling without provider propagation or infrastructure timing. Multipart age zero at UTC midnight is an unverified local decision. XML lifecycle and initialization-file lifecycle configuration remain unsupported; matchesPattern retains the shared unsupported response. Storage v2 cannot represent size conditions and rejects reads requesting lifecycle; masked reads excluding it succeed. Its mutation precheck uses a metageneration match, with bounded retries for implicit matches, but neither updates nor retention locking prevent same-name recreation with the same metageneration between precheck and mutation. BucketRecord still stores JSON values decoded at validation boundaries. RAPID object/action classes remain outside the existing StorageClass model. SPEC-LIFECYCLE-CONFIG records default normalization and unverified provider error detail; the behavior row remains PARTIAL.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
       "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-LIFECYCLE-002",
@@ -34999,7 +35087,7 @@
         },
         {
           "id": "transition-table",
-          "description": "Apply all 13 supported transitions among represented classes; all other pairs remain inert.",
+          "description": "Apply all 13 supported transitions among STANDARD, MULTI_REGIONAL, DURABLE_REDUCED_AVAILABILITY, NEARLINE, COLDLINE and ARCHIVE; all other pairs among them remain inert.",
           "result": "PASS",
           "test_ids": [
             "every_supported_transition_and_inert_pair_obey_exact_age_deadlines"
@@ -35007,10 +35095,19 @@
         },
         {
           "id": "location-limits",
-          "description": "Apply MULTI_REGIONAL only in multi-region or dual-region buckets; regional and unknown location kinds stay inert. Unknown-kind catalog evidence does not establish zonal-bucket support.",
+          "description": "Apply MULTI_REGIONAL only in multi-region or dual-region buckets and REGIONAL only in region buckets: configuration refuses a target the location cannot hold (recorded 2026-11-17), and such a rule stored by an earlier release stays inert, as do unknown location kinds. Unknown-kind catalog evidence does not establish zonal-bucket support.",
           "result": "PASS",
           "test_ids": [
-            "location_incompatible_transitions_are_stored_but_inert"
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
+            "a_lifecycle_class_must_fit_the_bucket_location"
+          ]
+        },
+        {
+          "id": "regional-target",
+          "description": "DURABLE_REDUCED_AVAILABILITY transitions to REGIONAL in a region bucket at its age deadline, as the documented table allows.",
+          "result": "PASS",
+          "test_ids": [
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert"
           ]
         },
         {
@@ -35107,10 +35204,13 @@
           ]
         },
         {
-          "id": "unsupported-regional-class",
-          "description": "Deliberately unsupported: REGIONAL object and action classes are outside the StorageClass model.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "regional-source",
+          "description": "In a region bucket, REGIONAL objects transition to NEARLINE, COLDLINE and ARCHIVE at their exact age deadline, as the documented table allows, and every other target stays inert; a multi-region bucket runs the same table with MULTI_REGIONAL.",
+          "result": "PASS",
+          "test_ids": [
+            "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
+            "only_documented_storage_class_transitions_are_selected"
+          ]
         },
         {
           "id": "unsupported-rapid-class",
@@ -35182,6 +35282,7 @@
         "a_delete_matching_the_resulting_class_still_runs_in_the_same_transaction",
         "a_hold_blocks_delete_after_transition_and_waits_for_the_next_transition",
         "a_late_first_pass_transitions_before_an_old_class_delete",
+        "a_lifecycle_class_must_fit_the_bucket_location",
         "a_noncurrent_transition_cannot_enable_a_historical_live_only_rule",
         "a_selected_storage_class_action_updates_metadata_once",
         "a_tiny_action_budget_stops_mid_chain_and_resumes_from_the_stored_class",
@@ -35191,6 +35292,8 @@
         "applied_transitions_prevent_later_old_class_deletion_but_keep_independent_deletes",
         "autoclass_rejects_transition_configuration_without_changing_objects_or_rules",
         "backdated_custom_time_is_effective_immediately_on_upload_or_patch",
+        "bkt-gaps-legacy-class-region",
+        "bkt-gaps-legacy-class-multi-region",
         "class_dependent_delete_without_a_transition_uses_the_stored_class",
         "delayed_deletion_safety_has_an_explicit_class_independent_transition_domain",
         "delete_precedence_and_coldest_target_do_not_depend_on_rule_order",
@@ -35207,10 +35310,11 @@
         "holds_allow_transitions_but_a_matching_blocked_delete_suppresses_them",
         "json_outputs_the_stored_lifecycle_storage_class_timestamp",
         "live_only_rules_never_match_existing_noncurrent_versions_even_after_versioning_is_suspended",
-        "location_incompatible_transitions_are_stored_but_inert",
+        "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
         "malformed_class_timestamp_is_quarantined_while_healthy_transitions_finish",
         "newly_configured_rules_choose_current_candidates_without_replaying_old_deadlines",
         "newly_configured_rules_preserve_the_observed_noncurrent_time",
+        "only_documented_storage_class_transitions_are_selected",
         "protected_class_deletes_schedule_a_future_transition_before_retention_expires",
         "releasing_a_hold_preserves_custom_time_and_only_class_dependent_delete_yields",
         "removing_an_unapplied_transition_leaves_only_current_class_delete_rules",
@@ -35270,7 +35374,7 @@
             "holds_allow_transitions_but_a_matching_blocked_delete_suppresses_them",
             "json_outputs_the_stored_lifecycle_storage_class_timestamp",
             "live_only_rules_never_match_existing_noncurrent_versions_even_after_versioning_is_suspended",
-            "location_incompatible_transitions_are_stored_but_inert",
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
             "malformed_class_timestamp_is_quarantined_while_healthy_transitions_finish",
             "newly_configured_rules_choose_current_candidates_without_replaying_old_deadlines",
             "newly_configured_rules_preserve_the_observed_noncurrent_time",
@@ -35290,16 +35394,31 @@
             "transitions_update_live_and_noncurrent_generations_but_exclude_soft_deleted_versions",
             "upgrading_stored_rules_after_their_deadlines_transitions_before_old_class_delete"
           ]
+        },
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "supported_class_transitions_form_an_acyclic_graph",
+            "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
+            "only_documented_storage_class_transitions_are_selected",
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Google documents Delete priority when actions match simultaneously; locally a class-dependent Delete yields to an applicable transition, even with timely execution. A Delete still matching the resulting class runs immediately afterward, adding the transition's metageneration increment and metadata-change record and consuming two actions in the pass budget. This explicit LOCAL_SIMULATION difference can also retain an object that Google would delete. Independent Delete retains priority and blocks transitions under protection.",
         "Delayed evaluation can also delete objects that timely execution retains: descending scans may remove a successor needed by a numNewerVersions transition; an overwrite during a stop can remove an isLive:true transition opportunity; class-gated transitions can take a different path when the coldest currently eligible target wins. The three forms and a retention-side example are fixed by paired scheduled/delayed catalog tests. No global one-sided safety claim is made. In the fixed-facts single-version test domain, transitions without matchesStorageClass have no delayed-only deletion; class-gated triples have 32 such comparisons, all involving a class absent from the timely path.",
-        "Lifecycle-specific metadata notification, metageneration and class-time behavior is inferred from general documentation without provider observations. REGIONAL and RAPID object/action classes remain unsupported. Unknown-location exclusion is defensive catalog evidence, not public zonal-bucket support. Schema 53 has no in-place downgrade; earlier released-data fixtures have no lifecycle rules, so stored-rule execution uses a synthetic schema 52 fixture. Autoclass bulk updates still leave updated, metageneration and notifications unchanged, so class time can exceed updated."
+        "Lifecycle-specific metadata notification, metageneration and class-time behavior is inferred from general documentation without provider observations. RAPID object/action classes remain unsupported. Unknown-location exclusion is defensive catalog evidence, not public zonal-bucket support. Schema 53 has no in-place downgrade; earlier released-data fixtures have no lifecycle rules, so stored-rule execution uses a synthetic schema 52 fixture. Autoclass bulk updates still leave updated, metageneration and notifications unchanged, so class time can exceed updated."
       ],
       "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
-      "last_verified": "2026-11-11"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-LIFECYCLE-004",
@@ -35900,7 +36019,7 @@
       ],
       "source_checked_at": "2026-11-11",
       "source_evidence": "SPEC_BASED",
-      "notes": "Pure evaluation and catalog execution cover case-sensitive name lists, typed class membership and action precedence. Applied transitions change the stored class, which determines same-pass and later Delete rules; replacing rules preserves the already-applied class. Independent Delete rules retain their deadlines. Incompatible locations and unlisted transitions stay inert. XML multipart abort executes case-sensitive prefix/suffix lists, combined age conditions and alternative rules; see docs/en/slices/lifecycle-multipart-abort.md. matchesPattern remains rejected as Early Access/allowlist-only; see docs/en/slices/lifecycle-storage-class.md.",
+      "notes": "Pure evaluation and catalog execution cover case-sensitive name lists, typed class membership and action precedence. Applied transitions change the stored class, which determines same-pass and later Delete rules; replacing rules preserves the already-applied class. Independent Delete rules retain their deadlines. A class the bucket location cannot hold is refused on configuration; such stored rules and unlisted transitions stay inert. XML multipart abort executes case-sensitive prefix/suffix lists, combined age conditions and alternative rules; see docs/en/slices/lifecycle-multipart-abort.md. matchesPattern remains rejected as Early Access/allowlist-only; see docs/en/slices/lifecycle-storage-class.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -35980,17 +36099,23 @@
         },
         {
           "id": "transition-location-limits",
-          "description": "Regional buckets cannot transition DRA to MULTI_REGIONAL; multi/dual-region buckets can, and unsupported zonal kinds remain inert.",
+          "description": "Region buckets transition DRA to REGIONAL but refuse MULTI_REGIONAL as a target or matched class; multi/dual-region buckets transition DRA to MULTI_REGIONAL but refuse REGIONAL. A rule an earlier release stored against these limits, and unsupported zonal kinds, remain inert.",
           "result": "PASS",
           "test_ids": [
-            "location_incompatible_transitions_are_stored_but_inert"
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
+            "a_lifecycle_class_must_fit_the_bucket_location"
           ]
         },
         {
-          "id": "unsupported-regional-class",
-          "description": "Deliberately unsupported: REGIONAL object and action classes are outside the StorageClass model; legacy match-name acceptance is not class execution.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "regional-class-membership",
+          "description": "matchesStorageClass REGIONAL is stored in a region bucket as the typed REGIONAL class and matches no object of another class; outside a region it is refused with Cloud Storage's class/location message (recorded 2026-11-17, cases bkt-gaps-legacy-class-region and bkt-gaps-legacy-class-multi-region). A condition listing REGIONAL selects a REGIONAL object.",
+          "result": "PASS",
+          "test_ids": [
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "storage_class_conditions_match_any_list_entry",
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region"
+          ]
         },
         {
           "id": "unsupported-rapid-class",
@@ -36032,11 +36157,27 @@
         "class_dependent_delete_without_a_transition_uses_the_stored_class",
         "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline",
         "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-        "location_incompatible_transitions_are_stored_but_inert",
+        "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
         "multipart_abort_name_conditions_and_multiple_rules_preserve_other_resources",
-        "multipart_abort_name_only_rules_match_without_an_age_condition"
+        "multipart_abort_name_only_rules_match_without_an_age_condition",
+        "a_lifecycle_class_must_fit_the_bucket_location",
+        "bkt-gaps-legacy-class-region",
+        "bkt-gaps-legacy-class-multi-region"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-17",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert",
+            "a_lifecycle_class_must_fit_the_bucket_location",
+            "storage_class_conditions_match_any_list_entry",
+            "bkt-gaps-legacy-class-region",
+            "bkt-gaps-legacy-class-multi-region"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib storage::catalog::lifecycle::abort -- --nocapture",
           "result": "PASS",
@@ -36062,7 +36203,7 @@
             "class_dependent_delete_without_a_transition_uses_the_stored_class",
             "transitions_chain_into_class_dependent_delete_in_one_pass_or_at_a_later_deadline",
             "every_supported_transition_and_inert_pair_obey_exact_age_deadlines",
-            "location_incompatible_transitions_are_stored_but_inert"
+            "location_incompatible_transitions_are_refused_and_stored_ones_stay_inert"
           ]
         },
         {
@@ -36098,11 +36239,11 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Name/class-dependent Delete, supported transitions and name-conditioned XML multipart abort execute under deterministic local scheduling. Same-pass chains and protected independent Delete precedence need authorized provider evidence. Multipart provider timing and age-zero midnight interpretation remain unverified under BEHAVIOR-LIFECYCLE-004. REGIONAL and RAPID object/action classes are not represented by the existing StorageClass type. Regional DRA to MULTI_REGIONAL is stored but inert; defensive unknown-location exclusion does not establish public zonal-bucket support. matchesPattern remains unsupported.",
+        "Name/class-dependent Delete, supported transitions and name-conditioned XML multipart abort execute under deterministic local scheduling. Same-pass chains and protected independent Delete precedence need authorized provider evidence. Multipart provider timing and age-zero midnight interpretation remain unverified under BEHAVIOR-LIFECYCLE-004. RAPID object/action classes are not represented by the existing StorageClass type. A regional DRA to MULTI_REGIONAL rule is now refused when configured; one an earlier release stored stays inert, and defensive unknown-location exclusion does not establish public zonal-bucket support. matchesPattern remains unsupported.",
         "Current-time selection explicitly differs from documented Google priority: a class-dependent Delete yields to an applicable transition, while any matching independent Delete wins. Delayed passes may retain or delete objects compared with timely execution; removed successor evidence, overwritten live-only opportunities and class-gated route divergence are fixed examples. See BEHAVIOR-LIFECYCLE-003 and docs/en/slices/lifecycle-storage-class.md."
       ],
       "implemented_in": "9cba2f417db0a497613f7f7deca0280ebd754475",
-      "last_verified": "2026-11-11"
+      "last_verified": "2026-11-17"
     },
     {
       "id": "BEHAVIOR-LIFECYCLE-009",

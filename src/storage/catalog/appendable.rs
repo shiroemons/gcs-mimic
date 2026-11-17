@@ -1002,6 +1002,10 @@ impl Catalog {
             if current.is_some() {
                 return Err(AppendError::ReplaceUnsupported);
             }
+            // Refuses a class the bucket's location cannot hold before the generation exists,
+            // as a publication would.
+            super::objects::BucketPublication::load(&transaction, &bucket)?
+                .check_class(options.metadata.storage_class)?;
             let incarnation = bucket_incarnation(&transaction, &bucket).optional()?.ok_or(ObjectError::BucketNotFound)?;
             let micros = unix_micros(clock.now())?;
             let generation = next_generation(last_generation(&transaction)?, micros)?;

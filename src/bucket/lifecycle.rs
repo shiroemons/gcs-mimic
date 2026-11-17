@@ -1,6 +1,8 @@
 //! Validated lifecycle metadata; execution belongs to the maintenance scheduler.
 
-use super::{CatalogError, InvalidStorageClass, LocationKind, StorageClass};
+use super::{
+    CatalogError, ClassLocationConflict, InvalidStorageClass, Location, LocationKind, StorageClass,
+};
 use crate::metadata_error::{LifecycleExample, MetadataError};
 use crate::storage::failure::BackendCause;
 use serde::Deserialize;
@@ -25,43 +27,6 @@ pub(crate) enum LifecycleAction {
     AbortIncompleteMultipartUpload,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
-#[serde(try_from = "String")]
-pub(crate) enum LifecycleMatchClass {
-    Supported(StorageClass),
-    Regional,
-}
-
-impl LifecycleMatchClass {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Supported(class) => class.as_str(),
-            Self::Regional => "REGIONAL",
-        }
-    }
-}
-
-impl FromStr for LifecycleMatchClass {
-    type Err = CatalogError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "REGIONAL" => Ok(Self::Regional),
-            value => value.parse().map(Self::Supported),
-        }
-    }
-}
-
-impl TryFrom<String> for LifecycleMatchClass {
-    type Error = CatalogError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-crate::serde_util::serialize_as_str!(LifecycleMatchClass);
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LifecycleCondition {
@@ -80,7 +45,7 @@ pub(crate) struct LifecycleCondition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matches_prefix: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub matches_storage_class: Vec<LifecycleMatchClass>,
+    pub matches_storage_class: Vec<StorageClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matches_suffix: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -416,7 +381,7 @@ fn validate_class(value: &str, field: &str) -> Result<(), CatalogError> {
     StorageClass::from_name(value)
         .map(|_| ())
         .map_err(|error| match error {
-            InvalidStorageClass::RequiresLocation => {
+            InvalidStorageClass::RequiresZone => {
                 CatalogError::Metadata(MetadataError::LifecycleClass {
                     field: field.into(),
                     value: value.into(),
@@ -577,12 +542,10 @@ fn validate_condition(
                     .as_str()
                     .ok_or_else(|| invalid(field, "string values"))?;
                 if field == "matchesStorageClass" {
-                    if value != "REGIONAL" {
-                        validate_class(
-                            value,
-                            &format!("rule[{rule_index}].condition.matchesStorageClass"),
-                        )?;
-                    }
+                    validate_class(
+                        value,
+                        &format!("rule[{rule_index}].condition.matchesStorageClass"),
+                    )?;
                 } else if !unique.insert(value) {
                     return Err(invalid(
                         field,
@@ -599,35 +562,42 @@ fn validate_condition(
 }
 
 impl LifecycleAction {
-    /// Whether the action can run in a bucket of `location`: a regional bucket has no
-    /// multi-regional class to move objects to.
-    pub(crate) fn runs_in(self, location: LocationKind) -> bool {
+    const fn storage_class(self) -> Option<StorageClass> {
         match self {
-            Self::SetStorageClass(class) => match location {
-                LocationKind::Region => class != StorageClass::MultiRegional,
-                LocationKind::DualRegion | LocationKind::MultiRegion => true,
-            },
-            Self::Delete | Self::AbortIncompleteMultipartUpload => true,
+            Self::SetStorageClass(class) => Some(class),
+            Self::Delete | Self::AbortIncompleteMultipartUpload => None,
         }
+    }
+
+    /// Whether the action can run in a bucket of `location`. Configuration refuses a class the
+    /// location cannot hold, so only a rule stored before that refusal existed fails this.
+    pub(crate) fn runs_in(self, location: LocationKind) -> bool {
+        self.storage_class()
+            .is_none_or(|class| class.fits(location))
     }
 }
 
+impl LifecycleRule {
+    /// The classes the rule names: its SetStorageClass target and the classes it matches.
+    fn storage_classes(&self) -> impl Iterator<Item = StorageClass> + '_ {
+        self.action
+            .storage_class()
+            .into_iter()
+            .chain(self.condition.matches_storage_class.iter().copied())
+    }
+}
+
+/// Refuses a rule naming a class the bucket's location cannot hold, as its action or among the
+/// classes it matches, as Cloud Storage refuses every write of that class (recorded 2026-11-17).
 pub(crate) fn validate_location(
     rules: &LifecycleRules,
-    location: LocationKind,
+    location: Location,
+    project: &str,
 ) -> Result<(), CatalogError> {
-    let incompatible = match location {
-        LocationKind::Region => LifecycleMatchClass::Supported(StorageClass::MultiRegional),
-        LocationKind::DualRegion | LocationKind::MultiRegion => LifecycleMatchClass::Regional,
-    };
-    for rule in rules {
-        if rule.condition.matches_storage_class.contains(&incompatible) {
-            return Err(invalid(
-                "matchesStorageClass for bucket location",
-                "STANDARD instead of a legacy class from another location type",
-            ));
-        }
-    }
+    rules
+        .into_iter()
+        .flat_map(LifecycleRule::storage_classes)
+        .try_for_each(|class| ClassLocationConflict::check(class, location, project))?;
     Ok(())
 }
 
@@ -833,6 +803,7 @@ mod tests {
             "COLDLINE",
             "ARCHIVE",
             "MULTI_REGIONAL",
+            "REGIONAL",
             "DURABLE_REDUCED_AVAILABILITY",
         ] {
             validate(&[json!({"action":{"type":"SetStorageClass","storageClass":class},"condition":{"age":0}})]).unwrap();

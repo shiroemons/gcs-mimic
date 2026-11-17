@@ -1,5 +1,5 @@
 use super::*;
-use crate::bucket::{LocationKind, RetentionPolicyUpdate, Rpo};
+use crate::bucket::{ClassLocationConflict, LocationKind, RetentionPolicyUpdate, Rpo};
 use crate::object::{MapPatch, WriteMode};
 
 const UPDATE_BUCKET: &str = "UPDATE buckets SET labels = :labels, storage_class = :storage_class,
@@ -117,6 +117,9 @@ pub(super) fn update_in_transaction(
     } = change;
     let mut record = authorize_update(transaction, name, &update, conditions, access)?;
     check_rpo(&record, update.rpo)?;
+    if let Some(class) = update.storage_class {
+        ClassLocationConflict::check(class, record.location, &record.project)?;
+    }
     // Cloud Storage answered a PATCH carrying only ignored members with the unchanged
     // resource: no metageneration advance and no new `updated` time (observed 2026-10-31).
     if matches!(mode, WriteMode::Patch) && update.is_empty() {

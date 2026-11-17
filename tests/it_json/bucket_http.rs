@@ -201,7 +201,6 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             json!({"matchesSuffix":[1]}),
             json!({"matchesPrefix":["a","a"]}),
             json!({"matchesStorageClass":["MARS"]}),
-            json!({"matchesStorageClass":["REGIONAL"]}),
         ] {
             let body =
                 json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}})
@@ -257,10 +256,6 @@ fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
             .expect(200);
         let before = server.request("GET", path, "").json();
         for (rule, field) in [
-            (
-                json!({"action":{"type":"SetStorageClass","storageClass":"REGIONAL"},"condition":{"age":1}}),
-                "lifecycle.rule[0].action.storageClass",
-            ),
             (
                 json!({"action":{"type":"SetStorageClass","storageClass":"RAPID"},"condition":{"age":1}}),
                 "lifecycle.rule[0].action.storageClass",
@@ -868,14 +863,15 @@ fn label_class_boundaries(method: &str, invalid_null_key: &str) {
             assert_eq!(reply.json()["storageClass"], class);
         }
         let before = server.request("GET", path, "").json();
-        for class in ["REGIONAL", "RAPID"] {
+        // The multi-region bucket cannot hold the legacy REGIONAL class (recorded 2026-11-17).
+        for (class, reason) in [("REGIONAL", "invalid"), ("RAPID", "badRequest")] {
             server
                 .request(
                     method,
                     path,
                     &json!({"storageClass":class,"labels":null}).to_string(),
                 )
-                .json_envelope(400, "badRequest");
+                .json_envelope(400, reason);
         }
         server
             .request(method, path, r#"{"storageClass":"TYPO"}"#)

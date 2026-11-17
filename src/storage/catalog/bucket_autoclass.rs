@@ -52,7 +52,7 @@ pub(super) fn update(
     // Replacing the rules is how a bucket whose stored rules no longer decode is repaired, so
     // only the stored rules that stay need to be readable.
     let lifecycle = if let Some(rules) = &update.lifecycle {
-        validate_location(rules, record.location.kind())?;
+        validate_location(rules, record.location, &record.project)?;
         rules
     } else {
         record.lifecycle.rules()?
