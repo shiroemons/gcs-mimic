@@ -15,13 +15,13 @@ Scope: JSON-OBJECTS-009 and BEHAVIOR-OBJECT-028, same-bucket flat-namespace live
 | MOVE-VERSIONING | Moving the live source permanently removes that generation; older source versions remain. Replaced destination becomes noncurrent when versioning is enabled. |
 | MOVE-SDK-GO | Default ObjectHandle.Move and conditional failure through ObjectHandle.If work with the pinned SDK. |
 | MOVE-SDK-RUBY | Storage 1.62.1 Bucket#move_file uses objects.move; its default call passes in permissive and strict profiles. |
-| MOVE-PENDING | HNS, folder rename, cross-bucket move, ACL/full projection permissions, retention/soft delete/Autoclass and provider-exact error precedence remain pending. |
+| MOVE-PENDING | HNS, folder rename, cross-bucket move, full projection permissions, retention/soft delete/Autoclass and provider-exact error precedence remain pending. Since 2026-11-17 `projection=full` renders the ACL and owner the destination keeps from its source, as other writes render theirs; Cloud Storage moved with it (case `obj-unsupported-derived`, recorded 2026-11-13). |
 
 ## Sources and local choices
 
 Checked 2026-10-27: [objects.move](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/move), updated 2026-10-22, specifies a same-bucket atomic operation, metadata inheritance, new generation/metageneration/timestamps, and destination versioning. The [objects overview](https://docs.cloud.google.com/storage/docs/json_api/v1/objects) still says HNS-only; SPEC-001 retains that source conflict. Flat-namespace support is the requested local scope, not proof of provider eligibility. Same-name rejection uses 400 invalidArgument because the method requires different names without specifying an exact error reason. Source live-generation hard deletion follows the method's source deletion rule; no real-cloud observation establishes its versioning details.
 
-The Storage v1 Discovery revision 20261020 and SHA-256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc pin the route and eight conditions, projection and userProject. Request bodies are forbidden. Unsupported billing and full ACL projection use the existing 400 badRequest response. No performance measurements are claimed.
+The Storage v1 Discovery revision 20261020 and SHA-256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc pin the route and eight conditions, projection and userProject. Request bodies are forbidden. Unsupported billing and full ACL projection used the existing 400 badRequest response; billing is now ignored and full projection rendered. No performance measurements are claimed.
 
 ## Verification
 

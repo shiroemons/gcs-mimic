@@ -163,9 +163,7 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
                 .json_ok();
         }
     }
-    for query in ["?callback=project", "?projection=full"] {
-        mv(&server, "source", "target", query).json_reason(400, "badRequest");
-    }
+    mv(&server, "source", "target", "?callback=project").json_reason(400, "badRequest");
     server
         .request(
             "POST",
@@ -175,9 +173,47 @@ fn move_rejects_missing_same_name_holds_and_unsupported_inputs() {
         )
         .json_reason(400, "invalidArgument");
     assert_eq!(server.get("source").json_ok()["name"], "source");
+    // projection=full adds the ACL and owner the moved object keeps from its source; Cloud
+    // Storage moved with it (recorded 2026-11-13, case obj-unsupported-derived). A grant the
+    // default object ACL lacks shows the ACL is the source's.
     server
-        .request("POST", &path("source", "target", ""), ADMIN, b"{}")
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/source/acl",
+            ADMIN,
+            br#"{"entity":"user-reader@example.test","role":"READER"}"#,
+        )
         .json_ok();
+    let full = server.get("source?projection=full").json_ok();
+    let moved = server
+        .request(
+            "POST",
+            &path("source", "target", "?projection=full"),
+            ADMIN,
+            b"{}",
+        )
+        .json_ok();
+    // Entry ids name the generation, so the grants compare by entity and role; the owner's
+    // implicit grant has no remembered position.
+    let grants = |object: &serde_json::Value| -> std::collections::BTreeSet<(String, String)> {
+        object["acl"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no acl in {object}"))
+            .iter()
+            .map(|entry| {
+                (
+                    entry["entity"].as_str().unwrap().to_owned(),
+                    entry["role"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    };
+    assert!(
+        grants(&full).contains(&("user-reader@example.test".into(), "READER".into())),
+        "{full}"
+    );
+    assert_eq!(grants(&moved), grants(&full));
+    assert_eq!(moved["owner"], full["owner"]);
     server.get("source").json_reason(404, "notFound");
     assert_eq!(server.get("target").json_ok()["size"], "6");
 }

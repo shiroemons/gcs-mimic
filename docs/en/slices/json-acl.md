@@ -145,5 +145,7 @@ routes retain 400 `invalid`. Exact mixed-error precedence is unverified.
   `predefinedAcl`/`predefinedDefaultObjectAcl` keep their existing responses
   (DESIGN-019); `acl` in insert/copy/rewrite bodies remains unsupported.
 - Resumable-upload completion and rewrite responses do not render ACL fields;
-  restore and move do not offer `copySourceAcl` and use the default object ACL.
+  restore does not offer `copySourceAcl` and uses the default object ACL, and
+  move keeps the source's ACL as its contract states, which `projection=full`
+  on a move renders.
 - `userProject` is ignored, as on every JSON method (SPEC-SDK-UNSUPPORTED).

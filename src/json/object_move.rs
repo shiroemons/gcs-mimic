@@ -71,12 +71,9 @@ fn parse(
     }
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Object)?;
+    // Cloud Storage moved an object with projection=full (recorded 2026-11-13, case
+    // obj-unsupported-derived); the response adds the ACL the destination keeps.
     let projection = projection(&mut query)?;
-    if projection == Projection::Full {
-        return Err(JsonError::unsupported_object(
-            "move projection=full; use projection=noAcl",
-        ));
-    }
     standard_parameters(&mut query, &[], JsonError::unsupported_object)?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     super::query::boolean(&mut query, "prettyPrint")?;

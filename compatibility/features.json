@@ -17928,7 +17928,7 @@
         },
         {
           "id": "MOVE-PENDING",
-          "description": "HNS, folders, cross-bucket moves, full ACL projection, move-only permission, retention/Autoclass/soft-delete and provider parity.",
+          "description": "HNS, folders, cross-bucket moves, move-only permission, retention/Autoclass/soft-delete and provider parity. projection=full renders the ACL and owner the destination keeps from its source since 2026-11-17, as Cloud Storage moved with it (case obj-unsupported-derived, recorded 2026-11-13).",
           "result": "PENDING",
           "test_ids": []
         }
@@ -17958,7 +17958,7 @@
           "language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON; permissive and strict", "command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-move.md", "test_ids": ["ruby-object-move"]
         }
       ],
-      "known_deviations": ["SPEC-001: flat/HNS eligibility sources conflict; source live-generation hard deletion and same-name error reason are local choices without real-cloud evidence.", "HNS, folders, cross-bucket moves, full projection/ACLs and move-only authorization remain unsupported."],
+      "known_deviations": ["SPEC-001: flat/HNS eligibility sources conflict; source live-generation hard deletion and same-name error reason are local choices without real-cloud evidence.", "HNS, folders, cross-bucket moves and move-only authorization remain unsupported."],
       "implemented_in": "aae3703",
       "last_verified": "2026-10-27",
       "http_method": "POST",

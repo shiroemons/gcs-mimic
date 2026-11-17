@@ -60,9 +60,10 @@ strictモードでは元の取得・削除と、移動先の作成権限が必�
 元の履歴の扱いはローカル仕様で、実際のGoogle Cloudとの比較は未実施です。
 
 階層型名前空間、フォルダのrename、別バケットへのmoveは未対応です。
-`projection=full`と`userProject`は400 `badRequest`になります。
-`projection`を省略し、課金先の指定を外してください。
-ACLや保持ポリシー、soft delete、move専用権限の検証は対象外です。
+`userProject`は、ほかのJSONメソッドと同じく無視します。
+`projection=full`は、移動先が移動元から引き継いだACLとownerを返します
+（2026-11-13に記録したケース`obj-unsupported-derived`で、Cloud Storageもmoveに成功しました）。
+保持ポリシー、soft delete、move専用権限の検証は対象外です。
 
 公式のAPI一覧とmove専用ページには、通常バケットの対象可否について記述の不一致が残っています。
 [英語の契約・検証結果](../en/slices/sdk-object-move.md)と
