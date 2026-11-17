@@ -8,6 +8,7 @@ use crate::{
         unix_nanos::UnixNanos,
     },
 };
+use std::collections::HashMap;
 use tonic::Status;
 
 pub(super) fn from_proto(
@@ -24,15 +25,7 @@ pub(super) fn from_proto(
     let mut update = ObjectMetadataUpdate::default();
     for path in paths {
         match path.as_str() {
-            "metadata" => {
-                update.metadata = MapPatch::Replace(
-                    object
-                        .metadata
-                        .iter()
-                        .map(|(key, value)| (key.clone(), value.clone()))
-                        .collect(),
-                );
-            }
+            "metadata" => update.metadata = masked_metadata(&object.metadata),
             path if let Some(key) = path.strip_prefix("metadata.")
                 && !key.is_empty() =>
             {
@@ -80,6 +73,22 @@ pub(super) fn from_proto(
     }
     validate(&update)?;
     Ok(update)
+}
+
+/// The change a bare `metadata` path makes. Cloud Storage merged the request's entries into the
+/// stored map, keeping the keys it left out, and cleared the map for a request with none
+/// (recorded 2026-11-17, case obj-gaps-empty-metadata-key), as a JSON PATCH does. The pinned Go
+/// SDK relies on the second to delete every key.
+fn masked_metadata(entries: &HashMap<String, String>) -> MapPatch {
+    if entries.is_empty() {
+        return MapPatch::Clear;
+    }
+    MapPatch::Merge(
+        entries
+            .iter()
+            .map(|(key, value)| (key.clone(), Some(value.clone())))
+            .collect(),
+    )
 }
 
 pub(super) fn validate(update: &ObjectMetadataUpdate) -> Result<(), Status> {
@@ -203,7 +212,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             update.metadata,
-            MapPatch::Replace([("keep".into(), "value".into())].into())
+            MapPatch::Merge([("keep".into(), Some("value".into()))].into())
         );
         assert_eq!(update.content_language, Patch::Clear);
         assert_eq!(update.retention, Patch::Clear);
@@ -211,6 +220,21 @@ mod tests {
         assert_eq!(
             update.metadata,
             MapPatch::Merge([("missing".into(), None)].into())
+        );
+    }
+
+    #[test]
+    fn a_metadata_mask_merges_entries_and_clears_on_none() {
+        let cleared = from_proto(&pb::Object::default(), &["metadata".into()]).unwrap();
+        assert_eq!(cleared.metadata, MapPatch::Clear);
+        let object = pb::Object {
+            metadata: [("added".into(), "value".into())].into(),
+            ..Default::default()
+        };
+        let update = from_proto(&object, &["metadata".into()]).unwrap();
+        assert_eq!(
+            update.metadata,
+            MapPatch::Merge([("added".into(), Some("value".into()))].into())
         );
     }
 
@@ -225,10 +249,10 @@ mod tests {
         assert!(error.message().contains("content_type"));
         assert!(!error.message().contains("contentType"));
         let object = pb::Object {
-            metadata: [(String::new(), "value".into())].into(),
+            content_type: "text/日本語".into(),
             ..Default::default()
         };
-        let error = from_proto(&object, &["metadata".into()]).unwrap_err();
+        let error = from_proto(&object, &["content_type".into()]).unwrap_err();
         assert_eq!(error.code(), tonic::Code::Unimplemented);
         let details = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
         assert_eq!(

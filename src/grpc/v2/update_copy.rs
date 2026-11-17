@@ -2385,11 +2385,12 @@ mod tests {
             .into_inner();
         assert_eq!(object.content_type, "text/plain");
         assert_eq!(object.metadata["keep"], "yes");
+        // A `metadata` mask merges into the stored map, unlike the bucket `labels` mask above.
         let request = pb::UpdateObjectRequest {
             object: Some(pb::Object {
                 bucket: resource.into(),
                 name: "object".into(),
-                metadata: [("replace".into(), "yes".into())].into(),
+                metadata: [("added".into(), "yes".into())].into(),
                 temporary_hold: true,
                 ..Default::default()
             }),
@@ -2401,7 +2402,11 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(object.metadata.len(), 1);
+        let merged = std::collections::HashMap::from([
+            ("keep".into(), "yes".into()),
+            ("added".into(), "yes".into()),
+        ]);
+        assert_eq!(object.metadata, merged);
         assert!(object.temporary_hold);
         let read = s
             .state
@@ -2413,8 +2418,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(read.metadata.len(), 1);
-        assert_eq!(read.metadata["replace"], "yes");
+        assert_eq!(read.metadata, merged.into_iter().collect());
         assert_eq!(read.temporary_hold.as_bool(), Some(true));
         s.state.catalog.close().await.unwrap();
     }

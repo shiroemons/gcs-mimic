@@ -60,8 +60,8 @@ pub enum MapPatch {
     Clear,
     /// The named keys change and the others stay: a value stores the key, `None` removes it.
     Merge(BTreeMap<String, Option<String>>),
-    /// The map becomes exactly these entries: a `metadata` or `labels` update-mask path, a PUT of
-    /// bucket labels, or a configured bucket. A replacement cannot remove a key.
+    /// The map becomes exactly these entries: a `labels` update-mask path, a PUT of bucket
+    /// labels, or a configured bucket. A replacement cannot remove a key.
     Replace(BTreeMap<String, String>),
 }
 
