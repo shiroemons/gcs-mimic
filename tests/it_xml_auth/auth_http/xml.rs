@@ -1006,14 +1006,34 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
 }
 
 #[test]
-fn xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly() {
+fn xml_case_colliding_custom_metadata_keys_share_one_header() {
+    let (_config, _data, server) = fixture();
+    let metadata = json!({"Color":"blue", "color":"red"});
+    server
+        .request(
+            "PUT",
+            JSON_OBJECT,
+            ADMIN,
+            json!({"metadata":metadata}).to_string().as_bytes(),
+        )
+        .success();
+    // Cloud Storage joined the values in key order (recorded 2026-11-17).
+    for method in ["GET", "HEAD"] {
+        let reply = server.request(method, OBJECT, ADMIN, b"");
+        reply.expect(200);
+        assert_eq!(reply.headers["x-goog-meta-color"], "blue, red", "{method}");
+    }
+    assert_eq!(
+        server.get(ADMIN, JSON_OBJECT).success().json()["metadata"],
+        metadata
+    );
+}
+
+#[test]
+fn xml_unrepresentable_custom_metadata_fails_explicitly() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");
-    for metadata in [
-        json!({"bad key":"value"}),
-        json!({"key":"line\r\nbreak"}),
-        json!({"Color":"blue", "color":"red"}),
-    ] {
+    for metadata in [json!({"bad key":"value"}), json!({"key":"line\r\nbreak"})] {
         server
             .request(
                 "PUT",

@@ -164,9 +164,11 @@ parity remains open under SPEC-RANGE-FALLBACK.
 JSON custom metadata need not be a legal HTTP field name/value. The XML adapter
 must not inject headers, panic or silently claim a complete metadata round trip
 for an unrepresentable record. Such metadata remains outside this XML subset;
-reject the read with 501 rather than changing stored JSON metadata.
-Case-colliding custom metadata also returns 501. Exact non-ASCII XML wire
-encoding requires separate evidence (SPEC-012).
+reject the read with 501 rather than changing stored JSON metadata. Keys that
+differ only in case share one header whose values are joined in key order, as
+Cloud Storage served `Dup` and `dup` (case `xml-gaps-objects`, recorded
+2026-11-17). Exact non-ASCII XML wire encoding requires separate evidence
+(SPEC-012).
 
 | Condition | XML status/code |
 | --- | --- |

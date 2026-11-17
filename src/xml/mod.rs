@@ -1135,10 +1135,10 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
                 "custom metadata value for {key}; use JSON metadata reads"
             ))
         })?;
-        if headers.contains_key(&key) {
-            return Err(Error::unsupported(key.as_str()));
-        }
-        headers.insert(key, value);
+        // Keys that differ only in case share one header name. Cloud Storage served `Dup: 1`
+        // and `dup: 2` as `x-goog-meta-dup: 1, 2` (recorded 2026-11-17, case
+        // xml-gaps-objects); appending in key order gives the same field value.
+        headers.append(key, value);
     }
     Ok(headers)
 }

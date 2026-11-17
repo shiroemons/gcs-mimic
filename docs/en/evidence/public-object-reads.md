@@ -79,8 +79,8 @@ permission. A read-only public grant does not authorize writes or policy changes
 Unknown XML queries and unsupported x-goog inputs return 501; one nonempty
 SDK retry token and client telemetry are accepted without response replay.
 Invalid raw bucket segments answer XML 400 InvalidBucketName (recorded
-2026-11-17). Unrepresentable or case-colliding custom metadata returns 501
-without changing stored metadata.
+2026-11-17). Unrepresentable custom metadata returns 501 without changing stored
+metadata; keys that differ only in case share one comma-joined header.
 
 The guide's permissive Go run passes 9 top-level tests and 36 subtests, with
 9 strict-only top-level tests skipped because the strict endpoint is unset.

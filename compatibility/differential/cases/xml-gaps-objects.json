@@ -15,7 +15,7 @@
     {"name": "xml-head-non-ascii-metadata", "protocol": "xml", "method": "HEAD", "path": "/{bucket}/{object}-m1"},
     {"name": "upload-case-colliding-metadata", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-m2"}, "headers": {"Content-Type": "text/plain"}, "body_text": "m2", "expect_status": 200},
     {"name": "patch-case-colliding-metadata", "method": "PATCH", "path": "/storage/v1/b/{bucket}/o/{object}-m2", "query": {"fields": "metadata"}, "body": {"metadata": {"Dup": "1", "dup": "2"}}},
-    {"name": "xml-get-case-colliding-metadata", "local_choice": {"reason": "Recorded 2026-11-17: Cloud Storage serves custom metadata keys that collide after case folding as one comma-joined x-goog-meta header; gcs-mimic refuses the read with 400 (SPEC-XML-INPUTS).", "mimic_status": 400}, "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-m2"},
+    {"name": "xml-get-case-colliding-metadata", "protocol": "xml", "method": "GET", "path": "/{bucket}/{object}-m2"},
 
     {"name": "upload-compose-part", "method": "POST", "path": "/upload/storage/v1/b/{bucket}/o", "query": {"uploadType": "media", "name": "{object}-p"}, "headers": {"Content-Type": "text/plain"}, "body_text": "hello", "expect_status": 200},
     {"name": "compose", "method": "POST", "path": "/storage/v1/b/{bucket}/o/{object}-cmp/compose", "query": {"fields": "name,etag"}, "body": {"sourceObjects": [{"name": "{object}-p"}, {"name": "{object}-p"}]}, "capture": {"cetag": "body:etag"}, "expect_status": 200},

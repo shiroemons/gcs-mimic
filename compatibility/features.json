@@ -37825,7 +37825,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): object GET ignores unknown query parameters and x-goog-* headers (a recognized but unsupported query such as softDeleted is still rejected, and userProject is ignored), a multi-range request answers 400, a checksum mismatch reports the side that differs (a CRC32C mismatch names the declared and computed values in Details), and the Range and gzip rejections of a public object are private (cache-control private, max-age=0). SPEC-XML-INPUTS keeps the local choices that the recording does not cover.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable custom metadata return 501; custom metadata keys that differ only in case share one comma-joined header, as Cloud Storage served them (case xml-gaps-objects, recorded 2026-11-17). Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): object GET ignores unknown query parameters and x-goog-* headers (a recognized but unsupported query such as softDeleted is still rejected, and userProject is ignored), a multi-range request answers 400, a checksum mismatch reports the side that differs (a CRC32C mismatch names the declared and computed values in Details), and the Range and gzip rejections of a public object are private (cache-control private, max-age=0). SPEC-XML-INPUTS keeps the local choices that the recording does not cover.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -37894,11 +37894,12 @@
         },
         {
           "id": "EXT-XML-012-REJECTION",
-          "description": "Reject unsupported operations/queries/x-goog headers, unrepresentable/case-colliding metadata and malformed tokens without consuming rejected bodies or altering state; accept valid SDK telemetry without replay.",
+          "description": "Reject unsupported operations/queries/x-goog headers, unrepresentable metadata and malformed tokens without consuming rejected bodies or altering state; accept valid SDK telemetry without replay.",
           "result": "PASS",
           "test_ids": [
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
-            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_case_colliding_custom_metadata_keys_share_one_header",
+            "xml::xml_unrepresentable_custom_metadata_fails_explicitly",
             "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
             "xml::xml_read_idempotency_tokens_require_one_nonempty_value"
           ]
@@ -38018,7 +38019,8 @@
         "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
         "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
         "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
-        "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+        "xml::xml_case_colliding_custom_metadata_keys_share_one_header",
+        "xml::xml_unrepresentable_custom_metadata_fails_explicitly",
         "xml::xml_unsupported_operations_fail_before_reading_a_body",
         "xml_path_style_decodes_bucket_once_and_preserves_object_names"
       ],
@@ -38061,7 +38063,8 @@
             "xml::xml_missing_resources_follow_effective_permission_disclosure",
             "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
-            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_case_colliding_custom_metadata_keys_share_one_header",
+            "xml::xml_unrepresentable_custom_metadata_fails_explicitly",
             "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
             "xml::xml_read_idempotency_tokens_require_one_nonempty_value"
           ]
@@ -38122,7 +38125,8 @@
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
             "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
             "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
-            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_case_colliding_custom_metadata_keys_share_one_header",
+            "xml::xml_unrepresentable_custom_metadata_fails_explicitly",
             "xml::xml_unsupported_operations_fail_before_reading_a_body"
           ]
         },
@@ -38229,7 +38233,8 @@
             "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
             "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
             "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
-            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_case_colliding_custom_metadata_keys_share_one_header",
+            "xml::xml_unrepresentable_custom_metadata_fails_explicitly",
             "xml::xml_unsupported_operations_fail_before_reading_a_body"
           ]
         },
@@ -38372,7 +38377,7 @@
       ],
       "known_deviations": [
         "Local RFC XML read validators now support 304/412; provider mixed-condition/header parity remains unverified (docs/en/slices/xml-read-validators.md). CSEK/encryption, requester user project, If-Range, other signing formats, noncurrent versions and resource restriction semantics retain their scoped limits.",
-        "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
+        "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable metadata, one comma-joined header for case-colliding keys and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unsupported x-goog 501 (unknown queries and x-goog-* headers on object GET and HEAD are ignored, as recorded 2026-11-01) and range fallback rules remain local choices; unsatisfiable HEAD is 416 with Content-Range bytes */size.",
         "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark.",
@@ -38944,7 +38949,7 @@
       ],
       "known_deviations": [
         "Local RFC XML read validators now support 304/412; provider mixed-condition/header parity remains unverified (docs/en/slices/xml-read-validators.md). CSEK/encryption, requester user project, If-Range, other signing formats, noncurrent versions and resource restriction semantics retain their scoped limits.",
-        "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
+        "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable metadata, one comma-joined header for case-colliding keys and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unsupported x-goog 501 (unknown queries and x-goog-* headers on object GET and HEAD are ignored, as recorded 2026-11-01) and range fallback rules remain local choices; unsatisfiable HEAD is 416 with Content-Range bytes */size.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive overrides, control-character 400, incomplete header grammar validation and duplicate decoded names are explicit local choices pending provider clarification; empty values, padded content types, non-ASCII dispositions, ignored S3-only and unknown response-* parameters and the authenticated HEAD override follow Cloud Storage (case xml-response-override-edges, recorded 2026-11-13)."
