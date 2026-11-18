@@ -1654,6 +1654,59 @@
       "required_resolution": "Keep the proto-defined paging as the legacy migration profile's behavior; a client that reads only the first page of a large result must follow next_page_token."
     },
     {
+      "id": "SPEC-GRPC-WRITE-STREAMS",
+      "title": "Storage v2 write streams follow local choices where the proto is silent or contradicts itself",
+      "status": "OPEN",
+      "affected_features": [
+        "RPC-STORAGE-018",
+        "RPC-STORAGE-019",
+        "RPC-STORAGE-023",
+        "BEHAVIOR-RPC-003"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
+      ],
+      "observed_at": "2026-11-18",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The pinned storage.proto says of finish_write: 'Sending any WriteObjectRequests subsequent to one in which finish_write is true causes an error.' WriteObject reads to the end of its stream and answers a later message with INVALID_ARGUMENT, publishing nothing for a single-shot write and staging nothing for a resumed one; it reads past the finishing message before it leases the upload session, so a client that keeps its stream open holds no session. BidiWriteObject answers finish_write with the resource and ends the call with OK without reading further, so a later message is never seen and causes no error; this owner decision keeps the existing behavior. Of write_offset the proto says the first value 'must be equal to the persisted_size that a call to QueryWriteStatus() would return', later ones no larger than the bytes sent on the stream, and 'An invalid value causes an error', without naming a status: a resumed stream's first message at any other offset, including one that only resends persisted bytes, is OUT_OF_RANGE, and a later message's resent prefix is skipped. The proto says nothing about several streams on one upload_id: a message for a session another stream is writing fails at once with UNAVAILABLE (the catalog's busy-session wording) and changes nothing; streams that take turns each continue at the persisted offset, and bytes a later message resends over another stream's persisted bytes are skipped without comparison, so the bytes persisted first stay; a stream whose upload another stream finalized gets FAILED_PRECONDITION on its next message; QueryWriteStatus does not wait for a message being written and answers with the last checkpoint. A persisted size carries persisted_data_checksums from the session's running CRC32C and MD5, as the proto requires; a session staged by a release before 0.26.0 keeps no running digests and carries none. Tests: grpc_single_shot_write_message_errors, grpc_resumable_write_message_errors, grpc_appendable_write_message_errors, grpc_io_write_object_awaits_the_stream_end_without_holding_the_session, grpc_resumable_write_to_a_leased_session_fails_without_waiting, grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first, grpc_io_concurrent_finalization_rejects_later_messages, grpc_resumable_persisted_sizes_carry_the_persisted_checksums, a_running_hash_must_cover_the_persisted_offset. Contract: docs/en/slices/grpc-v2-object-io.md.",
+      "required_resolution": "Keep these choices as the emulator's write-stream contract, pinned by the listed tests. Revisit BidiWriteObject's answer to a message after finish_write, the status of a wrong resumed offset and the behavior of concurrent streams only with authorized Cloud Storage recordings of the same streams."
+    },
+    {
+      "id": "SPEC-GRPC-WRITE-REFUSALS",
+      "title": "Storage v2 write features the emulator does not model fail with UNIMPLEMENTED",
+      "status": "OPEN",
+      "affected_features": [
+        "RPC-STORAGE-018",
+        "RPC-STORAGE-019",
+        "RPC-STORAGE-022",
+        "BEHAVIOR-RPC-003"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
+      ],
+      "observed_at": "2026-11-18",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Three write features return UNIMPLEMENTED with ErrorInfo (reason badRequest, domain global) instead of being accepted and ignored. (1) WriteObjectSpec.predefined_acl and resource fields other than the name, bucket, content type, encoding, disposition and language, cache control, custom metadata, holds, custom time, storage class and checksums, on WriteObject, BidiWriteObject and StartResumableWrite, before anything is created; StartResumableWrite also refuses appendable. (2) object_checksums on an upload_id message without finish_write: the proto allows them 'in the first or last request', but the shared resumable session persists checksums only from StartResumableWrite and checks the complete object at finalization, so checksums kept for one stream would go unchecked after a reconnect; the refusal stages nothing and leaves the persisted offset unchanged. (3) flush or state_lookup on a non-resumable BidiWriteObject message without finish_write: the proto's state_lookup text promises a persisted-size response for such a message or a close, while its finish_write text makes a non-resumable stream that ends without finish_write an error, and the emulator persists nothing of a non-resumable write before finish_write. Tests: grpc_write_specs_refuse_unhandled_fields, grpc_single_shot_write_message_errors, grpc_resumable_write_message_errors, grpc_io_resumable_checksums_survive_reconnect_and_failed_completion. Contract: docs/en/slices/grpc-v2-object-io.md.",
+      "required_resolution": "Keep the refusals until the emulator models object ACLs, KMS keys and the other refused resource fields, persists per-stream checksums in the shared resumable session, or persists a non-resumable write before finish_write. Clients use StartResumableWrite and upload_id for flush and state_lookup, and send checksums to StartResumableWrite or with finish_write=true."
+    },
+    {
+      "id": "SPEC-GRPC-WRITE-ERRORS",
+      "title": "Storage v2 write error statuses, wording and precedence lack provider evidence",
+      "status": "OPEN",
+      "affected_features": [
+        "RPC-STORAGE-018",
+        "RPC-STORAGE-019",
+        "BEHAVIOR-RPC-003"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
+      ],
+      "observed_at": "2026-11-18",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The pinned storage.proto names a status for one write error: writing fewer or more than object_size bytes 'results in an OUT_OF_RANGE error'. For an invalid write_offset, a message after finish_write and checksum mismatches it says only that the request fails or causes an error, and it orders none of them. The emulator's statuses, messages and precedence are pinned per path and RPC: a negative or wrong offset is OUT_OF_RANGE; a chunk CRC32C mismatch, a complete-object mismatch, conflicting or malformed object_checksums, a first message after the first and a message after finish_write are INVALID_ARGUMENT; an object past max_object_bytes is RESOURCE_EXHAUSTED. When one message breaks several rules, a single-shot write checks a later key, the first message, flush and state_lookup, checksum placement, the MD5 length, conflicting checksums and the offset before the chunk CRC32C; a resumed write checks the first message and checksum placement before it looks up the session, then the key, the publication conditions, the checksums and the offset before the chunk CRC32C, and WriteObject reports a message after finish_write only after the finishing message's own checks; an appendable write checks the key, the first message and the chunk CRC32C before checksum placement, MD5 and the offset, and checks its opening message before it creates or takes over the object. A complete-object mismatch uses the adapter's wording on single-shot writes and the shared catalog's on resumable and appendable writes. No Cloud Storage recording covers these streams. Tests: grpc_single_shot_write_message_errors, grpc_single_shot_write_error_precedence, grpc_resumable_write_message_errors, grpc_resumable_write_error_precedence, grpc_appendable_write_message_errors, grpc_appendable_write_error_precedence.",
+      "required_resolution": "Record Cloud Storage's answers to the same malformed streams with an opted-in project before claiming provider-identical statuses, wording or precedence. Change a pinned status only where the proto or such a recording backs the new one."
+    },
+    {
       "id": "SPEC-RESUMABLE-ZERO-DECLARED-LENGTH",
       "title": "A resumable session declared with X-Upload-Content-Length 0 and continued with unknown-total chunks needs provider evidence",
       "status": "RESOLVED",
