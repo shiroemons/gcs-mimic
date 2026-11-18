@@ -1018,7 +1018,7 @@ async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_ap
         result
     );
     let (_, reader) = admin.open_object(&bucket, &name, None).await.unwrap();
-    let file = reader.into_file().await.unwrap();
+    let file = reader.into_file().unwrap();
     let mut bytes = [0; 10];
     assert_eq!(crate::fsutil::read_at(&file, &mut bytes, 0).unwrap(), 10);
     assert_eq!(&bytes, b"retained\0\xff");

@@ -284,7 +284,7 @@ impl ObjectReader {
     /// would share its cursor with every other holder of the file, so a file the read cache also
     /// holds is refused instead. Only HTTP downloads open through the cache, and they never call
     /// this.
-    pub async fn into_file(self) -> io::Result<File> {
+    pub fn into_file(self) -> io::Result<File> {
         match self.file {
             ReaderData::Disk(file) => {
                 let mut file = Arc::try_unwrap(file)
@@ -299,7 +299,7 @@ impl ObjectReader {
         }
     }
 
-    pub(crate) async fn into_reader(self) -> Box<dyn io::Read + Send> {
+    pub(crate) fn into_reader(self) -> Box<dyn io::Read + Send> {
         match self.file {
             ReaderData::Disk(file) => Box::new(PositionalRead {
                 file,
@@ -309,7 +309,7 @@ impl ObjectReader {
         }
     }
 
-    pub(crate) async fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
+    pub(crate) fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
         if let ReaderData::Memory(reader) = &mut self.file {
             io::Seek::seek(reader, io::SeekFrom::Start(offset))?;
         }
@@ -332,7 +332,7 @@ impl ObjectReader {
             Some(bytes) => bytes.slice(..bytes.len().min(limit)),
             None => Bytes::new(),
         };
-        self.set_range(offset, remaining).await?;
+        self.set_range(offset, remaining)?;
         Ok(prefix)
     }
 

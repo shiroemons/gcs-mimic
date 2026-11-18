@@ -89,7 +89,7 @@ async fn ram_reader_peeking_preserves_the_selected_range() {
         .open_object(live("test-bucket", "range"), Default::default(), PERMISSIVE)
         .await
         .unwrap();
-    reader.set_range(1, 3).await.unwrap();
+    reader.set_range(1, 3).unwrap();
     assert_eq!(reader.peek_prefix(1).await.unwrap(), b"a"[..]);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"ang"[..]);
     assert!(reader.next_chunk().await.unwrap().is_none());
@@ -627,7 +627,7 @@ async fn ram_incomplete_bodies_and_competing_conditions_preserve_committed_state
         .await
         .unwrap();
     assert_eq!(
-        reader.into_file().await.unwrap_err().kind(),
+        reader.into_file().unwrap_err().kind(),
         std::io::ErrorKind::Unsupported
     );
     catalog.close().await.unwrap();

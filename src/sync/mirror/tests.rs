@@ -1872,7 +1872,7 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             assert!(matches!(opened, Err(AdminError::NotFound)));
         } else {
             let (_, reader) = opened.unwrap();
-            let file = reader.into_file().await.unwrap();
+            let file = reader.into_file().unwrap();
             let mut body = [0; 8];
             assert_eq!(fsutil::read_at(&file, &mut body, 0).unwrap(), 7);
             assert_eq!(&body[..7], b"after\0\xff");
@@ -2008,7 +2008,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
         }
         if action == "overwrite" {
             let (_, reader) = admin.open_object(&bucket, &name, None).await.unwrap();
-            let mut file = reader.into_file().await.unwrap();
+            let mut file = reader.into_file().unwrap();
             let mut bytes = Vec::new();
             std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
             assert_eq!(bytes, b"new-api");

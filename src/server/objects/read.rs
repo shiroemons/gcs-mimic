@@ -158,7 +158,6 @@ async fn media(
         if !head {
             reader
                 .set_range(offset, length)
-                .await
                 .map_err(|_| JsonError::service_unavailable("Cannot seek object data"))?;
         }
         if headers.contains_key("content-length") {

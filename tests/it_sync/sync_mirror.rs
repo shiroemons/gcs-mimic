@@ -101,7 +101,7 @@ async fn initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_i
         .open_object(&first, &ObjectName::new("nested/0000").unwrap(), None)
         .await
         .unwrap();
-    let mut file = reader.into_file().await.unwrap();
+    let mut file = reader.into_file().unwrap();
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
     assert_eq!(bytes, b"\0\xffbody");

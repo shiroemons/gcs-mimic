@@ -203,12 +203,7 @@ async fn conflict_crash_and_power_loss_snapshots_keep_owned_bytes_or_authorized_
                 .await
                 .unwrap();
             let mut bytes = Vec::new();
-            reader
-                .into_file()
-                .await
-                .unwrap()
-                .read_to_end(&mut bytes)
-                .unwrap();
+            reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
             assert_eq!(bytes, b"api winner");
             let record = recovered
                 .admin(Origin::Api)

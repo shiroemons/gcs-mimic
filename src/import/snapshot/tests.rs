@@ -109,7 +109,6 @@ fn pinned_source_export_imports_selected_bodies_and_metadata_after_restart() {
                     .unwrap()
                     .1
                     .into_file()
-                    .await
                     .unwrap();
                 let mut actual = Vec::new();
                 file.read_to_end(&mut actual).unwrap();

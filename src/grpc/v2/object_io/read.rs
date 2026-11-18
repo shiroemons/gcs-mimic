@@ -345,7 +345,6 @@ impl Storage {
         let range = read_range(record.size, r.read_offset, r.read_limit)?;
         reader
             .set_range(range.start, range.len)
-            .await
             .map_err(read_failure)?;
         let object = self
             .first_read_metadata(caller, &record, finality, mask)

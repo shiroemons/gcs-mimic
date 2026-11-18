@@ -1265,7 +1265,7 @@ impl LiveObject<'_> {
                 .map(|(_, reader)| Some(reader)),
         };
         let source = match opened {
-            Ok(Some(reader)) => Some(reader.into_file().await?),
+            Ok(Some(reader)) => Some(reader.into_file()?),
             Ok(None) => None,
             Err(AdminError::NotFound | AdminError::Precondition) => {
                 self.summary.deferred += 1;
@@ -1487,7 +1487,7 @@ impl LiveObject<'_> {
                 .open_object(self.bucket, self.name, expected_generation)
                 .await
             {
-                Ok((_, reader)) => plan.source = Some(reader.into_file().await?),
+                Ok((_, reader)) => plan.source = Some(reader.into_file()?),
                 Err(AdminError::Precondition | AdminError::NotFound) => return Ok(None),
                 Err(error) => return Err(error.into()),
             }

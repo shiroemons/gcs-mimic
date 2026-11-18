@@ -248,7 +248,6 @@ impl Storage {
         let size = record.size.min(entry.size);
         reader
             .set_range(0, size)
-            .await
             .map_err(super::status::read_failure)?;
         Ok((
             Selected {
@@ -578,7 +577,7 @@ async fn serve(
                 let offset = range.read_offset;
                 let data = {
                     let reader = &mut selected.reader;
-                    reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned()).await
+                    reader.set_range(offset.cast_unsigned(), range.read_length.cast_unsigned())
                         .map_err(|error| ReadFailure::read(range.read_id, super::status::read_failure(error)))?;
                     reader.next_chunk().await.map_err(|error| ReadFailure::read(range.read_id, super::status::read_failure(error)))?
                         .unwrap_or_default()

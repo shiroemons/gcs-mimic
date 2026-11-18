@@ -34,12 +34,20 @@ mod tests;
 use tests::{authorization_checkpoint, authorization_wait_checkpoint};
 
 #[cfg(not(all(test, any(target_os = "linux", target_os = "macos"))))]
+#[expect(
+    clippy::unused_async,
+    reason = "the test build's checkpoint awaits a control, and call sites await both builds' versions"
+)]
 async fn authorization_wait_checkpoint(
     _: &tokio::sync::watch::Sender<crate::server::ObjectActivity>,
 ) {
 }
 
 #[cfg(not(all(test, any(target_os = "linux", target_os = "macos"))))]
+#[expect(
+    clippy::unused_async,
+    reason = "the test build's checkpoint awaits a control, and call sites await both builds' versions"
+)]
 async fn authorization_checkpoint() {}
 
 pub(super) mod conflicts;

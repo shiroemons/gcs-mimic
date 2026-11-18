@@ -826,7 +826,7 @@ async fn the_last_megabyte_goes_out_in_small_frames() {
 #[tokio::test]
 async fn a_frame_not_at_hand_leaves_the_reader_where_it_was() {
     let (_dir, contents, mut reader) = read_ahead_fixture(1024);
-    reader.set_range(10, 20).await.unwrap();
+    reader.set_range(10, 20).unwrap();
     // Whether the page cache answered depends on the platform; the bytes must not.
     let at_hand = reader.next_frame_at_hand().unwrap_or_default();
     assert_eq!(at_hand, contents[10..10 + at_hand.len()]);
@@ -838,7 +838,7 @@ async fn peeking_keeps_a_read_ahead_and_a_range_discards_it() {
     let (_dir, contents, mut reader) = read_ahead_fixture(1024);
     assert_eq!(reader.peek_prefix(2).await.unwrap(), contents[..2]);
     assert!(reader.head.is_some());
-    reader.set_range(10, 20).await.unwrap();
+    reader.set_range(10, 20).unwrap();
     assert!(reader.head.is_none());
     assert_eq!(drain(&mut reader).await, contents[10..30]);
 }
@@ -849,16 +849,11 @@ async fn a_read_ahead_is_not_lost_when_the_file_is_handed_over() {
 
     let (_dir, contents, reader) = read_ahead_fixture(1024);
     let mut bytes = Vec::new();
-    reader.into_reader().await.read_to_end(&mut bytes).unwrap();
+    reader.into_reader().read_to_end(&mut bytes).unwrap();
     assert_eq!(bytes, contents);
     let (_dir, contents, reader) = read_ahead_fixture(1024);
     let mut bytes = Vec::new();
-    reader
-        .into_file()
-        .await
-        .unwrap()
-        .read_to_end(&mut bytes)
-        .unwrap();
+    reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
     assert_eq!(bytes, contents);
 }
 
@@ -910,21 +905,18 @@ async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
         publicly_readable: false,
     };
     let offset = size - CHUNK_SIZE as u64 - 3;
-    reader
-        .set_range(offset, CHUNK_SIZE as u64 + 3)
-        .await
-        .unwrap();
+    reader.set_range(offset, CHUNK_SIZE as u64 + 3).unwrap();
     let chunk = reader.next_chunk().await.unwrap().unwrap();
     assert_eq!(chunk.len(), CHUNK_SIZE);
     assert!(chunk.iter().all(|byte| *byte == 0));
     assert_eq!(reader.peek_prefix(2).await.unwrap(), b"en"[..]);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"end"[..]);
     assert!(reader.next_chunk().await.unwrap().is_none());
-    reader.set_range(size - 3, 2).await.unwrap();
+    reader.set_range(size - 3, 2).unwrap();
     assert_eq!(reader.peek_prefix(1).await.unwrap(), b"e"[..]);
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"en"[..]);
     assert!(reader.next_chunk().await.unwrap().is_none());
-    reader.set_range(size, 1).await.unwrap();
+    reader.set_range(size, 1).unwrap();
     assert_eq!(
         reader.next_chunk().await.unwrap_err().kind(),
         io::ErrorKind::UnexpectedEof
@@ -1771,7 +1763,7 @@ async fn object_acl_revocation_rechecks_admitted_reads_and_keeps_opened_snapshot
             refused()
         );
         let mut bytes = Vec::new();
-        std::io::Read::read_to_end(&mut reader.into_reader().await, &mut bytes).unwrap();
+        std::io::Read::read_to_end(&mut reader.into_reader(), &mut bytes).unwrap();
         assert_eq!(bytes, b"selected snapshot");
         catalog.close().await.unwrap();
         if !memory {
