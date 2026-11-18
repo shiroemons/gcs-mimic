@@ -740,11 +740,12 @@ mod tests {
             Code::NotFound,
         );
         // Durations outside the canonical form, whose nanos have the other sign than the seconds
-        // or reach a whole second: the stored period, or `None` for INVALID_ARGUMENT.
+        // or reach a whole second, round down by their value: the stored period, or `None` for
+        // INVALID_ARGUMENT.
         for (name, seconds, nanos, period) in [
-            ("negative-nanos-hour", 3600, -1, Some(3600)),
-            ("negative-nanos-second", 1, -1, Some(1)),
-            ("excess-nanos", 0, 1_500_000_000, None),
+            ("negative-nanos-hour", 3600, -1, Some(3599)),
+            ("negative-nanos-second", 1, -1, None),
+            ("excess-nanos", 0, 1_500_000_000, Some(1)),
         ] {
             let result = storage
                 .create_bucket(Request::new(retention(name, seconds, nanos)), None)

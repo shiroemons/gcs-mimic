@@ -318,11 +318,12 @@ fn apply_path(
 }
 
 /// The whole seconds of a retention duration: the proto rounds any `nanos` down to the nearest
-/// second (storage.proto lines 2429-2433). A valid `Duration`'s nanos share the sign of its
-/// seconds, so dropping them rounds every positive duration down, and no other duration is a
-/// valid period.
+/// second (storage.proto lines 2429-2433). Normalizing first carries nanos that reach a whole
+/// second into the seconds and gives a positive duration nonnegative nanos, so its seconds are
+/// the value rounded down even when a client sent nanos of the other sign. A duration that
+/// normalizes to zero or below is no valid period, however its seconds round.
 pub(super) fn retention_seconds(duration: &prost_types::Duration) -> i64 {
-    duration.seconds
+    duration.normalized().seconds
 }
 
 fn apply_autoclass(

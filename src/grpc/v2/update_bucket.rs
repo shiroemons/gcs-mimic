@@ -776,11 +776,12 @@ mod tests {
             updated.metageneration
         );
         // Durations outside the canonical form, whose nanos have the other sign than the seconds
-        // or reach a whole second: the stored period, or `None` for INVALID_ARGUMENT.
+        // or reach a whole second, round down by their value: the stored period, or `None` for
+        // INVALID_ARGUMENT.
         for (seconds, nanos, period) in [
-            (3600, -1, Some(3600)),
-            (1, -1, Some(1)),
-            (0, 1_500_000_000, None),
+            (3600, -1, Some(3599)),
+            (1, -1, None),
+            (0, 1_500_000_000, Some(1)),
         ] {
             let before = stored_bucket(&s).await;
             let result = s

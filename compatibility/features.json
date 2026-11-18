@@ -22081,7 +22081,7 @@
         },
         {
           "id": "grpc_bucket_create_fractional_retention",
-          "description": "A retention_policy.retention_duration with nonzero nanos is rounded down to whole seconds, as the proto requires (storage.proto lines 2429-2433) and as UpdateBucket does, through the shared retention_seconds in src/grpc/v2/bucket_update.rs: 3600.999999999 seconds stores 3600, and a duration under one second is no period and answers INVALID_ARGUMENT without creating the bucket.",
+          "description": "A retention_policy.retention_duration with nonzero nanos is rounded down to whole seconds, as the proto requires (storage.proto lines 2429-2433) and as UpdateBucket does, through the shared retention_seconds in src/grpc/v2/bucket_update.rs: 3600.999999999 seconds stores 3600, and a duration under one second is no period and answers INVALID_ARGUMENT without creating the bucket. A Duration outside the canonical form is normalized first and rounds down by its value: 3600 seconds and -1 nanos stores 3599, 0 seconds and 1500000000 nanos stores 1, and 1 second and -1 nanos is under one second and answers INVALID_ARGUMENT.",
           "result": "PASS",
           "test_ids": ["create_bucket_rounds_retention_nanos_down"]
         }
@@ -23072,7 +23072,7 @@
         },
         {
           "id": "grpc_bucket_update_retention_nanos",
-          "description": "retention_policy.retention_duration keeps only its whole seconds (retention_seconds in src/grpc/v2/bucket_update.rs, shared with CreateBucket), which follows the proto's rounding of nanos down to the nearest second (storage.proto lines 2429-2433): 3600.999999999 seconds stores and answers 3600, and a duration under one second is no period and answers INVALID_ARGUMENT without a change.",
+          "description": "retention_policy.retention_duration is rounded down to whole seconds (retention_seconds in src/grpc/v2/bucket_update.rs, shared with CreateBucket), as the proto rounds nanos down to the nearest second (storage.proto lines 2429-2433): 3600.999999999 seconds stores and answers 3600, and a duration under one second is no period and answers INVALID_ARGUMENT without a change. A Duration outside the canonical form is normalized first and rounds down by its value: 3600 seconds and -1 nanos stores 3599, 0 seconds and 1500000000 nanos stores 1, and 1 second and -1 nanos is under one second and answers INVALID_ARGUMENT.",
           "result": "PASS",
           "test_ids": ["grpc_bucket_update_rounds_retention_nanos_down"]
         },
