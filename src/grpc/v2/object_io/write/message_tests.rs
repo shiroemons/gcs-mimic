@@ -322,17 +322,24 @@ async fn object_left(storage: &Storage, name: &str) -> Left {
     }
 }
 
-async fn session_left(storage: &Storage, upload_id: &str) -> Left {
-    use pb::query_write_status_response::WriteStatus;
+async fn query_status(
+    storage: &Storage,
+    upload_id: &str,
+) -> Result<pb::QueryWriteStatusResponse, Status> {
     let request = pb::QueryWriteStatusRequest {
         upload_id: upload_id.into(),
         ..Default::default()
     };
-    match storage
+    storage
         .query_write_status(Request::new(request), None)
         .await
-    {
-        Ok(response) => match response.into_inner().write_status {
+        .map(Response::into_inner)
+}
+
+async fn session_left(storage: &Storage, upload_id: &str) -> Left {
+    use pb::query_write_status_response::WriteStatus;
+    match query_status(storage, upload_id).await {
+        Ok(response) => match response.write_status {
             Some(WriteStatus::PersistedSize(size)) => Left::Persisted(size),
             Some(WriteStatus::Resource(_)) => Left::Finalized,
             None => panic!("{upload_id}: no write status"),
@@ -1410,34 +1417,52 @@ async fn grpc_appendable_write_error_precedence() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// A message for a session another stream is writing fails at once and leaves the session as it
-/// was, so the client can retry. The pinned proto says nothing about concurrent streams on one
-/// upload.
+/// The busy-session status a message for a leased upload session gets when it cannot wait.
+const BUSY: &str = "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)";
+
+/// Applies the session settings a server applies at startup, with `wait_millis` as
+/// catalog_wait_timeout_ms. A catalog no server configured has no wait budget.
+fn as_server(storage: &Storage, wait_millis: u64) {
+    let config = crate::config::Config {
+        catalog_wait_timeout: crate::time_limit::TimeLimit::from_millis(wait_millis),
+        ..Default::default()
+    };
+    storage.state.catalog.apply_session_limits(&config);
+}
+
+/// A server lets a message for a session another stream holds wait for the lease, up to
+/// catalog_wait_timeout_ms, and then continue at the persisted offset. QueryWriteStatus takes no
+/// lease: it answers meanwhile with the persisted size and the checksums of the persisted bytes.
 #[tokio::test]
-async fn grpc_resumable_write_to_a_leased_session_fails_without_waiting() {
+async fn grpc_resumable_write_waits_for_a_leased_session() {
     let (_dir, storage) = setup(false).await;
-    for rpc in [Rpc::WriteObject, Rpc::Bidi] {
-        let upload = open_session(&storage, &format!("leased-{rpc:?}"), PREFIXED).await;
-        let id = upload.parse::<UploadId>().unwrap();
-        let lease = storage
-            .state
-            .catalog
-            .lock_resumable_session(id.session(), id.bucket())
-            .await
-            .unwrap();
+    as_server(&storage, 60_000);
+    for (rpc, upload) in leasable_uploads(&storage, "waiting").await {
+        let held = lease(&storage, &upload).await;
         let messages = [resume(&upload, 3, b"def").finish()];
-        let (status, replies) = call(&storage, rpc, &messages).await;
+        let write = call(&storage, rpc, &messages);
+        tokio::pin!(write);
+        let early = tokio::time::timeout(std::time::Duration::from_millis(200), write.as_mut());
+        assert!(early.await.is_err(), "{rpc:?} answered while leased");
+        let queried = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            query_status(&storage, &upload),
+        )
+        .await
+        .expect("QueryWriteStatus waited for the lease")
+        .unwrap();
         assert_eq!(
-            answer(&status, replies, session_left(&storage, &upload).await),
-            failed(
-                Code::Unavailable,
-                "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session, or increase catalog_wait_timeout_ms (for example, 60000)",
-                Left::Persisted(3)
+            (queried.write_status, queried.persisted_data_checksums),
+            (
+                Some(pb::query_write_status_response::WriteStatus::PersistedSize(
+                    3
+                )),
+                persisted_checksums(b"abc")
             ),
             "{rpc:?}"
         );
-        drop(lease);
-        let (status, replies) = call(&storage, rpc, &messages).await;
+        drop(held);
+        let (status, replies) = write.await;
         assert_eq!(
             answer(&status, replies, session_left(&storage, &upload).await),
             ok(vec![Reply::Resource(6)], Left::Finalized),
@@ -1445,6 +1470,74 @@ async fn grpc_resumable_write_to_a_leased_session_fails_without_waiting() {
         );
     }
     storage.state.catalog.close().await.unwrap();
+}
+
+/// Past catalog_wait_timeout_ms a message for a session another stream holds fails with
+/// UNAVAILABLE, which the proto lists among the errors a client resumes after, and leaves the
+/// session as it was; once the lease is free the same message continues the upload.
+#[tokio::test]
+async fn grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable() {
+    let (_dir, storage) = setup(false).await;
+    let uploads = leasable_uploads(&storage, "busy").await;
+    // Applied after the sessions are set up, which the short budget would also bound.
+    as_server(&storage, 100);
+    refuse_while_leased(&storage, uploads).await;
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A catalog no server configured, as an embedded one, has no wait budget: a message for a
+/// session another stream holds fails at once and leaves the session as it was. A server waits
+/// first, as the two tests above pin.
+#[tokio::test]
+async fn grpc_resumable_write_to_a_leased_session_fails_without_waiting() {
+    let (_dir, storage) = setup(false).await;
+    let uploads = leasable_uploads(&storage, "leased").await;
+    refuse_while_leased(&storage, uploads).await;
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A session per RPC, with `abc` persisted, for the lease tests.
+async fn leasable_uploads(storage: &Storage, prefix: &str) -> Vec<(Rpc, String)> {
+    let mut uploads = Vec::new();
+    for rpc in [Rpc::WriteObject, Rpc::Bidi] {
+        let upload = open_session(storage, &format!("{prefix}-{rpc:?}"), PREFIXED).await;
+        uploads.push((rpc, upload));
+    }
+    uploads
+}
+
+/// Takes the session lease a stream holds while it writes a message.
+async fn lease(storage: &Storage, upload: &str) -> crate::storage::SessionLease {
+    let id = upload.parse::<UploadId>().unwrap();
+    storage
+        .state
+        .catalog
+        .lock_resumable_session(id.session(), id.bucket())
+        .await
+        .unwrap()
+}
+
+/// Sends each upload's finishing message over its RPC while another holder keeps the session
+/// lease past any wait, which fails with UNAVAILABLE and leaves the session as it was, and again
+/// once the lease is free, which finishes the upload.
+async fn refuse_while_leased(storage: &Storage, uploads: Vec<(Rpc, String)>) {
+    for (rpc, upload) in uploads {
+        let held = lease(storage, &upload).await;
+        let messages = [resume(&upload, 3, b"def").finish()];
+        let (status, replies) = call(storage, rpc, &messages).await;
+        assert_eq!(
+            answer(&status, replies, session_left(storage, &upload).await),
+            failed(Code::Unavailable, BUSY, Left::Persisted(3)),
+            "{rpc:?}"
+        );
+        drop(held);
+        let (status, replies) = call(storage, rpc, &messages).await;
+        assert_eq!(
+            answer(&status, replies, session_left(storage, &upload).await),
+            ok(vec![Reply::Resource(6)], Left::Finalized),
+            "{rpc:?}"
+        );
+    }
 }
 
 /// Streams that take turns on one upload each continue at the session's persisted offset. A
@@ -1513,19 +1606,7 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     use pb::query_write_status_response::WriteStatus as Queried;
     let (_dir, storage) = setup(false).await;
     let upload = open_session(&storage, "checksummed", PLAIN).await;
-    let query = async || {
-        storage
-            .query_write_status(
-                Request::new(pb::QueryWriteStatusRequest {
-                    upload_id: upload.clone(),
-                    ..Default::default()
-                }),
-                None,
-            )
-            .await
-            .unwrap()
-            .into_inner()
-    };
+    let query = async || query_status(&storage, &upload).await.unwrap();
     let fresh = query().await;
     assert_eq!(fresh.write_status, Some(Queried::PersistedSize(0)));
     assert_eq!(fresh.persisted_data_checksums, persisted_checksums(b""));
