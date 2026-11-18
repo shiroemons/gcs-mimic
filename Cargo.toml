@@ -23,6 +23,31 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 redundant_clone = "deny"
+# "Idiomatic Rust" in AGENTS.md, for the patterns Clippy can decide. Each passes on every
+# workspace target, so a new occurrence fails `cargo clippy` in tests and tools as well.
+# Borrow by default: copies and allocations the code does not need.
+cloned_instead_of_copied = "deny"
+inefficient_to_string = "deny"
+option_as_ref_cloned = "deny"
+large_types_passed_by_value = "deny"
+# Use the iterator adapter that names the intent.
+needless_for_each = "deny"
+flat_map_option = "deny"
+filter_map_next = "deny"
+map_flatten = "deny"
+iter_filter_is_some = "deny"
+manual_is_variant_and = "deny"
+manual_ok_or = "deny"
+explicit_into_iter_loop = "deny"
+# Keep the success path flat: an `else` after a diverging branch, or a `match` on a bool,
+# nests what an early return or an `if` states directly.
+redundant_else = "deny"
+match_bool = "deny"
+# Encode invariants in types: a checked conversion is `try_from`, not a hand-written range
+# test, and a `&mut &mut` or a `ref` binding to a reference hides which value is borrowed.
+checked_conversions = "deny"
+mut_mut = "deny"
+ref_binding_to_reference = "deny"
 # `cargo xtask lint` raises this to a warning for production code only; see clippy.toml.
 disallowed_methods = "allow"
 

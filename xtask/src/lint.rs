@@ -27,7 +27,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 20] = [
+pub const CLIPPY_LINTS: [&str; 22] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -56,6 +56,10 @@ pub const CLIPPY_LINTS: [&str; 20] = [
     "clippy::option_option",
     // "Match exhaustively" in AGENTS.md: a `_` arm lets a new variant compile undecided.
     "clippy::wildcard_enum_match_arm",
+    // "Borrow by default": `push_str(&format!(..))` allocates a string only to copy it.
+    "clippy::format_push_string",
+    // "Keep the success path flat": `Err(e)?` hides a plain `return Err(e)`.
+    "clippy::try_err",
 ];
 
 /// Lints whose existing findings are counted per file; see "Graduating a ratcheted rule" in

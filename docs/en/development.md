@@ -402,6 +402,8 @@ cannot express.
 | `clippy::option_option` | `Option<Option<T>>`; name the three states with a type. |
 | `clippy::struct_excessive_bools` | Structs with more than three `bool` fields, which mix up modes. |
 | `clippy::unreachable` | `unreachable!`, which panics like `panic!`. |
+| `clippy::format_push_string` | `push_str(&format!(..))` and `+= &format!(..)`, which allocate a string only to copy it; use `write!`. |
+| `clippy::try_err` | `Err(e)?`, which hides a plain `return Err(e)`. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
 | `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types. |
@@ -421,7 +423,16 @@ cannot express.
 so `[workspace.lints]` denies them and the plain
 `cargo clippy --workspace --all-targets -- -D warnings` run enforces them,
 tests included. The gate does not pass them with `-W`: a command-line `-W`
-would lower that `deny` to a warning. `[workspace.lints]` instead sets
+would lower that `deny` to a warning. The same holds for the idiom lints
+`[workspace.lints.clippy]` denies for "Idiomatic Rust" in `AGENTS.md`:
+needless copies (`cloned_instead_of_copied`, `inefficient_to_string`,
+`option_as_ref_cloned`, `large_types_passed_by_value`), iterator chains with
+an adapter that names the intent (`needless_for_each`, `flat_map_option`,
+`filter_map_next`, `map_flatten`, `iter_filter_is_some`,
+`manual_is_variant_and`, `manual_ok_or`, `explicit_into_iter_loop`), nesting
+that an early return or an `if` removes (`redundant_else`, `match_bool`), and
+conversions and borrows that hide their meaning (`checked_conversions`,
+`mut_mut`, `ref_binding_to_reference`). `[workspace.lints]` instead sets
 `clippy::disallowed_methods` to `allow`, so tests may spawn tasks and run
 ad-hoc SQL, and the gate's `-W` raises it for production code only. A unit
 test in `xtask` fails if a lint is denied there and also passed with `-W`.
