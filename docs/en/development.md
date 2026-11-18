@@ -404,6 +404,8 @@ cannot express.
 | `clippy::unreachable` | `unreachable!`, which panics like `panic!`. |
 | `clippy::format_push_string` | `push_str(&format!(..))` and `+= &format!(..)`, which allocate a string only to copy it; use `write!`. |
 | `clippy::try_err` | `Err(e)?`, which hides a plain `return Err(e)`. |
+| `clippy::trivially_copy_pass_by_ref` | `&T` parameters for a small `Copy` type; pass it by value. A signature that a trait or a closure type dictates takes a reasoned `#[expect]`. |
+| `clippy::unnecessary_wraps` | Functions that always return `Ok` or `Some`; return the plain value. A signature fixed by a trait or by sibling functions with one shape takes a reasoned `#[expect]`. |
 | `text::path_attribute` | `#[path]` module attributes. |
 | `text::string_error_result` | `fn` signatures and type aliases of `Result<_, String>`, plus associated `type Err = String` and `type Error = String`. |
 | `text::static_str_error` | `Result<_, &'static str>` in signatures/aliases and associated static-string error types. |
@@ -429,10 +431,16 @@ needless copies (`cloned_instead_of_copied`, `inefficient_to_string`,
 `option_as_ref_cloned`, `large_types_passed_by_value`), iterator chains with
 an adapter that names the intent (`needless_for_each`, `flat_map_option`,
 `filter_map_next`, `map_flatten`, `iter_filter_is_some`,
-`manual_is_variant_and`, `manual_ok_or`, `explicit_into_iter_loop`), nesting
-that an early return or an `if` removes (`redundant_else`, `match_bool`), and
-conversions and borrows that hide their meaning (`checked_conversions`,
-`mut_mut`, `ref_binding_to_reference`). `[workspace.lints]` instead sets
+`manual_is_variant_and`, `manual_ok_or`, `explicit_into_iter_loop`,
+`explicit_iter_loop`, `redundant_closure_for_method_calls`, `map_unwrap_or`),
+needless copies of a value (`assigning_clones`, `implicit_clone`), nesting
+that an early return or an `if` removes (`redundant_else`, `match_bool`,
+`single_match_else`, `if_not_else`, `needless_continue`), exhaustive matches
+(`match_same_arms`, `match_wildcard_for_single_variants`), code that names
+what it uses (`unused_async`, `unused_self`, `bool_to_int_with_if`,
+`cast_lossless`), and conversions and borrows that hide their meaning
+(`checked_conversions`, `mut_mut`, `ref_binding_to_reference`).
+`[workspace.lints]` instead sets
 `clippy::disallowed_methods` to `allow`, so tests may spawn tasks and run
 ad-hoc SQL, and the gate's `-W` raises it for production code only. A unit
 test in `xtask` fails if a lint is denied there and also passed with `-W`.

@@ -27,7 +27,7 @@ type Result<T> = std::result::Result<T, String>;
 /// Extra Clippy lints for production code; thresholds live in `clippy.toml`. A lint that passes
 /// on every workspace target belongs in `[workspace.lints]` instead: a `-W` here would lower
 /// that `deny` to a warning for this run.
-pub const CLIPPY_LINTS: [&str; 22] = [
+pub const CLIPPY_LINTS: [&str; 24] = [
     "clippy::unwrap_used",
     "clippy::expect_used",
     "clippy::panic",
@@ -60,6 +60,12 @@ pub const CLIPPY_LINTS: [&str; 22] = [
     "clippy::format_push_string",
     // "Keep the success path flat": `Err(e)?` hides a plain `return Err(e)`.
     "clippy::try_err",
+    // "Borrow by default": a small `Copy` value is passed by value; generated code, which the
+    // gate does not scan, still fires, so this cannot be a workspace-wide deny.
+    "clippy::trivially_copy_pass_by_ref",
+    // "Encode invariants in types": a `Result` or `Option` that is always `Ok` or `Some` hides
+    // that the function cannot fail; test fixtures shaped like proto fields keep their `Option`.
+    "clippy::unnecessary_wraps",
 ];
 
 /// Lints whose existing findings are counted per file; see "Graduating a ratcheted rule" in
