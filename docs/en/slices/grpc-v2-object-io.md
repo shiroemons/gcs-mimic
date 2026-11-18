@@ -72,7 +72,7 @@ The broader rows remain PARTIAL; [ledger cases](#ledger-cases) lists what remain
 
 ## Ledger cases
 
-The ledger rows list one acceptance case per checkable behavior (decomposed on 2026-11-18). No real Cloud Storage runs are made, so an answer Google does not document and nothing recorded is a local choice, recorded as a scoped difference with a pinning test. In summary:
+The ledger rows list one acceptance case per checkable behavior (decomposed on 2026-11-18). An answer that Google does not document and the recording of 2026-11-18 did not cover is a local choice, recorded as a scoped difference with a pinning test. In summary:
 
 - Refused on purpose (scoped differences under SPEC-GRPC-UNMODELED-SETTINGS): a write resource with `kms_key` or object contexts, on WriteObject, BidiWriteObject and StartResumableWrite, and the ListObjects contexts `filter`. A GetObject `restore_token` is not refused as unsupported: it answers the recorded INTERNAL, since only hierarchical namespace buckets use it.
 - Aligned with the 2026-11-18 recording of Cloud Storage: the routing metadata and its refusals; the answers of the write streams and resumable sessions listed above; object conditions and read masks (GetObject, ReadObject and ListObjects); GetObject `soft_deleted` and `restore_token`; the gzip read. The probe cases are `grpc-probe-routing`, `grpc-probe-write-streams`, `grpc-probe-bidi-write`, `grpc-probe-resumable-sessions`, `grpc-probe-object-conditions`, `grpc-probe-object-masks` and `grpc-probe-object-precedence`.

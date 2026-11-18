@@ -70,7 +70,7 @@ UpdateBucket, UpdateObject and TestIamPermissions retain LOCAL_SIMULATION achiev
 
 ## Ledger cases
 
-The ledger rows list one acceptance case per checkable behavior (decomposed on 2026-11-18). No real Cloud Storage runs are made, so an answer Google does not document and nothing recorded is a local choice, recorded as a scoped difference with a pinning test. In summary:
+The ledger rows list one acceptance case per checkable behavior (decomposed on 2026-11-18). An answer that Google does not document and the recording of 2026-11-18 did not cover is a local choice, recorded as a scoped difference with a pinning test. In summary:
 
 - Refused on purpose (scoped differences under SPEC-GRPC-UNMODELED-SETTINGS): UpdateBucket paths for settings the JSON API does not store either (`rpo`, `website`, `logging`, `encryption`, `billing`, `custom_placement_config`, `hierarchical_namespace`, `ip_filter`, `satisfies_pzs`), each pinned with its ErrorInfo; UpdateObject `contexts` and `contexts.custom` paths; ComposeObject `kms_key` and RewriteObject `destination_kms_key`; managed-folder IAM resources on GetIamPolicy, SetIamPolicy and TestIamPermissions; RestoreObject `restore_token`, which only hierarchical namespace buckets use.
 - Declared local choices (Cloud Storage answered otherwise on 2026-11-18, SPEC-GRPC-LOCAL-CHOICES): UpdateBucket's `*` update mask and nested bucket read masks are refused with UNIMPLEMENTED; a destination `acl` on ComposeObject and RewriteObject is refused with UNIMPLEMENTED; GetIamPolicy on an object resource answers UNIMPLEMENTED, because Cloud Storage renders the object's ACL as a policy and gcs-mimic keeps no object policy.
