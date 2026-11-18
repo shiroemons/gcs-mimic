@@ -6,7 +6,7 @@ use super::{
 use crate::{
     auth::{self, Caller},
     grpc::validate::{self, NegativeGeneration, strict_conditions},
-    object::{ObjectConditions, ObjectError, ObjectTarget, generation::Generation},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
 };
 use tonic::{Request, Response, Status};
 
@@ -14,6 +14,13 @@ use tonic::{Request, Response, Status};
 mod event_hold_release;
 #[cfg(test)]
 mod object_etag;
+
+/// The etag a Storage v2 response renders for `record`. A client sends that value back in
+/// `Object.etag`, so the request is compared with the same rendering; the stored hashes play no
+/// part in it.
+fn rendered_etag(record: &ObjectRecord) -> Result<String, ObjectError> {
+    Ok(super::convert::object(record, crate::csek::StoredHashes::Withheld)?.etag)
+}
 
 impl Storage {
     pub(super) async fn update_object(
@@ -71,8 +78,9 @@ impl Storage {
                 // The etag is a condition, checked after the others in the same transaction; a
                 // wrong key fails after it, before the metadata change commits.
                 move |record| {
-                    // xtask-lint: allow(text::json_adapter_dependency) -- gRPC renders this same validator through convert::object; both move with it to a neutral module
-                    if etag.is_some_and(|etag| etag != crate::json::object_etag(record)) {
+                    if let Some(etag) = &etag
+                        && *etag != rendered_etag(record)?
+                    {
                         return Err(ObjectError::PreconditionFailed);
                     }
                     crate::csek::check_metadata(record.customer_key_sha256, key)
