@@ -11,6 +11,7 @@ use std::{
 pub(crate) mod lifecycle;
 
 pub(crate) mod autoclass;
+pub(crate) mod cors;
 pub(crate) mod location;
 pub(crate) mod name;
 

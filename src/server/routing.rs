@@ -12,9 +12,9 @@ use super::{
 };
 use crate::{
     auth::Caller,
-    bucket::{BucketAccess, CatalogError, CorsRule},
+    bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
-    json::{self, JsonError, ObjectRequest, cors::CorsRequest},
+    json::{self, JsonError, ObjectRequest},
     xml,
 };
 use http_body_util::{BodyExt, Full};
