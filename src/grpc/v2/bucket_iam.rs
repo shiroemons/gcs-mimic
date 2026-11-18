@@ -429,6 +429,17 @@ mod tests {
                 s.set_iam_policy(Request::new(set(child, &[])), None).await,
                 "managed folder and object IAM policies",
             );
+            assert_unsupported(
+                s.test_iam_permissions(
+                    Request::new(iam::TestIamPermissionsRequest {
+                        resource: child.into(),
+                        permissions: vec![auth::OBJECTS_GET.as_str().into()],
+                    }),
+                    None,
+                )
+                .await,
+                "managed folder and object IAM policies",
+            );
         }
         let unchanged = s
             .get_iam_policy(Request::new(get(RESOURCE, 3)), None)

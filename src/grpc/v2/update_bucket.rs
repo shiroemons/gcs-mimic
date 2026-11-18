@@ -256,29 +256,39 @@ mod tests {
             .code(),
             Code::FailedPrecondition
         );
+        // The settings after `iam_config.unknown` are those the JSON API does not store either.
         for path in [
             "*",
             "acl.entity",
             "owner",
-            "logging",
             "versioning.unknown",
             "iam_config.unknown",
+            "rpo",
+            "website",
+            "logging",
+            "encryption",
+            "billing",
+            "custom_placement_config",
+            "hierarchical_namespace",
+            "ip_filter",
+            "satisfies_pzs",
         ] {
-            assert_code(
+            assert_unsupported(
                 bucket_patch(&pb::Bucket::default(), &[path.into()]),
-                Code::Unimplemented,
+                &format!("UpdateBucket update_mask {path}"),
             );
         }
         for path in [
             "*",
             "acl.entity",
             "owner",
+            "contexts",
             "contexts.custom",
             "retention.mode",
         ] {
-            assert_code(
+            assert_unsupported(
                 object_patch(&pb::Object::default(), &[path.into()]),
-                Code::Unimplemented,
+                &format!("UpdateObject update_mask {path}"),
             );
         }
         assert_code(mask(None), Code::InvalidArgument);

@@ -2,7 +2,7 @@
 
 use super::super::super::test_support::{setup, upload};
 use super::*;
-use crate::grpc::test_support::{assert_code, caller, registry};
+use crate::grpc::test_support::{assert_code, assert_unsupported, caller, registry};
 use crate::storage::test_fixtures::{PERMISSIVE, permissive_upload};
 use crate::{
     auth::Auth,
@@ -185,7 +185,7 @@ async fn grpc_list_folders_as_prefixes_follows_the_json_rule() {
         assert_eq!(error.code(), Code::InvalidArgument, "{delimiter:?}");
         assert!(error.message().contains("delimiter=/"), "{error:?}");
     }
-    assert_code(
+    assert_unsupported(
         s.list_objects(
             Request::new(pb::ListObjectsRequest {
                 filter: "contexts.\"k\"=\"v\"".into(),
@@ -194,7 +194,7 @@ async fn grpc_list_folders_as_prefixes_follows_the_json_rule() {
             None,
         )
         .await,
-        Code::Unimplemented,
+        "ListObjects filter",
     );
     s.state.catalog.close().await.unwrap();
 }

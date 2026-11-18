@@ -363,6 +363,17 @@ async fn grpc_storage_control_bucket_iam() {
             .unwrap_err(),
         tonic::Code::FailedPrecondition
     );
+    // An etag that is not the eight bytes every issued etag has cannot match the policy either.
+    for etag in [vec![1, 2, 3], vec![0; 9]] {
+        let mut malformed = set.clone();
+        malformed.policy.as_mut().unwrap().etag = etag;
+        assert_eq!(
+            call::<_, iam::Policy>(&state, &path, &malformed, Some("admin"))
+                .await
+                .unwrap_err(),
+            tonic::Code::FailedPrecondition
+        );
+    }
     let current: iam::Policy = call(
         &state,
         &format!("{CONTROL}GetIamPolicy"),

@@ -5,7 +5,7 @@ use super::{
     resumable::{Persisted, resumable_piece},
     write::{EndOfStream, MessagePosition},
 };
-use crate::grpc::test_support::{self as fixtures, assert_code, registry};
+use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported, registry};
 use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
@@ -66,6 +66,12 @@ fn object_errors_keep_the_v2_unsupported_metadata_wording() {
 pub(super) async fn setup(strict: bool) -> (TestDir, Storage) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
+    let storage = storage_over(catalog, strict).await;
+    (dir, storage)
+}
+
+/// The fixture bucket and principals over `catalog`, which a test may open with its own clock.
+async fn storage_over(catalog: Catalog, strict: bool) -> Storage {
     let definition = json::parse_insert(
         br#"{"name":"grpc-io","versioning":{"enabled":true}}"#,
         "project",
@@ -82,12 +88,11 @@ pub(super) async fn setup(strict: bool) -> (TestDir, Storage) {
     } else {
         Auth::permissive()
     };
-    let storage = Storage {
+    Storage {
         compat_profile: crate::config::CompatProfile::Native,
         state: Arc::new(crate::server::State::for_test(catalog, auth)),
         max_object_bytes: 1024 * 1024,
-    };
-    (dir, storage)
+    }
 }
 
 pub(super) fn spec(name: &str) -> pb::WriteObjectSpec {
@@ -1512,12 +1517,53 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
             .await
             .is_err()
     );
-    let mut unsupported_spec = spec("kms");
-    unsupported_spec.resource.as_mut().unwrap().kms_key = "key".into();
-    assert_code(
-        storage.write_spec(unsupported_spec, None, admin).await,
-        tonic::Code::Unimplemented,
-    );
+    // No protocol models Cloud KMS keys or object contexts, so every write path refuses them
+    // before it stages anything.
+    type UnsupportedResource = (&'static str, fn(&mut pb::Object));
+    let unsupported: [UnsupportedResource; 2] = [
+        ("kms", |resource| resource.kms_key = "key".into()),
+        ("contexts", |resource| {
+            resource.contexts = Some(pb::ObjectContexts {
+                custom: [(
+                    "k".into(),
+                    pb::ObjectCustomContextPayload {
+                        value: "v".into(),
+                        ..Default::default()
+                    },
+                )]
+                .into(),
+            })
+        }),
+    ];
+    const REFUSED: &str = "write_object_spec.resource fields";
+    for (name, set) in unsupported {
+        let mut unsupported_spec = spec(name);
+        set(unsupported_spec.resource.as_mut().unwrap());
+        assert_unsupported(
+            storage
+                .write_spec(unsupported_spec.clone(), None, admin)
+                .await,
+            REFUSED,
+        );
+        let mut first = message(name, b"data");
+        first.first_message = Some(
+            pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(unsupported_spec.clone()),
+        );
+        assert_unsupported(write_as(&storage, vec![first], admin).await, REFUSED);
+        assert!(missing(&storage, name).await, "{name}");
+        assert_unsupported(
+            storage
+                .start_resumable_write(
+                    Request::new(pb::StartResumableWriteRequest {
+                        write_object_spec: Some(unsupported_spec),
+                        ..Default::default()
+                    }),
+                    admin,
+                )
+                .await,
+            REFUSED,
+        );
+    }
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -1732,6 +1778,65 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
         query(&storage, &upload, admin).await,
         Err(tonic::Code::NotFound)
     );
+    // The upload_id binds no creator: a different caller that holds storage.objects.create on
+    // the bucket cancels a session the admin started.
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer user".parse().unwrap());
+    let user = storage.authenticate(&request).await.unwrap();
+    let started_by_admin = start(&storage, "strict-other", admin).await;
+    assert_eq!(cancel(&storage, &started_by_admin, user).await, Ok(()));
+    assert_eq!(
+        query(&storage, &started_by_admin, admin).await,
+        Err(tonic::Code::NotFound)
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A session lives seven days from StartResumableWrite on the catalog clock. Past that, every
+/// call that names its upload_id answers NOT_FOUND, as for an unknown upload_id.
+#[tokio::test]
+async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    let dir = TestDir::new();
+    // The catalog stores the start in whole milliseconds; a start that has no fraction puts the
+    // deadline exactly seven days later, so the test pins the boundary itself.
+    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let start_time = UNIX_EPOCH + Duration::from_secs(since_epoch.as_secs());
+    let clock = Arc::new(crate::clock::ManualClock::new(start_time));
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    let storage = storage_over(catalog, false).await;
+    let upload = start(&storage, "expiring", None).await;
+    assert!(matches!(
+        write(&storage, vec![resume(&upload, 0, b"abc", false)])
+            .await
+            .unwrap(),
+        pb::bidi_write_object_response::WriteStatus::PersistedSize(3)
+    ));
+    let lifetime = Duration::from_secs(7 * 24 * 60 * 60);
+    clock.advance(lifetime - Duration::from_millis(1));
+    assert!(matches!(
+        query(&storage, &upload, None).await,
+        Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
+            3
+        ))
+    ));
+    clock.advance(Duration::from_millis(1));
+    assert_eq!(
+        query(&storage, &upload, None).await,
+        Err(tonic::Code::NotFound)
+    );
+    assert_code(
+        write(&storage, vec![resume(&upload, 3, b"def", true)]).await,
+        tonic::Code::NotFound,
+    );
+    assert_eq!(
+        cancel(&storage, &upload, None).await,
+        Err(tonic::Code::NotFound)
+    );
+    assert!(missing(&storage, "expiring").await);
     storage.state.catalog.close().await.unwrap();
 }
 
