@@ -17442,7 +17442,7 @@
           "result": "PASS",
           "test_ids": [
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections"
           ]
         },
@@ -17608,7 +17608,7 @@
         "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
         "object_list_invalid_unsupported_and_missing_bucket_errors",
         "object_list_tokens_are_positional_and_reject_corruption",
-        "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+        "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
         "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
         "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
         "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
@@ -17682,7 +17682,7 @@
             "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
             "object_list_invalid_unsupported_and_missing_bucket_errors",
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
             "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
@@ -17699,7 +17699,7 @@
             "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
             "object_list_invalid_unsupported_and_missing_bucket_errors",
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
             "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
@@ -28261,7 +28261,7 @@
           "test_ids": [
             "bkt_http_sorted_scoped_pagination_and_limits",
             "bkt_lst_002_token_tampering_and_invalid_shapes",
-            "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
+            "page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
           ]
         },
         {
@@ -28285,7 +28285,7 @@
           "test_ids": [
             "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
             "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
@@ -28299,10 +28299,10 @@
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "bkt_http_sorted_scoped_pagination_and_limits",
         "bkt_lst_002_token_tampering_and_invalid_shapes",
-        "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload",
+        "page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload",
         "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
         "object_list_tokens_are_positional_and_reject_corruption",
-        "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+        "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
         "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
         "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
         "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
@@ -28329,7 +28329,7 @@
             "bkt_http_list_clamps_to_1000_with_lookahead",
             "bkt_http_sorted_scoped_pagination_and_limits",
             "bkt_lst_002_token_tampering_and_invalid_shapes",
-            "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
+            "page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
           ]
         },
         {
@@ -28340,7 +28340,7 @@
           "test_ids": [
             "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
             "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
@@ -33700,7 +33700,7 @@
           "result": "PASS",
           "test_ids": [
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections"
           ]
         },
@@ -33751,7 +33751,7 @@
         "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
         "object_list_invalid_unsupported_and_missing_bucket_errors",
         "object_list_tokens_are_positional_and_reject_corruption",
-        "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+        "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
         "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
         "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
         "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
@@ -33791,7 +33791,7 @@
             "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
             "object_list_invalid_unsupported_and_missing_bucket_errors",
             "object_list_tokens_are_positional_and_reject_corruption",
-            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
             "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
             "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
             "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
