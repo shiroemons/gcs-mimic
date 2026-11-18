@@ -1,8 +1,8 @@
 //! Pins, for WriteObject and BidiWriteObject, the status and message of every per-message error
 //! of single-shot, resumable and appendable writes, which error wins when one message has
 //! several, the replies sent before it, and what the write leaves behind. Each case goes through
-//! the RPC service as a client sends it. The pinned proto names no status for these errors, so
-//! the codes and the precedence are the emulator's.
+//! the RPC service as a client sends it. The pinned proto names a status only for an object_size
+//! mismatch (OUT_OF_RANGE), so the other codes and the precedence are the emulator's.
 
 use super::super::tests::{setup, spec};
 use super::*;
