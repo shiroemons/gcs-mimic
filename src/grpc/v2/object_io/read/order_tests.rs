@@ -1,8 +1,10 @@
 //! The order in which ReadObject reports its failures. Google documents none and none was
 //! recorded, so this order is a local choice (SPEC-GRPC-LOCAL-CHOICES): the customer key, the
-//! name, the read mask, the generation and the conditions are checked with the request; the
-//! caller is authorized when the object is looked up, before its conditions are evaluated; and
-//! only then are the read offset and the read limit checked against the object.
+//! name and the read mask are checked with the request; the caller is then authorized for the
+//! bucket, which refuses a caller only when the bucket does not exist and the caller holds the
+//! permission in no project; then the generation and the conditions are checked; the caller is
+//! authorized for the object when it is looked up, before its conditions are evaluated; and only
+//! then are the read offset and the read limit checked against the object.
 
 use super::super::tests::{message, setup, write};
 use super::*;
@@ -78,7 +80,8 @@ async fn read_object_reports_each_failure_before_the_ones_it_precedes() {
         tonic::Code::InvalidArgument,
         CONTENT_MASK,
     );
-    // The generation precedes the conditions, and both precede authorization and the lookup.
+    // In an existing bucket, the generation precedes the conditions, and both precede the
+    // object's authorization and the lookup.
     let malformed = || pb::ReadObjectRequest {
         generation: -1,
         if_metageneration_match: Some(-1),
@@ -139,4 +142,54 @@ async fn read_object_reports_each_failure_before_the_ones_it_precedes() {
         tonic::Code::OutOfRange,
     );
     storage.state.catalog.close().await.unwrap();
+}
+
+/// The bucket is authorized before the generation and the conditions are checked. In an
+/// existing bucket that refuses no one, because the object is authorized with the lookup; in a
+/// missing bucket it refuses a caller that holds `storage.objects.get` in no project.
+#[tokio::test]
+async fn a_missing_bucket_is_authorized_before_the_generation_and_the_conditions() {
+    let (_dir, storage) = setup(true).await;
+    let missing = |generation, condition| pb::ReadObjectRequest {
+        bucket: "projects/_/buckets/no-such-bucket".into(),
+        object: "object".into(),
+        generation,
+        if_metageneration_match: condition,
+        ..Default::default()
+    };
+    assert_status(
+        open(&storage, missing(-1, Some(-1)), Some(Caller::Anonymous)).await,
+        tonic::Code::Unauthenticated,
+        "Login Required",
+    );
+    let reader = crate::grpc::test_support::caller(&storage, "reader").await;
+    assert_status(
+        open(&storage, missing(-1, Some(-1)), reader).await,
+        tonic::Code::InvalidArgument,
+        GENERATION,
+    );
+    assert_status(
+        open(&storage, missing(0, Some(-1)), reader).await,
+        tonic::Code::InvalidArgument,
+        CONDITIONS,
+    );
+    assert_code(
+        open(&storage, missing(0, None), reader).await,
+        tonic::Code::NotFound,
+    );
+    storage.state.catalog.close().await.unwrap();
+
+    // A principal without the permission in any project is refused before the generation too.
+    let dir = crate::test_support::TestDir::new();
+    let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
+    let auth =
+        crate::auth::Auth::strict(crate::grpc::test_support::registry(&[("nobody", "", "")]));
+    let state = std::sync::Arc::new(crate::server::State::for_test(catalog, auth));
+    let ungranted = crate::grpc::test_support::storage_with(state, 1024);
+    let nobody = crate::grpc::test_support::caller(&ungranted, "nobody").await;
+    assert_code(
+        open(&ungranted, missing(-1, Some(-1)), nobody).await,
+        tonic::Code::PermissionDenied,
+    );
+    ungranted.state.catalog.close().await.unwrap();
 }
