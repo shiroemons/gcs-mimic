@@ -38701,7 +38701,7 @@
           ]
         },
         {
-          "text": "Storage v2 accepts no compressed message: a grpc-encoding other than identity answers UNIMPLEMENTED with grpc-accept-encoding: identity before authentication and the routing check, a compressed flag without grpc-encoding answers INTERNAL, and responses are never compressed. These are the answers the gRPC compression specification gives a server without compression support; whether Cloud Storage accepts compressed Storage v2 messages is neither documented nor recorded.",
+          "text": "Storage v2 accepts no compressed message: a grpc-encoding other than identity answers UNIMPLEMENTED with grpc-accept-encoding: identity before authentication and the routing check, a compressed flag without grpc-encoding answers INTERNAL, and responses are never compressed. These follow the gRPC compression specification for a server without compression support, except that the refusal names the supported encodings only in grpc-accept-encoding and not in its message; whether Cloud Storage accepts compressed Storage v2 messages is neither documented nor recorded.",
           "gap": "SPEC-GRPC-CALL-METADATA",
           "test_ids": [
             "grpc_compressed_requests_are_refused_before_the_call",
