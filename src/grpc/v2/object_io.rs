@@ -81,10 +81,12 @@ const UPLOAD_CANCELLED: &str = "Upload has already been cancelled.";
 const UPLOAD_TERMINATED: &str = "Upload has already been terminated.";
 const UPLOAD_NOT_FOUND: &str = "Upload session not found; start a new resumable write";
 
-/// The answer to a write that names a session it cannot continue (recorded 2026-11-18).
+/// The answer to a write that names a session it cannot continue.
 ///
-/// A write to a cancelled session was INVALID_ARGUMENT; a session the service ended itself is
-/// worded like it.
+/// Recorded 2026-11-18: a write to a cancelled session is INVALID_ARGUMENT "Upload has already
+/// been cancelled.". Not recorded; inferred from that answer and from the wording QueryWriteStatus
+/// was recorded giving a terminated session: a write to a session the emulator ended
+/// ([`ResumableError::Gone`]) is INVALID_ARGUMENT "Upload has already been terminated.".
 ///
 /// Not recorded: an upload ID that parses but whose session does not exist, has expired (also
 /// while a write holds it) or belongs to another bucket. The nearest recorded answer is the
@@ -107,7 +109,14 @@ fn session_status(error: ResumableError) -> Status {
 }
 
 /// [`session_status`] for QueryWriteStatus and CancelResumableWrite, which answer a session
-/// that already ended with FAILED_PRECONDITION and its reason (recorded 2026-11-18).
+/// that already ended with FAILED_PRECONDITION and its reason.
+///
+/// Recorded 2026-11-18: QueryWriteStatus on a cancelled session, and on a session that a
+/// finishing message with the wrong size ended. CancelResumableWrite was recorded only on a
+/// cancelled and on a completed session, which its caller answers. Not recorded; inferred from
+/// QueryWriteStatus's answer: QueryWriteStatus on a session the emulator ended for another
+/// reason, such as a complete object that failed its declared checksum, and
+/// CancelResumableWrite on any session the emulator ended.
 fn ended_session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::Cancelled => with_reason(

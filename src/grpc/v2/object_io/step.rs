@@ -5,8 +5,9 @@
 //! [`WriteStep`] instead of the protobuf message. The fields a message can get wrong keep
 //! what was sent until the path asks: the offset ([`WriteOffset::position`]), the object
 //! checksums ([`DeclaredChecksums::expected`]) and the data, whose declared CRC32C
-//! [`DeclaredChunk::verify`] or an [`Intake`](crate::grpc::upload::Intake) compares. A path
-//! may have to answer another rule first, and no unchecked byte reaches a writer either way.
+//! [`DeclaredChunk::verify`] or [`admit_bytes`](crate::grpc::upload::admit_bytes) compares. A
+//! path may have to answer another rule first, and no unchecked byte reaches a writer either
+//! way.
 
 use super::pb;
 use crate::{
@@ -123,7 +124,8 @@ impl DeclaredChunk {
         Ok(VerifiedChunk(self.content))
     }
 
-    /// Hands the data to an intake, which verifies it after its own offset and size checks.
+    /// Hands the data to [`upload::admit_bytes`], which verifies it after its offset and size
+    /// checks.
     pub(in crate::grpc::v2) fn into_piece(self, offset: u64, end: StepEnd) -> IntakePiece {
         IntakePiece {
             offset,
@@ -166,8 +168,10 @@ pub(in crate::grpc::v2) struct WriteStep {
 }
 
 /// An `object_checksums` as sent beside a spec or in a message. It is read where its write
-/// path checks it, which for a resumable message is after the session and its conditions, so
-/// a malformed MD5 does not answer ahead of them.
+/// path checks it: a non-resumable write reads the first message's with the spec, and a
+/// resumable message reads it after the session's key and conditions. Not recorded: where Cloud
+/// Storage answers a malformed MD5 against those; the resumable order is the emulator's (see
+/// `Storage::message_options`).
 #[derive(Default)]
 pub(in crate::grpc::v2) struct DeclaredChecksums(Option<pb::ObjectChecksums>);
 

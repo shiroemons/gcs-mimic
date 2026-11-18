@@ -130,8 +130,27 @@ fn resumable_call_persists_whole_granules_until_finish() {
     call.close().unwrap();
 }
 
+/// The refusal of `written` bytes against a declared `object_size` of 9.
+#[track_caller]
+fn assert_size_mismatch(status: &Status, written: usize) {
+    assert_eq!(status.code(), tonic::Code::OutOfRange);
+    assert_eq!(
+        status.message(),
+        format!(
+            "Invalid request. The final size of the upload is {written} byte(s). This does not match the expected size of 9 byte(s), which was specified in the StartResumableWrite request."
+        )
+    );
+    fixtures::assert_reason(status, "GRPC_MISMATCHED_UPLOAD_SIZE");
+}
+
+const SIZED: Persisted = Persisted {
+    offset: 0,
+    total: Some(9),
+};
+
 /// Recorded 2026-11-18: a first offset past the persisted size names both offsets with
-/// GRPC_UPLOAD_INVALID_START_OFFSET, and a wrong final size ends the session.
+/// GRPC_UPLOAD_INVALID_START_OFFSET, and a finishing message below object_size ends the
+/// session.
 #[test]
 fn resumable_call_refuses_offsets_and_sizes_as_recorded() {
     let hello = || bytes::Bytes::from_static(b"hello");
@@ -146,8 +165,23 @@ fn resumable_call_refuses_offsets_and_sizes_as_recorded() {
         "Upload request started at offset '5', which is past expected offset '0'."
     );
     fixtures::assert_reason(&past, "GRPC_UPLOAD_INVALID_START_OFFSET");
+    let Err(Refusal::Session(short)) =
+        Call::default().admit(data_step(0, hello(), true), SIZED, u64::MAX)
+    else {
+        panic!("a finishing message below object_size did not end the session")
+    };
+    assert_size_mismatch(&short, 5);
+}
+
+/// Not recorded; inferred. A first offset below a persisted size above 0 is refused, from the
+/// proto's write_offset field (the recording always had nothing persisted). A finishing message
+/// above object_size ends the session as one below it does: Cloud Storage's refusal was
+/// recorded, but not the session's state after it. Bytes past object_size without
+/// finish_write are refused and leave the session usable: no such message was recorded.
+#[test]
+fn resumable_call_refuses_unrecorded_offsets_and_sizes() {
     let below = message_refusal(Call::default().admit(
-        data_step(1, hello(), false),
+        data_step(1, bytes::Bytes::from_static(b"hello"), false),
         open_session(262_144),
         u64::MAX,
     ));
@@ -156,31 +190,15 @@ fn resumable_call_refuses_offsets_and_sizes_as_recorded() {
         below.message(),
         "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size"
     );
-    let sized = Persisted {
-        offset: 0,
-        total: Some(9),
+    let ten = || bytes::Bytes::from_static(b"0123456789");
+    let Err(Refusal::Session(long)) =
+        Call::default().admit(data_step(0, ten(), true), SIZED, u64::MAX)
+    else {
+        panic!("a finishing message above object_size did not end the session")
     };
-    for (finish, ends_session) in [(true, true), (false, false)] {
-        let content = if finish {
-            hello()
-        } else {
-            bytes::Bytes::from_static(b"0123456789")
-        };
-        let written = content.len();
-        let status = match Call::default().admit(data_step(0, content, finish), sized, u64::MAX) {
-            Err(Refusal::Session(status)) if ends_session => status,
-            Err(Refusal::Message(status)) if !ends_session => status,
-            _ => panic!("finish_write={finish} was not refused as expected"),
-        };
-        assert_eq!(status.code(), tonic::Code::OutOfRange);
-        assert_eq!(
-            status.message(),
-            format!(
-                "Invalid request. The final size of the upload is {written} byte(s). This does not match the expected size of 9 byte(s), which was specified in the StartResumableWrite request."
-            )
-        );
-        fixtures::assert_reason(&status, "GRPC_MISMATCHED_UPLOAD_SIZE");
-    }
+    assert_size_mismatch(&long, 10);
+    let open = message_refusal(Call::default().admit(data_step(0, ten(), false), SIZED, u64::MAX));
+    assert_size_mismatch(&open, 10);
 }
 
 #[test]
@@ -1967,7 +1985,9 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     let fresh = start(&storage, "fresh", None).await;
     assert_eq!(cancel(&storage, &fresh, None).await, Ok(()));
     // Recorded 2026-11-18: a cancelled upload answers QueryWriteStatus with FAILED_PRECONDITION
-    // and a resumed write with INVALID_ARGUMENT, and cancelling it again succeeds.
+    // and a finishing resumed write with INVALID_ARGUMENT, and cancelling it again succeeds.
+    // Not recorded: a resumed write without finish_write, answered alike because the session
+    // is looked up before the message is read.
     assert_eq!(
         query(&storage, &fresh, None).await,
         Err(tonic::Code::FailedPrecondition)
@@ -2460,39 +2480,53 @@ async fn grpc_io_resumable_close_drops_bytes_past_the_last_granule() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// The statuses of a QueryWriteStatus, a CancelResumableWrite and a resumed WriteObject that
-/// all fail.
-async fn session_failures(storage: &Storage, upload: &str) -> [Status; 3] {
-    let queried = storage
-        .query_write_status(
-            Request::new(pb::QueryWriteStatusRequest {
-                upload_id: upload.into(),
+/// Starts a session for `name` that declares five bytes and finishes it with three, which
+/// Cloud Storage refused as recorded 2026-11-18, ending the session.
+async fn terminated_session(storage: &Storage, name: &str) -> String {
+    let mut sized = spec(name);
+    sized.object_size = Some(5);
+    let terminated = storage
+        .start_resumable_write(
+            Request::new(pb::StartResumableWriteRequest {
+                write_object_spec: Some(sized),
                 ..Default::default()
             }),
             None,
         )
         .await
-        .unwrap_err();
-    let cancelled = storage
-        .cancel_resumable_write(
-            Request::new(pb::CancelResumableWriteRequest {
-                upload_id: upload.into(),
-            }),
-            None,
+        .unwrap()
+        .into_inner()
+        .upload_id;
+    let mismatch = assert_code(
+        write(storage, vec![resume(&terminated, 0, b"abc", true)]).await,
+        tonic::Code::OutOfRange,
+    );
+    assert_eq!(
+        mismatch.message(),
+        "Invalid request. The final size of the upload is 3 byte(s). This does not match the expected size of 5 byte(s), which was specified in the StartResumableWrite request."
+    );
+    fixtures::assert_reason(&mismatch, "GRPC_MISMATCHED_UPLOAD_SIZE");
+    terminated
+}
+
+/// Asserts the FAILED_PRECONDITION that QueryWriteStatus answered a terminated session with.
+#[track_caller]
+fn assert_terminated(status: &Status) {
+    assert_eq!(
+        (status.code(), status.message()),
+        (
+            tonic::Code::FailedPrecondition,
+            "Upload has already been terminated."
         )
-        .await
-        .unwrap_err();
-    let written = write(storage, vec![resume(upload, 0, b"hello", true)])
-        .await
-        .unwrap_err();
-    [queried, cancelled, written]
+    );
+    fixtures::assert_reason(status, "GRPC_UPLOAD_ALREADY_TERMINATED");
 }
 
 /// Recorded 2026-11-18: how a session that ended answers. A cancelled one fails
 /// QueryWriteStatus with FAILED_PRECONDITION and a write with INVALID_ARGUMENT, and cancelling
 /// it again succeeds; a finalized one refuses cancellation and still reports its resource, with
-/// the caller's ACL and owner view; a finishing message whose size differs from object_size
-/// ends the session.
+/// the caller's ACL and owner view; a finishing message below object_size ends the session,
+/// and QueryWriteStatus then fails with FAILED_PRECONDITION.
 #[tokio::test]
 async fn grpc_io_ended_sessions_answer_as_recorded() {
     let (_dir, storage) = setup(false).await;
@@ -2553,47 +2587,50 @@ async fn grpc_io_ended_sessions_answer_as_recorded() {
     assert!(!resource.acl.is_empty());
     assert!(resource.owner.is_some());
 
-    let mut sized = spec("ended-terminated");
-    sized.object_size = Some(5);
-    let terminated = storage
-        .start_resumable_write(
-            Request::new(pb::StartResumableWriteRequest {
-                write_object_spec: Some(sized),
+    let terminated = terminated_session(&storage, "ended-terminated").await;
+    let queried = storage
+        .query_write_status(
+            Request::new(pb::QueryWriteStatusRequest {
+                upload_id: terminated,
                 ..Default::default()
             }),
             None,
         )
         .await
-        .unwrap()
-        .into_inner()
-        .upload_id;
-    let mismatch = assert_code(
-        write(&storage, vec![resume(&terminated, 0, b"abc", true)]).await,
-        tonic::Code::OutOfRange,
-    );
-    assert_eq!(
-        mismatch.message(),
-        "Invalid request. The final size of the upload is 3 byte(s). This does not match the expected size of 5 byte(s), which was specified in the StartResumableWrite request."
-    );
-    fixtures::assert_reason(&mismatch, "GRPC_MISMATCHED_UPLOAD_SIZE");
-    let [queried, cancelled, written] = session_failures(&storage, &terminated).await;
-    for status in [&queried, &cancelled] {
-        assert_eq!(
-            (status.code(), status.message()),
-            (
-                tonic::Code::FailedPrecondition,
-                "Upload has already been terminated."
-            )
-        );
-        fixtures::assert_reason(status, "GRPC_UPLOAD_ALREADY_TERMINATED");
-    }
-    assert_eq!(
-        (written.code(), written.message()),
-        (
-            tonic::Code::InvalidArgument,
-            "Upload has already been terminated."
-        )
-    );
+        .unwrap_err();
+    assert_terminated(&queried);
     assert!(missing(&storage, "ended-terminated").await);
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// Not recorded; inferred. On a session that a finishing message below object_size ended,
+/// CancelResumableWrite answers as QueryWriteStatus was recorded answering it, and a write
+/// answers as a write to a cancelled session was recorded answering, in the terminated wording.
+/// The session stays ended and publishes nothing.
+#[tokio::test]
+async fn grpc_io_terminated_sessions_refuse_cancels_and_writes() {
+    let (_dir, storage) = setup(false).await;
+    let terminated = terminated_session(&storage, "terminated").await;
+    let cancelled = storage
+        .cancel_resumable_write(
+            Request::new(pb::CancelResumableWriteRequest {
+                upload_id: terminated.clone(),
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_terminated(&cancelled);
+    let written = assert_code(
+        write(&storage, vec![resume(&terminated, 0, b"hello", true)]).await,
+        tonic::Code::InvalidArgument,
+    );
+    assert_eq!(written.message(), "Upload has already been terminated.");
+    assert!(written.details().is_empty());
+    assert_eq!(
+        query(&storage, &terminated, None).await,
+        Err(tonic::Code::FailedPrecondition)
+    );
+    assert!(missing(&storage, "terminated").await);
     storage.state.catalog.close().await.unwrap();
 }

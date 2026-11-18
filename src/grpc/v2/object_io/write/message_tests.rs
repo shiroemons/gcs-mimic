@@ -773,8 +773,9 @@ async fn grpc_single_shot_write_error_precedence() {
             |n| vec![opening(n, b"abc"), chunk(5, b"def").finish().bad_crc()],
             || failed(OutOfRange, RECEIVED_OFFSET, Left::Nothing),
         ),
-        // Recorded 2026-11-18: on the first message a wrong start offset answers before a
-        // wrong object_size, and both before a wrong data checksum.
+        // Recorded 2026-11-18: on the first message a wrong start offset and a wrong
+        // object_size each answer before a wrong data checksum. Their order against each other
+        // was not recorded.
         both(
             "first-offset-over-crc",
             |n| {
@@ -973,7 +974,7 @@ async fn grpc_resumable_write_message_errors() {
             ),
         ),
         // Recorded 2026-11-18: a stream that closes on less than a granule persists nothing
-        // and fails; one that closes on a whole granule reports it.
+        // and fails.
         on(
             PLAIN,
             both(
@@ -982,6 +983,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(InvalidArgument, dropped_tail(3), Left::Persisted(0)),
             ),
         ),
+        // Not recorded; inferred from the granule above: one that closes on a whole granule
+        // persists it and reports it.
         on(
             PLAIN,
             both(
@@ -1131,6 +1134,8 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
+        // Not recorded: a complete object that fails a checksum declared before the finish is
+        // refused in the catalog's wording and ends the session.
         on(
             PLAIN,
             both(
@@ -1216,8 +1221,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(ResourceExhausted, TOO_LARGE, Left::Persisted(0)),
             ),
         ),
-        // Recorded 2026-11-18: a finishing message whose size differs from the session's
-        // object_size ends the session, below it and above it.
+        // Recorded 2026-11-18: a finishing message below the session's object_size is refused
+        // and ends the session.
         on(
             Session {
                 size: Some(5),
@@ -1229,6 +1234,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(OutOfRange, size_mismatch(3, 5), Left::Terminated),
             ),
         ),
+        // Recorded 2026-11-18: a finishing message above object_size is refused the same way.
+        // Not recorded; inferred from the message below it: that it ends the session.
         on(
             Session {
                 size: Some(5),
@@ -1424,6 +1431,8 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(InvalidArgument, key_after_keyless(), Left::Persisted(0)),
             ),
         ),
+        // Not recorded: the session's key and conditions answer before what the message
+        // carries, the emulator's order for a resumable message (see message_options).
         on(
             PREEMPTED,
             both(
@@ -1464,8 +1473,9 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
             ),
         ),
-        // The size checks come before the data checksum, as recorded 2026-11-18 on a
-        // non-resumable write.
+        // Not recorded on a resumable write: object_size answers before the data checksum, as
+        // recorded 2026-11-18 on a non-resumable write. max_object_bytes is the emulator's own
+        // limit and answers before both by its choice.
         on(
             PLAIN,
             both(

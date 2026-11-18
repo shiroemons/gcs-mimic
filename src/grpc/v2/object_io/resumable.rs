@@ -44,6 +44,7 @@ impl Storage {
                         "GRPC_UPLOAD_ALREADY_COMPLETED",
                     )
                 } else {
+                    // Not recorded; inferred from QueryWriteStatus (see ended_session_status).
                     ended_session_status(ResumableError::Gone)
                 })
             }
@@ -164,6 +165,15 @@ impl Storage {
     /// first and on a middle message, recorded 2026-11-18). The key stays the one
     /// `StartResumableWrite` bound, so a refused message stages nothing and leaves the session
     /// usable.
+    ///
+    /// The key, the conditions and then the object checksums are checked before the message's
+    /// offset, size and data checksum ([`Call::admit`]). Not recorded: Cloud Storage's order on
+    /// a resumable message. It is the reverse of the order recorded on a non-resumable write,
+    /// whose first message's offset, size and data checksum answer before the conditions that
+    /// arrive with it. Here the key and the conditions belong to the session, so the emulator
+    /// answers them first, as it answers the session lookup: checked after the bytes, a
+    /// finishing message whose size misses `object_size` would end a session that its
+    /// conditions alone refuse, and that a later change to the object could still let finish.
     async fn message_options(
         &self,
         bucket: &str,
@@ -322,9 +332,11 @@ pub(super) struct Persisted {
 pub(super) enum Refusal {
     /// The session stays as it was and another stream can continue it.
     Message(Status),
-    /// The refusal ends the session: after a finishing message whose size did not match the
+    /// The refusal ends the session: after a finishing message whose size was below the
     /// session's `object_size`, Cloud Storage answered QueryWriteStatus with "Upload has
-    /// already been terminated." (recorded 2026-11-18).
+    /// already been terminated." (recorded 2026-11-18). Not recorded; inferred from that answer:
+    /// a finishing message above `object_size` ends the session too. Cloud Storage's refusal of
+    /// it was recorded, but not the session's state after it.
     Session(Status),
 }
 
@@ -429,6 +441,12 @@ impl Call {
 
     /// A stream's first message must start exactly at the persisted size. A later one is held to
     /// the shared rules: it may repeat received bytes but not skip past them.
+    ///
+    /// Recorded 2026-11-18: a first offset past the persisted size, always with nothing
+    /// persisted. Not recorded: a first offset below a persisted size above 0. The emulator
+    /// refuses it, inferred from the proto's `write_offset` field, whose first value "must be
+    /// equal to the persisted_size that a call to QueryWriteStatus() would return"; the
+    /// WriteObject description would instead let a client resend persisted bytes.
     fn check_first_offset(&self, offset: u64, received: u64) -> Result<(), Refusal> {
         match self.position {
             MessagePosition::Later => Ok(()),
@@ -484,6 +502,10 @@ impl Call {
 /// finishing message whose size misses `object_size` ends it. A message that skips past the
 /// received bytes is told to resume where the session stands, the remedy that fits a resumable
 /// write; every other refusal keeps the wording all write paths share.
+///
+/// Not recorded: bytes past `object_size` without `finish_write`. Their refusal leaves the
+/// session usable, inferred from a refused data checksum, which left the session open at its
+/// persisted size (recorded 2026-11-18); its wording is the recorded size mismatch.
 fn refusal(error: IntakeError, end: StepEnd) -> Refusal {
     match error {
         IntakeError::SizeMismatch { .. } if end.finishes() => {

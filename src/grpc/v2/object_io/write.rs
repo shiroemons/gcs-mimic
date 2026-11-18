@@ -272,9 +272,9 @@ impl Storage {
             key: options.metadata.customer_key_sha256,
             persisted: GranulePrefix::default(),
         };
-        // Cloud Storage answers the first message's offset, size and data checksum before the
-        // write's conditions (recorded 2026-11-18), so the message is admitted before the
-        // catalog is asked.
+        // Cloud Storage answers the first message's data checksum before the write's conditions,
+        // and its offset and size before the data checksum (recorded 2026-11-18), so the
+        // message is admitted before the catalog is asked.
         let opening = body.admit(first, MessagePosition::First)?;
         #[expect(
             clippy::wildcard_enum_match_arm,
@@ -399,7 +399,9 @@ impl WriteRpc<'_> {
 
 /// Whether a message is the first one of its stream. A resumable stream must start exactly at
 /// the persisted offset and a non-resumable one at 0; later messages may overlap bytes already
-/// received.
+/// received. Cloud Storage's refusal of a first offset past either start was recorded
+/// (2026-11-18). A resumable first offset below a persisted size above 0 was not; its refusal
+/// is inferred from the proto (see `resumable::Call`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MessagePosition {
     First,
