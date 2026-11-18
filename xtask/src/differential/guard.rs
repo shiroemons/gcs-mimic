@@ -245,8 +245,7 @@ pub(crate) fn check_request(request: &Request) -> Result<()> {
     let text = request
         .body
         .as_deref()
-        .map(|body| String::from_utf8_lossy(body).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|body| String::from_utf8_lossy(body).into_owned());
     check_locked(request, &path, &query, &text)?;
     check_public(request, &path, &query, &text)?;
     check_hmac(request, &path, &query)

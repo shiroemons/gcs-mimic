@@ -1077,15 +1077,12 @@ fn code_lines(source: &str) -> Vec<String> {
     let mut pending = String::new();
     for raw in source.lines() {
         let code = strip_comment(raw);
-        match code.trim_end().strip_suffix('\\') {
-            Some(head) => {
-                pending.push_str(head);
-                pending.push(' ');
-            }
-            None => {
-                pending.push_str(code);
-                lines.push(std::mem::take(&mut pending));
-            }
+        if let Some(head) = code.trim_end().strip_suffix('\\') {
+            pending.push_str(head);
+            pending.push(' ');
+        } else {
+            pending.push_str(code);
+            lines.push(std::mem::take(&mut pending));
         }
     }
     if !pending.is_empty() {
