@@ -21681,7 +21681,7 @@
         },
         {
           "id": "grpc_bucket_delete_condition_validation",
-          "description": "DeleteBucket and GetBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold): a negative value fails as FAILED_PRECONDITION and a match together with a not-match is evaluated. UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both together with INVALID_ARGUMENT (strict_bucket_conditions in src/grpc/validate.rs), and the legacy v1 adapter refuses negative values. The proto states no validation rule; choose one rule for every bucket RPC and test it.",
+          "description": "DeleteBucket and GetBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold): a negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated. UpdateBucket refuses 0, negative values and both together with INVALID_ARGUMENT, LockBucketRetentionPolicy, whose request has only if_metageneration_match, refuses 0 and negative values (strict_bucket_conditions in src/grpc/validate.rs), and the legacy v1 adapter refuses negative values. The proto states no validation rule; choose one rule for every bucket RPC and test it.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -21734,7 +21734,7 @@
       ],
       "known_deviations": [
         "No Storage v2 test deletes a bucket that holds only soft-deleted objects, noncurrent versions, unfinished multipart uploads or an unfinalized appendable object, or one with a positive soft delete policy.",
-        "DeleteBucket does not validate its metageneration conditions, while UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both conditions together.",
+        "DeleteBucket does not validate its metageneration conditions, while UpdateBucket refuses 0, negative values and both conditions together and LockBucketRetentionPolicy refuses 0 and negative values.",
         "The order and wording of authorization, missing-bucket, condition and nonempty failures are not pinned by a test."
       ],
       "implemented_in": "3e8d13d",
@@ -21815,7 +21815,7 @@
         },
         {
           "id": "grpc_bucket_get_condition_validation",
-          "description": "GetBucket compares its metageneration conditions without validating them: a negative value fails as FAILED_PRECONDITION and a match together with a not-match is evaluated, unlike UpdateBucket and LockBucketRetentionPolicy. The rule to choose is shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
+          "description": "GetBucket compares its metageneration conditions without validating them: a negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated, unlike UpdateBucket and LockBucketRetentionPolicy. The rule to choose is shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21938,7 +21938,7 @@
       ],
       "known_deviations": [
         "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them.",
-        "GetBucket does not validate its metageneration conditions, while UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both conditions together."
+        "GetBucket does not validate its metageneration conditions, while UpdateBucket refuses 0, negative values and both conditions together and LockBucketRetentionPolicy refuses 0 and negative values."
       ],
       "scoped_differences": [
         {
@@ -22546,9 +22546,7 @@
           ]
         }
       ],
-      "known_deviations": [
-        "Every GetIamPolicy call passes the routing and request-metadata handling of BEHAVIOR-RPC-001, whose pending cases (no SDK lane run since the routing change, no server-side grpc-timeout, no gzip message compression) apply to this RPC too; its own acceptance cases pass."
-      ],
+      "known_deviations": [],
       "scoped_differences": [
         {
           "text": "A managed-folder resource (projects/_/buckets/<bucket>/managedFolders/<folder>) returns UNIMPLEMENTED with ErrorInfo and changes nothing: the emulator models no managed folders, on any protocol. Cloud Storage answered FAILED_PRECONDITION for a bucket without uniform access (case grpc-unsupported-options, a declared local_choice).",
@@ -23793,9 +23791,7 @@
           ]
         }
       ],
-      "known_deviations": [
-        "Every CancelResumableWrite call passes the routing and request-metadata handling of BEHAVIOR-RPC-001, whose pending cases (no SDK lane run since the routing change, no server-side grpc-timeout, no gzip message compression) apply to this RPC too; its own acceptance cases pass."
-      ],
+      "known_deviations": [],
       "scoped_differences": [
         {
           "text": "FAILED_PRECONDITION for a finalized upload, NOT_FOUND for a repeated cancel and for an unknown, malformed, other-bucket or expired upload_id, and retryable UNAVAILABLE when a write still holds the session lease at the end of the shared writer wait are local choices; Google documents no status for them and none was recorded.",
@@ -38671,7 +38667,7 @@
         },
         {
           "id": "grpc_masks_validation_order",
-          "description": "Bucket read masks are validated before authorization and lookup, while object read masks are validated after the lookup (GetObject) or per returned object (ListObjects), so an invalid object mask on a missing object or an empty page goes unreported; see RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order.",
+          "description": "GetBucket validates its read mask before authorization and lookup and ListBuckets validates it after authorizing the project and checking page_size and prefix, while object read masks are validated after the lookup (GetObject) or per returned object (ListObjects), so an invalid object mask on a missing object or an empty page goes unreported; see RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -38789,7 +38785,7 @@
         "An update_mask of * returns UNIMPLEMENTED on UpdateBucket and UpdateObject.",
         "An unknown bucket read_mask path returns UNIMPLEMENTED, while an unknown object path returns INVALID_ARGUMENT.",
         "Output-only update paths other than UpdateObject's create_time return UNIMPLEMENTED.",
-        "Object read masks are validated after the lookup or per returned object, bucket read masks before authorization."
+        "Object read masks are validated after the lookup or per returned object, the GetBucket read mask before authorization and the ListBuckets read mask after it."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"
