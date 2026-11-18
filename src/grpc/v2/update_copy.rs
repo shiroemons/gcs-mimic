@@ -1,5 +1,6 @@
 use super::{
     Storage, convert, names,
+    object_io::conditions,
     object_update::canned_acl,
     pb,
     routing::{Route, Routes},
@@ -10,7 +11,7 @@ use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
-    grpc::validate::{self, NegativeGeneration, strict_conditions},
+    grpc::validate::{self, NegativeGeneration},
     json,
     object::{
         ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectTarget,
@@ -28,6 +29,41 @@ use serde_json::{Map, Value};
 use std::num::NonZeroU64;
 use tonic::{Request, Response, Status};
 
+/// A destination without the fields only the service sets: the generation, and every field the
+/// proto marks `OUTPUT_ONLY`. ComposeObject accepted a destination that carried a generation, a
+/// metageneration, a size, a creation time and an update time, and composed as if it had none
+/// (recorded 2026-11-18); the remaining output-only fields are taken the same way.
+fn without_service_fields(o: &pb::Object) -> pb::Object {
+    pb::Object {
+        generation: 0,
+        restore_token: None,
+        metageneration: 0,
+        size: 0,
+        delete_time: None,
+        finalize_time: None,
+        create_time: None,
+        component_count: 0,
+        checksums: None,
+        update_time: None,
+        update_storage_class_time: None,
+        owner: None,
+        soft_delete_time: None,
+        hard_delete_time: None,
+        ..o.clone()
+    }
+}
+
+/// RewriteObject's answer to a destination that carries service-set fields. The recorded
+/// request (2026-11-18) set a generation, a metageneration, a size, a creation time and an
+/// update time together, so which of them Cloud Storage refuses is not known; any of the fields
+/// [`without_service_fields`] drops is refused.
+fn check_rewrite_service_fields(o: &pb::Object) -> Result<(), Status> {
+    if &without_service_fields(o) != o {
+        return Err(invalid_field("You must specify an object name."));
+    }
+    Ok(())
+}
+
 fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
     let supported = pb::Object {
         name: o.name.clone(),
@@ -44,6 +80,9 @@ fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
         custom_time: o.custom_time,
         ..Default::default()
     };
+    // Cloud Storage applied a destination `acl` on both RPCs (recorded 2026-11-18). Publication
+    // gives a new generation the default object ACL or a canned one and a rewrite session
+    // stores no entries, so listed entries stay refused instead of being dropped.
     if o != &supported {
         return Err(unsupported(
             "derived object fields; supply only editable JSON-supported metadata",
@@ -350,8 +389,11 @@ impl Storage {
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let (metadata, _, r) = request.into_parts();
         let options = check_rewrite_request(&r)?;
-        let sc = strict_conditions(r.source_conditions())?;
-        let dc = strict_conditions(ObjectConditions::from(&r))?;
+        let sc = conditions(r.source_conditions())?;
+        let dc = conditions(ObjectConditions::from(&r))?;
+        if let Some(destination) = &r.destination {
+            check_rewrite_service_fields(destination)?;
+        }
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
         if r.destination
             .as_ref()
@@ -453,6 +495,40 @@ impl Storage {
         }))
     }
 
+    /// Whether `conditions` fail on the rewrite source only because a not-match names its
+    /// current generation or metageneration. Cloud Storage words that RewriteObject refusal as
+    /// a not-modified resource (recorded 2026-11-18), where the JSON API answers a copy source
+    /// with 412, so the catalog reports both as a failed precondition. The source is read again
+    /// after the refusal; an intervening change can only pick the other wording of the same
+    /// status.
+    async fn source_not_match_alone_failed(
+        &self,
+        source: ObjectTarget,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+    ) -> bool {
+        if conditions.if_generation_not_match.is_none()
+            && conditions.if_metageneration_not_match.is_none()
+        {
+            return false;
+        }
+        self.state
+            .catalog
+            .get_object(source, ObjectConditions::default(), access)
+            .await
+            .is_ok_and(|record| {
+                let matches_hold = conditions
+                    .if_generation_match
+                    .is_none_or(|value| value == record.generation)
+                    && conditions
+                        .if_metageneration_match
+                        .is_none_or(|value| value == record.metageneration);
+                matches_hold
+                    && (conditions.if_generation_not_match == Some(record.generation)
+                        || conditions.if_metageneration_not_match == Some(record.metageneration))
+            })
+    }
+
     /// Resolves the source and destination of a rewrite without a token and opens its session.
     async fn begin_rewrite(
         &self,
@@ -477,16 +553,20 @@ impl Storage {
             acl,
         } = new;
         let generation = options.source_generation.map(Generation::get);
-        let source = self
+        let selected = ObjectTarget::new(sb, sn, generation);
+        let source = match self
             .state
             .catalog
-            .resolve_derived_source_keyed(
-                ObjectTarget::new(sb, sn, generation),
-                sc,
-                read,
-                options.keys.source,
-            )
-            .await?;
+            .resolve_derived_source_keyed(selected.clone(), sc, read, options.keys.source)
+            .await
+        {
+            Err(ObjectError::PreconditionFailed)
+                if self.source_not_match_alone_failed(selected, sc, read).await =>
+            {
+                return Err(super::status::not_modified());
+            }
+            source => source?,
+        };
         // A rewrite reproduces the source's bytes, so the declared digests are checked against
         // its hashes before any session starts; a refused rewrite writes nothing. A source with
         // no MD5 to show, such as a composite one, refuses a declared MD5 as a compose does
@@ -588,6 +668,7 @@ impl Storage {
         let o = r.destination.take().ok_or_else(|| {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
+        let o = without_service_fields(&o);
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         validate_derived_fields(&o)?;
@@ -605,7 +686,7 @@ impl Storage {
                     validate::selected_generation(s.generation).map_err(|NegativeGeneration| {
                         Status::invalid_argument("source generation must be positive or omitted")
                     })?;
-                let preconditions = strict_conditions(
+                let preconditions = conditions(
                     s.object_preconditions
                         .as_ref()
                         .map(ObjectConditions::from)
@@ -620,11 +701,12 @@ impl Storage {
             .collect::<Result<Vec<_>, Status>>()?;
         // A hold and a custom time apply as on a JSON compose: Cloud Storage stored the custom
         // time (case grpc-unsupported-options, recorded 2026-11-13).
-        if !o.storage_class.is_empty() {
-            return Err(unsupported(
-                "ComposeObject storage_class; omit storage_class",
-            ));
-        }
+        // A destination class is accepted when every source has it; the catalog refuses any
+        // other (recorded 2026-11-18).
+        let storage_class = (!o.storage_class.is_empty())
+            .then(|| crate::bucket::validate_storage_class(&o.storage_class))
+            .transpose()
+            .map_err(super::bucket_update::input_error)?;
         super::object_update::validate(&metadata)?;
         let destination = DerivedDestination {
             bucket: bucket.into(),
@@ -635,13 +717,13 @@ impl Storage {
                 o.content_type
             },
             metadata,
-            storage_class: None,
+            storage_class,
             // The catalog checks a declared CRC32C against the one it combines from the sources
             // before reading them, so a refused compose leaves no object (recorded 2026-11-17,
             // case grpc-gaps-derived-checksums).
             declared,
             recorded: ExpectedHashes::default(),
-            conditions: strict_conditions(ObjectConditions::from(&r))?,
+            conditions: conditions(ObjectConditions::from(&r))?,
             access,
             component_count: None,
         };
@@ -673,6 +755,8 @@ impl Storage {
 }
 
 #[cfg(test)]
+mod destination_fields;
+#[cfg(test)]
 mod object_keys;
 #[cfg(test)]
 mod request_refusals;
@@ -684,7 +768,9 @@ mod tests {
     use super::super::test_support::{RESOURCE, grants, setup, stored_object, upload};
     use super::*;
     use crate::acl::PredefinedObjectAcl;
-    use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported};
+    use crate::grpc::test_support::{
+        self as fixtures, assert_bad_request, assert_code, assert_unsupported,
+    };
     use serde_json::json;
     use tonic::Code;
 
@@ -859,19 +945,6 @@ mod tests {
                 "{value}"
             );
         }
-    }
-
-    /// A refused derived write answers INVALID_ARGUMENT with one `BadRequest` violation that
-    /// repeats `message`, as Cloud Storage did.
-    #[track_caller]
-    fn assert_bad_request<T>(result: Result<T, Status>, message: &str) {
-        use crate::grpc::generated::google::rpc::{BadRequest, Status as RpcStatus};
-        use prost::Message;
-        let status = assert_code(result, Code::InvalidArgument);
-        assert_eq!(status.message(), message);
-        let details = RpcStatus::decode(status.details()).unwrap();
-        let violations = BadRequest::decode(details.details[0].value.as_slice()).unwrap();
-        assert_eq!(violations.field_violations[0].description, message);
     }
 
     /// ComposeObject and RewriteObject check a declared checksum against the object they would
@@ -1128,9 +1201,10 @@ mod tests {
             }),
             ..compose.clone()
         };
-        assert_unsupported(
+        // Recorded 2026-11-18: a class other than the sources' is a client error.
+        assert_bad_request(
             s.compose_object(Request::new(request), None).await,
-            "ComposeObject storage_class",
+            "Cannot compose object with destination storage class NEARLINE from source components that have different storage classes (STANDARD).",
         );
         assert!(stored_object(&s, "composed").await.is_none());
 

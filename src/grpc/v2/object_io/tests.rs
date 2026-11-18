@@ -1,7 +1,7 @@
 use super::*;
 use super::{
+    object_mask::{ObjectMask, UnselectablePath},
     read::read_range,
-    resource::mask_object,
     resumable::{Persisted, resumable_piece},
     write::{MessagePosition, WriteRpc},
 };
@@ -558,15 +558,11 @@ fn grpc_io_range_and_masks() {
         mismatch.message(),
         "Checksummed data message crc32c mismatch: server computed: '9a71bb4c', client provided '00000001'."
     );
-    let unknown = mask_object(
-        pb::Object::default(),
-        ReadMask::from(fixtures::mask(&["noSuchField"]).as_ref()),
-    )
-    .unwrap_err();
-    assert_eq!(unknown.code(), tonic::Code::InvalidArgument);
+    let object_mask =
+        |paths: &[&str]| ObjectMask::try_from(ReadMask::from(fixtures::mask(paths).as_ref()));
     assert_eq!(
-        unknown.message(),
-        "There is no field for this resource named 'noSuchField'."
+        object_mask(&["noSuchField"]),
+        Err(UnselectablePath::Unknown("noSuchField".into()))
     );
     assert_eq!(
         read_range(15, -5, 3).unwrap(),
@@ -582,24 +578,15 @@ fn grpc_io_range_and_masks() {
     );
     assert_code(read_range(15, 16, 0), tonic::Code::OutOfRange);
     assert_code(read_range(15, 0, -1), tonic::Code::InvalidArgument);
-    let object = mask_object(
-        pb::Object {
-            name: "a".into(),
-            size: 12,
-            ..Default::default()
-        },
-        ReadMask::from(fixtures::mask(&["name"]).as_ref()),
-    )
-    .unwrap();
+    let object = object_mask(&["name"]).unwrap().apply(pb::Object {
+        name: "a".into(),
+        size: 12,
+        ..Default::default()
+    });
     assert_eq!(object.name, "a");
     assert_eq!(object.size, 0);
-    assert_code(
-        mask_object(
-            pb::Object::default(),
-            ReadMask::from(fixtures::mask(&["owner.entity"]).as_ref()),
-        ),
-        tonic::Code::Unimplemented,
-    );
+    // Recorded 2026-11-18: Cloud Storage serves a member of a singular message.
+    assert!(object_mask(&["owner.entity"]).is_ok());
 }
 
 #[tokio::test]
@@ -1132,10 +1119,10 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
             )
         );
     }
-    assert_code(
-        get(fixtures::mask(&["owner.entity"]), admin).await,
-        tonic::Code::Unimplemented,
-    );
+    // Recorded 2026-11-18: a member of the owner is accepted and answered without an owner,
+    // which only a path naming the whole field returns.
+    let nested = get(fixtures::mask(&["owner.entity"]), admin).await.unwrap();
+    assert_eq!(nested.into_inner(), pb::Object::default());
     // A checksum sub-path keeps only that digest, as the Java SDK lists objects.
     let sums = full.checksums.clone().unwrap();
     assert!(sums.crc32c.is_some() && !sums.md5_hash.is_empty());

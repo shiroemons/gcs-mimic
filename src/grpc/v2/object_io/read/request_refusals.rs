@@ -1,7 +1,7 @@
 //! GetObject, ReadObject and ListObjects requests refused before any object is returned.
-//! Malformed fields answer INVALID_ARGUMENT or OUT_OF_RANGE; fields naming semantics gcs-mimic
-//! does not model (an explicit soft-deleted lookup, a restore token, a listing filter) answer
-//! UNIMPLEMENTED with ErrorInfo.
+//! Malformed fields answer INVALID_ARGUMENT or OUT_OF_RANGE; a restore token answers INTERNAL, as
+//! Cloud Storage does; a field naming semantics gcs-mimic does not model (a listing filter)
+//! answers UNIMPLEMENTED with ErrorInfo.
 
 use super::super::tests::{message, setup, write};
 use super::test_support::assert_status;
@@ -38,24 +38,32 @@ async fn open(storage: &Storage, request: pb::ReadObjectRequest) -> Result<(), S
 }
 
 #[tokio::test]
-async fn get_object_refuses_unmodeled_lookups_and_negative_values() {
+async fn get_object_refuses_restore_tokens_and_negative_values() {
     let (_dir, storage) = setup(false).await;
     write(&storage, vec![message("object", b"data")])
         .await
         .unwrap();
     let get = async |request| storage.get_object(Request::new(request), None).await;
-    for request in [
-        pb::GetObjectRequest {
-            soft_deleted: Some(true),
-            ..get_request()
-        },
-        pb::GetObjectRequest {
+    // Recorded 2026-11-18 for a live object in a bucket without a hierarchical namespace.
+    assert_status(
+        get(pb::GetObjectRequest {
             restore_token: "token".into(),
             ..get_request()
-        },
-    ] {
-        assert_unsupported(get(request).await, "GetObject soft_deleted/restore_token");
-    }
+        })
+        .await,
+        tonic::Code::Internal,
+        "We encountered an internal error. Please try again.",
+    );
+    // A soft-deleted lookup names the generation it wants.
+    assert_status(
+        get(pb::GetObjectRequest {
+            soft_deleted: Some(true),
+            ..get_request()
+        })
+        .await,
+        tonic::Code::InvalidArgument,
+        "soft_deleted=true requires generation; select the soft-deleted generation",
+    );
     // `soft_deleted: false` is the default lookup.
     get(pb::GetObjectRequest {
         soft_deleted: Some(false),

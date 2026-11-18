@@ -1,7 +1,11 @@
-use super::resource::{OwnerFields, mask_object};
+use super::object_mask::{ObjectMask, UnselectablePath};
+use super::resource::OwnerFields;
 use super::*;
 use crate::grpc::{
-    v2::{customer_key, mask::ReadMask},
+    v2::{
+        customer_key,
+        mask::{ReadMask, unknown_field},
+    },
     validate::{ByteRange, RangeError},
 };
 use crate::storage::ReadableMetadata;
@@ -43,14 +47,30 @@ fn require_content_in_read_mask(mask: ReadMask<'_>) -> Result<(), Status> {
     ))
 }
 
-/// Checks the object fields a read mask names before the RPC authorizes the caller or looks
+/// Parses the object fields a read mask names before the RPC authorizes the caller or looks
 /// anything up, as GetBucket checks its mask. Which fields a mask may name does not depend on the
-/// object, so an invalid mask is reported for a missing object or an empty listing too.
-/// [`mask_object`] applies these same rules, so this runs it on an empty object. ListBuckets
-/// checks its mask later, after it authorizes the project.
-fn check_object_mask(mask: ReadMask<'_>) -> Result<(), Status> {
-    mask_object(pb::Object::default(), mask).map(drop)
+/// object, so an invalid mask is reported for a missing object, a missing bucket or an empty
+/// listing too (recorded 2026-11-18). `unknown` words a path that names no field, which
+/// GetObject and ListObjects do differently.
+fn object_mask(mask: ReadMask<'_>, unknown: fn(&str) -> Status) -> Result<ObjectMask, Status> {
+    ObjectMask::try_from(mask).map_err(|error| match error {
+        UnselectablePath::Unknown(path) => unknown(&path),
+        UnselectablePath::Unsupported(path) => unsupported_for(
+            &format!("read_mask path {path}; request the whole object field"),
+            None,
+        ),
+    })
 }
+
+/// ListObjects' answer to a mask path that names no object field (recorded 2026-11-18, on an
+/// empty page and on one with an object).
+fn unknown_list_field(path: &str) -> Status {
+    Status::invalid_argument(format!("Invalid read_mask field: '{path}'."))
+}
+
+/// GetObject's answer to a restore token for a live object in a bucket without a hierarchical
+/// namespace, the only kind of bucket gcs-mimic has (recorded 2026-11-18).
+const RESTORE_TOKEN_REFUSAL: &str = "We encountered an internal error. Please try again.";
 
 /// A ReadObject read mask, checked with the request before the caller is authorized or the
 /// object opened.
@@ -65,29 +85,39 @@ enum FirstResponseMask<'a> {
     },
 }
 
+/// Whether a ReadObject data message carries the CRC32C of its content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DataChecksum {
+    Sent,
+    Omitted,
+}
+
+impl DataChecksum {
+    fn of(self, content: &[u8]) -> Option<u32> {
+        match self {
+            Self::Sent => Some(crc32c::crc32c(content)),
+            Self::Omitted => None,
+        }
+    }
+}
+
 /// The object a selective ReadObject mask keeps in the first response's `metadata`.
 enum MetadataMask {
     /// `metadata` alone: the whole object.
     Whole,
-    /// The object fields its `metadata.` paths name; when they name none, the response carries
-    /// no object.
-    Fields(Vec<String>),
+    /// No `metadata` path: the response carries no object.
+    Omitted,
+    /// The object fields its `metadata.` paths name.
+    Fields(ObjectMask),
 }
 
 impl MetadataMask {
-    fn apply(&self, metadata: &mut Option<pb::Object>) -> Result<(), Status> {
-        let fields = match self {
-            Self::Whole => return Ok(()),
-            Self::Fields(fields) => ReadMask::from(fields.as_slice()),
-        };
-        *metadata = match fields {
-            ReadMask::Default => None,
-            ReadMask::Wildcard | ReadMask::MixedWildcard(_) | ReadMask::Paths(_) => metadata
-                .take()
-                .map(|object| mask_object(object, fields))
-                .transpose()?,
-        };
-        Ok(())
+    fn apply(&self, metadata: &mut Option<pb::Object>) {
+        match self {
+            Self::Whole => {}
+            Self::Omitted => *metadata = None,
+            Self::Fields(mask) => *metadata = metadata.take().map(|object| mask.apply(object)),
+        }
     }
 }
 
@@ -118,25 +148,48 @@ impl<'a> FirstResponseMask<'a> {
         }
         let metadata = if whole {
             MetadataMask::Whole
+        } else if fields.is_empty() {
+            MetadataMask::Omitted
         } else {
-            check_object_mask(ReadMask::from(fields.as_slice()))?;
-            MetadataMask::Fields(fields)
+            // The path is named as the object's own, without its `metadata.` prefix; no
+            // ReadObject answer to an unknown one is recorded.
+            MetadataMask::Fields(object_mask(
+                ReadMask::from(fields.as_slice()),
+                unknown_field,
+            )?)
         };
         Ok(Self::Selected { paths, metadata })
     }
 
-    fn apply(&self, first: &mut pb::ReadObjectResponse) -> Result<(), Status> {
+    /// Whether each data message carries its CRC32C. A mask that selects
+    /// `checksummed_data.content` alone gets the bytes without it (recorded 2026-11-18).
+    fn data_checksum(&self) -> DataChecksum {
         match self {
-            Self::Everything => Ok(()),
+            Self::Everything => DataChecksum::Sent,
+            Self::Selected { paths, .. } => {
+                if paths
+                    .iter()
+                    .any(|p| matches!(p.as_str(), "checksummed_data" | "checksummed_data.crc32c"))
+                {
+                    DataChecksum::Sent
+                } else {
+                    DataChecksum::Omitted
+                }
+            }
+        }
+    }
+
+    fn apply(&self, first: &mut pb::ReadObjectResponse) {
+        match self {
+            Self::Everything => {}
             Self::Selected { paths, metadata } => {
-                metadata.apply(&mut first.metadata)?;
+                metadata.apply(&mut first.metadata);
                 if !paths.iter().any(|p| p == "object_checksums") {
                     first.object_checksums = None;
                 }
                 if !paths.iter().any(|p| p == "content_range") {
                     first.content_range = None;
                 }
-                Ok(())
             }
         }
     }
@@ -163,30 +216,41 @@ impl Storage {
         let mask = ReadMask::from(r.read_mask.as_ref());
         // A malformed key fails before the object is looked up (recorded 2026-11-15).
         let key = customer_key::key(r.common_object_request_params.as_ref())?;
-        if r.soft_deleted == Some(true) || !r.restore_token.is_empty() {
-            return Err(unsupported_for(
-                "GetObject soft_deleted/restore_token",
-                caller,
-            ));
-        }
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
-        check_object_mask(mask)?;
+        let object_mask = object_mask(mask, unknown_field)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
-        let target =
-            ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
+        if !r.restore_token.is_empty() {
+            return Err(Status::internal(RESTORE_TOKEN_REFUSAL));
+        }
+        let selected = generation(r.generation)?.map(Generation::get);
+        let conditions = conditions(ObjectConditions::from(&r))?;
         let ReadableMetadata {
             record,
             finality,
             hashes,
-        } = self
-            .get_readable(
-                target,
-                conditions(ObjectConditions::from(&r))?,
+        } = if r.soft_deleted == Some(true) {
+            let generation = selected.ok_or_else(|| {
+                Status::invalid_argument(
+                    "soft_deleted=true requires generation; select the soft-deleted generation",
+                )
+            })?;
+            self.get_soft_deleted(
+                ObjectTarget::new(bucket, name, generation),
+                conditions,
+                &access,
+                key,
+            )
+            .await?
+        } else {
+            self.get_readable(
+                ObjectTarget::new(bucket, name, selected),
+                conditions,
                 &access,
                 key,
             )
             .await
-            .map_err(named_object_status(bucket, name))?;
+            .map_err(named_object_status(bucket, name))?
+        };
         let mut object = super::super::append::object(&record, finality, hashes)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
@@ -197,7 +261,31 @@ impl Storage {
             )
             .await?;
         }
-        Ok(Response::new(mask_object(object, mask)?))
+        Ok(Response::new(object_mask.apply(object)))
+    }
+
+    /// The metadata of a soft-deleted generation, which only a finalized object leaves behind.
+    /// A bucket without a soft delete policy refuses the request (recorded 2026-11-18).
+    async fn get_soft_deleted(
+        &self,
+        target: ObjectTarget<i64>,
+        conditions: ObjectConditions,
+        access: &crate::bucket::BucketAccess,
+        key: Option<crate::csek::CustomerKey>,
+    ) -> Result<ReadableMetadata, Status> {
+        let (bucket, name) = (target.bucket.clone(), target.name.clone());
+        let record = self
+            .state
+            .catalog
+            .get_soft_deleted_object(target, conditions, access)
+            .await
+            .map_err(named_object_status(&bucket, &name))?;
+        let hashes = crate::csek::check_metadata(record.customer_key_sha256, key)?;
+        Ok(ReadableMetadata {
+            record,
+            finality: Finality::Finalized,
+            hashes,
+        })
     }
     /// The object in the first response of ReadObject and BidiReadObject, read from the opened
     /// `record`. `mask` selects the ACL and owner as a `metadata`-prefixed read mask does; an
@@ -271,7 +359,8 @@ impl Storage {
             }),
             ..Default::default()
         };
-        first_mask.apply(&mut first)?;
+        first_mask.apply(&mut first);
+        let checksum = first_mask.data_checksum();
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-read-object", async move {
             // Cloud Storage ends the stream after the last data message instead of appending an
@@ -289,7 +378,7 @@ impl Storage {
                 };
                 let mut response = pending.take().unwrap_or_default();
                 response.checksummed_data = Some(pb::ChecksummedData {
-                    crc32c: Some(crc32c::crc32c(&bytes)),
+                    crc32c: checksum.of(&bytes),
                     content: bytes,
                 });
                 if tx.send(Ok(response)).await.is_err() || done {
@@ -338,7 +427,7 @@ impl Storage {
         if !r.page_token.is_empty() {
             query.cursor = Some(json::decode_object_page_token(&r.page_token, &query).map_err(|_| Status::invalid_argument("Invalid page_token; use a next_page_token from an earlier listing response"))?);
         }
-        check_object_mask(mask)?;
+        let object_mask = object_mask(mask, unknown_list_field)?;
         let access = self.access(caller, bucket, OBJECTS_LIST).await?;
         let page = self
             .state
@@ -370,8 +459,8 @@ impl Storage {
         .await?;
         let objects = objects
             .into_iter()
-            .map(|object| mask_object(object, mask))
-            .collect::<Result<Vec<_>, Status>>()?;
+            .map(|object| object_mask.apply(object))
+            .collect();
         Ok(Response::new(pb::ListObjectsResponse {
             objects,
             prefixes: page.prefixes,
@@ -388,6 +477,8 @@ mod mask_tests;
 mod order_tests;
 #[cfg(test)]
 mod request_refusals;
+#[cfg(test)]
+mod soft_deleted_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

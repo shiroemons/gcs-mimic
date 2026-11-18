@@ -8,13 +8,27 @@ use crate::{
 use prost::Message;
 use tonic::{Code, Status};
 
-/// The gRPC message of a conditional read that matched `if_*_not_match` (recorded on `GetObject`).
+/// The gRPC message of a request whose `if_*_not_match` named the current value: a read
+/// (recorded on `GetObject`) and, unlike the JSON API's 304, a write (recorded 2026-11-18 on
+/// DeleteObject, UpdateObject, WriteObject and RewriteObject).
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
 /// The failed precondition of a request whose not-match condition named the current value.
 pub(super) fn not_modified() -> Status {
     Status::failed_precondition(NOT_MODIFIED)
+}
+
+/// A request for soft-deleted generations in a bucket without a soft delete policy. Cloud
+/// Storage repeats the GetObject and RestoreObject refusals in a `BadRequest` (recorded
+/// 2026-11-18); no ListObjects refusal was recorded over gRPC, so it keeps the bare message.
+fn soft_delete_policy_required(request: crate::object::SoftDeletedRequest) -> Status {
+    use crate::object::SoftDeletedRequest;
+    let message = request.policy_required_message();
+    match request {
+        SoftDeletedRequest::List => Status::invalid_argument(message),
+        SoftDeletedRequest::Get | SoftDeletedRequest::Restore => invalid_field(message),
+    }
 }
 
 /// Cloud Storage's refusal to delete a bucket that still holds objects (recorded 2026-11-18).
@@ -60,11 +74,12 @@ impl From<ObjectError> for Status {
                 Status::not_found(wording::DERIVED_TRANSFER_NOT_FOUND)
             }
             ObjectError::Component(failure) => component(&failure),
-            // Only the JSON API answers a write's matching not-match condition with 304.
-            ObjectError::PreconditionFailed | ObjectError::WriteNotModified => {
+            ObjectError::PreconditionFailed => {
                 Status::failed_precondition(wording::PRECONDITION_NOT_HELD)
             }
-            ObjectError::NotModified => Status::failed_precondition(NOT_MODIFIED),
+            // The JSON API answers a write's matching not-match condition with 304; gRPC has
+            // one status and one wording for it and for a read's.
+            ObjectError::NotModified | ObjectError::WriteNotModified => not_modified(),
             ObjectError::PublicAccessPrevention => {
                 Status::failed_precondition(wording::PUBLIC_ACCESS_PREVENTED)
             }
@@ -88,9 +103,7 @@ impl From<ObjectError> for Status {
             ObjectError::LockedRetention => {
                 Status::permission_denied(crate::object::LOCKED_RETENTION_MESSAGE)
             }
-            ObjectError::SoftDeletePolicyRequired(request) => {
-                Status::invalid_argument(request.policy_required_message())
-            }
+            ObjectError::SoftDeletePolicyRequired(request) => soft_delete_policy_required(request),
             ObjectError::ChecksumMismatch => Status::invalid_argument(wording::CHECKSUM_MISMATCH),
             ObjectError::HashMismatch(mismatch) => {
                 Status::invalid_argument(wording::hash_mismatch(&mismatch))
@@ -104,9 +117,8 @@ impl From<ObjectError> for Status {
             ObjectError::UniformAccessAclUpdate => {
                 Status::invalid_argument(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
             }
-            error @ ObjectError::ComposeClassMismatch { .. } => {
-                Status::invalid_argument(error.to_string())
-            }
+            // Cloud Storage repeats this refusal in a BadRequest (recorded 2026-11-18).
+            error @ ObjectError::ComposeClassMismatch { .. } => invalid_field(error.to_string()),
             ObjectError::DerivedTransferIncomplete => {
                 Status::invalid_argument(wording::DERIVED_TRANSFER_INCOMPLETE)
             }
@@ -268,9 +280,10 @@ impl From<crate::json::JsonError> for Status {
         if let crate::json::ErrorKind::Csek(error) = error.kind {
             return customer_encryption(error);
         }
-        // Only the JSON API answers a write's matching not-match condition with 304.
+        // The JSON API answers a write's matching not-match condition with 304; gRPC words it
+        // as a read's.
         if error.kind == crate::json::ErrorKind::WriteNotModified {
-            return Status::failed_precondition(crate::json::PRECONDITION_NOT_HELD);
+            return not_modified();
         }
         if error.kind == crate::json::ErrorKind::NotModified {
             error.message = NOT_MODIFIED.into();
@@ -522,13 +535,14 @@ mod tests {
         assert_eq!(not_empty.code(), Code::FailedPrecondition);
         let failed = Status::from(crate::object::ObjectError::PreconditionFailed);
         assert_eq!(failed.code(), Code::FailedPrecondition);
-        assert_eq!(failed.message(), crate::json::PRECONDITION_NOT_HELD);
+        assert_eq!(failed.message(), wording::PRECONDITION_NOT_HELD);
         let unmodified = Status::from(crate::object::ObjectError::NotModified);
         assert_eq!(unmodified.message(), NOT_MODIFIED);
-        // Only the JSON API turns a write's matching not-match condition into 304.
+        // A write's matching not-match condition, 304 over JSON, is worded as a read's (recorded
+        // 2026-11-18 on DeleteObject, UpdateObject, WriteObject and RewriteObject).
         let unchanged = Status::from(crate::object::ObjectError::WriteNotModified);
         assert_eq!(unchanged.code(), Code::FailedPrecondition);
-        assert_eq!(unchanged.message(), crate::json::PRECONDITION_NOT_HELD);
+        assert_eq!(unchanged.message(), NOT_MODIFIED);
         // A 412 that is not a failed condition keeps its own message.
         let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);
         assert_eq!(pap.code(), Code::FailedPrecondition);

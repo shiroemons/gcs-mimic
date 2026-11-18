@@ -37,6 +37,24 @@ pub(super) async fn setup() -> (Storage, TestDir) {
     )
 }
 
+/// The second fixture bucket, as a resource name.
+pub(super) const OTHER_RESOURCE: &str = "projects/_/buckets/update-copy-other";
+
+/// Removes the soft delete policy of the second fixture bucket, so an object deleted there
+/// leaves no soft-deleted generation.
+pub(super) async fn without_soft_delete(storage: &Storage) {
+    let update = crate::bucket::BucketMetadataUpdate {
+        soft_delete_retention: Some(0_i64.try_into().unwrap()),
+        ..Default::default()
+    };
+    storage
+        .state
+        .catalog
+        .patch_bucket("update-copy-other", update, Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+}
+
 pub(super) async fn upload(
     storage: &Storage,
     name: &str,

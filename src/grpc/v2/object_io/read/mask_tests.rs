@@ -65,13 +65,25 @@ fn assert_unknown_field<T>(result: Result<T, Status>) {
     assert_eq!(status.message(), UNKNOWN_FIELD);
 }
 
+/// ListObjects words an unknown path its own way (recorded 2026-11-18).
+#[track_caller]
+fn assert_unknown_list_field<T>(result: Result<T, Status>) {
+    let status = assert_code(result, tonic::Code::InvalidArgument);
+    assert_eq!(status.message(), "Invalid read_mask field: 'noSuchField'.");
+}
+
 #[tokio::test]
 async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
     let (_dir, storage) = setup(false).await;
     assert_unknown_field(get(&storage, get_request("missing", &["noSuchField"]), None).await);
     assert_unsupported(
-        get(&storage, get_request("missing", &["owner.entity"]), None).await,
-        "read_mask path owner.entity",
+        get(
+            &storage,
+            get_request("missing", &["create_time.seconds"]),
+            None,
+        )
+        .await,
+        "read_mask path create_time.seconds",
     );
     assert_unknown_field(
         read_as(
@@ -84,11 +96,14 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
     assert_unsupported(
         read_as(
             &storage,
-            read_request("missing", &["checksummed_data", "metadata.owner.entity"]),
+            read_request(
+                "missing",
+                &["checksummed_data", "metadata.create_time.seconds"],
+            ),
             None,
         )
         .await,
-        "read_mask path owner.entity",
+        "read_mask path create_time.seconds",
     );
     assert_unsupported(
         read_as(
@@ -99,19 +114,81 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
         .await,
         "ReadObject read_mask read_handle",
     );
-    // A valid mask still reports the missing object.
-    let missing = get(&storage, get_request("missing", &["name"]), None).await;
-    assert_code(missing, tonic::Code::NotFound);
+    // A valid mask still reports the missing object, whether it names a field or a member of
+    // one (recorded 2026-11-18 for `owner.entity` on an existing object).
+    for paths in [&["name"][..], &["owner.entity"]] {
+        let missing = get(&storage, get_request("missing", paths), None).await;
+        assert_code(missing, tonic::Code::NotFound);
+    }
+    // Recorded 2026-11-18: a member the message does not have, and any path under a repeated
+    // field, name no field.
+    for path in ["owner.no_such_field", "acl.role"] {
+        let status = assert_code(
+            get(&storage, get_request("missing", &["name", path]), None).await,
+            tonic::Code::InvalidArgument,
+        );
+        assert_eq!(
+            status.message(),
+            format!("There is no field for this resource named '{path}'.")
+        );
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// Cloud Storage answered `owner.entity` without an owner on GetObject, ReadObject and
+/// ListObjects (recorded 2026-11-18): the owner is returned only for a path naming the field.
+#[tokio::test]
+async fn a_nested_owner_path_is_served_without_the_owner() {
+    let (_dir, storage) = setup(false).await;
+    write(&storage, vec![message("object", b"data")])
+        .await
+        .unwrap();
+    let object = get(&storage, get_request("object", &["owner.entity"]), None)
+        .await
+        .unwrap();
+    assert_eq!(object, pb::Object::default());
+    let mut listing = list_request(&["name", "owner.entity"]);
+    listing.prefix = "object".into();
+    let listed = list(&storage, listing, None).await.unwrap();
+    assert_eq!(
+        listed.objects,
+        [pb::Object {
+            name: "object".into(),
+            ..Default::default()
+        }]
+    );
+    let mut stream = storage
+        .read_object(
+            Request::new(read_request(
+                "object",
+                &["checksummed_data.content", "metadata.owner.entity"],
+            )),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    let first = stream.next().await.unwrap().unwrap();
+    assert_eq!(first.metadata, Some(pb::Object::default()));
+    // A mask that selects the content alone gets it without its CRC32C.
+    let data = first.checksummed_data.unwrap();
+    assert_eq!(data.content.as_ref(), b"data");
+    assert_eq!(data.crc32c, None);
     storage.state.catalog.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn an_invalid_read_mask_is_reported_for_an_empty_listing() {
     let (_dir, storage) = setup(false).await;
-    assert_unknown_field(list(&storage, list_request(&["noSuchField"]), None).await);
+    assert_unknown_list_field(list(&storage, list_request(&["noSuchField"]), None).await);
     assert_unsupported(
-        list(&storage, list_request(&["name", "owner.entity"]), None).await,
-        "read_mask path owner.entity",
+        list(
+            &storage,
+            list_request(&["name", "create_time.seconds"]),
+            None,
+        )
+        .await,
+        "read_mask path create_time.seconds",
     );
     let empty = list(&storage, list_request(&["name"]), None).await.unwrap();
     assert!(empty.objects.is_empty());
@@ -136,7 +213,7 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
         )
         .await,
     );
-    assert_unknown_field(list(&storage, list_request(&["noSuchField"]), anonymous).await);
+    assert_unknown_list_field(list(&storage, list_request(&["noSuchField"]), anonymous).await);
     // Without the mask, the same anonymous requests are refused: the object reads with
     // PERMISSION_DENIED and the listing with UNAUTHENTICATED.
     assert_code(
@@ -201,11 +278,11 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
         .await
         .unwrap();
     let anonymous = Some(Caller::Anonymous);
-    let nested = "read_mask path owner.entity";
+    let nested = "read_mask path create_time.seconds";
     assert_unsupported(
         get(
             &storage,
-            get_request("object", &["owner.entity"]),
+            get_request("object", &["create_time.seconds"]),
             anonymous,
         )
         .await,
@@ -214,14 +291,22 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     assert_unsupported(
         read_as(
             &storage,
-            read_request("object", &["checksummed_data", "metadata.owner.entity"]),
+            read_request(
+                "object",
+                &["checksummed_data", "metadata.create_time.seconds"],
+            ),
             anonymous,
         )
         .await,
         nested,
     );
     assert_unsupported(
-        list(&storage, list_request(&["name", "owner.entity"]), anonymous).await,
+        list(
+            &storage,
+            list_request(&["name", "create_time.seconds"]),
+            anonymous,
+        )
+        .await,
         nested,
     );
     let admin = crate::grpc::test_support::caller(&storage, "admin").await;
@@ -249,8 +334,8 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// A malformed key, the unsupported soft-deleted lookup and a malformed name are still
-/// reported before the mask.
+/// A malformed key and a malformed name are still reported before the mask; a soft-deleted
+/// lookup and a restore token are read after it.
 #[tokio::test]
 async fn request_checks_before_the_mask_keep_their_order() {
     let (_dir, storage) = setup(false).await;
@@ -266,10 +351,10 @@ async fn request_checks_before_the_mask_keep_their_order() {
     );
     let mut soft_deleted = get_request("missing", &["noSuchField"]);
     soft_deleted.soft_deleted = Some(true);
-    assert_unsupported(
-        get(&storage, soft_deleted, None).await,
-        "GetObject soft_deleted/restore_token",
-    );
+    assert_unknown_field(get(&storage, soft_deleted, None).await);
+    let mut restoring = get_request("missing", &["noSuchField"]);
+    restoring.restore_token = "token".into();
+    assert_unknown_field(get(&storage, restoring, None).await);
     let unnamed = assert_code(
         get(&storage, get_request("", &["noSuchField"]), None).await,
         tonic::Code::InvalidArgument,
