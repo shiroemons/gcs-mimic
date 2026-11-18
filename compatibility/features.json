@@ -23051,9 +23051,12 @@
         },
         {
           "id": "grpc_bucket_update_etag",
-          "description": "A nonempty bucket.etag makes the update conditional, as the proto requires (storage.proto lines 2581-2584): after authorization the handler reads the bucket (with_etag_condition in src/grpc/v2/update_bucket.rs), refuses a stale or foreign ETag with FAILED_PRECONDITION and the shared precondition message, and otherwise turns the matching metageneration into an explicit match condition that the catalog compares atomically with the write. A bucket ETag encodes only the metageneration, so the two conditions are equivalent. A failed request metageneration condition beside a matching ETag fails alike, a missing bucket answers NOT_FOUND, and nothing changes on failure, with or without a lifecycle change.",
+          "description": "A nonempty bucket.etag makes the update conditional, as the proto requires (storage.proto lines 2581-2584): after authorization the handler reads the bucket (with_etag_condition in src/grpc/v2/update_bucket.rs), refuses a stale or foreign ETag with FAILED_PRECONDITION and the shared precondition message, and otherwise turns the matching metageneration into an explicit match condition that the catalog compares atomically with the write. A bucket ETag encodes only the metageneration, so the two conditions are equivalent. A failed request metageneration condition beside a matching ETag fails alike, a missing bucket answers NOT_FOUND, and nothing changes on failure, with or without a lifecycle change. Because the ETag becomes an explicit condition, the update is never retried: when another update lands between the lifecycle check and the write, it fails at once with FAILED_PRECONDITION and changes nothing.",
           "result": "PASS",
-          "test_ids": ["grpc_bucket_update_requires_a_matching_etag"]
+          "test_ids": [
+            "grpc_bucket_update_requires_a_matching_etag",
+            "grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes"
+          ]
         },
         {
           "id": "grpc_bucket_update_wildcard_mask",
@@ -23149,6 +23152,7 @@
         "grpc_lifecycle_precheck_retries_only_implicit_matches",
         "grpc_lifecycle_precheck_stops_after_three_conflicts",
         "grpc_bucket_update_requires_a_matching_etag",
+        "grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes",
         "grpc_bucket_update_rounds_retention_nanos_down",
         "bucket_rpcs_keep_their_own_metageneration_condition_rules",
         "update_mask_paths_select_their_settings_and_refuse_the_rest",
@@ -23162,6 +23166,7 @@
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
             "grpc_bucket_update_requires_a_matching_etag",
+            "grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes",
             "grpc_bucket_update_rounds_retention_nanos_down",
             "bucket_rpcs_keep_their_own_metageneration_condition_rules",
             "update_mask_paths_select_their_settings_and_refuse_the_rest",
@@ -23309,11 +23314,19 @@
           ]
         },
         {
-          "text": "Without if_metageneration_match and without a lifecycle change, the update reads the bucket, checks that its stored lifecycle converts, and writes under that metageneration; it retries up to three times when another update intervenes and then answers ABORTED. An explicit condition fails at once with FAILED_PRECONDITION. Google documents no such conflict.",
+          "text": "Without if_metageneration_match, without bucket.etag and without a lifecycle change, the update reads the bucket, checks that its stored lifecycle converts, and writes under that metageneration; it retries up to three times when another update intervenes and then answers ABORTED. An explicit metageneration match or an ETag, which becomes one, fails at once with FAILED_PRECONDITION. Google documents no such conflict.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "grpc_lifecycle_precheck_retries_only_implicit_matches",
-            "grpc_lifecycle_precheck_stops_after_three_conflicts"
+            "grpc_lifecycle_precheck_stops_after_three_conflicts",
+            "grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes"
+          ]
+        },
+        {
+          "text": "A stale or foreign bucket.etag answers FAILED_PRECONDITION with the shared precondition message, the answer of a failed metageneration condition. The proto requires the update to happen only when the ETag matches (storage.proto lines 2581-2584) but names no status for a mismatch, and nothing was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_bucket_update_requires_a_matching_etag"
           ]
         }
       ],
