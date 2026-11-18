@@ -205,6 +205,59 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// A nested sub-path of an object field is UNIMPLEMENTED for an anonymous caller too. A
+/// ReadObject path naming a response field gcs-mimic does not return is refused like an
+/// unmodeled setting: an anonymous caller gets UNAUTHENTICATED instead, before the object is
+/// authorized.
+#[tokio::test]
+async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
+    let (_dir, storage) = setup(true).await;
+    write(&storage, vec![message("object", b"data")])
+        .await
+        .unwrap();
+    let anonymous = Some(Caller::Anonymous);
+    let nested = "read_mask path owner.entity";
+    assert_unsupported(
+        get(
+            &storage,
+            get_request("object", &["owner.entity"]),
+            anonymous,
+        )
+        .await,
+        nested,
+    );
+    assert_unsupported(
+        read(
+            &storage,
+            read_request("object", &["checksummed_data", "metadata.owner.entity"]),
+            anonymous,
+        )
+        .await,
+        nested,
+    );
+    assert_unsupported(
+        list(&storage, list_request(&["name", "owner.entity"]), anonymous).await,
+        nested,
+    );
+    let handle = || read_request("object", &["checksummed_data", "read_handle"]);
+    let status = assert_code(
+        read(&storage, handle(), anonymous).await,
+        tonic::Code::Unauthenticated,
+    );
+    assert!(
+        status
+            .message()
+            .contains("strict authentication requires a registered local Bearer token"),
+        "{status}"
+    );
+    let admin = crate::grpc::test_support::caller(&storage, "admin").await;
+    assert_unsupported(
+        read(&storage, handle(), admin).await,
+        "ReadObject read_mask read_handle",
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
 /// A malformed key, the unsupported soft-deleted lookup and a malformed name are still
 /// reported before the mask.
 #[tokio::test]
