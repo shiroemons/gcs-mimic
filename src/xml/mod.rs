@@ -21,6 +21,7 @@ mod copy;
 mod cors;
 mod document;
 pub(crate) mod envelope;
+mod error_mapping;
 #[cfg(test)]
 mod error_tests;
 pub(crate) mod extension_headers;
@@ -470,7 +471,7 @@ pub(crate) fn unselectable_bucket(
     if segment.is_empty() {
         return None;
     }
-    let bucket = json::decode(segment, json::Decoding::Path).ok()?;
+    let bucket = crate::percent::decode(segment, crate::percent::Decoding::Path).ok()?;
     if json::validate_bucket_name_for_profile(&bucket, profile).is_ok() {
         return None;
     }
@@ -726,7 +727,7 @@ pub(crate) fn select_object_with_endpoints(
         _ => {
             let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
             (
-                json::decode(bucket, json::Decoding::Path)?,
+                crate::percent::decode(bucket, crate::percent::Decoding::Path)?,
                 name,
                 BucketSource::Path,
             )
@@ -783,7 +784,7 @@ fn route_object(
         ));
     }
     if multipart::matches(&uri) {
-        let name = json::decode(name, json::Decoding::Path)?;
+        let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
         if !name.is_empty() {
             crate::object::name::validate(&name)
                 .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
@@ -808,7 +809,7 @@ fn route_object(
             "{method} route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT"
         )));
     }
-    let name = json::decode(name, json::Decoding::Path)?;
+    let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     crate::object::name::validate(&name)
         .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
     if *method == Method::PUT

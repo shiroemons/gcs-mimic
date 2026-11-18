@@ -10,7 +10,7 @@ pub(super) async fn list(
     session: &str,
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let mut query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let limit = parse_limit(query.remove("limit"))?;
     let revision = query
         .remove("revision")

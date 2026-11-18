@@ -1887,7 +1887,7 @@ async fn validate_bodyless_post(
             BodylessPostType::Form => {
                 std::str::from_utf8(&body)
                     .ok()
-                    .and_then(|body| json::parse_query(body).ok())
+                    .and_then(|body| crate::percent::parse_query(body).ok())
                     .as_ref()
                     == Some(expected)
             }

@@ -1,5 +1,5 @@
 use super::{Part, RequestBody, invalid};
-use crate::json::{self, JsonError};
+use crate::json::JsonError;
 use http_body_util::Full;
 use hyper::{
     HeaderMap, Method, Request, Uri,
@@ -174,12 +174,12 @@ fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, 
     if uri.scheme().is_some() || uri.authority().is_some() {
         return Err(invalid("Batch parts cannot specify an authority"));
     }
-    let inner = json::parse_query(uri.query().unwrap_or(""))?;
+    let inner = crate::percent::parse_query(uri.query().unwrap_or(""))?;
     let mut target = raw.to_owned();
     let outer = outer_query.unwrap_or("");
-    json::parse_query(outer)?;
+    crate::percent::parse_query(outer)?;
     for pair in outer.split('&').filter(|pair| !pair.is_empty()) {
-        let parsed = json::parse_query(pair)?;
+        let parsed = crate::percent::parse_query(pair)?;
         if parsed.keys().any(|key| !inner.contains_key(key)) {
             target.push(if target.contains('?') { '&' } else { '?' });
             target.push_str(pair);
@@ -188,7 +188,7 @@ fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, 
     let uri: Uri = target
         .parse()
         .map_err(|_| invalid("Invalid inherited batch query"))?;
-    if json::parse_query(uri.query().unwrap_or(""))?
+    if crate::percent::parse_query(uri.query().unwrap_or(""))?
         .get("alt")
         .is_some_and(|alt| alt == "media")
     {

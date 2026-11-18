@@ -1,7 +1,8 @@
 use super::{
     JsonError, Projection, object_resource,
-    query::{boolean, parse_query, projection, standard_parameters},
+    query::{boolean, projection, standard_parameters},
 };
+use crate::percent::parse_query;
 use crate::storage::{FoldersAsPrefixes, ListQueryError, ObjectListPage, ObjectListQuery};
 use serde_json::{Map, Value};
 

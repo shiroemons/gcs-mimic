@@ -64,7 +64,10 @@ async fn execute(
     if request.method() == Method::PUT {
         let bucket = match selected {
             Some(path) => path.bucket.clone(),
-            None => json::decode(request.uri().path().trim_matches('/'), json::Decoding::Path)?,
+            None => crate::percent::decode(
+                request.uri().path().trim_matches('/'),
+                crate::percent::Decoding::Path,
+            )?,
         };
         json::validate_bucket_name_for_profile(&bucket, ctx.config.compat_profile)?;
         return create::respond(request, &bucket, ctx, caller).await;
@@ -168,7 +171,7 @@ fn validate(request: &Request<RequestBody>, bucket: &str) -> Result<(), Error> {
 }
 
 fn validate_query(uri: &Uri, bucket: &str) -> Result<(), Error> {
-    let query = json::parse_query(uri.query().unwrap_or_default())?;
+    let query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
     if !bucket.is_empty()
         && uri.path() == "/"
         && query

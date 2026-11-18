@@ -292,7 +292,7 @@ async fn restore(
     generation: i64,
     projection: json::Projection,
 ) -> Result<Rendered, JsonError> {
-    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     validate_bodyless_post(request, &query, EmptyJsonBody::Refused).await?;
     let record = ctx
         .state

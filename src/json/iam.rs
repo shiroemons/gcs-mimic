@@ -3,6 +3,7 @@ use crate::auth::{
     Binding, Policy, Role,
     policy_input::{self, PolicyInputError},
 };
+use crate::percent::{self, Decoding};
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -60,8 +61,8 @@ pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermission
     let mut rest = Vec::new();
     for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if query::decode(key, query::Decoding::Form)? == "permissions" {
-            let permission = query::decode(value, query::Decoding::Form)?;
+        if percent::decode(key, Decoding::Form)? == "permissions" {
+            let permission = percent::decode(value, Decoding::Form)?;
             let permission = check_testable_permission(&permission)?;
             if !permissions.contains(&permission) {
                 permissions.push(permission);
@@ -75,7 +76,7 @@ pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermission
             JsonError::required("Required parameter: permissions").at_parameter("permissions")
         );
     }
-    let mut undeclared = query::parse_query(&rest.join("&"))?;
+    let mut undeclared = percent::parse_query(&rest.join("&"))?;
     let fields = Fields::take(&mut undeclared, Schema::TestIamPermissionsResponse)?;
     query::common(&mut undeclared)?;
     Ok(TestPermissionsQuery {

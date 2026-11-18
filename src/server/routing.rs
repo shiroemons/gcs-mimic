@@ -207,7 +207,7 @@ fn protocol_upload<B>(
     }) {
         return None;
     }
-    let query = json::parse_query(uri.query().unwrap_or_default()).ok()?;
+    let query = crate::percent::parse_query(uri.query().unwrap_or_default()).ok()?;
     let upload_type = query.get("uploadType")?;
     let kind = if query.contains_key("upload_id") {
         ProtocolUpload::Session

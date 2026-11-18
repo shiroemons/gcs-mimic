@@ -4,6 +4,7 @@
 //! catalog. Configurations are stored and read back, but no Pub/Sub message is ever published.
 
 use super::{EtagConditions, Fields, JsonError, Schema, buckets::encode_segment, query};
+use crate::percent::{self, Decoding};
 use crate::{
     config::CompatProfile,
     notification::{
@@ -109,11 +110,11 @@ fn parse(
         (&Method::GET, None) => NotificationRequest::List { bucket },
         (&Method::GET, Some(item)) => NotificationRequest::Get {
             bucket,
-            notification: query::decode(item, query::Decoding::Path)?,
+            notification: percent::decode(item, Decoding::Path)?,
         },
         (&Method::DELETE, Some(item)) => NotificationRequest::Delete {
             bucket,
-            notification: query::decode(item, query::Decoding::Path)?,
+            notification: percent::decode(item, Decoding::Path)?,
         },
         _ => {
             return Err(JsonError::method_not_allowed(
@@ -124,7 +125,7 @@ fn parse(
             ));
         }
     };
-    let mut query = query::parse_query(uri.query().unwrap_or_default())?;
+    let mut query = percent::parse_query(uri.query().unwrap_or_default())?;
     let schema = if matches!(request, NotificationRequest::List { .. }) {
         Schema::Notifications
     } else {

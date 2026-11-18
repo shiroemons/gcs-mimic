@@ -2,15 +2,14 @@
 //! routes, request bodies and resources, plus the ACL fields of `projection=full` resources.
 
 use super::{
-    Decoding, Fields, JsonError, Schema,
+    Fields, JsonError, Schema,
     buckets::encode_segment,
-    decode,
     integer::take_int64,
     objects::revision_etag,
-    parse_query,
     query::{common, finish_for_profile},
     validate_bucket_name_for_profile, validate_object_name,
 };
+use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     acl::{
         AclEntry, AclKind, AclRole, AclTarget, Entity, ProjectTeam, parse_entity, validate_role,

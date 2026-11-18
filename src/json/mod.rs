@@ -116,13 +116,13 @@ pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,
     route_project, service_account,
 };
+pub(crate) use query::decode_bucket_segment;
 #[cfg(test)]
 pub(crate) use query::route;
 pub(crate) use query::{
     BucketRequest, GetParams, InsertParams, ListParams, Projection, SoftDeletedListParams,
     route_with_profile, validate_project,
 };
-pub(crate) use query::{Decoding, MAX_QUERY_BYTES, decode, decode_bucket_segment, parse_query};
 
 #[cfg(test)]
 mod tests;

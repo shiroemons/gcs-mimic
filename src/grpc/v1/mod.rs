@@ -185,7 +185,7 @@ fn validate_list_query(request: &pb::ListObjectsRequest, max_results: usize) -> 
     if uri_len > usize::from(u16::MAX) - 1 {
         return Err(Status::invalid_argument("Invalid list request"));
     }
-    if query_len > json::MAX_QUERY_BYTES {
+    if query_len > crate::percent::MAX_QUERY_BYTES {
         return Err(Status::invalid_argument(
             "Invalid object listing or page token; use the token with its original query",
         ));

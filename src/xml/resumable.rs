@@ -44,7 +44,7 @@ pub(crate) fn route(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
 /// The bucket and decoded object name of an XML resumable request.
 fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
     json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile)?;
-    let name = json::decode(object.name(), json::Decoding::Path)?;
+    let name = crate::percent::decode(object.name(), crate::percent::Decoding::Path)?;
     crate::object::name::validate(&name)
         .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
     Ok(name)
@@ -163,7 +163,7 @@ pub(crate) async fn session(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let name = target(object, ctx)?;
-    let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let mut query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let id = query
         .remove("upload_id")
         .ok_or_else(|| Error::invalid("Missing upload_id."))?;

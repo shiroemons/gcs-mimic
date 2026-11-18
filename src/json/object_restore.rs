@@ -3,11 +3,15 @@ use super::{
     integer::take_long,
     objects::{ConditionKeys, take_conditions},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
-        finish_for_profile, parse_query, projection, standard_parameters,
+        BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, finish_for_profile,
+        projection, standard_parameters,
     },
 };
-use crate::{config::CompatProfile, object::ObjectTarget};
+use crate::{
+    config::CompatProfile,
+    object::ObjectTarget,
+    percent::{Decoding, decode, parse_query},
+};
 use hyper::{Method, Uri};
 
 pub(super) fn route(

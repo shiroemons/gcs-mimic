@@ -28,9 +28,9 @@ const MANIFEST_LIMIT: usize = 2 * 1024 * 1024;
 pub(crate) fn matches(uri: &Uri) -> bool {
     uri.query().is_some_and(|query| {
         query.split('&').any(|field| {
-            json::decode(
+            crate::percent::decode(
                 field.split('=').next().unwrap_or_default(),
-                json::Decoding::Form,
+                crate::percent::Decoding::Form,
             )
             .is_ok_and(|name| matches!(name.as_str(), "uploads" | "uploadId" | "partNumber"))
         })

@@ -3,11 +3,16 @@ use super::{
     integer::take_long,
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
-        parse_query, projection, standard_parameters,
+        BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, projection,
+        standard_parameters,
     },
 };
-use crate::{acl::PredefinedObjectAcl, config::CompatProfile, object::ObjectConditions};
+use crate::{
+    acl::PredefinedObjectAcl,
+    config::CompatProfile,
+    object::ObjectConditions,
+    percent::{Decoding, decode, parse_query},
+};
 use hyper::{Method, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

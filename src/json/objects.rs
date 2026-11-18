@@ -3,12 +3,10 @@ use super::{
     buckets::{PredefinedAclTarget, encode_segment, timestamp},
     checksum::{self, each_declared_hash},
     integer::take_long,
-    query::{
-        BUCKET_PATH, BucketCheck, Decoding, MAX_OBJECT_SEGMENT_BYTES, boolean, decode, parse_query,
-        path_bucket, projection,
-    },
+    query::{BUCKET_PATH, BucketCheck, MAX_OBJECT_SEGMENT_BYTES, boolean, path_bucket, projection},
 };
 use crate::decimal::Grammar;
+use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     auth,
     config::CompatProfile,

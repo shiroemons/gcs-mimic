@@ -127,14 +127,14 @@ fn query_booleans_accept_only_lowercase_and_python_spellings() {
         ("false", false),
         ("False", false),
     ] {
-        let mut query = parse_query(&format!("flag={wire}")).unwrap();
+        let mut query = crate::percent::parse_query(&format!("flag={wire}")).unwrap();
         assert_eq!(super::query::boolean(&mut query, "flag").unwrap(), expected);
         assert!(query.is_empty());
     }
     for wire in [
         "", "yes", "no", "0", "1", "TRUE", "FALSE", "TrUe", "true%20",
     ] {
-        let mut query = parse_query(&format!("flag={wire}")).unwrap();
+        let mut query = crate::percent::parse_query(&format!("flag={wire}")).unwrap();
         assert_eq!(
             super::query::boolean(&mut query, "flag")
                 .unwrap_err()
@@ -158,7 +158,7 @@ fn rejected_query_booleans_name_the_actual_parameter() {
         "overrideUnlockedRetention",
         "copySourceAcl",
     ] {
-        let mut query = parse_query(&format!("{name}=invalid")).unwrap();
+        let mut query = crate::percent::parse_query(&format!("{name}=invalid")).unwrap();
         let error = super::query::boolean(&mut query, name).unwrap_err();
         assert_eq!(error.reason, "invalidParameter");
         let location = error.location.unwrap();

@@ -284,6 +284,14 @@ impl fmt::Display for SigningError {
 // `source()`.
 impl std::error::Error for SigningError {}
 
+/// The refused query is client input that `InvalidQuery` names in its message; the public error
+/// type keeps the crate's query error out of its interface.
+impl From<crate::percent::QueryError> for SigningError {
+    fn from(error: crate::percent::QueryError) -> Self {
+        Self::InvalidQuery(error.to_string())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct PublicKey {
     n: Vec<u8>,
@@ -925,8 +933,7 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
     let date = timestamp(now)?;
     let day = date.get(..8).ok_or(SigningError::TimestampOutOfRange)?;
     let scope = format!("{day}/auto/storage/goog4_request");
-    let mut query = json::parse_query(uri.query().unwrap_or_default())
-        .map_err(|e| SigningError::InvalidQuery(e.message))?;
+    let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
     if query
         .keys()
         .any(|key| signing_param(key.as_bytes()).is_some())

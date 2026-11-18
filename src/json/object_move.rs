@@ -2,10 +2,11 @@ use super::{
     JsonError, ObjectRequest, Projection,
     objects::{ConditionKeys, match_and_not_match, take_conditions},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
-        finish_for_profile, parse_query, projection, standard_parameters,
+        BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, finish_for_profile,
+        projection, standard_parameters,
     },
 };
+use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     config::CompatProfile,
     object::ObjectConditions,

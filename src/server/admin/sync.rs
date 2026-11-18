@@ -445,7 +445,7 @@ enum PagedRevision {
 
 impl Page {
     fn parse(query: Option<&str>) -> Result<Self, JsonError> {
-        let mut values = json::parse_query(query.unwrap_or_default())?;
+        let mut values = crate::percent::parse_query(query.unwrap_or_default())?;
         if values.is_empty() {
             return Ok(Self::Summary);
         }

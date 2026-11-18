@@ -90,7 +90,7 @@ pub(super) async fn respond(
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = ctx.authorize(permission, bucket).await?;
-    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let acl_full = operation.projection() == json::Projection::Full;
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
         check_predefined_acl(request.uri(), ctx, bucket, &operation, &access).await?;

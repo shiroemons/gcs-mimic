@@ -217,6 +217,13 @@ fn metadata(error: &MetadataError, unsupported: fn(&str) -> String) -> Status {
     }
 }
 
+/// A routing value or resource name whose percent-encoding cannot be decoded.
+impl From<crate::percent::MalformedEncoding> for Status {
+    fn from(error: crate::percent::MalformedEncoding) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
 impl From<crate::auth::AuthFailure> for Status {
     fn from(error: crate::auth::AuthFailure) -> Self {
         Self::from(crate::json::JsonError::from(error))

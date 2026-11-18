@@ -32,7 +32,7 @@ pub(super) async fn initiate(
 ) -> Result<Response<ResponseBody>, JsonError> {
     let ObjectCtx { config, .. } = ctx;
     let response_fields =
-        json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
+        crate::percent::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
     let resumable::UploadHeaders { mime, total } =
         resumable::headers(request.headers(), config.max_object_bytes)?;
     let key = json::request_key(request.headers())?;

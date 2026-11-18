@@ -892,7 +892,7 @@ pub(crate) fn bucket_predefined_acls(
     write: BucketAclWrite,
     profile: CompatProfile,
 ) -> Result<BucketPredefinedAcls, JsonError> {
-    let query = super::parse_query(query.unwrap_or_default())?;
+    let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // The fake-gcs-server profile never applied canned ACLs; it refuses them as before.
     if profile != CompatProfile::Native {
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
@@ -960,7 +960,7 @@ pub(crate) fn reject_predefined_acl(
     target: PredefinedAclTarget,
     access: &crate::bucket::BucketAccess,
 ) -> Result<(), JsonError> {
-    let query = super::parse_query(query.unwrap_or_default())?;
+    let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // Documented for uploads: an anonymous caller cannot name a canned ACL. Its object belongs
     // to the project owners team, so the caller would choose the ACL of an object it does not
     // own. A copy, rewrite or compose publishes the same kind of object, as an XML copy with

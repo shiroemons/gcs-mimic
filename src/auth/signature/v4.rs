@@ -260,8 +260,8 @@ pub(super) fn prepare(
     now: SystemTime,
 ) -> Result<Prepared, Failure> {
     bounded(uri, headers)?;
-    let query =
-        json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)?;
+    let query = crate::percent::parse_query(uri.query().unwrap_or_default())
+        .map_err(|_| Failure::Malformed)?;
     let header = has_v4_header(headers);
     if query
         .keys()

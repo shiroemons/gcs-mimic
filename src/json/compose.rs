@@ -34,11 +34,11 @@ fn parse(
             Some("POST"),
         ));
     }
-    let bucket = crate::json::decode(bucket, crate::json::Decoding::Path)?;
+    let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
     crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
-    let name = crate::json::decode(name, crate::json::Decoding::Path)?;
+    let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     validate_object_name(&name)?;
-    let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
+    let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Object)?;
     let predefined_acl =
         super::objects::take_predefined_acl(&mut query, "destinationPredefinedAcl")?;

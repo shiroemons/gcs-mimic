@@ -727,6 +727,18 @@ impl JsonError {
     }
 }
 
+impl From<crate::percent::MalformedEncoding> for JsonError {
+    fn from(error: crate::percent::MalformedEncoding) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
+impl From<crate::percent::QueryError> for JsonError {
+    fn from(error: crate::percent::QueryError) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
 /// A project path segment outside the identifier rules is a malformed parameter.
 impl From<crate::auth::InvalidProjectId> for JsonError {
     fn from(error: crate::auth::InvalidProjectId) -> Self {

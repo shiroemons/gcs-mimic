@@ -28,6 +28,7 @@ pub mod mime;
 pub mod net;
 mod notification;
 pub mod object;
+mod percent;
 mod project;
 pub mod seed;
 mod serde_util;

@@ -1,5 +1,5 @@
 use super::{names, pb::bidi_write_object_request::FirstMessage, status};
-use crate::json;
+use crate::percent::{Decoding, decode};
 use tonic::{Status, metadata::MetadataMap};
 
 /// The metadata that routes a Storage v2 call: `key=value` pairs joined by `&`, each key and
@@ -215,7 +215,7 @@ fn request_bucket(name: Option<&str>) -> &str {
 /// before it is recognized, so `%62ucket` is `bucket`.
 fn routing_key(key: &[u8]) -> Option<RoutingKey> {
     let key = std::str::from_utf8(key).ok()?;
-    json::decode(key, json::Decoding::Form).ok()?.parse().ok()
+    decode(key, Decoding::Form).ok()?.parse().ok()
 }
 
 /// The percent-decoded value of a routing pair whose key the call routes.
@@ -225,7 +225,7 @@ fn routed_value(value: &[u8]) -> Result<String, Status> {
             "Invalid routing metadata; use bucket=projects%2F_%2Fbuckets%2Fexample-bucket",
         )
     })?;
-    Ok(json::decode(value, json::Decoding::Form)?)
+    Ok(decode(value, Decoding::Form)?)
 }
 
 /// The values of the keys a call routes, each parsed into its key's type, in the order sent.

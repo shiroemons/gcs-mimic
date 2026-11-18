@@ -8,26 +8,14 @@ mod tests;
 pub(crate) fn xml_query(
     raw: &str,
     headers: &HeaderMap,
-) -> Result<BTreeMap<String, String>, json::JsonError> {
-    if !has_legacy_header(headers) {
-        return json::parse_query(raw);
-    }
-    if raw.len() > 16 * 1024 {
-        return Err(json::JsonError::invalid_parameter("Query exceeds 16 KiB"));
-    }
-    let mut query = BTreeMap::new();
+) -> Result<BTreeMap<String, String>, crate::percent::QueryError> {
     // Boto's legacy unquote preserves literal plus signs, unlike form decoding.
-    for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let key = json::decode(key, json::Decoding::Path)?;
-        let value = json::decode(value, json::Decoding::Path)?;
-        if query.insert(key.clone(), value).is_some() {
-            return Err(json::JsonError::invalid_parameter(format!(
-                "Duplicate query parameter: {key}"
-            )));
-        }
-    }
-    Ok(query)
+    let decoding = if has_legacy_header(headers) {
+        crate::percent::Decoding::Path
+    } else {
+        crate::percent::Decoding::Form
+    };
+    crate::percent::parse_query_with(raw, decoding)
 }
 
 /// A `GOOG1` or `AWS` header signature, which always verifies with HMAC-SHA1.

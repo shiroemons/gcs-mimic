@@ -166,7 +166,7 @@ pub(super) async fn decode_metadata(
 ) -> Result<Request<RequestBody>, JsonError> {
     if request.method() == Method::POST
         && request.uri().path().starts_with("/upload/storage/v1/")
-        && crate::json::parse_query(request.uri().query().unwrap_or_default())?
+        && crate::percent::parse_query(request.uri().query().unwrap_or_default())?
             .get("uploadType")
             .is_some_and(|kind| kind == "multipart" || kind == "media")
         && request.headers().contains_key(CONTENT_ENCODING)
@@ -181,7 +181,7 @@ pub(super) async fn decode_metadata(
             .and_then(|path| path.split_once('/'))
             .is_some_and(|(bucket, rest)| !bucket.is_empty() && rest == "o")
         && {
-            let query = crate::json::parse_query(request.uri().query().unwrap_or_default())?;
+            let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
             query
                 .get("uploadType")
                 .is_some_and(|kind| kind == "resumable")

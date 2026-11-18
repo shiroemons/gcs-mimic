@@ -115,7 +115,7 @@ fn required<'a>(query: &'a BTreeMap<String, String>, name: &str) -> Result<&'a s
 }
 
 fn parse_query(uri: &Uri) -> Result<BTreeMap<String, String>, Failure> {
-    json::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)
+    crate::percent::parse_query(uri.query().unwrap_or_default()).map_err(|_| Failure::Malformed)
 }
 
 /// The required fields of a V2 query signature.
