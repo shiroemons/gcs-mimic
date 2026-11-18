@@ -432,6 +432,65 @@ async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session(
     storage.state.catalog.close().await.unwrap();
 }
 
+/// WriteObject reads past a resumed stream's finish_write before it leases the session, so it
+/// answers only once the stream ends, also when the finishing message is refused or replays a
+/// finalized upload.
+#[tokio::test]
+async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end() {
+    let (_dir, storage) = setup(false).await;
+    let refused = start(&storage, "refused-held-open", None).await;
+    let mut bad_crc = resume(&refused, 0, b"abc", true);
+    if let Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) = bad_crc.data.as_mut()
+    {
+        data.crc32c = Some(1);
+    }
+    let finalized = start(&storage, "replayed-held-open", None).await;
+    write(&storage, vec![resume(&finalized, 0, b"abc", true)])
+        .await
+        .unwrap();
+    let crc_mismatch = format!(
+        "Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '00000001'.",
+        crc32c::crc32c(b"abc")
+    );
+    for (label, message, expected) in [
+        (
+            "refused",
+            bad_crc,
+            (tonic::Code::InvalidArgument, crc_mismatch.as_str()),
+        ),
+        (
+            "replayed",
+            resume(&finalized, 0, b"abc", true),
+            (tonic::Code::Ok, ""),
+        ),
+    ] {
+        let (waiting, waited) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let mut stream = HeldOpen {
+            message: Some(message),
+            waiting: Some(waiting),
+            release: released,
+        };
+        let answer = storage.receive_write(&mut stream, None, WriteRpc::WriteObject);
+        tokio::pin!(answer);
+        tokio::select! {
+            result = answer.as_mut() => panic!("{label} answered before the stream ended: {result:?}"),
+            asked = waited => asked.unwrap(),
+        }
+        release.send(()).unwrap();
+        let result = answer.await;
+        assert_eq!(
+            result.as_ref().map_or_else(
+                |status| (status.code(), status.message()),
+                |_| (tonic::Code::Ok, "")
+            ),
+            expected,
+            "{label}"
+        );
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
 #[test]
 fn grpc_io_range_and_masks() {
     assert_eq!(
