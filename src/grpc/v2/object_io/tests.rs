@@ -215,13 +215,16 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// The proto: "When the stream is closed, a `BidiWriteObjectResponse` is always sent to the
+/// client, regardless of the value of `state_lookup`." A clean close of a resumed stream answers
+/// with the persisted size, also after a flush already answered.
 #[tokio::test]
 async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
     let (_dir, storage) = setup(false).await;
-    for (name, data, flush) in [
-        ("half-close", b"abc".as_slice(), false),
-        ("flushed", b"abc".as_slice(), true),
-        ("empty", b"".as_slice(), false),
+    for (name, data, flush, answers) in [
+        ("half-close", b"abc".as_slice(), false, 1),
+        ("flushed", b"abc".as_slice(), true, 2),
+        ("empty", b"".as_slice(), false, 1),
     ] {
         let upload = start(&storage, name, None).await;
         let mut message = resume(&upload, 0, data, false);
@@ -239,9 +242,11 @@ async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
             ))
         );
         drop(tx);
-        let response = rx.recv().await.unwrap().unwrap();
-        assert_eq!(response, result);
-        assert!(rx.recv().await.is_none());
+        for _ in 0..answers {
+            let response = rx.recv().await.unwrap().unwrap();
+            assert_eq!(response, result, "{name}");
+        }
+        assert!(rx.recv().await.is_none(), "{name}");
         assert!(missing(&storage, name).await);
     }
     storage.state.catalog.close().await.unwrap();

@@ -275,10 +275,11 @@ impl Storage {
                 ),
                 Written::Open(progress) => persisted_answer(written, progress.hashes)?,
             };
-            // The proto answers finish_write, flush and state_lookup, and a clean close after a
-            // message none of them answered.
-            let answered = message.finish_write || message.flush || message.state_lookup;
-            if answered {
+            // finish_write, flush and state_lookup are answered at once. A clean close is
+            // answered too, even right after an answered message: "When the stream is closed, a
+            // BidiWriteObjectResponse is always sent to the client, regardless of the value of
+            // state_lookup."
+            if message.finish_write || message.flush || message.state_lookup {
                 rpc.report(&answer).await?;
             }
             if message.finish_write {
@@ -286,9 +287,7 @@ impl Storage {
             }
             position = MessagePosition::Later;
             let Some(next) = stream.next().await.transpose()? else {
-                if !answered {
-                    rpc.report(&answer).await?;
-                }
+                rpc.report(&answer).await?;
                 return Ok(answer);
             };
             message = next;

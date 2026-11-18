@@ -862,7 +862,31 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Persisted(3)], Left::Persisted(3)),
             ),
         ),
-        // Each flush or state_lookup is answered; a half-close repeats an unanswered size.
+        // Each flush or state_lookup is answered, and so is a half-close, as the proto says:
+        // "When the stream is closed, a BidiWriteObjectResponse is always sent to the client,
+        // regardless of the value of state_lookup."
+        on(
+            PLAIN,
+            bidi(
+                "lookup-then-close",
+                |u| vec![resume(u, 0, b"abc").lookup()],
+                ok(
+                    vec![Reply::Persisted(3), Reply::Persisted(3)],
+                    Left::Persisted(3),
+                ),
+            ),
+        ),
+        on(
+            PLAIN,
+            bidi(
+                "flush-then-close",
+                |u| vec![resume(u, 0, b"abc"), chunk(3, b"d").flush()],
+                ok(
+                    vec![Reply::Persisted(4), Reply::Persisted(4)],
+                    Left::Persisted(4),
+                ),
+            ),
+        ),
         on(
             PLAIN,
             bidi(
@@ -1897,7 +1921,8 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     )
     .await;
     assert_eq!(status.code(), Code::Ok, "{status}");
-    let [flushed] = responses.as_slice() else {
+    // The flush is answered, and so is the close that follows it.
+    let [flushed, closed] = responses.as_slice() else {
         panic!("{responses:?}")
     };
     assert_eq!(
@@ -1910,6 +1935,7 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
         flushed.persisted_data_checksums,
         persisted_checksums(b"abcdef")
     );
+    assert_eq!(closed, flushed);
     let queried = query().await;
     assert_eq!(queried.write_status, Some(Queried::PersistedSize(6)));
     assert_eq!(
