@@ -23920,12 +23920,13 @@
         },
         {
           "id": "get_object_mask_validation_order",
-          "description": "The read_mask is checked with the request, after the customer key, the soft_deleted and restore_token refusals and the name and before authorization, the generation and condition checks and the lookup, as GetBucket checks its mask (check_object_mask in src/grpc/v2/object_io/read.rs): a path naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' and a nested sub-path UNIMPLEMENTED with ErrorInfo for a missing object or an unauthorized caller too, and a valid mask still reports a missing object as NOT_FOUND. The order around the mask is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "description": "The read_mask is checked with the request, after the customer key, the soft_deleted and restore_token refusals and the name and before authorization, the generation and condition checks and the lookup, as GetBucket checks its mask (check_object_mask in src/grpc/v2/object_io/read.rs): a path naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' and a nested sub-path UNIMPLEMENTED with ErrorInfo for a missing object or an unauthorized caller too, an anonymous one included, and a valid mask still reports a missing object as NOT_FOUND. The order around the mask is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
           "result": "PASS",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-            "request_checks_before_the_mask_keep_their_order"
+            "request_checks_before_the_mask_keep_their_order",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         },
         {
@@ -23943,6 +23944,7 @@
         "an_invalid_read_mask_is_reported_for_a_missing_object",
         "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
         "request_checks_before_the_mask_keep_their_order",
+        "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
         "get_object_refuses_unmodeled_lookups_and_negative_values",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
@@ -23957,6 +23959,7 @@
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
             "request_checks_before_the_mask_keep_their_order",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
             "get_object_refuses_unmodeled_lookups_and_negative_values"
           ]
         },
@@ -24035,7 +24038,8 @@
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-            "request_checks_before_the_mask_keep_their_order"
+            "request_checks_before_the_mask_keep_their_order",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         }
       ],
@@ -24095,7 +24099,7 @@
         },
         {
           "id": "read_object_nested_masks",
-          "description": "A metadata. sub-path other than metadata.checksums.crc32c and metadata.checksums.md5_hash, for example metadata.owner.entity, returns UNIMPLEMENTED (mask_object through FirstResponseMask in src/grpc/v2/object_io/read.rs). Select sub-fields by protobuf field-mask rules.",
+          "description": "A metadata. sub-path other than metadata.checksums.crc32c and metadata.checksums.md5_hash, for example metadata.owner.entity, returns UNIMPLEMENTED (mask_object through FirstResponseMask in src/grpc/v2/object_io/read.rs), and so does a sub-path of content_range or object_checksums, for example content_range.start (FirstResponseMask::parse). Select sub-fields by protobuf field-mask rules.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24109,13 +24113,20 @@
         },
         {
           "id": "read_object_local_precedence",
-          "description": "ReadObject reports a malformed customer key first, then a malformed name, then the read mask (with its checksummed_data.content requirement), then a negative generation, then a negative condition, all as INVALID_ARGUMENT; then authorization with the lookup, so an anonymous caller is denied with PERMISSION_DENIED for a missing object too; then NOT_FOUND for a missing object, then FAILED_PRECONDITION for a failed condition, then OUT_OF_RANGE for an offset past the end, and last INVALID_ARGUMENT for a negative read_limit. Google documents no order and none was recorded, so this order is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "description": "ReadObject reports a malformed customer key first, then a malformed name, then the read mask (with its checksummed_data.content requirement), all as INVALID_ARGUMENT, except that a mask path it does not select answers UNIMPLEMENTED (read_object_unknown_response_paths, read_object_nested_masks). It then authorizes the caller for the bucket, which refuses a caller only when the bucket does not exist and the caller holds storage.objects.get in no project: an anonymous caller gets UNAUTHENTICATED and a principal PERMISSION_DENIED. Then come a negative generation and then a negative condition, both INVALID_ARGUMENT; then the caller is authorized for the object with the lookup, so in an existing bucket an anonymous caller is denied with PERMISSION_DENIED for a missing object too; then NOT_FOUND for a missing object, then FAILED_PRECONDITION for a failed condition, then OUT_OF_RANGE for an offset past the end, and last INVALID_ARGUMENT for a negative read_limit. Google documents no order and none was recorded, so this order is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
           "result": "PASS",
           "test_ids": [
             "read_object_reports_each_failure_before_the_ones_it_precedes",
+            "a_missing_bucket_is_authorized_before_the_generation_and_the_conditions",
             "request_checks_before_the_mask_keep_their_order",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
           ]
+        },
+        {
+          "id": "read_object_unknown_response_paths",
+          "description": "A read_mask path that names no ReadObjectResponse field, such as read_handle, returns UNIMPLEMENTED with ErrorInfo ('ReadObject read_mask <path>', FirstResponseMask::parse in src/grpc/v2/object_io/read.rs), and UNAUTHENTICATED to an anonymous caller, as other unmodeled settings answer one, before the object is authorized (pinned by an_invalid_read_mask_is_reported_for_a_missing_object and unsupported_read_mask_paths_as_an_anonymous_caller_sees_them). A metadata. path that names no Object field returns INVALID_ARGUMENT 'There is no field for this resource named ...', the answer Cloud Storage gave GetObject for a path naming no Object field (case grpc-read-mask, 2026-11-01, replayed in docs/en/evidence/differential-comparison.md). Answer an unknown response path the same way.",
+          "result": "PENDING",
+          "test_ids": []
         },
         {
           "id": "read_object_condition_validation",
@@ -24132,6 +24143,7 @@
         "read_object_refuses_negative_limits_and_offsets_past_the_end",
         "read_object_returns_gzip_encoded_bytes_as_stored",
         "read_object_reports_each_failure_before_the_ones_it_precedes",
+        "a_missing_bucket_is_authorized_before_the_generation_and_the_conditions",
         "request_checks_before_the_mask_keep_their_order",
         "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
         "TestGRPCObjectIO",
@@ -24147,6 +24159,7 @@
             "read_object_refuses_negative_limits_and_offsets_past_the_end",
             "read_object_returns_gzip_encoded_bytes_as_stored",
             "read_object_reports_each_failure_before_the_ones_it_precedes",
+            "a_missing_bucket_is_authorized_before_the_generation_and_the_conditions",
             "request_checks_before_the_mask_keep_their_order",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
           ]
@@ -24209,7 +24222,8 @@
         }
       ],
       "known_deviations": [
-        "Nested metadata. read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
+        "Nested metadata. read_mask paths other than the two checksum digests, and sub-paths of content_range and object_checksums, return UNIMPLEMENTED.",
+        "A read_mask path that names no ReadObjectResponse field returns UNIMPLEMENTED, while a metadata. path that names no Object field returns INVALID_ARGUMENT.",
         "ReadObject validates its conditions leniently, while the object mutation RPCs refuse a metageneration condition of 0 and a match together with a not-match."
       ],
       "scoped_differences": [
@@ -24221,10 +24235,11 @@
           ]
         },
         {
-          "text": "ReadObject checks the customer key, the name, the read mask, the generation and the conditions with the request, authorizes the caller with the lookup, then evaluates the conditions, and checks the read offset and then the read limit last. Google documents no order and none was recorded.",
+          "text": "ReadObject checks the customer key, the name and the read mask with the request; then authorizes the caller for the bucket, which refuses a caller only when the bucket does not exist and the caller holds storage.objects.get in no project; then checks the generation and the conditions; then authorizes the caller for the object with the lookup, evaluates the conditions, and checks the read offset and then the read limit last. Google documents no order and none was recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "read_object_reports_each_failure_before_the_ones_it_precedes",
+            "a_missing_bucket_is_authorized_before_the_generation_and_the_conditions",
             "request_checks_before_the_mask_keep_their_order",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
           ]
@@ -25011,7 +25026,8 @@
           "result": "PASS",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
-            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         }
       ],
@@ -25027,6 +25043,7 @@
         "an_object_page_past_its_budget_still_advances_one_entry_at_a_time",
         "an_invalid_read_mask_is_reported_for_an_empty_listing",
         "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
         "list_objects_refuses_a_filter_and_a_negative_page_size"
       ],
       "verification": [
@@ -25038,6 +25055,7 @@
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
             "list_objects_refuses_a_filter_and_a_negative_page_size"
           ]
         },
@@ -25124,7 +25142,8 @@
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
-            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         }
       ],
@@ -38881,13 +38900,14 @@
         },
         {
           "id": "grpc_masks_validation_order",
-          "description": "Object read masks are checked with the request, before authorization and any lookup, so an invalid mask is reported for a missing object, an empty page or an unauthorized caller too: GetObject after the customer key, its soft_deleted and restore_token refusals and the name; ReadObject after the customer key and the name, together with its checksummed_data.content requirement; ListObjects before authorization and the catalog query (RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order). The order is a local choice (SPEC-GRPC-LOCAL-CHOICES). Bucket read masks are grpc_bucket_masks_validation_order.",
+          "description": "Object read masks are checked with the request, before authorization and any lookup, so an invalid mask is reported for a missing object, an empty page or an unauthorized caller too: GetObject after the customer key, its soft_deleted and restore_token refusals and the name; ReadObject after the customer key and the name, together with its checksummed_data.content requirement; ListObjects before authorization and the catalog query (RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order). An unknown Object field answers INVALID_ARGUMENT and a nested Object path UNIMPLEMENTED for an anonymous caller too, while a ReadObject path that names no ReadObjectResponse field, or a sub-path of content_range or object_checksums, answers an anonymous caller UNAUTHENTICATED, as other unmodeled settings do (RPC-STORAGE-015 read_object_unknown_response_paths and read_object_nested_masks). The order is a local choice (SPEC-GRPC-LOCAL-CHOICES). Bucket read masks are grpc_bucket_masks_validation_order.",
           "result": "PASS",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-            "request_checks_before_the_mask_keep_their_order"
+            "request_checks_before_the_mask_keep_their_order",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         },
         {
@@ -38924,7 +38944,8 @@
         "an_invalid_read_mask_is_reported_for_a_missing_object",
         "an_invalid_read_mask_is_reported_for_an_empty_listing",
         "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-        "request_checks_before_the_mask_keep_their_order"
+        "request_checks_before_the_mask_keep_their_order",
+        "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
       ],
       "verification": [
         {
@@ -38936,7 +38957,8 @@
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-            "request_checks_before_the_mask_keep_their_order"
+            "request_checks_before_the_mask_keep_their_order",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         },
         {
@@ -39030,13 +39052,14 @@
       ],
       "scoped_differences": [
         {
-          "text": "Object read masks are checked with the request, before authorization and any lookup, so an invalid mask is reported for a missing object, an empty page or an unauthorized caller. Google documents no order, and the recorded mask refusals named existing objects.",
+          "text": "Object read masks are checked with the request, before authorization and any lookup, so an invalid mask is reported for a missing object, an empty page or an unauthorized caller; only a ReadObject path that names no ReadObjectResponse field, or a sub-path of content_range or object_checksums, answers an anonymous caller UNAUTHENTICATED, as other unmodeled settings do. Google documents no order, and the recorded mask refusals named existing objects.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-            "request_checks_before_the_mask_keep_their_order"
+            "request_checks_before_the_mask_keep_their_order",
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
           ]
         }
       ],
