@@ -159,6 +159,11 @@ fn a_mismatched_key_fails_with_the_tls_cause() {
     );
     assert_eq!(error.setting(), "tls_cert");
     assert!(error.source().unwrap().is::<rustls::Error>());
+    // The files were read and parsed, so the repair is about the pair itself, not about which
+    // scheme loads them.
+    let repair = error.repair();
+    assert!(repair.contains("matches"), "{repair}");
+    assert!(!repair.contains("scheme"), "{repair}");
 }
 
 const BASIC_CONSTRAINTS: &[u8] = &[0x55, 0x1d, 0x13];

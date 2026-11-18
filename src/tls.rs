@@ -42,8 +42,11 @@ impl ServerIdentityError {
             Self::PrivateKey(_) => {
                 "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert"
             }
-            Self::Identity(_) | Self::Rejected(_) => {
+            Self::Identity(_) => {
                 "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls"
+            }
+            Self::Rejected(_) => {
+                "provide a tls_key that matches the first certificate in tls_cert, as an RSA, ECDSA P-256 or P-384, or Ed25519 key"
             }
         }
     }
@@ -214,7 +217,9 @@ impl ListenerSecurity<Alpn> {
 
     /// The gRPC listener's plan; plain while there is no gRPC listener.
     pub(crate) fn grpc(config: &Config) -> Self {
-        if config.grpc_listen.is_none() {
+        // Validation refuses grpc_listen beside a Unix socket, which excludes every TCP listener,
+        // so the setting never gives the TLS settings a use there.
+        if config.grpc_listen.is_none() || config.unix_socket.is_some() {
             return Self::Plain;
         }
         match config.grpc_scheme {

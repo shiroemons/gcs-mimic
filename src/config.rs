@@ -1242,16 +1242,15 @@ impl ConfigurationReport {
         let config = &self.config;
         // Without a listener that serves TLS every TLS setting would be silently ignored. The
         // gRPC listener uses the same identity, so it alone gives them an effect.
-        let plain_only = (!crate::tls::serves_tls(config)).then_some(match config.scheme {
-            Scheme::Http => {
-                "TLS settings require scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls; remove TLS settings for HTTP."
-            }
-            // These serve TLS on TCP, so only a Unix socket, which is never inspected, leaves the
-            // settings unused.
-            Scheme::Auto | Scheme::Https | Scheme::Both => {
+        // A Unix socket, which is never inspected, excludes every TCP listener, so no scheme or
+        // gRPC listener can give the settings a use beside it.
+        let plain_only = (!crate::tls::serves_tls(config)).then_some(
+            if config.unix_socket.is_some() {
                 "A Unix socket serves plain HTTP only; remove TLS settings or listen on TCP."
-            }
-        });
+            } else {
+                "TLS settings require scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls; remove TLS settings for HTTP."
+            },
+        );
         if let Some(fix) = plain_only {
             if self.any_invalid(&[Setting::Scheme, Setting::GrpcListen, Setting::GrpcScheme]) {
                 return;
