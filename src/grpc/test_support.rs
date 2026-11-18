@@ -189,8 +189,12 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
     (status.code(), messages)
 }
 
-/// The `x-goog-request-params` value a client sends for a call on `bucket`. Cloud Storage
-/// refuses a Storage v2 call without the metadata (recorded 2026-11-18).
+/// The `x-goog-request-params` value a client sends for a call on `bucket`. The emulator
+/// refuses a call without the metadata on every Storage v2 RPC but QueryWriteStatus and
+/// CancelResumableWrite. Cloud Storage was recorded refusing GetObject, GetBucket, ListBuckets
+/// and WriteObject without it (2026-11-18, case grpc-probe-routing) and answering the two
+/// upload ID RPCs without it (case grpc-probe-resumable-sessions); the other RPCs follow the
+/// four refusals by inference.
 pub(super) fn bucket_routing(bucket: &str) -> String {
     format!("bucket=projects%2F_%2Fbuckets%2F{bucket}")
 }

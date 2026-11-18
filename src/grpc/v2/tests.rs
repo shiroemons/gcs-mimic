@@ -73,40 +73,39 @@ async fn grpc_auth_metadata_handoff() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// Sends `message` through the service dispatch, routed by `routing` (the
+/// `x-goog-request-params` value) or carrying no routing metadata when `None`, with the `extra`
+/// metadata beside it.
 async fn routed_call<M: prost::Message>(
     state: &Arc<State>,
     path: &str,
     message: &M,
-    metadata: &[(&'static str, &'static str)],
+    routing: Option<&str>,
+    extra: &[(&'static str, &str)],
 ) -> Status {
-    let (status, _): (_, Vec<pb::Object>) = fixtures::rpc_status(
-        path,
-        None,
-        std::slice::from_ref(message),
-        async |mut request| {
-            for (name, value) in metadata {
-                request.headers_mut().insert(*name, value.parse().unwrap());
-            }
-            dispatch(
-                service(
-                    state.clone(),
-                    1024 * 1024,
-                    crate::config::CompatProfile::Native,
-                ),
-                request,
-            )
-            .await
-            .unwrap()
-        },
-    )
-    .await;
+    let send = async |mut request: hyper::Request<tonic::body::Body>| {
+        for (name, value) in extra {
+            request.headers_mut().insert(*name, value.parse().unwrap());
+        }
+        dispatch(
+            service(
+                state.clone(),
+                1024 * 1024,
+                crate::config::CompatProfile::Native,
+            ),
+            request,
+        )
+        .await
+        .unwrap()
+    };
+    let messages = std::slice::from_ref(message);
+    let (status, _): (_, Vec<pb::Object>) = match routing {
+        Some(routing) => fixtures::routed_rpc_status(path, None, routing, messages, send).await,
+        None => fixtures::rpc_status(path, None, messages, send).await,
+    };
     status
 }
 
-const ROUTED: (&str, &str) = (
-    "x-goog-request-params",
-    "bucket=projects%2F_%2Fbuckets%2Fexample-bucket",
-);
 const GET_OBJECT: &str = "/google.storage.v2.Storage/GetObject";
 const LIST_OBJECTS: &str = "/google.storage.v2.Storage/ListObjects";
 const WRITE_OBJECT: &str = "/google.storage.v2.Storage/WriteObject";
@@ -142,27 +141,30 @@ async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
         ..Default::default()
     };
     // The Requester Pays billing project is ignored, so each call reaches the missing bucket.
+    let routing = fixtures::bucket_routing("example-bucket");
+    let routing = Some(routing.as_str());
     for value in ["", "billing-project"] {
-        let metadata = [ROUTED, ("x-goog-user-project", value)];
+        let billing = [("x-goog-user-project", value)];
         for (method, status) in [
             (
                 "GetObject",
-                routed_call(&state, GET_OBJECT, &get, &metadata).await,
+                routed_call(&state, GET_OBJECT, &get, routing, &billing).await,
             ),
             (
                 "ListObjects",
-                routed_call(&state, LIST_OBJECTS, &list, &metadata).await,
+                routed_call(&state, LIST_OBJECTS, &list, routing, &billing).await,
             ),
             (
                 "WriteObject",
-                routed_call(&state, WRITE_OBJECT, &write, &metadata).await,
+                routed_call(&state, WRITE_OBJECT, &write, routing, &billing).await,
             ),
         ] {
             assert_eq!(status.code(), tonic::Code::NotFound, "{method}: {status}");
         }
     }
-    // Recorded 2026-11-18 (case grpc-probe-routing): the wording of a routed bucket other than
-    // the request's, of metadata that routes no bucket, and of a bare bucket ID.
+    // Recorded 2026-11-18 on GetObject (case grpc-probe-routing): the wording of a routed bucket
+    // other than the request's, of metadata that routes no bucket, and of a bare bucket ID.
+    // WriteObject was not recorded with them; it answers the same by inference.
     for (value, message) in [
         (
             "bucket=projects%2F_%2Fbuckets%2Fother-bucket",
@@ -177,10 +179,9 @@ async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
             "Invalid bucket name found in x-goog-request-params metadata (bucket=bad). Must be of the form `projects/_/buckets/{bucket_id}`",
         ),
     ] {
-        let metadata = [("x-goog-request-params", value)];
         for status in [
-            routed_call(&state, GET_OBJECT, &get, &metadata).await,
-            routed_call(&state, WRITE_OBJECT, &write, &metadata).await,
+            routed_call(&state, GET_OBJECT, &get, Some(value), &[]).await,
+            routed_call(&state, WRITE_OBJECT, &write, Some(value), &[]).await,
         ] {
             assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
             assert_eq!(status.message(), message);
@@ -191,8 +192,9 @@ async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
 }
 
 /// Recorded 2026-11-18 (case grpc-probe-routing): GetObject, GetBucket, ListBuckets and
-/// WriteObject without `x-goog-request-params` are refused, while an unknown key or a
-/// `routing_token` beside the bucket reaches the handler.
+/// WriteObject without `x-goog-request-params` are refused, while an unknown key beside the
+/// bucket (GetObject, GetBucket) or a `routing_token` (GetObject; GetBucket by inference)
+/// reaches the handler.
 #[tokio::test]
 async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
     let dir = TestDir::new();
@@ -232,11 +234,11 @@ async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
     for (method, status) in [
         (
             "GetObject",
-            routed_call(&state, GET_OBJECT, &get_object, &[]).await,
+            routed_call(&state, GET_OBJECT, &get_object, None, &[]).await,
         ),
         (
             "GetBucket",
-            routed_call(&state, GET_BUCKET, &get_bucket, &[]).await,
+            routed_call(&state, GET_BUCKET, &get_bucket, None, &[]).await,
         ),
         (
             "ListBuckets",
@@ -244,13 +246,14 @@ async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
                 &state,
                 "/google.storage.v2.Storage/ListBuckets",
                 &list_buckets,
+                None,
                 &[],
             )
             .await,
         ),
         (
             "WriteObject",
-            routed_call(&state, WRITE_OBJECT, &write, &[]).await,
+            routed_call(&state, WRITE_OBJECT, &write, None, &[]).await,
         ),
     ] {
         assert_eq!(status.code(), tonic::Code::InvalidArgument, "{method}");
@@ -266,16 +269,16 @@ async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
         "bucket=projects%2F_%2Fbuckets%2Fexample-bucket&gcsmimic_unknown=1",
         "bucket=projects%2F_%2Fbuckets%2Fexample-bucket&routing_token=gcsmimic-probe",
     ] {
-        let metadata = [("x-goog-request-params", value)];
         for status in [
-            routed_call(&state, GET_OBJECT, &get_object, &metadata).await,
-            routed_call(&state, GET_BUCKET, &get_bucket, &metadata).await,
+            routed_call(&state, GET_OBJECT, &get_object, Some(value), &[]).await,
+            routed_call(&state, GET_BUCKET, &get_bucket, Some(value), &[]).await,
         ] {
             assert_eq!(status.code(), tonic::Code::NotFound, "{value}: {status}");
         }
     }
-    // Recorded 2026-11-18 (case grpc-probe-resumable-sessions): an upload ID RPC without the
-    // metadata is answered for its malformed upload ID, so the handler words the refusal.
+    // Recorded 2026-11-18 (case grpc-probe-resumable-sessions, steps status-malformed and
+    // cancel-malformed): an upload ID RPC without the metadata is answered for its malformed
+    // upload ID.
     let query = pb::QueryWriteStatusRequest {
         upload_id: "not-an-upload-id".into(),
         ..Default::default()
@@ -283,26 +286,37 @@ async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
     let cancel = pb::CancelResumableWriteRequest {
         upload_id: "not-an-upload-id".into(),
     };
-    for status in [
-        routed_call(
-            &state,
-            "/google.storage.v2.Storage/QueryWriteStatus",
-            &query,
-            &[],
-        )
-        .await,
-        routed_call(
-            &state,
-            "/google.storage.v2.Storage/CancelResumableWrite",
-            &cancel,
-            &[],
-        )
-        .await,
+    for (method, status) in [
+        (
+            "QueryWriteStatus",
+            routed_call(
+                &state,
+                "/google.storage.v2.Storage/QueryWriteStatus",
+                &query,
+                None,
+                &[],
+            )
+            .await,
+        ),
+        (
+            "CancelResumableWrite",
+            routed_call(
+                &state,
+                "/google.storage.v2.Storage/CancelResumableWrite",
+                &cancel,
+                None,
+                &[],
+            )
+            .await,
+        ),
     ] {
-        assert!(status.message().contains("upload"), "{status}");
-        assert!(
-            !status.message().contains("x-goog-request-params"),
-            "{status}"
+        assert_eq!(
+            (status.code(), status.message()),
+            (
+                tonic::Code::InvalidArgument,
+                "Invalid upload ID 'not-an-upload-id'."
+            ),
+            "{method}"
         );
     }
     state.catalog.close().await.unwrap();
