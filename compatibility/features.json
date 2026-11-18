@@ -39415,9 +39415,9 @@
           "result": "PASS",
           "test_ids": [
             "routing_compares_each_field_with_its_own_rule",
-            "routing_validates_only_the_keys_the_rpc_routes",
-            "routing_refuses_malformed_pairs_under_keys_the_rpc_routes",
-            "routing_compares_every_value_of_a_duplicated_key",
+            "routing_validates_every_routed_key_whichever_rpc_is_called",
+            "routing_skips_malformed_pairs_under_unknown_keys",
+            "routing_refuses_a_duplicated_key",
             "deferred_routing_is_compared_with_what_admit_read",
             "routing_compares_only_the_appendable_flag_of_a_resumed_write"
           ]
@@ -39436,10 +39436,10 @@
           "description": "A key that no Storage v2 RPC routes, a redirect routing_token or an unknown name, is ignored, alone or beside a matching bucket, whether the request names its resources or they arrive later (Routes::Deferred), as Cloud Storage served them (recorded 2026-11-18, case grpc-probe-routing, steps get-object-routed-unknown-key, get-bucket-routed-unknown-key and get-object-routed-routing-token; a project on GetObject was answered as metadata that routes no bucket, step get-object-routed-project). A project, source_bucket or appendable pair on an RPC that does not route it is skipped unread, whatever it holds, and so is a malformed pair under an unrouted key; no recording sent a malformed value, so that is a local choice (not recorded).",
           "result": "PASS",
           "test_ids": [
-            "routing_ignores_keys_the_rpc_does_not_route",
-            "routing_skips_malformed_pairs_under_keys_the_rpc_does_not_route",
+            "routing_ignores_unknown_keys_and_compares_only_the_routed_keys",
+            "routing_skips_malformed_pairs_under_unknown_keys",
             "grpc_calls_need_routing_metadata_and_ignore_unknown_keys",
-            "routing_validates_only_the_keys_the_rpc_routes"
+            "routing_validates_every_routed_key_whichever_rpc_is_called"
           ]
         },
         {
@@ -39502,13 +39502,12 @@
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict",
         "routing_compares_each_field_with_its_own_rule",
-        "routing_validates_only_the_keys_the_rpc_routes",
-        "routing_ignores_keys_the_rpc_does_not_route",
+        "routing_validates_every_routed_key_whichever_rpc_is_called",
+        "routing_ignores_unknown_keys_and_compares_only_the_routed_keys",
         "routing_requires_the_request_bucket",
         "routing_requires_the_metadata",
-        "routing_refuses_malformed_pairs_under_keys_the_rpc_routes",
-        "routing_compares_every_value_of_a_duplicated_key",
-        "routing_skips_malformed_pairs_under_keys_the_rpc_does_not_route",
+        "routing_skips_malformed_pairs_under_unknown_keys",
+        "routing_refuses_a_duplicated_key",
         "deferred_routing_is_compared_with_what_admit_read",
         "grpc_calls_need_routing_metadata_and_ignore_unknown_keys",
         "the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle",
@@ -39540,9 +39539,8 @@
           "test_ids": [
             "routing_requires_the_request_bucket",
             "routing_requires_the_metadata",
-            "routing_refuses_malformed_pairs_under_keys_the_rpc_routes",
-            "routing_compares_every_value_of_a_duplicated_key",
-            "routing_skips_malformed_pairs_under_keys_the_rpc_does_not_route",
+            "routing_skips_malformed_pairs_under_unknown_keys",
+            "routing_refuses_a_duplicated_key",
             "deferred_routing_is_compared_with_what_admit_read",
             "grpc_calls_need_routing_metadata_and_ignore_unknown_keys",
             "the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"
@@ -39591,8 +39589,8 @@
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
             "routing_compares_each_field_with_its_own_rule",
-            "routing_validates_only_the_keys_the_rpc_routes",
-            "routing_ignores_keys_the_rpc_does_not_route",
+            "routing_validates_every_routed_key_whichever_rpc_is_called",
+            "routing_ignores_unknown_keys_and_compares_only_the_routed_keys",
             "routing_compares_only_the_appendable_flag_of_a_resumed_write"
           ]
         },
@@ -39705,10 +39703,9 @@
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "routing_compares_each_field_with_its_own_rule",
-            "routing_validates_only_the_keys_the_rpc_routes",
-            "routing_refuses_malformed_pairs_under_keys_the_rpc_routes",
-            "routing_compares_every_value_of_a_duplicated_key",
-            "routing_skips_malformed_pairs_under_keys_the_rpc_does_not_route",
+            "routing_validates_every_routed_key_whichever_rpc_is_called",
+            "routing_skips_malformed_pairs_under_unknown_keys",
+            "routing_refuses_a_duplicated_key",
             "routing_requires_the_metadata"
           ]
         },
