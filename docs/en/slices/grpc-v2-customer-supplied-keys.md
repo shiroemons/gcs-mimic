@@ -53,7 +53,7 @@ The key travels in `common_object_request_params`; RewriteObject takes the sourc
 
 ## Design
 
-- `src/csek.rs` holds the transport-neutral pieces: `CustomerKey` (only the SHA-256 fingerprint), `from_raw` beside the header parser, `CopyKeys`, `StoredHashes` and the `check_data` / `check_metadata` rules. It no longer depends on the JSON adapter.
+- `src/csek.rs` holds the transport-neutral pieces: `CustomerKey` (only the SHA-256 fingerprint), `from_raw` beside the header parser, `CopyKeys`, `StoredHashes`, the `check_data` / `check_metadata` rules and `insert_response_headers`, which the JSON media read and the XML object responses share. It does not depend on the JSON adapter; the XML adapter reads its keys with `CustomerKey::from_headers` and answers `CsekError` itself.
 - `src/grpc/v2/customer_key.rs` maps proto3's empty fields to absent ones, parses the request and rewrite keys and holds the reject rule for RPCs that refuse a key.
 - `convert::object(record, StoredHashes)` shows an encrypted object's checksums only to a caller whose key was verified in the same catalog call that selected the record. Resumable completions and rewrite responses are stored with checksums, since they answer the caller that created the object; rows written before this slice describe unencrypted objects only, because gRPC could not create encrypted ones, so no schema change is needed.
 - The catalog reads used by gRPC (`open_readable`, `get_readable`) take the key and check it after generation selection, conditions and authorization, in the same transaction, so an unauthorized caller cannot probe a key. gRPC reads never use the read cache.
