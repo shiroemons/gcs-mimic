@@ -17,13 +17,13 @@ fn iam_bucket(resource: &str, profile: crate::config::CompatProfile) -> Result<&
         .and_then(|rest| rest.split_once('/'))
         && (child.starts_with("managedFolders/") || child.starts_with("objects/"))
     {
-        json::validate_bucket_name_for_profile(bucket, profile)?;
+        crate::bucket::name::validate_for_profile(bucket, profile)?;
         return Err(unsupported(
             "managed folder and object IAM policies; use a bucket resource such as projects/_/buckets/example-bucket",
         ));
     }
     let bucket = names::bucket_name(resource)?;
-    json::validate_bucket_name_for_profile(bucket, profile)?;
+    crate::bucket::name::validate_for_profile(bucket, profile)?;
     Ok(bucket)
 }
 

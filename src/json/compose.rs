@@ -35,7 +35,7 @@ fn parse(
         ));
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
-    crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     validate_object_name(&name)?;
     let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;

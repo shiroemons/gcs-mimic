@@ -107,7 +107,7 @@ fn names(path: &str, profile: CompatProfile) -> Result<(String, String), JsonErr
         return Err(JsonError::invalid_parameter("Invalid copy path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let name = decode(name, Decoding::Path)?;
     super::validate_object_name(&name)?;
     Ok((bucket, name))

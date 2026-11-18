@@ -60,7 +60,7 @@ fn parse(
         return Err(JsonError::invalid_parameter("Invalid move path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let source = decode(source, Decoding::Path)?;
     let destination = decode(destination, Decoding::Path)?;
     super::validate_object_name(&source)?;

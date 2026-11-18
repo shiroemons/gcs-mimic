@@ -1,4 +1,4 @@
-use super::{JsonError, validate_bucket_name_for_profile};
+use super::JsonError;
 use crate::config::CompatProfile;
 use crate::storage::{ObjectListCursor, ObjectListQuery};
 use crate::{bucket::name::MAX_BUCKET_NAME_BYTES, object::name::MAX_OBJECT_NAME_BYTES};
@@ -130,7 +130,7 @@ fn encode_bucket_cursor(
         return Err(invalid());
     }
     // Native listing must retain cursors for source-only names after a profile switch.
-    validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
+    crate::bucket::name::validate_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     Ok(seal(&(tag.as_str(), project, prefix, last_name)))
 }
 
@@ -159,7 +159,7 @@ pub(crate) fn encode_soft_deleted_page_token(
     if prefix.len() > MAX_BUCKET_NAME_BYTES || !last_name.starts_with(prefix) {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
+    crate::bucket::name::validate_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     Ok(seal(&(
         CursorTag::SoftDeletedBuckets.as_str(),
         cursor_project(project),
@@ -188,7 +188,8 @@ pub(crate) fn decode_soft_deleted_page_token(
     {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(&name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
+    crate::bucket::name::validate_for_profile(&name, CompatProfile::FakeGcsServer)
+        .map_err(|_| invalid())?;
     let generation = generation.parse::<i64>().map_err(|_| invalid())?;
     Ok((name, generation))
 }
@@ -208,7 +209,8 @@ fn decode_bucket_cursor(
     {
         return Err(invalid());
     }
-    validate_bucket_name_for_profile(&name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
+    crate::bucket::name::validate_for_profile(&name, CompatProfile::FakeGcsServer)
+        .map_err(|_| invalid())?;
     Ok(name)
 }
 

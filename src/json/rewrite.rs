@@ -2,7 +2,7 @@ use super::{
     Fields, JsonError, Schema,
     integer::take_long,
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
-    query, validate_bucket_name_for_profile, validate_object_name,
+    query, validate_object_name,
 };
 use crate::percent::{Decoding, decode, parse_query};
 use crate::{
@@ -100,7 +100,7 @@ fn parse(
         ),
     };
     for bucket in [&names.source.bucket, &names.destination.bucket] {
-        validate_bucket_name_for_profile(bucket, profile)?;
+        crate::bucket::name::validate_for_profile(bucket, profile)?;
     }
     for object in [&names.source.name, &names.destination.name] {
         validate_object_name(object)?;

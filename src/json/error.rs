@@ -739,6 +739,18 @@ impl From<crate::percent::QueryError> for JsonError {
     }
 }
 
+/// A bucket named in a path or parameter: the native refusal is a malformed parameter, while the
+/// fake-gcs-server profile reports an invalid value.
+impl From<crate::bucket::name::ProfileNameError> for JsonError {
+    fn from(error: crate::bucket::name::ProfileNameError) -> Self {
+        use crate::bucket::name::ProfileNameError;
+        match error {
+            ProfileNameError::Native(_) => Self::invalid_parameter(error.to_string()),
+            ProfileNameError::FakeGcsServer => Self::invalid(error.to_string()),
+        }
+    }
+}
+
 /// A project path segment outside the identifier rules is a malformed parameter.
 impl From<crate::auth::InvalidProjectId> for JsonError {
     fn from(error: crate::auth::InvalidProjectId) -> Self {

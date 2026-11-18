@@ -324,7 +324,7 @@ impl Storage {
         bucket: &str,
         permission: crate::auth::Permission,
     ) -> Result<BucketAccess, Status> {
-        json::validate_bucket_name_for_profile(bucket, self.compat_profile)?;
+        crate::bucket::name::validate_for_profile(bucket, self.compat_profile)?;
         crate::server::authorize_bucket(&self.state, caller, permission, bucket)
             .await
             .map_err(|e| Status::from(crate::server::anonymous_error(e, caller)))

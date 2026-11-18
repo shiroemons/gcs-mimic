@@ -7,7 +7,7 @@ use super::{
     integer::take_int64,
     objects::revision_etag,
     query::{common, finish_for_profile},
-    validate_bucket_name_for_profile, validate_object_name,
+    validate_object_name,
 };
 use crate::percent::{Decoding, decode, parse_query};
 use crate::{
@@ -200,7 +200,7 @@ fn parse_route(
     profile: CompatProfile,
 ) -> Result<AclRequest, JsonError> {
     let bucket = decode(bucket, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let served_by_fake_gcs_server = target.served_by_fake_gcs_server(selection);
     let operation = match selection {
         Selection::List => AclOperation::List,

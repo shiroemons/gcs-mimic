@@ -2,7 +2,16 @@
 //! keeps the code, message and details the XML adapter has always sent for that failure.
 
 use super::Error;
-use crate::percent::{MalformedEncoding, QueryError};
+use crate::{
+    bucket::name::ProfileNameError,
+    percent::{MalformedEncoding, QueryError},
+};
+
+impl From<ProfileNameError> for Error {
+    fn from(error: ProfileNameError) -> Self {
+        Self::invalid(error.to_string())
+    }
+}
 
 impl From<MalformedEncoding> for Error {
     fn from(error: MalformedEncoding) -> Self {

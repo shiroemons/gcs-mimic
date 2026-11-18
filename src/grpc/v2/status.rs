@@ -217,6 +217,12 @@ fn metadata(error: &MetadataError, unsupported: fn(&str) -> String) -> Status {
     }
 }
 
+impl From<crate::bucket::name::ProfileNameError> for Status {
+    fn from(error: crate::bucket::name::ProfileNameError) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
 /// A routing value or resource name whose percent-encoding cannot be decoded.
 impl From<crate::percent::MalformedEncoding> for Status {
     fn from(error: crate::percent::MalformedEncoding) -> Self {

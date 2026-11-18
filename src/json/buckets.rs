@@ -48,27 +48,6 @@ fn validate_new_bucket_name(name: &str) -> Result<(), JsonError> {
         .map_err(|_| JsonError::invalid(format!("Invalid bucket name: '{name}'")))
 }
 
-pub(crate) fn validate_bucket_name_for_profile(
-    name: &str,
-    profile: CompatProfile,
-) -> Result<(), JsonError> {
-    if profile == CompatProfile::Native {
-        return validate_bucket_name(name);
-    }
-    let edge = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    if (2..=666).contains(&name.len())
-        && name.bytes().next().is_some_and(edge)
-        && name.bytes().last().is_some_and(edge)
-        && name
-            .bytes()
-            .all(|byte| edge(byte) || b"._-".contains(&byte))
-    {
-        Ok(())
-    } else {
-        Err(JsonError::invalid("invalid bucket name"))
-    }
-}
-
 /// Parse the native bucket metadata subset.
 pub fn parse_insert(
     bytes: &[u8],
@@ -267,7 +246,7 @@ pub(crate) fn insert_from_object(
     if profile == CompatProfile::Native {
         validate_new_bucket_name(&name)?;
     } else {
-        validate_bucket_name_for_profile(&name, profile)
+        crate::bucket::name::validate_for_profile(&name, profile)
             .map_err(|_| JsonError::invalid("invalid bucket name"))?;
     }
     let versioning = match body.get("versioning") {

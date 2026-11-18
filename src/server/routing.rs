@@ -274,7 +274,7 @@ async fn route_xml(
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
     if selected.as_ref().is_some_and(|object| {
-        json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile).is_ok()
+        crate::bucket::name::validate_for_profile(&object.bucket, ctx.config.compat_profile).is_ok()
     }) {
         return respond_xml_cors(request, ctx, selected).await;
     }

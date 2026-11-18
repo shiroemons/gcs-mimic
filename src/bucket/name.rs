@@ -1,8 +1,10 @@
 //! Native Cloud Storage bucket-name rules.
 
+use crate::config::CompatProfile;
+
 /// A bucket name under the native Cloud Storage rules. The fake-gcs-server profile admits a
-/// superset (`json::validate_bucket_name_for_profile`), so catalog records keep `String`; this type
-/// names buckets the local administration tools create and the sync engine maps to directories.
+/// superset ([`validate_for_profile`]), so catalog records keep `String`; this type names
+/// buckets the local administration tools create and the sync engine maps to directories.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[serde(transparent)]
 pub struct BucketName(String);
@@ -50,6 +52,58 @@ pub(crate) fn validate(name: &str) -> Result<(), InvalidBucketName> {
         return Err(InvalidBucketName);
     }
     Ok(())
+}
+
+/// A requested bucket name that the server's compatibility profile does not admit. The two
+/// profiles word the refusal differently, and the JSON API also gives each its own reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProfileNameError {
+    /// Outside the native rules, which the native profile applies.
+    Native(InvalidBucketName),
+    /// Outside the looser rules of the fake-gcs-server profile.
+    FakeGcsServer,
+}
+
+impl std::fmt::Display for ProfileNameError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native(error) => error.fmt(formatter),
+            Self::FakeGcsServer => formatter.write_str("invalid bucket name"),
+        }
+    }
+}
+
+impl std::error::Error for ProfileNameError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Native(error) => Some(error),
+            Self::FakeGcsServer => None,
+        }
+    }
+}
+
+/// A bucket name a request may name under `profile`: the native rules, or fake-gcs-server's
+/// superset of 2 to 666 lowercase letters, digits, dots, hyphens and underscores that starts and
+/// ends with a letter or digit.
+pub(crate) fn validate_for_profile(
+    name: &str,
+    profile: CompatProfile,
+) -> Result<(), ProfileNameError> {
+    if profile == CompatProfile::Native {
+        return validate(name).map_err(ProfileNameError::Native);
+    }
+    let edge = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    if (2..=666).contains(&name.len())
+        && name.bytes().next().is_some_and(edge)
+        && name.bytes().last().is_some_and(edge)
+        && name
+            .bytes()
+            .all(|byte| edge(byte) || b"._-".contains(&byte))
+    {
+        Ok(())
+    } else {
+        Err(ProfileNameError::FakeGcsServer)
+    }
 }
 
 impl BucketName {

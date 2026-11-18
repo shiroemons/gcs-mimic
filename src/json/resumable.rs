@@ -53,7 +53,7 @@ fn parse_session(
         ));
     }
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
-    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
     let upload_id = query
         .remove("upload_id")

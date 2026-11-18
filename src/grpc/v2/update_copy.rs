@@ -12,7 +12,6 @@ use crate::{
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
     grpc::validate::{self, NegativeGeneration},
-    json,
     object::{
         ComposeSource, ExpectedHashes, HashAlgorithm, ObjectConditions, ObjectError, ObjectTarget,
         generation::Generation,
@@ -329,8 +328,8 @@ impl<'a> RewriteTarget<'a> {
         } else {
             &r.destination_name
         };
-        json::validate_bucket_name_for_profile(sb, profile)?;
-        json::validate_bucket_name_for_profile(db, profile)?;
+        crate::bucket::name::validate_for_profile(sb, profile)?;
+        crate::bucket::name::validate_for_profile(db, profile)?;
         names::object(sn)?;
         names::object(dn)?;
         Ok(Self {
@@ -1008,7 +1007,7 @@ mod tests {
         s.state
             .catalog
             .insert_bucket(
-                json::parse_insert(
+                crate::json::parse_insert(
                     regional.to_string().as_bytes(),
                     "local-project",
                     std::time::SystemTime::now(),

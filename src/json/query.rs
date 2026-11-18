@@ -1,4 +1,3 @@
-use super::buckets::validate_bucket_name_for_profile;
 use super::{
     EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, decode_page_token,
     integer::take_int64,
@@ -43,7 +42,7 @@ pub(super) fn path_bucket(
 ) -> Result<String, JsonError> {
     let bucket = decode_bucket_segment(segment)?;
     if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
-        validate_bucket_name_for_profile(&bucket, profile)?;
+        crate::bucket::name::validate_for_profile(&bucket, profile)?;
     }
     Ok(bucket)
 }
@@ -331,7 +330,7 @@ fn parse_lock_retention_policy(
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
@@ -365,7 +364,7 @@ fn parse_restore(
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
@@ -468,7 +467,7 @@ fn parse_storage_layout(
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::BucketStorageLayout)?;
     common(&mut query)?;
@@ -490,7 +489,7 @@ fn parse_iam(
         return Err(JsonError::invalid_parameter("Invalid bucket name"));
     }
     if profile == CompatProfile::Native {
-        validate_bucket_name_for_profile(&bucket, profile)?;
+        crate::bucket::name::validate_for_profile(&bucket, profile)?;
     }
     if !matches!(*method, Method::GET | Method::PUT) {
         return Err(JsonError::method_not_allowed(

@@ -472,7 +472,7 @@ pub(crate) fn unselectable_bucket(
         return None;
     }
     let bucket = crate::percent::decode(segment, crate::percent::Decoding::Path).ok()?;
-    if json::validate_bucket_name_for_profile(&bucket, profile).is_ok() {
+    if crate::bucket::name::validate_for_profile(&bucket, profile).is_ok() {
         return None;
     }
     Some(if bucket.contains('/') {
@@ -735,7 +735,7 @@ pub(crate) fn select_object_with_endpoints(
     };
     if public.is_none()
         && !is_virtual
-        && json::validate_bucket_name_for_profile(&bucket, config.compat_profile).is_err()
+        && crate::bucket::name::validate_for_profile(&bucket, config.compat_profile).is_err()
     {
         return Ok(None);
     }
@@ -772,7 +772,7 @@ fn route_object(
         .path()
         .get(name_start..)
         .ok_or_else(|| Error::invalid("Invalid object path"))?;
-    json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile)?;
     let mut query = crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
     let v2 = query
         .keys()

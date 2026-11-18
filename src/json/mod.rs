@@ -44,7 +44,6 @@ pub use buckets::parse_insert;
 pub(crate) use buckets::{
     BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_etag, bucket_predefined_acls,
     http_date, reject_predefined_acl, timestamp, timestamp_micros, timestamp_nanos,
-    validate_bucket_name_for_profile,
 };
 #[cfg(test)]
 pub(crate) use buckets::{BucketPredefinedAcls, bucket_resource};

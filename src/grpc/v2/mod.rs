@@ -100,7 +100,7 @@ pub(crate) async fn dispatch(
 impl Storage {
     fn bucket_id<'a>(&self, resource: &'a str) -> Result<&'a str, Status> {
         let id = names::bucket_name(resource)?;
-        crate::json::validate_bucket_name_for_profile(id, self.compat_profile)?;
+        crate::bucket::name::validate_for_profile(id, self.compat_profile)?;
         Ok(id)
     }
 
