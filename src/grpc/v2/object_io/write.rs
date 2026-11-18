@@ -82,12 +82,12 @@ impl Storage {
                 Ok(message)
             })
         });
-        let result = self
+        let answer = self
             .receive_write(&mut stream, caller, WriteRpc::WriteObject)
             .await?;
         Ok(Response::new(pb::WriteObjectResponse {
-            write_status: Some(result.into()),
-            ..Default::default()
+            write_status: answer.write_status.map(Into::into),
+            persisted_data_checksums: answer.persisted_data_checksums,
         }))
     }
     pub(in crate::grpc::v2) async fn bidi_write_object(
@@ -229,7 +229,7 @@ impl Storage {
         stream: &mut S,
         caller: Option<Caller<'_>>,
         rpc: WriteRpc<'_>,
-    ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
+    ) -> Result<pb::BidiWriteObjectResponse, Status> {
         use pb::bidi_write_object_request::FirstMessage;
         let mut message = stream.next().await.transpose()?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
@@ -260,7 +260,7 @@ impl Storage {
         stream: &mut S,
         message: pb::BidiWriteObjectRequest,
         write: SingleWrite<'_>,
-    ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
+    ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let SingleWrite { spec, caller, rpc } = write;
         let WriteSpec {
             bucket,
@@ -318,9 +318,20 @@ impl Storage {
         let resource = self
             .written_object(&record, crate::csek::StoredHashes::Revealed, caller)
             .await?;
-        let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
-        rpc.report(&result).await?;
-        Ok(result)
+        let answer = finished(resource);
+        rpc.report(&answer).await?;
+        Ok(answer)
+    }
+}
+
+/// The answer to a write that published `resource`; only a persisted size carries
+/// `persisted_data_checksums`.
+pub(super) fn finished(resource: pb::Object) -> pb::BidiWriteObjectResponse {
+    pb::BidiWriteObjectResponse {
+        write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
+            resource,
+        )),
+        ..Default::default()
     }
 }
 
@@ -346,23 +357,11 @@ pub(super) enum WriteRpc<'a> {
 }
 
 impl WriteRpc<'_> {
-    /// Sends `status` to a BidiWriteObject client; WriteObject returns it instead.
-    pub(super) async fn report(
-        self,
-        status: &pb::bidi_write_object_response::WriteStatus,
-    ) -> Result<(), Status> {
+    /// Sends `answer` to a BidiWriteObject client; WriteObject returns it instead.
+    pub(super) async fn report(self, answer: &pb::BidiWriteObjectResponse) -> Result<(), Status> {
         match self {
             Self::WriteObject => Ok(()),
-            Self::Bidi(tx) => {
-                send(
-                    tx,
-                    pb::BidiWriteObjectResponse {
-                        write_status: Some(status.clone()),
-                        ..Default::default()
-                    },
-                )
-                .await
-            }
+            Self::Bidi(tx) => send(tx, answer.clone()).await,
         }
     }
 

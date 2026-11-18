@@ -137,6 +137,11 @@ pub(super) async fn write_as(
             WriteRpc::WriteObject,
         )
         .await
+        .map(|answer| {
+            answer
+                .write_status
+                .expect("every write answers with a status")
+        })
 }
 
 #[tokio::test]
@@ -228,12 +233,14 @@ async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
             .await
             .unwrap();
         assert_eq!(
-            result,
-            pb::bidi_write_object_response::WriteStatus::PersistedSize(data.len() as i64)
+            result.write_status,
+            Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
+                data.len() as i64
+            ))
         );
         drop(tx);
         let response = rx.recv().await.unwrap().unwrap();
-        assert_eq!(response.write_status, Some(result));
+        assert_eq!(response, result);
         assert!(rx.recv().await.is_none());
         assert!(missing(&storage, name).await);
     }
@@ -416,7 +423,9 @@ async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session(
         free,
         "the session stayed leased while the stream stayed open"
     );
-    let pb::bidi_write_object_response::WriteStatus::Resource(object) = result.unwrap() else {
+    let Some(pb::bidi_write_object_response::WriteStatus::Resource(object)) =
+        result.unwrap().write_status
+    else {
         panic!("not finalized")
     };
     assert_eq!(object.size, 3);
@@ -812,7 +821,9 @@ async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
         )
         .await
         .unwrap();
-    let pb::bidi_write_object_response::WriteStatus::Resource(resource) = written else {
+    let Some(pb::bidi_write_object_response::WriteStatus::Resource(resource)) =
+        written.write_status
+    else {
         panic!("a finished write answers with the resource");
     };
     assert!(!resource.acl.is_empty());

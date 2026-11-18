@@ -1481,7 +1481,9 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
         .map(reply)
         .collect();
     assert_eq!(seen, [Reply::Persisted(3), Reply::Persisted(6)]);
-    let pb::bidi_write_object_response::WriteStatus::Resource(object) = result.unwrap() else {
+    let Some(pb::bidi_write_object_response::WriteStatus::Resource(object)) =
+        result.unwrap().write_status
+    else {
         panic!("not finalized")
     };
     assert_eq!(object.size, 7);
@@ -1489,5 +1491,112 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
         object.checksums.unwrap().crc32c,
         Some(crc32c::crc32c(b"abcXYZg"))
     );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// The CRC32C and MD5 of `persisted`, as `persisted_data_checksums` reports them.
+fn persisted_checksums(persisted: &[u8]) -> Option<pb::ObjectChecksums> {
+    let mut hasher = crate::hashing::Hasher::default();
+    hasher.update(persisted);
+    let hashes = hasher.finish();
+    Some(pb::ObjectChecksums {
+        crc32c: Some(hashes.crc32c),
+        md5_hash: hashes.md5.to_vec(),
+    })
+}
+
+/// The proto's WriteObjectResponse, BidiWriteObjectResponse and QueryWriteStatusResponse each
+/// say: "If persisted_size is set, contains checksums of persisted data." A resource carries
+/// its own checksums instead.
+#[tokio::test]
+async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
+    use pb::query_write_status_response::WriteStatus as Queried;
+    let (_dir, storage) = setup(false).await;
+    let upload = open_session(&storage, "checksummed", PLAIN).await;
+    let query = async || {
+        storage
+            .query_write_status(
+                Request::new(pb::QueryWriteStatusRequest {
+                    upload_id: upload.clone(),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner()
+    };
+    let fresh = query().await;
+    assert_eq!(fresh.write_status, Some(Queried::PersistedSize(0)));
+    assert_eq!(fresh.persisted_data_checksums, persisted_checksums(b""));
+
+    let send = async |request| {
+        crate::grpc::v2::dispatch(
+            crate::grpc::v2::service(storage.state.clone(), MAX, storage.compat_profile),
+            request,
+        )
+        .await
+        .unwrap()
+    };
+    let requests = [write_object_request(&resume(&upload, 0, b"abc"))];
+    let (status, responses): (_, Vec<pb::WriteObjectResponse>) = rpc_status(
+        "/google.storage.v2.Storage/WriteObject",
+        None,
+        &requests,
+        send,
+    )
+    .await;
+    assert_eq!(status.code(), Code::Ok, "{status}");
+    let [written] = responses.as_slice() else {
+        panic!("{responses:?}")
+    };
+    assert_eq!(
+        written.write_status,
+        Some(pb::write_object_response::WriteStatus::PersistedSize(3))
+    );
+    assert_eq!(
+        written.persisted_data_checksums,
+        persisted_checksums(b"abc")
+    );
+
+    let messages = [chunk(3, b"def")
+        .flush()
+        .first(FirstMessage::UploadId(upload.clone()))];
+    let (status, responses): (_, Vec<pb::BidiWriteObjectResponse>) = rpc_status(
+        "/google.storage.v2.Storage/BidiWriteObject",
+        None,
+        &messages,
+        send,
+    )
+    .await;
+    assert_eq!(status.code(), Code::Ok, "{status}");
+    let [flushed] = responses.as_slice() else {
+        panic!("{responses:?}")
+    };
+    assert_eq!(
+        flushed.write_status,
+        Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
+            6
+        ))
+    );
+    assert_eq!(
+        flushed.persisted_data_checksums,
+        persisted_checksums(b"abcdef")
+    );
+    let queried = query().await;
+    assert_eq!(queried.write_status, Some(Queried::PersistedSize(6)));
+    assert_eq!(
+        queried.persisted_data_checksums,
+        persisted_checksums(b"abcdef")
+    );
+
+    let (status, replies) = call(&storage, Rpc::Bidi, &[resume(&upload, 6, b"").finish()]).await;
+    assert_eq!(
+        (status.code(), replies),
+        (Code::Ok, vec![Reply::Resource(6)])
+    );
+    let finished = query().await;
+    assert!(matches!(finished.write_status, Some(Queried::Resource(_))));
+    assert_eq!(finished.persisted_data_checksums, None);
     storage.state.catalog.close().await.unwrap();
 }

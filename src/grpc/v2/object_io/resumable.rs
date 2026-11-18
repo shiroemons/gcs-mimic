@@ -1,6 +1,7 @@
-use super::write::{MessagePosition, WriteRpc, check_later_key, message_after_finish};
+use super::write::{MessagePosition, WriteRpc, check_later_key, finished, message_after_finish};
 use super::*;
 use crate::grpc::v2::stored;
+use crate::hashing::Hashes;
 use crate::storage::{ChunkEnd, ChunkWait, Written};
 
 impl Storage {
@@ -103,20 +104,48 @@ impl Storage {
         if !allowed {
             return Err(object_status(ObjectError::Forbidden));
         }
-        let status = if session.state == SessionState::Complete {
-            pb::query_write_status_response::WriteStatus::Resource(stored::from_completion(
-                session.completion.as_ref(),
-            )?)
+        let response = if session.state == SessionState::Complete {
+            pb::QueryWriteStatusResponse {
+                write_status: Some(pb::query_write_status_response::WriteStatus::Resource(
+                    stored::from_completion(session.completion.as_ref())?,
+                )),
+                persisted_data_checksums: None,
+            }
         } else {
-            pb::query_write_status_response::WriteStatus::PersistedSize(
-                crate::grpc::convert::signed(session.offset, "upload session offset")?,
-            )
+            let progress = session.progress().map_err(session_status)?;
+            pb::QueryWriteStatusResponse {
+                write_status: Some(pb::query_write_status_response::WriteStatus::PersistedSize(
+                    crate::grpc::convert::signed(session.offset, "upload session offset")?,
+                )),
+                persisted_data_checksums: progress.hashes.map(persisted_checksums),
+            }
         };
-        Ok(Response::new(pb::QueryWriteStatusResponse {
-            write_status: Some(status),
-            ..Default::default()
-        }))
+        Ok(Response::new(response))
     }
+}
+
+/// The proto's `persisted_data_checksums` for persisted bytes with digests `hashes`. A session
+/// an earlier release staged has no running digests and reports none.
+fn persisted_checksums(hashes: Hashes) -> pb::ObjectChecksums {
+    pb::ObjectChecksums {
+        crc32c: Some(hashes.crc32c),
+        md5_hash: hashes.md5.to_vec(),
+    }
+}
+
+/// The answer to a message that left the upload open with `size` bytes persisted, whose
+/// digests are `hashes`.
+fn persisted_answer(
+    size: u64,
+    hashes: Option<Hashes>,
+) -> Result<pb::BidiWriteObjectResponse, Status> {
+    Ok(pb::BidiWriteObjectResponse {
+        write_status: Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
+            crate::grpc::convert::signed(size, "persisted_size")?,
+        )),
+        persisted_data_checksums: hashes.map(persisted_checksums),
+        write_handle: None,
+    })
 }
 
 impl Storage {
@@ -167,8 +196,7 @@ impl Storage {
         upload: &UploadId,
         caller: Option<Caller<'_>>,
         rpc: WriteRpc<'_>,
-    ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
-        use pb::bidi_write_object_response::WriteStatus;
+    ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let (bucket, id) = (upload.bucket(), upload.session());
         let mut position = MessagePosition::First;
         loop {
@@ -187,9 +215,9 @@ impl Storage {
                     .completed_resource(lease.session.completion.as_ref(), caller, bucket)
                     .await?;
                 drop(lease);
-                let result = WriteStatus::Resource(resource);
-                rpc.report(&result).await?;
-                return Ok(result);
+                let answer = finished(resource);
+                rpc.report(&answer).await?;
+                return Ok(answer);
             }
             let mut options = lease.session.options.clone();
             options.access = access;
@@ -240,33 +268,28 @@ impl Storage {
             let (sent, written_record) = tokio::join!(producer, write);
             let written_record = written_record.map_err(session_status)?;
             sent?;
-            let result = match written_record {
-                Written::Complete(value) => {
-                    let resource = self
-                        .completed_resource(Some(&value), caller, bucket)
-                        .await?;
-                    WriteStatus::Resource(resource)
-                }
-                Written::Open(_) => WriteStatus::PersistedSize(crate::grpc::convert::signed(
-                    written,
-                    "persisted_size",
-                )?),
+            let answer = match written_record {
+                Written::Complete(value) => finished(
+                    self.completed_resource(Some(&value), caller, bucket)
+                        .await?,
+                ),
+                Written::Open(progress) => persisted_answer(written, progress.hashes)?,
             };
             // The proto answers finish_write, flush and state_lookup, and a clean close after a
             // message none of them answered.
             let answered = message.finish_write || message.flush || message.state_lookup;
             if answered {
-                rpc.report(&result).await?;
+                rpc.report(&answer).await?;
             }
             if message.finish_write {
-                return Ok(result);
+                return Ok(answer);
             }
             position = MessagePosition::Later;
             let Some(next) = stream.next().await.transpose()? else {
                 if !answered {
-                    rpc.report(&result).await?;
+                    rpc.report(&answer).await?;
                 }
-                return Ok(result);
+                return Ok(answer);
             };
             message = next;
         }
