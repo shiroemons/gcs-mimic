@@ -103,7 +103,9 @@ catalog checks.
 
 From the gcs-mimic sources, before running: the gRPC adapter implements every
 operation above, rejects an object checksum mismatch with INVALID_ARGUMENT
-(`object_checksums mismatch; send checksums for the complete object`) and a
+(for a CRC32C, `Object crc32c mismatch: server computed: '<hex>', client
+provided: '<hex>'.`, the wording Cloud Storage was recorded using on
+2026-11-18 for a resumable write) and a
 failed precondition with FAILED_PRECONDITION. gcp-storage-emulator has no gRPC
 listener, so it fails every `grpc` case, as before.
 
