@@ -988,7 +988,12 @@ independently.
   `header:name?param` (a query parameter of the header value, such as the
   upload ID in a resumable `Location`), or `xml:Element` (the text of the first
   element with that name in an XML body, such as an `UploadId` or a
-  `NextContinuationToken`, whatever the content type).
+  `NextContinuationToken`, whatever the content type). `alter-middle:` or
+  `alter-last:` before one of these captures the value with one ASCII letter or
+  digit changed and its length kept (the first from the middle on, or the last
+  one; a letter changes case, a digit becomes `a` to `f`), which asks about an
+  opaque ID that is well formed but names nothing, such as an upload ID the
+  service never issued.
 - `compare` (case level, merged into each step) accepts `ignore_headers`,
   `only_headers`, `ignore_body_paths` (`$.a.b[*].c`, covering the subtree) and
   `body` (`auto`, `json`, `text`, `ignore`). `"compare": false` on a step runs
