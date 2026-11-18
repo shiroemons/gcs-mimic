@@ -57,14 +57,38 @@ fn check_object_mask(mask: ReadMask<'_>) -> Result<(), Status> {
 enum FirstResponseMask<'a> {
     /// An absent or empty mask, or `*`: the first response keeps every field.
     Everything,
-    /// The mask's paths. Its `metadata.` paths select fields of the object (`metadata` alone
-    /// selects all of it); the response's own fields are kept only when named.
+    /// The mask's paths. Its `metadata` paths select the object; the response's own fields are
+    /// kept only when named.
     Selected {
         paths: &'a [String],
-        /// The object fields the `metadata.` paths name, or `None` when `metadata` alone keeps
-        /// all of them.
-        object: Option<Vec<String>>,
+        metadata: MetadataMask,
     },
+}
+
+/// The object a selective ReadObject mask keeps in the first response's `metadata`.
+enum MetadataMask {
+    /// `metadata` alone: the whole object.
+    Whole,
+    /// The object fields its `metadata.` paths name; when they name none, the response carries
+    /// no object.
+    Fields(Vec<String>),
+}
+
+impl MetadataMask {
+    fn apply(&self, metadata: &mut Option<pb::Object>) -> Result<(), Status> {
+        let fields = match self {
+            Self::Whole => return Ok(()),
+            Self::Fields(fields) => ReadMask::from(fields.as_slice()),
+        };
+        *metadata = match fields {
+            ReadMask::Default => None,
+            ReadMask::Wildcard | ReadMask::MixedWildcard(_) | ReadMask::Paths(_) => metadata
+                .take()
+                .map(|object| mask_object(object, fields))
+                .transpose()?,
+        };
+        Ok(())
+    }
 }
 
 impl<'a> FirstResponseMask<'a> {
@@ -73,8 +97,8 @@ impl<'a> FirstResponseMask<'a> {
         let Some(paths) = mask.selective_paths() else {
             return Ok(Self::Everything);
         };
-        let mut object = Vec::new();
-        let mut metadata = false;
+        let mut fields = Vec::new();
+        let mut whole = false;
         for path in paths {
             match path.as_str() {
                 "checksummed_data"
@@ -82,8 +106,8 @@ impl<'a> FirstResponseMask<'a> {
                 | "checksummed_data.crc32c"
                 | "object_checksums"
                 | "content_range" => {}
-                "metadata" => metadata = true,
-                p if let Some(field) = p.strip_prefix("metadata.") => object.push(field.to_owned()),
+                "metadata" => whole = true,
+                p if let Some(field) = p.strip_prefix("metadata.") => fields.push(field.to_owned()),
                 _ => {
                     return Err(unsupported_for(
                         &format!("ReadObject read_mask {path}"),
@@ -92,35 +116,29 @@ impl<'a> FirstResponseMask<'a> {
                 }
             }
         }
-        let object = (!metadata).then_some(object);
-        if let Some(object) = &object {
-            check_object_mask(ReadMask::from(object.as_slice()))?;
-        }
-        Ok(Self::Selected { paths, object })
+        let metadata = if whole {
+            MetadataMask::Whole
+        } else {
+            check_object_mask(ReadMask::from(fields.as_slice()))?;
+            MetadataMask::Fields(fields)
+        };
+        Ok(Self::Selected { paths, metadata })
     }
 
     fn apply(&self, first: &mut pb::ReadObjectResponse) -> Result<(), Status> {
-        let Self::Selected { paths, object } = self else {
-            return Ok(());
-        };
-        if let Some(object) = object {
-            let object_mask = ReadMask::from(object.as_slice());
-            first.metadata = match object_mask {
-                ReadMask::Default => None,
-                ReadMask::Wildcard | ReadMask::MixedWildcard(_) | ReadMask::Paths(_) => first
-                    .metadata
-                    .take()
-                    .map(|metadata| mask_object(metadata, object_mask))
-                    .transpose()?,
-            };
+        match self {
+            Self::Everything => Ok(()),
+            Self::Selected { paths, metadata } => {
+                metadata.apply(&mut first.metadata)?;
+                if !paths.iter().any(|p| p == "object_checksums") {
+                    first.object_checksums = None;
+                }
+                if !paths.iter().any(|p| p == "content_range") {
+                    first.content_range = None;
+                }
+                Ok(())
+            }
         }
-        if !paths.iter().any(|p| p == "object_checksums") {
-            first.object_checksums = None;
-        }
-        if !paths.iter().any(|p| p == "content_range") {
-            first.content_range = None;
-        }
-        Ok(())
     }
 }
 
