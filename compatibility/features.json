@@ -22900,14 +22900,23 @@
           ]
         },
         {
+          "id": "grpc_request_refusals",
+          "description": "A missing destination, a negative source generation and a negative source if_generation_match answer INVALID_ARGUMENT; a destination retention, kms_key or explicit acl answers UNIMPLEMENTED with ErrorInfo. None creates the destination.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
+        {
           "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "description": "Pending: a destination storage_class, retention or explicit acl, which the proto defines for the resulting object, still answers UNIMPLEMENTED (pinned by grpc_unsupported_option_rejections and grpc_request_refusals) until each is implemented.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
         "grpc_derived_writes_verify_request_checksums",
         "grpc-gaps-derived-checksums",
         "grpc_derived_writes_store_a_temporary_hold_and_custom_time",
@@ -22920,6 +22929,16 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -22989,10 +23008,20 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "Only the JSON-supported metadata and transactional local subset is implemented: a destination storage_class, retention or explicit acl answers UNIMPLEMENTED; see the slice contract for inherited provider questions."
+      ],
+      "scoped_differences": [
+        {
+          "text": "Cloud KMS is not modeled: kms_key and a destination kms_key answer UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+            "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-011",
@@ -23126,14 +23155,23 @@
           ]
         },
         {
+          "id": "grpc_request_refusals",
+          "description": "A missing or negative generation answers INVALID_ARGUMENT; copy_source_acl true answers UNIMPLEMENTED with ErrorInfo and restores nothing; copy_source_acl false restores the soft-deleted bytes as a new live generation.",
+          "result": "PASS",
+          "test_ids": [
+            "restore_object_refuses_a_missing_generation_and_copying_the_source_acl"
+          ]
+        },
+        {
           "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "description": "Pending: copy_source_acl true, which the proto defines as copying the soft-deleted generation's access controls, still answers UNIMPLEMENTED (pinned by grpc_request_refusals) until it is implemented.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "restore_object_refuses_a_missing_generation_and_copying_the_source_acl",
         "grpc_masks_reject_unsupported_and_accept_defaults",
         "grpc_update_masks",
         "grpc_rewrite_continuation_and_compose_conditions",
@@ -23142,6 +23180,16 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "restore_object_refuses_a_missing_generation_and_copying_the_source_acl",
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -23200,10 +23248,19 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "Only the JSON-supported transactional local subset is implemented: copy_source_acl true answers UNIMPLEMENTED; see the slice contract for inherited provider questions."
+      ],
+      "scoped_differences": [
+        {
+          "text": "Hierarchical namespaces are not modeled, so no restore token is issued: a restore_token answers UNIMPLEMENTED with ErrorInfo and restores nothing.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-013",
@@ -23348,8 +23405,26 @@
           ]
         },
         {
+          "id": "read_mask_checked_first",
+          "description": "A read mask naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' and a nested sub-path answers UNIMPLEMENTED with ErrorInfo before authorization, the generation and condition checks and the lookup, so a missing object reports the mask. A malformed customer key, the unsupported soft-deleted lookup and a malformed name are reported first; a valid mask still reports a missing object as NOT_FOUND.",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
+        {
+          "id": "request_refusals",
+          "description": "soft_deleted true and a restore_token answer UNIMPLEMENTED with ErrorInfo; soft_deleted false is the default lookup; a negative generation or condition answers INVALID_ARGUMENT.",
+          "result": "PASS",
+          "test_ids": [
+            "get_object_refuses_unmodeled_lookups_and_negative_values"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH), explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported.",
+          "description": "Pending: nested masks other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH) and explicitly soft-deleted lookups still answer UNIMPLEMENTED (pinned by read_mask_checked_first and request_refusals), and the owner entity_id field stays empty.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23359,10 +23434,26 @@
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "grpc_io_range_and_masks",
         "grpc_io_full_read_masks_return_acl_and_owner",
+        "an_invalid_read_mask_is_reported_for_a_missing_object",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "request_checks_before_the_mask_keep_their_order",
+        "get_object_refuses_unmodeled_lookups_and_negative_values",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order",
+            "get_object_refuses_unmodeled_lookups_and_negative_values"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -23420,10 +23511,28 @@
         }
       ],
       "known_deviations": [
-        "Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported."
+        "Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks and explicitly soft-deleted lookups remain unsupported, and the owner entity_id field stays empty."
+      ],
+      "scoped_differences": [
+        {
+          "text": "The read mask is checked with the request, before authorization, the generation and condition checks and the lookup, as GetBucket checks its mask; Cloud Storage's order for a missing object or an unauthorized caller is unrecorded.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
+        {
+          "text": "Hierarchical namespaces are not modeled, so no restore token is issued: a restore_token answers UNIMPLEMENTED with ErrorInfo.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "get_object_refuses_unmodeled_lookups_and_negative_values"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-015",
@@ -23476,8 +23585,26 @@
           ]
         },
         {
+          "id": "read_mask_checked_first",
+          "description": "Every read mask path is checked with the request, before authorization, the generation and condition checks, opening the object and the read range: a mask without checksummed_data.content keeps its recorded refusal, a path that names no response field answers UNIMPLEMENTED with ErrorInfo, and a metadata. path naming no Object field answers INVALID_ARGUMENT, also for a missing object.",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
+        {
+          "id": "request_refusals",
+          "description": "A negative read_limit, generation or condition answers INVALID_ARGUMENT, and a read_offset past the end answers OUT_OF_RANGE naming the object, its generation and its size, before any data is sent.",
+          "result": "PASS",
+          "test_ids": [
+            "read_object_refuses_negative_limits_and_offsets_past_the_end"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
-          "description": "Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified.",
+          "description": "Pending: nested object masks other than the checksum digests still answer UNIMPLEMENTED (pinned by read_mask_checked_first), transcoding is not implemented and exhaustive provider error precedence is unverified.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23487,10 +23614,26 @@
         "grpc_io_range_and_masks",
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "grpc_io_full_read_masks_return_acl_and_owner",
+        "an_invalid_read_mask_is_reported_for_a_missing_object",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "request_checks_before_the_mask_keep_their_order",
+        "read_object_refuses_negative_limits_and_offsets_past_the_end",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOWire"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order",
+            "read_object_refuses_negative_limits_and_offsets_past_the_end"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -23551,8 +23694,19 @@
       "known_deviations": [
         "Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified."
       ],
+      "scoped_differences": [
+        {
+          "text": "The read mask is checked with the request, before authorization, the generation and condition checks, opening the object and the read range; Cloud Storage's order for a missing object or an unauthorized caller is unrecorded.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        }
+      ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-016",
@@ -23583,10 +23737,12 @@
         {"id": "bidi-shared-status", "description": "Reuse status::from_json for backend UNAVAILABLE and unsupported JSON 501 with ErrorInfo-bearing UNIMPLEMENTED.", "result": "PASS", "test_ids": ["bidi_shared_error_status"]},
         {"id": "bidi-unfinalized", "description": "Without a finalized object, the stream selects an unfinalized appendable generation, returns metadata without MD5 and reads its persisted prefix; see docs/en/slices/grpc-v2-rapid-append.md.", "result": "PASS", "test_ids": ["TestGRPCAppendable"]},
         {"id": "bidi-outstanding-errors", "description": "Stream failure details retain the failing read_id's status and enumerate other unfinished admitted IDs as ABORTED; provider-exact status values remain unobserved in SPEC-GRPC-PENDING-RANGES.", "result": "PASS", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"]},
-        {"id": "bidi-remaining-fields", "description": "Redirects, nondefault read masks, preconditions combined with read handles, provider error parity and reads that follow later appends remain pending.", "result": "PENDING", "test_ids": []}
+        {"id": "bidi-request-refusals", "description": "A routing token, a read mask other than none, empty or `*`, an x-goog-fieldmask header other than `*` and conditions combined with a read handle answer UNIMPLEMENTED with ErrorInfo; a missing first message, a first message without read_object_spec, a spec in a later message and a negative generation or condition answer INVALID_ARGUMENT.", "result": "PASS", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header"]},
+        {"id": "bidi-remaining-fields", "description": "Pending: nondefault read masks (the deprecated read_mask and x-goog-fieldmask), which the proto defines and which answer UNIMPLEMENTED (pinned by bidi-request-refusals), provider error parity and reads that follow later appends.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"],
+      "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header", "TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"],
       "verification": [
+        {"command": "cargo test --locked --offline --lib grpc::", "result": "PASS", "verified_at": "2026-11-18", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc_io_read_failures_use_shared_storage_status -- --test-threads=1", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["grpc_io_read_failures_use_shared_storage_status"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound"]},
@@ -23597,9 +23753,13 @@
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}, {"language": "Java", "toolchain": "openjdk 27.0.1", "sdk": "com.google.cloud:google-cloud-storage", "version": "2.78.0", "transport": "Storage v2 gRPC; blobReadSession with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Java)"]}, {"language": "Python", "toolchain": "3.15.2", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "Storage v2 gRPC; AsyncMultiRangeDownloader with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Python)"]}, {"language": "Rust", "toolchain": "1.100.0", "sdk": "google-cloud-storage", "version": "1.22.0", "transport": "Storage v2 gRPC; Storage::open_object with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.rust.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Rust)"]}],
-      "known_deviations": ["Process-local FIFO retains at most 1024 reader-free handle descriptors for ten injected-clock minutes; eviction, expiry or restart requires reopening without a handle. Missing generations return NOT_FOUND and invalidate the handle. Provider lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Other unfinished admitted read_ids receive ABORTED when a range or stream fails; provider status values remain unobserved in SPEC-GRPC-PENDING-RANGES. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
+      "known_deviations": ["Process-local FIFO retains at most 1024 reader-free handle descriptors for ten injected-clock minutes; eviction, expiry or restart requires reopening without a handle. Missing generations return NOT_FOUND and invalidate the handle. Provider lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Nondefault read masks return UNIMPLEMENTED. Other unfinished admitted read_ids receive ABORTED when a range or stream fails; provider status values remain unobserved in SPEC-GRPC-PENDING-RANGES. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
+      "scoped_differences": [
+        {"text": "gcs-mimic never redirects a stream, so it issues no routing token: a nonempty routing_token answers UNIMPLEMENTED with ErrorInfo.", "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]},
+        {"text": "The proto does not describe generation or metageneration conditions on a stream that resumes a read handle: such a spec answers UNIMPLEMENTED with ErrorInfo, with guidance to reopen without the handle.", "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]}
+      ],
       "implemented_in": null,
-      "last_verified": "2026-10-29"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-017",
@@ -23625,7 +23785,7 @@
       "acceptance_cases": [
         {
           "id": "grpc_object_predefined_acl",
-          "description": "predefined_acl replaces the object ACL as a JSON PATCH predefinedAcl does, as Cloud Storage applied private (case grpc-unsupported-options, recorded 2026-11-13); a request that also updates acl returns INVALID_ARGUMENT.",
+          "description": "predefined_acl replaces the object ACL as a JSON PATCH predefinedAcl does, as Cloud Storage applied private (case grpc-unsupported-options, recorded 2026-11-13); a request that also updates acl returns UNIMPLEMENTED with ErrorInfo, and an unknown canned ACL returns INVALID_ARGUMENT.",
           "result": "PASS",
           "test_ids": [
             "grpc_object_updates_and_rewrites_apply_predefined_acls"
@@ -23665,8 +23825,27 @@
           ]
         },
         {
+          "id": "grpc_object_etag",
+          "description": "A nonempty object.etag is compared exactly with the etag of the generation the request updates, in the mutation transaction after the generation and metageneration conditions and before the customer-supplied key. A different, quoted or malformed value, or the etag an earlier update superseded, answers FAILED_PRECONDITION with the shared precondition wording and changes nothing; the current etag applies the update; an empty etag sets no condition; a missing object answers NOT_FOUND first.",
+          "result": "PASS",
+          "test_ids": [
+            "update_object_applies_only_when_the_request_etag_matches",
+            "a_selected_generation_is_compared_with_its_own_etag",
+            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+          ]
+        },
+        {
+          "id": "grpc_request_refusals",
+          "description": "A missing object or update_mask, a negative generation, a match and a not-match on the same value, a retention without a mode or without retain_until_time answer INVALID_ARGUMENT; the `*`, contexts, storage_class, owner and nested sub-path masks answer UNIMPLEMENTED with ErrorInfo. None changes the object.",
+          "result": "PASS",
+          "test_ids": [
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
+            "grpc_masks_reject_unsupported_and_accept_defaults"
+          ]
+        },
+        {
           "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "description": "Pending: the `*` update mask, which the proto defines as the JSON API's update and Cloud Storage served (case grpc-unsupported-options, recorded 2026-11-13), and the storage_class mask and nested sub-paths, which the request_refusals case pins as UNIMPLEMENTED until they are implemented or recorded as scoped differences.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23674,6 +23853,10 @@
       "test_ids": [
         "grpc_updates_reject_predefined_acls_without_changing_metadata",
         "grpc_object_updates_and_rewrites_apply_predefined_acls",
+        "update_object_applies_only_when_the_request_etag_matches",
+        "a_selected_generation_is_compared_with_its_own_etag",
+        "the_etag_is_checked_after_the_lookup_and_before_the_customer_key",
+        "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
         "overlapping_metadata_masks_are_actionable_in_both_orders",
         "object_validation_uses_proto_field_names_and_keeps_error_details",
         "a_metadata_mask_merges_entries_clears_on_none_and_names_the_empty_key",
@@ -23689,6 +23872,20 @@
         "grpc_update_object_retention_strict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "update_object_applies_only_when_the_request_etag_matches",
+            "a_selected_generation_is_compared_with_its_own_etag",
+            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key",
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_object_updates_and_rewrites_apply_predefined_acls"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -23772,10 +23969,29 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Rewrite continuation tokens stay on gRPC."
+        "Only the JSON-supported metadata and transactional local subset is implemented: the `*` update mask, the storage_class mask and nested sub-paths answer UNIMPLEMENTED; see the slice contract for inherited provider questions."
+      ],
+      "scoped_differences": [
+        {
+          "text": "The proto names no status for a mismatched object.etag and names only the live object: gcs-mimic answers FAILED_PRECONDITION with the shared precondition wording, as for a failed generation or metageneration condition, and compares the etag of the generation the request selects, as its other conditions do. Whether Cloud Storage enforces the field over gRPC is unrecorded.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "update_object_applies_only_when_the_request_etag_matches",
+            "a_selected_generation_is_compared_with_its_own_etag",
+            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+          ]
+        },
+        {
+          "text": "Object contexts are not modeled: a contexts update mask answers UNIMPLEMENTED with ErrorInfo and changes nothing.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
+            "grpc_masks_reject_unsupported_and_accept_defaults"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-018",
@@ -24083,8 +24299,25 @@
           ]
         },
         {
+          "id": "read_mask_checked_first",
+          "description": "A read mask path naming no Object field answers INVALID_ARGUMENT and a nested sub-path answers UNIMPLEMENTED with ErrorInfo, both with the request, before authorization and the listing, so an empty listing reports the mask; a valid mask lists as before.",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
+        },
+        {
+          "id": "request_refusals",
+          "description": "A filter answers UNIMPLEMENTED with ErrorInfo and a negative page_size answers INVALID_ARGUMENT.",
+          "result": "PASS",
+          "test_ids": [
+            "list_objects_refuses_a_filter_and_a_negative_page_size"
+          ]
+        },
+        {
           "id": "broader_rpc_semantics",
-          "description": "Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+          "description": "Pending: nested masks still answer UNIMPLEMENTED (pinned by read_mask_checked_first), and folders and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24095,9 +24328,23 @@
         "TestGRPCObjectIO",
         "grpc_list_soft_deleted_objects",
         "grpc_list_soft_deleted_objects_strict",
-        "grpc_listing_uses_proto_errors_and_preserves_page_tokens"
+        "grpc_listing_uses_proto_errors_and_preserves_page_tokens",
+        "an_invalid_read_mask_is_reported_for_an_empty_listing",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "list_objects_refuses_a_filter_and_a_negative_page_size"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "list_objects_refuses_a_filter_and_a_negative_page_size"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -24154,10 +24401,27 @@
         }
       ],
       "known_deviations": [
-        "Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified."
+        "Nested masks, folders and 4 MiB metadata-heavy response pagination remain unsupported or unverified."
+      ],
+      "scoped_differences": [
+        {
+          "text": "The read mask is checked with the request, before authorization and the listing, as ListBuckets checks its mask; Cloud Storage's answer for an empty listing or an unauthorized caller is unrecorded.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
+        },
+        {
+          "text": "Object contexts are not modeled: a filter answers UNIMPLEMENTED with ErrorInfo.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "list_objects_refuses_a_filter_and_a_negative_page_size"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-021",
@@ -24214,14 +24478,23 @@
           ]
         },
         {
+          "id": "grpc_request_refusals",
+          "description": "A negative source_generation, a max_bytes_rewritten_per_call that is negative or not a whole MiB, a destination naming its bucket or name, a malformed rewrite_token and a match and a not-match on the same source value answer INVALID_ARGUMENT; a destination kms_key answers UNIMPLEMENTED with ErrorInfo. None creates the destination.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
+        {
           "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "description": "Pending: destination fields outside the editable metadata, such as a retention or an explicit acl, which the proto defines for the destination, still answer UNIMPLEMENTED until each is implemented; a token from another transport is not accepted.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+        "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
         "grpc_derived_writes_verify_request_checksums",
         "grpc_rewrite_tokens_bind_declared_checksums",
         "rewrite_tokens_bind_the_stored_parameter_spelling",
@@ -24237,6 +24510,16 @@
         "TestGRPCUpdateCopyStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -24308,10 +24591,20 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "Only the JSON-supported metadata and transactional local subset is implemented: destination fields outside the editable metadata answer UNIMPLEMENTED; see the slice contract for inherited provider questions. Rewrite continuation tokens stay on gRPC."
+      ],
+      "scoped_differences": [
+        {
+          "text": "Cloud KMS is not modeled: destination_kms_key and a destination kms_key answer UNIMPLEMENTED with ErrorInfo and create no destination.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-022",
@@ -37629,6 +37922,17 @@
             "grpc-iam-config-partial-update",
             "TestGRPCUpdateCopy"
           ]
+        },
+        {
+          "id": "grpc_object_read_mask_order",
+          "description": "GetObject, ReadObject and ListObjects check their read masks with the request, before authorization, the generation and condition checks and the lookup, as GetBucket and ListBuckets do: a path naming no Object field answers INVALID_ARGUMENT and a nested sub-path UNIMPLEMENTED with ErrorInfo, also for a missing object or an empty listing.",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
         }
       ],
       "test_ids": [
@@ -37640,9 +37944,25 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access"
+        "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access",
+        "an_invalid_read_mask_is_reported_for_a_missing_object",
+        "an_invalid_read_mask_is_reported_for_an_empty_listing",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "request_checks_before_the_mask_keep_their_order"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -37716,8 +38036,19 @@
       "known_deviations": [
         "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
       ],
+      "scoped_differences": [
+        {
+          "text": "Object read masks are checked with the request, before authorization and the lookup, as bucket read masks are; Cloud Storage's order for a missing object, an empty listing or an unauthorized caller is unrecorded.",
+          "gap": "SPEC-GRPC-OBJECT-REQUEST-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
+        }
+      ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "BEHAVIOR-RPC-003",

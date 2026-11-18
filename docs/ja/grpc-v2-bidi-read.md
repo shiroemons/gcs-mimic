@@ -24,6 +24,8 @@ versioningで残る世代は読め、進行中のストリームは上書き後�
 appendableのhandleは、追記や確定後も発行時のサイズまでしか読めない。有効期限と削除後のstatusはGoogleで未確認のローカルな規則。
 strict では所有プロジェクトも固定し、別プロジェクトで同名バケットを作り直した場合の再接続を拒否する。
 handle と前提条件の併用、ルーティングトークン、既定以外の read mask は UNIMPLEMENTED。顧客指定の暗号鍵は [gRPC の CSEK](grpc-v2-customer-supplied-keys.md) のとおり、開くたびと再開のたびに spec の鍵を検査する。
+gcs-mimicはストリームをリダイレクトしないためルーティングトークンを発行せず、protoは再開したhandleでの条件を定めていない。この2つの拒否はSPEC-GRPC-OBJECT-REQUEST-CHOICESのscoped differenceとして記録する。
+非推奨の`read_mask`や`*`以外の`x-goog-fieldmask`による既定以外のmaskはprotoが定めるため、未完了に残す。
 エラー詳細には、受理した未完了範囲のread_idをすべて含める。失敗した範囲は固有のstatusを保ち、ほかの範囲は再試行を促すABORTEDにする。
 通常のバッチ内で一部の範囲が不正な場合も、バッチの全read_idを報告する。100件を超えるバッチは受理しない。
 ABORTEDの選択はGoogleで未観測のため、SPEC-GRPC-PENDING-RANGESに記録している。
@@ -36,6 +38,11 @@ read handleの照合は長さを確認した後、32バイトすべてを比較�
 Go SDK v1.70.0 は再接続時に未完了範囲を 1 メッセージにまとめる。
 100 件を超えた場合は proto の上限に従って再試行されない INVALID_ARGUMENT を返す。
 この再接続条件は SDK 側の制限として残る。中断のない 600 件の Add/Wait は既定の呼び方で検証済み。
+
+2026-11-18に、テストのなかったBidiReadObjectの拒否を2つのテストで固定した。どちらも変更前のソースのまま通過した。
+ルーティングトークン、既定以外のread mask、read handleと4種類の条件の併用はErrorInfo付きUNIMPLEMENTED。空のルーティングトークン、mask なし・空・`*`は既定の読み取りになる。
+負の世代や条件、最初のメッセージの欠落、`read_object_spec`のない最初のメッセージ、後続メッセージのspecはINVALID_ARGUMENT。
+`*`以外の`x-goog-fieldmask`ヘッダーは応答の前にUNIMPLEMENTEDを返し、`*`なら通常どおり読める。`cargo test --locked --offline --lib grpc::`の262件が通過した。
 
 2026-11-04にRustの対象10テストとACLのwire 2テストが通過した。
 削除・上書き・バケット再作成・RAM予算解放・TTL・FIFO・appendableのサイズ上限を確認した。
