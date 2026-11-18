@@ -350,4 +350,6 @@ impl Storage {
 #[cfg(test)]
 mod mask_tests;
 #[cfg(test)]
+mod request_refusals;
+#[cfg(test)]
 mod tests;
