@@ -1,8 +1,8 @@
-ace32660a9fff12145469807301eb4eb0fc69fd909c56a0d0ecb63fe69089f44  gcs-mimic-0.25.0-aarch64-apple-darwin.tar.gz
-314e0a527ea30cdc67343c9881f6c52f2c931bab4cdabe1fe46ed25b9ef76760  gcs-mimic-0.25.0-aarch64-pc-windows-msvc.zip
-16a966d926df90d9a0fd8aefbf6bbf37179de03bd144de275f38770c43e7f989  gcs-mimic-0.25.0-aarch64-unknown-linux-gnu.tar.gz
-22ce4e82f2e5ebc1ec5fb2847df7d61a1cebe6d179c6a60092736de54679032b  gcs-mimic-0.25.0-aarch64-unknown-linux-musl.tar.gz
-7ef64ed293ddf9b2dfd790b2434854854c25059677ec1e3cfcb31762b0d12c3f  gcs-mimic-0.25.0-x86_64-apple-darwin.tar.gz
-f178599c59804402280cdc2f61d116c86193c8f7d40ff7ce7294096d1ef92238  gcs-mimic-0.25.0-x86_64-pc-windows-msvc.zip
-8ff06863046bfb0cfd494c1e037f6bd64af93ce139c0e6acde8ef5292caa6124  gcs-mimic-0.25.0-x86_64-unknown-linux-gnu.tar.gz
-dabd1ba719d7b7313702235222489941f927a34b2266e54ac0194562c71ddf6a  gcs-mimic-0.25.0-x86_64-unknown-linux-musl.tar.gz
+87cdc0319168b23b81b9445696c6beefd49ee715b0cccf60826b8852b69b2d20  gcs-mimic-0.26.0-aarch64-apple-darwin.tar.gz
+3d5af8f0339b96a52d9dc88afdfe3029eacc9e1a23eea64714e950dbddba88d1  gcs-mimic-0.26.0-aarch64-pc-windows-msvc.zip
+f8c07cd8539cf2e2b1dbeeade80155338189ef1ee15f74807ee8297eea82e66b  gcs-mimic-0.26.0-aarch64-unknown-linux-gnu.tar.gz
+79d129c99f5399aac907753bf50642d368bfe508a088eada22c2052ad866333c  gcs-mimic-0.26.0-aarch64-unknown-linux-musl.tar.gz
+bbe6ff72ed8f0068d436c9b752c4936cc14c4da1820c6b79c7c48c4733d03c6b  gcs-mimic-0.26.0-x86_64-apple-darwin.tar.gz
+ed293e585b50b3ac8d94400d28795671ee0894bc5d703e68b54c7650f1e351a7  gcs-mimic-0.26.0-x86_64-pc-windows-msvc.zip
+61833fdc3d76a007d0f4d973b9990c75c3a41ad56b645189cab1c013177ccad2  gcs-mimic-0.26.0-x86_64-unknown-linux-gnu.tar.gz
+b787b8d3e6e7aa6dffa18da8f6eac1abdaf351a61ce50b35ec0bc937ea845463  gcs-mimic-0.26.0-x86_64-unknown-linux-musl.tar.gz
