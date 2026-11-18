@@ -9,7 +9,7 @@ text::json_adapter_dependency	src/grpc/v2/mod.rs	2
 text::json_adapter_dependency	src/grpc/v2/object_io.rs	2
 text::json_adapter_dependency	src/grpc/v2/object_io/read.rs	2
 text::json_adapter_dependency	src/grpc/v2/routing.rs	5
-text::json_adapter_dependency	src/grpc/v2/status.rs	11
+text::json_adapter_dependency	src/grpc/v2/status.rs	9
 text::json_adapter_dependency	src/grpc/v2/update_copy.rs	3
 text::json_adapter_dependency	src/grpc/v2/update_object/event_hold_release.rs	2
 text::json_adapter_dependency	src/xml/buckets.rs	12
