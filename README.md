@@ -471,13 +471,13 @@ Each official SDK runs the same workflows against all four emulators
 | PHP | 60/60 | 29/60 | 22/60 | 48/60 |
 | Python | 63/63 | 23/63 | 25/63 | 44/63 |
 | Java | 79/79 (1 n/a) | 36/79 (1 n/a) | 35/79 (1 n/a) | 58/79 (1 n/a) |
-| .NET | 72/72 (1 n/a) | 32/72 (1 n/a) | 31/72 (1 n/a) | 53/72 (1 n/a) |
+| .NET | 72/72 (1 n/a) | 33/72 (1 n/a) | 31/72 (1 n/a) | 54/72 (1 n/a) |
 | Rust | 54/54 (5 n/a) | 0/54 (5 n/a) | 0/54 (5 n/a) | 32/54 (5 n/a) |
 | C++ | 61/61 (1 n/a) | 27/61 (1 n/a) | 25/61 (1 n/a) | 50/61 (1 n/a) |
-| Score (/100) | 100 | 39.2 | 35.7 | 75.8 |
+| Score (/100) | 100 | 39.4 | 35.7 | 75.9 |
 
-Recorded on 2026-11-16 with the 0.25.0 source
-([results](sdk-scorecard/results/2026-11-16/summary.md)). A passing case
+Recorded on 2026-11-18 with the 0.26.0 source
+([results](sdk-scorecard/results/2026-11-18/summary.md)). A passing case
 means an ordinary SDK workflow works, not that the API is complete. n/a marks a
 case the SDK has no public API for; it is excluded from that SDK's denominator.
 gcs-mimic passes every case for all nine SDKs.
