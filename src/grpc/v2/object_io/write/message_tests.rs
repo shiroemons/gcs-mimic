@@ -1600,3 +1600,102 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     assert_eq!(finished.persisted_data_checksums, None);
     storage.state.catalog.close().await.unwrap();
 }
+
+/// A spec naming a predefined ACL, an appendable resumable write or a resource field the
+/// emulator does not model is refused with UNIMPLEMENTED and ErrorInfo on all three RPCs that
+/// take a spec, before anything is created.
+#[tokio::test]
+async fn grpc_write_specs_refuse_unhandled_fields() {
+    type SpecEdit = fn(&mut pb::WriteObjectSpec);
+    let (_dir, storage) = setup(false).await;
+    let send = async |request| {
+        crate::grpc::v2::dispatch(
+            crate::grpc::v2::service(storage.state.clone(), MAX, storage.compat_profile),
+            request,
+        )
+        .await
+        .unwrap()
+    };
+    let acl_or_appendable = unsupported("appendable/predefined_acl; omit these fields");
+    let fields = unsupported(
+        "write_object_spec.resource fields; use content_type, fixed/custom metadata and holds",
+    );
+    let edits: [(&str, SpecEdit, &str); 4] = [
+        (
+            "predefined-acl",
+            |spec| spec.predefined_acl = "publicRead".into(),
+            &acl_or_appendable,
+        ),
+        (
+            "acl",
+            |spec| {
+                spec.resource.as_mut().unwrap().acl = vec![pb::ObjectAccessControl {
+                    role: "READER".into(),
+                    entity: "allUsers".into(),
+                    ..Default::default()
+                }];
+            },
+            &fields,
+        ),
+        (
+            "kms-key",
+            |spec| spec.resource.as_mut().unwrap().kms_key = "key".into(),
+            &fields,
+        ),
+        (
+            "retention",
+            |spec| {
+                spec.resource.as_mut().unwrap().retention = Some(Default::default());
+            },
+            &fields,
+        ),
+    ];
+    for (label, edit, message) in edits {
+        let mut refused = spec(label);
+        edit(&mut refused);
+        let single = [chunk(0, b"abc")
+            .finish()
+            .first(FirstMessage::WriteObjectSpec(refused.clone()))];
+        let (written, _) = call(&storage, Rpc::WriteObject, &single).await;
+        let (bidi, _) = call(&storage, Rpc::Bidi, &single).await;
+        let start = [pb::StartResumableWriteRequest {
+            write_object_spec: Some(refused),
+            ..Default::default()
+        }];
+        let (started, _): (_, Vec<pb::StartResumableWriteResponse>) = rpc_status(
+            "/google.storage.v2.Storage/StartResumableWrite",
+            None,
+            &start,
+            send,
+        )
+        .await;
+        for status in [written, bidi, started] {
+            assert_eq!(
+                (status.code(), status.message()),
+                (Code::Unimplemented, message),
+                "{label}"
+            );
+            assert!(!status.details().is_empty(), "{label}");
+        }
+        assert_eq!(object_left(&storage, label).await, Left::Nothing, "{label}");
+    }
+    // StartResumableWrite refuses an appendable spec; BidiWriteObject routes it to Rapid append.
+    let mut appendable = spec("appendable");
+    appendable.appendable = Some(true);
+    let start = [pb::StartResumableWriteRequest {
+        write_object_spec: Some(appendable),
+        ..Default::default()
+    }];
+    let (status, _): (_, Vec<pb::StartResumableWriteResponse>) = rpc_status(
+        "/google.storage.v2.Storage/StartResumableWrite",
+        None,
+        &start,
+        send,
+    )
+    .await;
+    assert_eq!(
+        (status.code(), status.message()),
+        (Code::Unimplemented, acl_or_appendable.as_str())
+    );
+    storage.state.catalog.close().await.unwrap();
+}
