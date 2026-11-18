@@ -3,6 +3,7 @@ use super::{
     mask::{UnappliedUpdatePath, update_paths},
     object_io::ObjectField,
     pb,
+    status::invalid_field,
 };
 use crate::{
     acl::{AclKind, AclRequest, PredefinedObjectAcl},
@@ -36,6 +37,12 @@ enum UpdatePath {
     EventBasedHold,
     Acl,
     Retention,
+    /// `storage_class`: only a rewrite changes it, so an update that names it is refused
+    /// whatever the value (recorded in case grpc-probe-inferred-object-masks, with NEARLINE).
+    StorageClass,
+    /// `kms_key`: refused whatever the value (recorded in the same case, with a key that does
+    /// not exist; the refusal of an empty key is inferred).
+    KmsKey,
 }
 
 impl std::str::FromStr for UpdatePath {
@@ -54,6 +61,8 @@ impl std::str::FromStr for UpdatePath {
             "event_based_hold" => Self::EventBasedHold,
             "acl" => Self::Acl,
             "retention" => Self::Retention,
+            "storage_class" => Self::StorageClass,
+            "kms_key" => Self::KmsKey,
             // Any other path is classified by the `Object` fields. The pinned Go SDK names the
             // output-only `create_time` in an ordinary empty update, which changes nothing.
             path => match path.strip_prefix("metadata.") {
@@ -68,9 +77,10 @@ pub(super) fn from_proto(
     object: &pb::Object,
     paths: &[String],
 ) -> Result<ObjectMetadataUpdate, Status> {
-    if let [only] = paths
-        && only == "*"
-    {
+    // `*` beside other paths replaces the editable metadata too: the request that named
+    // content_language beside it was applied as `*` alone is (recorded in case
+    // grpc-probe-inferred-object-masks). The other paths are not read, which is inferred.
+    if paths.iter().any(|path| path == "*") {
         return replacement(object);
     }
     if paths.iter().any(|path| path == "metadata")
@@ -124,6 +134,16 @@ fn apply_path(
         UpdatePath::Retention => {
             update.retention = Patch::nullable(retention(object.retention.as_ref())?);
         }
+        UpdatePath::StorageClass => {
+            return Err(invalid_field(
+                "Client is not allowed to directly modify storage_class.",
+            ));
+        }
+        UpdatePath::KmsKey => {
+            return Err(invalid_field(
+                "Cannot change the Cloud KMS key associated with a resource.",
+            ));
+        }
     }
     Ok(())
 }
@@ -142,8 +162,9 @@ fn acl_request(object: &pb::Object) -> Result<AclRequest, Status> {
 /// (recorded 2026-11-18). An ACL or a retention the request does carry is applied as its own
 /// path applies it; one it leaves out is kept, which for the retention is not recorded. The
 /// update is a [`WriteMode::Replace`], so `ObjectMetadataUpdate::apply_to_existing` also
-/// releases each hold the request does not set, as gcs-mimic's JSON PUT does. That is outside
-/// what was recorded: the recorded update carried only a content type.
+/// releases each hold the request does not set, as gcs-mimic's JSON PUT does: Cloud Storage
+/// released a temporary hold and an event-based hold that a `*` update with only a content type
+/// left out (recorded in case grpc-probe-inferred-object-masks).
 fn replacement(object: &pb::Object) -> Result<ObjectMetadataUpdate, Status> {
     let mut update = for_write(object);
     if !object.acl.is_empty() {
@@ -306,8 +327,8 @@ mod tests {
             Ok(UpdatePath::MetadataKey("a.b".into()))
         );
         assert_eq!("metadata.".parse(), Ok(UpdatePath::MetadataKey("".into())));
-        // Recorded 2026-11-18 for `create_time` and `update_time`; the rest follow the proto's
-        // OUTPUT_ONLY.
+        // Recorded 2026-11-18 for `create_time` and `update_time`, and in case
+        // grpc-probe-inferred-object-masks for the other fields the proto marks OUTPUT_ONLY.
         for path in [
             "restore_token",
             "metageneration",
@@ -329,13 +350,25 @@ mod tests {
                 "{path}"
             );
         }
+        // Fields that are not OUTPUT_ONLY but are accepted and ignored: identifiers and the
+        // values the service keeps.
+        for path in [
+            "name",
+            "bucket",
+            "etag",
+            "generation",
+            "retention_expire_time",
+        ] {
+            assert_eq!(
+                path.parse::<UpdatePath>(),
+                Err(UnappliedUpdatePath::Ignored),
+                "{path}"
+            );
+        }
+        assert_eq!("storage_class".parse(), Ok(UpdatePath::StorageClass));
+        assert_eq!("kms_key".parse(), Ok(UpdatePath::KmsKey));
         for (path, unapplied) in [
             ("*", UnappliedUpdatePath::Unsupported("*".into())),
-            ("name", UnappliedUpdatePath::Unsupported("name".into())),
-            (
-                "storage_class",
-                UnappliedUpdatePath::Unsupported("storage_class".into()),
-            ),
             (
                 "retention.mode",
                 UnappliedUpdatePath::Unsupported("retention.mode".into()),
@@ -349,8 +382,8 @@ mod tests {
                 UnappliedUpdatePath::Unsupported("checksums.crc32c".into()),
             ),
             (
-                "retention_expire_time",
-                UnappliedUpdatePath::Unsupported("retention_expire_time".into()),
+                "retention_expire_time.seconds",
+                UnappliedUpdatePath::Unsupported("retention_expire_time.seconds".into()),
             ),
             // Recorded 2026-11-18.
             (

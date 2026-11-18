@@ -292,7 +292,8 @@ mod tests {
             );
         }
         // Recorded 2026-11-18: UpdateObject takes `*` alone as a replacement and accepts an
-        // output-only path without changing anything; `*` beside another path stays refused.
+        // output-only path without changing anything; `*` beside another path is a replacement
+        // too (case grpc-probe-inferred-object-masks).
         assert_eq!(
             object_patch(&pb::Object::default(), &["*".into()])
                 .unwrap()
@@ -303,9 +304,11 @@ mod tests {
             object_patch(&pb::Object::default(), &["owner".into()]).unwrap(),
             Default::default()
         );
-        assert_unsupported(
-            object_patch(&pb::Object::default(), &["*".into(), "owner".into()]),
-            "UpdateObject update_mask *",
+        assert_eq!(
+            object_patch(&pb::Object::default(), &["*".into(), "owner".into()])
+                .unwrap()
+                .write,
+            crate::object::WriteMode::Replace
         );
         assert_code(mask(None), Code::InvalidArgument);
         assert_code(

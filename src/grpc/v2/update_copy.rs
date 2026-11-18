@@ -29,26 +29,25 @@ use serde_json::{Map, Value};
 use std::num::NonZeroU64;
 use tonic::{Request, Response, Status};
 
-/// A destination without the fields only the service sets: the generation, and every field the
-/// proto marks `OUTPUT_ONLY` ([`ObjectField::clear_output_only`]). ComposeObject accepted a
-/// destination that carried a generation, a metageneration, a size, a creation time and an
-/// update time, and composed as if it had none (recorded 2026-11-18). That it ignores the other
-/// output-only fields as well is inferred from the proto, not recorded.
+/// A destination without the fields only the service supplies: the generation, the etag and
+/// every field the proto marks `OUTPUT_ONLY` ([`ObjectField::clear_service_set`]). ComposeObject
+/// composed a destination that carried any one of the generation, the metageneration, the size,
+/// the etag, the creation time, the update time, the checksums, the owner or the component
+/// count as if it had none (recorded in case grpc-probe-inferred-destinations). That it ignores
+/// the other service-set fields as well is inferred from the proto.
 fn without_service_fields(mut o: pb::Object) -> pb::Object {
-    o.generation = 0;
-    ObjectField::clear_output_only(&mut o);
+    ObjectField::clear_service_set(&mut o);
     o
 }
 
-/// RewriteObject's answer to a destination that carries service-set fields. The recorded
-/// request (2026-11-18) set a generation, a metageneration, a size, a creation time and an
-/// update time together, so which of them Cloud Storage refuses is not known; any of the fields
-/// [`without_service_fields`] drops is refused.
-fn check_rewrite_service_fields(o: &pb::Object) -> Result<(), Status> {
-    if without_service_fields(o.clone()) != *o {
+/// RewriteObject's destination. It ignores the service-set fields like ComposeObject, except
+/// the generation: a destination that carries one answers as if it named no object, while the
+/// other fields set alone are ignored (recorded in case grpc-probe-inferred-destinations).
+fn rewrite_destination(o: pb::Object) -> Result<pb::Object, Status> {
+    if o.generation != 0 {
         return Err(invalid_field("You must specify an object name."));
     }
-    Ok(())
+    Ok(without_service_fields(o))
 }
 
 fn validate_derived_fields(o: &pb::Object) -> Result<(), Status> {
@@ -374,13 +373,11 @@ impl Storage {
         request: Request<pb::RewriteObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::RewriteResponse>, Status> {
-        let (_, extensions, r) = request.into_parts();
+        let (_, extensions, mut r) = request.into_parts();
         let options = check_rewrite_request(&r)?;
         let sc = r.source_conditions();
         let dc = ObjectConditions::from(&r);
-        if let Some(destination) = &r.destination {
-            check_rewrite_service_fields(destination)?;
-        }
+        r.destination = r.destination.take().map(rewrite_destination).transpose()?;
         let body = r.destination.as_ref().map(derived_fields).transpose()?;
         if r.destination
             .as_ref()

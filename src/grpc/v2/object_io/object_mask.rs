@@ -3,7 +3,7 @@
 //! a parsed mask cannot fail.
 
 use crate::grpc::v2::{
-    mask::{ReadMask, ResourceField, UnselectableField},
+    mask::{FieldSetting, ReadMask, ResourceField, UnselectableField},
     pb,
 };
 
@@ -34,10 +34,15 @@ macro_rules! object_fields {
                 }
             }
 
-            /// Resets every field of `object` that [`ResourceField::output_only`] names.
-            pub(in crate::grpc::v2) fn clear_output_only(object: &mut pb::Object) {
+            /// Resets every field of `object` whose value only the service supplies: the
+            /// `OUTPUT_ONLY` fields and the ones the service keeps ([`FieldSetting`]). An
+            /// identifier stays, since a request names the object with it.
+            pub(in crate::grpc::v2) fn clear_service_set(object: &mut pb::Object) {
                 $(
-                    if Self::$variant.output_only() {
+                    if matches!(
+                        Self::$variant.setting(),
+                        FieldSetting::OutputOnly | FieldSetting::ServiceKept
+                    ) {
                         object.$field = Default::default();
                     }
                 )+
@@ -152,6 +157,10 @@ object_members!(
 
 impl ResourceField for ObjectField {
     fn output_only(self) -> bool {
+        self.setting() == FieldSetting::OutputOnly
+    }
+
+    fn setting(self) -> FieldSetting {
         use ObjectField as F;
         match self {
             F::RestoreToken
@@ -166,12 +175,17 @@ impl ResourceField for ObjectField {
             | F::UpdateStorageClassTime
             | F::Owner
             | F::SoftDeleteTime
-            | F::HardDeleteTime => true,
-            F::Name
-            | F::Bucket
-            | F::Etag
-            | F::Generation
-            | F::StorageClass
+            | F::HardDeleteTime => FieldSetting::OutputOnly,
+            F::Name | F::Bucket => FieldSetting::Identifier,
+            // Not marked OUTPUT_ONLY, yet a client value changes nothing. UpdateObject took
+            // `etag`, `generation` and `retention_expire_time` in its update mask, and
+            // ComposeObject and RewriteObject took an etag in the destination, without
+            // changing anything (recorded in cases grpc-probe-inferred-object-masks and
+            // grpc-probe-inferred-destinations). The generation is refused by RewriteObject
+            // alone. A destination that carries a `retention_expire_time` is dropped the same
+            // way by inference.
+            F::Etag | F::Generation | F::RetentionExpireTime => FieldSetting::ServiceKept,
+            F::StorageClass
             | F::ContentEncoding
             | F::ContentDisposition
             | F::CacheControl
@@ -180,13 +194,12 @@ impl ResourceField for ObjectField {
             | F::ContentType
             | F::KmsKey
             | F::TemporaryHold
-            | F::RetentionExpireTime
             | F::Metadata
             | F::Contexts
             | F::EventBasedHold
             | F::CustomerEncryption
             | F::CustomTime
-            | F::Retention => false,
+            | F::Retention => FieldSetting::Client,
         }
     }
 }

@@ -19,8 +19,9 @@ fn compose(destination: pb::Object) -> pb::ComposeObjectRequest {
     }
 }
 
-/// A destination loses the generation and the fields the proto marks `OUTPUT_ONLY`; every other
-/// field stays as the request set it.
+/// A destination loses the fields the proto marks `OUTPUT_ONLY` and the ones the service keeps
+/// (the generation, the etag, the retention expiry); every other field, the name and the bucket
+/// included, stays as the request set it.
 #[test]
 fn service_set_fields_are_the_generation_and_the_output_only_fields() {
     let stamp = Some(prost_types::Timestamp {
@@ -30,7 +31,6 @@ fn service_set_fields_are_the_generation_and_the_output_only_fields() {
     let editable = pb::Object {
         name: "name".into(),
         bucket: "bucket".into(),
-        etag: "etag".into(),
         storage_class: "STANDARD".into(),
         content_encoding: "gzip".into(),
         content_disposition: "inline".into(),
@@ -40,7 +40,6 @@ fn service_set_fields_are_the_generation_and_the_output_only_fields() {
         content_type: "text/plain".into(),
         kms_key: "key".into(),
         temporary_hold: true,
-        retention_expire_time: stamp,
         metadata: [("key".into(), "value".into())].into(),
         contexts: Some(Default::default()),
         event_based_hold: Some(true),
@@ -50,6 +49,8 @@ fn service_set_fields_are_the_generation_and_the_output_only_fields() {
         ..Default::default()
     };
     let service_set = pb::Object {
+        etag: "etag".into(),
+        retention_expire_time: stamp,
         generation: 1,
         restore_token: Some("token".into()),
         metageneration: 2,
@@ -97,6 +98,7 @@ async fn compose_object_accepts_the_sources_class_and_ignores_service_set_fields
         generation: 1,
         metageneration: 7,
         size: 99,
+        etag: "gcsmimic-probe".into(),
         create_time: stamp,
         update_time: stamp,
         ..Default::default()
@@ -106,7 +108,103 @@ async fn compose_object_accepts_the_sources_class_and_ignores_service_set_fields
     assert_ne!(composed.generation, 1);
     assert_eq!(composed.metageneration, 1);
     assert_eq!(composed.size, 4);
+    assert_ne!(composed.etag, "gcsmimic-probe");
     assert_ne!(composed.create_time, stamp);
     assert_ne!(composed.update_time, stamp);
+    s.state.catalog.close().await.unwrap();
+}
+
+/// A RewriteObject destination that carries one service-set field alone is rewritten as if it
+/// had none, except for a generation (case grpc-probe-inferred-destinations).
+#[tokio::test]
+async fn rewrite_object_ignores_each_service_set_destination_field_but_the_generation() {
+    let (s, _dir) = setup().await;
+    upload(&s, "source", 4).await;
+    let stamp = Some(prost_types::Timestamp {
+        seconds: 1_577_836_800,
+        nanos: 0,
+    });
+    let destinations = [
+        (
+            "metageneration",
+            pb::Object {
+                metageneration: 7,
+                ..Default::default()
+            },
+        ),
+        (
+            "size",
+            pb::Object {
+                size: 99,
+                ..Default::default()
+            },
+        ),
+        (
+            "etag",
+            pb::Object {
+                etag: "gcsmimic-probe".into(),
+                ..Default::default()
+            },
+        ),
+        (
+            "create-time",
+            pb::Object {
+                create_time: stamp,
+                ..Default::default()
+            },
+        ),
+        (
+            "update-time",
+            pb::Object {
+                update_time: stamp,
+                ..Default::default()
+            },
+        ),
+        (
+            "checksums",
+            pb::Object {
+                checksums: Some(Default::default()),
+                ..Default::default()
+            },
+        ),
+        (
+            "owner",
+            pb::Object {
+                owner: Some(Default::default()),
+                ..Default::default()
+            },
+        ),
+        (
+            "component-count",
+            pb::Object {
+                component_count: 7,
+                ..Default::default()
+            },
+        ),
+    ];
+    for (name, destination) in destinations {
+        let rewritten = s
+            .rewrite_object(
+                Request::new(pb::RewriteObjectRequest {
+                    source_bucket: RESOURCE.into(),
+                    source_object: "source".into(),
+                    destination_bucket: RESOURCE.into(),
+                    destination_name: format!("rewritten-{name}"),
+                    destination: Some(destination),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(rewritten.done, "{name}");
+        let resource = rewritten.resource.unwrap();
+        assert_eq!(resource.size, 4, "{name}");
+        assert_eq!(resource.metageneration, 1, "{name}");
+        assert_eq!(resource.component_count, 0, "{name}");
+        assert_ne!(resource.etag, "gcsmimic-probe", "{name}");
+        assert_ne!(resource.create_time, stamp, "{name}");
+    }
     s.state.catalog.close().await.unwrap();
 }

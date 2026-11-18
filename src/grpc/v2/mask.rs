@@ -55,6 +55,31 @@ pub(super) trait ResourceField: FromStr + Copy {
 
     /// Whether the proto marks the field `OUTPUT_ONLY`: only the service sets it.
     fn output_only(self) -> bool;
+
+    /// Who supplies the field's value. A resource whose fields all are clients' or
+    /// `OUTPUT_ONLY` takes the default, which follows [`ResourceField::output_only`].
+    fn setting(self) -> FieldSetting {
+        if self.output_only() {
+            FieldSetting::OutputOnly
+        } else {
+            FieldSetting::Client
+        }
+    }
+}
+
+/// Who supplies a resource field's value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FieldSetting {
+    /// A client sets it.
+    Client,
+    /// The proto marks it `OUTPUT_ONLY`: only the service sets it.
+    OutputOnly,
+    /// Names or addresses the resource (name, bucket): a request supplies it to select the
+    /// resource, so an update that names it changes nothing.
+    Identifier,
+    /// The proto does not mark it `OUTPUT_ONLY`, but the service keeps its value (the generation,
+    /// the etag, the retention expiry): a client value is accepted and ignored.
+    ServiceKept,
 }
 
 /// Whether the first segment of `path` names a field of `F`'s resource, whether or not a mask
@@ -289,9 +314,15 @@ pub(super) fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], S
 pub(super) enum UnappliedUpdatePath {
     /// An output-only field named without a member path. Cloud Storage accepted `create_time`
     /// and `update_time` on UpdateBucket and UpdateObject and applied nothing from them
-    /// (recorded 2026-11-18; UpdateObject still advanced the metageneration). That it takes the
-    /// other fields the proto marks `OUTPUT_ONLY` the same way is inferred, not recorded.
+    /// (recorded 2026-11-18; UpdateObject still advanced the metageneration). UpdateObject took
+    /// every other field the proto marks `OUTPUT_ONLY` the same way (recorded in case
+    /// grpc-probe-inferred-object-masks); that UpdateBucket does is inferred, not recorded.
     OutputOnly,
+    /// A field that is not `OUTPUT_ONLY` but whose value the service keeps or that names the
+    /// resource ([`FieldSetting::Identifier`], [`FieldSetting::ServiceKept`]). UpdateObject took
+    /// `etag`, `generation`, `retention_expire_time`, `name` and `bucket` like an output-only
+    /// field (recorded in case grpc-probe-inferred-object-masks).
+    Ignored,
     /// A field of the resource, or a path under one, that gcs-mimic does not update, and `*`
     /// beside other paths.
     Unsupported(String),
@@ -302,8 +333,14 @@ pub(super) enum UnappliedUpdatePath {
 impl UnappliedUpdatePath {
     /// Classifies a path none of the RPC's update paths takes by the fields of `F`'s resource.
     pub(super) fn of<F: ResourceField>(path: &str) -> Self {
-        if path.parse::<F>().is_ok_and(F::output_only) {
+        let setting = path.parse::<F>().ok().map(F::setting);
+        if setting == Some(FieldSetting::OutputOnly) {
             Self::OutputOnly
+        } else if matches!(
+            setting,
+            Some(FieldSetting::Identifier | FieldSetting::ServiceKept)
+        ) {
+            Self::Ignored
         } else if path == "*" || starts_with_field::<F>(path) {
             Self::Unsupported(path.into())
         } else {
@@ -326,7 +363,7 @@ where
 {
     paths.iter().filter_map(move |path| match path.parse() {
         Ok(path) => Some(Ok(path)),
-        Err(UnappliedUpdatePath::OutputOnly) => None,
+        Err(UnappliedUpdatePath::OutputOnly | UnappliedUpdatePath::Ignored) => None,
         Err(UnappliedUpdatePath::Unsupported(path)) => Some(Err(status::unsupported(&format!(
             "{rpc} update_mask {path}; use {remedy}"
         )))),
