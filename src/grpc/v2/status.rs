@@ -258,6 +258,9 @@ pub(super) fn with_detail(code: Code, message: String, type_url: &str, value: Ve
 }
 
 #[cfg(test)]
+mod domain_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use hyper::StatusCode;
