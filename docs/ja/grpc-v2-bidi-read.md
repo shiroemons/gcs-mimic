@@ -47,14 +47,14 @@ read handleの照合は長さを確認した後、32バイトすべてを比較�
 ほかの Storage v2 の呼び出しと同じく`x-goog-request-params`が必要で（なければ INVALID_ARGUMENT）、
 最初のメッセージが届いた時点で、ルーティングされたバケットを`read_object_spec`のバケットと比べる。
 Cloud Storage は記録に使ったプロジェクトでは BidiReadObject を拒否したため、この要求も比較もこの RPC では記録しておらず、
-記録できた RPC（`grpc-probe-routing`）からの推測である。
+記録できた RPC（ケース`grpc-probe-routing`と`grpc-probe-inferred-routing`）からの推測である。
 
 Go SDK v1.70.0 は再接続時に未完了範囲を 1 メッセージにまとめる。
 100 件を超えた場合は proto の上限に従って再試行されない INVALID_ARGUMENT を返す。
 この再接続条件は SDK 側の制限として残る。中断のない 600 件の Add/Wait は既定の呼び方で検証済み。
 
 2026-11-18に、テストのなかった上記の応答をテストで固定した。既存の挙動を固定するテストで、最初の実行から通過した。
-`the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle`は spec を検査し、ルーティングトークン、既定以外の read mask、read handle と 4 種類の条件それぞれの併用が ErrorInfo 付きの UNIMPLEMENTED になること、空のルーティングトークンとなし・空・`*`の mask は受け付けること、負の世代と条件が INVALID_ARGUMENT になることを確かめる。
+`the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle`は spec を検査し、ルーティングトークン、既定以外の read mask、read handle と 4 種類の条件それぞれの併用が ErrorInfo 付きの UNIMPLEMENTED になること、空のルーティングトークンとなし・空・`*`の mask は受け付けること、負の世代が INVALID_ARGUMENT になること、負の世代条件と metageneration 条件は拒否せず、オブジェクトを読むときに比べることを確かめる。比べる扱いは GetObject と ReadObject で記録した応答（2026-11-18、ケース`grpc-probe-inferred-conditions`）からの推定です。
 `the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header`はストリームを wire 経由で実行し、メッセージなし、spec のない最初のメッセージ、後からの spec が INVALID_ARGUMENT になること、`*`以外の`x-goog-fieldmask`ヘッダーが応答の前に ErrorInfo を 1 件持つ UNIMPLEMENTED になり、`*`なら読めることを確かめる。
 `bidi_range_errors_list_the_failed_range_first_then_queue_and_request_order`は`read_range_errors`のエントリの順序を固定する。
 `cargo test --locked --offline --lib grpc::`の 270 件が通過した。SDK のテストは実行していない。
