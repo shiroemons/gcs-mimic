@@ -65,9 +65,9 @@ The Rust SDK exposes ACLs only as resource fields: it reads `Bucket.acl`, append
 | grpc_acl_errors | An invalid entity, or any ACL write under uniform bucket-level access, returns INVALID_ARGUMENT (the shared JSON 400) and changes nothing. |
 | grpc_acl_strict | A strict caller without `storage.buckets.update` receives PERMISSION_DENIED and an anonymous caller UNAUTHENTICATED; the ACL is unchanged. The catalog's shared ACL permission checks apply as in JSON. |
 
-GetObject's ACL projection and `predefined_acl` on create, update and compose remain outside this change and keep their current behavior; `acl.<field>` and `owner` update masks return UNIMPLEMENTED.
+GetObject's ACL projection and `predefined_acl` on create, update and compose remain outside this change and keep their current behavior; an `acl.<field>` update mask returns UNIMPLEMENTED, and an `owner` path, which the proto marks output only, is accepted and changes nothing (recorded 2026-11-18 for the output-only `create_time` and `update_time` paths; the other output-only fields follow by inference).
 
-Tests: `grpc_buckets_acl_read_and_update`, `grpc_buckets_acl_strict_authorization` and `grpc_update_object_acl` failed on the previous source (empty bucket ACL; UNIMPLEMENTED masks) and pass after the change. The negative mask test now uses the still-unsupported `acl.entity` and `owner` paths instead of `acl`.
+Tests: `grpc_buckets_acl_read_and_update`, `grpc_buckets_acl_strict_authorization` and `grpc_update_object_acl` failed on the previous source (empty bucket ACL; UNIMPLEMENTED masks) and pass after the change. The negative mask test used the then unsupported `acl.entity` and `owner` paths instead of `acl`; `owner` is now an accepted output-only path, so only `acl.entity` stays refused.
 
 ## Object retention
 
@@ -96,6 +96,6 @@ ListObjects `soft_deleted=true` originally returned UNIMPLEMENTED. The adapter n
 | grpc_list_soft_deleted_versions | Combining `soft_deleted` with `versions` returns INVALID_ARGUMENT, as JSON rejects `softDeleted=true&versions=true`. |
 | grpc_list_soft_deleted_strict | Strict mode uses the same `storage.objects.list` check as JSON: a caller with the permission lists, a registered caller without it receives PERMISSION_DENIED and an anonymous caller UNAUTHENTICATED. |
 
-Prefix, delimiter, offsets, glob and page tokens combine with `soft_deleted` exactly as in the JSON listing. `filter` remains UNIMPLEMENTED; `include_folders_as_prefixes` follows the JSON rule of the [storage layout slice](bucket-storage-layout.md); GetObject `soft_deleted` is outside this change.
+Prefix, delimiter, offsets, glob and page tokens combine with `soft_deleted` exactly as in the JSON listing. `filter` remains UNIMPLEMENTED; `include_folders_as_prefixes` follows the JSON rule of the [storage layout slice](bucket-storage-layout.md); GetObject `soft_deleted` was outside this change and is served since 2026-11-18 ([object I/O contract](grpc-v2-object-io.md)).
 
 Tests: `grpc_list_soft_deleted_objects` and `grpc_list_soft_deleted_objects_strict` failed on the previous source with UNIMPLEMENTED and pass after the change.

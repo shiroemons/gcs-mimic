@@ -4,9 +4,15 @@
 
 Scope: RPC-STORAGE-016 and BEHAVIOR-RPC-004.
 
-The integrated adapter uses the shared `status::from_json` conversion, including
-JSON 503 to UNAVAILABLE and unsupported JSON 501 to ErrorInfo-bearing
-UNIMPLEMENTED. Transport limits and `Storage.max_object_bytes` remain the shared
+The integrated adapter maps the storage domain errors to a Status directly
+(`src/grpc/v2/status.rs`), including a storage failure to UNAVAILABLE and an
+unsupported setting to ErrorInfo-bearing UNIMPLEMENTED. Like every Storage v2
+call it must carry `x-goog-request-params` (INVALID_ARGUMENT without it), and
+the routed bucket is compared with the bucket of the first message's
+`read_object_spec` once that message arrives. Cloud Storage refused
+BidiReadObject for the recording project, so neither the requirement nor the
+comparison was recorded for this RPC: both follow by inference from the RPCs
+that were (`grpc-probe-routing`). Transport limits and `Storage.max_object_bytes` remain the shared
 foundation/object-I/O implementation.
 
 ## Acceptance contract
