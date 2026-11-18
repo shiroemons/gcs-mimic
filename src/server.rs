@@ -1678,7 +1678,7 @@ impl ConnectionWatch {
                             phase = ConnectionPhase::TimeoutReply;
                         }
                         // A catalog wait that started after this branch was chosen pauses the deadline.
-                        ExpiryClaim::Refused => continue,
+                        ExpiryClaim::Refused => {}
                         ExpiryClaim::ResponseStarted => break UnreadInput::MayRemain,
                     }
                 },
@@ -1692,7 +1692,7 @@ impl ConnectionWatch {
                         ConnectionPhase::TimeoutReply => break UnreadInput::MayRemain,
                         // The connection polled just above can have moved the request on, which
                         // decides first and renews this deadline.
-                        _ if matches!(progress.has_changed(), Ok(true)) => continue,
+                        _ if matches!(progress.has_changed(), Ok(true)) => {}
                         // A request head that stalls after it started, or never arrives, is a client fault.
                         ConnectionPhase::FirstHead | ConnectionPhase::NextHead => {
                             warn_connection_timeout("request headers were not received before header_read_timeout_ms");
@@ -1706,7 +1706,7 @@ impl ConnectionWatch {
                                 deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);
                                 phase = ConnectionPhase::TimeoutReply;
                             }
-                            ExpiryClaim::Refused => continue,
+                            ExpiryClaim::Refused => {}
                             ExpiryClaim::ResponseStarted => {
                                 warn_connection_timeout(current.step().timeout_message());
                                 break UnreadInput::MayRemain;
