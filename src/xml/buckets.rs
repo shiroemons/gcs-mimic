@@ -4,12 +4,9 @@ use super::{
     Error, ErrorBody, HeaderKind, Namespace, ObjectPath, XmlCode, XmlWriter, accepted_parameter,
 };
 use crate::{
-    auth, json,
+    auth,
     object::ObjectConditions,
-    server::{
-        RequestBody, RequestCtx, ResponseBody, anonymous_error, authorize_bucket, boxed,
-        empty_response,
-    },
+    server::{RequestBody, RequestCtx, ResponseBody, boxed, bucket_access, empty_response},
 };
 use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 
@@ -79,9 +76,9 @@ async fn execute(
         } else {
             auth::BUCKETS_GET
         };
-        let access = authorize_bucket(ctx.state, caller, permission, &path.bucket)
+        let access = bucket_access(ctx.state, caller, permission, &path.bucket)
             .await
-            .map_err(|error| anonymous_error(error, caller))?;
+            .map_err(|error| Error::from(error).for_caller(caller))?;
         validate(&request, &path.bucket)?;
         let delete = request.method() == Method::DELETE;
         super::empty_body(request.into_body()).await?;
@@ -97,8 +94,7 @@ async fn execute(
             .catalog
             .get_bucket(&path.bucket, &access)
             .await
-            .map_err(json::JsonError::from)
-            .map_err(|error| anonymous_error(error, caller))?
+            .map_err(|error| Error::from(error).for_caller(caller))?
             .ok_or_else(|| Error::new(XmlCode::NoSuchBucket, "Bucket not found"))?;
         return Ok(boxed(empty_response(StatusCode::OK)));
     }
@@ -139,15 +135,14 @@ fn authorize_project(
     if let Some(caller) = caller {
         caller
             .authorize(permission, Some(project))
-            .map_err(json::JsonError::from)
-            .map_err(|error| anonymous_error(error, Some(caller)))?;
+            .map_err(|error| Error::from(error).for_caller(Some(caller)))?;
     }
     Ok(())
 }
 
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "every other catalog error keeps the shared JSON error mapping"
+    reason = "every other catalog error keeps the XML adapter's catalog mapping"
 )]
 fn catalog_error(error: crate::bucket::CatalogError, caller: Option<auth::Caller<'_>>) -> Error {
     match error {
@@ -157,7 +152,7 @@ fn catalog_error(error: crate::bucket::CatalogError, caller: Option<auth::Caller
         crate::bucket::CatalogError::AlreadyExists => {
             Error::new(XmlCode::BucketNameUnavailable, "Bucket already exists")
         }
-        error => anonymous_error(json::JsonError::from(error), caller).into(),
+        error => Error::from(error).for_caller(caller),
     }
 }
 
@@ -221,8 +216,7 @@ async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBod
             .state
             .catalog
             .list_buckets_page(project, None, after.as_deref(), 128.min(1000 - count))
-            .await
-            .map_err(json::JsonError::from)?;
+            .await?;
         for bucket in &page.items {
             document.try_group("Bucket", |w| {
                 w.element("Name", &bucket.name);

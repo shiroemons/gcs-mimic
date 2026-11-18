@@ -786,8 +786,7 @@ fn route_object(
     if multipart::matches(&uri) {
         let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
         if !name.is_empty() {
-            crate::object::name::validate(&name)
-                .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+            crate::object::name::validate(&name)?;
         }
         return Ok(ReadRequest {
             target: ObjectTarget::new(bucket, name, None),
@@ -810,8 +809,7 @@ fn route_object(
         )));
     }
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
-    crate::object::name::validate(&name)
-        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    crate::object::name::validate(&name)?;
     if *method == Method::PUT
         && let Some(key) = query.keys().find(|key| !accepted_parameter(key))
     {

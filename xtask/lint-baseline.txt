@@ -2,11 +2,8 @@
 text::json_adapter_dependency	src/grpc/v1/mod.rs	2
 text::json_adapter_dependency	src/grpc/v2/buckets.rs	2
 text::json_adapter_dependency	src/grpc/v2/status.rs	8
-text::json_adapter_dependency	src/xml/buckets.rs	5
 text::json_adapter_dependency	src/xml/buckets/create.rs	1
-text::json_adapter_dependency	src/xml/canned_acl.rs	2
-text::json_adapter_dependency	src/xml/copy.rs	4
-text::json_adapter_dependency	src/xml/mod.rs	10
-text::json_adapter_dependency	src/xml/post.rs	7
+text::json_adapter_dependency	src/xml/mod.rs	8
+text::json_adapter_dependency	src/xml/post.rs	6
 text::json_adapter_dependency	src/xml/put.rs	4
-text::json_adapter_dependency	src/xml/resumable.rs	5
+text::json_adapter_dependency	src/xml/resumable.rs	4

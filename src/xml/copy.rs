@@ -4,8 +4,9 @@ use super::{Error, MinValue, Namespace, ReadRequest, XmlCode, XmlWriter, number,
 use crate::{
     auth,
     bucket::BucketAccess,
-    json,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget, Patch, WriteMode},
+    object::{
+        ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
+    },
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
         copy::{self, CopyBudget, CopyJob},
@@ -53,8 +54,7 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
     let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
     let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile)?;
-    crate::object::name::validate(&name)
-        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    crate::object::name::validate(&name)?;
     let generation = source_number(headers, "x-goog-copy-source-generation")?;
     let conditions = ObjectConditions {
         if_generation_match: source_number(headers, "x-goog-copy-source-if-generation-match")?,
@@ -199,8 +199,7 @@ pub(super) async fn respond(
             ctx.state
                 .catalog
                 .get_bucket(&source.object.bucket, &BucketAccess::Permissive)
-                .await
-                .map_err(json::JsonError::from)?
+                .await?
                 .ok_or_else(|| {
                     put::storage_error(crate::object::ObjectError::BucketNotFound, ctx.caller)
                 })?
@@ -254,7 +253,9 @@ fn destination(
         });
         options.metadata
     } else {
-        let mut inherited = json::derived_metadata_of(None, source)?.update;
+        // Publishing checks the encoded size as well, but only after the whole body is copied.
+        let mut inherited = ObjectMetadataUpdate::inheriting(source);
+        inherited.check_encoded_size()?;
         inherited.custom_time = Patch::nullable(source.custom_time.clone());
         inherited
     };

@@ -16,6 +16,10 @@ pub(crate) const PRECONDITION_NOT_HELD: &str =
     "At least one of the pre-conditions you specified did not hold.";
 /// The documented example message, for a refusal that no Cloud Storage permission names.
 pub(crate) const FORBIDDEN: &str = "Forbidden";
+/// The documented status-code example for a missing credential.
+pub(crate) const LOGIN_REQUIRED: &str = "Login Required";
+/// The message of a credential that does not verify; only its reason is documented.
+pub(crate) const INVALID_CREDENTIALS: &str = "Invalid Credentials";
 pub(crate) const PUBLIC_ACCESS_PREVENTED: &str = "Public access prevention is enforced";
 pub(crate) const BUCKET_ALREADY_OWNED: &str =
     "Your previous request to create the named bucket succeeded and you already own it.";

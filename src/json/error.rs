@@ -837,16 +837,20 @@ impl From<AuthFailure> for JsonError {
     fn from(failure: AuthFailure) -> Self {
         match failure {
             // Documented status-code example for a missing credential.
-            AuthFailure::LoginRequired => {
-                Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required")
-                    .with_kind(ErrorKind::Required)
-                    .at(&AUTHORIZATION_HEADER)
-            }
+            AuthFailure::LoginRequired => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "required",
+                wording::LOGIN_REQUIRED,
+            )
+            .with_kind(ErrorKind::Required)
+            .at(&AUTHORIZATION_HEADER),
             // The reason is documented; message and location are a local choice.
-            AuthFailure::InvalidCredentials => {
-                Self::new(StatusCode::UNAUTHORIZED, "authError", "Invalid Credentials")
-                    .at(&AUTHORIZATION_HEADER)
-            }
+            AuthFailure::InvalidCredentials => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "authError",
+                wording::INVALID_CREDENTIALS,
+            )
+            .at(&AUTHORIZATION_HEADER),
             AuthFailure::Denied(denied) => denied.into(),
             AuthFailure::Forbidden => Self::forbidden(),
         }

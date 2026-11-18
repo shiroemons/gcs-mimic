@@ -1786,7 +1786,7 @@ pub(crate) async fn authorize_bucket(
 
 /// The access `caller` holds for `permission` on `bucket`. The error stays a `CatalogError`,
 /// so a caller that hides a refusal tells it apart with `CatalogError::is_refusal`.
-async fn bucket_access(
+pub(crate) async fn bucket_access(
     state: &State,
     caller: Option<Caller<'_>>,
     permission: auth::Permission,
