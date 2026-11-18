@@ -1,6 +1,8 @@
 use crate::{
     hashing::Hasher,
-    object::{ChecksumConflict, ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
+    object::{
+        ChecksumConflict, ExpectedHashes, HashMismatch, ObjectError, ObjectRecord, UploadChunk,
+    },
 };
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -52,7 +54,8 @@ pub(super) enum IntakeError {
         written: u64,
         total: u64,
     },
-    ObjectChecksum,
+    /// The complete object's digest differs from the one the client declared for it.
+    ObjectChecksum(HashMismatch),
     ConflictingChecksums,
     ConsumerStopped,
 }
@@ -116,7 +119,7 @@ impl Intake {
     pub(super) async fn finish(self, sender: &Sender, end: EndMarker) -> Result<(), IntakeError> {
         self.expected
             .verify(&self.hasher.finish())
-            .map_err(|_| IntakeError::ObjectChecksum)?;
+            .map_err(IntakeError::ObjectChecksum)?;
         let end = match end {
             EndMarker::Plain => UploadChunk::End,
             EndMarker::WithHashes => UploadChunk::EndWithHashes(self.expected),

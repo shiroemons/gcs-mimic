@@ -29,7 +29,6 @@ const FIRST: &str = "First message must contain write_object_spec or upload_id";
 const NO_FINISH: &str = "Non-resumable write closed without setting finish_write parameter.";
 const LATER_APPEND_SPEC: &str =
     "Only the first message may contain write_object_spec or append_object_spec";
-const MISMATCH: &str = "object_checksums mismatch; send checksums for the complete object";
 const CONFLICTING: &str = "Conflicting object_checksums; use the same digest in each message";
 const MD5_LENGTH: &str = "md5_hash must contain exactly 16 bytes";
 const NEGATIVE: &str = "write_offset must be nonnegative; use 0 for the first message";
@@ -40,11 +39,10 @@ const RECEIVED_OFFSET: &str =
 const RESUME_OFFSET: &str = "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size";
 const TOO_LARGE: &str =
     "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object";
-/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read.
+/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read, and for an issued upload
+/// ID with one character changed, which names no session (case grpc-probe-inferred-upload-ids),
+/// without the opaque `Internal details:` tail.
 const INTERNAL: &str = "We encountered an internal error. Please try again.";
-/// Not recorded: an upload ID of the issued shape that names no session. The emulator departs
-/// from [`INTERNAL`], which SDKs would retry.
-const NO_SESSION: &str = "Upload session not found; start a new resumable write";
 /// Recorded 2026-11-18.
 const TERMINATED: &str = "Upload has already been terminated.";
 
@@ -81,11 +79,20 @@ const APPEND_MD5: &str =
 const APPEND_KEY: &str = "gcs-mimic does not support customer-supplied encryption on appendable objects; omit common_object_request_params";
 const OPENING_GAP: &str =
     "write_offset leaves a gap after the 0 bytes received; resume at persisted_size";
-/// The shared catalog's wording when the complete object `abc` fails a declared CRC32C of 1.
-/// Resumable and appendable writes check the complete object there, single-shot writes in the
-/// adapter.
+/// The shared catalog's wording when the complete object `abc` fails a declared CRC32C of 1,
+/// which an appendable write checks there.
 const STORED_MISMATCH: &str =
     "Provided CRC32C \"AAAAAQ==\" doesn't match calculated CRC32C \"Nks/tw==\".";
+
+/// The refusal of a complete object `content` whose declared CRC32C is 1. Recorded on a
+/// resumable write (case grpc-probe-inferred-session-states); a single-shot write shares the
+/// wording, which was not recorded there.
+fn object_crc_mismatch(content: &[u8]) -> String {
+    format!(
+        "Object crc32c mismatch: server computed: '{:08x}', client provided: '00000001'.",
+        crc32c::crc32c(content)
+    )
+}
 
 /// The UNIMPLEMENTED wording for a gRPC feature the emulator refuses.
 fn unsupported(feature: &str) -> String {
@@ -513,22 +520,38 @@ async fn grpc_single_shot_write_message_errors() {
                 Left::Object(4),
             ),
         ),
-        // A granule or more was not recorded: its whole granules are reported.
+        // Recorded (case grpc-probe-inferred-granules): after a whole granule, a state_lookup and
+        // then a flush beside it still report 0; nothing is kept before finish_write.
         bidi(
             "state-lookup-past-a-granule",
             |n| {
                 vec![
                     opening(n, &GRANULE_DATA).lookup(),
+                    chunk(GRANULE_SIZE, b"").flush().lookup(),
+                    chunk(GRANULE_SIZE, b"d").finish(),
+                ]
+            },
+            ok(
+                vec![
+                    Reply::Persisted(0),
+                    Reply::Persisted(0),
+                    Reply::Resource(GRANULE_SIZE + 1),
+                ],
+                Left::Object(GRANULE_SIZE + 1),
+            ),
+        ),
+        // Not recorded; inferred from the granule above: the same past a granule.
+        bidi(
+            "flush-past-a-granule",
+            |n| {
+                vec![
+                    opening(n, &GRANULE_DATA),
                     chunk(GRANULE_SIZE, b"abc").flush(),
                     chunk(GRANULE_SIZE + 3, b"d").finish(),
                 ]
             },
             ok(
-                vec![
-                    Reply::Persisted(GRANULE_SIZE),
-                    Reply::Persisted(GRANULE_SIZE),
-                    Reply::Resource(GRANULE_SIZE + 4),
-                ],
+                vec![Reply::Persisted(0), Reply::Resource(GRANULE_SIZE + 4)],
                 Left::Object(GRANULE_SIZE + 4),
             ),
         ),
@@ -578,7 +601,7 @@ async fn grpc_single_shot_write_message_errors() {
                     chunk(4, b"").finish(),
                 ]
             },
-            || failed(InvalidArgument, MISMATCH, Left::Nothing),
+            || failed(InvalidArgument, object_crc_mismatch(b"abcd"), Left::Nothing),
         ),
         both(
             "final-checksums",
@@ -591,7 +614,13 @@ async fn grpc_single_shot_write_message_errors() {
         both(
             "final-checksum-mismatch",
             |n| vec![opening(n, b"abc"), chunk(3, b"def").finish().crc(1)],
-            || failed(InvalidArgument, MISMATCH, Left::Nothing),
+            || {
+                failed(
+                    InvalidArgument,
+                    object_crc_mismatch(b"abcdef"),
+                    Left::Nothing,
+                )
+            },
         ),
         both(
             "conflicting-checksums",
@@ -847,7 +876,7 @@ async fn grpc_single_shot_write_error_precedence() {
         both(
             "object-checksums-before-a-later-message",
             |n| vec![opening(n, b"abc").finish().crc(1), chunk(3, b"d")],
-            || failed(InvalidArgument, MISMATCH, Left::Nothing),
+            || failed(InvalidArgument, object_crc_mismatch(b"abc"), Left::Nothing),
         ),
     ];
     run_on_objects(&storage, cases).await;
@@ -958,7 +987,7 @@ fn unknown(_: &str) -> String {
 
 #[tokio::test]
 async fn grpc_resumable_write_message_errors() {
-    use Code::{Internal, InvalidArgument, NotFound, OutOfRange, ResourceExhausted};
+    use Code::{Internal, InvalidArgument, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         on(
@@ -979,7 +1008,7 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(InvalidArgument, dropped_tail(3), Left::Persisted(0)),
             ),
         ),
-        // Not recorded; inferred from the granule above: one that closes on a whole granule
+        // Recorded (case grpc-probe-inferred-granules): one that closes on a whole granule
         // persists it and reports it.
         on(
             PLAIN,
@@ -1130,14 +1159,21 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
-        // Not recorded: a complete object that fails a checksum declared before the finish is
-        // refused in the catalog's wording and ends the session.
+        // Recorded (case grpc-probe-inferred-session-states): a complete object that fails a
+        // checksum declared earlier in its stream is refused, and the session stays open at its
+        // persisted size.
         on(
             PLAIN,
             both(
                 "checksums-before-finish-mismatch",
                 |u| vec![resume(u, 0, b"").crc(1), chunk(0, b"abc").finish()],
-                || failed(InvalidArgument, STORED_MISMATCH, Left::Terminated),
+                || {
+                    failed(
+                        InvalidArgument,
+                        object_crc_mismatch(b"abc"),
+                        Left::Persisted(0),
+                    )
+                },
             ),
         ),
         on(
@@ -1148,21 +1184,47 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(OutOfRange, RESUME_NEGATIVE, Left::Persisted(0)),
             ),
         ),
-        // The proto contradicts itself: the write_offset field says the first value "must be
-        // equal to the persisted_size that a call to QueryWriteStatus() would return", while the
-        // WriteObject description lets a client start earlier and skips the persisted bytes. The
-        // emulator keeps the field rule, an owner decision, so a first message cannot resend
-        // persisted bytes. Cloud Storage's answer to a first offset below a persisted size
-        // above 0 was not recorded.
+        // Recorded (case grpc-probe-inferred-granules): a first offset at 0 or inside the
+        // persisted granule is accepted, and the byte it resends leaves the persisted size as it
+        // was, as the WriteObject description lets a client resend persisted bytes.
+        on(
+            PREFIXED,
+            both(
+                "first-offset-zero",
+                |u| vec![resume(u, 0, b"a")],
+                || {
+                    ok(
+                        vec![Reply::Persisted(GRANULE_SIZE)],
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
+            ),
+        ),
+        on(
+            PREFIXED,
+            both(
+                "first-offset-inside",
+                |u| vec![resume(u, GRANULE_SIZE / 2, b"a")],
+                || {
+                    ok(
+                        vec![Reply::Persisted(GRANULE_SIZE)],
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
+            ),
+        ),
+        // Not recorded; inferred from the offsets above: a finishing first message that starts
+        // inside the persisted bytes adds only what follows them.
         on(
             PREFIXED,
             both(
                 "first-offset-behind",
-                |u| vec![resume(u, 1, b"bcdef").finish()],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
+                |u| vec![resume(u, GRANULE_SIZE - 2, b"aaxyz").finish()],
+                || ok(vec![Reply::Resource(GRANULE_SIZE + 3)], Left::Finalized),
             ),
         ),
-        // Recorded 2026-11-18 on a session with nothing persisted.
+        // Recorded 2026-11-18 on a session with nothing persisted, and with a granule persisted
+        // (case grpc-probe-inferred-granules).
         on(
             PREFIXED,
             both(
@@ -1231,7 +1293,8 @@ async fn grpc_resumable_write_message_errors() {
             ),
         ),
         // Recorded 2026-11-18: a finishing message above object_size is refused the same way.
-        // Not recorded; inferred from the message below it: that it ends the session.
+        // Not recorded; inferred from the messages below it and past it without finish_write:
+        // that it ends the session.
         on(
             Session {
                 size: Some(5),
@@ -1243,8 +1306,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(OutOfRange, size_mismatch(7, 5), Left::Terminated),
             ),
         ),
-        // Not recorded: bytes past object_size without finish_write are refused and the
-        // session stays open.
+        // Recorded (case grpc-probe-inferred-granules): bytes past object_size without
+        // finish_write are refused and end the session.
         on(
             Session {
                 size: Some(2),
@@ -1253,7 +1316,7 @@ async fn grpc_resumable_write_message_errors() {
             both(
                 "object-size-over",
                 |u| vec![resume(u, 0, b"abc")],
-                || failed(OutOfRange, size_mismatch(3, 2), Left::Persisted(0)),
+                || failed(OutOfRange, size_mismatch(3, 2), Left::Terminated),
             ),
         ),
         on(
@@ -1275,7 +1338,9 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(InvalidArgument, CONFLICTING, Left::Persisted(0)),
             ),
         ),
-        // A complete object that fails its checksum ends the session.
+        // Not recorded; inferred from the recorded checksum-before-finish-mismatch above: a
+        // complete object that fails the checksum StartResumableWrite declared is refused the
+        // same way and leaves the session open.
         on(
             Session {
                 crc32c: Some(1),
@@ -1284,7 +1349,13 @@ async fn grpc_resumable_write_message_errors() {
             both(
                 "final-checksum-mismatch",
                 |u| vec![resume(u, 0, b"abc").finish()],
-                || failed(InvalidArgument, STORED_MISMATCH, Left::Terminated),
+                || {
+                    failed(
+                        InvalidArgument,
+                        object_crc_mismatch(b"abc"),
+                        Left::Persisted(0),
+                    )
+                },
             ),
         ),
         // Recorded 2026-11-18: as for single-shot writes, neither RPC reads past finish_write.
@@ -1296,13 +1367,14 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
-        // Not recorded: an upload ID that names no session (see NO_SESSION).
+        // Recorded (case grpc-probe-inferred-upload-ids): an upload ID that names no session
+        // fails as INTERNAL.
         on(
             PLAIN,
             both(
                 "unknown-session",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish()],
-                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
             ),
         ),
         // Recorded 2026-11-18: an upload ID Cloud Storage cannot read fails as INTERNAL, and
@@ -1358,7 +1430,7 @@ async fn grpc_resumable_write_message_errors() {
 /// When one resumable message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_resumable_write_error_precedence() {
-    use Code::{FailedPrecondition, InvalidArgument, NotFound, OutOfRange, ResourceExhausted};
+    use Code::{FailedPrecondition, Internal, InvalidArgument, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         // A later upload_id is read like any other message, so the checksum beside it counts.
@@ -1375,7 +1447,13 @@ async fn grpc_resumable_write_error_precedence() {
                             .first(FirstMessage::UploadId(u.into())),
                     ]
                 },
-                || failed(InvalidArgument, STORED_MISMATCH, Left::Terminated),
+                || {
+                    failed(
+                        InvalidArgument,
+                        object_crc_mismatch(b"abc"),
+                        Left::Persisted(0),
+                    )
+                },
             ),
         ),
         on(
@@ -1383,7 +1461,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-checksums",
                 |u| vec![resume(&unknown(u), 0, b"abc").md5(3)],
-                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1391,7 +1469,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-crc",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish().bad_crc()],
-                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1419,6 +1497,8 @@ async fn grpc_resumable_write_error_precedence() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
+        // Not recorded: the key StartResumableWrite bound answers before what the message
+        // carries and before the conditions, as on a non-resumable write's later message.
         on(
             PLAIN,
             both(
@@ -1427,8 +1507,6 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(InvalidArgument, key_after_keyless(), Left::Persisted(0)),
             ),
         ),
-        // Not recorded: the session's key and conditions answer before what the message
-        // carries, the emulator's order for a resumable message (see message_options).
         on(
             PREEMPTED,
             both(
@@ -1437,20 +1515,72 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(InvalidArgument, key_after_keyless(), Left::Persisted(0)),
             ),
         ),
+        // Recorded (case grpc-probe-inferred-session-states): a failing condition alone, and a
+        // wrong data checksum, a first offset past the persisted size and a finishing size past
+        // object_size each answering before it, the size ending the session.
         on(
             PREEMPTED,
             both(
-                "conditions-over-checksums",
-                |u| vec![resume(u, 0, b"abc").finish().md5(3)],
+                "conditions",
+                |u| vec![resume(u, 0, b"hello").finish()],
                 || failed(FailedPrecondition, PRECONDITION, Left::Persisted(0)),
             ),
         ),
         on(
+            PREEMPTED,
+            both(
+                "crc-over-conditions",
+                |u| vec![resume(u, 0, b"hello").finish().bad_crc()],
+                || failed(InvalidArgument, crc_mismatch(b"hello"), Left::Persisted(0)),
+            ),
+        ),
+        on(
+            PREEMPTED,
+            both(
+                "offset-over-conditions",
+                |u| vec![resume(u, 5, b"hello").finish()],
+                || failed(OutOfRange, start_past(5, 0), Left::Persisted(0)),
+            ),
+        ),
+        on(
+            Session {
+                size: Some(3),
+                ..PREEMPTED
+            },
+            both(
+                "object-size-over-conditions",
+                |u| vec![resume(u, 0, b"hello").finish()],
+                || failed(OutOfRange, size_mismatch(5, 3), Left::Terminated),
+            ),
+        ),
+        // Recorded (same case): a first offset past the persisted size answers before a
+        // malformed md5_hash.
+        on(
             PLAIN,
             both(
-                "md5-length-over-offset",
-                |u| vec![resume(u, 5, b"abc").finish().md5(3)],
+                "offset-over-md5-length",
+                |u| vec![resume(u, 5, b"hello").finish().md5(3)],
+                || failed(OutOfRange, start_past(5, 0), Left::Persisted(0)),
+            ),
+        ),
+        // Not recorded; inferred from the recorded order above and from a non-resumable write,
+        // whose spec's object checksums answer before its conditions: a malformed md5_hash
+        // answers before a failing condition, and a failing condition before the complete
+        // object's checksum.
+        on(
+            PREEMPTED,
+            both(
+                "md5-length-over-conditions",
+                |u| vec![resume(u, 0, b"abc").finish().md5(3)],
                 || failed(InvalidArgument, MD5_LENGTH, Left::Persisted(0)),
+            ),
+        ),
+        on(
+            PREEMPTED,
+            both(
+                "conditions-over-object-checksums",
+                |u| vec![resume(u, 0, b"abc").finish().crc(1)],
+                || failed(FailedPrecondition, PRECONDITION, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1461,12 +1591,20 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(OutOfRange, RESUME_NEGATIVE, Left::Persisted(0)),
             ),
         ),
+        // A first offset inside the persisted bytes is accepted (recorded, case
+        // grpc-probe-inferred-granules), so the data checksum decides.
         on(
             PREFIXED,
             both(
-                "resume-offset-over-crc",
+                "offset-behind-then-crc",
                 |u| vec![resume(u, 1, b"bc").finish().bad_crc()],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
+                || {
+                    failed(
+                        InvalidArgument,
+                        crc_mismatch(b"bc"),
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
             ),
         ),
         // Not recorded on a resumable write: object_size answers before the data checksum, as
@@ -1504,8 +1642,19 @@ async fn grpc_resumable_write_error_precedence() {
             PREFIXED,
             both(
                 "offset-before-a-later-message",
-                |u| vec![resume(u, 0, b"abc").finish(), chunk(3, b"d")],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
+                |u| {
+                    vec![
+                        resume(u, GRANULE_SIZE + 3, b"abc").finish(),
+                        chunk(GRANULE_SIZE + 6, b"d"),
+                    ]
+                },
+                || {
+                    failed(
+                        OutOfRange,
+                        start_past(GRANULE_SIZE + 3, GRANULE_SIZE),
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
             ),
         ),
     ];
@@ -2156,10 +2305,20 @@ fn persisted_checksums(persisted: &[u8]) -> Option<pb::ObjectChecksums> {
     })
 }
 
+/// The CRC32C alone of `persisted`, as a write's answer reports it.
+fn written_checksums(persisted: &[u8]) -> Option<pb::ObjectChecksums> {
+    Some(pb::ObjectChecksums {
+        crc32c: Some(crc32c::crc32c(persisted)),
+        md5_hash: Vec::new(),
+    })
+}
+
 /// The proto's WriteObjectResponse, BidiWriteObjectResponse and QueryWriteStatusResponse each
 /// say: "If persisted_size is set, contains checksums of persisted data." A resource carries
 /// its own checksums instead. Recorded 2026-11-18: BidiWriteObject reports the CRC32C alone
-/// where QueryWriteStatus reports the MD5 as well.
+/// where QueryWriteStatus reports the MD5 as well. Recorded (cases
+/// grpc-probe-inferred-session-states and grpc-probe-inferred-granules): WriteObject reports
+/// the CRC32C alone too.
 #[tokio::test]
 async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     use pb::query_write_status_response::WriteStatus as Queried;
@@ -2199,7 +2358,7 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     );
     assert_eq!(
         written.persisted_data_checksums,
-        persisted_checksums(&GRANULE_DATA)
+        written_checksums(&GRANULE_DATA)
     );
 
     let messages = [chunk(GRANULE_SIZE, b"")
@@ -2226,10 +2385,7 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     );
     assert_eq!(
         flushed.persisted_data_checksums,
-        Some(pb::ObjectChecksums {
-            crc32c: Some(crc32c::crc32c(&GRANULE_DATA)),
-            md5_hash: Vec::new(),
-        })
+        written_checksums(&GRANULE_DATA)
     );
     assert_eq!(closed, flushed);
     let queried = query().await;
@@ -2251,6 +2407,32 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     let finished = query().await;
     assert!(matches!(finished.write_status, Some(Queried::Resource(_))));
     assert_eq!(finished.persisted_data_checksums, None);
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// Recorded (case grpc-probe-inferred-session-states): object_checksums that a stream declares
+/// and then closes without finish_write hold for that stream alone. The close is answered with
+/// nothing persisted, and a later stream finishes an object those checksums do not match.
+#[tokio::test]
+async fn grpc_resumable_object_checksums_hold_for_their_stream() {
+    let (_dir, storage) = setup(false).await;
+    for rpc in [Rpc::WriteObject, Rpc::Bidi] {
+        let upload = open_session(&storage, &format!("declared-{rpc:?}"), PLAIN).await;
+        let (status, replies) = call(&storage, rpc, &[resume(&upload, 0, b"").crc(1)]).await;
+        assert_eq!(
+            (status.code(), replies),
+            (Code::Ok, vec![Reply::Persisted(0)]),
+            "{rpc:?}"
+        );
+        assert_eq!(session_left(&storage, &upload).await, Left::Persisted(0));
+        let finish = [resume(&upload, 0, b"hello").finish()];
+        let (status, replies) = call(&storage, rpc, &finish).await;
+        assert_eq!(
+            (status.code(), replies),
+            (Code::Ok, vec![Reply::Resource(5)]),
+            "{rpc:?}"
+        );
+    }
     storage.state.catalog.close().await.unwrap();
 }
 

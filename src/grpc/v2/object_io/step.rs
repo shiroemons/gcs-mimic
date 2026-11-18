@@ -169,9 +169,8 @@ pub(in crate::grpc::v2) struct WriteStep {
 
 /// An `object_checksums` as sent beside a spec or in a message. It is read where its write
 /// path checks it: a non-resumable write reads the first message's with the spec, and a
-/// resumable message reads it after the session's key and conditions. Not recorded: where Cloud
-/// Storage answers a malformed MD5 against those; the resumable order is the emulator's (see
-/// `Storage::message_options`).
+/// resumable message reads it after its offset, size and data checksum and before the
+/// session's conditions (see `Storage::receive_resumable_write`).
 #[derive(Default)]
 pub(in crate::grpc::v2) struct DeclaredChecksums(Option<pb::ObjectChecksums>);
 

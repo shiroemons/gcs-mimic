@@ -404,13 +404,13 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		t.Fatalf("cancel after refused cancels=%v", err)
 	}
 	// Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT; an ID the service
-	// cannot read fails as INTERNAL. Not recorded: an ID that names no session is NOT_FOUND,
-	// which SDKs do not retry.
+	// cannot read fails as INTERNAL, and so does an ID that names no session (recorded, case
+	// grpc-probe-inferred-upload-ids).
 	for id, code := range map[string]codes.Code{
 		"":                               codes.InvalidArgument,
 		bucket.BucketName():              codes.InvalidArgument,
 		bucket.BucketName() + "/not-hex": codes.Internal,
-		bucket.BucketName() + "/" + strings.Repeat("0", 64): codes.NotFound,
+		bucket.BucketName() + "/" + strings.Repeat("0", 64): codes.Internal,
 	} {
 		if err := cancelUpload(id); status.Code(err) != code {
 			t.Fatalf("cancel %q=%v", id, err)
@@ -493,8 +493,9 @@ func TestGRPCObjectIOWire(t *testing.T) {
 	if grpcIOField(query(), "persisted_size").Int() != persistedSize {
 		t.Fatal("durable offset is not one granule")
 	}
+	// Recorded 2026-11-18: a first offset past the persisted size is OUT_OF_RANGE.
 	wrong := open("BidiWriteObject")
-	wrong.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": int64(2), "finish_write": true}))
+	wrong.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": persistedSize + 2, "finish_write": true}))
 	wrong.CloseSend()
 	if err := wrong.RecvMsg(msg("BidiWriteObjectResponse", nil)); status.Code(err) != codes.OutOfRange {
 		t.Fatalf("wrong offset=%v", err)
@@ -566,8 +567,9 @@ func TestGRPCObjectIOWire(t *testing.T) {
 		}
 		id := grpcIOField(started, "upload_id").String()
 		// Recorded 2026-11-18: object_checksums is accepted on a message that does not
-		// finish the upload; it declares the complete object's checksum, which the finish
-		// verifies.
+		// finish the upload. It holds for its stream alone (recorded, case
+		// grpc-probe-inferred-session-states), so the finish verifies the checksum that
+		// StartResumableWrite or the finishing message declared.
 		state := msg("QueryWriteStatusResponse", nil)
 		stream = open("BidiWriteObject")
 		prefix := map[string]any{"upload_id": id, "checksummed_data": data(granule), "state_lookup": true}
@@ -595,9 +597,11 @@ func TestGRPCObjectIOWire(t *testing.T) {
 		if _, err := bucket.Object(test.name).Attrs(ctx); err == nil {
 			t.Fatal("resumed checksum failure published an object")
 		}
-		// The failed completion ended the session: "Upload has already been terminated."
-		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), msg("QueryWriteStatusResponse", nil)); status.Code(err) != codes.FailedPrecondition {
-			t.Fatalf("failed session remains usable: %v", err)
+		// The refused completion leaves the session open at its persisted size (recorded for a
+		// checksum declared earlier in the finishing stream, case
+		// grpc-probe-inferred-session-states).
+		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), state); err != nil || grpcIOField(state, "persisted_size").Int() != persistedSize {
+			t.Fatalf("status after a refused completion=%v %v", state, err)
 		}
 	}
 }

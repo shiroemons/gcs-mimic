@@ -48,7 +48,7 @@ impl ChunkEnd {
         }
     }
 
-    fn finalizes(self) -> bool {
+    pub(crate) fn finalizes(self) -> bool {
         match self {
             Self::Exact { finalize, .. } => finalize,
             Self::Open => true,

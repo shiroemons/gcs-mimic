@@ -1,6 +1,6 @@
 use super::{
     ResponseStream, Storage, access_status, convert, pb,
-    status::{read_failure, unsupported_for, with_reason},
+    status::{internal_error, read_failure, unsupported_for, with_reason},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
@@ -10,8 +10,8 @@ use crate::{
     },
     json,
     object::{
-        ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk,
-        generation::Generation,
+        ExpectedHashes, HashMismatch, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
+        UploadChunk, generation::Generation,
     },
     storage::{
         Finality, ObjectUpload, ResumableChunk, ResumableError, ResumableOptions, SessionState,
@@ -78,28 +78,33 @@ pub(super) fn named_object_status<'a>(
 }
 
 const UPLOAD_CANCELLED: &str = "Upload has already been cancelled.";
-const UPLOAD_TERMINATED: &str = "Upload has already been terminated.";
-const UPLOAD_NOT_FOUND: &str = "Upload session not found; start a new resumable write";
 
-/// The answer to a write that names a session it cannot continue.
+/// The answer to a call that names a session it cannot continue.
 ///
 /// Recorded 2026-11-18: a write to a cancelled session is INVALID_ARGUMENT "Upload has already
-/// been cancelled.". Not recorded; inferred from that answer and from the wording QueryWriteStatus
-/// was recorded giving a terminated session: a write to a session the emulator ended
-/// ([`ResumableError::Gone`]) is INVALID_ARGUMENT "Upload has already been terminated.".
+/// been cancelled.". Recorded (case grpc-probe-inferred-session-states): WriteObject, with and
+/// without `finish_write`, CancelResumableWrite and QueryWriteStatus all answer a session that a
+/// size-mismatched finishing message ended with FAILED_PRECONDITION "Upload has already been
+/// terminated." and the reason GRPC_UPLOAD_ALREADY_TERMINATED. Not recorded; inferred from those
+/// answers: a session the emulator ended for another reason ([`ResumableError::Gone`]) answers
+/// the same.
 ///
-/// Not recorded: an upload ID that parses but whose session does not exist, has expired (also
-/// while a write holds it) or belongs to another bucket. The nearest recorded answer is the
-/// INTERNAL that Cloud Storage gave IDs it could not read, which [`UnknownUploadId::Unreadable`]
-/// keeps. Such a session can never be found again, and INTERNAL makes SDKs retry a call that
-/// cannot succeed, so the emulator answers NOT_FOUND and names the remedy instead.
-///
-/// [`UnknownUploadId::Unreadable`]: upload_id::UnknownUploadId::Unreadable
+/// Recorded (case grpc-probe-inferred-upload-ids): an issued upload ID with one character
+/// changed, in the middle or at the end, answers INTERNAL on QueryWriteStatus, WriteObject and
+/// CancelResumableWrite, as an ID with a character appended did (recorded 2026-11-18). So an ID
+/// that names no session the catalog knows ([`ResumableError::NotFound`]) answers INTERNAL. That
+/// includes a session that expired: the catalog answers an expired session as a missing one and
+/// its maintenance deletes the expired row, so it cannot tell an ID that once named a session
+/// from one that never did.
 fn session_status(error: ResumableError) -> Status {
     match error {
-        ResumableError::NotFound => Status::not_found(UPLOAD_NOT_FOUND),
+        ResumableError::NotFound => internal_error(),
         ResumableError::Cancelled => Status::invalid_argument(UPLOAD_CANCELLED),
-        ResumableError::Gone => Status::invalid_argument(UPLOAD_TERMINATED),
+        ResumableError::Gone => with_reason(
+            Code::FailedPrecondition,
+            "Upload has already been terminated.",
+            "GRPC_UPLOAD_ALREADY_TERMINATED",
+        ),
         ResumableError::Invalid(message) => Status::invalid_argument(message),
         ResumableError::InvalidContentRange | ResumableError::Overrun(_) => {
             Status::invalid_argument(error.to_string())
@@ -108,15 +113,9 @@ fn session_status(error: ResumableError) -> Status {
     }
 }
 
-/// [`session_status`] for QueryWriteStatus and CancelResumableWrite, which answer a session
-/// that already ended with FAILED_PRECONDITION and its reason.
-///
-/// Recorded 2026-11-18: QueryWriteStatus on a cancelled session, and on a session that a
-/// finishing message with the wrong size ended. CancelResumableWrite was recorded only on a
-/// cancelled and on a completed session, which its caller answers. Not recorded; inferred from
-/// QueryWriteStatus's answer: QueryWriteStatus on a session the emulator ended for another
-/// reason, such as a complete object that failed its declared checksum, and
-/// CancelResumableWrite on any session the emulator ended.
+/// [`session_status`] for QueryWriteStatus and CancelResumableWrite, which answer a cancelled
+/// session with FAILED_PRECONDITION and its reason (recorded 2026-11-18) where a write answers
+/// INVALID_ARGUMENT.
 fn ended_session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::Cancelled => with_reason(
@@ -124,12 +123,8 @@ fn ended_session_status(error: ResumableError) -> Status {
             UPLOAD_CANCELLED,
             "GRPC_UPLOAD_ALREADY_CANCELLED",
         ),
-        ResumableError::Gone => with_reason(
-            Code::FailedPrecondition,
-            UPLOAD_TERMINATED,
-            "GRPC_UPLOAD_ALREADY_TERMINATED",
-        ),
         error @ (ResumableError::NotFound
+        | ResumableError::Gone
         | ResumableError::Invalid(_)
         | ResumableError::InvalidContentRange
         | ResumableError::Overrun(_)
@@ -154,11 +149,10 @@ fn merge_hashes(first: ExpectedHashes, next: ExpectedHashes) -> Result<ExpectedH
     upload::merge_hashes(first, next).map_err(intake_status)
 }
 
-/// The size of one write granule. Cloud Storage persists an upload in whole granules until
-/// `finish_write`: three bytes sent without it left `persisted_size` at 0 (recorded
-/// 2026-11-18).
+/// The size of one write granule. Cloud Storage persists a resumable upload in whole granules
+/// until `finish_write`: three bytes sent without it left `persisted_size` at 0 (recorded
+/// 2026-11-18), and one granule left it at 262144 (case grpc-probe-inferred-granules).
 const WRITE_GRANULE: usize = 256 * 1024;
-const WRITE_GRANULE_BYTES: u64 = 256 * 1024;
 
 /// Cloud Storage's refusal of bytes that cannot make an object of the declared `object_size`
 /// (recorded 2026-11-18). It names StartResumableWrite on a non-resumable write as well.
@@ -172,6 +166,28 @@ fn size_mismatch(written: u64, total: u64) -> Status {
     )
 }
 
+/// The refusal of a complete object whose digest differs from the one declared for it. Recorded
+/// for a CRC32C, both values in hexadecimal (case grpc-probe-inferred-session-states, on a
+/// resumable write). Not recorded: the MD5 form, which follows the CRC32C one, and the wording
+/// on a non-resumable write, which shares it.
+fn object_checksum_mismatch(mismatch: HashMismatch) -> Status {
+    let (name, computed, client) = match mismatch {
+        HashMismatch::Crc32c { expected, computed } => (
+            "crc32c",
+            format!("{computed:08x}"),
+            format!("{expected:08x}"),
+        ),
+        HashMismatch::Md5 { expected, computed } => (
+            "md5",
+            crate::hashing::encode_lower(&computed),
+            crate::hashing::encode_lower(&expected),
+        ),
+    };
+    Status::invalid_argument(format!(
+        "Object {name} mismatch: server computed: '{computed}', client provided: '{client}'."
+    ))
+}
+
 fn intake_status(error: IntakeError) -> Status {
     match error {
         IntakeError::Offset => Status::out_of_range(
@@ -183,9 +199,7 @@ fn intake_status(error: IntakeError) -> Status {
             "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
         ),
         IntakeError::SizeMismatch { written, total } => size_mismatch(written, total),
-        IntakeError::ObjectChecksum => Status::invalid_argument(
-            "object_checksums mismatch; send checksums for the complete object",
-        ),
+        IntakeError::ObjectChecksum(mismatch) => object_checksum_mismatch(mismatch),
         IntakeError::ConflictingChecksums => Status::invalid_argument(
             "Conflicting object_checksums; use the same digest in each message",
         ),
