@@ -38336,7 +38336,7 @@
         },
         {
           "id": "grpc_routing_field_rules",
-          "description": "Each routed field is compared by its own rule: an appendable value must be exactly true or false and match the request, a bucket the request does not name matches no routed bucket, a malformed upload_id routes by the text before its first slash, and a source_bucket is parsed only when the RPC routes it. The Go direct_connectivity_diagnostic key is accepted and routes nothing.",
+          "description": "Each routed field is compared by its own rule: an appendable value must be exactly true or false and match the request, a bucket the request does not name matches no routed bucket, a malformed upload_id routes by the text before its first slash (the handler then answers NOT_FOUND), and where the resources arrive later (Routes::Deferred) only the key is checked, a project key being refused, while a source_bucket routed against the request is parsed and compared. The Go direct_connectivity_diagnostic key is accepted and routes nothing.",
           "result": "PASS",
           "test_ids": [
             "routing_compares_each_field_with_its_own_rule",
