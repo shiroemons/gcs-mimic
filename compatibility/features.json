@@ -23811,7 +23811,7 @@
         },
         {
           "id": "per_message_errors",
-          "description": "For single-shot and resumed streams, WriteObject answers a missing or later first message, a negative, wrong or gapped write_offset, a chunk CRC32C mismatch, misplaced, malformed, conflicting or mismatched object_checksums, an object_size mismatch, an object past max_object_bytes, a key after a keyless start, a missing finish_write and a message after finish_write with a pinned status, message and precedence. A refused single-shot write publishes nothing, and a refused resumed message stages nothing and leaves the session at its persisted offset, except a complete object that fails its declared checksums, which invalidates the session. WriteObject reads past finish_write before it leases the upload session, so a client that keeps its stream open holds no session. A persisted size carries the CRC32C and MD5 of the persisted bytes in persisted_data_checksums.",
+          "description": "For single-shot and resumed streams, WriteObject answers a missing or later first message, a negative, wrong or gapped write_offset, a chunk CRC32C mismatch, misplaced, malformed, conflicting or mismatched object_checksums, an object_size mismatch, an object past max_object_bytes, a key after a keyless start, a missing finish_write and a message after finish_write with a pinned status, message and precedence. A refused single-shot write publishes nothing, and a refused resumed message stages nothing and leaves the session at its persisted offset, except a complete object that fails its declared checksums, which invalidates the session. WriteObject reads past finish_write before it leases the upload session, so a client that keeps its stream open holds no session, and it answers a resumed finishing message only once the stream ends, also when that message is refused or replays a finalized upload. A persisted size carries the CRC32C and MD5 of the persisted bytes in persisted_data_checksums.",
           "result": "PASS",
           "test_ids": [
             "grpc_single_shot_write_message_errors",
@@ -23819,6 +23819,7 @@
             "grpc_resumable_write_message_errors",
             "grpc_resumable_write_error_precedence",
             "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+            "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums"
           ]
         },
@@ -23840,6 +23841,7 @@
         "grpc_resumable_write_message_errors",
         "grpc_resumable_write_error_precedence",
         "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+        "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
         "grpc_write_specs_refuse_unhandled_fields",
         "a_running_hash_must_cover_the_persisted_offset"
@@ -23876,6 +23878,7 @@
             "grpc_resumable_write_message_errors",
             "grpc_resumable_write_error_precedence",
             "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+            "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
             "grpc_write_specs_refuse_unhandled_fields"
           ]
@@ -23918,6 +23921,14 @@
             "grpc_single_shot_write_error_precedence",
             "grpc_resumable_write_message_errors",
             "grpc_resumable_write_error_precedence"
+          ]
+        },
+        {
+          "text": "WriteObject reads past a resumed stream's finish_write before it leases the session, so it answers only once the client ends the stream, also when the finishing message is refused or replays a finalized upload. The proto does not say when WriteObject answers.",
+          "gap": "SPEC-GRPC-WRITE-STREAMS",
+          "test_ids": [
+            "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+            "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end"
           ]
         },
         {
@@ -38079,7 +38090,7 @@
         },
         {
           "id": "per_message_errors",
-          "description": "Single-shot, resumed and appendable streams over WriteObject and BidiWriteObject answer each offset, chunk CRC32C, object checksum, object_size, max_object_bytes, first-message and finish_write error with a pinned status, message, precedence, replies and what the write leaves behind. A refused single-shot write publishes nothing; a refused resumed message stages nothing, except that a complete object failing its declared checksums invalidates the session; an appendable opening message's own fields are checked before it creates or takes over the object, and its offset and max_object_bytes against the opened object. WriteObject reads past finish_write before it leases the upload session. A persisted size carries the CRC32C and MD5 of the persisted bytes.",
+          "description": "Single-shot, resumed and appendable streams over WriteObject and BidiWriteObject answer each offset, chunk CRC32C, object checksum, object_size, max_object_bytes, first-message and finish_write error with a pinned status, message, precedence, replies and what the write leaves behind. A refused single-shot write publishes nothing; a refused resumed message stages nothing, except that a complete object failing its declared checksums invalidates the session; an appendable opening message's own fields are checked before it creates or takes over the object, and its offset and max_object_bytes against the opened object. WriteObject reads past finish_write before it leases the upload session, so it answers a resumed finishing message only once the stream ends, also when that message is refused or replays a finalized upload. A persisted size carries the CRC32C and MD5 of the persisted bytes.",
           "result": "PASS",
           "test_ids": [
             "grpc_single_shot_write_message_errors",
@@ -38089,6 +38100,7 @@
             "grpc_appendable_write_message_errors",
             "grpc_appendable_write_error_precedence",
             "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+            "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
             "append_checks_an_opening_offset_after_the_takeover",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums"
@@ -38129,6 +38141,7 @@
         "grpc_appendable_write_message_errors",
         "grpc_appendable_write_error_precedence",
         "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+        "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
         "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
         "append_checks_an_opening_offset_after_the_takeover",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
@@ -38165,6 +38178,7 @@
             "grpc_appendable_write_message_errors",
             "grpc_appendable_write_error_precedence",
             "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+            "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
             "append_checks_an_opening_offset_after_the_takeover",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
@@ -38212,6 +38226,14 @@
             "grpc_single_shot_write_message_errors",
             "grpc_resumable_write_message_errors",
             "grpc_appendable_write_message_errors"
+          ]
+        },
+        {
+          "text": "WriteObject reads past a resumed stream's finish_write before it leases the session, so it answers only once the client ends the stream, also when the finishing message is refused or replays a finalized upload. The proto does not say when WriteObject answers.",
+          "gap": "SPEC-GRPC-WRITE-STREAMS",
+          "test_ids": [
+            "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
+            "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end"
           ]
         },
         {
