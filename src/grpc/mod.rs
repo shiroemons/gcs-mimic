@@ -32,11 +32,12 @@ pub(crate) const LIST_PAGE_BYTES: usize = 2 * 1024 * 1024;
 use crate::{
     config::Config,
     server::{CountingIo, IdleTurn, ReadActivity, SlotReclaim, State},
+    task::SupervisedExecutor,
     time_limit::TimeLimit,
 };
 use http_body_util::BodyExt;
 use hyper::{body::Incoming, server::conn::http2, service::service_fn};
-use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+use hyper_util::rt::{TokioIo, TokioTimer};
 use std::{
     convert::Infallible,
     future::Future,
@@ -57,6 +58,9 @@ const HTTP2_PREFACE_BYTES: u64 = 24;
 /// however long `header_read_timeout_ms` is. A full server holds one waiting client and leaves
 /// the rest in the listen backlog, so a silent peer here delays every client behind that one.
 const DRAIN_GRACE: Duration = Duration::from_secs(5);
+
+/// The name hyper's per-stream tasks report a panic under.
+const STREAM_TASK: &str = "grpc-stream";
 
 pub(crate) async fn serve_connection(
     stream: TcpStream,
@@ -210,8 +214,10 @@ fn shutdown_grace(peer_wait: Duration, shutdown: TimeLimit) -> Duration {
         .map_or(peer_wait, |budget| peer_wait.min(budget / 2))
 }
 
-fn http2_builder(config: &Config) -> http2::Builder<TokioExecutor> {
-    let mut builder = http2::Builder::new(TokioExecutor::new());
+fn http2_builder(config: &Config) -> http2::Builder<SupervisedExecutor> {
+    // Each stream runs in a task of its own; a panic in a handler is reported and ends only that
+    // stream, which hyper resets.
+    let mut builder = http2::Builder::new(SupervisedExecutor::new(STREAM_TASK));
     // What a stream can hold is bounded, but only per stream, so a connection's ceiling grows
     // with the stream limit. An object read holds this buffer and one 64 KiB frame, about 13 MiB
     // across 100 streams. HTTP/2 flow control limits unreleased input to 1 MiB per connection,
