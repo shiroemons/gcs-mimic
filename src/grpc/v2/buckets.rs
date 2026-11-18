@@ -749,7 +749,9 @@ mod tests {
         let (_dir, storage) = storage(false).await;
         type FieldCase = (&'static str, fn(&mut pb::Bucket));
         // The output-only fields are ignored instead (create_bucket_ignores_output_only_fields).
-        let cases: [FieldCase; 13] = [
+        // Unlike the other unmodeled settings, even an empty website message is refused.
+        let cases: [FieldCase; 14] = [
+            ("website (empty)", |b| b.website = Some(Default::default())),
             ("etag", |b| b.etag = "etag".into()),
             ("rpo", |b| b.rpo = "ASYNC_TURBO".into()),
             ("acl", |b| b.acl = vec![Default::default()]),
