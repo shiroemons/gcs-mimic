@@ -194,7 +194,7 @@ fn intake_status(error: IntakeError) -> Status {
         IntakeError::SizeMismatch { .. } => {
             Status::out_of_range("Written bytes do not match object_size")
         }
-        IntakeError::ObjectChecksum => {
+        IntakeError::ObjectChecksum(_) => {
             Status::invalid_argument("Object checksum mismatch; recompute object_checksums")
         }
         IntakeError::ConflictingChecksums => {

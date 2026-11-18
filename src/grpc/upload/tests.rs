@@ -83,7 +83,10 @@ async fn invalid_intake_never_stages_bytes_or_a_completion_marker() {
     );
     assert_eq!(
         intake.finish(&tx, EndMarker::Plain).await,
-        Err(IntakeError::ObjectChecksum)
+        Err(IntakeError::ObjectChecksum(HashMismatch::Md5 {
+            expected: [1; 16],
+            computed: crate::hashing::Hasher::default().finish().md5,
+        }))
     );
     assert!(rx.try_recv().is_err());
 }

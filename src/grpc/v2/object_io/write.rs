@@ -1,6 +1,5 @@
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
-use crate::hashing::Hashes;
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
 enum TaskCaller {
@@ -271,7 +270,6 @@ impl Storage {
                 Resend::DiscardOverlap,
             ),
             key: options.metadata.customer_key_sha256,
-            persisted: GranulePrefix::default(),
         };
         // Cloud Storage answers the first message's data checksum before the write's conditions,
         // and its offset and size before the data checksum (recorded 2026-11-18), so the
@@ -335,16 +333,23 @@ pub(super) fn finished(resource: pb::Object) -> pb::BidiWriteObjectResponse {
     }
 }
 
-/// The answer to a message that left `size` bytes persisted with `checksums`.
+/// The answer to a message that left `size` bytes persisted, whose CRC32C is `crc32c`.
+///
+/// A write's answer carries the CRC32C of the persisted bytes alone, where QueryWriteStatus
+/// reports their MD5 too: recorded 2026-11-18 over BidiWriteObject, and over WriteObject (cases
+/// grpc-probe-inferred-session-states and grpc-probe-inferred-granules).
 pub(super) fn persisted_answer(
     size: u64,
-    checksums: Option<pb::ObjectChecksums>,
+    crc32c: Option<u32>,
 ) -> Result<pb::BidiWriteObjectResponse, Status> {
     Ok(pb::BidiWriteObjectResponse {
         write_status: Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
             crate::grpc::convert::signed(size, "persisted_size")?,
         )),
-        persisted_data_checksums: checksums,
+        persisted_data_checksums: crc32c.map(|crc32c| pb::ObjectChecksums {
+            crc32c: Some(crc32c),
+            md5_hash: Vec::new(),
+        }),
         write_handle: None,
     })
 }
@@ -379,30 +384,13 @@ impl WriteRpc<'_> {
             Self::Bidi(tx) => send(tx, answer.clone()).await,
         }
     }
-
-    /// The `persisted_data_checksums` beside a persisted size whose bytes have digests
-    /// `hashes`. BidiWriteObject reported the CRC32C alone where QueryWriteStatus reported the
-    /// MD5 too (recorded 2026-11-18). No WriteObject answer with a persisted size was recorded;
-    /// it keeps both.
-    pub(super) fn persisted_checksums(self, hashes: Hashes) -> pb::ObjectChecksums {
-        match self {
-            Self::WriteObject => pb::ObjectChecksums {
-                crc32c: Some(hashes.crc32c),
-                md5_hash: hashes.md5.to_vec(),
-            },
-            Self::Bidi(_) => pb::ObjectChecksums {
-                crc32c: Some(hashes.crc32c),
-                md5_hash: Vec::new(),
-            },
-        }
-    }
 }
 
-/// Whether a message is the first one of its stream. A resumable stream must start exactly at
-/// the persisted offset and a non-resumable one at 0; later messages may overlap bytes already
+/// Whether a message is the first one of its stream. A non-resumable stream must start at 0
+/// and a resumable one at or below the persisted size; later messages may overlap bytes already
 /// received. Cloud Storage's refusal of a first offset past either start was recorded
-/// (2026-11-18). A resumable first offset below a persisted size above 0 was not; its refusal
-/// is inferred from the proto (see `resumable::Call`).
+/// (2026-11-18), and so was its acceptance of a resumable first offset below a persisted size
+/// above 0 (see `resumable::Call`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MessagePosition {
     First,
@@ -427,42 +415,13 @@ struct SingleWrite<'a> {
     rpc: WriteRpc<'a>,
 }
 
-/// The whole granules at the start of a non-resumable write's body, which is what a `flush` or
-/// a `state_lookup` reports as persisted. After three bytes Cloud Storage answered 0 with a
-/// CRC32C of 0 and no MD5 (recorded 2026-11-18). A body of a granule or more was not recorded;
-/// its whole granules are reported, as the resumable path persists them.
-#[derive(Default)]
-struct GranulePrefix {
-    /// Bytes received past the last granule boundary.
-    partial: usize,
-    /// The CRC32C of every byte received.
-    running: u32,
-    size: u64,
-    crc32c: u32,
-}
-
-impl GranulePrefix {
-    fn extend(&mut self, mut data: &[u8]) {
-        while !data.is_empty() {
-            let (head, rest) = data.split_at(data.len().min(WRITE_GRANULE - self.partial));
-            self.running = crc32c::crc32c_append(self.running, head);
-            self.partial += head.len();
-            if self.partial == WRITE_GRANULE {
-                self.partial = 0;
-                self.size = self.size.saturating_add(WRITE_GRANULE_BYTES);
-                self.crc32c = self.running;
-            }
-            data = rest;
-        }
-    }
-
-    fn answer(&self) -> Result<pb::BidiWriteObjectResponse, Status> {
-        let checksums = pb::ObjectChecksums {
-            crc32c: Some(self.crc32c),
-            md5_hash: Vec::new(),
-        };
-        persisted_answer(self.size, Some(checksums))
-    }
+/// What a `flush` or a `state_lookup` on a non-resumable write reports as persisted: nothing,
+/// with the CRC32C of no bytes. Cloud Storage answered so after three bytes (recorded
+/// 2026-11-18), and after a whole granule, with and without `flush` (case
+/// grpc-probe-inferred-granules): a write that no upload ID can resume keeps nothing before it
+/// finishes. Not recorded; inferred from that answer: the same after several granules.
+fn nothing_persisted() -> Result<pb::BidiWriteObjectResponse, Status> {
+    persisted_answer(0, Some(0))
 }
 
 /// The bytes a message adds to a non-resumable write and how the message ends.
@@ -478,7 +437,6 @@ struct SingleBody {
     intake: Intake,
     /// The key the first message chose, which later messages cannot change.
     key: Option<[u8; 32]>,
-    persisted: GranulePrefix,
 }
 
 impl SingleBody {
@@ -515,7 +473,7 @@ impl SingleBody {
     }
 
     /// Streams the write's messages to the upload consumer, starting with the admitted
-    /// `opening` message. A `flush` or `state_lookup` is answered with the persisted prefix;
+    /// `opening` message. A `flush` or `state_lookup` is answered with [`nothing_persisted`];
     /// a later `write_object_spec` is ignored, as Cloud Storage ignores it (recorded
     /// 2026-11-18).
     async fn produce<S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin>(
@@ -527,7 +485,6 @@ impl SingleBody {
     ) -> Result<(), Status> {
         let mut message = opening;
         loop {
-            self.persisted.extend(&message.added);
             upload::stage(&tx, &message.added)
                 .await
                 .map_err(intake_status)?;
@@ -535,7 +492,7 @@ impl SingleBody {
                 break;
             }
             if message.end.asks_for_status() {
-                rpc.report(&self.persisted.answer()?).await?;
+                rpc.report(&nothing_persisted()?).await?;
             }
             let next = upload::next(stream, &tx)
                 .await

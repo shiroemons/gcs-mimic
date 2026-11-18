@@ -458,9 +458,11 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
         ))
     );
     assert_eq!(read(&mut service, "old").await, b"kept");
+    // Resending the persisted granule from offset 0 is accepted and changes nothing (recorded,
+    // case grpc-probe-inferred-granules).
     let (code, _): (_, Vec<pb::WriteObjectResponse>) =
         call(&mut service, "WriteObject", Some("admin"), &[first.clone()]).await;
-    assert_eq!(code, Code::OutOfRange);
+    assert_eq!(code, Code::Ok);
     let whole = [granule.as_slice(), b"def"].concat();
     let final_message = pb::BidiWriteObjectRequest {
         first_message: Some(pb::bidi_write_object_request::FirstMessage::UploadId(

@@ -11,9 +11,9 @@ use tonic::Status;
 /// Only the session's shape is checked here (64 hexadecimal digits of either case). The catalog
 /// parses it into a [`SessionId`] after the RPC's permission check, so an ID that names no
 /// session, upper-case digits included, is denied to a caller without access and otherwise
-/// answered NOT_FOUND. Not recorded: Cloud Storage's answer to such an ID. The emulator departs
-/// from the INTERNAL it gave IDs it could not read ([`UnknownUploadId::Unreadable`]), which
-/// would make SDKs retry a session that cannot be found again.
+/// answered INTERNAL, as Cloud Storage answered an issued ID with one character changed (case
+/// grpc-probe-inferred-upload-ids) and the IDs it could not read
+/// ([`UnknownUploadId::Unreadable`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::grpc::v2) struct UploadId {
     bucket: String,
