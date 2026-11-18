@@ -220,14 +220,14 @@ storage_methods! {
     ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
     BidiReadObject => bidi_read_object(
         Streaming<pb::BidiReadObjectRequest>,
-    ) -> Self::BidiReadObjectStream, route |_r| Routes::Deferred;
+    ) -> Self::BidiReadObjectStream, route |_r| Routes::BIDI_READ_OBJECT;
     UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(r.object.as_ref().map(|o| o.bucket.as_str()))]);
-    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| Routes::Deferred;
+    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| Routes::WRITE_OBJECT;
     BidiWriteObject => bidi_write_object(
         Streaming<pb::BidiWriteObjectRequest>,
-    ) -> Self::BidiWriteObjectStream, route |_r| Routes::Deferred;
+    ) -> Self::BidiWriteObjectStream, route |_r| Routes::WRITE_OBJECT;
     ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse, route |r| Routes::Request(&[Route::Bucket(Some(r.parent.as_str()))]);
-    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| Routes::Deferred;
+    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| Routes::REWRITE_OBJECT;
     StartResumableWrite => start_resumable_write(
         pb::StartResumableWriteRequest,
     ) -> pb::StartResumableWriteResponse, route |r| Routes::Request(&[Route::Bucket(r.write_object_spec.as_ref().and_then(|s| s.resource.as_ref()).map(|o| o.bucket.as_str()))]);
