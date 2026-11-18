@@ -337,7 +337,7 @@ impl Storage {
     /// object's file as it arrives; `flush` makes it durable and visible to readers.
     pub(super) async fn receive_append<S>(
         &self,
-        mut message: pb::BidiWriteObjectRequest,
+        message: pb::BidiWriteObjectRequest,
         stream: &mut S,
         caller: Option<Caller<'_>>,
         tx: &Responses,
@@ -351,10 +351,9 @@ impl Storage {
         // opening offset and size limit are checked before the create as well; a takeover's
         // depend on the object it opens, so the writer checks them after the takeover, which
         // stays done.
-        let opening = self
-            .prepare_opening(message.first_message.take(), caller)
-            .await?;
-        let mut step = AppendStep::try_from(WriteStep::from(message))?;
+        let mut first = WriteStep::from(message);
+        let opening = self.prepare_opening(first.first.take(), caller).await?;
+        let mut step = AppendStep::try_from(first)?;
         if let Opening::Create { .. } = opening {
             step.check_new_object(self.max_object_bytes)
                 .map_err(|e| append_status(e, caller))?;
@@ -387,7 +386,8 @@ impl Storage {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
             let report = opening.take().or_else(|| {
-                (flush == Flush::Yes || lookup == Lookup::Yes)
+                StepEnd::Continue { flush, lookup }
+                    .asks_for_status()
                     .then_some(Acknowledgement::PersistedSize)
             });
             if let Some(acknowledgement) = report {

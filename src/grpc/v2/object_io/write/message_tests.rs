@@ -40,9 +40,11 @@ const RECEIVED_OFFSET: &str =
 const RESUME_OFFSET: &str = "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size";
 const TOO_LARGE: &str =
     "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object";
-/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read; an ID that names no
-/// session answers the same.
+/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read.
 const INTERNAL: &str = "We encountered an internal error. Please try again.";
+/// Not recorded: an upload ID of the issued shape that names no session. The emulator departs
+/// from [`INTERNAL`], which SDKs would retry.
+const NO_SESSION: &str = "Upload session not found; start a new resumable write";
 /// Recorded 2026-11-18.
 const TERMINATED: &str = "Upload has already been terminated.";
 
@@ -771,8 +773,9 @@ async fn grpc_single_shot_write_error_precedence() {
             |n| vec![opening(n, b"abc"), chunk(5, b"def").finish().bad_crc()],
             || failed(OutOfRange, RECEIVED_OFFSET, Left::Nothing),
         ),
-        // Recorded 2026-11-18: on the first message a wrong start offset answers before a
-        // wrong object_size, and both before a wrong data checksum.
+        // Recorded 2026-11-18: on the first message a wrong start offset and a wrong
+        // object_size each answer before a wrong data checksum. Their order against each other
+        // was not recorded.
         both(
             "first-offset-over-crc",
             |n| {
@@ -959,7 +962,7 @@ fn unknown(_: &str) -> String {
 
 #[tokio::test]
 async fn grpc_resumable_write_message_errors() {
-    use Code::{Internal, InvalidArgument, OutOfRange, ResourceExhausted};
+    use Code::{Internal, InvalidArgument, NotFound, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         on(
@@ -971,7 +974,7 @@ async fn grpc_resumable_write_message_errors() {
             ),
         ),
         // Recorded 2026-11-18: a stream that closes on less than a granule persists nothing
-        // and fails; one that closes on a whole granule reports it.
+        // and fails.
         on(
             PLAIN,
             both(
@@ -980,6 +983,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(InvalidArgument, dropped_tail(3), Left::Persisted(0)),
             ),
         ),
+        // Not recorded; inferred from the granule above: one that closes on a whole granule
+        // persists it and reports it.
         on(
             PLAIN,
             both(
@@ -1129,6 +1134,8 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
+        // Not recorded: a complete object that fails a checksum declared before the finish is
+        // refused in the catalog's wording and ends the session.
         on(
             PLAIN,
             both(
@@ -1214,8 +1221,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(ResourceExhausted, TOO_LARGE, Left::Persisted(0)),
             ),
         ),
-        // Recorded 2026-11-18: a finishing message whose size differs from the session's
-        // object_size ends the session, below it and above it.
+        // Recorded 2026-11-18: a finishing message below the session's object_size is refused
+        // and ends the session.
         on(
             Session {
                 size: Some(5),
@@ -1227,6 +1234,8 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(OutOfRange, size_mismatch(3, 5), Left::Terminated),
             ),
         ),
+        // Recorded 2026-11-18: a finishing message above object_size is refused the same way.
+        // Not recorded; inferred from the message below it: that it ends the session.
         on(
             Session {
                 size: Some(5),
@@ -1291,16 +1300,17 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
-        // Recorded 2026-11-18: an upload ID Cloud Storage cannot read fails as INTERNAL, and
-        // so does one that names no session; text that is no upload ID is INVALID_ARGUMENT.
+        // Not recorded: an upload ID that names no session (see NO_SESSION).
         on(
             PLAIN,
             both(
                 "unknown-session",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish()],
-                || failed(Internal, INTERNAL, Left::Persisted(0)),
+                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
             ),
         ),
+        // Recorded 2026-11-18: an upload ID Cloud Storage cannot read fails as INTERNAL, and
+        // text that is no upload ID is INVALID_ARGUMENT.
         on(
             PLAIN,
             both(
@@ -1352,7 +1362,7 @@ async fn grpc_resumable_write_message_errors() {
 /// When one resumable message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_resumable_write_error_precedence() {
-    use Code::{FailedPrecondition, Internal, InvalidArgument, OutOfRange, ResourceExhausted};
+    use Code::{FailedPrecondition, InvalidArgument, NotFound, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         // A later upload_id is read like any other message, so the checksum beside it counts.
@@ -1377,7 +1387,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-checksums",
                 |u| vec![resume(&unknown(u), 0, b"abc").md5(3)],
-                || failed(Internal, INTERNAL, Left::Persisted(0)),
+                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1385,7 +1395,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-crc",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish().bad_crc()],
-                || failed(Internal, INTERNAL, Left::Persisted(0)),
+                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1421,6 +1431,8 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(InvalidArgument, key_after_keyless(), Left::Persisted(0)),
             ),
         ),
+        // Not recorded: the session's key and conditions answer before what the message
+        // carries, the emulator's order for a resumable message (see message_options).
         on(
             PREEMPTED,
             both(
@@ -1461,8 +1473,9 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
             ),
         ),
-        // The size checks come before the data checksum, as recorded 2026-11-18 on a
-        // non-resumable write.
+        // Not recorded on a resumable write: object_size answers before the data checksum, as
+        // recorded 2026-11-18 on a non-resumable write. max_object_bytes is the emulator's own
+        // limit and answers before both by its choice.
         on(
             PLAIN,
             both(

@@ -51,10 +51,10 @@ async fn invalid_intake_never_stages_bytes_or_a_completion_marker() {
             bad_crc,
             3,
             None,
-            IntakeError::ChunkCrc {
+            IntakeError::ChunkCrc(CrcMismatch {
                 computed: crc32c::crc32c(b"abc"),
                 client: 0,
-            },
+            }),
         ),
         (piece(1, b"a"), 3, None, IntakeError::Offset),
         (piece(0, b"abc"), 2, None, IntakeError::TooLarge),

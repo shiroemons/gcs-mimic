@@ -1,6 +1,6 @@
 use super::{
     ResponseStream, Storage, access_status, convert, pb,
-    status::{internal_error, read_failure, unsupported_for, with_reason},
+    status::{read_failure, unsupported_for, with_reason},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
@@ -79,15 +79,25 @@ pub(super) fn named_object_status<'a>(
 
 const UPLOAD_CANCELLED: &str = "Upload has already been cancelled.";
 const UPLOAD_TERMINATED: &str = "Upload has already been terminated.";
+const UPLOAD_NOT_FOUND: &str = "Upload session not found; start a new resumable write";
 
-/// The answer to a write that names a session it cannot continue (recorded 2026-11-18).
+/// The answer to a write that names a session it cannot continue.
 ///
-/// Cloud Storage failed internally on every upload ID it could not read, so an ID that names no
-/// session answers the same. A write to a cancelled session was INVALID_ARGUMENT; a session the
-/// service ended itself is worded like it.
+/// Recorded 2026-11-18: a write to a cancelled session is INVALID_ARGUMENT "Upload has already
+/// been cancelled.". Not recorded; inferred from that answer and from the wording QueryWriteStatus
+/// was recorded giving a terminated session: a write to a session the emulator ended
+/// ([`ResumableError::Gone`]) is INVALID_ARGUMENT "Upload has already been terminated.".
+///
+/// Not recorded: an upload ID that parses but whose session does not exist, has expired (also
+/// while a write holds it) or belongs to another bucket. The nearest recorded answer is the
+/// INTERNAL that Cloud Storage gave IDs it could not read, which [`UnknownUploadId::Unreadable`]
+/// keeps. Such a session can never be found again, and INTERNAL makes SDKs retry a call that
+/// cannot succeed, so the emulator answers NOT_FOUND and names the remedy instead.
+///
+/// [`UnknownUploadId::Unreadable`]: upload_id::UnknownUploadId::Unreadable
 fn session_status(error: ResumableError) -> Status {
     match error {
-        ResumableError::NotFound => internal_error(),
+        ResumableError::NotFound => Status::not_found(UPLOAD_NOT_FOUND),
         ResumableError::Cancelled => Status::invalid_argument(UPLOAD_CANCELLED),
         ResumableError::Gone => Status::invalid_argument(UPLOAD_TERMINATED),
         ResumableError::Invalid(message) => Status::invalid_argument(message),
@@ -99,7 +109,14 @@ fn session_status(error: ResumableError) -> Status {
 }
 
 /// [`session_status`] for QueryWriteStatus and CancelResumableWrite, which answer a session
-/// that already ended with FAILED_PRECONDITION and its reason (recorded 2026-11-18).
+/// that already ended with FAILED_PRECONDITION and its reason.
+///
+/// Recorded 2026-11-18: QueryWriteStatus on a cancelled session, and on a session that a
+/// finishing message with the wrong size ended. CancelResumableWrite was recorded only on a
+/// cancelled and on a completed session, which its caller answers. Not recorded; inferred from
+/// QueryWriteStatus's answer: QueryWriteStatus on a session the emulator ended for another
+/// reason, such as a complete object that failed its declared checksum, and
+/// CancelResumableWrite on any session the emulator ended.
 fn ended_session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::Cancelled => with_reason(
@@ -160,10 +177,8 @@ fn intake_status(error: IntakeError) -> Status {
         IntakeError::Offset => Status::out_of_range(
             "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
         ),
-        IntakeError::ChunkCrc { computed, client } => {
-            MessageError::ChunkCrc { computed, client }.into()
-        }
-        IntakeError::Overflow => Status::out_of_range("Object size overflow"),
+        IntakeError::ChunkCrc(mismatch) => MessageError::from(mismatch).into(),
+        IntakeError::Overflow => Status::out_of_range("write_offset plus content length overflows"),
         IntakeError::TooLarge => Status::resource_exhausted(
             "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
         ),

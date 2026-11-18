@@ -382,12 +382,13 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		t.Fatalf("finalized object changed: %v %v", attrs, err)
 	}
 	// Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT; an ID the service
-	// cannot read, or that names no session, fails as INTERNAL.
+	// cannot read fails as INTERNAL. Not recorded: an ID that names no session is NOT_FOUND,
+	// which SDKs do not retry.
 	for id, code := range map[string]codes.Code{
 		"":                               codes.InvalidArgument,
 		bucket.BucketName():              codes.InvalidArgument,
 		bucket.BucketName() + "/not-hex": codes.Internal,
-		bucket.BucketName() + "/" + strings.Repeat("0", 64): codes.Internal,
+		bucket.BucketName() + "/" + strings.Repeat("0", 64): codes.NotFound,
 	} {
 		if err := cancelUpload(id); status.Code(err) != code {
 			t.Fatalf("cancel %q=%v", id, err)
