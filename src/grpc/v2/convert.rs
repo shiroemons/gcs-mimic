@@ -204,8 +204,7 @@ fn entity_alt(entity: &Entity, project: &str) -> String {
     entity
         .team()
         .filter(|&(_, named)| ProjectNumber::of(named) == ProjectNumber::of(project))
-        .map(|(team, _)| format!("project-{}-{project}", team.as_str()))
-        .unwrap_or_default()
+        .map_or_default(|(team, _)| format!("project-{}-{project}", team.as_str()))
 }
 
 macro_rules! access_control {

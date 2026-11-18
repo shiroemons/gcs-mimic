@@ -138,10 +138,7 @@ impl PublicOrigin {
         let port = authority
             .port_u16()
             .filter(|port| !matches!((scheme, port), ("http", 80) | ("https", 443)));
-        let authority_text = format!(
-            "{host_text}{}",
-            port.map(|p| format!(":{p}")).unwrap_or_default()
-        );
+        let authority_text = format!("{host_text}{}", port.map_or_default(|p| format!(":{p}")));
         Ok(Self {
             base: format!("{scheme}://{authority_text}"),
             authority: authority_text
@@ -297,8 +294,7 @@ pub fn virtual_host_object_url(
         uri.scheme_str().ok_or(UrlError::MissingScheme)?,
         authority
             .port_u16()
-            .map(|port| format!(":{port}"))
-            .unwrap_or_default(),
+            .map_or_default(|port| format!(":{port}")),
         encode_object_name(object)
     ))
 }

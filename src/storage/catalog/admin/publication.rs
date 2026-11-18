@@ -1108,8 +1108,7 @@ fn publish_checked_entry(
         entry
             .request
             .condition
-            .map(GenerationCondition::conditions)
-            .unwrap_or_default(),
+            .map_or_default(GenerationCondition::conditions),
         delete_permission,
         now,
     )?;

@@ -682,14 +682,12 @@ impl Catalog {
                 "Upload options exceed 64 KiB".into(),
             ));
         }
-        let (mut output, running_hash) = appended
-            .map(
-                |Appended {
-                     output,
-                     running_hash,
-                 }| (Some(output), running_hash),
-            )
-            .unwrap_or_default();
+        let (mut output, running_hash) = appended.map_or_default(
+            |Appended {
+                 output,
+                 running_hash,
+             }| (Some(output), running_hash),
+        );
         if running_hash
             .as_ref()
             .is_some_and(|state| state.bytes() != offset)

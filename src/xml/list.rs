@@ -359,9 +359,7 @@ fn render_header_v1(
     let (marker_tag, generation_tag) = marker_tags(params);
     encoding.element(w, marker_tag, marker);
     if params.query.versions {
-        let generation = generation
-            .map(|generation| generation.to_string())
-            .unwrap_or_default();
+        let generation = generation.map_or_default(|generation| generation.to_string());
         w.element(generation_tag, &generation);
     }
     if !params.query.delimiter.is_empty() {

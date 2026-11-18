@@ -1901,8 +1901,7 @@ async fn validate_bodyless_post(
     if !accepted {
         let example = expected
             .first_key_value()
-            .map(|(key, value)| format!("{key}={value}"))
-            .unwrap_or_default();
+            .map_or_default(|(key, value)| format!("{key}={value}"));
         let allowed = match empty_json {
             EmptyJsonBody::Accepted => "an empty body, an empty JSON object,",
             EmptyJsonBody::Refused => "an empty body,",

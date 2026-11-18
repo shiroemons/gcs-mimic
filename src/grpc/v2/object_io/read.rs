@@ -444,8 +444,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map(json::encode_object_page_token)
-            .unwrap_or_default();
+            .map_or_default(json::encode_object_page_token);
         let mut objects = page
             .items
             .iter()

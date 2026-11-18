@@ -524,9 +524,10 @@ impl Storage {
             .expected
             .verify(&source.object.hashes())
             .map_err(|mismatch| checksum_mismatch(mismatch.algorithm()))?;
-        let mut metadata = resource
-            .map(super::object_update::for_write)
-            .unwrap_or_else(|| super::object_update::inherited(&source.object));
+        let mut metadata = resource.map_or_else(
+            || super::object_update::inherited(&source.object),
+            super::object_update::for_write,
+        );
         // The destination key alone decides the new object's encryption; rewriting an object
         // onto itself with a new key rotates it.
         metadata.customer_key_sha256 = options.keys.destination.map(CustomerKey::sha256);
@@ -635,8 +636,7 @@ impl Storage {
                 let preconditions = conditions(
                     s.object_preconditions
                         .as_ref()
-                        .map(ObjectConditions::from)
-                        .unwrap_or_default(),
+                        .map_or_default(ObjectConditions::from),
                 )?;
                 Ok(ComposeSource {
                     name: s.name.clone(),

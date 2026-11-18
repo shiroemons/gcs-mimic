@@ -411,9 +411,7 @@ fn retain(
 }
 
 fn diagnostic_bytes(record: &Diagnostic) -> usize {
-    serde_json::to_vec(record)
-        .map(|bytes| bytes.len())
-        .unwrap_or(usize::MAX)
+    serde_json::to_vec(record).map_or(usize::MAX, |bytes| bytes.len())
 }
 
 fn group_digest(key: &str) -> [u8; 32] {
