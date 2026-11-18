@@ -187,7 +187,8 @@ macro_rules! storage_methods {
                     let caller = self.authenticate(&request).await?;
                     let $r = request.get_ref();
                     let admitted = routing::admit(request.metadata(), $routes)?;
-                    // A handler that learns its resources later compares what was admitted.
+                    // Every call carries its admission; a handler that learns its resources
+                    // later compares them with it (`routing::Admitted::of`).
                     request.extensions_mut().insert(admitted);
                     self.$method(request, caller)
                         .await

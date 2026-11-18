@@ -1,10 +1,26 @@
 use super::write::{MessagePosition, WriteRpc, check_later_key, finished, persisted_answer};
 use super::*;
-use crate::grpc::v2::{routing, stored};
+use crate::bucket::BucketAccess;
+use crate::grpc::v2::{routing::Admitted, stored};
 use crate::hashing::{Hasher, Hashes};
 use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written, failure::object_unavailable};
 
 impl Storage {
+    /// Authorizes `caller` to write to `bucket`, the bucket an upload ID names, and then
+    /// compares the call's routing with it ([`Admitted::compare_upload`], which states the
+    /// order). gRPC upload IDs are not bearer capabilities, so QueryWriteStatus,
+    /// CancelResumableWrite and a resumed write all require the permission to create objects.
+    pub(super) async fn authorize_upload(
+        &self,
+        caller: Option<Caller<'_>>,
+        admitted: &Admitted,
+        bucket: &str,
+    ) -> Result<BucketAccess, Status> {
+        let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
+        admitted.compare_upload(bucket)?;
+        Ok(access)
+    }
+
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
     pub(in crate::grpc::v2) async fn cancel_resumable_write(
         &self,
@@ -14,10 +30,8 @@ impl Storage {
         let (_, extensions, r) = request.into_parts();
         let upload = r.upload_id.parse::<UploadId>()?;
         let (bucket, id) = (upload.bucket(), upload.session());
-        routing::check_upload(extensions.get(), bucket)?;
-        // gRPC upload IDs are not bearer capabilities, so cancellation requires the
-        // same permission as QueryWriteStatus and resumed writes.
-        self.access(caller, bucket, OBJECTS_CREATE).await?;
+        self.authorize_upload(caller, Admitted::of(&extensions)?, bucket)
+            .await?;
         match self
             .state
             .catalog
@@ -95,8 +109,9 @@ impl Storage {
         // or a finished session (recorded 2026-11-15), so the parameters are not read.
         let upload = r.upload_id.parse::<UploadId>()?;
         let (bucket, id) = (upload.bucket(), upload.session());
-        routing::check_upload(extensions.get(), bucket)?;
-        let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
+        let access = self
+            .authorize_upload(caller, Admitted::of(&extensions)?, bucket)
+            .await?;
         let session = self
             .state
             .catalog
@@ -201,7 +216,9 @@ impl Storage {
 
     /// Serves one stream of messages for the session `upload` names, starting with `step`.
     /// A later message that names the `upload_id` again is read like any other, as Cloud
-    /// Storage reads it (recorded 2026-11-18).
+    /// Storage reads it (recorded 2026-11-18). The caller is authorized for the session's bucket
+    /// before each message, and before the first the stream's routing is compared with that
+    /// bucket ([`Admitted::compare_upload`]).
     ///
     /// Each message is checked in this order: the key `StartResumableWrite` bound, what the
     /// message carries against what the session persisted ([`Call::admit`]: offset, size and
@@ -220,11 +237,14 @@ impl Storage {
         upload: &UploadId,
         caller: Option<Caller<'_>>,
         rpc: WriteRpc<'_>,
+        admitted: &Admitted,
     ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let (bucket, id) = (upload.bucket(), upload.session());
         let mut call = Call::default();
+        // The routing is compared once, after the first authorization; each later message is
+        // authorized again before it is taken.
+        let mut access = self.authorize_upload(caller, admitted, bucket).await?;
         loop {
-            let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
             let lease = self
                 .state
                 .catalog
@@ -291,6 +311,7 @@ impl Storage {
                 return Ok(answer);
             };
             step = next;
+            access = self.access(caller, bucket, OBJECTS_CREATE).await?;
         }
     }
 

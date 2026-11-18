@@ -135,21 +135,29 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 	// the INTERNAL that Cloud Storage answered an upload_id naming no session (recorded, case
 	// grpc-probe-inferred-upload-ids).
 	request := grpcIOMessage(t, "CancelResumableWriteRequest", map[string]any{"upload_id": "grpc-foundation-absent/" + strings.Repeat("0", 64)})
-	for _, token := range []string{"", "Basic garbage", "Bearer unknown", "Bearer local-admin-token"} {
-		// A readable upload_id needs the routing metadata naming its bucket (recorded 2026-11-19,
-		// case grpc-probe-inferred-routing); authentication still comes first.
-		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-goog-request-params", "bucket=projects/_/buckets/grpc-foundation-absent"), 3*time.Second)
-		if token != "" {
-			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", token)
+	// A readable upload_id needs the routing metadata naming its bucket (recorded 2026-11-19,
+	// case grpc-probe-inferred-routing). The emulator authenticates and authorizes the caller
+	// before it compares that routing, a local choice no recording covers: a caller without
+	// credentials is refused for them even when it routes another bucket, and only the admin
+	// learns that its routing differs.
+	for _, attempt := range []struct {
+		token, bucket string
+		want          codes.Code
+	}{
+		{"", "another-bucket", codes.Unauthenticated},
+		{"Basic garbage", "another-bucket", codes.Unauthenticated},
+		{"Bearer unknown", "another-bucket", codes.Unauthenticated},
+		{"Bearer local-admin-token", "another-bucket", codes.InvalidArgument},
+		{"Bearer local-admin-token", "grpc-foundation-absent", codes.Internal},
+	} {
+		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-goog-request-params", "bucket=projects/_/buckets/"+attempt.bucket), 3*time.Second)
+		if attempt.token != "" {
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", attempt.token)
 		}
 		err := conn.Invoke(ctx, "/google.storage.v2.Storage/CancelResumableWrite", request, grpcIOMessage(t, "CancelResumableWriteResponse", nil))
 		cancel()
-		want := codes.Unauthenticated
-		if token == "Bearer local-admin-token" {
-			want = codes.Internal
-		}
-		if status.Code(err) != want {
-			t.Errorf("credential %q: expected %v, got %v", token, want, err)
+		if status.Code(err) != attempt.want {
+			t.Errorf("credential %q routed to %s: expected %v, got %v", attempt.token, attempt.bucket, attempt.want, err)
 		}
 	}
 }

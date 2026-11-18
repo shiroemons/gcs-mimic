@@ -3,7 +3,7 @@ use super::{
     object_io::ObjectField,
     object_update::canned_acl,
     pb,
-    routing::Route,
+    routing::{Admitted, Route},
     status::{invalid_field, unsupported},
 };
 use crate::{
@@ -389,6 +389,9 @@ impl Storage {
             ));
         }
         let parameters = rewrite_parameters(&r, options);
+        // The token is looked up before the routing comparison because a continuation may
+        // leave out its buckets, and the session the token names supplies them; only then are
+        // the source and destination known to compare.
         let session = if r.rewrite_token.is_empty() {
             None
         } else {
@@ -402,13 +405,10 @@ impl Storage {
         };
         let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
-        super::routing::check(
-            extensions.get(),
-            &[
-                Route::SourceBucket(Some(target.source_bucket)),
-                Route::DestinationBucket(Some(target.destination_bucket)),
-            ],
-        )?;
+        Admitted::of(&extensions)?.compare(&[
+            Route::SourceBucket(Some(target.source_bucket)),
+            Route::DestinationBucket(Some(target.destination_bucket)),
+        ])?;
         let destination_bucket = target.destination_bucket;
         let read = self
             .access(caller, target.source_bucket, auth::OBJECTS_GET)
@@ -707,7 +707,9 @@ mod rewrite_keys;
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{RESOURCE, grants, setup, stored_object, upload};
+    use super::super::test_support::{
+        RESOURCE, grants, setup, stored_object, undispatched, upload,
+    };
     use super::*;
     use crate::acl::PredefinedObjectAcl;
     use crate::grpc::test_support::{
@@ -847,7 +849,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        s.rewrite_object(Request::new(rewrite), None).await.unwrap();
+        s.rewrite_object(undispatched(rewrite), None).await.unwrap();
         for name in ["composed", "rewritten"] {
             let stored = stored_object(&s, name).await.unwrap();
             assert!(stored.temporary_hold.is_held(), "{name}");
@@ -948,7 +950,7 @@ mod tests {
         };
         let rewritten = s
             .rewrite_object(
-                Request::new(rewrite(
+                undispatched(rewrite(
                     "rewritten",
                     checksums(Some(source.crc32c), &source.md5),
                 )),
@@ -972,7 +974,7 @@ mod tests {
             ),
         ] {
             assert_bad_request(
-                s.rewrite_object(Request::new(rewrite("refused", object_checksums)), None)
+                s.rewrite_object(undispatched(rewrite("refused", object_checksums)), None)
                     .await,
                 message,
             );
@@ -983,7 +985,7 @@ mod tests {
             ..rewrite("refused", checksums(None, &source.md5))
         };
         assert_bad_request(
-            s.rewrite_object(Request::new(composite), None).await,
+            s.rewrite_object(undispatched(composite), None).await,
             "Invalid argument.",
         );
         assert!(stored_object(&s, "refused").await.is_none());
@@ -1037,7 +1039,7 @@ mod tests {
             refused,
         );
         assert_bad_request(
-            s.rewrite_object(Request::new(rewrite("update-copy-bucket")), None)
+            s.rewrite_object(undispatched(rewrite("update-copy-bucket")), None)
                 .await,
             refused,
         );
@@ -1049,7 +1051,7 @@ mod tests {
             .into_inner();
         assert_eq!(updated.storage_class, "REGIONAL");
         let rewritten = s
-            .rewrite_object(Request::new(rewrite("update-copy-regional")), None)
+            .rewrite_object(undispatched(rewrite("update-copy-regional")), None)
             .await
             .unwrap()
             .into_inner();
@@ -1080,7 +1082,7 @@ mod tests {
             ..Default::default()
         };
         let first = s
-            .rewrite_object(Request::new(request.clone()), None)
+            .rewrite_object(undispatched(request.clone()), None)
             .await
             .unwrap()
             .into_inner();
@@ -1094,7 +1096,7 @@ mod tests {
             ..continued.clone()
         };
         let refused = assert_code(
-            s.rewrite_object(Request::new(other), None).await,
+            s.rewrite_object(undispatched(other), None).await,
             Code::InvalidArgument,
         );
         assert_eq!(
@@ -1102,7 +1104,7 @@ mod tests {
             "rewrite_token does not match the request; repeat the original parameters"
         );
         let second = s
-            .rewrite_object(Request::new(continued), None)
+            .rewrite_object(undispatched(continued), None)
             .await
             .unwrap()
             .into_inner();
@@ -1162,7 +1164,7 @@ mod tests {
             ..rewrite.clone()
         };
         assert_unsupported(
-            s.rewrite_object(Request::new(request), None).await,
+            s.rewrite_object(undispatched(request), None).await,
             "RewriteObject destination_kms_key",
         );
         assert!(stored_object(&s, "rewritten").await.is_none());
@@ -1258,7 +1260,7 @@ mod tests {
             ..Default::default()
         };
         let first = s
-            .rewrite_object(Request::new(request.clone()), None)
+            .rewrite_object(undispatched(request.clone()), None)
             .await
             .unwrap()
             .into_inner();
@@ -1269,7 +1271,7 @@ mod tests {
         mismatched.rewrite_token = first.rewrite_token.clone();
         mismatched.destination_name = "different".into();
         assert_code(
-            s.rewrite_object(Request::new(mismatched), None).await,
+            s.rewrite_object(undispatched(mismatched), None).await,
             Code::InvalidArgument,
         );
         let next = pb::RewriteObjectRequest {
@@ -1277,20 +1279,20 @@ mod tests {
             ..Default::default()
         };
         let second = s
-            .rewrite_object(Request::new(next.clone()), None)
+            .rewrite_object(undispatched(next.clone()), None)
             .await
             .unwrap()
             .into_inner();
         assert_eq!(second.total_bytes_rewritten, 2 * 1024 * 1024);
         let replay = s
-            .rewrite_object(Request::new(next), None)
+            .rewrite_object(undispatched(next), None)
             .await
             .unwrap()
             .into_inner();
         assert_eq!(second, replay);
         let last = s
             .rewrite_object(
-                Request::new(pb::RewriteObjectRequest {
+                undispatched(pb::RewriteObjectRequest {
                     rewrite_token: second.rewrite_token,
                     ..Default::default()
                 }),

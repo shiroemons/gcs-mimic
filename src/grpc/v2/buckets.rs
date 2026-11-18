@@ -22,14 +22,7 @@ fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
 }
 
 fn project_name(resource: &str) -> Result<&str, Status> {
-    let project = resource
-        .strip_prefix("projects/")
-        .filter(|id| !id.contains('/'))
-        .ok_or_else(|| {
-            Status::invalid_argument(format!(
-                "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
-            ))
-        })?;
+    let project = names::project_id(resource)?;
     json::validate_project(project)?;
     // Project numbers are positive and a derived one is never zero, so `projects/0` names no
     // project (recorded 2026-11-17). Earlier releases rendered every project ID as `projects/0`;

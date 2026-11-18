@@ -91,7 +91,9 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::super::convert;
-    use super::super::test_support::{RESOURCE, grants, setup, stored_object, upload, upload_to};
+    use super::super::test_support::{
+        RESOURCE, grants, setup, stored_object, undispatched, upload, upload_to,
+    };
     use super::*;
     use crate::grpc::test_support::{
         self as fixtures, assert_code, assert_unsupported, caller, registry,
@@ -728,7 +730,7 @@ mod tests {
             ..Default::default()
         };
         let rewritten = s
-            .rewrite_object(Request::new(rewrite), None)
+            .rewrite_object(undispatched(rewrite), None)
             .await
             .unwrap()
             .into_inner()

@@ -1,6 +1,6 @@
 //! Fixtures shared by the Storage v2 handler tests: a catalog with two buckets and uploads into it.
 
-use super::{Storage, pb};
+use super::{Storage, pb, routing::Admitted};
 use crate::{
     auth::Auth,
     json,
@@ -15,6 +15,18 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub(super) const RESOURCE: &str = "projects/_/buckets/update-copy-bucket";
+
+/// The routing admission of a handler a test calls directly, without the dispatch: nothing was
+/// admitted, so nothing is compared. Production builds have no such admission.
+pub(super) const UNDISPATCHED: &Admitted = &Admitted::Undispatched;
+
+/// A request for a handler a test calls directly, without the dispatch, carrying
+/// [`UNDISPATCHED`] where the dispatch would store the call's routing admission.
+pub(super) fn undispatched<T>(message: T) -> tonic::Request<T> {
+    let mut request = tonic::Request::new(message);
+    request.extensions_mut().insert(Admitted::Undispatched);
+    request
+}
 
 pub(super) async fn setup() -> (Storage, TestDir) {
     let dir = TestDir::new();

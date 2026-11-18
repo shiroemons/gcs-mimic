@@ -388,8 +388,9 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		t.Fatalf("finalized object changed: %v %v", attrs, err)
 	}
 	// Recorded 2026-11-19 (case grpc-probe-inferred-routing): a readable upload ID needs the
-	// routing metadata, and a routed bucket other than the ID's bucket is INVALID_ARGUMENT
-	// without cancelling the session.
+	// routing metadata, and a routed bucket other than the ID's bucket is INVALID_ARGUMENT.
+	// That the refused cancels leave the session open, which the calls after them check, is the
+	// emulator's behavior: the recorded case checks nothing after its refusals.
 	rerouted := start("rerouted")
 	if err := cancelIn(grpcRouted(ctx, "another-bucket"), rerouted); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("cancel routed to another bucket=%v", err)

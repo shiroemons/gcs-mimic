@@ -18,6 +18,20 @@ pub(crate) fn bucket_name(resource: &str) -> Result<&str, Status> {
         })
 }
 
+/// The ID a project resource name `projects/<id>` names. Only the form is checked here; the
+/// caller validates the ID. Cloud Storage's wording for another form (recorded on ListBuckets,
+/// case grpc-bucket-list, step list-malformed-parent).
+pub(crate) fn project_id(resource: &str) -> Result<&str, Status> {
+    resource
+        .strip_prefix("projects/")
+        .filter(|id| !id.contains('/'))
+        .ok_or_else(|| {
+            Status::invalid_argument(format!(
+                "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
+            ))
+        })
+}
+
 #[cfg(test)]
 pub(crate) fn object_name<'a>(
     bucket: &'a str,

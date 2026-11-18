@@ -6,7 +6,13 @@ use super::{
     write::WriteRpc,
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported, registry};
-use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
+use crate::grpc::{
+    v2::{
+        mask::ReadMask,
+        test_support::{UNDISPATCHED, undispatched},
+    },
+    validate::ByteRange,
+};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use prost::Message;
@@ -322,6 +328,7 @@ pub(super) async fn write_as(
             &mut tonic::codegen::tokio_stream::iter(messages.into_iter().map(Ok)),
             caller,
             WriteRpc::WriteObject,
+            UNDISPATCHED,
         )
         .await
         .map(|answer| {
@@ -384,7 +391,7 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
     };
     let mut stream = ReceiverStream::new(incoming);
     let (result, ()) = tokio::join!(
-        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses), UNDISPATCHED),
         later
     );
     assert_code(result, tonic::Code::FailedPrecondition);
@@ -421,7 +428,7 @@ async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
         let mut stream = tonic::codegen::tokio_stream::iter([Ok(message)]);
         let (tx, mut rx) = mpsc::channel(2);
         let result = storage
-            .receive_write(&mut stream, None, WriteRpc::Bidi(&tx))
+            .receive_write(&mut stream, None, WriteRpc::Bidi(&tx), UNDISPATCHED)
             .await
             .unwrap();
         assert_eq!(
@@ -544,7 +551,7 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     ]);
     assert_code(
         storage
-            .receive_write(&mut stream, None, WriteRpc::WriteObject)
+            .receive_write(&mut stream, None, WriteRpc::WriteObject, UNDISPATCHED)
             .await,
         tonic::Code::Cancelled,
     );
@@ -591,6 +598,7 @@ async fn grpc_io_single_shot_stream_cut_short_publishes_nothing() {
                     &mut tonic::codegen::tokio_stream::iter(messages),
                     None,
                     WriteRpc::WriteObject,
+                    UNDISPATCHED,
                 )
                 .await,
             code,
@@ -639,7 +647,7 @@ async fn grpc_io_single_shot_conditions_are_rechecked_at_publication() {
     };
     let mut stream = ReceiverStream::new(incoming);
     let (result, ()) = tokio::join!(
-        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses), UNDISPATCHED),
         overtake
     );
     let refused = assert_code(result, tonic::Code::FailedPrecondition);
@@ -714,7 +722,7 @@ async fn grpc_io_write_object_answers_at_finish_write_without_reading_further() 
     let id = upload.parse::<UploadId>().unwrap();
     let (mut stream, mut hold) = HeldOpen::new([Ok(resume(&upload, 0, b"abc", true))]);
     let result = storage
-        .receive_write(&mut stream, None, WriteRpc::WriteObject)
+        .receive_write(&mut stream, None, WriteRpc::WriteObject, UNDISPATCHED)
         .await;
     assert!(
         hold.waited.try_recv().is_err(),
@@ -805,7 +813,7 @@ async fn grpc_io_write_object_answers_a_refused_finishing_message_at_once() {
     ] {
         let (mut stream, mut hold) = HeldOpen::new([Ok(message)]);
         let result = storage
-            .receive_write(&mut stream, None, WriteRpc::WriteObject)
+            .receive_write(&mut stream, None, WriteRpc::WriteObject, UNDISPATCHED)
             .await;
         assert!(
             hold.waited.try_recv().is_err(),
@@ -1040,7 +1048,7 @@ async fn grpc_derived_writes_return_the_recorded_owner_and_acl_views() {
         .into_inner();
     let rewritten = storage
         .rewrite_object(
-            Request::new(pb::RewriteObjectRequest {
+            undispatched(pb::RewriteObjectRequest {
                 source_bucket: bucket.into(),
                 source_object: "source".into(),
                 destination_bucket: bucket.into(),
@@ -1212,6 +1220,7 @@ async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
             &mut tonic::codegen::tokio_stream::iter([Ok(message("written", b"hello"))]),
             admin,
             WriteRpc::WriteObject,
+            UNDISPATCHED,
         )
         .await
         .unwrap();
@@ -1264,6 +1273,7 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
             &mut tonic::codegen::tokio_stream::iter([Ok(message("masked", b"masked"))]),
             admin,
             WriteRpc::WriteObject,
+            UNDISPATCHED,
         )
         .await
         .unwrap();
@@ -1604,7 +1614,7 @@ async fn grpc_class_and_stale_conditions_keep_error_precedence() {
         for (label, source) in [("rewrite-destination", None), ("rewrite-source", Some(0))] {
             let status = storage
                 .rewrite_object(
-                    Request::new(pb::RewriteObjectRequest {
+                    undispatched(pb::RewriteObjectRequest {
                         source_bucket: "projects/_/buckets/grpc-io".into(),
                         source_object: "source".into(),
                         destination_bucket: "projects/_/buckets/grpc-io".into(),
@@ -1720,7 +1730,7 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
         pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
     ));
     let query = || {
-        Request::new(pb::QueryWriteStatusRequest {
+        undispatched(pb::QueryWriteStatusRequest {
             upload_id: upload.clone(),
             ..Default::default()
         })
@@ -1762,7 +1772,7 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
     assert!(matches!(
         storage
             .query_write_status(
-                Request::new(pb::QueryWriteStatusRequest {
+                undispatched(pb::QueryWriteStatusRequest {
                     upload_id: upload,
                     ..Default::default()
                 }),
@@ -1946,6 +1956,7 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
             &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"private"))]),
             admin,
             WriteRpc::WriteObject,
+            UNDISPATCHED,
         )
         .await
         .unwrap();
@@ -1959,6 +1970,7 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"denied"))]),
                 reader,
                 WriteRpc::WriteObject,
+                UNDISPATCHED,
             )
             .await,
         tonic::Code::PermissionDenied,
@@ -2059,7 +2071,7 @@ async fn cancel(
 ) -> Result<(), tonic::Code> {
     storage
         .cancel_resumable_write(
-            Request::new(pb::CancelResumableWriteRequest {
+            undispatched(pb::CancelResumableWriteRequest {
                 upload_id: upload_id.into(),
             }),
             caller,
@@ -2076,7 +2088,7 @@ async fn query(
 ) -> Result<pb::query_write_status_response::WriteStatus, tonic::Code> {
     storage
         .query_write_status(
-            Request::new(pb::QueryWriteStatusRequest {
+            undispatched(pb::QueryWriteStatusRequest {
                 upload_id: upload_id.into(),
                 ..Default::default()
             }),
@@ -2248,6 +2260,7 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
             &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, &granule(), false))]),
             admin,
             WriteRpc::WriteObject,
+            UNDISPATCHED,
         )
         .await
         .unwrap();
@@ -2288,7 +2301,9 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
 /// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-resumable-sessions and
 /// grpc-probe-inferred-routing): QueryWriteStatus and CancelResumableWrite answer a malformed
 /// upload ID without the routing metadata, and for a readable ID require the metadata and a
-/// routed bucket equal to the bucket the ID names; a refused call leaves the session as it was.
+/// routed bucket equal to the bucket the ID names. That a refused call leaves the session as it
+/// was is the emulator's behavior: the recorded case ends with the refusals and checks nothing
+/// after them.
 #[tokio::test]
 async fn grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata() {
     let (_dir, storage) = setup(false).await;
@@ -2331,7 +2346,8 @@ async fn grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata() {
         );
         assert_eq!(status.message(), message, "{routing:?}");
     }
-    // The refusals changed nothing: the session is open and answers under its own bucket.
+    // The refusals changed nothing (the emulator's behavior, not recorded): the session is open
+    // and answers under its own bucket.
     let own = fixtures::bucket_routing("grpc-io");
     pb::storage_server::Storage::query_write_status(
         &storage,
@@ -2391,6 +2407,74 @@ async fn grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata() {
     )
     .await
     .unwrap();
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// QueryWriteStatus and CancelResumableWrite with a readable upload ID authorize the caller for
+/// the ID's bucket before they compare the routing, so a caller without access is refused for
+/// its access whatever it routes, and only an authorized caller learns how its routing differs.
+/// A local choice: no recorded call sent missing or rejected credentials.
+#[tokio::test]
+async fn grpc_io_upload_id_calls_authorize_before_comparing_the_routing() {
+    let (_dir, storage) = setup(true).await;
+    let admin = fixtures::caller(&storage, "admin").await;
+    let upload = start(&storage, "authorized-first", admin).await;
+    fn request<T>(token: Option<&str>, routing: Option<&str>, message: T) -> Request<T> {
+        let mut request = match routing {
+            Some(routing) => fixtures::routed_request(routing, message),
+            None => Request::new(message),
+        };
+        if let Some(token) = token {
+            let bearer = format!("Bearer {token}").parse().unwrap();
+            request.metadata_mut().insert("authorization", bearer);
+        }
+        request
+    }
+    let other = Some("bucket=projects%2F_%2Fbuckets%2Fother");
+    let missing =
+        "An x-goog-request-params request metadata property must be provided for this request.";
+    let differs = "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified 'other'";
+    for (token, routing, code, message) in [
+        (None, None, Code::Unauthenticated, None),
+        (None, other, Code::Unauthenticated, None),
+        (Some("reader"), None, Code::PermissionDenied, None),
+        (Some("reader"), other, Code::PermissionDenied, None),
+        (Some("admin"), None, Code::InvalidArgument, Some(missing)),
+        (Some("admin"), other, Code::InvalidArgument, Some(differs)),
+    ] {
+        let query = pb::QueryWriteStatusRequest {
+            upload_id: upload.clone(),
+            ..Default::default()
+        };
+        let cancel = pb::CancelResumableWriteRequest {
+            upload_id: upload.clone(),
+        };
+        for status in [
+            pb::storage_server::Storage::query_write_status(
+                &storage,
+                request(token, routing, query),
+            )
+            .await
+            .unwrap_err(),
+            pb::storage_server::Storage::cancel_resumable_write(
+                &storage,
+                request(token, routing, cancel),
+            )
+            .await
+            .unwrap_err(),
+        ] {
+            assert_eq!(status.code(), code, "{token:?} {routing:?}: {status}");
+            if let Some(message) = message {
+                assert_eq!(status.message(), message, "{token:?} {routing:?}");
+            }
+        }
+    }
+    assert!(matches!(
+        query(&storage, &upload, admin).await,
+        Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
+            0
+        ))
+    ));
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -2467,7 +2551,7 @@ async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
         async move {
             let query = storage
                 .query_write_status(
-                    Request::new(pb::QueryWriteStatusRequest {
+                    undispatched(pb::QueryWriteStatusRequest {
                         upload_id: upload.into(),
                         ..Default::default()
                     }),
@@ -2477,7 +2561,7 @@ async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
                 .unwrap_err();
             let cancel = storage
                 .cancel_resumable_write(
-                    Request::new(pb::CancelResumableWriteRequest {
+                    undispatched(pb::CancelResumableWriteRequest {
                         upload_id: upload.into(),
                     }),
                     caller,
@@ -2707,6 +2791,7 @@ async fn grpc_io_resumable_close_drops_bytes_past_the_last_granule() {
                 &mut tonic::codegen::tokio_stream::iter([Ok(flushed)]),
                 None,
                 WriteRpc::Bidi(&tx),
+                UNDISPATCHED,
             )
             .await,
         tonic::Code::InvalidArgument,
@@ -2731,6 +2816,7 @@ async fn grpc_io_resumable_close_drops_bytes_past_the_last_granule() {
             &mut tonic::codegen::tokio_stream::iter([Ok(lookup)]),
             None,
             WriteRpc::Bidi(&tx),
+            UNDISPATCHED,
         )
         .await
         .unwrap();
@@ -2815,7 +2901,7 @@ async fn grpc_io_ended_sessions_answer_as_recorded() {
     assert_eq!(cancel(&storage, &cancelled, None).await, Ok(()));
     let queried = storage
         .query_write_status(
-            Request::new(pb::QueryWriteStatusRequest {
+            undispatched(pb::QueryWriteStatusRequest {
                 upload_id: cancelled.clone(),
                 ..Default::default()
             }),
@@ -2844,7 +2930,7 @@ async fn grpc_io_ended_sessions_answer_as_recorded() {
         .unwrap();
     let refused = storage
         .cancel_resumable_write(
-            Request::new(pb::CancelResumableWriteRequest {
+            undispatched(pb::CancelResumableWriteRequest {
                 upload_id: finalized.clone(),
             }),
             None,
@@ -2870,7 +2956,7 @@ async fn grpc_io_ended_sessions_answer_as_recorded() {
     let terminated = terminated_session(&storage, "ended-terminated").await;
     let queried = storage
         .query_write_status(
-            Request::new(pb::QueryWriteStatusRequest {
+            undispatched(pb::QueryWriteStatusRequest {
                 upload_id: terminated,
                 ..Default::default()
             }),
@@ -2899,7 +2985,7 @@ async fn grpc_io_terminated_sessions_refuse_cancels_and_writes() {
     }
     let cancelled = storage
         .cancel_resumable_write(
-            Request::new(pb::CancelResumableWriteRequest {
+            undispatched(pb::CancelResumableWriteRequest {
                 upload_id: terminated.clone(),
             }),
             None,
