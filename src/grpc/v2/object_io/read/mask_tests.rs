@@ -1,6 +1,6 @@
 //! When GetObject, ReadObject and ListObjects check their read masks. Which fields a mask may
 //! name does not depend on the object, so the mask is checked with the request, before the caller
-//! is authorized or anything is looked up, as GetBucket and ListBuckets check theirs.
+//! is authorized or anything is looked up, as GetBucket checks its mask.
 
 use super::super::tests::{message, setup, write};
 use super::*;

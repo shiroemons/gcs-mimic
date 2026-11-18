@@ -44,9 +44,10 @@ fn require_content_in_read_mask(mask: ReadMask<'_>) -> Result<(), Status> {
 }
 
 /// Checks the object fields a read mask names before the RPC authorizes the caller or looks
-/// anything up, as GetBucket and ListBuckets check their masks. Which fields a mask may name does
-/// not depend on the object, so an invalid mask is reported for a missing object or an empty
-/// listing too. [`mask_object`] applies these same rules, so this runs it on an empty object.
+/// anything up, as GetBucket checks its mask. Which fields a mask may name does not depend on the
+/// object, so an invalid mask is reported for a missing object or an empty listing too.
+/// [`mask_object`] applies these same rules, so this runs it on an empty object. ListBuckets
+/// checks its mask later, after it authorizes the project.
 fn check_object_mask(mask: ReadMask<'_>) -> Result<(), Status> {
     mask_object(pb::Object::default(), mask).map(drop)
 }
