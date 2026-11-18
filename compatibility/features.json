@@ -24020,10 +24020,11 @@
         },
         {
           "id": "concurrent_streams",
-          "description": "A message for an upload session another stream is writing fails at once with UNAVAILABLE and changes nothing; streams that take turns on one upload each continue at the persisted offset and keep the bytes persisted first; a stream whose upload another stream finalized gets FAILED_PRECONDITION on its next message.",
+          "description": "On a server, a message for an upload session another stream is writing waits for that stream's session lease up to catalog_wait_timeout_ms and then continues at the persisted offset; past that wait it fails with UNAVAILABLE and changes nothing. Streams that take turns on one upload each continue at the persisted offset and keep the bytes persisted first; a stream whose upload another stream finalized gets FAILED_PRECONDITION on its next message.",
           "result": "PASS",
           "test_ids": [
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
             "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first",
             "grpc_io_concurrent_finalization_rejects_later_messages"
           ]
@@ -24059,7 +24060,8 @@
         "grpc_appendable_write_error_precedence",
         "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
-        "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+        "grpc_resumable_write_waits_for_a_leased_session",
+        "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
         "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first",
         "grpc_io_concurrent_finalization_rejects_later_messages",
         "grpc_write_specs_refuse_unhandled_fields",
@@ -24126,7 +24128,8 @@
             "grpc_appendable_write_error_precedence",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
             "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first",
             "grpc_io_concurrent_finalization_rejects_later_messages",
             "grpc_write_specs_refuse_unhandled_fields"
@@ -24193,10 +24196,11 @@
           ]
         },
         {
-          "text": "Streams sharing one upload ID take turns on its session lease: a message arriving while another stream writes fails at once with UNAVAILABLE, and bytes a later message resends over another stream's persisted bytes are skipped without comparison. The proto says nothing about concurrent streams.",
+          "text": "Streams sharing one upload ID take turns on its session lease: a message arriving while another stream writes waits for the lease up to catalog_wait_timeout_ms and then continues, or fails with UNAVAILABLE once that wait runs out, and bytes a later message resends over another stream's persisted bytes are skipped without comparison. The proto does not say how the service orders such streams; it says only that ABORTED from WriteObject indicates concurrent attempts to update a resumable write, after which the client resumes, and it lists UNAVAILABLE among the errors a client resumes after.",
           "gap": "SPEC-GRPC-WRITE-STREAMS",
           "test_ids": [
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
             "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first",
             "grpc_io_concurrent_finalization_rejects_later_messages"
           ]
@@ -24700,10 +24704,10 @@
         },
         {
           "id": "concurrent_status",
-          "description": "While another stream holds the upload session for a message, QueryWriteStatus answers at once with the persisted size of the last checkpoint.",
+          "description": "While another stream holds the upload session for a message and a second message waits for it, QueryWriteStatus answers at once with the persisted size and persisted_data_checksums of the last checkpoint.",
           "result": "PASS",
           "test_ids": [
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting"
+            "grpc_resumable_write_waits_for_a_leased_session"
           ]
         },
         {
@@ -24718,7 +24722,7 @@
         "TestGRPCObjectIOWire",
         "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
-        "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+        "grpc_resumable_write_waits_for_a_leased_session",
         "a_running_hash_must_cover_the_persisted_offset"
       ],
       "verification": [
@@ -24748,7 +24752,7 @@
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting"
+            "grpc_resumable_write_waits_for_a_leased_session"
           ]
         },
         {
@@ -24782,10 +24786,10 @@
       ],
       "scoped_differences": [
         {
-          "text": "QueryWriteStatus does not wait for a message another stream is writing; it answers with the persisted size and checksums of the last checkpoint. The proto says nothing about concurrent streams.",
+          "text": "QueryWriteStatus takes no session lease and does not wait for a message another stream is writing; it answers with the persisted size and checksums of the last checkpoint. The proto does not say whether QueryWriteStatus waits for a write in progress.",
           "gap": "SPEC-GRPC-WRITE-STREAMS",
           "test_ids": [
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting"
+            "grpc_resumable_write_waits_for_a_leased_session"
           ]
         },
         {
@@ -38088,10 +38092,11 @@
         },
         {
           "id": "concurrent_streams",
-          "description": "A message for an upload session another stream is writing fails at once with UNAVAILABLE and changes nothing; streams that take turns on one upload each continue at the persisted offset and keep the bytes persisted first.",
+          "description": "On a server, a message for an upload session another stream is writing waits for that stream's session lease up to catalog_wait_timeout_ms and then continues at the persisted offset; past that wait it fails with UNAVAILABLE and changes nothing. Streams that take turns on one upload each continue at the persisted offset and keep the bytes persisted first.",
           "result": "PASS",
           "test_ids": [
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
             "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first"
           ]
         },
@@ -38122,7 +38127,8 @@
         "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
         "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
-        "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+        "grpc_resumable_write_waits_for_a_leased_session",
+        "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
         "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first"
       ],
       "verification": [
@@ -38156,7 +38162,8 @@
             "grpc_io_write_object_awaits_the_stream_end_without_holding_the_session",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
             "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first"
           ]
         },
@@ -38209,10 +38216,11 @@
           ]
         },
         {
-          "text": "Streams sharing one upload ID take turns on its session lease: a message arriving while another stream writes fails at once with UNAVAILABLE, and bytes a later message resends over another stream's persisted bytes are skipped without comparison. The proto says nothing about concurrent streams.",
+          "text": "Streams sharing one upload ID take turns on its session lease: a message arriving while another stream writes waits for the lease up to catalog_wait_timeout_ms and then continues, or fails with UNAVAILABLE once that wait runs out, and bytes a later message resends over another stream's persisted bytes are skipped without comparison. The proto does not say how the service orders such streams; it says only that ABORTED from WriteObject indicates concurrent attempts to update a resumable write, after which the client resumes, and it lists UNAVAILABLE among the errors a client resumes after.",
           "gap": "SPEC-GRPC-WRITE-STREAMS",
           "test_ids": [
-            "grpc_resumable_write_to_a_leased_session_fails_without_waiting",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
             "grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first"
           ]
         },
