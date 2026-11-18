@@ -250,7 +250,7 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
     let etag = match md5 {
         Some(md5) if plain => format!(
             "\"{}\"",
-            crate::hashing::encode_lower(&json::decode_hash::<16>(md5)?)
+            crate::hashing::encode_lower(&crate::hashing::decode_hash::<16>(md5)?)
         ),
         _ => format!("\"{etag}\""),
     };

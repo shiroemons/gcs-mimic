@@ -34,9 +34,13 @@ fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
         etag: policy
             .etag
             .map(|v| {
-                json::decode_hash::<8>(&v).map(|v| v.to_vec()).map_err(|_| {
-                    Status::internal("Invalid stored policy etag; restore a valid catalog backup")
-                })
+                crate::hashing::decode_hash::<8>(&v)
+                    .map(|v| v.to_vec())
+                    .map_err(|_| {
+                        Status::internal(
+                            "Invalid stored policy etag; restore a valid catalog backup",
+                        )
+                    })
             })
             .transpose()?
             .unwrap_or_default(),

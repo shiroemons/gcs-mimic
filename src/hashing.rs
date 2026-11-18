@@ -102,6 +102,33 @@ pub(crate) struct Hashes {
     pub crc32c: u32,
 }
 
+/// A declared digest that is not the padded standard base64 of exactly the algorithm's width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InvalidDigest;
+
+impl std::fmt::Display for InvalidDigest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Invalid base64 checksum")
+    }
+}
+
+impl std::error::Error for InvalidDigest {}
+
+/// The `N` bytes of a digest declared in padded standard base64, as headers and resource
+/// fields carry MD5 and CRC32C values.
+pub(crate) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], InvalidDigest> {
+    if raw.len() != N.div_ceil(3) * 4 {
+        return Err(InvalidDigest);
+    }
+    crate::base64::decode(
+        raw,
+        crate::base64::Alphabet::Standard,
+        crate::base64::Padding::Required,
+    )
+    .and_then(|bytes| bytes.try_into().ok())
+    .ok_or(InvalidDigest)
+}
+
 #[expect(
     clippy::indexing_slicing,
     reason = "each hex alphabet index is masked or shifted to four bits"

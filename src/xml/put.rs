@@ -256,7 +256,7 @@ pub(super) fn content_type_and_hashes(
         Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
     })?;
     if let Some(md5) = single(headers, "content-md5")? {
-        let content_md5 = json::decode_hash::<16>(md5)
+        let content_md5 = crate::hashing::decode_hash::<16>(md5)
             .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid Content-MD5."))?;
         expected
             .agree(Checksum::Md5(content_md5))

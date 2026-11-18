@@ -50,7 +50,7 @@ pub(super) async fn respond(
         .map(auth::signature::PayloadHash::digest)
         .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration"))?;
     let md5 = super::super::put::single(request.headers(), "content-md5")?
-        .map(json::decode_hash::<16>)
+        .map(crate::hashing::decode_hash::<16>)
         .transpose()?;
     let bytes = crate::bounded_body::read_body(
         request.into_body(),

@@ -765,6 +765,12 @@ impl From<crate::page_token::PageTokenError> for JsonError {
     }
 }
 
+impl From<crate::hashing::InvalidDigest> for JsonError {
+    fn from(error: crate::hashing::InvalidDigest) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
 impl From<crate::bounded_body::BodyError> for JsonError {
     fn from(error: crate::bounded_body::BodyError) -> Self {
         use crate::bounded_body::BodyError;

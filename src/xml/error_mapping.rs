@@ -6,6 +6,7 @@ use crate::{
     auth::InvalidProjectId,
     bounded_body::BodyError,
     bucket::name::ProfileNameError,
+    hashing::InvalidDigest,
     percent::{MalformedEncoding, QueryError},
     time_format::TimeOutOfRange,
 };
@@ -28,6 +29,12 @@ impl From<BodyError> for Error {
 impl From<TimeOutOfRange> for Error {
     fn from(error: TimeOutOfRange) -> Self {
         Self::new(XmlCode::ServiceUnavailable, error.to_string())
+    }
+}
+
+impl From<InvalidDigest> for Error {
+    fn from(error: InvalidDigest) -> Self {
+        Self::invalid(error.to_string())
     }
 }
 
