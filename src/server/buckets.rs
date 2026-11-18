@@ -683,7 +683,7 @@ fn bucket_catalog_error(
     }
     match error {
         CatalogError::NotFound => JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found"),
-        CatalogError::PreconditionFailed => JsonError::new(
+        CatalogError::PreconditionFailed | CatalogError::NotModified => JsonError::new(
             StatusCode::PRECONDITION_FAILED,
             "conditionNotMet",
             "Precondition failed",
@@ -702,5 +702,23 @@ fn bucket_catalog_error(
             ),
         ),
         error => error.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A deletion whose not-match alone failed keeps the JSON answer of any failed condition
+    /// in both profiles.
+    #[test]
+    fn a_lone_not_match_failure_is_answered_as_a_failed_precondition() {
+        for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
+            assert_eq!(
+                bucket_catalog_error(CatalogError::NotModified, profile, None),
+                bucket_catalog_error(CatalogError::PreconditionFailed, profile, None),
+                "{profile:?}"
+            );
+        }
     }
 }

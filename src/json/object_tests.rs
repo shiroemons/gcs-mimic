@@ -1087,6 +1087,16 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
     }
 }
 
+/// The JSON and XML APIs answer a copy or rewrite source whose not-match alone failed as any
+/// failed source condition, never with a conditional read's 304.
+#[test]
+fn a_copy_source_not_match_is_answered_as_a_failed_precondition() {
+    assert_eq!(
+        JsonError::from(ObjectError::SourceNotModified),
+        JsonError::from(ObjectError::PreconditionFailed)
+    );
+}
+
 #[test]
 fn obj_csek_001_encrypted_resource_hides_hashes_without_its_key() {
     let mut object = record();

@@ -715,6 +715,11 @@ pub enum CatalogError {
     /// A soft-deleted bucket cannot be restored because a live bucket has its name.
     RestoreConflict,
     PreconditionFailed,
+    /// A deletion's `ifMetagenerationNotMatch` named the bucket's current metageneration while
+    /// its match condition held; nothing was deleted. The JSON, XML and legacy gRPC APIs answer
+    /// it as [`Self::PreconditionFailed`], while Storage v2 DeleteBucket words it as a resource
+    /// that has not been modified (recorded 2026-11-18).
+    NotModified,
     PublicAccessPrevention,
     /// Strict authorization refused a Cloud Storage permission, including when the bucket's
     /// current owning project is not one the caller was authorized for.
@@ -944,6 +949,7 @@ impl fmt::Display for CatalogError {
             Self::RestoreConflict => formatter
                 .write_str("a bucket with this name exists, so the soft-deleted one cannot be restored"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
+            Self::NotModified => formatter.write_str("not modified"),
             Self::PublicAccessPrevention => {
                 formatter.write_str("public access prevention is enforced")
             }
@@ -997,6 +1003,7 @@ impl TypedSource for CatalogError {
             | Self::NotEmpty
             | Self::RestoreConflict
             | Self::PreconditionFailed
+            | Self::NotModified
             | Self::PublicAccessPrevention
             | Self::Denied(_)
             | Self::Forbidden
@@ -1022,9 +1029,23 @@ impl BucketConditions {
     /// Callers answering a matching `if_metageneration_not_match` with 304 rather than 412
     /// read the fields instead.
     pub(crate) fn hold(self, metageneration: i64) -> bool {
-        self.if_metageneration_match
-            .is_none_or(|value| value == metageneration)
-            && self.if_metageneration_not_match != Some(metageneration)
+        self.check(metageneration).is_ok()
+    }
+
+    /// Compares both optional preconditions with `metageneration`. A failing match is a failed
+    /// precondition even beside a failing not-match; a not-match that alone fails, naming
+    /// `metageneration`, is [`CatalogError::NotModified`].
+    pub(crate) fn check(self, metageneration: i64) -> Result<(), CatalogError> {
+        if self
+            .if_metageneration_match
+            .is_some_and(|value| value != metageneration)
+        {
+            return Err(CatalogError::PreconditionFailed);
+        }
+        if self.if_metageneration_not_match == Some(metageneration) {
+            return Err(CatalogError::NotModified);
+        }
+        Ok(())
     }
 }
 

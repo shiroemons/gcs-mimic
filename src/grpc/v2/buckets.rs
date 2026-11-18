@@ -321,40 +321,11 @@ impl Storage {
             .await
         {
             Ok(()) => Ok(Response::new(())),
-            Err(CatalogError::PreconditionFailed)
-                if self.not_match_alone_failed(name, conditions, &access).await =>
-            {
-                Err(super::status::not_modified())
-            }
+            // Cloud Storage words a not-match that alone fails as a resource that has not been
+            // modified (recorded 2026-11-18).
+            Err(CatalogError::NotModified) => Err(super::status::not_modified()),
             Err(error) => Err(access_status(error, caller)),
         }
-    }
-
-    /// Whether `conditions` fail on the bucket only because `if_metageneration_not_match` names
-    /// its metageneration. Cloud Storage words that DeleteBucket refusal as a not-modified
-    /// resource (recorded 2026-11-18). The bucket is read again after the refused deletion, so
-    /// an intervening change can only pick the other wording of the same status.
-    async fn not_match_alone_failed(
-        &self,
-        name: &str,
-        conditions: BucketConditions,
-        access: &crate::bucket::BucketAccess,
-    ) -> bool {
-        let Some(not_match) = conditions.if_metageneration_not_match else {
-            return false;
-        };
-        self.state
-            .catalog
-            .get_bucket(name, access)
-            .await
-            .ok()
-            .flatten()
-            .is_some_and(|record| {
-                record.metageneration == not_match
-                    && conditions
-                        .if_metageneration_match
-                        .is_none_or(|value| value == record.metageneration)
-            })
     }
     pub(super) async fn get_bucket(
         &self,

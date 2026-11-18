@@ -979,6 +979,12 @@ pub(crate) enum ObjectError {
     /// 304 over JSON (recorded 2026-11 for patch, update, delete, media upload and copy), while
     /// gRPC still reports a failed precondition.
     WriteNotModified,
+    /// A copy or rewrite source's `ifSourceGenerationNotMatch` or
+    /// `ifSourceMetagenerationNotMatch` named its current value while its match conditions
+    /// held; nothing was written. The JSON and XML APIs answer it as any failed source
+    /// condition, while Storage v2 RewriteObject words it as a resource that has not been
+    /// modified (recorded 2026-11-18).
+    SourceNotModified,
     /// Two declarations of a digest disagreed, a digest without a typed algorithm (a signed
     /// payload's SHA-256) did not match, or a mirrored file's fingerprint no longer matches the
     /// record it was published as.
@@ -1045,7 +1051,9 @@ impl fmt::Display for ObjectError {
             }
             Self::Denied(denied) => denied.fmt(formatter),
             Self::Forbidden => formatter.write_str("forbidden"),
-            Self::NotModified | Self::WriteNotModified => formatter.write_str("not modified"),
+            Self::NotModified | Self::WriteNotModified | Self::SourceNotModified => {
+                formatter.write_str("not modified")
+            }
             Self::ChecksumMismatch | Self::HashMismatch(_) => {
                 formatter.write_str("checksum mismatch")
             }
@@ -1122,6 +1130,7 @@ impl TypedSource for ObjectError {
             | Self::Forbidden
             | Self::NotModified
             | Self::WriteNotModified
+            | Self::SourceNotModified
             | Self::ChecksumMismatch
             | Self::HashMismatch(_)
             | Self::TooLarge
@@ -1181,6 +1190,7 @@ impl From<crate::bucket::CatalogError> for ObjectError {
             | CatalogError::NotEmpty
             | CatalogError::RestoreConflict
             | CatalogError::PreconditionFailed
+            | CatalogError::NotModified
             | CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet
             | CatalogError::InvalidMetadata(_)

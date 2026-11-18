@@ -1,6 +1,8 @@
 use super::{
-    bucket_update::acl_entries, mask::unknown_field, object_io::starts_with_object_field, pb,
-    status::unsupported,
+    bucket_update::acl_entries,
+    mask::{UnappliedUpdatePath, update_paths},
+    object_io::ObjectField,
+    pb,
 };
 use crate::{
     acl::{AclKind, AclRequest, PredefinedObjectAcl},
@@ -52,48 +54,13 @@ impl std::str::FromStr for UpdatePath {
             "event_based_hold" => Self::EventBasedHold,
             "acl" => Self::Acl,
             "retention" => Self::Retention,
+            // Any other path is classified by the `Object` fields. The pinned Go SDK names the
+            // output-only `create_time` in an ordinary empty update, which changes nothing.
             path => match path.strip_prefix("metadata.") {
                 Some(key) => Self::MetadataKey(key.into()),
-                None => return Err(UnappliedUpdatePath::from(path)),
+                None => return Err(UnappliedUpdatePath::of::<ObjectField>(path)),
             },
         })
-    }
-}
-
-/// An `update_mask` path UpdateObject does not apply.
-#[derive(Debug, PartialEq, Eq)]
-enum UnappliedUpdatePath {
-    /// A field the service alone sets. Cloud Storage accepts the path and changes nothing but
-    /// the metageneration (recorded 2026-11-18 for `create_time` and `update_time`); the other
-    /// fields the proto marks `OUTPUT_ONLY` are taken the same way. The pinned Go SDK names
-    /// `create_time` in an ordinary empty update.
-    OutputOnly,
-    /// An `Object` field, or a path under one, that gcs-mimic does not update, and `*` beside
-    /// other paths.
-    Unsupported(String),
-    /// A path whose first segment names no `Object` field.
-    Unknown(String),
-}
-
-impl From<&str> for UnappliedUpdatePath {
-    fn from(path: &str) -> Self {
-        match path {
-            "restore_token"
-            | "metageneration"
-            | "size"
-            | "delete_time"
-            | "finalize_time"
-            | "create_time"
-            | "component_count"
-            | "checksums"
-            | "update_time"
-            | "update_storage_class_time"
-            | "owner"
-            | "soft_delete_time"
-            | "hard_delete_time" => Self::OutputOnly,
-            path if path == "*" || starts_with_object_field(path) => Self::Unsupported(path.into()),
-            path => Self::Unknown(path.into()),
-        }
     }
 }
 
@@ -114,19 +81,8 @@ pub(super) fn from_proto(
         ));
     }
     let mut update = ObjectMetadataUpdate::default();
-    // Each path is parsed and applied before the next one is read, so the first failing path in
-    // mask order names the error, whether it is refused or its value is invalid.
-    for path in paths {
-        match path.parse() {
-            Ok(path) => apply_path(&mut update, object, path)?,
-            Err(UnappliedUpdatePath::OutputOnly) => {}
-            Err(UnappliedUpdatePath::Unsupported(path)) => {
-                return Err(unsupported(&format!(
-                    "UpdateObject update_mask {path}; use metadata or content_type"
-                )));
-            }
-            Err(UnappliedUpdatePath::Unknown(path)) => return Err(unknown_field(&path)),
-        }
+    for path in update_paths(paths, "UpdateObject", "metadata or content_type") {
+        apply_path(&mut update, object, path?)?;
     }
     validate(&update)?;
     Ok(update)
@@ -184,7 +140,10 @@ fn acl_request(object: &pb::Object) -> Result<AclRequest, Status> {
 /// PUT does. Cloud Storage cleared the content language, the cache control and the custom
 /// metadata of an object for a `*` update that carried only a content type, and left its ACL
 /// (recorded 2026-11-18). An ACL or a retention the request does carry is applied as its own
-/// path applies it; one it leaves out is kept, which for the retention is not recorded.
+/// path applies it; one it leaves out is kept, which for the retention is not recorded. The
+/// update is a [`WriteMode::Replace`], so `ObjectMetadataUpdate::apply_to_existing` also
+/// releases each hold the request does not set, as gcs-mimic's JSON PUT does. That is outside
+/// what was recorded: the recorded update carried only a content type.
 fn replacement(object: &pb::Object) -> Result<ObjectMetadataUpdate, Status> {
     let mut update = for_write(object);
     if !object.acl.is_empty() {
@@ -260,10 +219,15 @@ pub(super) fn retention(
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
 
+/// The editable metadata a request's object sets, as a [`WriteMode::Replace`] update: for a new
+/// generation (WriteObject, ComposeObject, a RewriteObject destination) and, under a `*` update
+/// mask, for an existing one ([`replacement`]).
 pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
-    // An empty proto3 string leaves the field unnamed rather than cleared. The update always
-    // describes a new generation, where the field starts unset either way, and upload replay
-    // fingerprints keep the bytes they had for it.
+    // An empty proto3 string leaves the field unnamed (`Patch::Keep`) rather than cleared, and
+    // upload replay fingerprints keep the bytes they had for it. Keeping is correct for both
+    // uses only because the field starts unset: a new generation has no value yet, and a
+    // `WriteMode::Replace` update clears an existing generation's content fields before it
+    // applies (`ObjectMetadataUpdate::apply` in `src/object.rs`).
     let named = |value: &str| set(value).map_or(Patch::Keep, Patch::Set);
     ObjectMetadataUpdate {
         write: WriteMode::Replace,
@@ -272,8 +236,9 @@ pub(super) fn for_write(object: &pb::Object) -> ObjectMetadataUpdate {
         content_disposition: named(&object.content_disposition),
         content_language: named(&object.content_language),
         cache_control: named(&object.cache_control),
-        // A merge of every value, not a replacement: the new generation has no entries to keep,
-        // and a replacement would add the map-mode extension to the upload replay fingerprint.
+        // A merge of every value, not a replacement: there are no entries to keep, since a new
+        // generation has none and `WriteMode::Replace` clears an existing one's first, and a
+        // replacement would add the map-mode extension to the upload replay fingerprint.
         metadata: MapPatch::Merge(
             object
                 .metadata
@@ -341,12 +306,30 @@ mod tests {
             Ok(UpdatePath::MetadataKey("a.b".into()))
         );
         assert_eq!("metadata.".parse(), Ok(UpdatePath::MetadataKey("".into())));
+        // Recorded 2026-11-18 for `create_time` and `update_time`; the rest follow the proto's
+        // OUTPUT_ONLY.
+        for path in [
+            "restore_token",
+            "metageneration",
+            "size",
+            "delete_time",
+            "finalize_time",
+            "create_time",
+            "component_count",
+            "checksums",
+            "update_time",
+            "update_storage_class_time",
+            "owner",
+            "soft_delete_time",
+            "hard_delete_time",
+        ] {
+            assert_eq!(
+                path.parse::<UpdatePath>(),
+                Err(UnappliedUpdatePath::OutputOnly),
+                "{path}"
+            );
+        }
         for (path, unapplied) in [
-            // Recorded 2026-11-18 for these two; the rest follow the proto's OUTPUT_ONLY.
-            ("create_time", UnappliedUpdatePath::OutputOnly),
-            ("update_time", UnappliedUpdatePath::OutputOnly),
-            ("owner", UnappliedUpdatePath::OutputOnly),
-            ("checksums", UnappliedUpdatePath::OutputOnly),
             ("*", UnappliedUpdatePath::Unsupported("*".into())),
             ("name", UnappliedUpdatePath::Unsupported("name".into())),
             (
@@ -360,6 +343,14 @@ mod tests {
             (
                 "owner.entity",
                 UnappliedUpdatePath::Unsupported("owner.entity".into()),
+            ),
+            (
+                "checksums.crc32c",
+                UnappliedUpdatePath::Unsupported("checksums.crc32c".into()),
+            ),
+            (
+                "retention_expire_time",
+                UnappliedUpdatePath::Unsupported("retention_expire_time".into()),
             ),
             // Recorded 2026-11-18.
             (

@@ -17,8 +17,10 @@ use crate::{
 use tonic::{Request, Response, Status};
 
 /// One side's conditions of a MoveObject. Unlike the other object RPCs, which compare a match
-/// beside a not-match, Cloud Storage refuses the pair here, for the destination and the source,
-/// while a metageneration match of 0 is compared and fails (recorded 2026-11-18).
+/// beside a not-match, Cloud Storage refused such a pair here, for the destination and for the
+/// source, while it compared a metageneration match of 0, which failed (recorded 2026-11-18).
+/// Every recorded pair gave the match and the not-match the same value; refusing a pair by its
+/// shape whatever its values is inferred.
 fn move_conditions(requested: ObjectConditions) -> Result<ObjectConditions, Status> {
     let requested = conditions(requested)?;
     let generation_pair =

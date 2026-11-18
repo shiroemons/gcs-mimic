@@ -29,7 +29,7 @@ mod step;
 mod upload_id;
 mod write;
 
-pub(super) use object_mask::starts_with_object_field;
+pub(super) use object_mask::ObjectField;
 pub(super) use step::{
     DeclaredChecksums, FirstMessage, Flush, Lookup, MessageError, NegativeOffset, StepEnd,
     VerifiedChunk, WriteStep, next_step,

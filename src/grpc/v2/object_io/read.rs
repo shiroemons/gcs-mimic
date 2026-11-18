@@ -72,17 +72,32 @@ fn unknown_list_field(path: &str) -> Status {
 /// namespace, the only kind of bucket gcs-mimic has (recorded 2026-11-18).
 const RESTORE_TOKEN_REFUSAL: &str = "We encountered an internal error. Please try again.";
 
-/// A ReadObject read mask, checked with the request before the caller is authorized or the
-/// object opened.
-enum FirstResponseMask<'a> {
-    /// An absent or empty mask, or `*`: the first response keeps every field.
-    Everything,
-    /// The mask's paths. Its `metadata` paths select the object; the response's own fields are
-    /// kept only when named.
-    Selected {
-        paths: &'a [String],
-        metadata: MetadataMask,
-    },
+/// What a ReadObject read mask keeps of the responses, decided when the mask is parsed with the
+/// request, before the caller is authorized or the object opened. An absent or empty mask and
+/// `*` keep everything; a mask with paths keeps the response's own fields only when it names
+/// them.
+#[derive(Debug, PartialEq, Eq)]
+struct FirstResponseMask {
+    metadata: MetadataMask,
+    object_checksums: ResponseField,
+    content_range: ResponseField,
+    data_checksum: DataChecksum,
+}
+
+/// Whether the first response keeps one of its own fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResponseField {
+    Kept,
+    Cleared,
+}
+
+impl ResponseField {
+    fn apply<T>(self, field: &mut Option<T>) {
+        match self {
+            Self::Kept => {}
+            Self::Cleared => *field = None,
+        }
+    }
 }
 
 /// Whether a ReadObject data message carries the CRC32C of its content.
@@ -101,9 +116,10 @@ impl DataChecksum {
     }
 }
 
-/// The object a selective ReadObject mask keeps in the first response's `metadata`.
+/// The object a ReadObject mask keeps in the first response's `metadata`.
+#[derive(Debug, PartialEq, Eq)]
 enum MetadataMask {
-    /// `metadata` alone: the whole object.
+    /// No mask, `*`, or a `metadata` path: the whole object.
     Whole,
     /// No `metadata` path: the response carries no object.
     Omitted,
@@ -121,21 +137,34 @@ impl MetadataMask {
     }
 }
 
-impl<'a> FirstResponseMask<'a> {
-    fn parse(mask: ReadMask<'a>, caller: Option<Caller<'_>>) -> Result<Self, Status> {
+impl FirstResponseMask {
+    const EVERYTHING: Self = Self {
+        metadata: MetadataMask::Whole,
+        object_checksums: ResponseField::Kept,
+        content_range: ResponseField::Kept,
+        data_checksum: DataChecksum::Sent,
+    };
+
+    fn parse(mask: ReadMask<'_>, caller: Option<Caller<'_>>) -> Result<Self, Status> {
         require_content_in_read_mask(mask)?;
         let Some(paths) = mask.selective_paths() else {
-            return Ok(Self::Everything);
+            return Ok(Self::EVERYTHING);
         };
-        let mut fields = Vec::new();
+        let mut object_checksums = ResponseField::Cleared;
+        let mut content_range = ResponseField::Cleared;
+        // A mask that selects `checksummed_data.content` alone gets the bytes without their
+        // CRC32C (recorded 2026-11-18).
+        let mut data_checksum = DataChecksum::Omitted;
         let mut whole = false;
+        let mut fields = Vec::new();
         for path in paths {
             match path.as_str() {
-                "checksummed_data"
-                | "checksummed_data.content"
-                | "checksummed_data.crc32c"
-                | "object_checksums"
-                | "content_range" => {}
+                "checksummed_data" | "checksummed_data.crc32c" => {
+                    data_checksum = DataChecksum::Sent;
+                }
+                "checksummed_data.content" => {}
+                "object_checksums" => object_checksums = ResponseField::Kept,
+                "content_range" => content_range = ResponseField::Kept,
                 "metadata" => whole = true,
                 p if let Some(field) = p.strip_prefix("metadata.") => fields.push(field.to_owned()),
                 _ => {
@@ -158,40 +187,18 @@ impl<'a> FirstResponseMask<'a> {
                 unknown_field,
             )?)
         };
-        Ok(Self::Selected { paths, metadata })
-    }
-
-    /// Whether each data message carries its CRC32C. A mask that selects
-    /// `checksummed_data.content` alone gets the bytes without it (recorded 2026-11-18).
-    fn data_checksum(&self) -> DataChecksum {
-        match self {
-            Self::Everything => DataChecksum::Sent,
-            Self::Selected { paths, .. } => {
-                if paths
-                    .iter()
-                    .any(|p| matches!(p.as_str(), "checksummed_data" | "checksummed_data.crc32c"))
-                {
-                    DataChecksum::Sent
-                } else {
-                    DataChecksum::Omitted
-                }
-            }
-        }
+        Ok(Self {
+            metadata,
+            object_checksums,
+            content_range,
+            data_checksum,
+        })
     }
 
     fn apply(&self, first: &mut pb::ReadObjectResponse) {
-        match self {
-            Self::Everything => {}
-            Self::Selected { paths, metadata } => {
-                metadata.apply(&mut first.metadata);
-                if !paths.iter().any(|p| p == "object_checksums") {
-                    first.object_checksums = None;
-                }
-                if !paths.iter().any(|p| p == "content_range") {
-                    first.content_range = None;
-                }
-            }
-        }
+        self.metadata.apply(&mut first.metadata);
+        self.object_checksums.apply(&mut first.object_checksums);
+        self.content_range.apply(&mut first.content_range);
     }
 }
 
@@ -224,11 +231,7 @@ impl Storage {
         }
         let selected = generation(r.generation)?.map(Generation::get);
         let conditions = conditions(ObjectConditions::from(&r))?;
-        let ReadableMetadata {
-            record,
-            finality,
-            hashes,
-        } = if r.soft_deleted == Some(true) {
+        let readable = if r.soft_deleted == Some(true) {
             let generation = selected.ok_or_else(|| {
                 Status::invalid_argument(
                     "soft_deleted=true requires generation; select the soft-deleted generation",
@@ -240,7 +243,7 @@ impl Storage {
                 &access,
                 key,
             )
-            .await?
+            .await
         } else {
             self.get_readable(
                 ObjectTarget::new(bucket, name, selected),
@@ -249,8 +252,12 @@ impl Storage {
                 key,
             )
             .await
-            .map_err(named_object_status(bucket, name))?
         };
+        let ReadableMetadata {
+            record,
+            finality,
+            hashes,
+        } = readable.map_err(named_object_status(bucket, name))?;
         let mut object = super::super::append::object(&record, finality, hashes)?;
         if finality == Finality::Finalized {
             self.add_owner_fields(
@@ -272,15 +279,14 @@ impl Storage {
         conditions: ObjectConditions,
         access: &crate::bucket::BucketAccess,
         key: Option<crate::csek::CustomerKey>,
-    ) -> Result<ReadableMetadata, Status> {
-        let (bucket, name) = (target.bucket.clone(), target.name.clone());
+    ) -> Result<ReadableMetadata, ObjectError> {
         let record = self
             .state
             .catalog
             .get_soft_deleted_object(target, conditions, access)
-            .await
-            .map_err(named_object_status(&bucket, &name))?;
-        let hashes = crate::csek::check_metadata(record.customer_key_sha256, key)?;
+            .await?;
+        let hashes = crate::csek::check_metadata(record.customer_key_sha256, key)
+            .map_err(ObjectError::CustomerEncryption)?;
         Ok(ReadableMetadata {
             record,
             finality: Finality::Finalized,
@@ -360,7 +366,7 @@ impl Storage {
             ..Default::default()
         };
         first_mask.apply(&mut first);
-        let checksum = first_mask.data_checksum();
+        let checksum = first_mask.data_checksum;
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-read-object", async move {
             // Cloud Storage ends the stream after the last data message instead of appending an

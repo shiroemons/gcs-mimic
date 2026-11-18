@@ -2,29 +2,45 @@
 //! once, with the request, so an invalid path is reported before anything is looked up; applying
 //! a parsed mask cannot fail.
 
-use crate::grpc::v2::{mask::ReadMask, pb};
+use crate::grpc::v2::{
+    mask::{ReadMask, ResourceField, UnselectableField},
+    pb,
+};
 
 // `macro_rules!` cannot capitalize an identifier, so each field names its variant.
 macro_rules! object_fields {
     ($($field:ident => $variant:ident),+ $(,)?) => {
         /// A top-level `Object` field.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub(super) enum ObjectField {
+        pub(in crate::grpc::v2) enum ObjectField {
             $($variant),+
         }
 
-        impl ObjectField {
-            fn named(name: &str) -> Option<Self> {
+        impl std::str::FromStr for ObjectField {
+            type Err = UnselectableField;
+
+            fn from_str(name: &str) -> Result<Self, Self::Err> {
                 match name {
-                    $(stringify!($field) => Some(Self::$variant),)+
-                    _ => None,
+                    $(stringify!($field) => Ok(Self::$variant),)+
+                    _ => Err(UnselectableField),
                 }
             }
+        }
 
+        impl ObjectField {
             fn take(self, from: &mut pb::Object, to: &mut pb::Object) {
                 match self {
                     $(Self::$variant => to.$field = std::mem::take(&mut from.$field),)+
                 }
+            }
+
+            /// Resets every field of `object` that [`ResourceField::output_only`] names.
+            pub(in crate::grpc::v2) fn clear_output_only(object: &mut pb::Object) {
+                $(
+                    if Self::$variant.output_only() {
+                        object.$field = Default::default();
+                    }
+                )+
             }
         }
     };
@@ -110,10 +126,45 @@ object_members!(
     retention.retain_until_time => RetentionRetainUntilTime,
 );
 
-/// Whether the first segment of `path` names an `Object` field.
-pub(in crate::grpc::v2) fn starts_with_object_field(path: &str) -> bool {
-    let name = path.split_once('.').map_or(path, |(name, _)| name);
-    ObjectField::named(name).is_some()
+impl ResourceField for ObjectField {
+    fn output_only(self) -> bool {
+        use ObjectField as F;
+        match self {
+            F::RestoreToken
+            | F::Metageneration
+            | F::Size
+            | F::DeleteTime
+            | F::FinalizeTime
+            | F::CreateTime
+            | F::ComponentCount
+            | F::Checksums
+            | F::UpdateTime
+            | F::UpdateStorageClassTime
+            | F::Owner
+            | F::SoftDeleteTime
+            | F::HardDeleteTime => true,
+            F::Name
+            | F::Bucket
+            | F::Etag
+            | F::Generation
+            | F::StorageClass
+            | F::ContentEncoding
+            | F::ContentDisposition
+            | F::CacheControl
+            | F::Acl
+            | F::ContentLanguage
+            | F::ContentType
+            | F::KmsKey
+            | F::TemporaryHold
+            | F::RetentionExpireTime
+            | F::Metadata
+            | F::Contexts
+            | F::EventBasedHold
+            | F::CustomerEncryption
+            | F::CustomTime
+            | F::Retention => false,
+        }
+    }
 }
 
 /// Whether `member` is a real member of `field` that gcs-mimic does not select on its own: the
@@ -135,10 +186,11 @@ fn unprojected_member(field: ObjectField, member: &str) -> bool {
             "retain_until_time.seconds" | "retain_until_time.nanos"
         ),
         F::Contexts => member == "custom" || member.starts_with("custom."),
-        // A scalar has no members. Cloud Storage names no field under a repeated one
-        // (`acl.role`, recorded 2026-11-18) or for a map key (recorded the same day for the
-        // bucket's `labels.<key>`), and the listed members of the remaining messages are
-        // selected.
+        // A scalar has no members. Under a repeated field Cloud Storage named no field for
+        // `acl.role` (recorded 2026-11-18 on GetObject). That an object's map key, such as
+        // `metadata.k`, names no field either is inferred from the bucket's `labels.<key>`
+        // (recorded the same day on GetBucket); no object map key was recorded. The listed
+        // members of the remaining messages are selected.
         F::Name
         | F::Bucket
         | F::Etag
@@ -175,7 +227,9 @@ pub(super) enum ObjectPath {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum UnselectablePath {
     /// The path names no field of the resource: an unknown name, a member its message does not
-    /// have, or anything under a scalar, a repeated field or a map (recorded 2026-11-18).
+    /// have, or anything under a scalar, a repeated field or a map. On GetObject Cloud Storage
+    /// answered so for `no_such_field`, `owner.no_such_field` and `acl.role` (recorded
+    /// 2026-11-18); the other shapes follow from those by inference.
     Unknown(String),
     /// A member that exists but that gcs-mimic does not select apart from its field.
     Unsupported(String),
@@ -200,7 +254,7 @@ impl std::str::FromStr for ObjectPath {
             Some((name, member)) => (name, Some(member)),
             None => (path, None),
         };
-        let Some(field) = ObjectField::named(name) else {
+        let Ok(field) = name.parse::<ObjectField>() else {
             return Err(UnselectablePath::Unknown(path.into()));
         };
         let Some(member) = member else {
@@ -363,11 +417,13 @@ mod tests {
     #[test]
     fn paths_that_name_no_field_are_unknown() {
         for path in [
-            "no_such_field",
-            "no_such_field.entity",
             // Recorded 2026-11-18 on GetObject.
+            "no_such_field",
             "owner.no_such_field",
             "acl.role",
+            // Not recorded: inferred for a path under an unknown name, a member, a scalar or a
+            // map, and for an empty segment.
+            "no_such_field.entity",
             "owner.entity.x",
             "name.x",
             "metadata.k",

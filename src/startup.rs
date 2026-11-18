@@ -438,6 +438,7 @@ fn catalog_open_failure(error: &CatalogError) -> Diagnostics {
         | CatalogError::NotEmpty
         | CatalogError::RestoreConflict
         | CatalogError::PreconditionFailed
+        | CatalogError::NotModified
         | CatalogError::PublicAccessPrevention
         | CatalogError::Denied(_)
         | CatalogError::Forbidden

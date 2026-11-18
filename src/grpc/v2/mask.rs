@@ -3,7 +3,7 @@
 
 use super::{convert::Lifecycle, pb, status};
 use prost_types::FieldMask;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, str::FromStr};
 use tonic::Status;
 
 /// A read mask classified by how it uses `*`; each RPC applies its own rule to the classes.
@@ -48,6 +48,34 @@ impl<'a> ReadMask<'a> {
     }
 }
 
+/// A top-level field of a Storage v2 resource message, parsed from its proto name.
+pub(super) trait ResourceField: FromStr + Copy {
+    /// Names of the resource's fields that are no variant because no mask selects them.
+    const UNSELECTABLE: &[&str] = &[];
+
+    /// Whether the proto marks the field `OUTPUT_ONLY`: only the service sets it.
+    fn output_only(self) -> bool;
+}
+
+/// Whether the first segment of `path` names a field of `F`'s resource, whether or not a mask
+/// selects it.
+fn starts_with_field<F: ResourceField>(path: &str) -> bool {
+    let name = path.split_once('.').map_or(path, |(name, _)| name);
+    F::UNSELECTABLE.contains(&name) || name.parse::<F>().is_ok()
+}
+
+/// A path that is no top-level field gcs-mimic selects, nested paths included.
+#[derive(Debug)]
+pub(super) struct UnselectableField;
+
+impl std::fmt::Display for UnselectableField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("path is no selectable top-level field")
+    }
+}
+
+impl std::error::Error for UnselectableField {}
+
 // `macro_rules!` cannot capitalize an identifier, so each field names its variant.
 macro_rules! bucket_fields {
     ($($field:ident => $variant:ident),+ $(,)?) => {
@@ -58,12 +86,12 @@ macro_rules! bucket_fields {
         }
 
         impl std::str::FromStr for BucketField {
-            type Err = UnselectableBucketPath;
+            type Err = UnselectableField;
 
             fn from_str(path: &str) -> Result<Self, Self::Err> {
                 match path {
                     $(stringify!($field) => Ok(Self::$variant),)+
-                    _ => Err(UnselectableBucketPath),
+                    _ => Err(UnselectableField),
                 }
             }
         }
@@ -116,23 +144,46 @@ bucket_fields!(
     ip_filter => IpFilter,
 );
 
-/// A path that is no top-level `Bucket` field gcs-mimic selects (nested paths included).
-#[derive(Debug)]
-pub(super) struct UnselectableBucketPath;
+impl ResourceField for BucketField {
+    /// `satisfies_pzs`, which no mask selects because the emulator has no value to answer with.
+    const UNSELECTABLE: &[&str] = &["satisfies_pzs"];
 
-impl std::fmt::Display for UnselectableBucketPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("path is no selectable top-level bucket field")
+    fn output_only(self) -> bool {
+        use BucketField as F;
+        match self {
+            F::BucketId
+            | F::Metageneration
+            | F::LocationType
+            | F::CreateTime
+            | F::UpdateTime
+            | F::Owner => true,
+            F::Name
+            | F::Etag
+            | F::Project
+            | F::Location
+            | F::StorageClass
+            | F::Autoclass
+            | F::Labels
+            | F::DefaultEventBasedHold
+            | F::Versioning
+            | F::Cors
+            | F::Lifecycle
+            | F::RetentionPolicy
+            | F::SoftDeletePolicy
+            | F::ObjectRetention
+            | F::IamConfig
+            | F::Acl
+            | F::DefaultObjectAcl
+            | F::Rpo
+            | F::Website
+            | F::Logging
+            | F::Encryption
+            | F::Billing
+            | F::CustomPlacementConfig
+            | F::HierarchicalNamespace
+            | F::IpFilter => false,
+        }
     }
-}
-
-impl std::error::Error for UnselectableBucketPath {}
-
-/// Whether the first segment of `path` names a `Bucket` field: one a mask selects, or
-/// `satisfies_pzs`, which no mask selects because the emulator has no value to answer with.
-pub(super) fn starts_with_bucket_field(path: &str) -> bool {
-    let field = path.split_once('.').map_or(path, |(field, _)| field);
-    field == "satisfies_pzs" || field.parse::<BucketField>().is_ok()
 }
 
 /// Whether a read without a mask includes the ACL fields: GetBucket defaults to all fields,
@@ -167,11 +218,11 @@ impl BucketMask {
             ReadMask::Paths(paths) => paths
                 .iter()
                 .map(|path| {
-                    path.parse().map_err(|UnselectableBucketPath| {
+                    path.parse().map_err(|UnselectableField| {
                         // A path under a `Bucket` field is not selected yet, whether or not
                         // the field has that member; only an unknown first segment is known
                         // to name nothing.
-                        if starts_with_bucket_field(path) {
+                        if starts_with_field::<BucketField>(path) {
                             status::unsupported(&format!("bucket read_mask {path}"))
                         } else {
                             unknown_field(path)
@@ -231,6 +282,56 @@ pub(super) fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], S
                 "GRPC_MISSING_UPDATE_MASK_FIELDS",
             )
         })
+}
+
+/// An `update_mask` path an update RPC does not apply.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum UnappliedUpdatePath {
+    /// An output-only field named without a member path. Cloud Storage accepted `create_time`
+    /// and `update_time` on UpdateBucket and UpdateObject and applied nothing from them
+    /// (recorded 2026-11-18; UpdateObject still advanced the metageneration). That it takes the
+    /// other fields the proto marks `OUTPUT_ONLY` the same way is inferred, not recorded.
+    OutputOnly,
+    /// A field of the resource, or a path under one, that gcs-mimic does not update, and `*`
+    /// beside other paths.
+    Unsupported(String),
+    /// A path whose first segment names no field of the resource.
+    Unknown(String),
+}
+
+impl UnappliedUpdatePath {
+    /// Classifies a path none of the RPC's update paths takes by the fields of `F`'s resource.
+    pub(super) fn of<F: ResourceField>(path: &str) -> Self {
+        if path.parse::<F>().is_ok_and(F::output_only) {
+            Self::OutputOnly
+        } else if path == "*" || starts_with_field::<F>(path) {
+            Self::Unsupported(path.into())
+        } else {
+            Self::Unknown(path.into())
+        }
+    }
+}
+
+/// The update paths `P` an update mask names, parsed in mask order as they are taken, so the
+/// first failing path names the error whether it is refused or its value is invalid. An
+/// output-only field is skipped; any other unapplied path is refused, naming `rpc` and the
+/// paths it does update (`remedy`).
+pub(super) fn update_paths<'a, P>(
+    paths: &'a [String],
+    rpc: &'a str,
+    remedy: &'a str,
+) -> impl Iterator<Item = Result<P, Status>> + 'a
+where
+    P: FromStr<Err = UnappliedUpdatePath>,
+{
+    paths.iter().filter_map(move |path| match path.parse() {
+        Ok(path) => Some(Ok(path)),
+        Err(UnappliedUpdatePath::OutputOnly) => None,
+        Err(UnappliedUpdatePath::Unsupported(path)) => Some(Err(status::unsupported(&format!(
+            "{rpc} update_mask {path}; use {remedy}"
+        )))),
+        Err(UnappliedUpdatePath::Unknown(path)) => Some(Err(unknown_field(&path))),
+    })
 }
 
 /// Cloud Storage's answer to a mask path that names no field of the resource (recorded

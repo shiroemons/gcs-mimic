@@ -438,6 +438,7 @@ impl StorageCause for CatalogError {
             | Self::NotEmpty
             | Self::RestoreConflict
             | Self::PreconditionFailed
+            | Self::NotModified
             | Self::PublicAccessPrevention
             | Self::Denied(_)
             | Self::Forbidden
@@ -478,6 +479,7 @@ impl StorageCause for ObjectError {
             | Self::Forbidden
             | Self::NotModified
             | Self::WriteNotModified
+            | Self::SourceNotModified
             | Self::ChecksumMismatch
             | Self::HashMismatch(_)
             | Self::TooLarge

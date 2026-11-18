@@ -122,9 +122,7 @@ impl Catalog {
             .optional()?
             .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &project, &access)?;
-            if !conditions.hold(metageneration) {
-                return Err(CatalogError::PreconditionFailed);
-            }
+            conditions.check(metageneration)?;
             const NONEMPTY: &str = "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND soft_delete_time IS NULL)";
             let nonempty: bool = sql::scalar(&transaction, NONEMPTY, [&name])?;
             if nonempty {

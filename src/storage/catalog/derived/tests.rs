@@ -740,30 +740,58 @@ async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds()
 async fn all_source_conditions_are_checked_before_pinning_and_ranges_are_validated() {
     let (catalog, path) = setup().await;
     let original = put(&catalog, "source", b"source").await;
-    for conditions in [
-        ObjectConditions {
-            if_generation_match: Some(original.generation + 1),
-            ..Default::default()
-        },
-        ObjectConditions {
-            if_generation_not_match: Some(original.generation),
-            ..Default::default()
-        },
-        ObjectConditions {
-            if_metageneration_match: Some(2),
-            ..Default::default()
-        },
-        ObjectConditions {
-            if_metageneration_not_match: Some(1),
-            ..Default::default()
-        },
+    // A failing match is a failed precondition even beside a not-match that names the current
+    // value; a not-match that alone fails names the source's current value.
+    for (conditions, expected) in [
+        (
+            ObjectConditions {
+                if_generation_match: Some(original.generation + 1),
+                ..Default::default()
+            },
+            ObjectError::PreconditionFailed,
+        ),
+        (
+            ObjectConditions {
+                if_generation_not_match: Some(original.generation),
+                ..Default::default()
+            },
+            ObjectError::SourceNotModified,
+        ),
+        (
+            ObjectConditions {
+                if_metageneration_match: Some(2),
+                ..Default::default()
+            },
+            ObjectError::PreconditionFailed,
+        ),
+        (
+            ObjectConditions {
+                if_metageneration_not_match: Some(1),
+                ..Default::default()
+            },
+            ObjectError::SourceNotModified,
+        ),
+        (
+            ObjectConditions {
+                if_generation_match: Some(original.generation),
+                if_metageneration_not_match: Some(1),
+                ..Default::default()
+            },
+            ObjectError::SourceNotModified,
+        ),
+        (
+            ObjectConditions {
+                if_metageneration_match: Some(2),
+                if_generation_not_match: Some(original.generation),
+                ..Default::default()
+            },
+            ObjectError::PreconditionFailed,
+        ),
     ] {
-        assert!(matches!(
-            catalog
-                .resolve_derived_source(live("bucket", "source"), conditions, PERMISSIVE)
-                .await,
-            Err(ObjectError::PreconditionFailed)
-        ));
+        let result = catalog
+            .resolve_derived_source(live("bucket", "source"), conditions, PERMISSIVE)
+            .await;
+        assert_eq!(result.err(), Some(expected), "{conditions:?}");
     }
     let denied = BucketAccess::Policy {
         identity: None,
@@ -940,6 +968,46 @@ async fn restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfer
     );
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 2);
     catalog.cancel_derived(&persistent.id).await.unwrap();
+    assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+    catalog.close().await.unwrap();
+    fs::remove_dir_all(path).unwrap();
+}
+
+/// Only a copy or rewrite source reports a not-match that alone fails apart: a compose
+/// component's stays a failed precondition, so its wording does not change.
+#[tokio::test]
+async fn a_compose_component_not_match_stays_a_failed_precondition() {
+    let (catalog, path) = setup().await;
+    let original = put(&catalog, "source", b"bytes").await;
+    for conditions in [
+        ObjectConditions {
+            if_generation_not_match: Some(original.generation),
+            ..Default::default()
+        },
+        ObjectConditions {
+            if_metageneration_not_match: Some(original.metageneration),
+            ..Default::default()
+        },
+    ] {
+        let spec = DerivedSourceSpec {
+            target: live("bucket", "source"),
+            conditions,
+            access: BucketAccess::Permissive,
+        };
+        assert_eq!(
+            catalog
+                .resolve_compose_components(vec![spec.clone()], None)
+                .await
+                .err(),
+            Some(ObjectError::PreconditionFailed),
+            "{conditions:?}"
+        );
+        assert_eq!(
+            catalog.resolve_derived_sources(vec![spec]).await.err(),
+            Some(ObjectError::SourceNotModified),
+            "{conditions:?}"
+        );
+    }
     assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
     catalog.close().await.unwrap();
     fs::remove_dir_all(path).unwrap();

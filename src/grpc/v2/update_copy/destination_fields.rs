@@ -19,6 +19,56 @@ fn compose(destination: pb::Object) -> pb::ComposeObjectRequest {
     }
 }
 
+/// A destination loses the generation and the fields the proto marks `OUTPUT_ONLY`; every other
+/// field stays as the request set it.
+#[test]
+fn service_set_fields_are_the_generation_and_the_output_only_fields() {
+    let stamp = Some(prost_types::Timestamp {
+        seconds: 1_577_836_800,
+        nanos: 0,
+    });
+    let editable = pb::Object {
+        name: "name".into(),
+        bucket: "bucket".into(),
+        etag: "etag".into(),
+        storage_class: "STANDARD".into(),
+        content_encoding: "gzip".into(),
+        content_disposition: "inline".into(),
+        cache_control: "no-cache".into(),
+        acl: vec![pb::ObjectAccessControl::default()],
+        content_language: "en".into(),
+        content_type: "text/plain".into(),
+        kms_key: "key".into(),
+        temporary_hold: true,
+        retention_expire_time: stamp,
+        metadata: [("key".into(), "value".into())].into(),
+        contexts: Some(Default::default()),
+        event_based_hold: Some(true),
+        customer_encryption: Some(Default::default()),
+        custom_time: stamp,
+        retention: Some(Default::default()),
+        ..Default::default()
+    };
+    let service_set = pb::Object {
+        generation: 1,
+        restore_token: Some("token".into()),
+        metageneration: 2,
+        size: 3,
+        delete_time: stamp,
+        finalize_time: stamp,
+        create_time: stamp,
+        component_count: 4,
+        checksums: Some(Default::default()),
+        update_time: stamp,
+        update_storage_class_time: stamp,
+        owner: Some(Default::default()),
+        soft_delete_time: stamp,
+        hard_delete_time: stamp,
+        ..editable.clone()
+    };
+    assert_eq!(without_service_fields(service_set), editable);
+}
+
 #[tokio::test]
 async fn compose_object_accepts_the_sources_class_and_ignores_service_set_fields() {
     let (s, _dir) = setup().await;

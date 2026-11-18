@@ -837,7 +837,8 @@ pub(super) fn check_conditions(
             (RequestKind::Read, _) => ObjectError::NotModified,
             // A not-match on an absent object holds no current value to name.
             (RequestKind::Mutation, Some(_)) => ObjectError::WriteNotModified,
-            (RequestKind::Mutation, None) | (RequestKind::Write, _) => {
+            (RequestKind::CopySource, Some(_)) => ObjectError::SourceNotModified,
+            (RequestKind::Mutation | RequestKind::CopySource, None) | (RequestKind::Write, _) => {
                 ObjectError::PreconditionFailed
             }
         });
