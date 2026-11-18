@@ -178,6 +178,7 @@ impl Storage {
         loop {
             check_resumable_message(&message, caller)?;
             let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
+            let trailing = read_past_finish(stream, &message, end).await;
             let lease = self
                 .state
                 .catalog
@@ -209,12 +210,7 @@ impl Storage {
                 written,
                 length,
             } = resumable_piece(&message, &data, persisted, position, self.max_object_bytes)?;
-            if message.finish_write
-                && end == EndOfStream::Required
-                && stream.next().await.transpose()?.is_some()
-            {
-                return Err(message_after_finish());
-            }
+            trailing?;
             let (tx, rx) = mpsc::channel(2);
             let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
             let chunk = ResumableChunk {
@@ -278,6 +274,24 @@ impl Storage {
             message = next;
         }
     }
+}
+
+/// Reads past `message` when it ends a stream that must end there, and returns the failure
+/// that implies. The loop reads it before taking the session lease, so a client that never
+/// half-closes cannot hold the session, and reports it after the message's own checks, which
+/// take precedence.
+async fn read_past_finish<S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin>(
+    stream: &mut S,
+    message: &pb::BidiWriteObjectRequest,
+    end: EndOfStream,
+) -> Result<(), Status> {
+    if message.finish_write
+        && end == EndOfStream::Required
+        && stream.next().await.transpose()?.is_some()
+    {
+        return Err(message_after_finish());
+    }
+    Ok(())
 }
 
 /// What a resumable session had persisted when its lease was taken.

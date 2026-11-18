@@ -358,6 +358,72 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// A request stream that yields `message`, then stays open, as a client that never half-closes
+/// does, until `release` fires. `waiting` fires once the handler asks for the next message.
+struct HeldOpen {
+    message: Option<pb::BidiWriteObjectRequest>,
+    waiting: Option<tokio::sync::oneshot::Sender<()>>,
+    release: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl Stream for HeldOpen {
+    type Item = Result<pb::BidiWriteObjectRequest, Status>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if let Some(message) = self.message.take() {
+            return std::task::Poll::Ready(Some(Ok(message)));
+        }
+        if let Some(waiting) = self.waiting.take() {
+            let _ = waiting.send(());
+        }
+        std::pin::Pin::new(&mut self.release).poll(cx).map(|_| None)
+    }
+}
+
+/// WriteObject must see its stream end after finish_write. A client that keeps the stream open
+/// must not hold the session meanwhile, or no other stream and no cancellation could use it.
+#[tokio::test]
+async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session() {
+    let (_dir, storage) = setup(false).await;
+    let upload = start(&storage, "held-open", None).await;
+    let id = upload.parse::<UploadId>().unwrap();
+    let (waiting, waited) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let mut stream = HeldOpen {
+        message: Some(resume(&upload, 0, b"abc", true)),
+        waiting: Some(waiting),
+        release: released,
+    };
+    let other = async {
+        waited.await.unwrap();
+        let lease = storage
+            .state
+            .catalog
+            .lock_resumable_session(id.session(), id.bucket())
+            .await;
+        let free = lease.is_ok();
+        drop(lease);
+        release.send(()).unwrap();
+        free
+    };
+    let (result, free) = tokio::join!(
+        storage.receive_write(&mut stream, None, None, EndOfStream::Required),
+        other
+    );
+    assert!(
+        free,
+        "the session stayed leased while the stream stayed open"
+    );
+    let pb::bidi_write_object_response::WriteStatus::Resource(object) = result.unwrap() else {
+        panic!("not finalized")
+    };
+    assert_eq!(object.size, 3);
+    storage.state.catalog.close().await.unwrap();
+}
+
 #[test]
 fn grpc_io_range_and_masks() {
     assert_eq!(
