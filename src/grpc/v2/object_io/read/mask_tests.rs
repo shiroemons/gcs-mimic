@@ -3,7 +3,7 @@
 //! is authorized or anything is looked up, as GetBucket checks its mask.
 
 use super::super::tests::{message, setup, write};
-use super::test_support::read_as;
+use super::test_support::{read, read_as};
 use super::*;
 use crate::grpc::test_support::{assert_code, assert_unsupported, mask};
 
@@ -174,6 +174,70 @@ async fn a_nested_owner_path_is_served_without_the_owner() {
     let data = first.checksummed_data.unwrap();
     assert_eq!(data.content.as_ref(), b"data");
     assert_eq!(data.crc32c, None);
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A ReadObject mask with paths keeps the first response's own fields, and the CRC32C of each
+/// data message, only when it names them; an absent mask and `*` keep everything.
+#[tokio::test]
+async fn a_read_mask_keeps_only_the_response_fields_it_names() {
+    let (_dir, storage) = setup(false).await;
+    write(&storage, vec![message("object", b"data")])
+        .await
+        .unwrap();
+    let first = async |paths: &[&str]| {
+        let request = pb::ReadObjectRequest {
+            read_offset: 1,
+            read_mask: (!paths.is_empty()).then(|| mask(paths)).flatten(),
+            ..read_request("object", &[])
+        };
+        let mut messages = read(&storage, request).await.unwrap();
+        messages.remove(0)
+    };
+    for paths in [&[][..], &["*"]] {
+        let response = first(paths).await;
+        assert_eq!(response.metadata.unwrap().name, "object", "{paths:?}");
+        assert!(response.object_checksums.is_some(), "{paths:?}");
+        assert!(response.content_range.is_some(), "{paths:?}");
+        let data = response.checksummed_data.unwrap();
+        assert_eq!(data.content.as_ref(), b"ata", "{paths:?}");
+        assert!(data.crc32c.is_some(), "{paths:?}");
+    }
+    for (paths, object_checksums, content_range, crc32c) in [
+        (&["checksummed_data.content"][..], false, false, false),
+        (&["checksummed_data", "object_checksums"], true, false, true),
+        (
+            &[
+                "checksummed_data.content",
+                "checksummed_data.crc32c",
+                "content_range",
+            ],
+            false,
+            true,
+            true,
+        ),
+    ] {
+        let response = first(paths).await;
+        assert_eq!(response.metadata, None, "{paths:?}");
+        assert_eq!(
+            response.object_checksums.is_some(),
+            object_checksums,
+            "{paths:?}"
+        );
+        assert_eq!(response.content_range.is_some(), content_range, "{paths:?}");
+        let data = response.checksummed_data.unwrap();
+        assert_eq!(data.content.as_ref(), b"ata", "{paths:?}");
+        assert_eq!(data.crc32c.is_some(), crc32c, "{paths:?}");
+    }
+    let named = first(&["checksummed_data.content", "metadata.name"]).await;
+    assert_eq!(
+        named.metadata,
+        Some(pb::Object {
+            name: "object".into(),
+            ..Default::default()
+        })
+    );
+    assert_eq!(named.object_checksums, None);
     storage.state.catalog.close().await.unwrap();
 }
 
