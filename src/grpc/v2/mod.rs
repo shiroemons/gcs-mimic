@@ -217,24 +217,24 @@ storage_methods! {
     RestoreObject => restore_object(pb::RestoreObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
     CancelResumableWrite => cancel_resumable_write(
         pb::CancelResumableWriteRequest,
-    ) -> pb::CancelResumableWriteResponse, route |_r| Routes::Optional;
+    ) -> pb::CancelResumableWriteResponse, route |_r| Routes::Upload;
     GetObject => get_object(pb::GetObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
     ReadObject => read_object(pb::ReadObjectRequest) -> Self::ReadObjectStream, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
     BidiReadObject => bidi_read_object(
         Streaming<pb::BidiReadObjectRequest>,
-    ) -> Self::BidiReadObjectStream, route |_r| Routes::BIDI_READ_OBJECT;
+    ) -> Self::BidiReadObjectStream, route |_r| Routes::Deferred;
     UpdateObject => update_object(pb::UpdateObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(r.object.as_ref().map(|o| o.bucket.as_str()))]);
-    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| Routes::WRITE_OBJECT;
+    WriteObject => write_object(Streaming<pb::WriteObjectRequest>) -> pb::WriteObjectResponse, route |_r| Routes::Deferred;
     BidiWriteObject => bidi_write_object(
         Streaming<pb::BidiWriteObjectRequest>,
-    ) -> Self::BidiWriteObjectStream, route |_r| Routes::WRITE_OBJECT;
+    ) -> Self::BidiWriteObjectStream, route |_r| Routes::Deferred;
     ListObjects => list_objects(pb::ListObjectsRequest) -> pb::ListObjectsResponse, route |r| Routes::Request(&[Route::Bucket(Some(r.parent.as_str()))]);
-    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| Routes::REWRITE_OBJECT;
+    RewriteObject => rewrite_object(pb::RewriteObjectRequest) -> pb::RewriteResponse, route |_r| Routes::Deferred;
     StartResumableWrite => start_resumable_write(
         pb::StartResumableWriteRequest,
     ) -> pb::StartResumableWriteResponse, route |r| Routes::Request(&[Route::Bucket(r.write_object_spec.as_ref().and_then(|s| s.resource.as_ref()).map(|o| o.bucket.as_str()))]);
     QueryWriteStatus => query_write_status(
         pb::QueryWriteStatusRequest,
-    ) -> pb::QueryWriteStatusResponse, route |_r| Routes::Optional;
+    ) -> pb::QueryWriteStatusResponse, route |_r| Routes::Upload;
     MoveObject => move_object(pb::MoveObjectRequest) -> pb::Object, route |r| Routes::Request(&[Route::Bucket(Some(r.bucket.as_str()))]);
 }

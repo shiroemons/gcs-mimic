@@ -408,7 +408,7 @@ impl Storage {
             extensions.get(),
             &[
                 Route::SourceBucket(Some(target.source_bucket)),
-                Route::Bucket(Some(target.destination_bucket)),
+                Route::DestinationBucket(Some(target.destination_bucket)),
             ],
         )?;
         let destination_bucket = target.destination_bucket;

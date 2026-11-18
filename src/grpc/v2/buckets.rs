@@ -1855,11 +1855,13 @@ mod tests {
             // that names only one routes no bucket, answered as an empty routed bucket is
             // (recorded on GetObject routed by a project alone).
             ("unknown=value", other_bucket("")),
-            // No malformed pair was recorded; these refusals are local.
+            // A bucket pair without a value was recorded on GetObject (case
+            // grpc-probe-inferred-routing); a malformed percent escape was not, so that
+            // refusal is local.
             ("bucket=%GG", "Malformed URI encoding".to_owned()),
             (
                 "bucket",
-                "Routing metadata must contain key=value pairs".to_owned(),
+                "Invalid bucket name found in x-goog-request-params metadata (bucket). Must be of the form `projects/_/buckets/{bucket_id}`".to_owned(),
             ),
         ] {
             let request = fixtures::routed_request(header, get("page-a"));

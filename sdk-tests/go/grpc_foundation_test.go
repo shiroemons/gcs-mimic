@@ -136,7 +136,9 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 	// INTERNAL only to upload IDs it could not read, which SDKs would retry.
 	request := grpcIOMessage(t, "CancelResumableWriteRequest", map[string]any{"upload_id": "grpc-foundation-absent/" + strings.Repeat("0", 64)})
 	for _, token := range []string{"", "Basic garbage", "Bearer unknown", "Bearer local-admin-token"} {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		// A readable upload_id needs the routing metadata naming its bucket (recorded 2026-11-19,
+		// case grpc-probe-inferred-routing); authentication still comes first.
+		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-goog-request-params", "bucket=projects/_/buckets/grpc-foundation-absent"), 3*time.Second)
 		if token != "" {
 			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", token)
 		}
