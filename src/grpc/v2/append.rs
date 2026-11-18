@@ -200,11 +200,11 @@ struct OpenedWriter {
 impl Storage {
     async fn open_writer(
         &self,
-        first: &mut pb::BidiWriteObjectRequest,
+        first: Option<pb::bidi_write_object_request::FirstMessage>,
         caller: Option<Caller<'_>>,
     ) -> Result<OpenedWriter, Status> {
         use pb::bidi_write_object_request::FirstMessage;
-        match first.first_message.take() {
+        match first {
             Some(FirstMessage::WriteObjectSpec(mut spec)) => {
                 if spec.object_size.is_some() {
                     return Err(unsupported_for(
@@ -219,12 +219,9 @@ impl Storage {
                     options,
                     total: _,
                 } = self.write_spec(spec, None, caller).await?;
-                // The proto allows object_checksums on the finish_write message, which may also
-                // be the first one; the receive loop verifies them at finalization. Rejecting
-                // the others here keeps an invalid request from creating the object.
-                if options.expected != ExpectedHashes::default()
-                    || (first.object_checksums.is_some() && !first.finish_write)
-                {
+                // The opening message's own object_checksums were checked before this; the
+                // receive loop verifies them at finalization.
+                if options.expected != ExpectedHashes::default() {
                     return Err(Status::invalid_argument(
                         "Appendable objects accept checksums only with finish_write; omit resource.checksums and send object_checksums with finish_write=true",
                     ));
@@ -288,22 +285,21 @@ impl Storage {
     where
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
-        super::customer_key::reject(
-            message.common_object_request_params.as_ref(),
-            "appendable objects",
-        )?;
+        let first = message.first_message.take();
+        // The opening message is checked before it creates or takes over the object, so a
+        // refused one changes nothing.
+        let data = take_data(&mut message);
+        let mut step = append_step(&message, data)?;
         let OpenedWriter {
             mut writer,
             access,
             acknowledgement,
-        } = self.open_writer(&mut message, caller).await?;
+        } = self.open_writer(first, caller).await?;
         // Every open is answered once, even without flush or state_lookup: a takeover learns
         // where to resume, and a creating stream learns its generation. The Python SDK waits
         // for that resource after a spec-only first message before it sends any data.
         let mut opening = Some(acknowledgement);
         loop {
-            let data = take_data(&mut message);
-            let step = append_step(&message, data)?;
             if let Some((offset, content)) = step.data {
                 writer
                     .append(offset, content, self.max_object_bytes)
@@ -341,7 +337,10 @@ impl Storage {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
             }
             match stream.next().await.transpose()? {
-                Some(next) => message = next,
+                Some(mut next) => {
+                    let data = take_data(&mut next);
+                    step = append_step(&next, data)?;
+                }
                 None => {
                     // Closing the stream without finish_write leaves the object appendable; the
                     // service still reports the persisted size for a clean close.

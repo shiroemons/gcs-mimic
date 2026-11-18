@@ -375,6 +375,74 @@ async fn append_accepts_checksums_on_a_single_finishing_message() {
     assert_code(get(&storage, "early").await, Code::NotFound);
 }
 
+/// The opening message is checked before it creates or takes over the object, so a refused
+/// opening leaves no new object and the current writer in place.
+#[tokio::test]
+async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_over() {
+    let (_dir, storage) = setup(false).await;
+    let mut bad_crc = create("bad-crc", b"x");
+    if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
+        data.crc32c = Some(1);
+    }
+    let mut negative = create("negative", b"x");
+    negative.write_offset = -1;
+    let mut md5 = create("md5", b"x");
+    md5.finish_write = true;
+    md5.object_checksums = Some(pb::ObjectChecksums {
+        crc32c: None,
+        md5_hash: vec![0; 16],
+    });
+    for (name, message, code) in [
+        ("bad-crc", bad_crc, Code::InvalidArgument),
+        ("negative", negative, Code::OutOfRange),
+        ("md5", md5, Code::InvalidArgument),
+    ] {
+        let (result, responses) = append(&storage, vec![Ok(message)], None).await;
+        assert_code(result, code);
+        assert!(responses.is_empty(), "{name}");
+        assert_code(get(&storage, name).await, Code::NotFound);
+    }
+
+    let mut writer = storage
+        .state
+        .catalog
+        .create_appendable(
+            "grpc-append",
+            "held",
+            crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+        )
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"one"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let generation = writer.record().generation;
+    let mut bad_crc = take_over("held", generation, None);
+    bad_crc.write_offset = 3;
+    bad_crc.data = data(b"two");
+    if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
+        data.crc32c = Some(1);
+    }
+    let mut early_checksums = take_over("held", generation, None);
+    early_checksums.object_checksums = Some(pb::ObjectChecksums {
+        crc32c: Some(1),
+        md5_hash: Vec::new(),
+    });
+    for message in [bad_crc, early_checksums] {
+        let (result, responses) = append(&storage, vec![Ok(message)], None).await;
+        assert_code(result, Code::InvalidArgument);
+        assert!(responses.is_empty());
+    }
+    writer
+        .append(3, Bytes::from_static(b"two"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(writer.flush().await, Ok(6));
+    assert_eq!(read(&storage, "held").await.unwrap().1, b"onetwo");
+}
+
 #[tokio::test]
 async fn append_hides_unflushed_bytes_and_truncates_them_on_takeover() {
     let (_dir, storage) = setup(false).await;
