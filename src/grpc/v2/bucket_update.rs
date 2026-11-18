@@ -272,13 +272,10 @@ fn apply_path(
                 .as_ref()
                 .and_then(|policy| policy.retention_duration)
                 .unwrap_or_default();
-            if duration.nanos != 0 {
-                return Err(unsupported(
-                    "fractional soft delete duration; use whole seconds",
-                ));
-            }
-            update.soft_delete_retention =
-                Some(bucket::SoftDeleteRetention::try_from(duration.seconds).map_err(input_error)?);
+            update.soft_delete_retention = Some(
+                bucket::SoftDeleteRetention::try_from(soft_delete_seconds(&duration)?)
+                    .map_err(input_error)?,
+            );
         }
         // Under the parent path Cloud Storage treats the two settings differently (recorded
         // 2026-11-13): public access prevention is replaced, so an `iam_config` that leaves it
@@ -324,6 +321,18 @@ fn apply_path(
 /// normalizes to zero or below is no valid period, however its seconds round.
 pub(super) fn retention_seconds(duration: &prost_types::Duration) -> i64 {
     duration.normalized().seconds
+}
+
+/// The whole seconds of a soft delete duration, shared with CreateBucket. Unlike a retention
+/// duration, the proto states no rounding for it, so a fractional one is refused rather than
+/// silently shortened.
+pub(super) fn soft_delete_seconds(duration: &prost_types::Duration) -> Result<i64, Status> {
+    if duration.nanos != 0 {
+        return Err(unsupported(
+            "fractional soft delete duration; use whole seconds",
+        ));
+    }
+    Ok(duration.seconds)
 }
 
 fn apply_autoclass(

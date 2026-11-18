@@ -48,17 +48,6 @@ fn is_set<T: Default + PartialEq>(field: Option<&T>) -> bool {
     field.is_some_and(|value| value != &T::default())
 }
 
-/// A soft delete duration in whole seconds. Unlike a retention duration, the proto states no
-/// rounding for it, so a fractional one is refused rather than silently shortened.
-fn whole_seconds(duration: &prost_types::Duration) -> Result<i64, Status> {
-    if duration.nanos != 0 {
-        return Err(super::status::unsupported(
-            "fractional bucket retention duration",
-        ));
-    }
-    Ok(duration.seconds)
-}
-
 /// A requested retention policy, or `None` when it sets no period.
 fn retention_body(policy: &pb::bucket::RetentionPolicy) -> Result<Option<Value>, Status> {
     if policy.effective_time.is_some() || policy.is_locked {
@@ -84,7 +73,7 @@ fn soft_delete_body(policy: &pb::bucket::SoftDeletePolicy) -> Result<Option<Valu
     let Some(duration) = &policy.retention_duration else {
         return Ok(None);
     };
-    let seconds = whole_seconds(duration)?;
+    let seconds = super::bucket_update::soft_delete_seconds(duration)?;
     crate::bucket::SoftDeleteRetention::try_from(seconds)?;
     Ok(Some(
         json!({"retentionDurationSeconds": seconds.to_string()}),
@@ -590,7 +579,7 @@ mod tests {
                     .get_or_insert_default()
                     .lock_time = Some(Default::default())
             }),
-            ("fractional bucket retention duration", |b| {
+            ("fractional soft delete duration; use whole seconds", |b| {
                 b.soft_delete_policy
                     .get_or_insert_default()
                     .retention_duration = Some(FRACTIONAL)
@@ -618,6 +607,20 @@ mod tests {
             assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
             assert!(status.message().contains(reason), "{reason}: {status}");
         }
+        // Creation and update refuse a fractional soft delete duration alike.
+        let fractional = pb::Bucket {
+            soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
+                retention_duration: Some(FRACTIONAL),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let created = create_body(fractional.clone(), "test-bucket").unwrap_err();
+        let updated =
+            super::super::bucket_update::from_proto(&fractional, &["soft_delete_policy".into()])
+                .unwrap_err();
+        assert_eq!(created.code(), updated.code());
+        assert_eq!(created.message(), updated.message());
     }
 
     /// Fields the proto marks OUTPUT_ONLY are ignored as input: "the server *must* ignore it and
