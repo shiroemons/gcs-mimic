@@ -1,6 +1,6 @@
 use super::{
     convert,
-    mask::{starts_with_bucket_field, unknown_field},
+    mask::{BucketField, UnappliedUpdatePath, update_paths},
     pb,
     status::unsupported,
 };
@@ -97,33 +97,9 @@ impl std::str::FromStr for UpdatePath {
             "default_object_acl" => Self::DefaultObjectAcl,
             path => match path.strip_prefix("labels.") {
                 Some(key) if !key.is_empty() => Self::Label(key.into()),
-                _ => return Err(UnappliedUpdatePath::from(path)),
+                _ => return Err(UnappliedUpdatePath::of::<BucketField>(path)),
             },
         })
-    }
-}
-
-/// An `update_mask` path UpdateBucket does not apply.
-#[derive(Debug, PartialEq, Eq)]
-enum UnappliedUpdatePath {
-    /// A field the service alone sets. Cloud Storage accepts the path and changes nothing
-    /// (recorded 2026-11-18 for `create_time` and `update_time`); the other fields the proto
-    /// marks `OUTPUT_ONLY` are taken the same way.
-    OutputOnly,
-    /// A `Bucket` field, or a path under one, that gcs-mimic does not update.
-    Unsupported(String),
-    /// A path whose first segment names no `Bucket` field.
-    Unknown(String),
-}
-
-impl From<&str> for UnappliedUpdatePath {
-    fn from(path: &str) -> Self {
-        match path {
-            "bucket_id" | "metageneration" | "location_type" | "create_time" | "update_time"
-            | "owner" => Self::OutputOnly,
-            path if path == "*" || starts_with_bucket_field(path) => Self::Unsupported(path.into()),
-            path => Self::Unknown(path.into()),
-        }
     }
 }
 
@@ -132,22 +108,11 @@ pub(super) fn from_proto(
     paths: &[String],
 ) -> Result<BucketMetadataUpdate, Status> {
     let mut update = BucketMetadataUpdate::default();
-    // Each path is parsed and applied before the next one is read, so the first failing path in
-    // mask order names the error, whether it is refused or its value is invalid.
-    for path in paths {
-        match path.parse() {
-            Ok(path) => {
-                update.touched = true;
-                apply_path(&mut update, bucket, path)?;
-            }
-            Err(UnappliedUpdatePath::OutputOnly) => {}
-            Err(UnappliedUpdatePath::Unsupported(path)) => {
-                return Err(unsupported(&format!(
-                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
-                )));
-            }
-            Err(UnappliedUpdatePath::Unknown(path)) => return Err(unknown_field(&path)),
-        }
+    let remedy = "labels, versioning, lifecycle or iam_config";
+    for path in update_paths(paths, "UpdateBucket", remedy) {
+        let path = path?;
+        update.touched = true;
+        apply_path(&mut update, bucket, path)?;
     }
     Ok(update)
 }
@@ -751,6 +716,20 @@ mod tests {
             ),
             ("create_time", UnappliedUpdatePath::OutputOnly),
             ("owner", UnappliedUpdatePath::OutputOnly),
+            // An output-only field named with a member path is refused like any other path
+            // under a field, and so is a field no mask selects.
+            (
+                "owner.entity",
+                UnappliedUpdatePath::Unsupported("owner.entity".into()),
+            ),
+            (
+                "satisfies_pzs",
+                UnappliedUpdatePath::Unsupported("satisfies_pzs".into()),
+            ),
+            (
+                "satisfies_pzs.x",
+                UnappliedUpdatePath::Unsupported("satisfies_pzs.x".into()),
+            ),
             (
                 "no_such_field",
                 UnappliedUpdatePath::Unknown("no_such_field".into()),

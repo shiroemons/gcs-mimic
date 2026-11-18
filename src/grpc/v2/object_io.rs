@@ -28,7 +28,7 @@ mod resumable;
 mod upload_id;
 mod write;
 
-pub(super) use object_mask::starts_with_object_field;
+pub(super) use object_mask::ObjectField;
 pub(super) use upload_id::UploadId;
 pub(super) use write::{Responses, WriteSpec, send};
 

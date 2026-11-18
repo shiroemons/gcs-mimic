@@ -2,29 +2,45 @@
 //! once, with the request, so an invalid path is reported before anything is looked up; applying
 //! a parsed mask cannot fail.
 
-use crate::grpc::v2::{mask::ReadMask, pb};
+use crate::grpc::v2::{
+    mask::{ReadMask, ResourceField, UnselectableField},
+    pb,
+};
 
 // `macro_rules!` cannot capitalize an identifier, so each field names its variant.
 macro_rules! object_fields {
     ($($field:ident => $variant:ident),+ $(,)?) => {
         /// A top-level `Object` field.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub(super) enum ObjectField {
+        pub(in crate::grpc::v2) enum ObjectField {
             $($variant),+
         }
 
-        impl ObjectField {
-            fn named(name: &str) -> Option<Self> {
+        impl std::str::FromStr for ObjectField {
+            type Err = UnselectableField;
+
+            fn from_str(name: &str) -> Result<Self, Self::Err> {
                 match name {
-                    $(stringify!($field) => Some(Self::$variant),)+
-                    _ => None,
+                    $(stringify!($field) => Ok(Self::$variant),)+
+                    _ => Err(UnselectableField),
                 }
             }
+        }
 
+        impl ObjectField {
             fn take(self, from: &mut pb::Object, to: &mut pb::Object) {
                 match self {
                     $(Self::$variant => to.$field = std::mem::take(&mut from.$field),)+
                 }
+            }
+
+            /// Resets every field of `object` that [`ResourceField::output_only`] names.
+            pub(in crate::grpc::v2) fn clear_output_only(object: &mut pb::Object) {
+                $(
+                    if Self::$variant.output_only() {
+                        object.$field = Default::default();
+                    }
+                )+
             }
         }
     };
@@ -110,10 +126,45 @@ object_members!(
     retention.retain_until_time => RetentionRetainUntilTime,
 );
 
-/// Whether the first segment of `path` names an `Object` field.
-pub(in crate::grpc::v2) fn starts_with_object_field(path: &str) -> bool {
-    let name = path.split_once('.').map_or(path, |(name, _)| name);
-    ObjectField::named(name).is_some()
+impl ResourceField for ObjectField {
+    fn output_only(self) -> bool {
+        use ObjectField as F;
+        match self {
+            F::RestoreToken
+            | F::Metageneration
+            | F::Size
+            | F::DeleteTime
+            | F::FinalizeTime
+            | F::CreateTime
+            | F::ComponentCount
+            | F::Checksums
+            | F::UpdateTime
+            | F::UpdateStorageClassTime
+            | F::Owner
+            | F::SoftDeleteTime
+            | F::HardDeleteTime => true,
+            F::Name
+            | F::Bucket
+            | F::Etag
+            | F::Generation
+            | F::StorageClass
+            | F::ContentEncoding
+            | F::ContentDisposition
+            | F::CacheControl
+            | F::Acl
+            | F::ContentLanguage
+            | F::ContentType
+            | F::KmsKey
+            | F::TemporaryHold
+            | F::RetentionExpireTime
+            | F::Metadata
+            | F::Contexts
+            | F::EventBasedHold
+            | F::CustomerEncryption
+            | F::CustomTime
+            | F::Retention => false,
+        }
+    }
 }
 
 /// Whether `member` is a real member of `field` that gcs-mimic does not select on its own: the
@@ -200,7 +251,7 @@ impl std::str::FromStr for ObjectPath {
             Some((name, member)) => (name, Some(member)),
             None => (path, None),
         };
-        let Some(field) = ObjectField::named(name) else {
+        let Ok(field) = name.parse::<ObjectField>() else {
             return Err(UnselectablePath::Unknown(path.into()));
         };
         let Some(member) = member else {

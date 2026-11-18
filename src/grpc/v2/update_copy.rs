@@ -1,6 +1,6 @@
 use super::{
     Storage, convert, names,
-    object_io::conditions,
+    object_io::{ObjectField, conditions},
     object_update::canned_acl,
     pb,
     routing::{Route, Routes},
@@ -30,27 +30,14 @@ use std::num::NonZeroU64;
 use tonic::{Request, Response, Status};
 
 /// A destination without the fields only the service sets: the generation, and every field the
-/// proto marks `OUTPUT_ONLY`. ComposeObject accepted a destination that carried a generation, a
-/// metageneration, a size, a creation time and an update time, and composed as if it had none
-/// (recorded 2026-11-18); the remaining output-only fields are taken the same way.
-fn without_service_fields(o: &pb::Object) -> pb::Object {
-    pb::Object {
-        generation: 0,
-        restore_token: None,
-        metageneration: 0,
-        size: 0,
-        delete_time: None,
-        finalize_time: None,
-        create_time: None,
-        component_count: 0,
-        checksums: None,
-        update_time: None,
-        update_storage_class_time: None,
-        owner: None,
-        soft_delete_time: None,
-        hard_delete_time: None,
-        ..o.clone()
-    }
+/// proto marks `OUTPUT_ONLY` ([`ObjectField::clear_output_only`]). ComposeObject accepted a
+/// destination that carried a generation, a metageneration, a size, a creation time and an
+/// update time, and composed as if it had none (recorded 2026-11-18). That it ignores the other
+/// output-only fields as well is inferred from the proto, not recorded.
+fn without_service_fields(mut o: pb::Object) -> pb::Object {
+    o.generation = 0;
+    ObjectField::clear_output_only(&mut o);
+    o
 }
 
 /// RewriteObject's answer to a destination that carries service-set fields. The recorded
@@ -58,7 +45,7 @@ fn without_service_fields(o: &pb::Object) -> pb::Object {
 /// update time together, so which of them Cloud Storage refuses is not known; any of the fields
 /// [`without_service_fields`] drops is refused.
 fn check_rewrite_service_fields(o: &pb::Object) -> Result<(), Status> {
-    if &without_service_fields(o) != o {
+    if without_service_fields(o.clone()) != *o {
         return Err(invalid_field("You must specify an object name."));
     }
     Ok(())
@@ -630,7 +617,7 @@ impl Storage {
         let o = r.destination.take().ok_or_else(|| {
             Status::invalid_argument("destination is required; supply bucket and name")
         })?;
-        let o = without_service_fields(&o);
+        let o = without_service_fields(o);
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
         let access = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
         validate_derived_fields(&o)?;

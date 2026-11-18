@@ -1,6 +1,8 @@
 use super::{
-    bucket_update::acl_entries, mask::unknown_field, object_io::starts_with_object_field, pb,
-    status::unsupported,
+    bucket_update::acl_entries,
+    mask::{UnappliedUpdatePath, update_paths},
+    object_io::ObjectField,
+    pb,
 };
 use crate::{
     acl::{AclKind, AclRequest, PredefinedObjectAcl},
@@ -52,48 +54,13 @@ impl std::str::FromStr for UpdatePath {
             "event_based_hold" => Self::EventBasedHold,
             "acl" => Self::Acl,
             "retention" => Self::Retention,
+            // Any other path is classified by the `Object` fields. The pinned Go SDK names the
+            // output-only `create_time` in an ordinary empty update, which changes nothing.
             path => match path.strip_prefix("metadata.") {
                 Some(key) => Self::MetadataKey(key.into()),
-                None => return Err(UnappliedUpdatePath::from(path)),
+                None => return Err(UnappliedUpdatePath::of::<ObjectField>(path)),
             },
         })
-    }
-}
-
-/// An `update_mask` path UpdateObject does not apply.
-#[derive(Debug, PartialEq, Eq)]
-enum UnappliedUpdatePath {
-    /// A field the service alone sets. Cloud Storage accepts the path and changes nothing but
-    /// the metageneration (recorded 2026-11-18 for `create_time` and `update_time`); the other
-    /// fields the proto marks `OUTPUT_ONLY` are taken the same way. The pinned Go SDK names
-    /// `create_time` in an ordinary empty update.
-    OutputOnly,
-    /// An `Object` field, or a path under one, that gcs-mimic does not update, and `*` beside
-    /// other paths.
-    Unsupported(String),
-    /// A path whose first segment names no `Object` field.
-    Unknown(String),
-}
-
-impl From<&str> for UnappliedUpdatePath {
-    fn from(path: &str) -> Self {
-        match path {
-            "restore_token"
-            | "metageneration"
-            | "size"
-            | "delete_time"
-            | "finalize_time"
-            | "create_time"
-            | "component_count"
-            | "checksums"
-            | "update_time"
-            | "update_storage_class_time"
-            | "owner"
-            | "soft_delete_time"
-            | "hard_delete_time" => Self::OutputOnly,
-            path if path == "*" || starts_with_object_field(path) => Self::Unsupported(path.into()),
-            path => Self::Unknown(path.into()),
-        }
     }
 }
 
@@ -114,19 +81,8 @@ pub(super) fn from_proto(
         ));
     }
     let mut update = ObjectMetadataUpdate::default();
-    // Each path is parsed and applied before the next one is read, so the first failing path in
-    // mask order names the error, whether it is refused or its value is invalid.
-    for path in paths {
-        match path.parse() {
-            Ok(path) => apply_path(&mut update, object, path)?,
-            Err(UnappliedUpdatePath::OutputOnly) => {}
-            Err(UnappliedUpdatePath::Unsupported(path)) => {
-                return Err(unsupported(&format!(
-                    "UpdateObject update_mask {path}; use metadata or content_type"
-                )));
-            }
-            Err(UnappliedUpdatePath::Unknown(path)) => return Err(unknown_field(&path)),
-        }
+    for path in update_paths(paths, "UpdateObject", "metadata or content_type") {
+        apply_path(&mut update, object, path?)?;
     }
     validate(&update)?;
     Ok(update)
@@ -341,12 +297,30 @@ mod tests {
             Ok(UpdatePath::MetadataKey("a.b".into()))
         );
         assert_eq!("metadata.".parse(), Ok(UpdatePath::MetadataKey("".into())));
+        // Recorded 2026-11-18 for `create_time` and `update_time`; the rest follow the proto's
+        // OUTPUT_ONLY.
+        for path in [
+            "restore_token",
+            "metageneration",
+            "size",
+            "delete_time",
+            "finalize_time",
+            "create_time",
+            "component_count",
+            "checksums",
+            "update_time",
+            "update_storage_class_time",
+            "owner",
+            "soft_delete_time",
+            "hard_delete_time",
+        ] {
+            assert_eq!(
+                path.parse::<UpdatePath>(),
+                Err(UnappliedUpdatePath::OutputOnly),
+                "{path}"
+            );
+        }
         for (path, unapplied) in [
-            // Recorded 2026-11-18 for these two; the rest follow the proto's OUTPUT_ONLY.
-            ("create_time", UnappliedUpdatePath::OutputOnly),
-            ("update_time", UnappliedUpdatePath::OutputOnly),
-            ("owner", UnappliedUpdatePath::OutputOnly),
-            ("checksums", UnappliedUpdatePath::OutputOnly),
             ("*", UnappliedUpdatePath::Unsupported("*".into())),
             ("name", UnappliedUpdatePath::Unsupported("name".into())),
             (
@@ -360,6 +334,14 @@ mod tests {
             (
                 "owner.entity",
                 UnappliedUpdatePath::Unsupported("owner.entity".into()),
+            ),
+            (
+                "checksums.crc32c",
+                UnappliedUpdatePath::Unsupported("checksums.crc32c".into()),
+            ),
+            (
+                "retention_expire_time",
+                UnappliedUpdatePath::Unsupported("retention_expire_time".into()),
             ),
             // Recorded 2026-11-18.
             (
