@@ -258,9 +258,19 @@ impl From<crate::percent::MalformedEncoding> for Status {
     }
 }
 
+/// A missing or unverifiable credential is unauthenticated and a refusal is permission denied,
+/// with the messages the JSON API sends.
 impl From<crate::auth::AuthFailure> for Status {
     fn from(error: crate::auth::AuthFailure) -> Self {
-        Self::from(crate::json::JsonError::from(error))
+        use crate::auth::AuthFailure;
+        match error {
+            AuthFailure::LoginRequired => Status::unauthenticated(wording::LOGIN_REQUIRED),
+            AuthFailure::InvalidCredentials => {
+                Status::unauthenticated(wording::INVALID_CREDENTIALS)
+            }
+            AuthFailure::Denied(denied) => Status::permission_denied(denied.to_string()),
+            AuthFailure::Forbidden => Status::permission_denied(wording::FORBIDDEN),
+        }
     }
 }
 

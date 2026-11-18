@@ -854,3 +854,31 @@ fn unguided_backend_failures_log_only_their_allowlisted_cause() {
         .collect();
     assert_eq!(logged, expected);
 }
+
+/// Authentication failures map to statuses directly; each status stays the one the JSON error
+/// conversion produced.
+#[test]
+fn authentication_failures_answer_as_their_json_conversion_did() {
+    use crate::auth::AuthFailure;
+    let denied = || {
+        crate::auth::Denied::new(
+            None,
+            crate::auth::OBJECTS_GET,
+            crate::auth::denied::Resource::in_bucket(crate::auth::OBJECTS_GET, "bucket"),
+        )
+    };
+    let failures = || {
+        [
+            AuthFailure::LoginRequired,
+            AuthFailure::InvalidCredentials,
+            AuthFailure::Denied(denied()),
+            AuthFailure::Forbidden,
+        ]
+    };
+    for (direct, converted) in failures().into_iter().zip(failures()) {
+        assert_eq!(
+            Reply::of(&Status::from(direct)),
+            Reply::of(&Status::from(crate::json::JsonError::from(converted)))
+        );
+    }
+}
