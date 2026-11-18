@@ -413,6 +413,39 @@ mod tests {
         assert_eq!(update.acl.entries().map(<[_]>::len), Some(1));
     }
 
+    /// `*` beside another path is a replacement, and the other paths are not read: a path that
+    /// alone is refused, or that names no field, changes nothing beside it. Not recorded;
+    /// inferred from the recorded `*` beside `content_language` (case
+    /// grpc-probe-inferred-object-masks), whose answer reading the paths would not change.
+    #[test]
+    fn a_wildcard_beside_another_path_does_not_read_that_path() {
+        let object = pb::Object {
+            content_type: "text/plain".into(),
+            storage_class: "NEARLINE".into(),
+            kms_key: "projects/p/locations/l/keyRings/r/cryptoKeys/missing".into(),
+            ..Default::default()
+        };
+        for other in ["storage_class", "kms_key", "no_such_field", "labels.x"] {
+            let update = from_proto(&object, &["*".into(), other.into()])
+                .unwrap_or_else(|error| panic!("{other}: {error}"));
+            assert_eq!(update.write, WriteMode::Replace, "{other}");
+            assert_eq!(
+                update.content_type,
+                Patch::Set("text/plain".into()),
+                "{other}"
+            );
+            assert_eq!(update.storage_class, None, "{other}");
+        }
+        // Alone, each of those paths is refused.
+        for path in ["storage_class", "kms_key", "no_such_field"] {
+            assert_eq!(
+                from_proto(&object, &[path.into()]).unwrap_err().code(),
+                tonic::Code::InvalidArgument,
+                "{path}"
+            );
+        }
+    }
+
     #[test]
     fn object_updates_preserve_map_modes_and_explicit_resets() {
         let object = pb::Object {

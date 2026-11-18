@@ -423,6 +423,32 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
     s.state.catalog.close().await.unwrap();
 }
 
+/// A negative not-match is compared like any other and holds against an existing source, so the
+/// rewrite goes ahead. Recorded: a generation not-match of -1 held on an existing object for
+/// GetObject, UpdateObject and DeleteObject (case grpc-probe-inferred-conditions). Not
+/// recorded; inferred from those: a rewrite's source, and a metageneration not-match of -1.
+#[tokio::test]
+async fn rewrite_object_holds_a_negative_source_not_match_on_an_existing_source() {
+    let (s, _dir) = setup().await;
+    let source = upload(&s, "source", 4).await;
+    let rewritten = s
+        .rewrite_object(
+            Request::new(pb::RewriteObjectRequest {
+                if_source_generation_not_match: Some(-1),
+                if_source_metageneration_not_match: Some(-1),
+                ..rewrite()
+            }),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(rewritten.done);
+    let stored = stored_object(&s, "rewritten").await.unwrap();
+    assert_eq!(stored.size, source.size);
+    s.state.catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn restore_object_refuses_a_missing_generation_and_copying_the_source_acl() {
     let (s, _dir) = setup().await;

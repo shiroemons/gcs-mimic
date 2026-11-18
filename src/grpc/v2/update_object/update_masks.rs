@@ -74,8 +74,9 @@ async fn a_wildcard_mask_replaces_the_editable_metadata_and_keeps_the_acl() {
 }
 
 /// Cloud Storage took the paths of fields it keeps or that name the object like an output-only
-/// path, and refused `storage_class` and `kms_key` whatever the value (recorded in case
-/// grpc-probe-inferred-object-masks).
+/// path, and refused `storage_class` with NEARLINE and `kms_key` with the name of a key that
+/// does not exist (recorded in case grpc-probe-inferred-object-masks). That an empty key is
+/// refused the same way is inferred.
 #[tokio::test]
 async fn service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused() {
     let (storage, _dir) = setup().await;
@@ -113,27 +114,30 @@ async fn service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused() 
         assert_eq!(updated.retention_expire_time, None, "{path}");
         assert_eq!(updated.content_language, "", "{path}");
     }
-    for (path, message) in [
+    let class = "Client is not allowed to directly modify storage_class.";
+    let key = "Cannot change the Cloud KMS key associated with a resource.";
+    let missing_key = "projects/p/locations/us-central1/keyRings/r/cryptoKeys/missing";
+    for (path, object, message) in [
         (
             "storage_class",
-            "Client is not allowed to directly modify storage_class.",
+            pb::Object {
+                storage_class: "NEARLINE".into(),
+                ..Default::default()
+            },
+            class,
         ),
         (
             "kms_key",
-            "Cannot change the Cloud KMS key associated with a resource.",
+            pb::Object {
+                kms_key: missing_key.into(),
+                ..Default::default()
+            },
+            key,
         ),
+        ("kms_key", pb::Object::default(), key),
     ] {
         let refused = storage
-            .update_object(
-                Request::new(request(
-                    pb::Object {
-                        storage_class: "NEARLINE".into(),
-                        ..Default::default()
-                    },
-                    &[path],
-                )),
-                None,
-            )
+            .update_object(Request::new(request(object, &[path])), None)
             .await;
         fixtures::assert_bad_request(refused, message);
     }
