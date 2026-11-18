@@ -1149,6 +1149,20 @@ async fn grpc_resumable_write_error_precedence() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
+        // A replay answers with the finalized resource, so WriteObject does not report the
+        // message that follows its finish_write.
+        on(
+            Session {
+                prefix: b"abc",
+                finalized: true,
+                ..PLAIN
+            },
+            both(
+                "replay-over-later-message",
+                |u| vec![resume(u, 0, b"xyz").finish(), chunk(3, b"d")],
+                || ok(vec![Reply::Resource(3)], Left::Finalized),
+            ),
+        ),
         on(
             PLAIN,
             both(
