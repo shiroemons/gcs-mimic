@@ -23921,7 +23921,7 @@
           ]
         },
         {
-          "text": "A resumed stream's first write_offset must equal the persisted size, as the proto requires; any other value, including one that only resends persisted bytes, is OUT_OF_RANGE, a status the proto does not name.",
+          "text": "The proto contradicts itself on a resumed stream's first write_offset: the field says it must equal the persisted_size QueryWriteStatus returns, while the WriteObject description lets a client start earlier and says the service skips the bytes already persisted. The emulator keeps the field rule, an owner decision: a first offset other than the persisted size, including one that only resends persisted bytes, is OUT_OF_RANGE, a status the proto does not name. A later message may resend persisted bytes, which are skipped.",
           "gap": "SPEC-GRPC-WRITE-STREAMS",
           "test_ids": [
             "grpc_resumable_write_message_errors"
@@ -24209,7 +24209,7 @@
           ]
         },
         {
-          "text": "A resumed stream's first write_offset must equal the persisted size, as the proto requires; any other value, including one that only resends persisted bytes, is OUT_OF_RANGE, a status the proto does not name.",
+          "text": "The proto contradicts itself on a resumed stream's first write_offset: the field says it must equal the persisted_size QueryWriteStatus returns, while the WriteObject description lets a client start earlier and says the service skips the bytes already persisted. The emulator keeps the field rule, an owner decision: a first offset other than the persisted size, including one that only resends persisted bytes, is OUT_OF_RANGE, a status the proto does not name. A later message may resend persisted bytes, which are skipped.",
           "gap": "SPEC-GRPC-WRITE-STREAMS",
           "test_ids": [
             "grpc_resumable_write_message_errors"
@@ -38215,7 +38215,7 @@
           ]
         },
         {
-          "text": "A resumed stream's first write_offset must equal the persisted size, as the proto requires; any other value, including one that only resends persisted bytes, is OUT_OF_RANGE, a status the proto does not name.",
+          "text": "The proto contradicts itself on a resumed stream's first write_offset: the field says it must equal the persisted_size QueryWriteStatus returns, while the WriteObject description lets a client start earlier and says the service skips the bytes already persisted. The emulator keeps the field rule, an owner decision: a first offset other than the persisted size, including one that only resends persisted bytes, is OUT_OF_RANGE, a status the proto does not name. A later message may resend persisted bytes, which are skipped.",
           "gap": "SPEC-GRPC-WRITE-STREAMS",
           "test_ids": [
             "grpc_resumable_write_message_errors"

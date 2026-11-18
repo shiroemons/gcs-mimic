@@ -936,8 +936,11 @@ async fn grpc_resumable_write_message_errors() {
                 || failed(OutOfRange, RESUME_NEGATIVE, Left::Persisted(0)),
             ),
         ),
-        // The proto: the first write_offset "must be equal to the persisted_size that a call to
-        // QueryWriteStatus() would return", so a first message cannot resend persisted bytes.
+        // The proto contradicts itself: the write_offset field says the first value "must be
+        // equal to the persisted_size that a call to QueryWriteStatus() would return", while the
+        // WriteObject description lets a client start earlier and skips the persisted bytes. The
+        // emulator keeps the field rule, an owner decision, so a first message cannot resend
+        // persisted bytes.
         on(
             PREFIXED,
             both(
