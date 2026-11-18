@@ -855,6 +855,363 @@ mod tests {
         storage.state.catalog.close().await.unwrap();
     }
 
+    /// The proto states no validation rule for bucket metageneration conditions, so each RPC
+    /// keeps its own: GetBucket and DeleteBucket compare whatever values arrive, UpdateBucket
+    /// refuses 0, negative values and both conditions together, and LockBucketRetentionPolicy,
+    /// whose request has only a required match, refuses 0 and negative values. The refusals
+    /// come before the bucket is looked up.
+    #[tokio::test]
+    async fn bucket_rpcs_keep_their_own_metageneration_condition_rules() {
+        const STRICT: &str = "Invalid generation conditions; use one match or not-match per generation, for example if_generation_match=0";
+        let (_dir, storage) = storage(false).await;
+        for name in ["conditions", "neg-not-match", "zero-not-match", "both-hold"] {
+            storage
+                .create_bucket(Request::new(create(name)), None)
+                .await
+                .unwrap();
+        }
+        let precondition = Status::from(CatalogError::PreconditionFailed);
+        let unvalidated = [
+            // A negative or zero match names no metageneration, so it never holds.
+            (Some(-1), None, false),
+            (Some(0), None, false),
+            // A negative or zero not-match never names the bucket's, so it always holds.
+            (None, Some(-1), true),
+            (None, Some(0), true),
+            // Both conditions are evaluated together.
+            (Some(1), Some(2), true),
+            (Some(1), Some(1), false),
+        ];
+        for (matching, not_matching, holds) in unvalidated {
+            let request = pb::GetBucketRequest {
+                if_metageneration_match: matching,
+                if_metageneration_not_match: not_matching,
+                ..get("conditions")
+            };
+            let result = storage.get_bucket(Request::new(request), None).await;
+            if holds {
+                assert_eq!(result.unwrap().into_inner().metageneration, 1);
+            } else {
+                let status = assert_code(result, Code::FailedPrecondition);
+                assert_eq!(status.message(), precondition.message());
+            }
+        }
+        // A missing bucket is reported before any condition is compared.
+        let missing = pb::GetBucketRequest {
+            if_metageneration_match: Some(-1),
+            ..get("missing-bucket")
+        };
+        assert_code(
+            storage.get_bucket(Request::new(missing), None).await,
+            Code::NotFound,
+        );
+        let delete = |name: &str, matching, not_matching| pb::DeleteBucketRequest {
+            name: get(name).name,
+            if_metageneration_match: matching,
+            if_metageneration_not_match: not_matching,
+        };
+        for (matching, not_matching) in [(Some(-1), None), (Some(0), None), (Some(1), Some(1))] {
+            let status = assert_code(
+                storage
+                    .delete_bucket(
+                        Request::new(delete("conditions", matching, not_matching)),
+                        None,
+                    )
+                    .await,
+                Code::FailedPrecondition,
+            );
+            assert_eq!(status.message(), precondition.message());
+        }
+        for (name, matching, not_matching) in [
+            ("neg-not-match", None, Some(-1)),
+            ("zero-not-match", None, Some(0)),
+            ("both-hold", Some(1), Some(2)),
+        ] {
+            storage
+                .delete_bucket(Request::new(delete(name, matching, not_matching)), None)
+                .await
+                .unwrap();
+            assert_code(
+                storage.get_bucket(Request::new(get(name)), None).await,
+                Code::NotFound,
+            );
+        }
+        let update = |name: &str, matching, not_matching| pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: get(name).name,
+                labels: [("changed".into(), "yes".into())].into(),
+                ..Default::default()
+            }),
+            if_metageneration_match: matching,
+            if_metageneration_not_match: not_matching,
+            update_mask: fixtures::mask(&["labels"]),
+            ..Default::default()
+        };
+        for name in ["conditions", "missing-bucket"] {
+            for (matching, not_matching) in [
+                (Some(0), None),
+                (None, Some(0)),
+                (Some(-1), None),
+                (None, Some(-1)),
+                (Some(1), Some(2)),
+            ] {
+                let status = assert_code(
+                    storage
+                        .update_bucket(Request::new(update(name, matching, not_matching)), None)
+                        .await,
+                    Code::InvalidArgument,
+                );
+                assert_eq!(status.message(), STRICT, "{name}");
+            }
+            for metageneration in [0, -1] {
+                let lock = pb::LockBucketRetentionPolicyRequest {
+                    bucket: get(name).name,
+                    if_metageneration_match: metageneration,
+                };
+                let status = assert_code(
+                    storage
+                        .lock_bucket_retention_policy(Request::new(lock), None)
+                        .await,
+                    Code::InvalidArgument,
+                );
+                assert_eq!(status.message(), STRICT, "{name}");
+            }
+        }
+        let unchanged = storage
+            .get_bucket(Request::new(get("conditions")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(unchanged.metageneration, 1);
+        assert!(unchanged.labels.is_empty());
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    /// Google documents no order for DeleteBucket failures. The adapter authorizes first; the
+    /// catalog's deletion transaction then finds the bucket, compares the conditions and checks
+    /// that no live or noncurrent object remains, in that order, and a failure deletes nothing.
+    #[tokio::test]
+    async fn delete_bucket_reports_authorization_existence_conditions_then_contents() {
+        let (_dir, storage) = storage(true).await;
+        let admin = caller(&storage, "admin").await;
+        let reader = caller(&storage, "reader").await;
+        let anonymous = Some(Caller::Anonymous);
+        storage
+            .create_bucket(Request::new(create("held")), admin)
+            .await
+            .unwrap();
+        fixtures::put_keyed(&storage.state.catalog, "held", "object", b"data", None).await;
+        let delete = |name: &str, matching| pb::DeleteBucketRequest {
+            name: get(name).name,
+            if_metageneration_match: matching,
+            ..Default::default()
+        };
+        const DENIED: &str = "reader@example.invalid does not have storage.buckets.delete access to the Google Cloud Storage bucket. Permission 'storage.buckets.delete' denied on resource (or it may not exist).";
+        const NOT_EMPTY: &str =
+            "Bucket is not empty; delete its objects and versions before deleting the bucket";
+        let precondition = Status::from(CatalogError::PreconditionFailed);
+        let missing = Status::from(CatalogError::NotFound);
+        // A failing condition rides along on every request but the last, so each answer shows
+        // the check that comes before it.
+        for (name, who, matching, code, message) in [
+            // Authorization comes first, so a caller without access cannot learn whether the
+            // bucket exists.
+            (
+                "missing-bucket",
+                anonymous,
+                Some(2),
+                Code::Unauthenticated,
+                "Login Required",
+            ),
+            (
+                "missing-bucket",
+                reader,
+                Some(2),
+                Code::PermissionDenied,
+                DENIED,
+            ),
+            (
+                "missing-bucket",
+                admin,
+                Some(2),
+                Code::NotFound,
+                missing.message(),
+            ),
+            (
+                "held",
+                anonymous,
+                Some(2),
+                Code::Unauthenticated,
+                "Login Required",
+            ),
+            ("held", reader, Some(2), Code::PermissionDenied, DENIED),
+            (
+                "held",
+                admin,
+                Some(2),
+                Code::FailedPrecondition,
+                precondition.message(),
+            ),
+            ("held", admin, Some(1), Code::FailedPrecondition, NOT_EMPTY),
+        ] {
+            let status = assert_code(
+                storage
+                    .delete_bucket(Request::new(delete(name, matching)), who)
+                    .await,
+                code,
+            );
+            assert_eq!(status.message(), message, "{name} {matching:?}");
+        }
+        let bucket = storage
+            .state
+            .catalog
+            .get_bucket("held", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(bucket.metageneration, 1);
+        assert!(
+            storage
+                .state
+                .catalog
+                .get_object(
+                    crate::storage::test_fixtures::live("held", "object"),
+                    Default::default(),
+                    PERMISSIVE,
+                )
+                .await
+                .is_ok()
+        );
+        storage.state.catalog.close().await.unwrap();
+    }
+
+    /// The proto keeps a bucket deletable while it holds only soft-deleted objects or unfinished
+    /// uploads, and refuses one that holds a live or noncurrent object; a bucket with a soft
+    /// delete policy is soft-deleted and stays restorable (storage.proto lines 76-95).
+    #[tokio::test]
+    async fn delete_bucket_follows_the_shared_catalog_for_retained_state() {
+        let (_dir, storage) = storage(false).await;
+        let catalog = &storage.state.catalog;
+        let mut soft = create("soft-deleted-only");
+        soft.bucket.as_mut().unwrap().soft_delete_policy = Some(pb::bucket::SoftDeletePolicy {
+            retention_duration: Some(prost_types::Duration {
+                seconds: 604_800,
+                nanos: 0,
+            }),
+            ..Default::default()
+        });
+        let mut versioned = create("noncurrent-only");
+        versioned.bucket.as_mut().unwrap().versioning =
+            Some(pb::bucket::Versioning { enabled: true });
+        for request in [
+            soft,
+            versioned,
+            create("multipart-only"),
+            create("appendable-only"),
+        ] {
+            storage
+                .create_bucket(Request::new(request), None)
+                .await
+                .unwrap();
+        }
+        for bucket in ["soft-deleted-only", "noncurrent-only"] {
+            fixtures::put_keyed(catalog, bucket, "object", b"data", None).await;
+            storage
+                .delete_object(
+                    Request::new(pb::DeleteObjectRequest {
+                        bucket: get(bucket).name,
+                        object: "object".into(),
+                        ..Default::default()
+                    }),
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+        catalog
+            .begin_xml_multipart(
+                "multipart-only",
+                "parts",
+                crate::storage::xml_multipart::Options {
+                    content_type: "text/plain".into(),
+                    metadata: Default::default(),
+                },
+                crate::bucket::BucketAccess::Permissive,
+            )
+            .await
+            .unwrap();
+        let mut appendable = catalog
+            .create_appendable(
+                "appendable-only",
+                "appending",
+                crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
+            )
+            .await
+            .unwrap();
+        appendable
+            .append(0, bytes::Bytes::from_static(b"unfinalized"), 1024)
+            .await
+            .unwrap();
+        appendable.flush().await.unwrap();
+        let delete = |name: &str| pb::DeleteBucketRequest {
+            name: get(name).name,
+            ..Default::default()
+        };
+        // A noncurrent version keeps the bucket, as a live object does.
+        let status = assert_code(
+            storage
+                .delete_bucket(Request::new(delete("noncurrent-only")), None)
+                .await,
+            Code::FailedPrecondition,
+        );
+        assert_eq!(
+            status.message(),
+            "Bucket is not empty; delete its objects and versions before deleting the bucket"
+        );
+        assert!(
+            catalog
+                .get_bucket("noncurrent-only", PERMISSIVE)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        // Soft-deleted objects, an unfinished XML multipart upload and an unfinalized appendable
+        // object leave the bucket deletable. The open appendable writer then finds its object
+        // gone at its next flush.
+        for name in ["soft-deleted-only", "multipart-only", "appendable-only"] {
+            storage
+                .delete_bucket(Request::new(delete(name)), None)
+                .await
+                .unwrap();
+            assert_code(
+                storage.get_bucket(Request::new(get(name)), None).await,
+                Code::NotFound,
+            );
+        }
+        appendable
+            .append(11, bytes::Bytes::from_static(b"more"), 1024)
+            .await
+            .unwrap();
+        assert!(matches!(
+            appendable.flush().await,
+            Err(crate::storage::AppendError::Superseded)
+        ));
+        // Only the bucket with a soft delete policy was kept as a soft-deleted version.
+        let retained = catalog
+            .list_soft_deleted_buckets("p", "", None, 10)
+            .await
+            .unwrap()
+            .items;
+        assert_eq!(
+            retained
+                .iter()
+                .map(|version| version.record.name.as_str())
+                .collect::<Vec<_>>(),
+            ["soft-deleted-only"]
+        );
+        storage.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_bucket_options_reject_only_what_is_unsupported() {
         let (_dir, storage) = storage(false).await;
