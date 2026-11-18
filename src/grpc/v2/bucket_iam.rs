@@ -370,6 +370,71 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// Bucket policies here carry no conditions and no audit configs, on any protocol, so a
+    /// policy that sets either is refused with ErrorInfo and the stored policy stays as it was.
+    #[tokio::test]
+    async fn grpc_iam_set_refuses_conditional_bindings_and_audit_configs() {
+        let (s, _dir) = setup().await;
+        let get = || iam::GetIamPolicyRequest {
+            resource: RESOURCE.into(),
+            options: None,
+        };
+        let before = s
+            .get_iam_policy(Request::new(get()), None)
+            .await
+            .unwrap()
+            .into_inner();
+        let binding = || iam::Binding {
+            role: "roles/storage.objectViewer".into(),
+            members: vec!["allUsers".into()],
+            condition: None,
+        };
+        let conditional = iam::Policy {
+            version: 3,
+            bindings: vec![
+                binding(),
+                iam::Binding {
+                    condition: Some(crate::grpc::generated::google::r#type::Expr {
+                        expression: "request.time < timestamp(\"2030-01-01T00:00:00Z\")".into(),
+                        title: "expires".into(),
+                        ..Default::default()
+                    }),
+                    ..binding()
+                },
+            ],
+            ..Default::default()
+        };
+        let audited = iam::Policy {
+            bindings: vec![binding()],
+            audit_configs: vec![iam::AuditConfig {
+                service: "storage.googleapis.com".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        for policy in [conditional, audited] {
+            assert_unsupported(
+                s.set_iam_policy(
+                    Request::new(iam::SetIamPolicyRequest {
+                        resource: RESOURCE.into(),
+                        policy: Some(policy),
+                        update_mask: None,
+                    }),
+                    None,
+                )
+                .await,
+                "IAM conditions or audit configs",
+            );
+        }
+        let after = s
+            .get_iam_policy(Request::new(get()), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(after, before);
+        s.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy() {
         let (s, _dir) = setup().await;

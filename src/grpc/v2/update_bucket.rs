@@ -876,6 +876,83 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// Strict LockBucketRetentionPolicy needs storage.buckets.update on the bucket, checked
+    /// before the bucket is looked up; a refused lock leaves the policy unlocked.
+    #[tokio::test]
+    async fn grpc_retention_lock_requires_bucket_update_permission() {
+        let dir = crate::test_support::TestDir::new();
+        let catalog = crate::storage::Catalog::open(&dir.0).await.unwrap();
+        let definition = json::parse_insert(
+            br#"{"name":"locking","retentionPolicy":{"retentionPeriod":"3600"}}"#,
+            "p",
+            std::time::SystemTime::now(),
+        )
+        .unwrap();
+        catalog.insert_bucket(definition).await.unwrap();
+        let s = Storage {
+            compat_profile: crate::config::CompatProfile::Native,
+            state: std::sync::Arc::new(crate::server::State::for_test(
+                catalog,
+                crate::auth::Auth::strict(fixtures::registry(&[
+                    ("admin", "p", "roles/storage.admin"),
+                    ("viewer", "p", "roles/storage.objectViewer"),
+                    ("reader", "", ""),
+                ])),
+            )),
+            max_object_bytes: 1024,
+        };
+        let lock = |bucket: &str| pb::LockBucketRetentionPolicyRequest {
+            bucket: format!("projects/_/buckets/{bucket}"),
+            if_metageneration_match: 1,
+        };
+        for bucket in ["locking", "missing-bucket"] {
+            let status = assert_code(
+                s.lock_bucket_retention_policy(Request::new(lock(bucket)), Some(Caller::Anonymous))
+                    .await,
+                Code::Unauthenticated,
+            );
+            assert_eq!(status.message(), "Login Required");
+            for token in ["reader", "viewer"] {
+                let status = assert_code(
+                    s.lock_bucket_retention_policy(
+                        Request::new(lock(bucket)),
+                        fixtures::caller(&s, token).await,
+                    )
+                    .await,
+                    Code::PermissionDenied,
+                );
+                assert_eq!(
+                    status.message(),
+                    format!(
+                        "{token}@example.invalid does not have storage.buckets.update access to the Google Cloud Storage bucket. Permission 'storage.buckets.update' denied on resource (or it may not exist)."
+                    )
+                );
+            }
+        }
+        let stored = s
+            .state
+            .catalog
+            .get_bucket("locking", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.metageneration, 1);
+        assert!(!stored.retention_policy.unwrap().is_locked);
+        let admin = fixtures::caller(&s, "admin").await;
+        assert_code(
+            s.lock_bucket_retention_policy(Request::new(lock("missing-bucket")), admin)
+                .await,
+            Code::NotFound,
+        );
+        let locked = s
+            .lock_bucket_retention_policy(Request::new(lock("locking")), admin)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(locked.retention_policy.unwrap().is_locked);
+        s.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_updates_reject_predefined_acls_without_changing_metadata() {
         let (s, _dir) = setup().await;

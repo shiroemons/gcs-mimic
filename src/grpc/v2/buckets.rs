@@ -1268,6 +1268,83 @@ mod tests {
         storage.state.catalog.close().await.unwrap();
     }
 
+    /// A bucket read mask is refused with UNIMPLEMENTED naming the path when it selects
+    /// satisfies_pzs or names no bucket field. GetBucket validates the mask right after the
+    /// bucket name, before authorization and lookup; ListBuckets validates it after the caller,
+    /// the project permission, page_size and prefix, and before the page token.
+    #[tokio::test]
+    async fn bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order() {
+        let (_dir, storage) = storage(true).await;
+        let admin = caller(&storage, "admin").await;
+        let reader = caller(&storage, "reader").await;
+        let anonymous = Some(Caller::Anonymous);
+        storage
+            .create_bucket(Request::new(create("masked")), admin)
+            .await
+            .unwrap();
+        for path in [
+            "satisfies_pzs",
+            "no_such_field",
+            "Name",
+            "versioning.enabled",
+        ] {
+            let message = format!("bucket read_mask {path}");
+            let read = |name: &str| pb::GetBucketRequest {
+                read_mask: fixtures::mask(&[path]),
+                ..get(name)
+            };
+            for (name, who) in [
+                ("masked", admin),
+                ("masked", anonymous),
+                ("masked", reader),
+                ("missing-bucket", reader),
+                ("missing-bucket", admin),
+            ] {
+                assert_unsupported(
+                    storage.get_bucket(Request::new(read(name)), who).await,
+                    &message,
+                );
+            }
+            // A malformed bucket name is reported before the mask.
+            assert_code(
+                storage.get_bucket(Request::new(read("UPPER")), admin).await,
+                Code::InvalidArgument,
+            );
+            let list = |page_size, prefix: &str, page_token: &str| pb::ListBucketsRequest {
+                parent: "projects/p".into(),
+                page_size,
+                prefix: prefix.into(),
+                page_token: page_token.into(),
+                read_mask: fixtures::mask(&[path]),
+                ..Default::default()
+            };
+            for (who, code) in [
+                (anonymous, Code::Unauthenticated),
+                (reader, Code::PermissionDenied),
+            ] {
+                assert_code(
+                    storage
+                        .list_buckets(Request::new(list(0, "", "")), who)
+                        .await,
+                    code,
+                );
+            }
+            for invalid in [list(-1, "", ""), list(0, &"p".repeat(223), "")] {
+                assert_code(
+                    storage.list_buckets(Request::new(invalid), admin).await,
+                    Code::InvalidArgument,
+                );
+            }
+            for request in [list(0, "", ""), list(1, "", "not-a-token")] {
+                assert_unsupported(
+                    storage.list_buckets(Request::new(request), admin).await,
+                    &message,
+                );
+            }
+        }
+        storage.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_bucket_options_reject_only_what_is_unsupported() {
         let (_dir, storage) = storage(false).await;
