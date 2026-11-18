@@ -279,7 +279,7 @@ pub(super) fn response(
     modified: std::time::SystemTime,
 ) -> Result<Response<ResponseBody>, Error> {
     let mut document = XmlWriter::new("CopyObjectResult", Namespace::None);
-    document.element("LastModified", &json::timestamp(modified)?);
+    document.element("LastModified", &crate::time_format::timestamp(modified)?);
     document.element("ETag", &super::object_etag(record));
     let mut response = super::document_response(document.finish());
     let mut headers = super::media_headers(record, super::CacheScope::Private)?;

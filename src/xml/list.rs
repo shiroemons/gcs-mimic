@@ -4,7 +4,7 @@ use super::name_encoding::NameEncoding;
 use super::{Error, MinValue, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
-    auth, json,
+    auth,
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed},
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
@@ -443,11 +443,14 @@ fn render_item(
         if versions {
             w.value("IsLatest", object.time_deleted.is_none());
         }
-        w.element("LastModified", &json::timestamp(object.updated)?);
+        w.element(
+            "LastModified",
+            &crate::time_format::timestamp(object.updated)?,
+        );
         if versions {
             let deleted = object
                 .time_deleted
-                .map(json::timestamp)
+                .map(crate::time_format::timestamp)
                 .transpose()?
                 .unwrap_or_default();
             w.element("DeletedTime", &deleted);

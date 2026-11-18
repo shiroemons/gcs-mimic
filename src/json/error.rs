@@ -765,6 +765,13 @@ impl From<crate::page_token::PageTokenError> for JsonError {
     }
 }
 
+/// A stored time that cannot be rendered is a backend failure.
+impl From<crate::time_format::TimeOutOfRange> for JsonError {
+    fn from(error: crate::time_format::TimeOutOfRange) -> Self {
+        Self::service_unavailable(error.to_string())
+    }
+}
+
 /// A project path segment outside the identifier rules is a malformed parameter.
 impl From<crate::auth::InvalidProjectId> for JsonError {
     fn from(error: crate::auth::InvalidProjectId) -> Self {

@@ -8,7 +8,7 @@
 //! handler and error path consistent.
 
 use super::PRIVATE_CACHE_CONTROL;
-use crate::json::http_date;
+use crate::time_format::http_date;
 use hyper::{
     Method, Response, StatusCode,
     header::{self, HeaderValue},

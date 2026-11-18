@@ -330,7 +330,8 @@ fn insert_provider_headers(
     let invalid = JsonError::invalid_stored_header;
     headers.insert(
         "last-modified",
-        HeaderValue::try_from(json::http_date(record.updated)?).map_err(|_| invalid())?,
+        HeaderValue::try_from(crate::time_format::http_date(record.updated)?)
+            .map_err(|_| invalid())?,
     );
     headers.insert(
         "x-goog-storage-class",

@@ -226,7 +226,10 @@ async fn list(ctx: RequestCtx<'_>, project: &str) -> Result<Response<ResponseBod
         for bucket in &page.items {
             document.try_group("Bucket", |w| {
                 w.element("Name", &bucket.name);
-                w.element("CreationDate", &json::timestamp(bucket.time_created)?);
+                w.element(
+                    "CreationDate",
+                    &crate::time_format::timestamp(bucket.time_created)?,
+                );
                 Ok::<_, Error>(())
             })?;
         }

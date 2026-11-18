@@ -2,6 +2,7 @@ use super::*;
 use crate::bucket::{BucketRecord, CatalogError, Rpo};
 use crate::config::CompatProfile;
 use crate::page_token::{decode_page_token, encode_page_token};
+use crate::time_format::{http_date, timestamp, timestamp_micros};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
     Method, StatusCode, Uri,
@@ -1611,7 +1612,7 @@ fn http_dates_render_calendar_fields_and_refuse_out_of_range_times() {
         UNIX_EPOCH + Duration::from_secs(253_402_300_800),
     ] {
         assert_eq!(
-            http_date(time).unwrap_err().status,
+            JsonError::from(http_date(time).unwrap_err()).status,
             StatusCode::SERVICE_UNAVAILABLE,
             "{time:?}"
         );

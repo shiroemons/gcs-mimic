@@ -1120,7 +1120,7 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         CacheScope::Private => PRIVATE_CACHE_CONTROL,
     });
     let etag = object_etag(record);
-    let date = json::http_date(record.updated)
+    let date = crate::time_format::http_date(record.updated)
         .map_err(|_| Error::new(XmlCode::ServiceUnavailable, "Invalid stored timestamp."))?;
     for (key, value) in [
         ("cache-control", cache),

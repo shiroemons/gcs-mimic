@@ -1,12 +1,13 @@
 use super::{
     FieldSelection, JsonError, Projection, ResponseCache, Schema, WriteMode,
-    buckets::{PredefinedAclTarget, encode_segment, timestamp},
+    buckets::{PredefinedAclTarget, encode_segment},
     checksum::{self, each_declared_hash},
     integer::take_long,
     query::{BUCKET_PATH, BucketCheck, MAX_OBJECT_SEGMENT_BYTES, boolean, path_bucket, projection},
 };
 use crate::decimal::Grammar;
 use crate::percent::{Decoding, decode, parse_query};
+use crate::time_format::timestamp;
 use crate::{
     auth,
     config::CompatProfile,

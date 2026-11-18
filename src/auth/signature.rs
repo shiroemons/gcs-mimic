@@ -4,7 +4,6 @@ use super::{Auth, Caller};
 use crate::{
     clock::Clock,
     hashing::encode_lower,
-    json,
     url::{is_unreserved, push_percent_encoded},
 };
 use hyper::{HeaderMap, Method, Uri, header::HeaderValue};
@@ -852,7 +851,7 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
 
 /// Format a time as the `YYYYMMDDTHHMMSSZ` value of X-Goog-Date and x-goog-date.
 pub fn timestamp(now: SystemTime) -> Result<String, SigningError> {
-    let date = json::timestamp(now).map_err(|_| SigningError::TimestampOutOfRange)?;
+    let date = crate::time_format::timestamp(now).map_err(|_| SigningError::TimestampOutOfRange)?;
     let part = |range| date.get(range).ok_or(SigningError::TimestampOutOfRange);
     Ok(format!(
         "{}{}{}T{}{}{}Z",

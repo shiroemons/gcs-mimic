@@ -1,12 +1,20 @@
 //! How the XML API answers the errors of shared request parsing and of the domain. Each answer
 //! keeps the code, message and details the XML adapter has always sent for that failure.
 
-use super::Error;
+use super::{Error, XmlCode};
 use crate::{
     auth::InvalidProjectId,
     bucket::name::ProfileNameError,
     percent::{MalformedEncoding, QueryError},
+    time_format::TimeOutOfRange,
 };
+
+/// A stored time that cannot be rendered is a backend failure.
+impl From<TimeOutOfRange> for Error {
+    fn from(error: TimeOutOfRange) -> Self {
+        Self::new(XmlCode::ServiceUnavailable, error.to_string())
+    }
+}
 
 impl From<InvalidProjectId> for Error {
     fn from(error: InvalidProjectId) -> Self {
