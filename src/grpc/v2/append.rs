@@ -3,9 +3,7 @@
 
 use super::{
     Storage, convert,
-    object_io::{
-        Responses, WriteSpec, conditions, hashes, object_status, send, take_data, verify_crc32c,
-    },
+    object_io::{Responses, WriteSpec, conditions, hashes, object_status, send, take_data},
     pb,
     status::unsupported_for,
 };
@@ -17,12 +15,15 @@ use crate::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
         generation::{Generation, InvalidGeneration},
     },
-    storage::{AppendError, AppendWriter, Finality, ObjectReader, ReadableMetadata},
+    storage::{
+        AppendError, AppendWriter, Finality, ObjectReader, ReadableMetadata, ResumableOptions,
+    },
 };
 use tonic::{
     Status,
     codegen::tokio_stream::{Stream, StreamExt},
 };
+use verified::VerifiedChunk;
 
 pub(super) fn is_append(first: &pb::BidiWriteObjectRequest) -> bool {
     use pb::bidi_write_object_request::FirstMessage;
@@ -40,82 +41,106 @@ enum Acknowledgement {
     PersistedSize,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Flush {
     No,
     Yes,
 }
 
-#[derive(PartialEq, Eq)]
-enum Report {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lookup {
     No,
     Yes,
 }
 
-/// Whether a message finalizes the object, with the CRC32C the client declared for all of it.
-enum Finish {
-    No,
-    Yes { expected_crc32c: Option<u32> },
+/// How a message ends its part of the write.
+enum StepEnd {
+    /// More messages may follow. The proto ignores `flush` and `state_lookup` on a message that
+    /// sets `finish_write`, so only this variant carries them.
+    Continue { flush: Flush, lookup: Lookup },
+    /// The message finalizes the object, whose CRC32C must match the one declared, if any.
+    Finish { expected_crc32c: Option<u32> },
 }
 
-/// A message's validations finish before any of its bytes reach the writer.
-struct AppendStep {
-    data: Option<(u64, bytes::Bytes)>,
-    finish: Finish,
-    flush: Flush,
-    report: Report,
+/// Bytes a message appends at `offset`.
+struct Chunk {
+    offset: u64,
+    content: VerifiedChunk,
 }
 
-fn append_step(
-    message: &pb::BidiWriteObjectRequest,
-    data: pb::ChecksummedData,
-) -> Result<AppendStep, Status> {
-    super::customer_key::reject(
-        message.common_object_request_params.as_ref(),
-        "appendable objects",
-    )?;
-    if message.first_message.is_some() {
-        return Err(Status::invalid_argument(
-            "Only the first message may contain write_object_spec or append_object_spec",
-        ));
-    }
-    verify_crc32c(&data)?;
-    if message.object_checksums.is_some() && !message.finish_write {
-        return Err(Status::invalid_argument(
-            "Appendable objects accept object_checksums only with finish_write=true",
-        ));
-    }
-    let expected = hashes(message.object_checksums.as_ref())?;
-    if expected.md5.is_some() {
-        return Err(Status::invalid_argument(
-            "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
-        ));
-    }
-    // A takeover only asks for the persisted size; its offset has no meaning without data.
-    let data = if data.content.is_empty() {
-        None
-    } else {
-        let offset = u64::try_from(message.write_offset).map_err(|_| {
-            Status::out_of_range("write_offset must be nonnegative; resume at persisted_size")
-        })?;
-        Some((offset, data.content))
-    };
-    Ok(AppendStep {
-        data,
-        finish: if message.finish_write {
-            Finish::Yes {
+/// One decoded message of an appendable stream. Every check of the message runs before any of
+/// its bytes reach the writer.
+struct WriteStep {
+    /// `None` for a message without data: a takeover only asks for the persisted size, and an
+    /// offset means nothing without data.
+    chunk: Option<Chunk>,
+    end: StepEnd,
+}
+
+impl WriteStep {
+    /// Decodes a message whose first message, if any, the caller already took.
+    fn decode(message: &mut pb::BidiWriteObjectRequest) -> Result<Self, Status> {
+        super::customer_key::reject(
+            message.common_object_request_params.as_ref(),
+            "appendable objects",
+        )?;
+        if message.first_message.is_some() {
+            return Err(Status::invalid_argument(
+                "Only the first message may contain write_object_spec or append_object_spec",
+            ));
+        }
+        let content = VerifiedChunk::verify(take_data(message))?;
+        if message.object_checksums.is_some() && !message.finish_write {
+            return Err(Status::invalid_argument(
+                "Appendable objects accept object_checksums only with finish_write=true",
+            ));
+        }
+        let expected = hashes(message.object_checksums.as_ref())?;
+        if expected.md5.is_some() {
+            return Err(Status::invalid_argument(
+                "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
+            ));
+        }
+        let chunk = if content.is_empty() {
+            None
+        } else {
+            let offset = u64::try_from(message.write_offset).map_err(|_| {
+                Status::out_of_range("write_offset must be nonnegative; resume at persisted_size")
+            })?;
+            Some(Chunk { offset, content })
+        };
+        let end = if message.finish_write {
+            StepEnd::Finish {
                 expected_crc32c: expected.crc32c,
             }
         } else {
-            Finish::No
-        },
-        flush: if message.flush { Flush::Yes } else { Flush::No },
-        report: if message.flush || message.state_lookup {
-            Report::Yes
-        } else {
-            Report::No
-        },
-    })
+            StepEnd::Continue {
+                flush: if message.flush { Flush::Yes } else { Flush::No },
+                lookup: if message.state_lookup {
+                    Lookup::Yes
+                } else {
+                    Lookup::No
+                },
+            }
+        };
+        Ok(Self { chunk, end })
+    }
+
+    /// Checks an opening message against the empty object a creating stream is about to make,
+    /// as [`AppendWriter::append`] would check it after the create: the offset first, then the
+    /// size limit.
+    fn check_new_object(&self, max_bytes: u64) -> Result<(), AppendError> {
+        let Some(Chunk { offset, content }) = &self.chunk else {
+            return Ok(());
+        };
+        if *offset > 0 {
+            return Err(AppendError::OffsetGap { expected: 0 });
+        }
+        if u64::try_from(content.len()).map_or(true, |length| length > max_bytes) {
+            return Err(AppendError::Object(ObjectError::TooLarge));
+        }
+        Ok(())
+    }
 }
 
 /// Unfinalized generations have no MD5 and no finalize time.
@@ -197,14 +222,32 @@ struct OpenedWriter {
     acknowledgement: Acknowledgement,
 }
 
+/// What an appendable stream's first message asks to open, with its spec and the caller's
+/// permission checked and nothing opened yet.
+enum Opening {
+    Create {
+        bucket: String,
+        name: String,
+        options: Box<ResumableOptions>,
+    },
+    TakeOver {
+        target: ObjectTarget<i64>,
+        write_handle: Option<pb::BidiWriteHandle>,
+        conditions: ObjectConditions,
+        access: BucketAccess,
+    },
+}
+
 impl Storage {
-    async fn open_writer(
+    /// Checks the spec of an appendable stream's first message and the caller's permission,
+    /// which open nothing.
+    async fn prepare_opening(
         &self,
-        first: &mut pb::BidiWriteObjectRequest,
+        first: Option<pb::bidi_write_object_request::FirstMessage>,
         caller: Option<Caller<'_>>,
-    ) -> Result<OpenedWriter, Status> {
+    ) -> Result<Opening, Status> {
         use pb::bidi_write_object_request::FirstMessage;
-        match first.first_message.take() {
+        match first {
             Some(FirstMessage::WriteObjectSpec(mut spec)) => {
                 if spec.object_size.is_some() {
                     return Err(unsupported_for(
@@ -219,27 +262,17 @@ impl Storage {
                     options,
                     total: _,
                 } = self.write_spec(spec, None, caller).await?;
-                // The proto allows object_checksums on the finish_write message, which may also
-                // be the first one; the receive loop verifies them at finalization. Rejecting
-                // the others here keeps an invalid request from creating the object.
-                if options.expected != ExpectedHashes::default()
-                    || (first.object_checksums.is_some() && !first.finish_write)
-                {
+                // The opening message's own object_checksums are checked with the message; the
+                // receive loop verifies them at finalization.
+                if options.expected != ExpectedHashes::default() {
                     return Err(Status::invalid_argument(
                         "Appendable objects accept checksums only with finish_write; omit resource.checksums and send object_checksums with finish_write=true",
                     ));
                 }
-                let access = options.access.clone();
-                let writer = self
-                    .state
-                    .catalog
-                    .create_appendable(&bucket, &name, options)
-                    .await
-                    .map_err(|e| append_status(e, caller))?;
-                Ok(OpenedWriter {
-                    writer,
-                    access,
-                    acknowledgement: Acknowledgement::Resource,
+                Ok(Opening::Create {
+                    bucket,
+                    name,
+                    options: Box::new(options),
                 })
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
@@ -252,13 +285,56 @@ impl Storage {
                     })?;
                 let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
                 let conditions = conditions(ObjectConditions::from(&spec))?;
-                let target = ObjectTarget::new(bucket, name, generation.get());
+                Ok(Opening::TakeOver {
+                    target: ObjectTarget::new(bucket, name, generation.get()),
+                    write_handle: spec.write_handle,
+                    conditions,
+                    access,
+                })
+            }
+            _ => Err(Status::invalid_argument(
+                "First message must contain write_object_spec with appendable=true or append_object_spec",
+            )),
+        }
+    }
+
+    /// Creates or takes over the object `opening` names.
+    async fn open_writer(
+        &self,
+        opening: Opening,
+        caller: Option<Caller<'_>>,
+    ) -> Result<OpenedWriter, Status> {
+        match opening {
+            Opening::Create {
+                bucket,
+                name,
+                options,
+            } => {
+                let access = options.access.clone();
+                let writer = self
+                    .state
+                    .catalog
+                    .create_appendable(&bucket, &name, *options)
+                    .await
+                    .map_err(|e| append_status(e, caller))?;
+                Ok(OpenedWriter {
+                    writer,
+                    access,
+                    acknowledgement: Acknowledgement::Resource,
+                })
+            }
+            Opening::TakeOver {
+                target,
+                write_handle,
+                conditions,
+                access,
+            } => {
                 let writer = self
                     .state
                     .catalog
                     .take_over_appendable(
                         target,
-                        spec.write_handle.as_ref().map(|h| h.handle.as_slice()),
+                        write_handle.as_ref().map(|h| h.handle.as_slice()),
                         conditions,
                         access.clone(),
                     )
@@ -270,9 +346,6 @@ impl Storage {
                     acknowledgement: Acknowledgement::PersistedSize,
                 })
             }
-            _ => Err(Status::invalid_argument(
-                "First message must contain write_object_spec with appendable=true or append_object_spec",
-            )),
         }
     }
 
@@ -288,60 +361,56 @@ impl Storage {
     where
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
-        super::customer_key::reject(
-            message.common_object_request_params.as_ref(),
-            "appendable objects",
-        )?;
+        // The spec and the caller's permission come first, as on every other write path. The
+        // opening message is checked next, before the object is created or taken over, so a
+        // refusal there changes nothing. A new object starts empty, so a creating stream's
+        // opening offset and size limit are checked before the create as well; a takeover's
+        // depend on the object it opens, so the writer checks them after the takeover, which
+        // stays done.
+        let opening = self
+            .prepare_opening(message.first_message.take(), caller)
+            .await?;
+        let mut step = WriteStep::decode(&mut message)?;
+        if let Opening::Create { .. } = opening {
+            step.check_new_object(self.max_object_bytes)
+                .map_err(|e| append_status(e, caller))?;
+        }
         let OpenedWriter {
             mut writer,
             access,
             acknowledgement,
-        } = self.open_writer(&mut message, caller).await?;
+        } = self.open_writer(opening, caller).await?;
         // Every open is answered once, even without flush or state_lookup: a takeover learns
         // where to resume, and a creating stream learns its generation. The Python SDK waits
         // for that resource after a spec-only first message before it sends any data.
         let mut opening = Some(acknowledgement);
         loop {
-            let data = take_data(&mut message);
-            let step = append_step(&message, data)?;
-            if let Some((offset, content)) = step.data {
+            if let Some(Chunk { offset, content }) = step.chunk {
                 writer
-                    .append(offset, content, self.max_object_bytes)
+                    .append(offset, content.into_bytes(), self.max_object_bytes)
                     .await
                     .map_err(|e| append_status(e, caller))?;
             }
-            if let Finish::Yes { expected_crc32c } = step.finish {
-                let record = writer
-                    .finalize(expected_crc32c, access.clone(), self.max_object_bytes)
-                    .await
-                    .map_err(|e| append_status(e, caller))?;
-                return send(
-                    tx,
-                    pb::BidiWriteObjectResponse {
-                        write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
-                            self.written_object(
-                                &record,
-                                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
-                                caller,
-                            )
-                            .await?,
-                        )),
-                        ..Default::default()
-                    },
-                )
-                .await;
-            }
-            if step.flush == Flush::Yes {
+            let (flush, lookup) = match step.end {
+                StepEnd::Continue { flush, lookup } => (flush, lookup),
+                StepEnd::Finish { expected_crc32c } => {
+                    return self
+                        .finalize_append(writer, expected_crc32c, access, caller, tx)
+                        .await;
+                }
+            };
+            if flush == Flush::Yes {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
-            let report = opening
-                .take()
-                .or_else(|| (step.report == Report::Yes).then_some(Acknowledgement::PersistedSize));
+            let report = opening.take().or_else(|| {
+                (flush == Flush::Yes || lookup == Lookup::Yes)
+                    .then_some(Acknowledgement::PersistedSize)
+            });
             if let Some(acknowledgement) = report {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
             }
             match stream.next().await.transpose()? {
-                Some(next) => message = next,
+                Some(mut next) => step = WriteStep::decode(&mut next)?,
                 None => {
                     // Closing the stream without finish_write leaves the object appendable; the
                     // service still reports the persisted size for a clean close.
@@ -354,6 +423,38 @@ impl Storage {
                 }
             }
         }
+    }
+
+    /// Publishes the appendable object `writer` holds and answers with the finalized resource.
+    async fn finalize_append(
+        &self,
+        mut writer: AppendWriter,
+        expected_crc32c: Option<u32>,
+        access: BucketAccess,
+        caller: Option<Caller<'_>>,
+        tx: &Responses,
+    ) -> Result<(), Status> {
+        let record = writer
+            .finalize(expected_crc32c, access, self.max_object_bytes)
+            .await
+            .map_err(|e| append_status(e, caller))?;
+        let resource = self
+            .written_object(
+                &record,
+                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+                caller,
+            )
+            .await?;
+        send(
+            tx,
+            pb::BidiWriteObjectResponse {
+                write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
+                    resource,
+                )),
+                ..Default::default()
+            },
+        )
+        .await
     }
 
     /// Finalized objects come from the catalog; an absent name falls back to an unfinalized
@@ -397,6 +498,8 @@ impl Storage {
             .await
     }
 }
+
+mod verified;
 
 #[cfg(test)]
 mod tests;

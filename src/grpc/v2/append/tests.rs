@@ -375,6 +375,119 @@ async fn append_accepts_checksums_on_a_single_finishing_message() {
     assert_code(get(&storage, "early").await, Code::NotFound);
 }
 
+/// The opening message is checked before it creates or takes over the object, so a refused
+/// opening leaves no new object and the current writer in place. A creating stream's object
+/// starts empty, so its opening offset and the size limit are checked before the create too.
+#[tokio::test]
+async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_over() {
+    let (_dir, storage) = setup(false).await;
+    let mut bad_crc = create("bad-crc", b"x");
+    if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
+        data.crc32c = Some(1);
+    }
+    let mut negative = create("negative", b"x");
+    negative.write_offset = -1;
+    let mut md5 = create("md5", b"x");
+    md5.finish_write = true;
+    md5.object_checksums = Some(pb::ObjectChecksums {
+        crc32c: None,
+        md5_hash: vec![0; 16],
+    });
+    let mut gap = create("gap", b"x");
+    gap.write_offset = 1;
+    let too_large = vec![0; usize::try_from(storage.max_object_bytes).unwrap() + 1];
+    let too_large = create("too-large", &too_large);
+    for (name, message, code) in [
+        ("bad-crc", bad_crc, Code::InvalidArgument),
+        ("negative", negative, Code::OutOfRange),
+        ("md5", md5, Code::InvalidArgument),
+        ("gap", gap, Code::OutOfRange),
+        ("too-large", too_large, Code::ResourceExhausted),
+    ] {
+        let (result, responses) = append(&storage, vec![Ok(message)], None).await;
+        assert_code(result, code);
+        assert!(responses.is_empty(), "{name}");
+        assert_code(get(&storage, name).await, Code::NotFound);
+    }
+
+    let mut writer = storage
+        .state
+        .catalog
+        .create_appendable(
+            "grpc-append",
+            "held",
+            crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+        )
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"one"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let generation = writer.record().generation;
+    let mut bad_crc = take_over("held", generation, None);
+    bad_crc.write_offset = 3;
+    bad_crc.data = data(b"two");
+    if let Some(Data::ChecksummedData(data)) = bad_crc.data.as_mut() {
+        data.crc32c = Some(1);
+    }
+    let mut early_checksums = take_over("held", generation, None);
+    early_checksums.object_checksums = Some(pb::ObjectChecksums {
+        crc32c: Some(1),
+        md5_hash: Vec::new(),
+    });
+    for message in [bad_crc, early_checksums] {
+        let (result, responses) = append(&storage, vec![Ok(message)], None).await;
+        assert_code(result, Code::InvalidArgument);
+        assert!(responses.is_empty());
+    }
+    writer
+        .append(3, Bytes::from_static(b"two"), 1024)
+        .await
+        .unwrap();
+    assert_eq!(writer.flush().await, Ok(6));
+    assert_eq!(read(&storage, "held").await.unwrap().1, b"onetwo");
+}
+
+/// An opening message's offset is checked against the object it opened, so a takeover whose
+/// first offset leaves a gap is refused after it superseded the previous writer. The persisted
+/// bytes stay.
+#[tokio::test]
+async fn append_checks_an_opening_offset_after_the_takeover() {
+    let (_dir, storage) = setup(false).await;
+    let mut writer = storage
+        .state
+        .catalog
+        .create_appendable(
+            "grpc-append",
+            "gapped",
+            crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+        )
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"one"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let mut gapped = take_over("gapped", writer.record().generation, None);
+    gapped.write_offset = 5;
+    gapped.data = data(b"two");
+    let (result, responses) = append(&storage, vec![Ok(gapped)], None).await;
+    let status = assert_code(result, Code::OutOfRange);
+    assert_eq!(
+        status.message(),
+        "write_offset leaves a gap after the 3 bytes received; resume at persisted_size"
+    );
+    assert!(responses.is_empty());
+    assert_eq!(
+        writer.append(3, Bytes::from_static(b"two"), 1024).await,
+        Err(AppendError::Superseded)
+    );
+    assert_eq!(read(&storage, "gapped").await.unwrap().1, b"one");
+}
+
 #[tokio::test]
 async fn append_hides_unflushed_bytes_and_truncates_them_on_takeover() {
     let (_dir, storage) = setup(false).await;
@@ -666,4 +779,50 @@ async fn append_strict_requires_create_and_allows_viewer_reads() {
     };
     assert!(object.owner.is_some());
     assert!(!object.acl.is_empty());
+}
+
+/// The spec and the caller's permission are checked before the opening message, as every other
+/// write path checks them, so a caller without storage.objects.create learns nothing from the
+/// message it sent.
+#[tokio::test]
+async fn append_checks_the_permission_before_the_opening_message() {
+    let (_dir, storage) = setup(true).await;
+    let mut request = Request::new(());
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer admin".parse().unwrap());
+    let admin = storage.authenticate(&request).await.unwrap();
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer reader".parse().unwrap());
+    let reader = storage.authenticate(&request).await.unwrap();
+    let (result, responses) = append(&storage, vec![Ok(create("held", b"one"))], admin).await;
+    result.unwrap();
+    let WriteStatus::Resource(held) = responses[0].write_status.as_ref().unwrap() else {
+        panic!("missing resource");
+    };
+    let bad_crc = |mut message: pb::BidiWriteObjectRequest| {
+        if let Some(Data::ChecksummedData(data)) = message.data.as_mut() {
+            data.crc32c = Some(1);
+        }
+        message
+    };
+    let mut gap = create("gap", b"x");
+    gap.write_offset = 1;
+    let mut take_over_crc = take_over("held", held.generation, None);
+    take_over_crc.write_offset = 3;
+    take_over_crc.data = data(b"two");
+    for (label, message) in [
+        ("create-crc", bad_crc(create("crc", b"x"))),
+        ("create-gap", gap),
+        ("take-over-crc", bad_crc(take_over_crc)),
+    ] {
+        let (result, responses) = append(&storage, vec![Ok(message)], reader).await;
+        assert_eq!(
+            result.map_err(|status| status.code()),
+            Err(Code::PermissionDenied),
+            "{label}"
+        );
+        assert!(responses.is_empty(), "{label}");
+    }
 }

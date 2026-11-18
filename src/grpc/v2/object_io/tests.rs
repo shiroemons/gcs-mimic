@@ -3,7 +3,7 @@ use super::{
     read::read_range,
     resource::mask_object,
     resumable::{Persisted, resumable_piece},
-    write::{EndOfStream, MessagePosition},
+    write::{MessagePosition, WriteRpc},
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported, registry};
 use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
@@ -139,10 +139,14 @@ pub(super) async fn write_as(
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter(messages.into_iter().map(Ok)),
             caller,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
+        .map(|answer| {
+            answer
+                .write_status
+                .expect("every write answers with a status")
+        })
 }
 
 #[tokio::test]
@@ -198,7 +202,7 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
     };
     let mut stream = ReceiverStream::new(incoming);
     let (result, ()) = tokio::join!(
-        storage.receive_write(&mut stream, None, Some(&responses), EndOfStream::Required),
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
         later
     );
     assert_code(result, tonic::Code::FailedPrecondition);
@@ -216,13 +220,16 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// The proto: "When the stream is closed, a `BidiWriteObjectResponse` is always sent to the
+/// client, regardless of the value of `state_lookup`." A clean close of a resumed stream answers
+/// with the persisted size, also after a flush already answered.
 #[tokio::test]
 async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
     let (_dir, storage) = setup(false).await;
-    for (name, data, flush) in [
-        ("half-close", b"abc".as_slice(), false),
-        ("flushed", b"abc".as_slice(), true),
-        ("empty", b"".as_slice(), false),
+    for (name, data, flush, answers) in [
+        ("half-close", b"abc".as_slice(), false, 1),
+        ("flushed", b"abc".as_slice(), true, 2),
+        ("empty", b"".as_slice(), false, 1),
     ] {
         let upload = start(&storage, name, None).await;
         let mut message = resume(&upload, 0, data, false);
@@ -230,17 +237,21 @@ async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
         let mut stream = tonic::codegen::tokio_stream::iter([Ok(message)]);
         let (tx, mut rx) = mpsc::channel(2);
         let result = storage
-            .receive_write(&mut stream, None, Some(&tx), EndOfStream::NotChecked)
+            .receive_write(&mut stream, None, WriteRpc::Bidi(&tx))
             .await
             .unwrap();
         assert_eq!(
-            result,
-            pb::bidi_write_object_response::WriteStatus::PersistedSize(data.len() as i64)
+            result.write_status,
+            Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
+                data.len() as i64
+            ))
         );
         drop(tx);
-        let response = rx.recv().await.unwrap().unwrap();
-        assert_eq!(response.write_status, Some(result));
-        assert!(rx.recv().await.is_none());
+        for _ in 0..answers {
+            let response = rx.recv().await.unwrap().unwrap();
+            assert_eq!(response, result, "{name}");
+        }
+        assert!(rx.recv().await.is_none(), "{name}");
         assert!(missing(&storage, name).await);
     }
     storage.state.catalog.close().await.unwrap();
@@ -348,7 +359,7 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     ]);
     assert_code(
         storage
-            .receive_write(&mut stream, None, None, EndOfStream::Required)
+            .receive_write(&mut stream, None, WriteRpc::WriteObject)
             .await,
         tonic::Code::Cancelled,
     );
@@ -360,6 +371,162 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
         .await
         .unwrap();
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A request stream that yields `items`, then stays open, as a client that never half-closes
+/// does, until its [`Hold`] releases it.
+pub(super) struct HeldOpen<T> {
+    items: std::collections::VecDeque<T>,
+    waiting: Option<tokio::sync::oneshot::Sender<()>>,
+    release: tokio::sync::oneshot::Receiver<()>,
+}
+
+/// The test's end of a [`HeldOpen`] stream.
+pub(super) struct Hold {
+    /// Fires once a reader asks for more than the stream's items.
+    pub(super) waited: tokio::sync::oneshot::Receiver<()>,
+    /// Ends the stream.
+    pub(super) release: tokio::sync::oneshot::Sender<()>,
+}
+
+impl<T> HeldOpen<T> {
+    pub(super) fn new(items: impl IntoIterator<Item = T>) -> (Self, Hold) {
+        let (waiting, waited) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let stream = Self {
+            items: items.into_iter().collect(),
+            waiting: Some(waiting),
+            release: released,
+        };
+        (stream, Hold { waited, release })
+    }
+}
+
+impl<T: Unpin> Stream for HeldOpen<T> {
+    type Item = T;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if let Some(item) = self.items.pop_front() {
+            return std::task::Poll::Ready(Some(item));
+        }
+        if let Some(waiting) = self.waiting.take() {
+            let _ = waiting.send(());
+        }
+        std::pin::Pin::new(&mut self.release).poll(cx).map(|_| None)
+    }
+}
+
+/// WriteObject must see its stream end after finish_write. A client that keeps the stream open
+/// must not hold the session meanwhile, or no other stream and no cancellation could use it.
+#[tokio::test]
+async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session() {
+    let (_dir, storage) = setup(false).await;
+    let upload = start(&storage, "held-open", None).await;
+    let id = upload.parse::<UploadId>().unwrap();
+    let (mut stream, Hold { waited, release }) =
+        HeldOpen::new([Ok(resume(&upload, 0, b"abc", true))]);
+    let other = async {
+        waited.await.unwrap();
+        let lease = storage
+            .state
+            .catalog
+            .lock_resumable_session(id.session(), id.bucket())
+            .await;
+        let free = lease.is_ok();
+        drop(lease);
+        release.send(()).unwrap();
+        free
+    };
+    let (result, free) = tokio::join!(
+        storage.receive_write(&mut stream, None, WriteRpc::WriteObject),
+        other
+    );
+    assert!(
+        free,
+        "the session stayed leased while the stream stayed open"
+    );
+    let Some(pb::bidi_write_object_response::WriteStatus::Resource(object)) =
+        result.unwrap().write_status
+    else {
+        panic!("not finalized")
+    };
+    assert_eq!(object.size, 3);
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// WriteObject reads past a resumed stream's finish_write before it looks up the session, so it
+/// answers only once the stream ends when a check that needs the session refuses the finishing
+/// message (the session itself, the offset, the chunk CRC32C) or the message replays a finalized
+/// upload. A refusal before the session lookup is answered at once
+/// (`grpc_io_write_object_refuses_before_the_session_lookup_at_once`).
+#[tokio::test]
+async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end() {
+    let (_dir, storage) = setup(false).await;
+    let refused = start(&storage, "refused-held-open", None).await;
+    let mut bad_crc = resume(&refused, 0, b"abc", true);
+    if let Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) = bad_crc.data.as_mut()
+    {
+        data.crc32c = Some(1);
+    }
+    let finalized = start(&storage, "replayed-held-open", None).await;
+    write(&storage, vec![resume(&finalized, 0, b"abc", true)])
+        .await
+        .unwrap();
+    let crc_mismatch = format!(
+        "Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '00000001'.",
+        crc32c::crc32c(b"abc")
+    );
+    let unknown = format!("grpc-io/{}", "0".repeat(64));
+    for (label, message, expected) in [
+        (
+            "unknown-session",
+            resume(&unknown, 0, b"abc", true),
+            (
+                tonic::Code::NotFound,
+                "Upload session not found; start a new resumable write",
+            ),
+        ),
+        (
+            "offset",
+            resume(&refused, 5, b"abc", true),
+            (
+                tonic::Code::OutOfRange,
+                "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
+            ),
+        ),
+        (
+            "crc",
+            bad_crc,
+            (tonic::Code::InvalidArgument, crc_mismatch.as_str()),
+        ),
+        (
+            "replayed",
+            resume(&finalized, 0, b"abc", true),
+            (tonic::Code::Ok, ""),
+        ),
+    ] {
+        let (mut stream, Hold { waited, release }) = HeldOpen::new([Ok(message)]);
+        let answer = storage.receive_write(&mut stream, None, WriteRpc::WriteObject);
+        tokio::pin!(answer);
+        tokio::select! {
+            result = answer.as_mut() => panic!("{label} answered before the stream ended: {result:?}"),
+            asked = waited => asked.unwrap(),
+        }
+        release.send(()).unwrap();
+        let result = answer.await;
+        assert_eq!(
+            result.as_ref().map_or_else(
+                |status| (status.code(), status.message()),
+                |_| (tonic::Code::Ok, "")
+            ),
+            expected,
+            "{label}"
+        );
+    }
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -748,12 +915,13 @@ async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(message("written", b"hello"))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
-    let pb::bidi_write_object_response::WriteStatus::Resource(resource) = written else {
+    let Some(pb::bidi_write_object_response::WriteStatus::Resource(resource)) =
+        written.write_status
+    else {
         panic!("a finished write answers with the resource");
     };
     assert!(!resource.acl.is_empty());
@@ -799,8 +967,7 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(message("masked", b"masked"))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
@@ -1477,8 +1644,7 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"private"))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
@@ -1491,8 +1657,7 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
             .receive_write(
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"denied"))]),
                 reader,
-                None,
-                EndOfStream::Required,
+                WriteRpc::WriteObject,
             )
             .await,
         tonic::Code::PermissionDenied,
@@ -1754,8 +1919,7 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, b"abc", false))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
