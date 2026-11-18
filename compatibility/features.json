@@ -24883,7 +24883,7 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
