@@ -200,6 +200,15 @@ fn intake_status(error: IntakeError) -> Status {
     }
 }
 
+impl From<step::AdmitError> for Status {
+    fn from(error: step::AdmitError) -> Self {
+        match error {
+            step::AdmitError::Intake(error) => intake_status(error),
+            step::AdmitError::Message(error) => error.into(),
+        }
+    }
+}
+
 impl Storage {
     pub(super) async fn delete_object(
         &self,

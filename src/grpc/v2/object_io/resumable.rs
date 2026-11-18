@@ -1,3 +1,4 @@
+use super::step::AdmitError;
 use super::write::{MessagePosition, WriteRpc, check_later_key, finished, persisted_answer};
 use super::*;
 use crate::grpc::v2::{routing, stored};
@@ -204,14 +205,15 @@ impl Storage {
     /// A later message that names the `upload_id` again is read like any other, as Cloud
     /// Storage reads it (recorded 2026-11-18).
     ///
-    /// Each message is checked in this order: the key `StartResumableWrite` bound, what the
-    /// message carries against what the session persisted ([`Call::admit`]: offset, size and
-    /// data checksum), its object checksums ([`Call::declare`]), then the conditions and the
-    /// complete object ([`Self::message_options`]). Recorded (case
-    /// grpc-probe-inferred-session-states): a first offset past the persisted size answers before
-    /// a malformed `md5_hash`. Not recorded: the key's place, first as on a non-resumable write's
-    /// later message, and a malformed `md5_hash` against the size, the data checksum and the
-    /// conditions.
+    /// Each message is checked in this order: the key `StartResumableWrite` bound, the message
+    /// against what the session persisted ([`Call::admit`]: a resumable stream's offset rules,
+    /// then the ones it shares with a non-resumable write, [`WriteStep::admit`]: offset, size,
+    /// data checksum and object checksums), the object checksums `StartResumableWrite` declared
+    /// against the call's ([`Call::expected`]), then the conditions and the complete object
+    /// ([`Self::message_options`]). Recorded (case grpc-probe-inferred-session-states): a first
+    /// offset past the persisted size answers before a malformed `md5_hash`. Not recorded: the
+    /// key's place, first as on a non-resumable write's later message, and a malformed
+    /// `md5_hash` against the size, the data checksum and the conditions.
     pub(super) async fn receive_resumable_write<
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     >(
@@ -245,7 +247,6 @@ impl Storage {
             let mut options = lease.session.options.clone();
             options.access = access;
             check_later_key(options.metadata.customer_key_sha256, step.params.as_ref())?;
-            let checksums = std::mem::take(&mut step.checksums);
             let end = step.end;
             let persisted = Persisted {
                 offset: lease.session.offset,
@@ -263,7 +264,7 @@ impl Storage {
                     return Err(status);
                 }
             };
-            let expected = call.declare(&checksums, options.expected)?;
+            let expected = call.expected(options.expected)?;
             let options = self
                 .message_options(&lease, options, expected, &piece, end)
                 .await?;
@@ -426,24 +427,18 @@ impl Default for Call {
 }
 
 impl Call {
-    /// Adds a message's `checksums` to the ones the call declared, on whichever message they
-    /// arrive (Cloud Storage accepted them on a first and on a middle message, recorded
-    /// 2026-11-18), and returns what the complete object must match: those and the `session`'s,
-    /// which `StartResumableWrite` declared.
-    pub(super) fn declare(
-        &mut self,
-        checksums: &DeclaredChecksums,
-        session: ExpectedHashes,
-    ) -> Result<ExpectedHashes, Status> {
-        let declared = merge_hashes(self.declared, checksums.expected()?)?;
-        let expected = merge_hashes(session, declared)?;
-        self.declared = declared;
-        Ok(expected)
+    /// What the complete object must match: the checksums the call's messages declared, on
+    /// whichever message they arrived (Cloud Storage accepted them on a first and on a middle
+    /// message, recorded 2026-11-18), and the `session`'s, which `StartResumableWrite` declared
+    /// and which hold for every stream of the session.
+    pub(super) fn expected(&self, session: ExpectedHashes) -> Result<ExpectedHashes, Status> {
+        merge_hashes(session, self.declared)
     }
 
     /// Checks `step` against what its session `persisted` and returns what the session
-    /// persists for it: the offset a stream starts at here, then the rules every write path
-    /// shares ([`upload::admit_bytes`]).
+    /// persists for it: the offset a stream starts at here, then the rules a resumable write
+    /// shares with a non-resumable one ([`WriteStep::admit`]), which also add the message's
+    /// object checksums to the call's.
     pub(super) fn admit(
         &mut self,
         step: WriteStep,
@@ -466,13 +461,19 @@ impl Call {
             .and_then(|tail| persisted.checked_add(tail))
             .ok_or_else(overflow)?;
         self.check_first_offset(offset, received)?;
-        let end = step.end;
-        let piece = step.data.into_piece(offset, end);
-        let (added, written) =
-            upload::admit_bytes(received, &piece, max_object_bytes, total).map_err(refusal)?;
+        let admitted = step
+            .admit(offset, self.declared, |piece| {
+                let (added, written) =
+                    upload::admit_bytes(received, piece, max_object_bytes, total)?;
+                Ok((added, written, piece.content.len()))
+            })
+            .map_err(refusal)?;
+        let (added, written, sent) = admitted.bytes;
+        let end = admitted.end;
+        self.declared = admitted.declared;
         self.uploaded = self
             .uploaded
-            .saturating_add(u64::try_from(piece.content.len()).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(sent).unwrap_or(u64::MAX));
         self.position = MessagePosition::Later;
         let parts = self.take_whole_granules(&added, end);
         let length = parts
@@ -557,23 +558,28 @@ impl Call {
     }
 }
 
-/// How a resumable message that [`upload::admit_bytes`] refuses leaves its session. Bytes that
+/// How a resumable message that [`WriteStep::admit`] refuses leaves its session. Bytes that
 /// miss `object_size`, past it or short of it at `finish_write`, end it (see
 /// [`Refusal::Session`]). A later message that skips past the received bytes is told to resume
 /// where the session stands, the remedy that fits a resumable write; every other refusal keeps
 /// the wording all write paths share and leaves the session usable, as a refused data checksum
 /// left it open at its persisted size (recorded 2026-11-18).
-fn refusal(error: IntakeError) -> Refusal {
+fn refusal(error: AdmitError) -> Refusal {
     match error {
-        IntakeError::SizeMismatch { .. } => Refusal::Session(intake_status(error)),
-        IntakeError::Offset => Refusal::Message(Status::out_of_range(
+        AdmitError::Intake(error @ IntakeError::SizeMismatch { .. }) => {
+            Refusal::Session(intake_status(error))
+        }
+        AdmitError::Intake(IntakeError::Offset) => Refusal::Message(Status::out_of_range(
             "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
         )),
-        IntakeError::ChunkCrc(_)
-        | IntakeError::Overflow
-        | IntakeError::TooLarge
-        | IntakeError::ObjectChecksum(_)
-        | IntakeError::ConflictingChecksums
-        | IntakeError::ConsumerStopped => Refusal::Message(intake_status(error)),
+        error @ (AdmitError::Intake(
+            IntakeError::ChunkCrc(_)
+            | IntakeError::Overflow
+            | IntakeError::TooLarge
+            | IntakeError::ObjectChecksum(_)
+            | IntakeError::ConflictingChecksums
+            | IntakeError::ConsumerStopped,
+        )
+        | AdmitError::Message(_)) => Refusal::Message(error.into()),
     }
 }

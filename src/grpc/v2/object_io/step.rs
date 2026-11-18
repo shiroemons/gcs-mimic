@@ -7,11 +7,12 @@
 //! checksums ([`DeclaredChecksums::expected`]) and the data, whose declared CRC32C
 //! [`DeclaredChunk::verify`] or [`admit_bytes`](crate::grpc::upload::admit_bytes) compares. A
 //! path may have to answer another rule first, and no unchecked byte reaches a writer either
-//! way.
+//! way. The non-resumable and resumable paths check a message's data and object checksums
+//! through one method, [`WriteStep::admit`], so they answer them in the same order.
 
 use super::pb;
 use crate::{
-    grpc::upload::{self, CrcMismatch, IntakePiece},
+    grpc::upload::{self, CrcMismatch, IntakeError, IntakePiece},
     object::ExpectedHashes,
 };
 use tonic::{
@@ -168,9 +169,9 @@ pub(in crate::grpc::v2) struct WriteStep {
 }
 
 /// An `object_checksums` as sent beside a spec or in a message. It is read where its write
-/// path checks it: a non-resumable write reads the first message's with the spec, and a
-/// resumable message reads it after its offset, size and data checksum and before the
-/// session's conditions (see `Storage::receive_resumable_write`).
+/// path checks it: `StartResumableWrite` reads its own with the spec, and every message of a
+/// non-resumable or resumable write reads it after its data ([`WriteStep::admit`]) and before
+/// the write's conditions.
 #[derive(Default)]
 pub(in crate::grpc::v2) struct DeclaredChecksums(Option<pb::ObjectChecksums>);
 
@@ -223,6 +224,72 @@ impl From<pb::BidiWriteObjectRequest> for WriteStep {
             checksums: DeclaredChecksums(message.object_checksums),
             end,
         }
+    }
+}
+
+/// Why [`WriteStep::admit`] refuses a message.
+#[derive(Debug)]
+pub(in crate::grpc::v2) enum AdmitError {
+    /// Its data breaks a rule [`upload::admit_bytes`] applies, or its object checksums name a
+    /// digest that differs from one declared before.
+    Intake(IntakeError),
+    /// Its object checksums cannot be read.
+    Message(MessageError),
+}
+
+impl From<IntakeError> for AdmitError {
+    fn from(error: IntakeError) -> Self {
+        Self::Intake(error)
+    }
+}
+
+impl From<MessageError> for AdmitError {
+    fn from(error: MessageError) -> Self {
+        Self::Message(error)
+    }
+}
+
+/// A message [`WriteStep::admit`] accepted.
+pub(in crate::grpc::v2) struct Admitted<T> {
+    /// What the write path's check of the message's data returned.
+    pub(in crate::grpc::v2) bytes: T,
+    /// The object checksums declared for the complete object, this message's included.
+    pub(in crate::grpc::v2) declared: ExpectedHashes,
+    pub(in crate::grpc::v2) end: StepEnd,
+}
+
+impl WriteStep {
+    /// Checks this message, whose `offset` its write path's own rules accepted, by the rules
+    /// the non-resumable and resumable paths share, in this order:
+    ///
+    /// 1. Its data, which `check_bytes` checks against what the write received with
+    ///    [`upload::admit_bytes`]: the offset, the size, then the data's CRC32C. A
+    ///    non-resumable write checks it through its intake, which also takes the bytes; a
+    ///    resumable one against its session's persisted size and the bytes still waiting.
+    /// 2. Its object checksums, which must be readable and agree with the ones `declared`
+    ///    before it.
+    ///
+    /// Recorded (case grpc-probe-inferred-session-states), on a resumable stream's first
+    /// message: a first offset past the persisted size answers before a malformed `md5_hash`.
+    /// Not recorded; inferred from that answer: every message of either path, a non-resumable
+    /// write's first message included, reads its object checksums after its data. The
+    /// non-resumable recordings fix the order of the first message's offset, size and data
+    /// checksum (cases grpc-probe-write-streams and grpc-probe-inferred-session-states), but
+    /// none of them sent object checksums.
+    pub(in crate::grpc::v2) fn admit<T>(
+        self,
+        offset: u64,
+        declared: ExpectedHashes,
+        check_bytes: impl FnOnce(&IntakePiece) -> Result<T, IntakeError>,
+    ) -> Result<Admitted<T>, AdmitError> {
+        let end = self.end;
+        let bytes = check_bytes(&self.data.into_piece(offset, end))?;
+        let declared = upload::merge_hashes(declared, self.checksums.expected()?)?;
+        Ok(Admitted {
+            bytes,
+            declared,
+            end,
+        })
     }
 }
 

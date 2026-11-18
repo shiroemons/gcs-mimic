@@ -765,13 +765,17 @@ async fn grpc_single_shot_write_error_precedence() {
             |n| vec![opening(n, b"abc"), chunk(-1, b"d").crc(1)],
             || failed(OutOfRange, NEGATIVE, Left::Nothing),
         ),
+        // Not recorded; inferred from the resumable recording (case
+        // grpc-probe-inferred-session-states), where a first offset past the persisted size
+        // answers before a malformed md5_hash: every message reads its object checksums after
+        // its offset, size and data checksum, and before the write's conditions.
         both(
-            "md5-length-over-offset",
+            "offset-over-md5-length",
             |n| vec![opening(n, b"abc"), chunk(-1, b"d").finish().md5(3)],
-            || failed(InvalidArgument, MD5_LENGTH, Left::Nothing),
+            || failed(OutOfRange, NEGATIVE, Left::Nothing),
         ),
         both(
-            "conflicting-checksums-over-offset",
+            "offset-over-conflicting-checksums",
             |n| {
                 let whole = crc32c::crc32c(b"abcd");
                 vec![
@@ -779,8 +783,74 @@ async fn grpc_single_shot_write_error_precedence() {
                     chunk(-1, b"d").finish().crc(1),
                 ]
             },
-            || failed(InvalidArgument, CONFLICTING, Left::Nothing),
+            || failed(OutOfRange, NEGATIVE, Left::Nothing),
         ),
+        both(
+            "gap-over-md5-length",
+            |n| vec![opening(n, b"abc"), chunk(5, b"d").finish().md5(3)],
+            || failed(OutOfRange, RECEIVED_OFFSET, Left::Nothing),
+        ),
+        both(
+            "crc-over-later-md5-length",
+            |n| vec![opening(n, b"abc"), chunk(3, b"d").finish().bad_crc().md5(3)],
+            || failed(InvalidArgument, crc_mismatch(b"d"), Left::Nothing),
+        ),
+        both(
+            "first-offset-over-md5-length",
+            |n| {
+                vec![
+                    chunk(2, b"abc")
+                        .finish()
+                        .md5(3)
+                        .first(FirstMessage::WriteObjectSpec(spec(n))),
+                ]
+            },
+            || failed(OutOfRange, new_upload_offset(2), Left::Nothing),
+        ),
+        both(
+            "object-size-over-md5-length",
+            |n| vec![sized(n, 2, b"abc").finish().md5(3)],
+            || failed(OutOfRange, size_mismatch(3, 2), Left::Nothing),
+        ),
+        both(
+            "crc-over-first-md5-length",
+            |n| vec![opening(n, b"abc").finish().bad_crc().md5(3)],
+            || failed(InvalidArgument, crc_mismatch(b"abc"), Left::Nothing),
+        ),
+        both(
+            "md5-length-over-precondition",
+            |n| {
+                let mut spec = spec(n);
+                spec.if_generation_match = Some(5);
+                vec![
+                    chunk(0, b"abc")
+                        .finish()
+                        .md5(3)
+                        .first(FirstMessage::WriteObjectSpec(spec)),
+                ]
+            },
+            || failed(InvalidArgument, MD5_LENGTH, Left::Nothing),
+        ),
+        // Not recorded: the spec's own resource.checksums are read with the spec, before the
+        // first message's data, as every other spec field is.
+        both(
+            "spec-checksums-over-offset",
+            |n| {
+                let mut spec = spec(n);
+                spec.resource.as_mut().unwrap().checksums = Some(pb::ObjectChecksums {
+                    crc32c: None,
+                    md5_hash: vec![0; 3],
+                });
+                vec![
+                    chunk(2, b"abc")
+                        .finish()
+                        .first(FirstMessage::WriteObjectSpec(spec)),
+                ]
+            },
+            || failed(InvalidArgument, MD5_LENGTH, Left::Nothing),
+        ),
+        // Not recorded: a negative offset and a later message's gap answer before the data
+        // checksum, as the recorded first offset below does.
         both(
             "negative-offset-over-crc",
             |n| {
@@ -1563,10 +1633,29 @@ async fn grpc_resumable_write_error_precedence() {
                 || failed(OutOfRange, start_past(5, 0), Left::Persisted(0)),
             ),
         ),
-        // Not recorded; inferred from the recorded order above and from a non-resumable write,
-        // whose spec's object checksums answer before its conditions: a malformed md5_hash
-        // answers before a failing condition, and a failing condition before the complete
-        // object's checksum.
+        // Not recorded; inferred from the recorded order above, which a non-resumable write
+        // shares (`WriteStep::admit`): a wrong data checksum and a size past object_size answer
+        // before a malformed md5_hash, a malformed md5_hash before a failing condition, and a
+        // failing condition before the complete object's checksum.
+        on(
+            PLAIN,
+            both(
+                "crc-over-md5-length",
+                |u| vec![resume(u, 0, b"abc").finish().bad_crc().md5(3)],
+                || failed(InvalidArgument, crc_mismatch(b"abc"), Left::Persisted(0)),
+            ),
+        ),
+        on(
+            Session {
+                size: Some(5),
+                ..PLAIN
+            },
+            both(
+                "object-size-over-md5-length",
+                |u| vec![resume(u, 0, b"abc").finish().md5(3)],
+                || failed(OutOfRange, size_mismatch(3, 5), Left::Terminated),
+            ),
+        ),
         on(
             PREEMPTED,
             both(
