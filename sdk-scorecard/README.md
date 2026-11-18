@@ -235,8 +235,24 @@ SCORECARD_ENDPOINT=http://127.0.0.1:4443 SCORECARD_RUN=object.compose go run .
 
 ## Results
 
-The [2026-11-16 comparison](results/2026-11-16/summary.md) is the latest. It
-runs the same 2,324 cases on the 0.25.0 source at `f97619d1`, whose server
+The [2026-11-18 comparison](results/2026-11-18/summary.md) is the latest. It
+runs 2,324 cases on the 0.26.0 source at `c21bfad7`, whose server code equals
+the `v0.26.0` tag, with no uncommitted change, in 20 min 38 s. Four inputs
+differ from the 2026-11-16 comparison: the Java SDK 2.79.0 instead of 2.78.0,
+the PHP SDK 2.7.0 instead of 2.6.1, google-cloud-cpp 3.14.0 instead of 3.13.0
+and the .NET case `sdk.update_object_implicit_preconditions`, which now
+expects an update made from a stale fetched object to succeed, as Cloud
+Storage ignores its `If-Match` and the stale output fields of its body. That
+case is the only result that changes: it passes on fake-gcs-server and
+floci-gcp, which failed the earlier expectation of 412, and still fails on
+gcp-storage-emulator. fake-gcs-server scores **39.4** (Core **38.5**), up from
+39.2, and floci-gcp **75.9** (Core **76.2**), up from 75.8. gcs-mimic scores
+**100** and Core **100**: it passes every case for all nine SDKs.
+gcp-storage-emulator (**35.7**) matches the 2026-11-16 comparison case for
+case.
+
+The [2026-11-16 comparison](results/2026-11-16/summary.md) runs the same
+2,324 cases on the 0.25.0 source at `f97619d1`, whose server
 code equals the `v0.25.0` tag, with no uncommitted change, in 24 min 54 s.
 Four inputs differ from the eighth 2026-11-15 comparison: floci-gcp 0.13.0
 instead of 0.12.0, the Go SDK v1.71.0 instead of v1.70.0, Bundler 4.1.0 for
