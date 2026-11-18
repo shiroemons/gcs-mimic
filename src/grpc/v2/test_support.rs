@@ -1,0 +1,85 @@
+//! Fixtures shared by the Storage v2 handler tests: a catalog with two buckets and uploads into it.
+
+use super::{Storage, pb};
+use crate::{
+    auth::Auth,
+    json,
+    object::UploadChunk,
+    storage::{
+        Catalog,
+        test_fixtures::{PERMISSIVE, live, permissive_upload},
+    },
+    test_support::TestDir,
+};
+use serde_json::json;
+use std::sync::Arc;
+
+pub(super) const RESOURCE: &str = "projects/_/buckets/update-copy-bucket";
+
+pub(super) async fn setup() -> (Storage, TestDir) {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let now = std::time::SystemTime::now();
+    for (name, location) in [("update-copy-bucket", "US"), ("update-copy-other", "EU")] {
+        let bytes=json!({"name":name,"location":location,"labels":{"keep":"yes","remove":"yes"},"softDeletePolicy":{"retentionDurationSeconds":"604800"}}).to_string();
+        catalog
+            .insert_bucket(json::parse_insert(bytes.as_bytes(), "local-project", now).unwrap())
+            .await
+            .unwrap();
+    }
+    (
+        Storage {
+            compat_profile: crate::config::CompatProfile::Native,
+            state: Arc::new(crate::server::State::for_test(catalog, Auth::permissive())),
+            max_object_bytes: 8 * 1024 * 1024,
+        },
+        dir,
+    )
+}
+
+pub(super) async fn upload(
+    storage: &Storage,
+    name: &str,
+    length: usize,
+) -> crate::object::ObjectRecord {
+    upload_to(storage, "update-copy-bucket", name, length).await
+}
+
+pub(super) async fn upload_to(
+    storage: &Storage,
+    bucket: &str,
+    name: &str,
+    length: usize,
+) -> crate::object::ObjectRecord {
+    let (tx, rx) = tokio::sync::mpsc::channel(2);
+    tx.send(Ok(UploadChunk::Data(bytes::Bytes::from(vec![42; length]))))
+        .await
+        .unwrap();
+    tx.send(Ok(UploadChunk::End)).await.unwrap();
+    drop(tx);
+    let upload = permissive_upload(bucket, name, storage.max_object_bytes);
+    storage.state.catalog.put_object(upload, rx).await.unwrap()
+}
+
+/// The live object, or `None` once it is absent. Any other failure is a broken fixture.
+pub(super) async fn stored_object(s: &Storage, name: &str) -> Option<crate::object::ObjectRecord> {
+    let target = live("update-copy-bucket", name);
+    match s
+        .state
+        .catalog
+        .get_object(target, Default::default(), PERMISSIVE)
+        .await
+    {
+        Ok(record) => Some(record),
+        Err(crate::object::ObjectError::ObjectNotFound) => None,
+        Err(error) => panic!("{name}: {error:?}"),
+    }
+}
+
+pub(super) fn grants(object: &pb::Object) -> Vec<(&str, &str)> {
+    object
+        .acl
+        .iter()
+        .map(|entry| (entry.entity.as_str(), entry.role.as_str()))
+        .collect()
+}

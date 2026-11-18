@@ -552,8 +552,8 @@ async fn start(
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
-    let listeners =
-        server::TcpListeners::public(listener, gcs_mimic::tls::load_server(&config).unwrap());
+    let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
+    let listeners = server::TcpListeners::public(listener, security.primary);
     let task = tokio::spawn(server::serve(
         listeners,
         config,
@@ -1116,8 +1116,8 @@ async fn shutdown_stops_accepting_on_original_listener() {
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
-    let listeners =
-        server::TcpListeners::public(listener, gcs_mimic::tls::load_server(&config).unwrap());
+    let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
+    let listeners = server::TcpListeners::public(listener, security.primary);
     let task = tokio::spawn(server::serve(
         listeners,
         config,
@@ -1182,8 +1182,8 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         default_location: config.default_location.clone(),
         auth: Default::default(),
     });
-    let listeners =
-        server::TcpListeners::public(listener, gcs_mimic::tls::load_server(&config).unwrap());
+    let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
+    let listeners = server::TcpListeners::public(listener, security.primary);
     server::serve(
         listeners,
         config,

@@ -3,7 +3,7 @@
 //! gcs-mimic does not model answer UNIMPLEMENTED with ErrorInfo. Each refusal leaves the stored
 //! objects as they were.
 
-use super::tests::{RESOURCE, setup, stored_object, upload};
+use super::super::test_support::{RESOURCE, setup, stored_object, upload};
 use super::*;
 use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported};
 use tonic::Code;

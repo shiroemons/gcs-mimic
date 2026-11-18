@@ -40,7 +40,8 @@ requests and bounded copy buffers limit forwarding. CONNECT, foreign origins
 and metadata destinations are rejected, and the wrapper fails on guard bypass.
 Eleven Go guard tests plus two subcases pass with the race detector. This is a
 client-harness boundary, not an OS network sandbox or a combined product
-listener. The product's JSON and plaintext gRPC listeners remain separate.
+listener. The product's JSON and gRPC listeners remain separate; the frontdoor
+reaches the gRPC backend in plaintext.
 
 All container adapters keep the normal image entrypoint and use HTTP
 `/_internal/healthcheck` readiness. After obtaining the actual mapped port,

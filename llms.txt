@@ -144,7 +144,7 @@ Use `GCSM_ENDPOINT`, `GCSM_GRPC_ENDPOINT`, `GCSM_SYNC_TOKEN`, `GCSM_BINARY`,
 Their old prefix fails with replacement advice. The server ignores `GCSM_*`.
 
 - General: `--config`, `--log-level`
-- Listeners: `--scheme`, `--listen`, `--listen-http`, `--grpc-listen`, `--unix-socket`, `--trusted-listen`, `--trusted-principal`, `--trusted-allowed-hosts`
+- Listeners: `--scheme`, `--listen`, `--listen-http`, `--grpc-listen`, `--grpc-scheme`, `--unix-socket`, `--trusted-listen`, `--trusted-principal`, `--trusted-allowed-hosts`
 - TLS: `--tls-cert`, `--tls-key`, `--tls-handshake-timeout-ms`
 - Storage: `--data-dir`, `--backend`, `--memory-max-bytes`, `--memory-catalog-max-bytes`
 - Seed: `--seed-dir`, `--default-seed-dir`, `--seed-project`, `--seed-content-type`, `--max-seed-entries`, `--max-seed-depth`

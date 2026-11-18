@@ -48,7 +48,10 @@ client, err := storage.NewClient(ctx,
 
 For gRPC, start the emulator with `GCS_MIMIC_GRPC_LISTEN=0.0.0.0:4444`,
 publish that port, set `STORAGE_EMULATOR_HOST_GRPC=localhost:4444` and use
-`storage.NewGRPCClient(ctx, option.WithoutAuthentication())`.
+`storage.NewGRPCClient(ctx, option.WithoutAuthentication())`. That variable
+makes the SDK use plaintext h2c and drop credentials. The same port also serves
+gRPC over TLS; for TLS, and for strict-mode tokens sent through the SDK's own
+credentials, see [gRPC over TLS](slices/grpc-tls.md#go).
 
 ## Ruby
 

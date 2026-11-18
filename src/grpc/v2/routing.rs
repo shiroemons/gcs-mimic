@@ -265,6 +265,26 @@ mod tests {
         check(&diagnostic, Routes::Deferred).unwrap();
     }
 
+    /// The emulator never redirects, so it never issues a routing token a client could repeat:
+    /// that key, like any other key no Storage v2 RPC routes, is refused whether the request
+    /// names its resources or they arrive later.
+    #[test]
+    fn routing_refuses_keys_no_rpc_routes() {
+        let routes = [Route::Bucket(Some("b"))];
+        for params in [
+            "routing_token=token",
+            "bucket=projects%2F_%2Fbuckets%2Fb&routing_token=token",
+            "unknown=1",
+        ] {
+            for checked in [Routes::Request(&routes), Routes::Deferred] {
+                crate::grpc::test_support::assert_unsupported(
+                    check(&routed(params), checked),
+                    "routing metadata field",
+                );
+            }
+        }
+    }
+
     #[test]
     fn deferred_routing_checks_only_the_field() {
         assert_eq!(

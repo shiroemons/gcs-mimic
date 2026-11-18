@@ -36,7 +36,7 @@ Both protocols make the client speak first, so the server waits for the first by
 - Any other byte selects plain HTTP. HTTP/1 methods and the HTTP/2 preface start with an ASCII letter.
 - A connection closed before its first byte ends without a diagnostic. TCP probes from Docker or an orchestrator therefore stay silent.
 
-Detection applies only to the main TCP listener under `scheme=auto`. The trusted listener stays plain HTTP, the gRPC listener and the two `both` listeners are unchanged, and a Unix socket is never inspected.
+Detection applies only to the main TCP listener under `scheme=auto`. The trusted listener stays plain HTTP, the gRPC listener and the two `both` listeners are unchanged, and a Unix socket is never inspected. A later slice applies the same detection to the gRPC listener under its own `grpc_scheme=auto`; see [gRPC over TLS](grpc-tls.md).
 
 ### Time and connection limits
 

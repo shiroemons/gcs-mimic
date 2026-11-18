@@ -705,6 +705,13 @@ mod tests {
                     .contains("CreateBucket fields outside the supported metadata subset"),
                 "{field}: {status}"
             );
+            assert!(!status.details().is_empty(), "{field}");
+            assert_code(
+                storage
+                    .get_bucket(Request::new(get("unsupported-field")), None)
+                    .await,
+                Code::NotFound,
+            );
         }
         // An empty message carries no setting, and `DEFAULT` is the only replication offered.
         let accepted: [fn(&mut pb::Bucket); 8] = [
@@ -983,6 +990,19 @@ mod tests {
             .into_inner();
         assert_eq!(masked, unmasked);
         assert!(masked.billing.is_none() && masked.website.is_none() && masked.rpo.is_empty());
+        // `*` alone selects every field too.
+        let wildcard = storage
+            .get_bucket(
+                Request::new(pb::GetBucketRequest {
+                    read_mask: fixtures::mask(&["*"]),
+                    ..get("java-mask")
+                }),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(wildcard, unmasked);
         // Selecting only an unstored setting returns nothing else.
         let billing_only = storage
             .get_bucket(

@@ -2,7 +2,7 @@
 //! `common_object_request_params`. The rules follow Cloud Storage's recorded answers over gRPC
 //! (2026-11-15); the one key applies to every compose source and to the result.
 
-use super::tests::{RESOURCE, setup, stored_object};
+use super::super::test_support::{RESOURCE, setup, stored_object};
 use super::*;
 use crate::csek::{CsekError, key_sha256};
 use crate::grpc::test_support::{

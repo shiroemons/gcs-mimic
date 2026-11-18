@@ -2,9 +2,10 @@ use super::*;
 use crate::{server::chunk_body, test_support::eventually_async};
 use bytes::Bytes;
 mod memory;
+mod transport;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::Notify,
     task::JoinHandle,
     time::{Instant, sleep, timeout},
@@ -74,19 +75,39 @@ where
     let (server, _) = listener.accept().await.unwrap();
     let (stop, stopping) = watch::channel(false);
     let task = tokio::spawn(async move {
-        serve_with_service(server, &config, stopping, &slots, service).await;
+        serve_accepted(server, &config, stopping, &slots, service).await;
     });
     (client, stop, task)
 }
 
+/// Serves a connection accepted just now, so its preface deadline counts from here, as the
+/// listener counts it from accept or from the end of a TLS handshake.
+async fn serve_accepted<S, F>(
+    stream: impl Transport,
+    config: &Config,
+    stopping: watch::Receiver<bool>,
+    slots: &SlotReclaim,
+    service: S,
+) where
+    S: Fn(hyper::Request<tonic::body::Body>) -> F + Send + Sync + 'static,
+    F: Future<Output = Result<hyper::Response<tonic::body::Body>, Infallible>> + Send + 'static,
+{
+    serve_with_service(stream, Instant::now(), config, stopping, slots, service).await;
+}
+
 /// Reads frames for `wait`, acknowledging what asks for it, and returns the kinds seen.
-async fn frames_for(client: &mut TcpStream, wait: Duration) -> Vec<u8> {
-    let until = Instant::now() + wait;
+async fn frames_for(
+    client: &mut (impl AsyncReadExt + AsyncWriteExt + Unpin),
+    wait: Duration,
+) -> Vec<u8> {
     let mut kinds = Vec::new();
-    while let Ok(Some((kind, flags, data))) = tokio::time::timeout_at(until, frame(client)).await {
-        kinds.push(kind);
-        acknowledge(client, kind, flags, &data).await;
-    }
+    let _elapsed = timeout(wait, async {
+        while let Some((kind, flags, data)) = frame(client).await {
+            kinds.push(kind);
+            acknowledge(client, kind, flags, &data).await;
+        }
+    })
+    .await;
     kinds
 }
 
@@ -122,7 +143,7 @@ async fn send_frame(
         .unwrap();
 }
 
-async fn handshake(client: &mut TcpStream) {
+async fn handshake(client: &mut (impl AsyncWriteExt + Unpin)) {
     client
         .write_all(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
         .await

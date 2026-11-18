@@ -1,8 +1,15 @@
-//! Selects the protocol an accepted connection speaks before hyper reads from it.
+//! Selects the protocol an accepted connection speaks and completes its TLS handshake before
+//! hyper reads from it. The HTTP and gRPC listeners share this path, so detection, the
+//! handshake deadline and shutdown behave the same on both.
 
-use crate::tls::ListenerSecurity;
-use tokio::{net::TcpStream, sync::watch, time::Instant};
-use tokio_rustls::TlsAcceptor;
+use crate::{config::Config, tls::ListenerSecurity};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+    sync::watch,
+    time::Instant,
+};
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
 /// The content type of a TLS handshake record, which every TLS client sends first
 /// (RFC 8446 section 5.1). HTTP/1 request lines and the HTTP/2 preface start with a letter.
@@ -12,6 +19,130 @@ const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 pub(super) enum Handshake {
     Plain,
     Tls(TlsAcceptor),
+}
+
+/// The protocol a listener serves, which names what its connections' failures mean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ListenerProtocol {
+    /// HTTP/1 over plain TCP or TLS.
+    Http,
+    /// gRPC over HTTP/2, in plaintext (h2c) or over TLS.
+    Grpc,
+}
+
+impl ListenerProtocol {
+    fn report_silence(self) {
+        match self {
+            Self::Http => super::warn_connection_timeout(
+                "request headers were not received before header_read_timeout_ms",
+            ),
+            // The HTTP/2 driver never started, so there is no peer to send GOAWAY to.
+            Self::Grpc => crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Info,
+                "grpc_handshake_timeout",
+                serde_json::json!({"message":"gRPC client sent nothing before header_read_timeout_ms; closing the connection; connect an h2c or TLS gRPC client to grpc_listen or raise header_read_timeout_ms, for example 60000"}),
+            ),
+        }
+    }
+
+    fn report_handshake_failure(self, cause: &std::io::Error) {
+        let message = match self {
+            Self::Http => "TLS handshake failed; check client protocol and trust configuration",
+            Self::Grpc => {
+                "gRPC TLS handshake failed; the client must trust the server's CA, name a host in its certificate and offer ALPN h2 or none"
+            }
+        };
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Warn,
+            "tls_handshake_failed",
+            serde_json::json!({"message":message,"cause":cause.to_string()}),
+        );
+    }
+}
+
+/// A connection's bytes once its handshake is done.
+pub(super) enum Secured<S> {
+    Plain(S),
+    /// Decrypted bytes. Boxed because a TLS session is far larger than a socket.
+    Tls(Box<TlsStream<S>>),
+}
+
+/// A connection ready for its protocol.
+pub(super) struct Established<S> {
+    pub(super) stream: Secured<S>,
+    /// Where the protocol's first read limit counts from: accept for plaintext, so waiting for
+    /// the first byte never extends it, and the end of the handshake for TLS, which gives the
+    /// first request its own full limit.
+    pub(super) since: Instant,
+}
+
+/// Completes `handshake` on a connection accepted `at`. A TLS handshake ends at
+/// `tls_handshake_timeout_ms` counted from `at`, so detecting the protocol never extends it, and
+/// at shutdown. It runs in the connection's task, which holds a connection slot until it ends.
+pub(super) async fn establish<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
+    handshake: Handshake,
+    at: Instant,
+    config: &Config,
+    stopping: &mut watch::Receiver<bool>,
+    protocol: ListenerProtocol,
+) -> Option<Established<S>> {
+    let acceptor = match handshake {
+        Handshake::Plain => {
+            return Some(Established {
+                stream: Secured::Plain(stream),
+                since: at,
+            });
+        }
+        Handshake::Tls(acceptor) => acceptor,
+    };
+    let handshake = tokio::time::timeout_at(
+        config.tls_handshake_timeout.deadline_from(at),
+        acceptor.accept(stream),
+    );
+    let stream = tokio::select! {
+        biased;
+        _ = stopping.changed() => return None,
+        result = handshake => match result {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(cause)) => {
+                protocol.report_handshake_failure(&cause);
+                return None;
+            }
+            Err(_elapsed) => {
+                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"}));
+                return None;
+            }
+        }
+    };
+    Some(Established {
+        stream: Secured::Tls(Box::new(stream)),
+        since: Instant::now(),
+    })
+}
+
+/// Selects the protocol of a TCP connection accepted `at` and completes its handshake. The wait
+/// for the first byte ends at `header_read_timeout_ms` counted from `at`, the limit a silent
+/// plaintext client has.
+pub(super) async fn establish_tcp(
+    stream: TcpStream,
+    security: ListenerSecurity,
+    at: Instant,
+    config: &Config,
+    stopping: &mut watch::Receiver<bool>,
+    protocol: ListenerProtocol,
+) -> Option<Established<TcpStream>> {
+    let first_byte_by = config.header_read_timeout.deadline_from(at);
+    let handshake = match security.select(&stream, first_byte_by, stopping).await {
+        Ok(handshake) => handshake,
+        Err(Undetected::Silent) => {
+            protocol.report_silence();
+            return None;
+        }
+        // A probe that only opens a connection is not a client fault.
+        Err(Undetected::Closed | Undetected::Stopping) => return None,
+    };
+    establish(stream, handshake, at, config, stopping, protocol).await
 }
 
 /// Why a connection ended before its first byte selected a protocol.
@@ -100,11 +231,38 @@ mod tests {
             scheme: crate::config::Scheme::Auto,
             ..Default::default()
         };
-        crate::tls::load_server(&config).unwrap()
+        crate::tls::ServerSecurity::load(&config).unwrap().primary
+    }
+
+    /// The gRPC listener under the default `grpc_scheme=auto`, beside a plain HTTP listener.
+    fn detecting_grpc() -> ListenerSecurity {
+        let config = crate::config::Config {
+            scheme: crate::config::Scheme::Http,
+            grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
+            ..Default::default()
+        };
+        crate::tls::ServerSecurity::load(&config).unwrap().grpc
     }
 
     fn far() -> Instant {
         Instant::now() + Duration::from_secs(30)
+    }
+
+    #[tokio::test]
+    async fn detection_on_the_grpc_listener_selects_tls_for_a_handshake_record() {
+        let (_stop, stopping) = watch::channel(false);
+        for (first, tls) in [
+            (&[0x16, 0x03, 0x01][..], true),
+            (b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", false),
+        ] {
+            let (mut client, server) = pair().await;
+            client.write_all(first).await.unwrap();
+            let handshake = detecting_grpc()
+                .select(&server, far(), &mut stopping.clone())
+                .await
+                .unwrap();
+            assert_eq!(matches!(handshake, Handshake::Tls(_)), tls);
+        }
     }
 
     #[tokio::test]

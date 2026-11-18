@@ -93,7 +93,9 @@ HTTP/1.1 over TLS/TCP only; HTTPS does not imply HTTP/2 or HTTP/3 support.
 [GCS gRPC](https://docs.cloud.google.com/storage/docs/enable-grpc-api) is a
 separate Protocol Buffers API used by supported C++, Go and Java clients and
 other documented integrations. [gRPC over HTTP/2](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md)
-does not become available merely by adding TLS or REST HTTP/2 transport.
+does not become available merely by adding TLS or REST HTTP/2 transport. The separate
+gRPC listener serves gRPC over TLS with the same identity and ALPN `h2`, while the HTTP
+listeners keep offering `http/1.1` only; see [gRPC over TLS](grpc-tls.md).
 
 ## Reference implementation
 

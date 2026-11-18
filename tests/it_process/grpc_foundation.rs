@@ -165,7 +165,11 @@ async fn grpc_sigterm_default_deadlines_close_incomplete_handshake() {
         .unwrap();
     let mut grpc = TcpStream::connect(grpc_address).unwrap();
     grpc.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
-    // Server SETTINGS proves admission without sending any client preface.
+    // Under the default grpc_scheme=auto the server reads the first byte before it speaks, so a
+    // silent client no longer receives SETTINGS. Part of the preface selects h2c and leaves the
+    // HTTP/2 handshake incomplete, which is the case this test is about.
+    grpc.write_all(b"PRI * HTTP/2.0\r\n").unwrap();
+    // Server SETTINGS proves admission without a complete client preface.
     let mut settings = [0; 9];
     grpc.read_exact(&mut settings).unwrap();
     assert_eq!(settings[3], 4);

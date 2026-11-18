@@ -30,7 +30,7 @@ A lifecycle configured through JSON was missing from GetBucket: only UpdateBucke
 | grpc_bucket_etag | `etag` carries the same bucket ETag as the JSON resource. |
 | grpc_bucket_read_mask | `etag`, `lifecycle` and `object_retention` can be selected by read_mask; other selected fields stay empty. |
 
-The remaining `pb::Bucket` fields are either covered by other changes in this slice (`acl`, `default_object_acl`, `owner`) or not modeled by the bucket record (`rpo`, `website`, `logging`, `encryption`, `billing`, `custom_placement_config`, `hierarchical_namespace`, `ip_filter`, `satisfies_pzs`); they stay empty and their read-mask paths remain UNIMPLEMENTED.
+The remaining `pb::Bucket` fields are either covered by other changes in this slice (`acl`, `default_object_acl`, `owner`) or not modeled by the bucket record (`rpo`, `website`, `logging`, `encryption`, `billing`, `custom_placement_config`, `hierarchical_namespace`, `ip_filter`, `satisfies_pzs`); they stay empty. Since 2026-11-15 a read mask may select the first eight and gets them unset, as Cloud Storage answered (case `grpc-bucket-unset-settings-mask`); `satisfies_pzs` stays UNIMPLEMENTED on purpose (SPEC-GRPC-UNMODELED-SETTINGS), see the [bucket contract](grpc-v2-buckets.md).
 
 Test: `grpc_buckets_expose_json_lifecycle_etag_and_object_retention` failed on the previous source (no lifecycle in GetBucket) and passes after the change.
 

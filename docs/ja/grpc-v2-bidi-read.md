@@ -21,14 +21,16 @@ read handleは識別子と発行時のサイズ上限だけを持ち、Readerや
 再接続時は同じ世代を認可付きで開き直す。削除・非versioningの上書き後はNOT_FOUNDになり、handleも破棄する。
 versioningで残る世代は読め、進行中のストリームは上書き後も元のReaderを使う。
 最大1024件、注入時計で10分の有効期限とし、追い出し・失効・再起動後はFAILED_PRECONDITIONになる。
-appendableのhandleは、追記や確定後も発行時のサイズまでしか読めない。有効期限と削除後のstatusはGoogleで未確認のローカルな規則。
+appendableのhandleは、追記や確定後も発行時のサイズまでしか読めない。
+有効期限と削除後のstatusは、Googleが定めておらず実機でも確かめないため、記録済みのローカルな選択とする（SPEC-GRPC-READ-HANDLES。2026-11-18からRPC-STORAGE-016とBEHAVIOR-RPC-004のscoped difference）。
 strict では所有プロジェクトも固定し、別プロジェクトで同名バケットを作り直した場合の再接続を拒否する。
-handle と前提条件の併用、ルーティングトークン、既定以外の read mask は UNIMPLEMENTED。顧客指定の暗号鍵は [gRPC の CSEK](grpc-v2-customer-supplied-keys.md) のとおり、開くたびと再開のたびに spec の鍵を検査する。
-gcs-mimicはストリームをリダイレクトしないためルーティングトークンを発行せず、protoは再開したhandleでの条件を定めていない。この2つの拒否はSPEC-GRPC-OBJECT-REQUEST-CHOICESのscoped differenceとして記録する。
-非推奨の`read_mask`や`*`以外の`x-goog-fieldmask`による既定以外のmaskはprotoが定めるため、未完了に残す。
+ルーティングトークンは、エミュレーターがストリームをリダイレクトしないため、意図してUNIMPLEMENTEDで拒否する（SPEC-GRPC-UNMODELED-SETTINGS）。
+handle と前提条件の併用と既定以外の read mask も UNIMPLEMENTED で、RPC-STORAGE-016 の未完了のケースとして残す。後から追記された内容の読み取りは BEHAVIOR-RAPID-005 で扱う。
+顧客指定の暗号鍵は [gRPC の CSEK](grpc-v2-customer-supplied-keys.md) のとおり、開くたびと再開のたびに spec の鍵を検査する。
 エラー詳細には、受理した未完了範囲のread_idをすべて含める。失敗した範囲は固有のstatusを保ち、ほかの範囲は再試行を促すABORTEDにする。
 通常のバッチ内で一部の範囲が不正な場合も、バッチの全read_idを報告する。100件を超えるバッチは受理しない。
-ABORTEDの選択はGoogleで未観測のため、SPEC-GRPC-PENDING-RANGESに記録している。
+protoは未完了の各read_idの報告を求めるがstatusを定めていないため、ABORTEDは記録済みのローカルな選択とする（SPEC-GRPC-PENDING-RANGES）。
+エントリの順序はテストで固定しておらず、BEHAVIOR-RPC-004 の未完了のケースとして残す。入力の上限はSPEC-GRPC-LOCAL-CHOICESにローカルな上限として記録する。
 詳細内のgoogle.rpc.Statusのcodeとmessageは、I/O障害やread_id重複でも外側のgRPC statusと一致させる。
 read handleの照合は長さを確認した後、32バイトすべてを比較する。
 新しい設定・依存・カタログ変更・ポーリングは加えていない。
@@ -38,11 +40,6 @@ read handleの照合は長さを確認した後、32バイトすべてを比較�
 Go SDK v1.70.0 は再接続時に未完了範囲を 1 メッセージにまとめる。
 100 件を超えた場合は proto の上限に従って再試行されない INVALID_ARGUMENT を返す。
 この再接続条件は SDK 側の制限として残る。中断のない 600 件の Add/Wait は既定の呼び方で検証済み。
-
-2026-11-18に、テストのなかったBidiReadObjectの拒否を2つのテストで固定した。どちらも変更前のソースのまま通過した。
-ルーティングトークン、既定以外のread mask、read handleと4種類の条件の併用はErrorInfo付きUNIMPLEMENTED。空のルーティングトークン、mask なし・空・`*`は既定の読み取りになる。
-負の世代や条件、最初のメッセージの欠落、`read_object_spec`のない最初のメッセージ、後続メッセージのspecはINVALID_ARGUMENT。
-`*`以外の`x-goog-fieldmask`ヘッダーは応答の前にUNIMPLEMENTEDを返し、`*`なら通常どおり読める。`cargo test --locked --offline --lib grpc::`の262件が通過した。
 
 2026-11-04にRustの対象10テストとACLのwire 2テストが通過した。
 削除・上書き・バケット再作成・RAM予算解放・TTL・FIFO・appendableのサイズ上限を確認した。

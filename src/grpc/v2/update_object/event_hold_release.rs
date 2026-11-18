@@ -3,12 +3,13 @@
 //! lifted, rather than the time the object was created" (`Object.event_based_hold`), and that
 //! `retention_expire_time` "is not provided for objects with an active event-based hold".
 
-use super::tests::upload_to;
+use super::super::test_support::upload_to;
 use super::*;
 use crate::{
     auth::Auth,
     clock::{Clock, ManualClock},
     grpc::test_support as fixtures,
+    json,
     object::unix_nanos::UnixNanos,
     storage::Catalog,
     test_support::TestDir,

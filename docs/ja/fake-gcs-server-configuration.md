@@ -85,9 +85,12 @@ seedは毎回起動時に反映します。0.8.0以降は全体を準備して�
 
 gRPCは既定で無効です。`--grpc-listen 127.0.0.1:4444`、環境変数
 `GCS_MIMIC_GRPC_LISTEN=127.0.0.1:4444`、またはJSONの
-`{"grpc_listen":"127.0.0.1:4444"}`で、HTTP・HTTPSとは別の平文h2cポートを開きます。
+`{"grpc_listen":"127.0.0.1:4444"}`で、HTTP・HTTPSとは別のgRPCポートを開きます。
+既定の`grpc_scheme=auto`では、平文のh2cと、HTTPSと同じ証明書を使うgRPC over TLSの両方を受け付けます。
+`grpc_scheme=h2c`または`tls`を指定すると、どちらか一方だけを受け付けます
+（[gRPC over TLS（英語）](../en/slices/grpc-tls.md)）。
 優先順位はCLI、環境変数、設定ファイルの順です。Go SDKでは
-`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`を指定します。
+`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`を指定すると平文で接続します。
 Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、
 resumable（CancelResumableWriteによる取消を含む）・rewrite・compose・move・双方向範囲読み取り・
 appendableオブジェクト（[Rapid appendの契約](grpc-v2-rapid-append.md)）に部分対応しています。

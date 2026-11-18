@@ -108,8 +108,9 @@ Native, non-root container, pinned Go/Ruby and isolated browser checks cover
 TLS 1.2/1.3, SAN/CA/expiry failures, bounded handshakes and HTTPS Locations.
 HTTP examples in the runnable guide select `--scheme http` explicitly.
 Automatic certificate issuance, system trust changes and HTTP/3 remain outside
-that scope; simultaneous HTTP/HTTPS listeners and the h2c gRPC listener were
-delivered separately.
+that scope; simultaneous HTTP/HTTPS listeners and the gRPC listener (h2c, and
+gRPC over TLS since the [gRPC TLS slice](slices/grpc-tls.md)) were delivered
+separately.
 
 ## 1. Prerequisites and source build
 

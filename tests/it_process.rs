@@ -4,6 +4,7 @@ mod it_process {
     mod buckets_cli;
     mod foundation;
     mod grpc_foundation;
+    mod grpc_tls;
     mod healthcheck_defaults;
     mod helper_help;
     mod log_level;

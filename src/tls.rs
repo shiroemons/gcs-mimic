@@ -1,10 +1,11 @@
-use crate::config::{Config, Scheme, TlsFiles, UnpairedTlsFile};
+use crate::config::{Config, GrpcScheme, Scheme, TlsFiles, UnpairedTlsFile};
 use crate::diagnostics::{Diagnostic, DiagnosticSource};
 use std::{io, path::Path, sync::Arc};
 use tokio_rustls::{
     TlsAcceptor,
     rustls::{
         self,
+        crypto::CryptoProvider,
         pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
     },
 };
@@ -21,12 +22,14 @@ pub enum ServerIdentityError {
     Certificate(io::Error),
     PrivateKey(io::Error),
     Identity(io::Error),
+    /// rustls refused the pair, such as a key that does not match the certificate.
+    Rejected(rustls::Error),
 }
 
 impl ServerIdentityError {
     pub fn setting(&self) -> &'static str {
         match self {
-            Self::Certificate(_) | Self::Identity(_) => "tls_cert",
+            Self::Certificate(_) | Self::Identity(_) | Self::Rejected(_) => "tls_cert",
             Self::PrivateKey(_) => "tls_key",
         }
     }
@@ -40,14 +43,18 @@ impl ServerIdentityError {
                 "provide exactly one readable PEM private key in tls_key, at most 1 MiB, matching tls_cert"
             }
             Self::Identity(_) => {
-                "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=auto, https or both"
+                "provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with a certificate chain and exactly one private key; use scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls"
+            }
+            Self::Rejected(_) => {
+                "provide a tls_key that matches the first certificate in tls_cert, as an RSA, ECDSA P-256 or P-384, or Ed25519 key"
             }
         }
     }
 
-    fn cause(&self) -> &io::Error {
+    fn cause(&self) -> &(dyn std::error::Error + 'static) {
         match self {
             Self::Certificate(error) | Self::PrivateKey(error) | Self::Identity(error) => error,
+            Self::Rejected(error) => error,
         }
     }
 
@@ -63,7 +70,7 @@ impl ServerIdentityError {
 
 impl std::fmt::Display for ServerIdentityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.cause().fmt(f)
+        std::fmt::Display::fmt(self.cause(), f)
     }
 }
 
@@ -95,69 +102,192 @@ fn certificates(bytes: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
     Ok(certificates)
 }
 
-/// How a TCP listener secures the connections it accepts.
-#[derive(Clone)]
-pub enum ListenerSecurity {
-    /// Plain HTTP only.
-    Plain,
-    /// TLS only.
-    Tls(TlsAcceptor),
-    /// TLS or plain HTTP, as each connection's first byte selects.
-    Detect(TlsAcceptor),
+/// The ring provider, named explicitly: `ServerConfig::builder()` and `ClientConfig::builder()`
+/// panic at runtime once the dependency graph enables a second rustls provider feature, because
+/// neither can then pick a process default.
+fn provider() -> Arc<CryptoProvider> {
+    Arc::new(rustls::crypto::ring::default_provider())
 }
 
-/// Loads the primary listener's security. A `scheme=both` HTTP listener is always
-/// [`ListenerSecurity::Plain`].
-pub fn load_server(config: &Config) -> Result<ListenerSecurity, ServerIdentityError> {
-    let secure: fn(TlsAcceptor) -> ListenerSecurity = match config.scheme {
-        Scheme::Http => {
+/// The application protocol a TLS listener negotiates through ALPN (RFC 7301). Each listener
+/// offers exactly one. rustls completes a handshake without any protocol for a client that sends
+/// no ALPN extension, so the bytes that follow decide, and refuses one that offers ALPN without
+/// this protocol with a `no_application_protocol` alert.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Alpn {
+    /// `http/1.1`, for the HTTP listeners, which speak HTTP/1 only: advertising `h2` there would
+    /// select a protocol they cannot serve.
+    Http1,
+    /// `h2`, for the gRPC listener: gRPC clients refuse a TLS server that does not select it.
+    H2,
+}
+
+impl Alpn {
+    fn protocol(self) -> &'static [u8] {
+        match self {
+            Self::Http1 => b"http/1.1",
+            Self::H2 => b"h2",
+        }
+    }
+}
+
+/// The certificate chain and private key the TLS listeners present, parsed once and shared by
+/// every listener that serves TLS.
+pub(crate) struct ServerIdentity {
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+}
+
+impl ServerIdentity {
+    /// The configured identity: `tls_cert` and `tls_key`, or the public development identity
+    /// when neither is set.
+    pub(crate) fn load(config: &Config) -> Result<Self, ServerIdentityError> {
+        match config.tls_files() {
+            Ok(TlsFiles::Development) => Self::from_pem(DEVELOPMENT_CERT_PEM, DEVELOPMENT_KEY_PEM),
+            Ok(TlsFiles::Provided { certificate, key }) => Self::from_pem(
+                &read_pem(certificate).map_err(ServerIdentityError::Certificate)?,
+                &read_pem(key).map_err(ServerIdentityError::PrivateKey)?,
+            ),
+            // Validation reports this first; a configuration built in code still gets an error.
+            Err(UnpairedTlsFile(_)) => Err(ServerIdentityError::Identity(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tls_cert and tls_key must be supplied together",
+            ))),
+        }
+    }
+
+    fn from_pem(certificate: &[u8], key: &[u8]) -> Result<Self, ServerIdentityError> {
+        let keys = PrivateKeyDer::pem_slice_iter(key)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(io::Error::other)
+            .map_err(ServerIdentityError::PrivateKey)?;
+        let Ok([key]) = <[PrivateKeyDer<'static>; 1]>::try_from(keys) else {
+            return Err(ServerIdentityError::PrivateKey(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "TLS PEM file must contain exactly one private key",
+            )));
+        };
+        let identity = Self {
+            chain: certificates(certificate).map_err(ServerIdentityError::Certificate)?,
+            key,
+        };
+        // Building one configuration checks that the key matches the certificate, so a bad pair
+        // fails here whichever listeners use it.
+        identity.acceptor(Alpn::Http1)?;
+        Ok(identity)
+    }
+
+    /// A TLS 1.2 and 1.3 acceptor that presents this identity and negotiates `alpn`.
+    pub(crate) fn acceptor(&self, alpn: Alpn) -> Result<TlsAcceptor, ServerIdentityError> {
+        let mut server = rustls::ServerConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions()
+            .map_err(ServerIdentityError::Rejected)?
+            .with_no_client_auth()
+            .with_single_cert(self.chain.clone(), self.key.clone_key())
+            .map_err(ServerIdentityError::Rejected)?;
+        server.alpn_protocols = vec![alpn.protocol().to_vec()];
+        Ok(TlsAcceptor::from(Arc::new(server)))
+    }
+}
+
+/// How a TCP listener secures the connections it accepts. `T` is what TLS needs: the ALPN
+/// protocol while the configuration plans the listener, then the acceptor once the identity is
+/// loaded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListenerSecurity<T = TlsAcceptor> {
+    /// Plaintext only: plain HTTP on an HTTP listener, h2c on the gRPC listener.
+    Plain,
+    /// TLS only.
+    Tls(T),
+    /// TLS or plaintext, as each connection's first byte selects.
+    Detect(T),
+}
+
+impl ListenerSecurity<Alpn> {
+    /// The primary listener's plan. A `scheme=both` HTTP listener is always plain.
+    pub(crate) fn primary(config: &Config) -> Self {
+        match config.scheme {
+            Scheme::Http => Self::Plain,
+            // Validation refuses TLS files with a Unix socket, which is never inspected.
+            Scheme::Auto if config.unix_socket.is_some() => Self::Plain,
+            Scheme::Auto => Self::Detect(Alpn::Http1),
+            Scheme::Https | Scheme::Both => Self::Tls(Alpn::Http1),
+        }
+    }
+
+    /// The gRPC listener's plan; plain while there is no gRPC listener.
+    pub(crate) fn grpc(config: &Config) -> Self {
+        // Validation refuses grpc_listen beside a Unix socket, which excludes every TCP listener,
+        // so the setting never gives the TLS settings a use there.
+        if config.grpc_listen.is_none() || config.unix_socket.is_some() {
+            return Self::Plain;
+        }
+        match config.grpc_scheme {
+            GrpcScheme::Auto => Self::Detect(Alpn::H2),
+            GrpcScheme::H2c => Self::Plain,
+            GrpcScheme::Tls => Self::Tls(Alpn::H2),
+        }
+    }
+
+    fn uses_tls(&self) -> bool {
+        match self {
+            Self::Plain => false,
+            Self::Tls(_) | Self::Detect(_) => true,
+        }
+    }
+
+    fn secure(self, identity: &ServerIdentity) -> Result<ListenerSecurity, ServerIdentityError> {
+        Ok(match self {
+            Self::Plain => ListenerSecurity::Plain,
+            Self::Tls(alpn) => ListenerSecurity::Tls(identity.acceptor(alpn)?),
+            Self::Detect(alpn) => ListenerSecurity::Detect(identity.acceptor(alpn)?),
+        })
+    }
+}
+
+/// Whether some listener serves TLS, so that the TLS settings take effect.
+pub(crate) fn serves_tls(config: &Config) -> bool {
+    ListenerSecurity::primary(config).uses_tls() || ListenerSecurity::grpc(config).uses_tls()
+}
+
+/// How the TCP listeners secure their connections, all with one identity.
+pub struct ServerSecurity {
+    /// The primary listener, `listen`.
+    pub primary: ListenerSecurity,
+    /// The gRPC listener, `grpc_listen`; plain while there is none.
+    pub grpc: ListenerSecurity,
+}
+
+impl ServerSecurity {
+    /// Plaintext on every listener, for a configuration that loads no identity.
+    pub fn plain() -> Self {
+        Self {
+            primary: ListenerSecurity::Plain,
+            grpc: ListenerSecurity::Plain,
+        }
+    }
+
+    /// Loads the identity once, and only when some listener serves TLS.
+    pub fn load(config: &Config) -> Result<Self, ServerIdentityError> {
+        let primary = ListenerSecurity::primary(config);
+        let grpc = ListenerSecurity::grpc(config);
+        if !primary.uses_tls() && !grpc.uses_tls() {
+            // Validation refuses TLS files that no listener uses; a configuration built in code
+            // still gets an error rather than silently ignoring them.
             if !matches!(config.tls_files(), Ok(TlsFiles::Development)) {
                 return Err(ServerIdentityError::Identity(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "TLS files require scheme=auto, https or both",
+                    "TLS files require scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls",
                 )));
             }
-            return Ok(ListenerSecurity::Plain);
+            return Ok(Self::plain());
         }
-        // Validation refuses TLS files with a Unix socket, which is never inspected.
-        Scheme::Auto if config.unix_socket.is_some() => return Ok(ListenerSecurity::Plain),
-        Scheme::Auto => ListenerSecurity::Detect,
-        Scheme::Https | Scheme::Both => ListenerSecurity::Tls,
-    };
-    let (cert, key_pem) = match config.tls_files() {
-        Ok(TlsFiles::Development) => (DEVELOPMENT_CERT_PEM.to_vec(), DEVELOPMENT_KEY_PEM.to_vec()),
-        Ok(TlsFiles::Provided { certificate, key }) => (
-            read_pem(certificate).map_err(ServerIdentityError::Certificate)?,
-            read_pem(key).map_err(ServerIdentityError::PrivateKey)?,
-        ),
-        // Validation reports this first; a configuration built in code still gets an error.
-        Err(UnpairedTlsFile(_)) => {
-            return Err(ServerIdentityError::Identity(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "tls_cert and tls_key must be supplied together",
-            )));
-        }
-    };
-    let keys = PrivateKeyDer::pem_slice_iter(&key_pem)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(io::Error::other)
-        .map_err(ServerIdentityError::PrivateKey)?;
-    let Ok([private_key]) = <[PrivateKeyDer<'static>; 1]>::try_from(keys) else {
-        return Err(ServerIdentityError::PrivateKey(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "TLS PEM file must contain exactly one private key",
-        )));
-    };
-    let mut server = rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(
-            certificates(&cert).map_err(ServerIdentityError::Certificate)?,
-            private_key,
-        )
-        .map_err(io::Error::other)
-        .map_err(ServerIdentityError::Identity)?;
-    server.alpn_protocols = vec![b"http/1.1".to_vec()];
-    Ok(secure(TlsAcceptor::from(Arc::new(server))))
+        let identity = ServerIdentity::load(config)?;
+        Ok(Self {
+            primary: primary.secure(&identity)?,
+            grpc: grpc.secure(&identity)?,
+        })
+    }
 }
 
 pub fn client_config(ca_cert: &Path) -> io::Result<Arc<rustls::ClientConfig>> {
@@ -173,10 +303,12 @@ fn client_config_from_pem(pem: &[u8]) -> io::Result<Arc<rustls::ClientConfig>> {
     for certificate in certificates(pem)? {
         roots.add(certificate).map_err(io::Error::other)?;
     }
-    let mut config = rustls::ClientConfig::builder()
+    let mut config = rustls::ClientConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .map_err(io::Error::other)?
         .with_root_certificates(roots)
         .with_no_client_auth();
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = vec![Alpn::Http1.protocol().to_vec()];
     Ok(Arc::new(config))
 }
 

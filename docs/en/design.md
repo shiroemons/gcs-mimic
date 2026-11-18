@@ -63,7 +63,7 @@ lifecycle uses one typed rule representation for gRPC conversion and validation.
 | --- | --- |
 | JSON adapter | Own JSON API parsing/errors/headers and media/upload routes; preserve raw URI until protocol decoding. |
 | XML adapter | Own path/virtual-host canonicalization, XML errors, CORS and signed request parsing. |
-| gRPC adapter | Own separately pinned Storage v2 and retired legacy v1 protobufs, bounded stream framing, metadata and shared status conversion on the optional h2c listener; independent adapters reuse the catalog and authorization. Legacy v1 is a limited migration profile, not Google GA/EXACT fidelity. |
+| gRPC adapter | Own separately pinned Storage v2 and retired legacy v1 protobufs, bounded stream framing, metadata and shared status conversion on the optional gRPC listener (h2c or TLS); independent adapters reuse the catalog and authorization. Legacy v1 is a limited migration profile, not Google GA/EXACT fidelity. |
 | Shared services | Own authorization, generations, atomic preconditions and state transitions; transport types do not enter persistence. |
 | Metadata catalog | Own indexed transactions, short atomic condition checks and reference publication; no transaction across body transfer. |
 | Blob storage | Own opaque blob IDs, bounded staging streams and durable immutable publication/deletion. Logical object names never become filesystem paths. |
@@ -210,7 +210,9 @@ the built-in CA by default or an explicit replacement CA and verify DNS/IP SANs.
 access. The embedded server key is deliberately public; CA signing keys are not
 distributed. Advertised API URLs and public URL helper
 bases remain independent of the listener; forwarded headers never set them.
-The separate gRPC h2c listener uses HTTP/2; HTTP/3 remains outside the transport scope. See the
+The separate gRPC listener uses HTTP/2, in plaintext (h2c) or over TLS with ALPN `h2` and the
+same identity, as `grpc_scheme` selects; see [gRPC over TLS](slices/grpc-tls.md). The HTTP
+listeners keep ALPN `http/1.1` only. HTTP/3 remains outside the transport scope. See the
 [TLS contract](slices/local-tls.md) for trust boundaries and reference behavior.
 
 The [CORS adapters](slices/cors.md) wrap actual responses without granting API

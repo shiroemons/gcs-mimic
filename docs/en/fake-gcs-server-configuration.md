@@ -201,9 +201,12 @@ and [execution evidence](evidence/configuration-diagnostics.md).
 
 The optional native `grpc_listen` setting has no legacy flag alias. Set
 `--grpc-listen 127.0.0.1:4444`, `GCS_MIMIC_GRPC_LISTEN=127.0.0.1:4444`, or JSON
-`{"grpc_listen":"127.0.0.1:4444"}` to open a separate plaintext h2c socket.
+`{"grpc_listen":"127.0.0.1:4444"}` to open a separate gRPC socket. By default
+(`grpc_scheme=auto`) it serves plaintext h2c and gRPC over TLS with the HTTPS
+certificate; `grpc_scheme=h2c` or `tls` keeps only one of them
+([gRPC over TLS](slices/grpc-tls.md)).
 It is disabled by default and uses the normal CLI > environment > file precedence.
-Go's `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444` selects this listener.
+Go's `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444` selects this listener in plaintext.
 Storage v2 supports scoped bucket CRUD/updates/IAM/retention locking, object
 reads/writes/list/delete/restore, resumable uploads including
 CancelResumableWrite, rewrite/compose/move, bidirectional ranged reads and

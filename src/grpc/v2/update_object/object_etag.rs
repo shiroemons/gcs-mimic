@@ -2,12 +2,15 @@
 //! `Object.etag`: "If included in the metadata of an update or delete request message, the
 //! operation is only performed if the etag matches that of the live object."
 
-use super::tests::{RESOURCE, setup, stored_object, upload};
+use super::super::test_support::{RESOURCE, setup, stored_object, upload};
 use super::*;
 use crate::grpc::test_support::{self as fixtures, assert_code, key_params, put_keyed};
 use tonic::Code;
 
 const BUCKET: &str = "update-copy-bucket";
+
+/// The message of a failed generation or metageneration condition.
+const NOT_HELD: &str = "At least one of the pre-conditions you specified did not hold.";
 
 fn relabel(etag: &str, generation: i64) -> pb::UpdateObjectRequest {
     pb::UpdateObjectRequest {
@@ -31,19 +34,37 @@ async fn update(storage: &Storage, request: pb::UpdateObjectRequest) -> Result<p
         .map(Response::into_inner)
 }
 
+/// The etag a client reads with GetObject for one generation of the object.
+async fn read_etag(storage: &Storage, generation: i64) -> String {
+    storage
+        .get_object(
+            Request::new(pb::GetObjectRequest {
+                bucket: RESOURCE.into(),
+                object: "object".into(),
+                generation,
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .etag
+}
+
 /// The proto names no status for a mismatched etag; a refused update answers as a failed
 /// generation or metageneration condition does.
 #[track_caller]
 fn assert_not_held<T>(result: Result<T, Status>) {
     let status = assert_code(result, Code::FailedPrecondition);
-    assert_eq!(status.message(), json::PRECONDITION_NOT_HELD);
+    assert_eq!(status.message(), NOT_HELD);
 }
 
 #[tokio::test]
 async fn update_object_applies_only_when_the_request_etag_matches() {
     let (storage, _dir) = setup().await;
     let original = upload(&storage, "object", 4).await;
-    let current = json::object_etag(&original);
+    let current = read_etag(&storage, 0).await;
 
     // The comparison is exact: a quoted HTTP entity tag is another value.
     for stale in ["CAE=", "not an etag", &format!("\"{current}\"")] {
@@ -88,20 +109,13 @@ async fn a_selected_generation_is_compared_with_its_own_etag() {
         .unwrap();
     let noncurrent = upload(&storage, "object", 4).await;
     let live = upload(&storage, "object", 5).await;
+    let live_etag = read_etag(&storage, live.generation).await;
+    let noncurrent_etag = read_etag(&storage, noncurrent.generation).await;
 
-    assert_not_held(
-        update(
-            &storage,
-            relabel(&json::object_etag(&live), noncurrent.generation),
-        )
-        .await,
-    );
-    let updated = update(
-        &storage,
-        relabel(&json::object_etag(&noncurrent), noncurrent.generation),
-    )
-    .await
-    .unwrap();
+    assert_not_held(update(&storage, relabel(&live_etag, noncurrent.generation)).await);
+    let updated = update(&storage, relabel(&noncurrent_etag, noncurrent.generation))
+        .await
+        .unwrap();
     assert_eq!(updated.generation, noncurrent.generation);
     assert_eq!(updated.content_language, "fr");
     let unchanged = stored_object(&storage, "object").await.unwrap();

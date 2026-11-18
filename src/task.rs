@@ -5,8 +5,9 @@
 //! cancellation as a diagnostic event first, then resumes the panic, so a caller that awaits the
 //! handle still receives the same `JoinError` as from a plain `tokio::spawn`. Long-lived loops use
 //! [`spawn_restarting`], which restarts them after a panic and reports the gap through
-//! [`TaskHealth`]. [`spawn_thread`] does the same reporting for a dedicated OS thread, and
-//! [`catch_job`] for one job that a long-lived worker thread runs without dying with it.
+//! [`TaskHealth`]. [`spawn_thread`] does the same reporting for a dedicated OS thread,
+//! [`catch_job`] for one job that a long-lived worker thread runs without dying with it, and
+//! [`SupervisedExecutor`] for the tasks hyper spawns for HTTP/2 streams.
 
 use std::{
     any::Any,
@@ -46,6 +47,33 @@ where
     F::Output: Send + 'static,
 {
     tokio::spawn(Supervised::new(name, future))
+}
+
+/// A hyper executor that spawns through [`spawn_supervised`]. hyper's HTTP/2 server runs each
+/// stream in a task of its own and keeps no handle to it, so with `TokioExecutor` a panicking
+/// handler would vanish unreported. A panic still ends only its own task: hyper resets that
+/// stream and the connection keeps serving the others.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SupervisedExecutor {
+    name: &'static str,
+}
+
+impl SupervisedExecutor {
+    /// `name` identifies the spawned tasks in diagnostics.
+    pub(crate) const fn new(name: &'static str) -> Self {
+        Self { name }
+    }
+}
+
+impl<F> hyper::rt::Executor<F> for SupervisedExecutor
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, future: F) {
+        // Detached on purpose: the task reports its own panic, and hyper drives it to its end.
+        drop(spawn_supervised(self.name, future));
+    }
 }
 
 /// [`spawn_supervised`] on an explicit runtime, for `Drop` impls that may run outside one.
@@ -457,6 +485,26 @@ pub(crate) mod tests {
         assert_eq!(reported_panics(NAME), ["detached fixture panic"]);
         let next = spawn_supervised("test-after-panic", async { 7 });
         assert_eq!(next.await.unwrap(), 7);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_hyper_executor_reports_a_panic_and_keeps_spawning() {
+        use hyper::rt::Executor as _;
+        const NAME: &str = "test-executor-panic";
+        let executor = SupervisedExecutor::new(NAME);
+        executor.execute(async {
+            panic!("executor fixture panic");
+        });
+        crate::test_support::eventually_async("the executor panic to be reported", || async {
+            !reported_panics(NAME).is_empty()
+        })
+        .await;
+        assert_eq!(reported_panics(NAME), ["executor fixture panic"]);
+        let (done, finished) = tokio::sync::oneshot::channel();
+        executor.execute(async move {
+            let _ = done.send(7);
+        });
+        assert_eq!(finished.await.unwrap(), 7);
     }
 
     #[tokio::test]

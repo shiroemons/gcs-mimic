@@ -234,6 +234,31 @@ string_enum! {
     "scheme must be auto, http, https or both"
 }
 
+string_enum! {
+    /// How the gRPC listener secures its connections, with the identity HTTPS uses.
+    pub enum GrpcScheme {
+        /// h2c or gRPC over TLS, chosen by each connection's first byte.
+        #[default]
+        Auto => "auto",
+        /// Plaintext HTTP/2 only.
+        H2c => "h2c",
+        /// gRPC over TLS only, negotiating `h2` through ALPN.
+        Tls => "tls",
+    }
+    "grpc_scheme must be auto, h2c or tls"
+}
+
+impl GrpcScheme {
+    /// The gRPC entry of the ready event's `listeners`: `h2c` wherever plaintext is accepted,
+    /// which consumers already search for, and `h2` for TLS only.
+    pub fn listener_scheme(self) -> &'static str {
+        match self {
+            Self::Auto | Self::H2c => "h2c",
+            Self::Tls => "h2",
+        }
+    }
+}
+
 impl Scheme {
     /// The scheme of URLs built without a connection to take it from, such as the fallback API
     /// base and the ready event's primary listener. `auto` uses `http`, which every client can
@@ -278,6 +303,8 @@ pub struct Config {
     pub listen: SocketAddr,
     pub listen_http: Option<SocketAddr>,
     pub grpc_listen: Option<SocketAddr>,
+    /// How `grpc_listen` secures its connections; validation requires `grpc_listen` with it.
+    pub grpc_scheme: GrpcScheme,
     /// A plain HTTP listener for the application's own servers on a private network, where a
     /// request without credentials acts as `trusted_principal`. Strict mode only.
     pub trusted_listen: Option<SocketAddr>,
@@ -397,6 +424,7 @@ impl Default for Config {
             listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
             listen_http: None,
             grpc_listen: None,
+            grpc_scheme: GrpcScheme::Auto,
             trusted_listen: None,
             unix_socket: None,
             scheme: Scheme::Auto,
@@ -593,7 +621,7 @@ impl Config {
         report.check_backend(&settings);
         report.check_tls(&settings);
         report.check_listeners(&settings);
-        report.check_grpc_streams(&settings);
+        report.check_grpc_settings(&settings);
         report.check_public_base_url(&settings);
         report.check_api_base_url(&settings);
         report.check_auth(&settings);
@@ -733,6 +761,7 @@ fn apply_setting(config: &mut Config, setting: Setting, value: &str) -> Result<(
         Setting::Listen => config.listen = socket_address(value, LISTEN_FIX)?,
         Setting::ListenHttp => config.listen_http = Some(socket_address(value, LISTEN_HTTP_FIX)?),
         Setting::GrpcListen => config.grpc_listen = Some(socket_address(value, GRPC_LISTEN_FIX)?),
+        Setting::GrpcScheme => config.grpc_scheme = value.parse()?,
         Setting::TrustedListen => {
             config.trusted_listen = Some(socket_address(value, TRUSTED_LISTEN_FIX)?);
         }
@@ -844,7 +873,8 @@ fn unknown_setting() -> SettingFix {
 const LISTEN_FIX: &str = "listen must be an IP:port socket address";
 const LISTEN_HTTP_FIX: &str =
     "listen_http must be an IP socket address, for example 127.0.0.1:8000";
-const GRPC_LISTEN_FIX: &str = "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port";
+const GRPC_LISTEN_FIX: &str =
+    "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate gRPC port";
 const TRUSTED_LISTEN_FIX: &str =
     "trusted_listen must be an IP socket address, for example 0.0.0.0:4444 inside a container";
 
@@ -1030,7 +1060,13 @@ impl ConfigurationReport {
     /// Whether the settings that select the TLS identity are valid, so that loading it can fail
     /// only on the files themselves.
     pub fn tls_settings_valid(&self) -> bool {
-        self.valid(&[Setting::Scheme, Setting::TlsCert, Setting::TlsKey])
+        self.valid(&[
+            Setting::Scheme,
+            Setting::GrpcListen,
+            Setting::GrpcScheme,
+            Setting::TlsCert,
+            Setting::TlsKey,
+        ])
     }
 
     /// Whether the directories that adopting `default_seed_dir` compares are valid.
@@ -1204,18 +1240,19 @@ impl ConfigurationReport {
 
     fn check_tls(&mut self, settings: &Settings) {
         let config = &self.config;
-        // A listener that never serves TLS would silently ignore every TLS setting.
-        let plain_only = match config.scheme {
-            Scheme::Http => Some(
-                "TLS settings require scheme=auto, https or both; remove TLS settings for HTTP.",
-            ),
-            Scheme::Auto if config.unix_socket.is_some() => {
-                Some("A Unix socket serves plain HTTP only; remove TLS settings or listen on TCP.")
-            }
-            Scheme::Auto | Scheme::Https | Scheme::Both => None,
-        };
+        // Without a listener that serves TLS every TLS setting would be silently ignored. The
+        // gRPC listener uses the same identity, so it alone gives them an effect.
+        // A Unix socket, which is never inspected, excludes every TCP listener, so no scheme or
+        // gRPC listener can give the settings a use beside it.
+        let plain_only = (!crate::tls::serves_tls(config)).then_some(
+            if config.unix_socket.is_some() {
+                "A Unix socket serves plain HTTP only; remove TLS settings or listen on TCP."
+            } else {
+                "TLS settings require scheme=auto, https or both, or grpc_listen with grpc_scheme=auto or tls; remove TLS settings for HTTP."
+            },
+        );
         if let Some(fix) = plain_only {
-            if self.invalid.contains(&Setting::Scheme) {
+            if self.any_invalid(&[Setting::Scheme, Setting::GrpcListen, Setting::GrpcScheme]) {
                 return;
             }
             for setting in [
@@ -1248,16 +1285,25 @@ impl ConfigurationReport {
         }
     }
 
-    /// Without a gRPC listener the limit would silently do nothing, and a typo in the listener's
-    /// setting would hide behind it.
-    fn check_grpc_streams(&mut self, settings: &Settings) {
-        if let Some(input) = settings.get(&Setting::MaxGrpcStreams)
-            && !self.invalid.contains(&Setting::MaxGrpcStreams)
-            && !settings.contains_key(&Setting::GrpcListen)
-        {
-            self.invalid.insert(Setting::MaxGrpcStreams);
-            self.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
-                "max_grpc_streams requires grpc_listen; remove it or set --grpc-listen, for example 127.0.0.1:4444."));
+    /// Without a gRPC listener these settings would silently do nothing, and a typo in the
+    /// listener's setting would hide behind them.
+    fn check_grpc_settings(&mut self, settings: &Settings) {
+        if settings.contains_key(&Setting::GrpcListen) {
+            return;
+        }
+        for setting in [Setting::MaxGrpcStreams, Setting::GrpcScheme] {
+            if let Some(input) = settings.get(&setting)
+                && self.invalid.insert(setting)
+            {
+                self.diagnostics.errors.push(Diagnostic::new(
+                    input.source,
+                    &input.key,
+                    format!(
+                        "{} requires grpc_listen; remove it or set --grpc-listen, for example 127.0.0.1:4444.",
+                        setting.as_str()
+                    ),
+                ));
+            }
         }
     }
 
@@ -2145,6 +2191,115 @@ mod tests {
             "max_grpc_streams",
             &["0", "65537", "-1", "many"],
             "max_grpc_streams must be an integer in 1..=65536",
+        );
+    }
+
+    #[test]
+    fn grpc_scheme_follows_precedence_and_requires_grpc_listen() {
+        assert_eq!(Config::default().grpc_scheme, GrpcScheme::Auto);
+        let dir = TestDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"grpc_scheme":"h2c","grpc_listen":"127.0.0.1:4444"}"#,
+        )
+        .unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_GRPC_SCHEME".into(), "tls".into())]);
+        assert_precedence(
+            &args,
+            &env,
+            &["--grpc-scheme", "auto"],
+            [
+                GrpcScheme::Auto,
+                GrpcScheme::H2c,
+                GrpcScheme::Tls,
+                GrpcScheme::Auto,
+            ],
+            Config::load,
+            |config| config.grpc_scheme,
+        );
+        assert_rejected(
+            "grpc_scheme",
+            &["", "TLS", "https", "h2"],
+            "grpc_scheme must be auto, h2c or tls",
+        );
+        assert_rejected("grpc_scheme", &["tls"], "requires grpc_listen");
+        // A broken listener setting is the one fault to report, not a missing listener.
+        let args = ["--grpc-listen", "localhost:4444", "--grpc-scheme", "tls"].map(str::to_owned);
+        let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].key, "--grpc-listen");
+    }
+
+    /// The gRPC listener uses the HTTPS identity, so with `scheme=http` the TLS settings stay
+    /// valid while it serves TLS, and are refused as before when nothing does.
+    #[test]
+    fn tls_settings_are_accepted_when_only_the_grpc_listener_uses_them() {
+        let tls = [
+            "--scheme",
+            "http",
+            "--tls-cert",
+            "cert.pem",
+            "--tls-key",
+            "key.pem",
+            "--tls-handshake-timeout-ms",
+            "100",
+        ];
+        for (grpc, accepted) in [
+            (&[][..], false),
+            (&["--grpc-listen", "127.0.0.1:0"][..], true),
+            (
+                &["--grpc-listen", "127.0.0.1:0", "--grpc-scheme", "auto"][..],
+                true,
+            ),
+            (
+                &["--grpc-listen", "127.0.0.1:0", "--grpc-scheme", "tls"][..],
+                true,
+            ),
+            (
+                &["--grpc-listen", "127.0.0.1:0", "--grpc-scheme", "h2c"][..],
+                false,
+            ),
+        ] {
+            let args: Vec<String> = tls
+                .iter()
+                .chain(grpc)
+                .map(|arg| (*arg).to_owned())
+                .collect();
+            match Config::load(&args, &BTreeMap::new()) {
+                Ok(config) => {
+                    assert!(accepted, "{grpc:?}");
+                    assert_eq!(config.tls_handshake_timeout.as_millis(), 100);
+                }
+                Err(diagnostics) => {
+                    assert!(!accepted, "{grpc:?}: {diagnostics}");
+                    assert_eq!(diagnostics.errors.len(), 3, "{diagnostics}");
+                    assert!(
+                        diagnostics.errors.iter().all(|error| error
+                            .fix
+                            .contains("or grpc_listen with grpc_scheme=auto or tls")),
+                        "{diagnostics}"
+                    );
+                }
+            }
+        }
+        // One path alone is still an error when only the gRPC listener uses TLS.
+        let args = [
+            "--scheme",
+            "http",
+            "--grpc-listen",
+            "127.0.0.1:0",
+            "--tls-cert",
+            "cert.pem",
+        ]
+        .map(str::to_owned);
+        let errors = Config::load(&args, &BTreeMap::new()).unwrap_err().errors;
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.fix.contains("must be supplied together")),
+            "{errors:?}"
         );
     }
 

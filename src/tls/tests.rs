@@ -37,6 +37,135 @@ fn server_identity_errors_retain_the_io_cause_and_distinguish_input_settings() {
     }
 }
 
+/// The ALPN protocols a loaded listener's acceptor offers, and whether it detects.
+fn offered(security: &ListenerSecurity) -> (bool, Vec<Vec<u8>>) {
+    match security {
+        ListenerSecurity::Plain => panic!("a plain listener has no acceptor"),
+        ListenerSecurity::Tls(acceptor) => (false, acceptor.config().alpn_protocols.clone()),
+        ListenerSecurity::Detect(acceptor) => (true, acceptor.config().alpn_protocols.clone()),
+    }
+}
+
+/// The HTTP listeners speak HTTP/1 only and the gRPC listener HTTP/2 only, so each acceptor
+/// offers exactly its own protocol, with the development identity and with a supplied one.
+#[test]
+fn the_http_acceptor_offers_only_http1_and_the_grpc_acceptor_only_h2() {
+    let dir = crate::test_support::TestDir::new();
+    let certificate = dir.0.join("cert.pem");
+    let key = dir.0.join("key.pem");
+    std::fs::write(&certificate, DEVELOPMENT_CERT_PEM).unwrap();
+    std::fs::write(&key, DEVELOPMENT_KEY_PEM).unwrap();
+    let development = Config {
+        grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
+        ..Config::default()
+    };
+    let provided = Config {
+        scheme: Scheme::Https,
+        grpc_scheme: GrpcScheme::Tls,
+        tls_cert: Some(certificate),
+        tls_key: Some(key),
+        ..development.clone()
+    };
+    for (config, detects) in [(development, true), (provided, false)] {
+        let security = ServerSecurity::load(&config).unwrap();
+        assert_eq!(
+            offered(&security.primary),
+            (detects, vec![b"http/1.1".to_vec()])
+        );
+        assert_eq!(offered(&security.grpc), (detects, vec![b"h2".to_vec()]));
+    }
+}
+
+/// The identity loads only where a listener serves TLS: a plain HTTP server with a gRPC
+/// listener under `auto` or `tls` loads it, and one where nothing serves TLS refuses TLS files.
+#[test]
+fn the_grpc_listener_alone_loads_the_identity() {
+    let plain_http = Config {
+        scheme: Scheme::Http,
+        ..Config::default()
+    };
+    let security = ServerSecurity::load(&plain_http).unwrap();
+    assert!(matches!(
+        (security.primary, security.grpc),
+        (ListenerSecurity::Plain, ListenerSecurity::Plain)
+    ));
+    for (scheme, grpc) in [
+        (GrpcScheme::Auto, ListenerSecurity::Detect(Alpn::H2)),
+        (GrpcScheme::H2c, ListenerSecurity::Plain),
+        (GrpcScheme::Tls, ListenerSecurity::Tls(Alpn::H2)),
+    ] {
+        let config = Config {
+            grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
+            grpc_scheme: scheme,
+            ..plain_http.clone()
+        };
+        assert_eq!(ListenerSecurity::grpc(&config), grpc);
+        assert_eq!(ListenerSecurity::primary(&config), ListenerSecurity::Plain);
+        assert_eq!(serves_tls(&config), grpc != ListenerSecurity::Plain);
+        let with_files = Config {
+            tls_cert: Some("missing-cert.pem".into()),
+            tls_key: Some("missing-key.pem".into()),
+            ..config
+        };
+        let error = ServerSecurity::load(&with_files).err().unwrap();
+        match (&error, scheme) {
+            // The files are read because the gRPC listener uses them.
+            (ServerIdentityError::Certificate(cause), GrpcScheme::Auto | GrpcScheme::Tls) => {
+                assert_eq!(cause.kind(), io::ErrorKind::NotFound);
+            }
+            (ServerIdentityError::Identity(cause), GrpcScheme::H2c) => {
+                assert_eq!(cause.kind(), io::ErrorKind::InvalidInput);
+            }
+            (other, _) => panic!("{scheme:?}: {other:?}"),
+        }
+    }
+}
+
+/// A key that does not match its certificate fails while loading, with rustls's error as the
+/// cause, whichever listener would use the pair.
+#[test]
+fn a_mismatched_key_fails_with_the_tls_cause() {
+    use std::error::Error as _;
+    let dir = crate::test_support::TestDir::new();
+    let certificate = dir.0.join("cert.pem");
+    let key = dir.0.join("key.pem");
+    std::fs::write(&certificate, DEVELOPMENT_CERT_PEM).unwrap();
+    // A valid P-256 key that belongs to no certificate here.
+    let other = ring::signature::EcdsaKeyPair::generate_pkcs8(
+        &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
+        &ring::rand::SystemRandom::new(),
+    )
+    .unwrap();
+    std::fs::write(
+        &key,
+        format!(
+            "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
+            crate::base64::encode(other.as_ref())
+        ),
+    )
+    .unwrap();
+    let config = Config {
+        scheme: Scheme::Http,
+        grpc_listen: Some("127.0.0.1:0".parse().unwrap()),
+        grpc_scheme: GrpcScheme::Tls,
+        tls_cert: Some(certificate),
+        tls_key: Some(key),
+        ..Config::default()
+    };
+    let error = ServerSecurity::load(&config).err().unwrap();
+    assert!(
+        matches!(error, ServerIdentityError::Rejected(_)),
+        "{error:?}"
+    );
+    assert_eq!(error.setting(), "tls_cert");
+    assert!(error.source().unwrap().is::<rustls::Error>());
+    // The files were read and parsed, so the repair is about the pair itself, not about which
+    // scheme loads them.
+    let repair = error.repair();
+    assert!(repair.contains("matches"), "{repair}");
+    assert!(!repair.contains("scheme"), "{repair}");
+}
+
 const BASIC_CONSTRAINTS: &[u8] = &[0x55, 0x1d, 0x13];
 const KEY_USAGE: &[u8] = &[0x55, 0x1d, 0x0f];
 const SUBJECT_KEY_ID: &[u8] = &[0x55, 0x1d, 0x0e];

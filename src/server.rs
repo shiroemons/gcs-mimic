@@ -15,7 +15,9 @@ use crate::{
     tls::ListenerSecurity,
     xml,
 };
-use handshake::{Handshake, Undetected};
+#[cfg(unix)]
+use handshake::establish;
+use handshake::{Established, ListenerProtocol, Secured, establish_tcp};
 use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
@@ -816,8 +818,8 @@ pub struct TcpListeners {
     /// The plain HTTP listener for the application's own servers, where a request without
     /// credentials acts as `trusted_principal`.
     pub trusted: Option<TcpListener>,
-    /// The separate plaintext gRPC listener.
-    pub grpc: Option<TcpListener>,
+    /// The separate gRPC listener, with how it secures its connections.
+    pub grpc: Option<(TcpListener, ListenerSecurity)>,
 }
 
 impl TcpListeners {
@@ -855,7 +857,7 @@ impl TcpListeners {
                 "at least one listener is required",
             )));
         }
-        entries.extend(grpc.map(Entry::Grpc));
+        entries.extend(grpc.map(|(listener, security)| Entry::Grpc(listener, security)));
         Ok(entries)
     }
 }
@@ -906,15 +908,15 @@ where
 enum Entry {
     /// HTTP/1 connections, served as `Serving` says.
     Http(transport::Listener, Serving),
-    /// The plaintext gRPC listener. gRPC serves its connections itself, and its calls always
-    /// authenticate as on a public listener, so it needs no `Serving`.
-    Grpc(TcpListener),
+    /// The gRPC listener, with how it secures its connections. gRPC serves its connections
+    /// itself, and its calls always authenticate as on a public listener, so it needs no role.
+    Grpc(TcpListener, ListenerSecurity),
 }
 
 /// A connection one entry accepted, with what serving it needs.
 enum NewConnection {
     Http(transport::Stream, Serving),
-    Grpc(tokio::net::TcpStream),
+    Grpc(tokio::net::TcpStream, ListenerSecurity),
 }
 
 impl Entry {
@@ -923,16 +925,15 @@ impl Entry {
             Self::Http(listener, serving) => listener
                 .poll_accept(cx)
                 .map_ok(|stream| NewConnection::Http(stream, serving.clone())),
-            Self::Grpc(listener) => {
-                transport::poll_accept_tcp(listener, cx).map_ok(NewConnection::Grpc)
-            }
+            Self::Grpc(listener, security) => transport::poll_accept_tcp(listener, cx)
+                .map_ok(|stream| NewConnection::Grpc(stream, security.clone())),
         }
     }
 
     async fn close(self) -> io::Result<()> {
         match self {
             Self::Http(listener, _) => listener.close().await,
-            Self::Grpc(_) => Ok(()),
+            Self::Grpc(..) => Ok(()),
         }
     }
 }
@@ -967,51 +968,6 @@ impl Serving {
             role: ListenerRole::Trusted,
         }
     }
-
-    /// Selects the protocol of a TCP connection accepted `at`. The wait for its first byte ends
-    /// at the header read limit counted from `at`, the limit a silent plain HTTP client has.
-    async fn accept_tcp(
-        self,
-        stream: &tokio::net::TcpStream,
-        at: tokio::time::Instant,
-        config: &Config,
-        stopping: &mut watch::Receiver<bool>,
-    ) -> Option<Accepted> {
-        let first_byte_by = config.header_read_timeout.deadline_from(at);
-        match self.security.select(stream, first_byte_by, stopping).await {
-            Ok(handshake) => Some(Accepted {
-                handshake,
-                role: self.role,
-                at,
-            }),
-            Err(Undetected::Silent) => {
-                warn_connection_timeout(
-                    "request headers were not received before header_read_timeout_ms",
-                );
-                None
-            }
-            // A probe that only opens a connection is not a client fault.
-            Err(Undetected::Closed | Undetected::Stopping) => None,
-        }
-    }
-
-    #[cfg(unix)]
-    fn accept_unix(self, at: tokio::time::Instant) -> Accepted {
-        Accepted {
-            handshake: self.security.for_unix_socket(),
-            role: self.role,
-            at,
-        }
-    }
-}
-
-/// A connection whose protocol is known.
-struct Accepted {
-    handshake: Handshake,
-    role: ListenerRole,
-    /// When the listener accepted it. The TLS handshake and a plain connection's first request
-    /// head count from here, so detecting the protocol never extends either.
-    at: tokio::time::Instant,
 }
 
 /// What the requests of one connection learn from the listener that accepted it.
@@ -1139,35 +1095,60 @@ struct ConnectionStarter<'a> {
 }
 
 impl ConnectionStarter<'_> {
+    /// Starts the task that serves `connection`. Protocol detection and the TLS handshake run in
+    /// that task, never in the accept loop, so a slow client holds only its own slot.
     fn start(&self, connections: &mut JoinSet<()>, connection: NewConnection) {
         let shared = self.shared.clone();
         let mut stopping = self.stop.subscribe();
         let accepted_at = tokio::time::Instant::now();
         let task = async move {
+            let config = &shared.config;
             match connection {
-                NewConnection::Grpc(stream) => {
-                    crate::grpc::serve_connection(
+                NewConnection::Grpc(stream, security) => {
+                    let Some(established) = establish_tcp(
                         stream,
-                        &shared.config,
-                        shared.state,
-                        stopping,
-                        &shared.slots,
+                        security,
+                        accepted_at,
+                        config,
+                        &mut stopping,
+                        ListenerProtocol::Grpc,
                     )
-                    .await;
-                }
-                NewConnection::Http(transport::Stream::Tcp(stream), serving) => {
-                    let Some(accepted) = serving
-                        .accept_tcp(&stream, accepted_at, &shared.config, &mut stopping)
-                        .await
+                    .await
                     else {
                         return;
                     };
-                    serve_http(stream, accepted, shared, stopping).await;
+                    serve_grpc(established, shared, stopping).await;
+                }
+                NewConnection::Http(transport::Stream::Tcp(stream), serving) => {
+                    let Some(established) = establish_tcp(
+                        stream,
+                        serving.security,
+                        accepted_at,
+                        config,
+                        &mut stopping,
+                        ListenerProtocol::Http,
+                    )
+                    .await
+                    else {
+                        return;
+                    };
+                    serve_http(established, serving.role, shared, stopping).await;
                 }
                 #[cfg(unix)]
                 NewConnection::Http(transport::Stream::Unix(stream), serving) => {
-                    let accepted = serving.accept_unix(accepted_at);
-                    serve_http(stream, accepted, shared, stopping).await;
+                    let Some(established) = establish(
+                        stream,
+                        serving.security.for_unix_socket(),
+                        accepted_at,
+                        config,
+                        &mut stopping,
+                        ListenerProtocol::Http,
+                    )
+                    .await
+                    else {
+                        return;
+                    };
+                    serve_http(established, serving.role, shared, stopping).await;
                 }
             }
         };
@@ -1284,45 +1265,47 @@ fn poll_incoming(
 }
 
 async fn serve_http(
-    stream: impl AsyncRead + AsyncWrite + Unpin,
-    accepted: Accepted,
+    established: Established<impl AsyncRead + AsyncWrite + Unpin>,
+    role: ListenerRole,
     shared: Shared,
-    mut stopping: watch::Receiver<bool>,
+    stopping: watch::Receiver<bool>,
 ) {
-    let Accepted {
-        handshake,
-        role,
-        at,
-    } = accepted;
-    match handshake {
-        Handshake::Plain => {
+    let Established { stream, since } = established;
+    match stream {
+        Secured::Plain(stream) => {
             let listening = Listening {
                 scheme: ConnectionScheme::Http,
                 role,
             };
-            serve_connection(stream, listening, at, shared, stopping).await;
+            serve_connection(stream, listening, since, shared, stopping).await;
         }
-        Handshake::Tls(acceptor) => {
-            let handshake = tokio::time::timeout_at(
-                shared.config.tls_handshake_timeout.deadline_from(at),
-                acceptor.accept(stream),
-            );
-            let stream = tokio::select! {
-                biased;
-                _ = stopping.changed() => return,
-                result = handshake => match result {
-                    Ok(Ok(stream)) => stream,
-                    Ok(Err(_)) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_failed", serde_json::json!({"message":"TLS handshake failed; check client protocol and trust configuration"})); return; }
-                    Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
-                }
-            };
+        Secured::Tls(stream) => {
             let listening = Listening {
                 scheme: ConnectionScheme::Https,
                 role,
             };
-            // The request head gets its own full limit once the handshake is done.
-            let handshaken = tokio::time::Instant::now();
-            serve_connection(stream, listening, handshaken, shared, stopping).await;
+            serve_connection(stream, listening, since, shared, stopping).await;
+        }
+    }
+}
+
+async fn serve_grpc(
+    established: Established<impl AsyncRead + AsyncWrite + Unpin + Send + 'static>,
+    shared: Shared,
+    stopping: watch::Receiver<bool>,
+) {
+    let Shared {
+        state,
+        config,
+        slots,
+    } = shared;
+    let Established { stream, since } = established;
+    match stream {
+        Secured::Plain(stream) => {
+            crate::grpc::serve_connection(stream, since, &config, state, stopping, &slots).await;
+        }
+        Secured::Tls(stream) => {
+            crate::grpc::serve_connection(stream, since, &config, state, stopping, &slots).await;
         }
     }
 }

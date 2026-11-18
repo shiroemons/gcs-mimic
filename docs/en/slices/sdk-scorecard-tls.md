@@ -13,7 +13,8 @@ the complete final-source result belongs to [SDK integration](sdk-scorecard-inte
 All three products receive the same HTTPS origin through a Go standard-library
 TLS frontend and a temporary development CA from `scripts/tls-fixtures.sh`.
 Their HTTP backends bind only loopback; gRPC keeps its existing separate
-plaintext listener. No runtime dependency or container image is added.
+listener, which the comparison reaches in plaintext. No runtime dependency or
+container image is added.
 The certificate fixture includes subject and authority key identifiers required
 by strict certificate verifiers.
 

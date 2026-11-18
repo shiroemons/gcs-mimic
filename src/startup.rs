@@ -98,6 +98,9 @@ pub(crate) struct ReadyEvent {
     seed: SeedOutcome,
     buckets: InitOutcome,
     scheme: &'static str,
+    /// The configured `grpc_scheme`, present only with a gRPC listener.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grpc_scheme: Option<&'static str>,
     tls_handshake_timeout_ms: TimeLimit,
     public_base_url: Option<String>,
     public_virtual_host_enabled: bool,
@@ -216,6 +219,7 @@ impl ReadyEvent {
             seed,
             buckets,
             scheme: config.scheme.as_str(),
+            grpc_scheme: config.grpc_listen.map(|_| config.grpc_scheme.as_str()),
             tls_handshake_timeout_ms: config.tls_handshake_timeout,
             public_base_url: config
                 .public_base_url
@@ -570,7 +574,7 @@ fn shutdown_result(signal: io::Result<()>) -> Result<(), Diagnostics> {
 pub(crate) async fn serve(
     mut config: Config,
     auth: Auth,
-    security: gcs_mimic::tls::ListenerSecurity,
+    security: gcs_mimic::tls::ServerSecurity,
     shutdown: impl std::future::Future<Output = io::Result<()>>,
 ) -> Result<(), crate::CliError> {
     tokio::pin!(shutdown);
@@ -647,14 +651,18 @@ pub(crate) async fn serve(
         trusted,
         grpc,
     } = listeners;
+    let gcs_mimic::tls::ServerSecurity {
+        primary: primary_security,
+        grpc: grpc_security,
+    } = security;
     let listeners = match primary {
         PrimaryListener::Tcp(listener) => {
-            let mut public = vec![(listener, security)];
+            let mut public = vec![(listener, primary_security)];
             public.extend(http.map(|listener| (listener, gcs_mimic::tls::ListenerSecurity::Plain)));
             server::Listeners::from(server::TcpListeners {
                 public,
                 trusted,
-                grpc,
+                grpc: grpc.map(|listener| (listener, grpc_security)),
             })
         }
         #[cfg(unix)]
@@ -695,7 +703,7 @@ fn ready_transport(
             if let Some(grpc) = &listeners.grpc {
                 entries.push(ReadyListener {
                     listen: ListenerSetting::GrpcListen.local_addr(grpc)?,
-                    scheme: "h2c",
+                    scheme: config.grpc_scheme.listener_scheme(),
                 });
             }
             Ok(ReadyTransport::Tcp {

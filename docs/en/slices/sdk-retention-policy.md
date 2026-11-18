@@ -87,7 +87,7 @@ recorded in SPEC-EVENT-HOLD-WIRE.
 - `cargo test --locked --offline --lib storage::catalog_tests::retention_schema_migration_preserves_existing_buckets`:
   PASS, additive schema 24-to-25 migration preserves bucket metadata.
 - Event-based hold release (2026-11-18):
-  `bash scripts/with-test-tmpdir.sh cargo test --locked --lib -- storage::resumable_http_tests::retention storage::catalog::object_hold storage::catalog::lifecycle::tests::releasing_an_event_based_hold grpc::v2::update_copy::event_hold_release grpc::v1::tests::legacy_updates_releasing`:
+  `bash scripts/with-test-tmpdir.sh cargo test --locked --lib -- storage::resumable_http_tests::retention storage::catalog::object_hold storage::catalog::lifecycle::tests::releasing_an_event_based_hold grpc::v2::update_object::event_hold_release grpc::v1::tests::legacy_updates_releasing`:
   PASS, 13 tests. They cover the JSON PATCH and PUT releases, the omitted
   deadline while held, Storage v2 and legacy v1 updates, the schema 56-to-57
   migration and restart, and Lifecycle Delete waiting for the restarted

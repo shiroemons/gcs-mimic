@@ -77,6 +77,7 @@ strict_pid=
 local_strict_pid=
 grpc_endpoint=
 strict_grpc_endpoint=
+grpc_ca_cert=
 tls_args=()
 health_args=()
 stop_server() {
@@ -120,6 +121,7 @@ case "$scheme" in
         exit 2
       fi
       tls_args=(--tls-cert "$GCS_MIMIC_TLS_CERT" --tls-key "$GCS_MIMIC_TLS_KEY")
+      grpc_ca_cert=$GCSM_CA_CERT
     elif [[ -z ${GCSM_CA_CERT:-} ]]; then
       "$server" tls ca > "$work/ca.pem"
       export GCSM_CA_CERT="$work/ca.pem"
@@ -128,6 +130,13 @@ case "$scheme" in
     ;;
   *) echo 'GCSM_SDK_SCHEME must be http or https' >&2; exit 1 ;;
 esac
+# The gRPC listeners run the default grpc_scheme=auto, so each also serves gRPC over TLS with its
+# server's identity: the supplied certificate when tls_args name one, otherwise the built-in
+# development certificate, whatever the HTTP scheme.
+if [[ -z $grpc_ca_cert ]]; then
+  "$server" tls ca > "$work/grpc-ca.pem"
+  grpc_ca_cert="$work/grpc-ca.pem"
+fi
 
 # Each server starts without any variable it would read as a setting; flags configure it.
 source scripts/server-env.sh
@@ -235,6 +244,9 @@ start_local_strict_server --data-dir "$work/local-strict-data"
 cd sdk-tests/go
 export GCSM_ENDPOINT="$endpoint" GCSM_STRICT_ENDPOINT="$strict_endpoint"
 export STORAGE_EMULATOR_HOST_GRPC="$grpc_endpoint" GCSM_STRICT_GRPC_ENDPOINT="$strict_grpc_endpoint"
+# The same ports serve gRPC over TLS. The TLS tests clear STORAGE_EMULATOR_HOST_GRPC for their own
+# clients, because the SDK turns it into a plaintext channel without credentials.
+export GCSM_GRPC_TLS_ENDPOINT="$grpc_endpoint" GCSM_STRICT_GRPC_TLS_ENDPOINT="$strict_grpc_endpoint" GCSM_GRPC_CA_CERT="$grpc_ca_cert"
 GOTOOLCHAIN=auto go vet ./...
 # Only the Go suite uses the local-development server, so the other suites keep their environment.
 GCSM_LOCAL_STRICT_ENDPOINT="$local_strict_endpoint" GCSM_TRUSTED_ENDPOINT="$trusted_endpoint" \
