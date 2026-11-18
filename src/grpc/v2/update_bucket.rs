@@ -700,6 +700,50 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// The proto rounds any `nanos` of a retention duration down to the nearest second
+    /// (storage.proto lines 2429-2433), so a period under one second is no period at all.
+    #[tokio::test]
+    async fn grpc_bucket_update_rounds_retention_nanos_down() {
+        let (s, _dir) = setup().await;
+        let retention = |seconds, nanos| pb::UpdateBucketRequest {
+            bucket: Some(pb::Bucket {
+                name: RESOURCE.into(),
+                retention_policy: Some(pb::bucket::RetentionPolicy {
+                    retention_duration: Some(prost_types::Duration { seconds, nanos }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            update_mask: fixtures::mask(&["retention_policy.retention_duration"]),
+            ..Default::default()
+        };
+        let updated = s
+            .update_bucket(Request::new(retention(3600, 999_999_999)), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            updated.retention_policy.unwrap().retention_duration,
+            Some(prost_types::Duration {
+                seconds: 3600,
+                nanos: 0
+            })
+        );
+        let stored = stored_bucket(&s).await;
+        assert_eq!(stored.retention_policy.unwrap().retention_period, 3600);
+        let status = assert_code(
+            s.update_bucket(Request::new(retention(0, 500_000_000)), None)
+                .await,
+            Code::InvalidArgument,
+        );
+        assert!(status.message().contains("retention"), "{status}");
+        assert_eq!(
+            stored_bucket(&s).await.metageneration,
+            updated.metageneration
+        );
+        s.state.catalog.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn grpc_updates_reject_predefined_acls_without_changing_metadata() {
         let (s, _dir) = setup().await;
