@@ -301,7 +301,7 @@ pub(crate) fn insert_from_object(
         .get("autoclass")
         .map(crate::bucket::autoclass::parse_json)
         .transpose()?
-        .map(|update| crate::bucket::autoclass::apply(None, &update, now))
+        .map(|update| crate::bucket::autoclass::apply(None, update, now))
         .transpose()?
         .flatten();
     let labels = insert_labels(body, profile)?;

@@ -16,7 +16,7 @@ static FAILURE: std::sync::Mutex<Vec<(RootId, &'static str, usize)>> =
 pub(crate) fn inject_failure(root: RootId, phase: &'static str, count: usize) {
     FAILURE
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push((root, phase, count));
 }
 
@@ -408,7 +408,7 @@ impl Writeback {
                 conflict.verify_owned(&this.lease).await?;
             }
             let bucket = binding.bucket.clone();
-            let path = match mapping::name_to_path(&bucket, &name) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), _ => return Err(stale()) };
+            let path = match mapping::name_to_path(&bucket, &name) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), PathMapping::Unrepresentable(_) => return Err(stale()) };
             let (catalog, root) = this.identities();
             let selected = tracked.clone();
             let checked_purpose = purpose.clone();

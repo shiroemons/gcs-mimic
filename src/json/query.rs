@@ -969,7 +969,7 @@ pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, JsonError>
     let mut input = raw.bytes();
     while let Some(byte) = input.next() {
         bytes.push(match byte {
-            b'%' => crate::hex::byte(&[
+            b'%' => crate::hex::byte([
                 input.next().ok_or_else(invalid)?,
                 input.next().ok_or_else(invalid)?,
             ])

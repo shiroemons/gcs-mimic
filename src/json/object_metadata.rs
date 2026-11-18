@@ -182,7 +182,7 @@ fn metadata_from_map(
     } else {
         NullValue::StoresEmpty
     };
-    let metadata = custom_metadata(body, null)?;
+    let metadata = custom_metadata(body, null);
     if kind == BodyKind::Mutation {
         unchanged.retain(|key, _| !IGNORED_ON_MUTATION.contains(&key.as_str()));
     }
@@ -274,16 +274,16 @@ enum NullValue {
 
 /// A custom metadata change; a JSON body merges its entries, and `null` says what a null value
 /// does to its key.
-fn custom_metadata(body: &Map<String, Value>, null: NullValue) -> Result<MapPatch, JsonError> {
+fn custom_metadata(body: &Map<String, Value>, null: NullValue) -> MapPatch {
     match body.get("metadata") {
-        None => Ok(MapPatch::Keep),
-        Some(Value::Null) => Ok(MapPatch::Clear),
+        None => MapPatch::Keep,
+        Some(Value::Null) => MapPatch::Clear,
         Some(Value::Object(entries)) => {
-            Ok(custom_metadata_entries(entries, null).map_or(MapPatch::Clear, MapPatch::Merge))
+            custom_metadata_entries(entries, null).map_or(MapPatch::Clear, MapPatch::Merge)
         }
         // A value that is neither an object nor null was ignored (recorded for a string).
         Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
-            Ok(MapPatch::Keep)
+            MapPatch::Keep
         }
     }
 }

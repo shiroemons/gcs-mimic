@@ -1518,7 +1518,7 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
     let mut decoded = Vec::with_capacity(bytes.len());
     while let Some((&first, tail)) = bytes.split_first() {
         if first == b'%'
-            && let Some(byte) = tail.first_chunk::<2>().and_then(crate::hex::byte)
+            && let Some(byte) = tail.first_chunk::<2>().copied().and_then(crate::hex::byte)
         {
             decoded.push(byte);
             bytes = tail.get(2..).unwrap_or_default();
