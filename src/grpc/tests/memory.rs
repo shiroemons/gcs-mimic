@@ -138,13 +138,15 @@ async fn call<M: Message, R: Message + Default>(
     token: Option<&str>,
     messages: &[M],
 ) -> (Code, Vec<R>) {
-    rpc(
-        service,
+    let (status, messages) = fixtures::routed_rpc_status(
         &format!("/google.storage.v2.Storage/{method}"),
         token,
+        &fixtures::bucket_routing("memory-grpc"),
         messages,
+        async |request| service.call(request).await.unwrap(),
     )
-    .await
+    .await;
+    (status.code(), messages)
 }
 
 fn spec(name: &str) -> pb::WriteObjectSpec {

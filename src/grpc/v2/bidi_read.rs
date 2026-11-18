@@ -679,10 +679,11 @@ mod tests {
             object: object.into(),
             ..Default::default()
         };
-        let (code, responses): (_, Vec<pb::BidiReadObjectResponse>) =
-            crate::grpc::test_support::rpc(
+        let (status, responses): (_, Vec<pb::BidiReadObjectResponse>) =
+            crate::grpc::test_support::routed_rpc_status(
                 "/google.storage.v2.Storage/BidiReadObject",
                 None,
+                &crate::grpc::test_support::bucket_routing("handle-bucket"),
                 &[pb::BidiReadObjectRequest {
                     read_object_spec: Some(spec.clone()),
                     ..Default::default()
@@ -701,7 +702,7 @@ mod tests {
                 },
             )
             .await;
-        assert_eq!(code, tonic::Code::Ok);
+        assert_eq!(status.code(), tonic::Code::Ok, "{status}");
         pb::BidiReadObjectSpec {
             generation: responses[0].metadata.as_ref().unwrap().generation,
             read_handle: responses[0].read_handle.clone(),

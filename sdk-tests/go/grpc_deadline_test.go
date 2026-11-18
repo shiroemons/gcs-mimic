@@ -57,7 +57,7 @@ func TestGRPCDeadlineAndCancellation(t *testing.T) {
 	}
 	open := func(callCtx context.Context, method string, desc grpc.StreamDesc) grpc.ClientStream {
 		t.Helper()
-		stream, err := conn.NewStream(callCtx, &desc, "/google.storage.v2.Storage/"+method)
+		stream, err := conn.NewStream(grpcRouted(callCtx, bucket.BucketName()), &desc, "/google.storage.v2.Storage/"+method)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +88,7 @@ func TestGRPCDeadlineAndCancellation(t *testing.T) {
 	serving := func(name string) {
 		t.Helper()
 		request := msg("GetObjectRequest", map[string]any{"bucket": bucketName, "object": name})
-		if err := conn.Invoke(ctx, "/google.storage.v2.Storage/GetObject", request, msg("Object", nil)); err != nil {
+		if err := conn.Invoke(grpcRouted(ctx, bucket.BucketName()), "/google.storage.v2.Storage/GetObject", request, msg("Object", nil)); err != nil {
 			t.Fatalf("GetObject after an abandoned call: %v", err)
 		}
 	}
@@ -141,7 +141,7 @@ func TestGRPCDeadlineAndCancellation(t *testing.T) {
 	// BidiWriteObject: cancellation keeps the resumable session, which resumes and completes.
 	{
 		started := msg("StartResumableWriteResponse", nil)
-		if err := conn.Invoke(ctx, "/google.storage.v2.Storage/StartResumableWrite", msg("StartResumableWriteRequest", map[string]any{"write_object_spec": spec("cancelled-resumable")}), started); err != nil {
+		if err := conn.Invoke(grpcRouted(ctx, bucket.BucketName()), "/google.storage.v2.Storage/StartResumableWrite", msg("StartResumableWriteRequest", map[string]any{"write_object_spec": spec("cancelled-resumable")}), started); err != nil {
 			t.Fatal(err)
 		}
 		upload := grpcIOField(started, "upload_id").String()
@@ -164,7 +164,7 @@ func TestGRPCDeadlineAndCancellation(t *testing.T) {
 			t.Fatalf("cancelled upload published an object: %v", err)
 		}
 		queried := msg("QueryWriteStatusResponse", nil)
-		if err := conn.Invoke(ctx, "/google.storage.v2.Storage/QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": upload}), queried); err != nil {
+		if err := conn.Invoke(grpcRouted(ctx, bucket.BucketName()), "/google.storage.v2.Storage/QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": upload}), queried); err != nil {
 			t.Fatalf("query after cancellation: %v", err)
 		}
 		if offset := grpcIOField(queried, "persisted_size").Int(); offset != 3 {

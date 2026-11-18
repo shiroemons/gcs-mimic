@@ -231,42 +231,59 @@ fn field(tag: u8, value: &[u8]) -> Vec<u8> {
     field
 }
 
+/// A unary Storage v2 call: its method, its encoded request and the `x-goog-request-params`
+/// metadata a client routes it by, without which the call is refused.
+struct Call {
+    method: &'static str,
+    message: Vec<u8>,
+    routing: String,
+}
+
 /// A Storage v2 CreateBucketRequest for `name` in `local-project`.
-fn create_bucket(name: &str) -> Vec<u8> {
-    [
-        field(0x0a, b"projects/_"),
-        field(0x12, &field(0x1a, b"projects/local-project")),
-        field(0x1a, name.as_bytes()),
-    ]
-    .concat()
+fn create_bucket(name: &str) -> Call {
+    Call {
+        method: "CreateBucket",
+        message: [
+            field(0x0a, b"projects/_"),
+            field(0x12, &field(0x1a, b"projects/local-project")),
+            field(0x1a, name.as_bytes()),
+        ]
+        .concat(),
+        routing: "project=projects%2Flocal-project".into(),
+    }
 }
 
 /// A Storage v2 GetBucketRequest for `name`.
-fn get_bucket(name: &str) -> Vec<u8> {
-    field(0x0a, format!("projects/_/buckets/{name}").as_bytes())
+fn get_bucket(name: &str) -> Call {
+    Call {
+        method: "GetBucket",
+        message: field(0x0a, format!("projects/_/buckets/{name}").as_bytes()),
+        routing: format!("bucket=projects%2F_%2Fbuckets%2F{name}"),
+    }
 }
 
 /// Sends one unary Storage v2 call over HTTP/2 on `io`.
 async fn unary(
     io: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
     scheme: &str,
-    method: &str,
-    message: &[u8],
+    call: &Call,
     token: Option<&str>,
 ) -> Result<Reply, hyper::Error> {
     let (mut client, connection) =
         hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(io)).await?;
     let driver = tokio::spawn(connection);
     let mut framed = vec![0];
-    framed.extend_from_slice(&(message.len() as u32).to_be_bytes());
-    framed.extend_from_slice(message);
+    framed.extend_from_slice(&(call.message.len() as u32).to_be_bytes());
+    framed.extend_from_slice(&call.message);
     let mut request = hyper::Request::builder()
         .method("POST")
         .uri(format!(
-            "{scheme}://localhost/google.storage.v2.Storage/{method}"
+            "{scheme}://localhost/google.storage.v2.Storage/{}",
+            call.method
         ))
         .header("content-type", "application/grpc")
-        .header("te", "trailers");
+        .header("te", "trailers")
+        .header("x-goog-request-params", &call.routing);
     if let Some(token) = token {
         request = request.header("authorization", format!("Bearer {token}"));
     }
@@ -355,15 +372,9 @@ async fn grpc_auto_serves_h2c_and_tls_on_one_port() {
         .await
         .unwrap();
     assert_eq!(tls.get_ref().1.alpn_protocol(), Some(&b"h2"[..]));
-    let created = unary(
-        tls,
-        "https",
-        "CreateBucket",
-        &create_bucket("over-tls"),
-        None,
-    )
-    .await
-    .unwrap();
+    let created = unary(tls, "https", &create_bucket("over-tls"), None)
+        .await
+        .unwrap();
     assert_eq!(created.status, "0", "{created:?}");
     assert!(
         created
@@ -382,7 +393,7 @@ async fn grpc_auto_serves_h2c_and_tls_on_one_port() {
         .await
         .unwrap();
         assert_eq!(tls.get_ref().1.protocol_version(), Some(version.version));
-        let read = unary(tls, "https", "GetBucket", &get_bucket("over-tls"), None)
+        let read = unary(tls, "https", &get_bucket("over-tls"), None)
             .await
             .unwrap();
         assert_eq!(read.status, "0", "{version:?}: {read:?}");
@@ -390,7 +401,6 @@ async fn grpc_auto_serves_h2c_and_tls_on_one_port() {
     let plain = unary(
         h2c(&server.grpc).await,
         "http",
-        "GetBucket",
         &get_bucket("over-tls"),
         None,
     )
@@ -453,7 +463,7 @@ async fn grpc_tls_provided_certificate_and_client_trust_failures() {
         let tls = connect_tls(&server.grpc, name, grpc_client(&ca))
             .await
             .unwrap();
-        let reply = unary(tls, "https", "CreateBucket", &create_bucket(bucket), None)
+        let reply = unary(tls, "https", &create_bucket(bucket), None)
             .await
             .unwrap();
         assert_eq!(reply.status, "0", "{name}: {reply:?}");
@@ -476,7 +486,6 @@ async fn grpc_tls_provided_certificate_and_client_trust_failures() {
     let reply = unary(
         h2c(&server.grpc).await,
         "http",
-        "GetBucket",
         &get_bucket("by-name"),
         None,
     )
@@ -500,7 +509,7 @@ async fn grpc_tls_provided_certificate_and_client_trust_failures() {
     let tls = connect_tls(&server.grpc, "wrong.invalid", grpc_client(&ca))
         .await
         .unwrap();
-    let reply = unary(tls, "https", "GetBucket", &get_bucket("by-name"), None)
+    let reply = unary(tls, "https", &get_bucket("by-name"), None)
         .await
         .unwrap();
     assert_eq!(reply.status, "0", "{reply:?}");
@@ -516,13 +525,7 @@ async fn grpc_scheme_tls_refuses_h2c_clients() {
     assert_eq!(server.grpc_listener_scheme(), "h2");
     let refused = tokio::time::timeout(
         GUARD,
-        unary(
-            h2c(&server.grpc).await,
-            "http",
-            "GetBucket",
-            &get_bucket("absent"),
-            None,
-        ),
+        unary(h2c(&server.grpc).await, "http", &get_bucket("absent"), None),
     )
     .await
     .unwrap();
@@ -530,7 +533,7 @@ async fn grpc_scheme_tls_refuses_h2c_clients() {
     let tls = connect_tls(&server.grpc, "localhost", grpc_client(&ca))
         .await
         .unwrap();
-    let reply = unary(tls, "https", "GetBucket", &get_bucket("absent"), None)
+    let reply = unary(tls, "https", &get_bucket("absent"), None)
         .await
         .unwrap();
     assert_eq!(reply.status, "5", "{reply:?}");
@@ -566,15 +569,9 @@ async fn grpc_scheme_tls_serves_beside_a_plain_http_listener() {
     )
     .await
     .unwrap();
-    let reply = unary(
-        tls,
-        "https",
-        "CreateBucket",
-        &create_bucket("beside-http"),
-        None,
-    )
-    .await
-    .unwrap();
+    let reply = unary(tls, "https", &create_bucket("beside-http"), None)
+        .await
+        .unwrap();
     assert_eq!(reply.status, "0", "{reply:?}");
     assert_eq!(json_status(&server, "/storage/v1/b/beside-http", None), 200);
     server.stop();
@@ -607,15 +604,9 @@ async fn grpc_scheme_h2c_refuses_tls_clients_and_keeps_its_ready_event() {
             .await
             .is_err()
     );
-    let reply = unary(
-        h2c(&server.grpc).await,
-        "http",
-        "GetBucket",
-        &get_bucket("absent"),
-        None,
-    )
-    .await
-    .unwrap();
+    let reply = unary(h2c(&server.grpc).await, "http", &get_bucket("absent"), None)
+        .await
+        .unwrap();
     assert_eq!(reply.status, "5", "{reply:?}");
     server.stop();
 }
@@ -644,7 +635,7 @@ async fn grpc_tls_alpn_refuses_http1_only_clients_and_accepts_clients_without_al
     .await
     .unwrap();
     assert_eq!(without.get_ref().1.alpn_protocol(), None);
-    let reply = unary(without, "https", "GetBucket", &get_bucket("absent"), None)
+    let reply = unary(without, "https", &get_bucket("absent"), None)
         .await
         .unwrap();
     assert_eq!(reply.status, "5", "{reply:?}");
@@ -702,7 +693,6 @@ async fn grpc_tls_carries_strict_bearer_tokens() {
     let plain = unary(
         h2c(&server.grpc).await,
         "http",
-        "CreateBucket",
         &create_bucket("strict-h2c"),
         Some("local-admin-token"),
     )
@@ -715,7 +705,6 @@ async fn grpc_tls_carries_strict_bearer_tokens() {
     let created = unary(
         tls,
         "https",
-        "CreateBucket",
         &create_bucket("strict-tls"),
         Some("local-admin-token"),
     )
@@ -733,7 +722,7 @@ async fn grpc_tls_carries_strict_bearer_tokens() {
     let tls = connect_tls(&server.grpc, "localhost", grpc_client(&ca))
         .await
         .unwrap();
-    let anonymous = unary(tls, "https", "GetBucket", &get_bucket("strict-tls"), None)
+    let anonymous = unary(tls, "https", &get_bucket("strict-tls"), None)
         .await
         .unwrap();
     assert_eq!(anonymous.status, "16", "{anonymous:?}");
@@ -852,7 +841,7 @@ async fn grpc_handshake_holds_the_only_connection_slot_until_it_ends() {
         0
     );
     let tls = next.await.unwrap();
-    let reply = unary(tls, "https", "GetBucket", &get_bucket("absent"), None)
+    let reply = unary(tls, "https", &get_bucket("absent"), None)
         .await
         .unwrap();
     assert_eq!(reply.status, "5", "{reply:?}");
@@ -933,13 +922,22 @@ async fn grpc_sigterm_with_an_open_tls_stream_sends_goaway_within_the_grace() {
         .await
         .unwrap();
     tls.write_all(&encode_frame(4, 0, 0, &[])).await.unwrap();
-    // :method POST, :scheme https, :path and content-type as literals without indexing. The
-    // request has no END_STREAM, so the WriteObject call waits for its first message.
+    // :method POST, :scheme https, then :path, content-type and the routing metadata as
+    // literals without indexing. The request has no END_STREAM, so the WriteObject call, which
+    // would be refused at once without routing metadata, waits for its first message.
     let path = b"/google.storage.v2.Storage/WriteObject";
     let mut headers = vec![0x83, 0x87, 0x04, path.len() as u8];
     headers.extend_from_slice(path);
     headers.extend_from_slice(&[0x0f, 0x10, 16]);
     headers.extend_from_slice(b"application/grpc");
+    let (name, value) = (
+        b"x-goog-request-params",
+        b"bucket=projects%2F_%2Fbuckets%2Fopen-stream",
+    );
+    headers.extend_from_slice(&[0x00, name.len() as u8]);
+    headers.extend_from_slice(name);
+    headers.push(value.len() as u8);
+    headers.extend_from_slice(value);
     tls.write_all(&encode_frame(1, 4, 1, &headers))
         .await
         .unwrap();

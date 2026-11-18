@@ -338,7 +338,7 @@ func (e *crossEnv) getV2(name string, fields map[string]any) (protoreflect.Messa
 		request[key] = value
 	}
 	response := grpcIOMessage(e.t, "Object", nil)
-	err := e.conn.Invoke(e.grpcContext(), "/google.storage.v2.Storage/GetObject", grpcIOMessage(e.t, "GetObjectRequest", request), response)
+	err := e.conn.Invoke(grpcRouted(e.grpcContext(), e.bucket), "/google.storage.v2.Storage/GetObject", grpcIOMessage(e.t, "GetObjectRequest", request), response)
 	return response, err
 }
 

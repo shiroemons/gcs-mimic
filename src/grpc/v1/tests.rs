@@ -154,10 +154,13 @@ async fn nonempty_bucket_deletion_uses_the_shared_grpc_status() {
     let modern = assert_code(
         V2Storage::delete_bucket(
             &modern,
-            Request::new(v2_pb::DeleteBucketRequest {
-                name: "projects/_/buckets/list-a".into(),
-                ..Default::default()
-            }),
+            fixtures::routed_request(
+                &fixtures::bucket_routing("list-a"),
+                v2_pb::DeleteBucketRequest {
+                    name: "projects/_/buckets/list-a".into(),
+                    ..Default::default()
+                },
+            ),
         )
         .await,
         tonic::Code::FailedPrecondition,

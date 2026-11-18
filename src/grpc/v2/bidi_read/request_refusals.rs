@@ -3,7 +3,9 @@
 //! resumed handle, which gcs-mimic does not model, answer UNIMPLEMENTED with ErrorInfo.
 
 use super::*;
-use crate::grpc::test_support::{assert_code, assert_unsupported, mask, rpc_status};
+use crate::grpc::test_support::{
+    assert_code, assert_unsupported, bucket_routing, mask, routed_rpc_status,
+};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use std::sync::Arc;
 
@@ -45,24 +47,30 @@ pub(super) async fn stream(
     messages: &[pb::BidiReadObjectRequest],
     fieldmask: Option<&'static str>,
 ) -> (Status, Vec<pb::BidiReadObjectResponse>) {
-    rpc_status(PATH, None, messages, async |mut request| {
-        if let Some(value) = fieldmask {
-            request.headers_mut().insert(
-                "x-goog-fieldmask",
-                hyper::header::HeaderValue::from_static(value),
-            );
-        }
-        crate::grpc::v2::dispatch(
-            crate::grpc::v2::service(
-                state.clone(),
-                1024 * 1024,
-                crate::config::CompatProfile::Native,
-            ),
-            request,
-        )
-        .await
-        .unwrap()
-    })
+    routed_rpc_status(
+        PATH,
+        None,
+        &bucket_routing("bidi-refusals"),
+        messages,
+        async |mut request| {
+            if let Some(value) = fieldmask {
+                request.headers_mut().insert(
+                    "x-goog-fieldmask",
+                    hyper::header::HeaderValue::from_static(value),
+                );
+            }
+            crate::grpc::v2::dispatch(
+                crate::grpc::v2::service(
+                    state.clone(),
+                    1024 * 1024,
+                    crate::config::CompatProfile::Native,
+                ),
+                request,
+            )
+            .await
+            .unwrap()
+        },
+    )
     .await
 }
 

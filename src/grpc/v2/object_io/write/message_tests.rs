@@ -6,7 +6,7 @@
 
 use super::super::tests::{HeldOpen, Hold, setup, spec};
 use super::*;
-use crate::grpc::test_support::{key_params, rpc_status};
+use crate::grpc::test_support::{bucket_routing, key_params, routed_rpc_status};
 use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use tonic::Code;
@@ -261,12 +261,29 @@ fn reply(status: pb::bidi_write_object_response::WriteStatus) -> Reply {
     }
 }
 
+/// The routing metadata a client sends with `messages`: the bucket its opening spec names.
+/// Cloud Storage refuses a stream without the metadata (recorded 2026-11-18), so a stream
+/// that names no well-formed bucket, or only an upload ID, sends a key that routes nothing.
+fn routing(messages: &[pb::BidiWriteObjectRequest]) -> String {
+    let bucket = match messages.first().and_then(|m| m.first_message.as_ref()) {
+        Some(FirstMessage::WriteObjectSpec(spec)) => {
+            spec.resource.as_ref().map(|r| r.bucket.as_str())
+        }
+        Some(FirstMessage::AppendObjectSpec(spec)) => Some(spec.bucket.as_str()),
+        Some(FirstMessage::UploadId(_)) | None => None,
+    };
+    bucket
+        .and_then(|bucket| crate::grpc::v2::names::bucket_name(bucket).ok())
+        .map_or_else(|| "unrouted=1".to_owned(), bucket_routing)
+}
+
 /// Sends `messages` over `rpc` and returns its status and the write statuses it answered.
 async fn call(
     storage: &Storage,
     rpc: Rpc,
     messages: &[pb::BidiWriteObjectRequest],
 ) -> (Status, Vec<Reply>) {
+    let routing = routing(messages);
     let send = async |request| {
         crate::grpc::v2::dispatch(
             crate::grpc::v2::service(storage.state.clone(), MAX, storage.compat_profile),
@@ -278,9 +295,10 @@ async fn call(
     match rpc {
         Rpc::WriteObject => {
             let requests: Vec<_> = messages.iter().map(write_object_request).collect();
-            let (status, responses): (_, Vec<pb::WriteObjectResponse>) = rpc_status(
+            let (status, responses): (_, Vec<pb::WriteObjectResponse>) = routed_rpc_status(
                 "/google.storage.v2.Storage/WriteObject",
                 None,
+                &routing,
                 &requests,
                 send,
             )
@@ -299,9 +317,10 @@ async fn call(
             (status, replies)
         }
         Rpc::Bidi => {
-            let (status, responses): (_, Vec<pb::BidiWriteObjectResponse>) = rpc_status(
+            let (status, responses): (_, Vec<pb::BidiWriteObjectResponse>) = routed_rpc_status(
                 "/google.storage.v2.Storage/BidiWriteObject",
                 None,
+                &routing,
                 messages,
                 send,
             )
@@ -1351,12 +1370,13 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
             routing: Some("bucket=projects%2F_%2Fbuckets%2Fanother-bucket"),
             messages: |u| vec![resume(u, 0, b"abc").finish()],
             code: InvalidArgument,
-            message: "Routing metadata conflicts with the request; use the same resource in x-goog-request-params and the request",
+            // Recorded 2026-11-18 (case grpc-probe-routing).
+            message: "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified 'another-bucket'",
         },
         EarlyRefusal {
             label: "malformed-upload-id",
             token: "admin",
-            routing: None,
+            routing: Some("bucket=projects%2F_%2Fbuckets%2Fgrpc-io"),
             messages: |_| vec![resume("grpc-io/not-hex", 0, b"abc").finish()],
             code: NotFound,
             message: UNKNOWN_UPLOAD_ID,
@@ -1364,7 +1384,7 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
         EarlyRefusal {
             label: "permission",
             token: "reader",
-            routing: None,
+            routing: Some("bucket=projects%2F_%2Fbuckets%2Fgrpc-io"),
             messages: |u| vec![resume(u, 0, b"abc").finish()],
             code: PermissionDenied,
             message: "reader@example.invalid does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
@@ -1372,7 +1392,7 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
         EarlyRefusal {
             label: "later-upload-id",
             token: "admin",
-            routing: None,
+            routing: Some("bucket=projects%2F_%2Fbuckets%2Fgrpc-io"),
             messages: |u| {
                 vec![
                     resume(u, 0, b"abc"),
@@ -1890,9 +1910,10 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
         .unwrap()
     };
     let requests = [write_object_request(&resume(&upload, 0, b"abc"))];
-    let (status, responses): (_, Vec<pb::WriteObjectResponse>) = rpc_status(
+    let (status, responses): (_, Vec<pb::WriteObjectResponse>) = routed_rpc_status(
         "/google.storage.v2.Storage/WriteObject",
         None,
+        &bucket_routing("grpc-io"),
         &requests,
         send,
     )
@@ -1913,9 +1934,10 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     let messages = [chunk(3, b"def")
         .flush()
         .first(FirstMessage::UploadId(upload.clone()))];
-    let (status, responses): (_, Vec<pb::BidiWriteObjectResponse>) = rpc_status(
+    let (status, responses): (_, Vec<pb::BidiWriteObjectResponse>) = routed_rpc_status(
         "/google.storage.v2.Storage/BidiWriteObject",
         None,
+        &bucket_routing("grpc-io"),
         &messages,
         send,
     )
@@ -2015,9 +2037,10 @@ async fn grpc_write_specs_refuse_unhandled_fields() {
             write_object_spec: Some(refused),
             ..Default::default()
         }];
-        let (started, _): (_, Vec<pb::StartResumableWriteResponse>) = rpc_status(
+        let (started, _): (_, Vec<pb::StartResumableWriteResponse>) = routed_rpc_status(
             "/google.storage.v2.Storage/StartResumableWrite",
             None,
+            &bucket_routing("grpc-io"),
             &start,
             send,
         )
@@ -2039,9 +2062,10 @@ async fn grpc_write_specs_refuse_unhandled_fields() {
         write_object_spec: Some(appendable),
         ..Default::default()
     }];
-    let (status, _): (_, Vec<pb::StartResumableWriteResponse>) = rpc_status(
+    let (status, _): (_, Vec<pb::StartResumableWriteResponse>) = routed_rpc_status(
         "/google.storage.v2.Storage/StartResumableWrite",
         None,
+        &bucket_routing("grpc-io"),
         &start,
         send,
     )

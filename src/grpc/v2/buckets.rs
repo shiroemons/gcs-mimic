@@ -1825,30 +1825,29 @@ mod tests {
                 Code::InvalidArgument,
             );
         }
-        let mut request = Request::new(get("page-a"));
-        request.metadata_mut().insert(
-            "x-goog-request-params",
-            "bucket=projects%2F_%2Fbuckets%2Fpage-a".parse().unwrap(),
-        );
+        let routing = fixtures::bucket_routing("page-a");
+        let request = fixtures::routed_request(&routing, get("page-a"));
         pb::storage_server::Storage::get_bucket(&storage, request)
             .await
             .unwrap();
+        // Recorded 2026-11-18 (case grpc-probe-routing): an unknown key is ignored, so
+        // metadata that names only one routes no bucket and is refused like another bucket.
         for header in [
             "bucket=projects%2F_%2Fbuckets%2Fpage-b",
             "bucket=%GG",
             "bucket",
             "unknown=value",
         ] {
-            let mut request = Request::new(get("page-a"));
-            request
-                .metadata_mut()
-                .insert("x-goog-request-params", header.parse().unwrap());
-            let code = pb::storage_server::Storage::get_bucket(&storage, request)
-                .await
-                .unwrap_err()
-                .code();
-            assert!(matches!(code, Code::InvalidArgument | Code::Unimplemented));
+            let request = fixtures::routed_request(header, get("page-a"));
+            assert_code(
+                pb::storage_server::Storage::get_bucket(&storage, request).await,
+                Code::InvalidArgument,
+            );
         }
+        assert_code(
+            pb::storage_server::Storage::get_bucket(&storage, Request::new(get("page-a"))).await,
+            Code::InvalidArgument,
+        );
         storage.state.catalog.close().await.unwrap();
     }
 
@@ -2891,7 +2890,8 @@ mod tests {
             .unwrap();
         // The Requester Pays billing project is ignored, as in the JSON API.
         for value in ["", "billing-project"] {
-            let mut request = Request::new(get("public-bucket"));
+            let routing = fixtures::bucket_routing("public-bucket");
+            let mut request = fixtures::routed_request(&routing, get("public-bucket"));
             request
                 .metadata_mut()
                 .insert("x-goog-user-project", value.parse().unwrap());

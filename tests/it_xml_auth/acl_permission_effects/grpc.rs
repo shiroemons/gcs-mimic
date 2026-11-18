@@ -58,6 +58,11 @@ pub(super) async fn call(
                 .header("content-type", "application/grpc")
                 .header("te", "trailers")
                 .header("authorization", format!("Bearer {token}"))
+                // Cloud Storage refuses a Storage v2 call without routing metadata.
+                .header(
+                    "x-goog-request-params",
+                    "bucket=projects%2F_%2Fbuckets%2Ftest-bucket",
+                )
                 .body(Full::new(Bytes::from(frame)))
                 .unwrap(),
         )

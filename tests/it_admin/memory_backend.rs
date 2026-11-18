@@ -137,6 +137,11 @@ async fn memory_grpc_listener_serves_protobuf_over_http2_without_opening_data_di
                 ))
                 .header("content-type", "application/grpc")
                 .header("te", "trailers")
+                // Cloud Storage refuses a Storage v2 call without routing metadata.
+                .header(
+                    "x-goog-request-params",
+                    "bucket=projects%2F_%2Fbuckets%2Ftest-bucket",
+                )
                 .body(Full::new(Bytes::from(framed)))
                 .unwrap(),
         )

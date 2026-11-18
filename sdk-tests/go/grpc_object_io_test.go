@@ -247,6 +247,13 @@ func TestGRPCObjectIODeletePolicies(t *testing.T) {
 	}
 }
 
+// grpcRouted adds the x-goog-request-params metadata the SDK sends for a call on bucket.
+// Cloud Storage refuses a Storage v2 call without it (recorded 2026-11-18), so raw calls
+// carry it too.
+func grpcRouted(ctx context.Context, bucket string) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", "bucket=projects/_/buckets/"+bucket)
+}
+
 // The SDK registers its pinned internal Storage protos; reflection lets wire tests use
 // that exact schema without copying it or importing a Go internal package.
 func grpcIOMessage(t *testing.T, name string, fields map[string]any) *dynamicpb.Message {
@@ -309,7 +316,7 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 	defer conn.Close()
 	msg := func(name string, fields map[string]any) *dynamicpb.Message { return grpcIOMessage(t, name, fields) }
 	invoke := func(method string, request, response *dynamicpb.Message) error {
-		return conn.Invoke(ctx, "/google.storage.v2.Storage/"+method, request, response)
+		return conn.Invoke(grpcRouted(ctx, bucket.BucketName()), "/google.storage.v2.Storage/"+method, request, response)
 	}
 	start := func(name string) string {
 		resource := msg("Object", map[string]any{"bucket": "projects/_/buckets/" + bucket.BucketName(), "name": name})
@@ -323,7 +330,7 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		return invoke("CancelResumableWrite", msg("CancelResumableWriteRequest", map[string]any{"upload_id": id}), msg("CancelResumableWriteResponse", nil))
 	}
 	write := func(id string, offset int64, content string, finish bool) error {
-		stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/google.storage.v2.Storage/BidiWriteObject")
+		stream, err := conn.NewStream(grpcRouted(ctx, bucket.BucketName()), &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/google.storage.v2.Storage/BidiWriteObject")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -397,7 +404,7 @@ func TestGRPCObjectIOWire(t *testing.T) {
 	defer conn.Close()
 	msg := func(name string, fields map[string]any) *dynamicpb.Message { return grpcIOMessage(t, name, fields) }
 	invoke := func(method string, request, response *dynamicpb.Message) error {
-		return conn.Invoke(ctx, "/google.storage.v2.Storage/"+method, request, response)
+		return conn.Invoke(grpcRouted(ctx, bucket.BucketName()), "/google.storage.v2.Storage/"+method, request, response)
 	}
 	resource := func(name string) *dynamicpb.Message {
 		return msg("Object", map[string]any{"bucket": "projects/_/buckets/" + bucket.BucketName(), "name": name})
@@ -417,7 +424,7 @@ func TestGRPCObjectIOWire(t *testing.T) {
 		_ = bucket.Object("streamed").Delete(cleanup)
 	})
 	open := func(method string) grpc.ClientStream {
-		stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: method == "BidiWriteObject"}, "/google.storage.v2.Storage/"+method)
+		stream, err := conn.NewStream(grpcRouted(ctx, bucket.BucketName()), &grpc.StreamDesc{ClientStreams: true, ServerStreams: method == "BidiWriteObject"}, "/google.storage.v2.Storage/"+method)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -488,7 +495,7 @@ func TestGRPCObjectIOWire(t *testing.T) {
 			t.Fatal("checksum failure published an object")
 		}
 	}
-	stream, err = conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true}, "/google.storage.v2.Storage/ReadObject")
+	stream, err = conn.NewStream(grpcRouted(ctx, bucket.BucketName()), &grpc.StreamDesc{ServerStreams: true}, "/google.storage.v2.Storage/ReadObject")
 	if err != nil {
 		t.Fatal(err)
 	}

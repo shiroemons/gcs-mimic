@@ -151,20 +151,27 @@ impl Reply {
     }
 }
 
-/// A Storage v2 call with `metadata` beside the gRPC headers, from the admin principal unless
-/// `metadata` names other credentials.
+/// A Storage v2 call with `metadata` beside the gRPC headers, from the admin principal and
+/// routed to the test bucket unless `metadata` names other credentials or another route.
 fn call<B>(method: &str, metadata: &[(&str, &str)], body: B) -> hyper::Request<tonic::body::Body>
 where
     B: hyper::body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<tonic::codegen::StdError>,
 {
+    let sent = |header: &str| metadata.iter().any(|(name, _)| *name == header);
     let mut request = hyper::Request::post(format!(
         "http://localhost/google.storage.v2.Storage/{method}"
     ))
     .header("content-type", "application/grpc")
     .header("te", "trailers");
-    if !metadata.iter().any(|(name, _)| *name == "authorization") {
+    if !sent("authorization") {
         request = request.header("authorization", "Bearer admin");
+    }
+    if !sent("x-goog-request-params") {
+        request = request.header(
+            "x-goog-request-params",
+            crate::grpc::test_support::bucket_routing("call-metadata"),
+        );
     }
     for (name, value) in metadata {
         request = request.header(*name, *value);
