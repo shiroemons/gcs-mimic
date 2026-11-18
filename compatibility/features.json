@@ -23093,8 +23093,7 @@
           "description": "Each update_mask path is parsed once into UpdatePath (src/grpc/v2/bucket_update.rs) and applied in mask order: labels, labels.KEY (any nonempty key, dots included), storage_class, autoclass[.enabled|.terminal_storage_class], versioning[.enabled], default_event_based_hold, cors, lifecycle[.rule], retention_policy[.retention_duration], soft_delete_policy[.retention_duration], iam_config, iam_config.public_access_prevention, iam_config.uniform_bucket_level_access[.enabled], acl and default_object_acl, each changing only its setting; every other path, an empty key, other case spellings, subpaths of these fields and output-only fields included, returns UNIMPLEMENTED with ErrorInfo naming the path, and the first failing path in mask order names the error.",
           "result": "PASS",
           "test_ids": [
-            "update_mask_paths_select_their_settings_and_refuse_the_rest",
-            "update_paths_parse_once_into_the_setting_they_name"
+            "update_mask_paths_select_their_settings_and_refuse_the_rest"
           ]
         },
         {
@@ -23155,8 +23154,7 @@
         "grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes",
         "grpc_bucket_update_rounds_retention_nanos_down",
         "bucket_rpcs_keep_their_own_metageneration_condition_rules",
-        "update_mask_paths_select_their_settings_and_refuse_the_rest",
-        "update_paths_parse_once_into_the_setting_they_name"
+        "update_mask_paths_select_their_settings_and_refuse_the_rest"
       ],
       "verification": [
         {
@@ -23170,7 +23168,6 @@
             "grpc_bucket_update_rounds_retention_nanos_down",
             "bucket_rpcs_keep_their_own_metageneration_condition_rules",
             "update_mask_paths_select_their_settings_and_refuse_the_rest",
-            "update_paths_parse_once_into_the_setting_they_name",
             "grpc_masks_reject_unsupported_and_accept_defaults"
           ]
         },
@@ -38955,8 +38952,7 @@
           "description": "Each UpdateBucket update_mask path is parsed once into UpdatePath (src/grpc/v2/bucket_update.rs) and applied in mask order, each changing only its setting; every path UpdatePath does not name, an empty label key, other case spellings, subpaths of the accepted fields and output-only fields included, returns UNIMPLEMENTED with ErrorInfo naming the path, and the first failing path in mask order names the error.",
           "result": "PASS",
           "test_ids": [
-            "update_mask_paths_select_their_settings_and_refuse_the_rest",
-            "update_paths_parse_once_into_the_setting_they_name"
+            "update_mask_paths_select_their_settings_and_refuse_the_rest"
           ]
         },
         {
@@ -38997,8 +38993,7 @@
         "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
         "grpc_io_full_read_masks_return_acl_and_owner",
         "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
-        "update_mask_paths_select_their_settings_and_refuse_the_rest",
-        "update_paths_parse_once_into_the_setting_they_name"
+        "update_mask_paths_select_their_settings_and_refuse_the_rest"
       ],
       "verification": [
         {
@@ -39008,8 +39003,7 @@
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
             "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
-            "update_mask_paths_select_their_settings_and_refuse_the_rest",
-            "update_paths_parse_once_into_the_setting_they_name"
+            "update_mask_paths_select_their_settings_and_refuse_the_rest"
           ]
         },
         {
