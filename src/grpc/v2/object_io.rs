@@ -1,6 +1,6 @@
 use super::{
     ResponseStream, Storage, access_status, convert, pb,
-    status::{internal_error, read_failure, unsupported_for, with_reason},
+    status::{read_failure, unsupported_for, with_reason},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
@@ -79,15 +79,23 @@ pub(super) fn named_object_status<'a>(
 
 const UPLOAD_CANCELLED: &str = "Upload has already been cancelled.";
 const UPLOAD_TERMINATED: &str = "Upload has already been terminated.";
+const UPLOAD_NOT_FOUND: &str = "Upload session not found; start a new resumable write";
 
 /// The answer to a write that names a session it cannot continue (recorded 2026-11-18).
 ///
-/// Cloud Storage failed internally on every upload ID it could not read, so an ID that names no
-/// session answers the same. A write to a cancelled session was INVALID_ARGUMENT; a session the
-/// service ended itself is worded like it.
+/// A write to a cancelled session was INVALID_ARGUMENT; a session the service ended itself is
+/// worded like it.
+///
+/// Not recorded: an upload ID that parses but whose session does not exist, has expired (also
+/// while a write holds it) or belongs to another bucket. The nearest recorded answer is the
+/// INTERNAL that Cloud Storage gave IDs it could not read, which [`UnknownUploadId::Unreadable`]
+/// keeps. Such a session can never be found again, and INTERNAL makes SDKs retry a call that
+/// cannot succeed, so the emulator answers NOT_FOUND and names the remedy instead.
+///
+/// [`UnknownUploadId::Unreadable`]: upload_id::UnknownUploadId::Unreadable
 fn session_status(error: ResumableError) -> Status {
     match error {
-        ResumableError::NotFound => internal_error(),
+        ResumableError::NotFound => Status::not_found(UPLOAD_NOT_FOUND),
         ResumableError::Cancelled => Status::invalid_argument(UPLOAD_CANCELLED),
         ResumableError::Gone => Status::invalid_argument(UPLOAD_TERMINATED),
         ResumableError::Invalid(message) => Status::invalid_argument(message),

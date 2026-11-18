@@ -40,9 +40,11 @@ const RECEIVED_OFFSET: &str =
 const RESUME_OFFSET: &str = "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size";
 const TOO_LARGE: &str =
     "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object";
-/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read; an ID that names no
-/// session answers the same.
+/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read.
 const INTERNAL: &str = "We encountered an internal error. Please try again.";
+/// Not recorded: an upload ID of the issued shape that names no session. The emulator departs
+/// from [`INTERNAL`], which SDKs would retry.
+const NO_SESSION: &str = "Upload session not found; start a new resumable write";
 /// Recorded 2026-11-18.
 const TERMINATED: &str = "Upload has already been terminated.";
 
@@ -959,7 +961,7 @@ fn unknown(_: &str) -> String {
 
 #[tokio::test]
 async fn grpc_resumable_write_message_errors() {
-    use Code::{Internal, InvalidArgument, OutOfRange, ResourceExhausted};
+    use Code::{Internal, InvalidArgument, NotFound, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         on(
@@ -1291,16 +1293,17 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
-        // Recorded 2026-11-18: an upload ID Cloud Storage cannot read fails as INTERNAL, and
-        // so does one that names no session; text that is no upload ID is INVALID_ARGUMENT.
+        // Not recorded: an upload ID that names no session (see NO_SESSION).
         on(
             PLAIN,
             both(
                 "unknown-session",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish()],
-                || failed(Internal, INTERNAL, Left::Persisted(0)),
+                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
             ),
         ),
+        // Recorded 2026-11-18: an upload ID Cloud Storage cannot read fails as INTERNAL, and
+        // text that is no upload ID is INVALID_ARGUMENT.
         on(
             PLAIN,
             both(
@@ -1352,7 +1355,7 @@ async fn grpc_resumable_write_message_errors() {
 /// When one resumable message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_resumable_write_error_precedence() {
-    use Code::{FailedPrecondition, Internal, InvalidArgument, OutOfRange, ResourceExhausted};
+    use Code::{FailedPrecondition, InvalidArgument, NotFound, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         // A later upload_id is read like any other message, so the checksum beside it counts.
@@ -1377,7 +1380,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-checksums",
                 |u| vec![resume(&unknown(u), 0, b"abc").md5(3)],
-                || failed(Internal, INTERNAL, Left::Persisted(0)),
+                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1385,7 +1388,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-crc",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish().bad_crc()],
-                || failed(Internal, INTERNAL, Left::Persisted(0)),
+                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
             ),
         ),
         on(

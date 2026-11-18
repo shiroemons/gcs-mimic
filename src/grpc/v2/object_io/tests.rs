@@ -633,10 +633,7 @@ async fn grpc_io_write_object_answers_a_refused_finishing_message_at_once() {
         (
             "unknown-session",
             resume(&unknown, 0, b"abc", true),
-            (
-                tonic::Code::Internal,
-                "We encountered an internal error. Please try again.",
-            ),
+            (tonic::Code::NotFound, UPLOAD_NOT_FOUND),
         ),
         (
             "offset",
@@ -2026,10 +2023,8 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     assert!(!missing(&storage, "done").await);
 
     // Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT, and an ID the service
-    // cannot read, or that names no session, fails as INTERNAL.
-    let unknown = format!("grpc-io/{}", "0".repeat(64));
+    // cannot read fails as INTERNAL.
     for (id, code) in [
-        (unknown.as_str(), tonic::Code::Internal),
         ("grpc-io/not-hex", tonic::Code::Internal),
         ("", tonic::Code::InvalidArgument),
         ("grpc-io", tonic::Code::InvalidArgument),
@@ -2041,13 +2036,24 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
         assert_eq!(cancel(&storage, id, None).await, Err(code), "{id}");
         assert_eq!(query(&storage, id, None).await, Err(code), "{id}");
     }
+    // Not recorded; the emulator's departure from the INTERNAL above: an ID of the issued shape
+    // that names no session is NOT_FOUND, which SDKs do not retry.
+    let unknown = format!("grpc-io/{}", "0".repeat(64));
+    assert_eq!(
+        cancel(&storage, &unknown, None).await,
+        Err(tonic::Code::NotFound)
+    );
+    assert_eq!(
+        query(&storage, &unknown, None).await,
+        Err(tonic::Code::NotFound)
+    );
     // An upload_id is scoped to its bucket; reusing it under another bucket finds nothing.
     let scoped = start(&storage, "scoped", None).await;
     let scoped_id = scoped.parse::<UploadId>().unwrap();
     let id = scoped_id.session();
     assert_eq!(
         cancel(&storage, &format!("other-bucket/{id}"), None).await,
-        Err(tonic::Code::Internal)
+        Err(tonic::Code::NotFound)
     );
     assert!(query(&storage, &scoped, None).await.is_ok());
 
@@ -2124,8 +2130,9 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
 }
 
 /// A session lives seven days from StartResumableWrite on the catalog clock. Past that, every
-/// call that names its upload_id answers as for an upload_id that names no session: INTERNAL,
-/// as Cloud Storage answered IDs it could not read (recorded 2026-11-18).
+/// call that names its upload_id answers as for an upload_id that names no session: NOT_FOUND.
+/// Not recorded; the emulator departs from the INTERNAL Cloud Storage gave IDs it could not
+/// read, which SDKs would retry.
 #[tokio::test]
 async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -2157,15 +2164,16 @@ async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
     clock.advance(Duration::from_millis(1));
     assert_eq!(
         query(&storage, &upload, None).await,
-        Err(tonic::Code::Internal)
+        Err(tonic::Code::NotFound)
     );
-    assert_code(
+    let refused = assert_code(
         write(&storage, vec![resume(&upload, GRANULE, b"def", true)]).await,
-        tonic::Code::Internal,
+        tonic::Code::NotFound,
     );
+    assert_eq!(refused.message(), UPLOAD_NOT_FOUND);
     assert_eq!(
         cancel(&storage, &upload, None).await,
-        Err(tonic::Code::Internal)
+        Err(tonic::Code::NotFound)
     );
     assert!(missing(&storage, "expiring").await);
     storage.state.catalog.close().await.unwrap();
@@ -2173,7 +2181,7 @@ async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
 
 /// An upload ID of the issued shape names its session only in the catalog, which runs after the
 /// permission check: a caller without access is denied whatever the ID's case, and one with
-/// access gets the answer for an ID that names no session (INTERNAL, recorded 2026-11-18).
+/// access gets the answer for an ID that names no session (NOT_FOUND; not recorded).
 #[tokio::test]
 async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
     let (_dir, storage) = setup(true).await;
@@ -2223,11 +2231,8 @@ async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
         assert_eq!(code, tonic::Code::Unauthenticated);
     }
     for (code, message) in status(admin).await {
-        assert_eq!(code, tonic::Code::Internal);
-        assert_eq!(
-            message,
-            "We encountered an internal error. Please try again."
-        );
+        assert_eq!(code, tonic::Code::NotFound);
+        assert_eq!(message, UPLOAD_NOT_FOUND);
     }
     storage.state.catalog.close().await.unwrap();
 }
