@@ -16,7 +16,7 @@ WriteObject と BidiWriteObject は同じ処理を使い、チェックサムを
 
 ListObjectsは共有の型付きクエリを直接作り、JSONのURLや一覧リソースを組み立てません。発行済みのNoAclページトークンは引き続き使えます。組み合わせのエラーにはprotoのフィールド名を使い、不正なglobには具体的な構文の説明を返します。
 
-CancelResumableWrite は、JSON の session URI への DELETE と同じカタログ処理で resumable session を取り消します。書き込み途中のバイトも破棄され、オブジェクトは公開されません。取り消した後の QueryWriteStatus・WriteObject・BidiWriteObject、2 回目の取消、未知・不正な upload_id は NOT_FOUND になります。確定済みの upload は FAILED_PRECONDITION です。別の書き込みが session を使用中なら `catalog_wait_timeout_ms` まで待ち、それでも解放されなければ再試行できる UNAVAILABLE です。strict では `storage.objects.create` が必要で、viewer は PERMISSION_DENIED、匿名は UNAUTHENTICATED になり、session はそのまま残ります。確定済み・2 回目・書き込み中の status は Google が定めていないため、ローカルで選んだ挙動です。
+CancelResumableWrite は、JSON の session URI への DELETE と同じカタログ処理で resumable session を取り消します。書き込み途中のバイトも破棄され、オブジェクトは公開されません。取り消した後の QueryWriteStatus・WriteObject・BidiWriteObject、2 回目の取消、未知・不正な upload_id は NOT_FOUND になります。session は StartResumableWrite からカタログの時計で 7 日後に失効し、その時点から QueryWriteStatus・再開した書き込み・取消はどれも NOT_FOUND です。確定済みの upload は FAILED_PRECONDITION です。別の書き込みが session を使用中ならサーバーでは `catalog_wait_timeout_ms` まで待ち（組み込みのカタログは待ちません）、それでも解放されなければ再試行できる UNAVAILABLE です。strict では `storage.objects.create` が必要で、viewer は PERMISSION_DENIED、匿名は UNAUTHENTICATED になり、session はそのまま残ります。session を作った本人である必要はなく、この権限を持つ別の呼び出し元（たとえば`roles/storage.objectUser`）も取り消せます。確定済み・2 回目・書き込み中・失効後の status と、作成者以外の取消は Google が定めていないため、ローカルで選んだ挙動です。
 
 本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB の受信メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。ListObjects のページは約 2 MiB で区切って次ページのトークンを返し、進むように必ず 1 件を含みます。単発書き込みは resumable session の保存枠を使いません。
 
@@ -24,14 +24,17 @@ CancelResumableWrite は、JSON の session URI への DELETE と同じカタロ
 
 upload_id を使うストリームでは、非最終メッセージの object_checksums は UNIMPLEMENTED で拒否します。StartResumableWrite または finish_write=true で指定してください。最初のメッセージでの指定は上流の契約では有効です。以前は、共有セッションが変更した checksum を永続化できないことを理由にしていました。しかしセッションのチェックポイントは、各メッセージのオプションを、統合した checksum も含めてオフセットと同じ更新で保存します（`src/storage/catalog/resumable.rs`の`checkpoint_resumable_output`）。このため、最初のメッセージでの受け付けは未対応の作業（BEHAVIOR-RPC-003 の`stream_resumable_first_checksums`）として残します。拒否してもオフセットは進みません。StartResumableWrite の checksum は切断・再起動後も検証され、不一致ではオブジェクトを作成せずセッションを無効化します。
 
+2026-11-18 に、作成者以外の呼び出し元による取消、7 日での失効の境界（期限の 1 ミリ秒前は応答し、期限からは NOT_FOUND）、WriteObject・BidiWriteObject・StartResumableWrite での`kms_key`とコンテキストの拒否をテストで固定しました。既存の挙動を固定するテストなので最初から通ります。期限の判定を一時的に`>=`から`>`に変えると失効のテストが失敗することを確かめ、変更は元に戻しました。`cargo test --locked --offline --lib grpc::`の 248 件が通りました。
+
 2026-10-28 に cargo check、clippy、Rust の対象 5 テスト、Go の対象 4 テストが通りました。Go では strict、再開、WriteObject、チェックサム、JSON 相互運用、ホールド・保持・soft delete も確認しています。最終ソースで `RUST_TEST_THREADS=8 just check` と `just check-sdk` が通り、すべてのライブラリテスト、その他の Rust テスト、Go/Ruby 全体、台帳・対応表の検証を終えました。詳細は[英語の契約](../en/slices/grpc-v2-object-io.md)を参照してください。性能測定、コンテナ、ガイド通し、実クラウドの検証は対象外です。
 
 ## 台帳のケース
 
 2026-11-18 に、台帳の各行を、確かめられる振る舞いごとの受け入れケースに分けました。実機の Cloud Storage では実行しないため、Google が定めておらず記録もない応答はローカルな選択とし、固定するテストと合わせて scoped difference に記録します。概要は次のとおりです。
 
-- 意図した拒否（SPEC-GRPC-UNMODELED-SETTINGS の scoped difference）: 書き込みリソースの`kms_key`とオブジェクトのコンテキスト、ListObjects のコンテキスト用`filter`。
-- 記録済みのローカルな選択（SPEC-GRPC-LOCAL-CHOICES）: CancelResumableWrite が返す FAILED_PRECONDITION・NOT_FOUND・UNAVAILABLE と、`storage.objects.create`を持つ誰でも取り消せること。RPC-STORAGE-013 には未完了のケースがなく、所有者のレビュー待ちです。
+- 意図した拒否（SPEC-GRPC-UNMODELED-SETTINGS の scoped difference）: WriteObject・BidiWriteObject・StartResumableWrite での書き込みリソースの`kms_key`とオブジェクトのコンテキスト、ListObjects のコンテキスト用`filter`。
+- 記録済みのローカルな選択（SPEC-GRPC-LOCAL-CHOICES）: CancelResumableWrite が返す FAILED_PRECONDITION・NOT_FOUND・UNAVAILABLE と、session を作った本人に限らず`storage.objects.create`を持つ誰でも取り消せること。session の 7 日での失効と、失効後に QueryWriteStatus・再開した書き込み・CancelResumableWrite が返す NOT_FOUND。
+- Storage v2 のすべての行は BEHAVIOR-RPC-001 に依存します。どの RPC も、そのルーティングとリクエストのメタデータの処理を通るためです。RPC-STORAGE-013 自体には未完了のケースがありませんが、BEHAVIOR-RPC-001 のルーティングを確かめる SDK、サーバー側の`grpc-timeout`、gzip のメッセージ圧縮が未完了のあいだは PARTIAL のままです。
 - 実装が必要なもの: 書き込みリソースの`predefined_acl`・`acl`・`retention`と出力専用フィールド（proto が出力専用とする`resource.checksums`を検証し続けるかも含む）、GetObject の`soft_deleted`、ネストした read_mask、オブジェクトの read_mask を取得前に検証すること（現在は返すオブジェクトごとに検証するため、空のページでは不正な mask でも成功します）、再開可能・単発の書き込みと QueryWriteStatus の`persisted_data_checksums`（現在は appendable だけが返します）、単発ストリームの途中の flush と state_lookup、upload_id ストリームの最初のメッセージの`object_checksums`、`finish_write`の後にストリームの終了を待つ間も writer lease を持ち続ける WriteObject の再開。
-- テストが必要なもの: GetObject の`restore_token`の拒否、DeleteObject・ReadObject・WriteObject のエラーの順序、Storage v2 での 7 日の失効、QueryWriteStatus が返す値が減らないこと、セッションのチェックポイントでの書き込み・同期の失敗とクラッシュ。
-- 判断が必要なもの: オブジェクトの前提条件の検証規則（GetObject・ReadObject・BidiReadObject・DeleteObject・WriteObjectSpec は緩く、変更系の RPC は metageneration 条件の 0 と match・not-match の同時指定を拒否します）、再開したストリームの最初のメッセージが永続化済みオフセットより前から始めてよいか（proto の`write_offset`の説明（1411〜1415 行）と WriteObject の説明（480〜489 行）が食い違っています）、使用中のセッションに対して待つか ABORTED を返すか、SDK の half-close を確認したうえで BidiWriteObject の`finish_write`後のメッセージを報告するか、ReadObject が gzip のオブジェクトを展開するか。
+- テストが必要なもの: GetObject の`restore_token`の拒否、DeleteObject・ReadObject・WriteObject のエラーの順序、QueryWriteStatus が返す値が減らないこと、セッションのチェックポイントでの書き込み・同期の失敗とクラッシュ。
+- 判断が必要なもの: オブジェクトの前提条件の検証規則（GetObject・ReadObject・BidiReadObject・DeleteObject・WriteObjectSpec（WriteObject・BidiWriteObject・StartResumableWrite）・AppendObjectSpec は緩く、変更系の RPC は metageneration 条件の 0 と match・not-match の同時指定を拒否します。規則を決めると応答が変わるか確定するため、該当する行にはそれぞれこのケースがあります）、再開したストリームの最初のメッセージが永続化済みオフセットより前から始めてよいか（proto の`write_offset`の説明（1411〜1415 行）と WriteObject の説明（480〜489 行）が食い違っています）、使用中のセッションに対して待つか ABORTED を返すか、SDK の half-close を確認したうえで BidiWriteObject の`finish_write`後のメッセージを報告するか、ReadObject が gzip のオブジェクトを展開するか。

@@ -48,11 +48,12 @@ The [pinned Storage v2 proto](https://github.com/googleapis/googleapis/blob/933d
 
 The ledger rows list one acceptance case per checkable behavior (decomposed on 2026-11-18). No real Cloud Storage runs are made, so an answer Google does not document and nothing recorded is a local choice, recorded as a scoped difference with a pinning test. In summary:
 
-- Refused on purpose (scoped differences under SPEC-GRPC-UNMODELED-SETTINGS): the creation settings above that the JSON API does not store either, the `satisfies_pzs` read mask on GetBucket, and `x-goog-request-params` keys an RPC does not route, a redirect routing token included.
+- Refused on purpose (scoped differences under SPEC-GRPC-UNMODELED-SETTINGS): the creation settings above that the JSON API does not store either, each with ErrorInfo and without creating the bucket; the `satisfies_pzs` read mask on GetBucket; and `x-goog-request-params` keys an RPC does not route, a redirect `routing_token` and unknown keys included, whether the request names its resources or they arrive in a stream's first message.
+- Every Storage v2 RPC row depends on BEHAVIOR-RPC-001, because every RPC passes these routing and request-metadata checks; its pending cases below keep each RPC row PARTIAL.
 - Recorded local choices: a fractional soft delete duration (SPEC-GRPC-LOCAL-CHOICES) and the INVALID_ARGUMENT answers for malformed or conflicting routing values (SPEC-GRPC-ROUTING-NAMES).
 - Pending code work: nested bucket read masks (Cloud Storage serves them); CreateBucket lifecycle, ACLs and predefined ACLs, ignoring output-only fields instead of refusing them, and rounding a fractional retention duration down as the proto says.
 - Pending tests: DeleteBucket on a bucket holding only soft-deleted objects, noncurrent versions, unfinished multipart uploads or an unfinalized appendable object, or with a soft delete policy; the order of DeleteBucket's failures; the `satisfies_pzs` refusal on ListBuckets; the Go and Rust gRPC SDK lanes for routing.
-- Decisions: one validation rule for bucket metageneration conditions, which GetBucket and DeleteBucket evaluate unvalidated while UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both conditions together; whether the server enforces `grpc-timeout`; whether gzip message compression is offered.
+- Decisions: one validation rule for bucket metageneration conditions, which GetBucket and DeleteBucket evaluate unvalidated while UpdateBucket refuses 0, negative values and both conditions together (LockBucketRetentionPolicy refuses 0 and negative values too, because the proto requires a positive value); whether the server enforces `grpc-timeout`; whether gzip message compression is offered.
 
 ## Verification
 

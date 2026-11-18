@@ -29,8 +29,9 @@ projectはIDでも、バケットが返す番号でも指定でき、ListBuckets
 
 2026-11-18 に、台帳の各行を、確かめられる振る舞いごとの受け入れケースに分けました。実機の Cloud Storage では実行しないため、Google が定めておらず記録もない応答はローカルな選択とし、固定するテストと合わせて scoped difference に記録します。概要は次のとおりです。
 
-- 意図した拒否（SPEC-GRPC-UNMODELED-SETTINGS の scoped difference）: JSON API も保存しない作成時の設定（`billing`・`encryption`・`logging`・`website`・`custom_placement_config`・`hierarchical_namespace`・`ip_filter`・`satisfies_pzs=true`・`DEFAULT`以外の`rpo`）、GetBucket の`satisfies_pzs`の read mask、RPC がルーティングしない`x-goog-request-params`のキー（リダイレクトのルーティングトークンを含む）。
+- 意図した拒否（SPEC-GRPC-UNMODELED-SETTINGS の scoped difference）: JSON API も保存しない作成時の設定（`billing`・`encryption`・`logging`・`website`・`custom_placement_config`・`hierarchical_namespace`・`ip_filter`・`satisfies_pzs=true`・`DEFAULT`以外の`rpo`。どれも ErrorInfo 付きで拒否し、バケットを作りません）、GetBucket の`satisfies_pzs`の read mask、RPC がルーティングしない`x-goog-request-params`のキー（リダイレクトの`routing_token`と未知のキーを含み、リクエストがリソースを名指しする場合も、ストリームの最初のメッセージで届く場合も拒否します）。
+- Storage v2 のすべての RPC の行は BEHAVIOR-RPC-001 に依存します。どの RPC もこのルーティングとリクエストのメタデータの検査を通るためです。下の未完了のケースがあるあいだ、各 RPC の行は PARTIAL のままです。
 - 記録済みのローカルな選択: 小数を含む soft delete の期間の拒否（SPEC-GRPC-LOCAL-CHOICES）と、不正または食い違うルーティング値への INVALID_ARGUMENT（SPEC-GRPC-ROUTING-NAMES）。
 - 実装が必要なもの: 入れ子のバケット read mask（Cloud Storage は受け付けます）、CreateBucket の lifecycle・ACL・predefined ACL、出力専用フィールドを拒否せず無視すること、小数を含む保持期間を proto のとおり秒単位に切り捨てること。
 - テストが必要なもの: 論理削除済みのオブジェクト・非現行の世代・未完了の multipart upload・未確定の appendable オブジェクトだけを持つバケットや、soft delete ポリシーを持つバケットの DeleteBucket、DeleteBucket のエラーの順序、ListBuckets での`satisfies_pzs`の拒否、ルーティングを確かめる Go と Rust の gRPC SDK。
-- 判断が必要なもの: バケットの metageneration 条件の検証規則（GetBucket と DeleteBucket は検証せずに比較し、UpdateBucket と LockBucketRetentionPolicy は 0・負の値・両条件の同時指定を拒否します）、サーバーで`grpc-timeout`を適用するか、gzip のメッセージ圧縮に対応するか。
+- 判断が必要なもの: バケットの metageneration 条件の検証規則（GetBucket と DeleteBucket は検証せずに比較し、UpdateBucket は 0・負の値・両条件の同時指定を拒否します。LockBucketRetentionPolicy も 0 と負の値を拒否しますが、これは proto が正の値を必須としているためです）、サーバーで`grpc-timeout`を適用するか、gzip のメッセージ圧縮に対応するか。
