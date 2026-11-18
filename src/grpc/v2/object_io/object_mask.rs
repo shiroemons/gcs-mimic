@@ -186,10 +186,11 @@ fn unprojected_member(field: ObjectField, member: &str) -> bool {
             "retain_until_time.seconds" | "retain_until_time.nanos"
         ),
         F::Contexts => member == "custom" || member.starts_with("custom."),
-        // A scalar has no members. Cloud Storage names no field under a repeated one
-        // (`acl.role`, recorded 2026-11-18) or for a map key (recorded the same day for the
-        // bucket's `labels.<key>`), and the listed members of the remaining messages are
-        // selected.
+        // A scalar has no members. Under a repeated field Cloud Storage named no field for
+        // `acl.role` (recorded 2026-11-18 on GetObject). That an object's map key, such as
+        // `metadata.k`, names no field either is inferred from the bucket's `labels.<key>`
+        // (recorded the same day on GetBucket); no object map key was recorded. The listed
+        // members of the remaining messages are selected.
         F::Name
         | F::Bucket
         | F::Etag
@@ -226,7 +227,9 @@ pub(super) enum ObjectPath {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum UnselectablePath {
     /// The path names no field of the resource: an unknown name, a member its message does not
-    /// have, or anything under a scalar, a repeated field or a map (recorded 2026-11-18).
+    /// have, or anything under a scalar, a repeated field or a map. On GetObject Cloud Storage
+    /// answered so for `no_such_field`, `owner.no_such_field` and `acl.role` (recorded
+    /// 2026-11-18); the other shapes follow from those by inference.
     Unknown(String),
     /// A member that exists but that gcs-mimic does not select apart from its field.
     Unsupported(String),
@@ -414,11 +417,13 @@ mod tests {
     #[test]
     fn paths_that_name_no_field_are_unknown() {
         for path in [
-            "no_such_field",
-            "no_such_field.entity",
             // Recorded 2026-11-18 on GetObject.
+            "no_such_field",
             "owner.no_such_field",
             "acl.role",
+            // Not recorded: inferred for a path under an unknown name, a member, a scalar or a
+            // map, and for an empty segment.
+            "no_such_field.entity",
             "owner.entity.x",
             "name.x",
             "metadata.k",
