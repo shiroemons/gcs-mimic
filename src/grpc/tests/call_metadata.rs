@@ -422,6 +422,19 @@ async fn grpc_compressed_requests_are_refused_before_the_call() {
     );
     assert!(!reply.status.details().is_empty());
     assert!(!reply.headers.contains_key("grpc-accept-encoding"));
+
+    // Uncompressed, the same writes are served, so the encoding alone refused them.
+    let writes = [
+        ("CreateBucket", plain(&create_bucket("compressed-bucket"))),
+        ("WriteObject", plain(&write("compressed", b"data"))),
+        ("BidiWriteObject", plain(&bidi_write("compressed", b"data"))),
+    ];
+    for (method, message) in writes {
+        let reply = server.send(call(method, &[], messages(&[message]))).await;
+        reply.assert_code(Code::Ok);
+    }
+    assert!(server.bucket_exists("compressed-bucket").await);
+    assert!(server.object("compressed").await.is_some());
     server.state.catalog.close().await.unwrap();
 }
 
@@ -446,6 +459,19 @@ async fn grpc_compressed_flag_without_an_encoding_is_a_protocol_error() {
     }
     assert!(!server.bucket_exists("flagged-bucket").await);
     assert!(server.object("flagged").await.is_none());
+
+    // Unflagged, the same writes are served, so the flag alone refused them.
+    let writes = [
+        ("CreateBucket", plain(&create_bucket("flagged-bucket"))),
+        ("WriteObject", plain(&write("flagged", b"data"))),
+        ("BidiWriteObject", plain(&bidi_write("flagged", b"data"))),
+    ];
+    for (method, message) in writes {
+        let reply = server.send(call(method, &[], messages(&[message]))).await;
+        reply.assert_code(Code::Ok);
+    }
+    assert!(server.bucket_exists("flagged-bucket").await);
+    assert!(server.object("flagged").await.is_some());
     server.state.catalog.close().await.unwrap();
 }
 
