@@ -203,9 +203,67 @@ pub(crate) fn json_get<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
 /// text of the first element with that name in an XML body, such as an `UploadId`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Capture {
-    Body { path: String },
-    Header { name: String, param: Option<String> },
-    Xml { element: String },
+    Body {
+        path: String,
+    },
+    Header {
+        name: String,
+        param: Option<String>,
+    },
+    Xml {
+        element: String,
+    },
+    /// `alter-middle:SPEC` or `alter-last:SPEC`: what SPEC captures with one character
+    /// changed and its length kept. Cloud Storage IDs are opaque, so this is how a case
+    /// asks about an ID that is well formed but names nothing, such as an upload ID the
+    /// service never issued.
+    Altered {
+        at: AlterAt,
+        source: Box<Capture>,
+    },
+}
+
+/// Which character an altered capture changes: the first ASCII letter or digit from the
+/// middle of the value on, or the last one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AlterAt {
+    Middle,
+    Last,
+}
+
+impl AlterAt {
+    const ALL: [Self; 2] = [Self::Middle, Self::Last];
+
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Middle => "alter-middle:",
+            Self::Last => "alter-last:",
+        }
+    }
+}
+
+/// `value` with one ASCII letter or digit changed and its length kept. A letter changes
+/// case and a digit becomes a letter from `a` to `f`: the character stays in the base64,
+/// base64url and hexadecimal alphabets, and in base64 it changes the two high bits of its
+/// sextet, which even the last character of an encoding carries, so a decoder that ignores
+/// padding bits cannot read the altered value as the original.
+fn alter(value: &str, at: AlterAt) -> Option<String> {
+    let mut chars: Vec<char> = value.chars().collect();
+    let alterable = |c: &char| c.is_ascii_alphanumeric();
+    let index = match at {
+        AlterAt::Middle => {
+            let middle = chars.len() / 2;
+            middle + chars.iter().skip(middle).position(alterable)?
+        }
+        AlterAt::Last => chars.iter().rposition(alterable)?,
+    };
+    let slot = chars.get_mut(index)?;
+    *slot = match slot.to_digit(10) {
+        Some(digit) => char::from_digit(10 + digit % 6, 16)?,
+        None if slot.is_ascii_uppercase() => slot.to_ascii_lowercase(),
+        None => slot.to_ascii_uppercase(),
+    };
+    Some(chars.into_iter().collect())
 }
 
 /// Parsed when a case is loaded, so a malformed spec fails validation instead of
@@ -214,6 +272,20 @@ impl FromStr for Capture {
     type Err = String;
 
     fn from_str(spec: &str) -> Result<Self> {
+        let altered = AlterAt::ALL
+            .into_iter()
+            .find_map(|at| Some((at, spec.strip_prefix(at.prefix())?)));
+        if let Some((at, source)) = altered {
+            return match source.parse()? {
+                Self::Altered { .. } => Err(format!(
+                    "capture {spec}: an altered capture cannot be altered again"
+                )),
+                source => Ok(Self::Altered {
+                    at,
+                    source: Box::new(source),
+                }),
+            };
+        }
         if let Some(path) = spec.strip_prefix("body:").filter(|path| !path.is_empty()) {
             return Ok(Self::Body {
                 path: path.to_owned(),
@@ -255,6 +327,7 @@ impl fmt::Display for Capture {
                 param: Some(param),
             } => write!(f, "header:{name}?{param}"),
             Self::Xml { element } => write!(f, "xml:{element}"),
+            Self::Altered { at, source } => write!(f, "{}{source}", at.prefix()),
         }
     }
 }
@@ -294,6 +367,8 @@ pub(crate) fn extract(capture: &Capture, response: &Response) -> Result<String> 
                 .map(str::to_owned)
                 .ok_or_else(|| format!("capture {capture}: element has child elements"))
         }
+        Capture::Altered { at, source } => alter(&extract(source, response)?, *at)
+            .ok_or_else(|| format!("capture {capture}: no ASCII letter or digit to change")),
     }
 }
 
@@ -405,6 +480,37 @@ mod tests {
     }
 
     #[test]
+    fn an_altered_capture_changes_one_letter_or_digit_and_keeps_the_length() {
+        let response = Response {
+            status: 200,
+            headers: Vec::new(),
+            body: br#"{"a":"b/0123abcd","b":"QUJD+w==","c":"ab/c=","d":"x/-="}"#.to_vec(),
+        };
+        let capture = |spec: &str| extract(&spec.parse().unwrap(), &response);
+        // From the middle on: index 5 holds the digit 3, which becomes the letter d.
+        assert_eq!(capture("alter-middle:body:a").unwrap(), "b/012dabcd");
+        assert_eq!(capture("alter-last:body:a").unwrap(), "b/0123abcD");
+        // Padding and other symbols are skipped, so the encoding stays well formed.
+        assert_eq!(capture("alter-last:body:b").unwrap(), "QUJD+W==");
+        assert_eq!(capture("alter-middle:body:c").unwrap(), "ab/C=");
+        assert_eq!(
+            capture("alter-middle:body:d").unwrap_err(),
+            "capture alter-middle:body:d: no ASCII letter or digit to change"
+        );
+        assert_eq!(
+            capture("alter-last:body:missing").unwrap_err(),
+            "capture body:missing: no scalar at that path"
+        );
+        for digit in '0'..='9' {
+            let altered = alter(&digit.to_string(), AlterAt::Last).unwrap();
+            assert!(matches!(
+                altered.as_str(),
+                "a" | "b" | "c" | "d" | "e" | "f"
+            ));
+        }
+    }
+
+    #[test]
     fn capture_specs_print_as_written_and_reject_other_forms() {
         for (spec, capture) in [
             (
@@ -433,9 +539,37 @@ mod tests {
                     element: "UploadId".into(),
                 },
             ),
+            (
+                "alter-middle:body:uploadId",
+                Capture::Altered {
+                    at: AlterAt::Middle,
+                    source: Box::new(Capture::Body {
+                        path: "uploadId".into(),
+                    }),
+                },
+            ),
+            (
+                "alter-last:header:location?upload_id",
+                Capture::Altered {
+                    at: AlterAt::Last,
+                    source: Box::new(Capture::Header {
+                        name: "location".into(),
+                        param: Some("upload_id".into()),
+                    }),
+                },
+            ),
         ] {
             assert_eq!(spec.parse::<Capture>().unwrap(), capture);
             assert_eq!(capture.to_string(), spec);
+        }
+        assert_eq!(
+            "alter-last:alter-middle:body:a"
+                .parse::<Capture>()
+                .unwrap_err(),
+            "capture alter-last:alter-middle:body:a: an altered capture cannot be altered again"
+        );
+        for spec in ["alter-middle:", "alter-last:cookie:x"] {
+            assert!(spec.parse::<Capture>().is_err(), "{spec}");
         }
         for spec in ["body:", "header:", "header:?x", "xml:", "cookie:x", ""] {
             assert_eq!(
