@@ -1029,6 +1029,45 @@ mod tests {
         );
     }
 
+    /// The proto requires an entry per pending read_id without naming an order. The failed range
+    /// comes first, then the ranges queued by earlier messages and this one, in queue order, then
+    /// the rest of the rejected message in request order.
+    #[test]
+    fn bidi_range_errors_list_the_failed_range_first_then_queue_and_request_order() {
+        let range = |read_id, read_offset| pb::ReadRange {
+            read_id,
+            read_offset,
+            read_length: 1,
+        };
+        let mut queue = VecDeque::new();
+        submit(&mut queue, vec![range(9, 0), range(4, 1)], 10).unwrap();
+        let error = submit(
+            &mut queue,
+            vec![range(1, 0), range(2, 20), range(8, 0), range(3, 0)],
+            10,
+        )
+        .unwrap_err();
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        let order = detail
+            .read_range_errors
+            .into_iter()
+            .map(|range| (range.read_id, range.status.unwrap().code))
+            .collect::<Vec<_>>();
+        let aborted = tonic::Code::Aborted as i32;
+        assert_eq!(
+            order,
+            [
+                (2, tonic::Code::OutOfRange as i32),
+                (9, aborted),
+                (4, aborted),
+                (1, aborted),
+                (8, aborted),
+                (3, aborted),
+            ]
+        );
+    }
+
     #[test]
     fn bidi_duplicate_id_keeps_outer_error_in_details() {
         let range = pb::ReadRange {
