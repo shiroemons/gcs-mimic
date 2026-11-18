@@ -3,7 +3,9 @@
 
 use super::*;
 use crate::csek::CsekError;
-use crate::grpc::test_support::{assert_customer_encryption, key_params, put_keyed, rpc_status};
+use crate::grpc::test_support::{
+    assert_customer_encryption, bucket_routing, key_params, put_keyed, routed_rpc_status,
+};
 use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
 use std::sync::Arc;
 
@@ -37,9 +39,10 @@ async fn open(
     state: &Arc<crate::server::State>,
     spec: pb::BidiReadObjectSpec,
 ) -> (Status, Vec<pb::BidiReadObjectResponse>) {
-    rpc_status(
+    routed_rpc_status(
         "/google.storage.v2.Storage/BidiReadObject",
         None,
+        &bucket_routing("bidi-csek"),
         &[pb::BidiReadObjectRequest {
             read_object_spec: Some(spec),
             read_ranges: vec![pb::ReadRange {

@@ -171,9 +171,46 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
     (status.code(), messages)
 }
 
+/// The `x-goog-request-params` value a client sends for a call on `bucket`. Cloud Storage
+/// refuses a Storage v2 call without the metadata (recorded 2026-11-18).
+pub(super) fn bucket_routing(bucket: &str) -> String {
+    format!("bucket=projects%2F_%2Fbuckets%2F{bucket}")
+}
+
+/// A Storage v2 request routed by `routing`, the `x-goog-request-params` value.
+pub(super) fn routed_request<T>(routing: &str, message: T) -> Request<T> {
+    let mut request = Request::new(message);
+    request
+        .metadata_mut()
+        .insert("x-goog-request-params", routing.parse().unwrap());
+    request
+}
+
+/// A call that carries no routing metadata, as a Storage v1 client sends it.
 pub(super) async fn rpc_status<M: prost::Message, R: prost::Message + Default>(
     path: &str,
     token: Option<&str>,
+    messages: &[M],
+    send: impl AsyncFnOnce(hyper::Request<tonic::body::Body>) -> hyper::Response<tonic::body::Body>,
+) -> (Status, Vec<R>) {
+    exchange(path, token, None, messages, send).await
+}
+
+/// A Storage v2 call routed by `routing`, the `x-goog-request-params` value.
+pub(super) async fn routed_rpc_status<M: prost::Message, R: prost::Message + Default>(
+    path: &str,
+    token: Option<&str>,
+    routing: &str,
+    messages: &[M],
+    send: impl AsyncFnOnce(hyper::Request<tonic::body::Body>) -> hyper::Response<tonic::body::Body>,
+) -> (Status, Vec<R>) {
+    exchange(path, token, Some(routing), messages, send).await
+}
+
+async fn exchange<M: prost::Message, R: prost::Message + Default>(
+    path: &str,
+    token: Option<&str>,
+    routing: Option<&str>,
     messages: &[M],
     send: impl AsyncFnOnce(hyper::Request<tonic::body::Body>) -> hyper::Response<tonic::body::Body>,
 ) -> (Status, Vec<R>) {
@@ -192,6 +229,9 @@ pub(super) async fn rpc_status<M: prost::Message, R: prost::Message + Default>(
         .header("te", "trailers");
     if let Some(token) = token {
         request = request.header("authorization", format!("Bearer {token}"));
+    }
+    if let Some(routing) = routing {
+        request = request.header("x-goog-request-params", routing);
     }
     let request = request
         .body(tonic::body::Body::new(http_body_util::Full::new(

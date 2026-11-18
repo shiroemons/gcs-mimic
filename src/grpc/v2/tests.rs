@@ -77,16 +77,16 @@ async fn routed_call<M: prost::Message>(
     state: &Arc<State>,
     path: &str,
     message: &M,
-    header: (&'static str, &'static str),
+    metadata: &[(&'static str, &'static str)],
 ) -> Status {
     let (status, _): (_, Vec<pb::Object>) = fixtures::rpc_status(
         path,
         None,
         std::slice::from_ref(message),
         async |mut request| {
-            request
-                .headers_mut()
-                .insert(header.0, header.1.parse().unwrap());
+            for (name, value) in metadata {
+                request.headers_mut().insert(*name, value.parse().unwrap());
+            }
             dispatch(
                 service(
                     state.clone(),
@@ -102,6 +102,14 @@ async fn routed_call<M: prost::Message>(
     .await;
     status
 }
+
+const ROUTED: (&str, &str) = (
+    "x-goog-request-params",
+    "bucket=projects%2F_%2Fbuckets%2Fexample-bucket",
+);
+const GET_OBJECT: &str = "/google.storage.v2.Storage/GetObject";
+const LIST_OBJECTS: &str = "/google.storage.v2.Storage/ListObjects";
+const WRITE_OBJECT: &str = "/google.storage.v2.Storage/WriteObject";
 
 #[tokio::test]
 async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
@@ -134,49 +142,168 @@ async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
         ..Default::default()
     };
     // The Requester Pays billing project is ignored, so each call reaches the missing bucket.
-    for header in [
-        ("x-goog-user-project", ""),
-        ("x-goog-user-project", "billing-project"),
-    ] {
-        for status in [
-            routed_call(&state, "/google.storage.v2.Storage/GetObject", &get, header).await,
-            routed_call(
-                &state,
-                "/google.storage.v2.Storage/ListObjects",
-                &list,
-                header,
-            )
-            .await,
-            routed_call(
-                &state,
-                "/google.storage.v2.Storage/WriteObject",
-                &write,
-                header,
-            )
-            .await,
+    for value in ["", "billing-project"] {
+        let metadata = [ROUTED, ("x-goog-user-project", value)];
+        for (method, status) in [
+            (
+                "GetObject",
+                routed_call(&state, GET_OBJECT, &get, &metadata).await,
+            ),
+            (
+                "ListObjects",
+                routed_call(&state, LIST_OBJECTS, &list, &metadata).await,
+            ),
+            (
+                "WriteObject",
+                routed_call(&state, WRITE_OBJECT, &write, &metadata).await,
+            ),
         ] {
-            assert_eq!(status.code(), tonic::Code::NotFound, "{status}");
+            assert_eq!(status.code(), tonic::Code::NotFound, "{method}: {status}");
         }
     }
-    for value in ["bucket=projects%2F_%2Fbuckets%2Fother-bucket", "bucket=bad"] {
+    // Recorded 2026-11-18 (case grpc-probe-routing): the wording of a routed bucket other than
+    // the request's, of metadata that routes no bucket, and of a bare bucket ID.
+    for (value, message) in [
+        (
+            "bucket=projects%2F_%2Fbuckets%2Fother-bucket",
+            "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'example-bucket' but x-goog-request-params specified 'other-bucket'",
+        ),
+        (
+            "project=projects%2Flocal-project",
+            "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'example-bucket' but x-goog-request-params specified ''",
+        ),
+        (
+            "bucket=bad",
+            "Invalid bucket name found in x-goog-request-params metadata (bucket=bad). Must be of the form `projects/_/buckets/{bucket_id}`",
+        ),
+    ] {
+        let metadata = [("x-goog-request-params", value)];
         for status in [
-            routed_call(
-                &state,
-                "/google.storage.v2.Storage/GetObject",
-                &get,
-                ("x-goog-request-params", value),
-            )
-            .await,
-            routed_call(
-                &state,
-                "/google.storage.v2.Storage/WriteObject",
-                &write,
-                ("x-goog-request-params", value),
-            )
-            .await,
+            routed_call(&state, GET_OBJECT, &get, &metadata).await,
+            routed_call(&state, WRITE_OBJECT, &write, &metadata).await,
         ] {
             assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
+            assert_eq!(status.message(), message);
+            assert!(!status.details().is_empty(), "{value}");
         }
+    }
+    state.catalog.close().await.unwrap();
+}
+
+/// Recorded 2026-11-18 (case grpc-probe-routing): GetObject, GetBucket, ListBuckets and
+/// WriteObject without `x-goog-request-params` are refused, while an unknown key or a
+/// `routing_token` beside the bucket reaches the handler.
+#[tokio::test]
+async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
+    let dir = TestDir::new();
+    let state = Arc::new(State::for_test(
+        Catalog::open(&dir.0).await.unwrap(),
+        Auth::permissive(),
+    ));
+    let bucket = "projects/_/buckets/example-bucket";
+    let get_object = pb::GetObjectRequest {
+        bucket: bucket.into(),
+        object: "a".into(),
+        ..Default::default()
+    };
+    let get_bucket = pb::GetBucketRequest {
+        name: bucket.into(),
+        ..Default::default()
+    };
+    let list_buckets = pb::ListBucketsRequest {
+        parent: "projects/local-project".into(),
+        ..Default::default()
+    };
+    let write = pb::WriteObjectRequest {
+        first_message: Some(pb::write_object_request::FirstMessage::WriteObjectSpec(
+            pb::WriteObjectSpec {
+                resource: Some(pb::Object {
+                    bucket: bucket.into(),
+                    name: "a".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )),
+        finish_write: true,
+        ..Default::default()
+    };
+    const GET_BUCKET: &str = "/google.storage.v2.Storage/GetBucket";
+    for (method, status) in [
+        (
+            "GetObject",
+            routed_call(&state, GET_OBJECT, &get_object, &[]).await,
+        ),
+        (
+            "GetBucket",
+            routed_call(&state, GET_BUCKET, &get_bucket, &[]).await,
+        ),
+        (
+            "ListBuckets",
+            routed_call(
+                &state,
+                "/google.storage.v2.Storage/ListBuckets",
+                &list_buckets,
+                &[],
+            )
+            .await,
+        ),
+        (
+            "WriteObject",
+            routed_call(&state, WRITE_OBJECT, &write, &[]).await,
+        ),
+    ] {
+        assert_eq!(status.code(), tonic::Code::InvalidArgument, "{method}");
+        assert_eq!(
+            status.message(),
+            "An x-goog-request-params request metadata property must be provided for this request.",
+            "{method}"
+        );
+        assert!(!status.details().is_empty(), "{method}");
+    }
+    // Each call reaches its handler, which answers the missing bucket.
+    for value in [
+        "bucket=projects%2F_%2Fbuckets%2Fexample-bucket&gcsmimic_unknown=1",
+        "bucket=projects%2F_%2Fbuckets%2Fexample-bucket&routing_token=gcsmimic-probe",
+    ] {
+        let metadata = [("x-goog-request-params", value)];
+        for status in [
+            routed_call(&state, GET_OBJECT, &get_object, &metadata).await,
+            routed_call(&state, GET_BUCKET, &get_bucket, &metadata).await,
+        ] {
+            assert_eq!(status.code(), tonic::Code::NotFound, "{value}: {status}");
+        }
+    }
+    // Recorded 2026-11-18 (case grpc-probe-resumable-sessions): an upload ID RPC without the
+    // metadata is answered for its malformed upload ID, so the handler words the refusal.
+    let query = pb::QueryWriteStatusRequest {
+        upload_id: "not-an-upload-id".into(),
+        ..Default::default()
+    };
+    let cancel = pb::CancelResumableWriteRequest {
+        upload_id: "not-an-upload-id".into(),
+    };
+    for status in [
+        routed_call(
+            &state,
+            "/google.storage.v2.Storage/QueryWriteStatus",
+            &query,
+            &[],
+        )
+        .await,
+        routed_call(
+            &state,
+            "/google.storage.v2.Storage/CancelResumableWrite",
+            &cancel,
+            &[],
+        )
+        .await,
+    ] {
+        assert!(status.message().contains("upload"), "{status}");
+        assert!(
+            !status.message().contains("x-goog-request-params"),
+            "{status}"
+        );
     }
     state.catalog.close().await.unwrap();
 }
@@ -203,15 +330,18 @@ async fn grpc_names_follow_the_configured_bucket_profile() {
     storage.compat_profile = CompatProfile::FakeGcsServer;
     let created = pb::storage_server::Storage::create_bucket(
         &storage,
-        Request::new(pb::CreateBucketRequest {
-            parent: "projects/_".into(),
-            bucket_id: "ab".into(),
-            bucket: Some(pb::Bucket {
-                project: "projects/local-project".into(),
+        fixtures::routed_request(
+            "project=projects%2Flocal-project",
+            pb::CreateBucketRequest {
+                parent: "projects/_".into(),
+                bucket_id: "ab".into(),
+                bucket: Some(pb::Bucket {
+                    project: "projects/local-project".into(),
+                    ..Default::default()
+                }),
                 ..Default::default()
-            }),
-            ..Default::default()
-        }),
+            },
+        ),
     )
     .await
     .unwrap()
@@ -231,9 +361,11 @@ async fn grpc_names_follow_the_configured_bucket_profile() {
         finish_write: true,
         ..Default::default()
     };
-    let (status, _): (_, Vec<pb::WriteObjectResponse>) = fixtures::rpc_status(
+    let routing = fixtures::bucket_routing("ab");
+    let (status, _): (_, Vec<pb::WriteObjectResponse>) = fixtures::routed_rpc_status(
         "/google.storage.v2.Storage/WriteObject",
         None,
+        &routing,
         &[message],
         async |request| {
             dispatch(
@@ -248,11 +380,14 @@ async fn grpc_names_follow_the_configured_bucket_profile() {
     assert_eq!(status.code(), tonic::Code::Ok, "{status}");
     let object = pb::storage_server::Storage::get_object(
         &storage,
-        Request::new(pb::GetObjectRequest {
-            bucket: created.name,
-            object: "a".into(),
-            ..Default::default()
-        }),
+        fixtures::routed_request(
+            &routing,
+            pb::GetObjectRequest {
+                bucket: created.name,
+                object: "a".into(),
+                ..Default::default()
+            },
+        ),
     )
     .await
     .unwrap()
@@ -269,9 +404,10 @@ async fn call<M: prost::Message, R: prost::Message + Default>(
     message: &M,
     token: Option<&str>,
 ) -> Result<R, tonic::Code> {
-    let (code, mut responses) = fixtures::rpc(
+    let (status, mut responses) = fixtures::routed_rpc_status(
         path,
         token,
+        &fixtures::bucket_routing("iam-bucket"),
         std::slice::from_ref(message),
         async |request| {
             dispatch(
@@ -287,8 +423,8 @@ async fn call<M: prost::Message, R: prost::Message + Default>(
         },
     )
     .await;
-    if code != tonic::Code::Ok {
-        return Err(code);
+    if status.code() != tonic::Code::Ok {
+        return Err(status.code());
     }
     assert_eq!(responses.len(), 1);
     Ok(responses.pop().unwrap())

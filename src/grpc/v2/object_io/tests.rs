@@ -300,9 +300,10 @@ async fn grpc_io_read_failures_use_shared_storage_status() {
             .starts_with("Object storage is unavailable")
     );
     let read_code = read_error.code();
-    let (status, _): (_, Vec<pb::BidiReadObjectResponse>) = fixtures::rpc_status(
+    let (status, _): (_, Vec<pb::BidiReadObjectResponse>) = fixtures::routed_rpc_status(
         "/google.storage.v2.Storage/BidiReadObject",
         None,
+        &fixtures::bucket_routing("grpc-io"),
         &[pb::BidiReadObjectRequest {
             read_object_spec: Some(pb::BidiReadObjectSpec {
                 bucket: "projects/_/buckets/grpc-io".into(),

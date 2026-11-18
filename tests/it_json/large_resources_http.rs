@@ -124,7 +124,8 @@ fn message(field_and_values: &[(u8, &str)]) -> Vec<u8> {
     message
 }
 
-/// One unary gRPC call; returns the `grpc-status` and the size of the response message.
+/// One unary gRPC call, routed to the large bucket when it is a Storage v2 call; returns the
+/// `grpc-status` and the size of the response message.
 fn grpc_call(address: &str, service_method: &str, message: &[u8]) -> (String, usize) {
     use http_body_util::{BodyExt, Full};
     use hyper::body::Bytes;
@@ -143,14 +144,19 @@ fn grpc_call(address: &str, service_method: &str, message: &[u8]) -> (String, us
                 .await
                 .unwrap();
         let driver = tokio::spawn(connection);
+        let mut request =
+            hyper::Request::post(format!("http://{address}/google.storage.{service_method}"))
+                .header("content-type", "application/grpc")
+                .header("te", "trailers");
+        // The legacy service refuses the metadata that Storage v2 requires.
+        if service_method.starts_with("v2.") {
+            request = request.header(
+                "x-goog-request-params",
+                format!("bucket=projects%2F_%2Fbuckets%2F{LARGE}"),
+            );
+        }
         let response = client
-            .send_request(
-                hyper::Request::post(format!("http://{address}/google.storage.{service_method}"))
-                    .header("content-type", "application/grpc")
-                    .header("te", "trailers")
-                    .body(Full::new(Bytes::from(framed)))
-                    .unwrap(),
-            )
+            .send_request(request.body(Full::new(Bytes::from(framed))).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), 200);

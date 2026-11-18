@@ -170,7 +170,7 @@ func bidiMessage(t *testing.T, name string, value any) proto.Message {
 	return message
 }
 
-func bidiStream(t *testing.T, ctx context.Context, endpoint string) grpc.ClientStream {
+func bidiStream(t *testing.T, ctx context.Context, endpoint, bucket string) grpc.ClientStream {
 	t.Helper()
 	host, _, err := net.SplitHostPort(endpoint)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
@@ -181,7 +181,7 @@ func bidiStream(t *testing.T, ctx context.Context, endpoint string) grpc.ClientS
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/google.storage.v2.Storage/BidiReadObject")
+	stream, err := conn.NewStream(grpcRouted(ctx, bucket), &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/google.storage.v2.Storage/BidiReadObject")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestGRPCBidiReadWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := map[string]any{"bucket": "projects/_/buckets/" + bucket.BucketName(), "object": object.ObjectName()}
-	stream := bidiStream(t, ctx, endpoint)
+	stream := bidiStream(t, ctx, endpoint, bucket.BucketName())
 	bidiSend(t, stream, map[string]any{"readObjectSpec": spec})
 	first, err := bidiReceive(t, stream)
 	if err != nil || first.Metadata == nil || len(first.ReadHandle.Handle) == 0 {
@@ -293,7 +293,7 @@ func TestGRPCBidiReadWire(t *testing.T) {
 	if _, err := bidiReceive(t, stream); err != io.EOF {
 		t.Fatalf("expected EOF: %v", err)
 	}
-	resumed := bidiStream(t, ctx, endpoint)
+	resumed := bidiStream(t, ctx, endpoint, bucket.BucketName())
 	resumeSpec := map[string]any{"bucket": spec["bucket"], "object": spec["object"], "generation": attrs.Generation, "readHandle": map[string]any{"handle": first.ReadHandle.Handle}}
 	bidiSend(t, resumed, map[string]any{"readObjectSpec": resumeSpec, "readRanges": []any{map[string]any{"readId": 9, "readLength": 11}}})
 	if _, err := bidiReceive(t, resumed); status.Code(err) != codes.NotFound {
@@ -326,7 +326,7 @@ func TestGRPCBidiReadWire(t *testing.T) {
 			for key, value := range tc.change {
 				requestSpec[key] = value
 			}
-			s := bidiStream(t, ctx, endpoint)
+			s := bidiStream(t, ctx, endpoint, bucket.BucketName())
 			bidiSend(t, s, map[string]any{"readObjectSpec": requestSpec, "readRanges": tc.ranges})
 			s.CloseSend()
 			_, err := bidiReceive(t, s)
@@ -360,7 +360,7 @@ func TestGRPCBidiReadStrict(t *testing.T) {
 		if token != "" {
 			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 		}
-		s := bidiStream(t, ctx, endpoint)
+		s := bidiStream(t, ctx, endpoint, bucket.BucketName())
 		spec := map[string]any{"bucket": "projects/_/buckets/" + bucket.BucketName(), "object": "private"}
 		if handle != nil {
 			spec["readHandle"] = map[string]any{"handle": handle}
