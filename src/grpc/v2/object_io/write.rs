@@ -507,4 +507,6 @@ async fn produce_single_write<
 }
 
 #[cfg(test)]
+mod message_tests;
+#[cfg(test)]
 mod tests;
