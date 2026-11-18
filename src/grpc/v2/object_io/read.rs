@@ -230,7 +230,7 @@ impl Storage {
             return Err(Status::internal(RESTORE_TOKEN_REFUSAL));
         }
         let selected = generation(r.generation)?.map(Generation::get);
-        let conditions = conditions(ObjectConditions::from(&r))?;
+        let conditions = ObjectConditions::from(&r);
         let readable = if r.soft_deleted == Some(true) {
             let generation = selected.ok_or_else(|| {
                 Status::invalid_argument(
@@ -333,12 +333,7 @@ impl Storage {
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
         let (record, mut reader, finality) = self
-            .open_readable(
-                target,
-                conditions(ObjectConditions::from(&r))?,
-                &access,
-                key,
-            )
+            .open_readable(target, ObjectConditions::from(&r), &access, key)
             .await
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;

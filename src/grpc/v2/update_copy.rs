@@ -1,6 +1,6 @@
 use super::{
     Storage, convert, names,
-    object_io::{ObjectField, conditions},
+    object_io::ObjectField,
     object_update::canned_acl,
     pb,
     routing::Route,
@@ -376,8 +376,8 @@ impl Storage {
     ) -> Result<Response<pb::RewriteResponse>, Status> {
         let (_, extensions, r) = request.into_parts();
         let options = check_rewrite_request(&r)?;
-        let sc = conditions(r.source_conditions())?;
-        let dc = conditions(ObjectConditions::from(&r))?;
+        let sc = r.source_conditions();
+        let dc = ObjectConditions::from(&r);
         if let Some(destination) = &r.destination {
             check_rewrite_service_fields(destination)?;
         }
@@ -635,16 +635,13 @@ impl Storage {
                     validate::selected_generation(s.generation).map_err(|NegativeGeneration| {
                         Status::invalid_argument("source generation must be positive or omitted")
                     })?;
-                let preconditions = conditions(
-                    s.object_preconditions
-                        .as_ref()
-                        .map(ObjectConditions::from)
-                        .unwrap_or_default(),
-                )?;
                 Ok(ComposeSource {
                     name: s.name.clone(),
                     generation: generation.map(Generation::get),
-                    if_generation_match: preconditions.if_generation_match,
+                    if_generation_match: s
+                        .object_preconditions
+                        .as_ref()
+                        .and_then(|p| p.if_generation_match),
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
@@ -672,7 +669,7 @@ impl Storage {
             // case grpc-gaps-derived-checksums).
             declared,
             recorded: ExpectedHashes::default(),
-            conditions: conditions(ObjectConditions::from(&r))?,
+            conditions: ObjectConditions::from(&r),
             access,
             component_count: None,
         };

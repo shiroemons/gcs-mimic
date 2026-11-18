@@ -5,7 +5,7 @@ use super::{
     Storage, convert,
     object_io::{
         DeclaredChecksums, Flush, Lookup, NegativeOffset, Responses, StepEnd, VerifiedChunk,
-        WriteSpec, WriteStep, conditions, next_step, object_status, send,
+        WriteSpec, WriteStep, next_step, object_status, send,
     },
     pb,
     status::unsupported_for,
@@ -268,7 +268,7 @@ impl Storage {
                         )
                     })?;
                 let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
-                let conditions = conditions(ObjectConditions::from(&spec))?;
+                let conditions = ObjectConditions::from(&spec);
                 Ok(Opening::TakeOver {
                     target: ObjectTarget::new(bucket, name, generation.get()),
                     write_handle: spec.write_handle,

@@ -9,8 +9,9 @@ use super::*;
 use crate::grpc::test_support::assert_unsupported;
 
 const BUCKET: &str = "projects/_/buckets/grpc-io";
-const CONDITIONS: &str =
-    "Preconditions must be nonnegative; use if_generation_match=0 to create only";
+/// A match condition that does not hold; a negative value is compared like any other (case
+/// grpc-probe-inferred-conditions).
+const NOT_HELD: &str = "At least one of the pre-conditions you specified did not hold.";
 const GENERATION: &str = "generation must be positive, or 0 to select the live object";
 
 fn get_request() -> pb::GetObjectRequest {
@@ -80,15 +81,14 @@ async fn get_object_refuses_restore_tokens_and_negative_values() {
         tonic::Code::InvalidArgument,
         GENERATION,
     );
-    assert_status(
-        get(pb::GetObjectRequest {
-            if_generation_not_match: Some(-1),
-            ..get_request()
-        })
-        .await,
-        tonic::Code::InvalidArgument,
-        CONDITIONS,
-    );
+    // A negative condition is evaluated: a not-match of -1 always holds (case
+    // grpc-probe-inferred-conditions).
+    get(pb::GetObjectRequest {
+        if_generation_not_match: Some(-1),
+        ..get_request()
+    })
+    .await
+    .unwrap();
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -149,8 +149,8 @@ async fn read_object_refuses_negative_limits_and_offsets_past_the_end() {
             },
         )
         .await,
-        tonic::Code::InvalidArgument,
-        CONDITIONS,
+        tonic::Code::FailedPrecondition,
+        NOT_HELD,
     );
     storage.state.catalog.close().await.unwrap();
 }
@@ -180,5 +180,61 @@ async fn list_objects_refuses_a_filter_and_a_negative_page_size() {
         tonic::Code::InvalidArgument,
         "page_size must be nonnegative; use 1000",
     );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A write of a new object with this condition set.
+fn conditioned_write(set: impl FnOnce(&mut pb::WriteObjectSpec)) -> pb::BidiWriteObjectRequest {
+    let mut opening = message("created", b"x");
+    let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
+        opening.first_message.as_mut()
+    else {
+        unreachable!("message opens with a write spec")
+    };
+    set(spec);
+    opening
+}
+
+/// WriteObject and DeleteObject compare a negative condition as any other value: a match of -1
+/// never holds, and a not-match of -1 holds for a delete but not for a write of a new object
+/// (case grpc-probe-inferred-conditions).
+#[tokio::test]
+async fn write_and_delete_object_compare_negative_conditions() {
+    let (_dir, storage) = setup(false).await;
+    write(&storage, vec![message("object", b"data")])
+        .await
+        .unwrap();
+    for opening in [
+        conditioned_write(|spec| spec.if_generation_match = Some(-1)),
+        conditioned_write(|spec| spec.if_metageneration_match = Some(-1)),
+        conditioned_write(|spec| spec.if_generation_not_match = Some(-1)),
+    ] {
+        assert_status(
+            write(&storage, vec![opening]).await,
+            tonic::Code::FailedPrecondition,
+            NOT_HELD,
+        );
+    }
+    let request = || pb::DeleteObjectRequest {
+        bucket: BUCKET.into(),
+        object: "object".into(),
+        ..Default::default()
+    };
+    let delete = async |request| storage.delete_object(Request::new(request), None).await;
+    assert_status(
+        delete(pb::DeleteObjectRequest {
+            if_generation_match: Some(-1),
+            ..request()
+        })
+        .await,
+        tonic::Code::FailedPrecondition,
+        NOT_HELD,
+    );
+    delete(pb::DeleteObjectRequest {
+        if_generation_not_match: Some(-1),
+        ..request()
+    })
+    .await
+    .unwrap();
     storage.state.catalog.close().await.unwrap();
 }
