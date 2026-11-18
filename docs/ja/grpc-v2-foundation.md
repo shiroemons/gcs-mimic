@@ -23,6 +23,17 @@ CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http \
 起動スクリプトがGo用のpermissive・strictエンドポイントとRust用のGCSM_GRPC_ENDPOINTを設定します。
 追加のRustスイートを動かすため、Goのフィルターは解除します。
 これはRustワークスペースのテストとは別のSDKゲートであり、文書更新だけでは実行済みになりません。
+Storage v2の呼び出しは、QueryWriteStatusとCancelResumableWriteを除き`x-goog-request-params`が必要です。
+ディスパッチャーはハンドラーより前に、このメタデータのない呼び出しをINVALID_ARGUMENT
+（ErrorInfoのreasonは`GRPC_INVALID_X_GOOG_REQUEST_PARAMS`）で拒否します。
+Cloud Storageが記録済みのGetObject・GetBucket・ListBuckets・WriteObjectで同じ応答を返したため（2026-11-18に記録）、
+ほかのRPCにも当てはめています。QueryWriteStatusとCancelResumableWriteは、upload IDだけで応答するため、メタデータなしでも受け付けます。
+リクエストのバケットと異なるバケット、またはバケットをルーティングしないメタデータは、2つのバケットIDを挙げた
+`GRPC_INVALID_X_GOOG_REQUEST_PARAMS_BUCKET`、リソース名でないバケットIDだけの値は
+`GRPC_INVALID_X_GOOG_REQUEST_PARAMS_INVALID_BUCKET_FORMAT`になります。未知のキー、`routing_token`、
+そのRPCがルーティングに使わないキーは無視し、呼び出しは自分が使うキーだけを読みます。
+公式SDKのクライアントは自分でメタデータを付けます。`grpcurl`のような生のクライアントは
+`-H 'x-goog-request-params: bucket=projects%2F_%2Fbuckets%2F<bucket>'`のように付けてください。
 BEHAVIOR-RPC-005とDESIGN-082はPARTIALのままです。
 RPC-STORAGE-001〜024の状態は変えず、受け口の追加だけをnotesに記録します。
 

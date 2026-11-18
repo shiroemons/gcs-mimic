@@ -38,7 +38,7 @@ Railsは既存の検証優先対象です。このconsumer調査で代表的なR
 
 | gRPCの移行元 | gcs-mimicでの対応 |
 | --- | --- |
-| fake-gcs-server v1.56.1のStorage v1 | `grpc_listen`を指定した場合だけ別ポートを開きます。このポートはh2cと、既定ではgRPC over TLSも受け付けます（[gRPC over TLS（英語）](../en/slices/grpc-tls.md)）。Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`で平文接続します。Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、resumable・rewrite・compose・move・双方向範囲読み取りに部分対応しています。CancelResumableWriteでresumableセッションを取り消せます。appendableオブジェクトは作成・flush・追記中の読み取り・takeover・確定に対応します（[Rapid appendの契約](grpc-v2-rapid-append.md)）。未対応フィールドはErrorInfo付き`UNIMPLEMENTED`です。同じエンドポイントで比較対象の旧Storage v1の12 RPCを提供し、プロジェクトを省略したバケット一覧にも対応します。v2をv1の代替とは数えません。[旧v1の契約](grpc-v1-legacy.md)を参照してください。 |
+| fake-gcs-server v1.56.1のStorage v1 | `grpc_listen`を指定した場合だけ別ポートを開きます。このポートはh2cと、既定ではgRPC over TLSも受け付けます（[gRPC over TLS（英語）](../en/slices/grpc-tls.md)）。Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`で平文接続します。Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、resumable・rewrite・compose・move・双方向範囲読み取りに部分対応しています。CancelResumableWriteでresumableセッションを取り消せます。appendableオブジェクトは作成・flush・追記中の読み取り・takeover・確定に対応します（[Rapid appendの契約](grpc-v2-rapid-append.md)）。未対応フィールドはErrorInfo付き`UNIMPLEMENTED`です。同じエンドポイントで比較対象の旧Storage v1の12 RPCを提供し、プロジェクトを省略したバケット一覧にも対応します。v2をv1の代替とは数えません。`grpcurl`のような生のStorage v2クライアントは`x-goog-request-params`（`bucket=projects%2F_%2Fbuckets%2F<bucket>`）を付ける必要があり、QueryWriteStatusとCancelResumableWrite以外でこれを付けない呼び出しはINVALID_ARGUMENTになります（公式SDKは自分で付けます）。[旧v1の契約](grpc-v1-legacy.md)を参照してください。 |
 
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。

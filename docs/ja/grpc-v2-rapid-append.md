@@ -37,4 +37,4 @@ Rapidの確定応答も共通のowner・ACL表示処理を使い、UBLAとACL読
 - 確定した appendable オブジェクトには共有の公開処理が計算した MD5 が付く。
 - 確定したオブジェクトは、通常・appendableを問わず`finalize_time`を返す。未確定のappendableオブジェクトは返さない。値はJSONの`timeFinalized`と同じ保存済みの作成時刻で、appendableでは`finish_write`の到着時刻ではなく世代を作った時刻になる。
 - `routing_token`は、エミュレーターがリダイレクトしないため、受け付けて何もしない。BidiReadObject はルーティングトークンを拒否し、リダイレクトのトークンはほかでも意図した拒否としている（SPEC-GRPC-UNMODELED-SETTINGS）。appendable の経路でも拒否するかは、RPC-STORAGE-019 の判断待ちのケース。
-- 最初のメッセージは、チャンクの CRC32C、`object_checksums`の MD5、負の`write_offset`（引き継ぎでは`finish_write`のない`object_checksums`も）を検査する前に、appendable の世代を作るか、オブジェクトを引き継いで前の書き手を無効にする。検査で失敗すると、空の appendable オブジェクトや無効になった書き手が残る。先に検査することは RPC-STORAGE-019 の未完了の作業。
+- spec と呼び出し元の権限を、ほかの書き込み経路と同じく最初に検査し、次に最初のメッセージ（チャンクの CRC32C、MD5 や位置の誤った`object_checksums`、負の`write_offset`）を、オブジェクトを作る・引き継ぐ前に検査する。拒否された最初のメッセージが空の appendable オブジェクトを残したり、書き手を無効にしたりすることはない。新規作成のストリームのオブジェクトは空から始まるため、最初のオフセットと`max_object_bytes`も作成の前に検査する。引き継ぎでは、これらは開いたオブジェクトに依存するため、引き継いだ後に検査する（引き継ぎは完了済みのまま）。順序は`grpc_appendable_write_error_precedence`が固定する。appendable オブジェクトは Cloud Storage では記録していない。
