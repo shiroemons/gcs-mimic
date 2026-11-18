@@ -24059,7 +24059,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): ReadObject no longer ends with an empty trailing message. Covered by the differential replay, not by a dedicated Rust test.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks remain unsupported; the absence of transcoding and the local error precedence are recorded local choices that no provider recording confirms. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): ReadObject no longer ends with an empty trailing message. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-002", "BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -24095,21 +24095,27 @@
         },
         {
           "id": "read_object_nested_masks",
-          "description": "A metadata. sub-path other than metadata.checksums.crc32c and metadata.checksums.md5_hash, for example metadata.owner.entity, returns UNIMPLEMENTED (mask_object through mask_first_response in src/grpc/v2/object_io/read.rs). Select sub-fields by protobuf field-mask rules.",
+          "description": "A metadata. sub-path other than metadata.checksums.crc32c and metadata.checksums.md5_hash, for example metadata.owner.entity, returns UNIMPLEMENTED (mask_object through FirstResponseMask in src/grpc/v2/object_io/read.rs). Select sub-fields by protobuf field-mask rules.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "read_object_transcoding",
-          "description": "ReadObject returns the stored bytes of an object stored with content_encoding gzip as they are; it does not decompress them. The proto and the RPC reference say nothing about decompressive transcoding over Storage v2, nothing was recorded, and the JSON and XML behavior is BEHAVIOR-OBJECT-017. Choose whether Storage v2 transcodes, then pin the choice with a test (a scoped difference under SPEC-GRPC-LOCAL-CHOICES if it stays as is).",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "ReadObject returns the stored bytes of an object stored with content_encoding gzip as they are, for a whole read and for a range, and reports content_encoding gzip and the stored size; it does not decompress them. The proto and the RPC reference say nothing about decompressive transcoding over Storage v2 and nothing was recorded (the JSON and XML behavior is BEHAVIOR-OBJECT-017), so this is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": [
+            "read_object_returns_gzip_encoded_bytes_as_stored"
+          ]
         },
         {
           "id": "read_object_local_precedence",
-          "description": "Pin the order of key parsing, the checksummed_data.content mask requirement, authorization, object selection with its conditions, and the read_offset check (the order of read_object in src/grpc/v2/object_io/read.rs), and the status of each, with a test. Google documents no order and none was recorded, so the pinned order then becomes a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "ReadObject reports a malformed customer key first, then a malformed name, then the read mask (with its checksummed_data.content requirement), then a negative generation, then a negative condition, all as INVALID_ARGUMENT; then authorization with the lookup, so an anonymous caller is denied with PERMISSION_DENIED for a missing object too; then NOT_FOUND for a missing object, then FAILED_PRECONDITION for a failed condition, then OUT_OF_RANGE for an offset past the end, and last INVALID_ARGUMENT for a negative read_limit. Google documents no order and none was recorded, so this order is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": [
+            "read_object_reports_each_failure_before_the_ones_it_precedes",
+            "request_checks_before_the_mask_keep_their_order",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
         },
         {
           "id": "read_object_condition_validation",
@@ -24124,6 +24130,10 @@
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "grpc_io_full_read_masks_return_acl_and_owner",
         "read_object_refuses_negative_limits_and_offsets_past_the_end",
+        "read_object_returns_gzip_encoded_bytes_as_stored",
+        "read_object_reports_each_failure_before_the_ones_it_precedes",
+        "request_checks_before_the_mask_keep_their_order",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOWire"
       ],
@@ -24134,7 +24144,11 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
-            "read_object_refuses_negative_limits_and_offsets_past_the_end"
+            "read_object_refuses_negative_limits_and_offsets_past_the_end",
+            "read_object_returns_gzip_encoded_bytes_as_stored",
+            "read_object_reports_each_failure_before_the_ones_it_precedes",
+            "request_checks_before_the_mask_keep_their_order",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
           ]
         },
         {
@@ -24196,12 +24210,28 @@
       ],
       "known_deviations": [
         "Nested metadata. read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
-        "Whether ReadObject transcodes a gzip-encoded object is undecided; it returns the stored bytes.",
-        "The order of key, mask, authorization, selection and offset failures is not pinned by a test.",
         "ReadObject validates its conditions leniently, while the object mutation RPCs refuse a metageneration condition of 0 and a match together with a not-match."
       ],
+      "scoped_differences": [
+        {
+          "text": "ReadObject returns the stored bytes of a gzip-encoded object without decompressing them; the proto and the RPC reference say nothing about decompressive transcoding over Storage v2, and nothing was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "read_object_returns_gzip_encoded_bytes_as_stored"
+          ]
+        },
+        {
+          "text": "ReadObject checks the customer key, the name, the read mask, the generation and the conditions with the request, authorizes the caller with the lookup, then evaluates the conditions, and checks the read offset and then the read limit last. Google documents no order and none was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "read_object_reports_each_failure_before_the_ones_it_precedes",
+            "request_checks_before_the_mask_keep_their_order",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
+        }
+      ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-016",
