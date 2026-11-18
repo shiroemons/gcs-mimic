@@ -67,11 +67,10 @@ impl Need {
     /// terminal and the tests' script both judge through this, so they cannot drift apart.
     pub(super) fn refusal(self, entries: &[Entry], chosen: &[usize]) -> Option<String> {
         match self {
-            Self::Optional => None,
             Self::AtLeastOne | Self::AtLeastOneWithAlone(_) if chosen.is_empty() => {
                 Some("Choose at least one; Space selects.".to_owned())
             }
-            Self::AtLeastOne => None,
+            Self::Optional | Self::AtLeastOne => None,
             Self::AtLeastOneWithAlone(alone) => {
                 let mixed = chosen.len() > 1 && chosen.contains(&alone);
                 let name = entries.get(alone).map(|entry| entry.answer.as_str());

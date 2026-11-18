@@ -32,8 +32,7 @@ impl Writeback {
                         }
                     }
                     match result {
-                        Ok(()) => {}
-                        Err(super::super::conflicts::Error::Capacity) => {}
+                        Ok(()) | Err(super::super::conflicts::Error::Capacity) => {}
                         Err(error) => return Err(error.into()),
                     }
                 }

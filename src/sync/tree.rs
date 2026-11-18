@@ -241,11 +241,10 @@ impl TreeScan {
                         entry.identity = Some(fsutil::stat_identity(&file)?)
                     }
                     Ok(fsutil::RegularChild::Missing) => continue,
-                    Ok(fsutil::RegularChild::Alias) => {}
                     Err(error) if !structural_entry_error(&error) => {
                         entry.error = Some(error.kind())
                     }
-                    Err(_) => {}
+                    Ok(fsutil::RegularChild::Alias) | Err(_) => {}
                 },
             }
             entries.push(entry);

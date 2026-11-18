@@ -166,8 +166,10 @@ impl Progress {
     fn staged(&self) -> Option<fsutil::FileIdentity> {
         match self {
             Self::Prepared => None,
-            Self::Staged(staged) | Self::Installed(staged) => *staged,
-            Self::Durable { staged, .. } | Self::Cancelling { staged, .. } => *staged,
+            Self::Staged(staged)
+            | Self::Installed(staged)
+            | Self::Durable { staged, .. }
+            | Self::Cancelling { staged, .. } => *staged,
         }
     }
 

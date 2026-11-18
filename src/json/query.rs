@@ -252,6 +252,10 @@ impl BucketRequest {
     }
 
     /// How the request's entity-tag condition headers are treated.
+    #[expect(
+        clippy::match_same_arms,
+        reason = "bucket updates and listings ignore the entity-tag headers for different recorded reasons, each kept beside its comment"
+    )]
     pub(crate) fn etag_conditions(&self) -> EtagConditions {
         match self {
             Self::Get { .. } | Self::GetIam { .. } => EtagConditions::Supported,

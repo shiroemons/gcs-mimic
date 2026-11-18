@@ -59,10 +59,9 @@ fn name_component(
                     required,
                     actual: live.record.generation,
                 },
-                // Deleted meanwhile: the precondition failure stands.
-                Ok(None) => return error,
-                // Naming the component is best-effort.
-                Err(_) => return error,
+                // Deleted meanwhile: the precondition failure stands. Naming the component is
+                // best-effort, so a failed lookup leaves it standing too.
+                Ok(None) | Err(_) => return error,
             }
         }
         _ => return error,

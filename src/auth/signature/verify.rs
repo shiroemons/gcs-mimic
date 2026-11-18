@@ -327,14 +327,13 @@ impl HostPortPolicy {
     /// exact under the test signer's default.
     pub(super) fn for_signature(self, prepared: &Prepared) -> SignedHostPort {
         match self {
-            Self::Exact => SignedHostPort::Exact,
             Self::Lenient => SignedHostPort::Lenient,
             Self::LenientForTestSigner
                 if matches!(prepared.scheme, Scheme::Rsa) && prepared.signer == test_signer::ID =>
             {
                 SignedHostPort::Lenient
             }
-            Self::LenientForTestSigner => SignedHostPort::Exact,
+            Self::Exact | Self::LenientForTestSigner => SignedHostPort::Exact,
         }
     }
 }

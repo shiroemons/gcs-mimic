@@ -474,6 +474,10 @@ fn resume_error(error: CatalogError) -> ImportError {
 
 /// Whether a failure of the import itself is recorded in the journal, so that a resume refuses
 /// the destination instead of repeating an attempt that cannot succeed.
+#[expect(
+    clippy::match_same_arms,
+    reason = "a refused resume and the failures of the import itself are not journaled for different reasons, each kept beside its comment"
+)]
 fn terminal(error: &ImportError) -> bool {
     match error {
         ImportError::Admin(error) => match error {
