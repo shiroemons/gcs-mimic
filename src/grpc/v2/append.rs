@@ -15,7 +15,9 @@ use crate::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget,
         generation::{Generation, InvalidGeneration},
     },
-    storage::{AppendError, AppendWriter, Finality, ObjectReader, ReadableMetadata},
+    storage::{
+        AppendError, AppendWriter, Finality, ObjectReader, ReadableMetadata, ResumableOptions,
+    },
 };
 use tonic::{
     Status,
@@ -123,6 +125,22 @@ impl WriteStep {
         };
         Ok(Self { chunk, end })
     }
+
+    /// Checks an opening message against the empty object a creating stream is about to make,
+    /// as [`AppendWriter::append`] would check it after the create: the offset first, then the
+    /// size limit.
+    fn check_new_object(&self, max_bytes: u64) -> Result<(), AppendError> {
+        let Some(Chunk { offset, content }) = &self.chunk else {
+            return Ok(());
+        };
+        if *offset > 0 {
+            return Err(AppendError::OffsetGap { expected: 0 });
+        }
+        if u64::try_from(content.len()).map_or(true, |length| length > max_bytes) {
+            return Err(AppendError::Object(ObjectError::TooLarge));
+        }
+        Ok(())
+    }
 }
 
 /// Unfinalized generations have no MD5 and no finalize time.
@@ -204,12 +222,30 @@ struct OpenedWriter {
     acknowledgement: Acknowledgement,
 }
 
+/// What an appendable stream's first message asks to open, with its spec and the caller's
+/// permission checked and nothing opened yet.
+enum Opening {
+    Create {
+        bucket: String,
+        name: String,
+        options: Box<ResumableOptions>,
+    },
+    TakeOver {
+        target: ObjectTarget<i64>,
+        write_handle: Option<pb::BidiWriteHandle>,
+        conditions: ObjectConditions,
+        access: BucketAccess,
+    },
+}
+
 impl Storage {
-    async fn open_writer(
+    /// Checks the spec of an appendable stream's first message and the caller's permission,
+    /// which open nothing.
+    async fn prepare_opening(
         &self,
         first: Option<pb::bidi_write_object_request::FirstMessage>,
         caller: Option<Caller<'_>>,
-    ) -> Result<OpenedWriter, Status> {
+    ) -> Result<Opening, Status> {
         use pb::bidi_write_object_request::FirstMessage;
         match first {
             Some(FirstMessage::WriteObjectSpec(mut spec)) => {
@@ -226,24 +262,17 @@ impl Storage {
                     options,
                     total: _,
                 } = self.write_spec(spec, None, caller).await?;
-                // The opening message's own object_checksums were checked before this; the
+                // The opening message's own object_checksums are checked with the message; the
                 // receive loop verifies them at finalization.
                 if options.expected != ExpectedHashes::default() {
                     return Err(Status::invalid_argument(
                         "Appendable objects accept checksums only with finish_write; omit resource.checksums and send object_checksums with finish_write=true",
                     ));
                 }
-                let access = options.access.clone();
-                let writer = self
-                    .state
-                    .catalog
-                    .create_appendable(&bucket, &name, options)
-                    .await
-                    .map_err(|e| append_status(e, caller))?;
-                Ok(OpenedWriter {
-                    writer,
-                    access,
-                    acknowledgement: Acknowledgement::Resource,
+                Ok(Opening::Create {
+                    bucket,
+                    name,
+                    options: Box::new(options),
                 })
             }
             Some(FirstMessage::AppendObjectSpec(spec)) => {
@@ -256,13 +285,56 @@ impl Storage {
                     })?;
                 let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
                 let conditions = conditions(ObjectConditions::from(&spec))?;
-                let target = ObjectTarget::new(bucket, name, generation.get());
+                Ok(Opening::TakeOver {
+                    target: ObjectTarget::new(bucket, name, generation.get()),
+                    write_handle: spec.write_handle,
+                    conditions,
+                    access,
+                })
+            }
+            _ => Err(Status::invalid_argument(
+                "First message must contain write_object_spec with appendable=true or append_object_spec",
+            )),
+        }
+    }
+
+    /// Creates or takes over the object `opening` names.
+    async fn open_writer(
+        &self,
+        opening: Opening,
+        caller: Option<Caller<'_>>,
+    ) -> Result<OpenedWriter, Status> {
+        match opening {
+            Opening::Create {
+                bucket,
+                name,
+                options,
+            } => {
+                let access = options.access.clone();
+                let writer = self
+                    .state
+                    .catalog
+                    .create_appendable(&bucket, &name, *options)
+                    .await
+                    .map_err(|e| append_status(e, caller))?;
+                Ok(OpenedWriter {
+                    writer,
+                    access,
+                    acknowledgement: Acknowledgement::Resource,
+                })
+            }
+            Opening::TakeOver {
+                target,
+                write_handle,
+                conditions,
+                access,
+            } => {
                 let writer = self
                     .state
                     .catalog
                     .take_over_appendable(
                         target,
-                        spec.write_handle.as_ref().map(|h| h.handle.as_slice()),
+                        write_handle.as_ref().map(|h| h.handle.as_slice()),
                         conditions,
                         access.clone(),
                     )
@@ -274,9 +346,6 @@ impl Storage {
                     acknowledgement: Acknowledgement::PersistedSize,
                 })
             }
-            _ => Err(Status::invalid_argument(
-                "First message must contain write_object_spec with appendable=true or append_object_spec",
-            )),
         }
     }
 
@@ -292,16 +361,25 @@ impl Storage {
     where
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
-        let first = message.first_message.take();
-        // The opening message's own fields are checked before it creates or takes over the
-        // object, so a refusal there changes nothing. Its offset and the size limit depend on
-        // the opened object, so the writer checks them after the open, which stays done.
+        // The spec and the caller's permission come first, as on every other write path. The
+        // opening message is checked next, before the object is created or taken over, so a
+        // refusal there changes nothing. A new object starts empty, so a creating stream's
+        // opening offset and size limit are checked before the create as well; a takeover's
+        // depend on the object it opens, so the writer checks them after the takeover, which
+        // stays done.
+        let opening = self
+            .prepare_opening(message.first_message.take(), caller)
+            .await?;
         let mut step = WriteStep::decode(&mut message)?;
+        if let Opening::Create { .. } = opening {
+            step.check_new_object(self.max_object_bytes)
+                .map_err(|e| append_status(e, caller))?;
+        }
         let OpenedWriter {
             mut writer,
             access,
             acknowledgement,
-        } = self.open_writer(first, caller).await?;
+        } = self.open_writer(opening, caller).await?;
         // Every open is answered once, even without flush or state_lookup: a takeover learns
         // where to resume, and a creating stream learns its generation. The Python SDK waits
         // for that resource after a spec-only first message before it sends any data.

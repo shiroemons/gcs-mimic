@@ -376,7 +376,8 @@ async fn append_accepts_checksums_on_a_single_finishing_message() {
 }
 
 /// The opening message is checked before it creates or takes over the object, so a refused
-/// opening leaves no new object and the current writer in place.
+/// opening leaves no new object and the current writer in place. A creating stream's object
+/// starts empty, so its opening offset and the size limit are checked before the create too.
 #[tokio::test]
 async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_over() {
     let (_dir, storage) = setup(false).await;
@@ -392,10 +393,16 @@ async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_ove
         crc32c: None,
         md5_hash: vec![0; 16],
     });
+    let mut gap = create("gap", b"x");
+    gap.write_offset = 1;
+    let too_large = vec![0; usize::try_from(storage.max_object_bytes).unwrap() + 1];
+    let too_large = create("too-large", &too_large);
     for (name, message, code) in [
         ("bad-crc", bad_crc, Code::InvalidArgument),
         ("negative", negative, Code::OutOfRange),
         ("md5", md5, Code::InvalidArgument),
+        ("gap", gap, Code::OutOfRange),
+        ("too-large", too_large, Code::ResourceExhausted),
     ] {
         let (result, responses) = append(&storage, vec![Ok(message)], None).await;
         assert_code(result, code);
@@ -772,4 +779,50 @@ async fn append_strict_requires_create_and_allows_viewer_reads() {
     };
     assert!(object.owner.is_some());
     assert!(!object.acl.is_empty());
+}
+
+/// The spec and the caller's permission are checked before the opening message, as every other
+/// write path checks them, so a caller without storage.objects.create learns nothing from the
+/// message it sent.
+#[tokio::test]
+async fn append_checks_the_permission_before_the_opening_message() {
+    let (_dir, storage) = setup(true).await;
+    let mut request = Request::new(());
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer admin".parse().unwrap());
+    let admin = storage.authenticate(&request).await.unwrap();
+    request
+        .metadata_mut()
+        .insert("authorization", "Bearer reader".parse().unwrap());
+    let reader = storage.authenticate(&request).await.unwrap();
+    let (result, responses) = append(&storage, vec![Ok(create("held", b"one"))], admin).await;
+    result.unwrap();
+    let WriteStatus::Resource(held) = responses[0].write_status.as_ref().unwrap() else {
+        panic!("missing resource");
+    };
+    let bad_crc = |mut message: pb::BidiWriteObjectRequest| {
+        if let Some(Data::ChecksummedData(data)) = message.data.as_mut() {
+            data.crc32c = Some(1);
+        }
+        message
+    };
+    let mut gap = create("gap", b"x");
+    gap.write_offset = 1;
+    let mut take_over_crc = take_over("held", held.generation, None);
+    take_over_crc.write_offset = 3;
+    take_over_crc.data = data(b"two");
+    for (label, message) in [
+        ("create-crc", bad_crc(create("crc", b"x"))),
+        ("create-gap", gap),
+        ("take-over-crc", bad_crc(take_over_crc)),
+    ] {
+        let (result, responses) = append(&storage, vec![Ok(message)], reader).await;
+        assert_eq!(
+            result.map_err(|status| status.code()),
+            Err(Code::PermissionDenied),
+            "{label}"
+        );
+        assert!(responses.is_empty(), "{label}");
+    }
 }

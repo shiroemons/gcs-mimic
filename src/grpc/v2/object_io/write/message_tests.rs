@@ -44,6 +44,8 @@ const APPEND_CHECKSUMS: &str =
 const APPEND_MD5: &str =
     "Appendable objects have no MD5 hash; send only crc32c in object_checksums";
 const APPEND_KEY: &str = "gcs-mimic does not support customer-supplied encryption on appendable objects; omit common_object_request_params";
+const OPENING_GAP: &str =
+    "write_offset leaves a gap after the 0 bytes received; resume at persisted_size";
 const NON_RESUMABLE_FLUSH: &str =
     "non-resumable flush/state_lookup; use StartResumableWrite and upload_id";
 const RESUMABLE_CHECKSUMS: &str = "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true";
@@ -173,6 +175,7 @@ fn appendable(name: &str, content: &[u8]) -> pb::BidiWriteObjectRequest {
 /// Edits a test message in place of a struct literal per case.
 trait Edit {
     fn first(self, first: FirstMessage) -> Self;
+    fn at(self, offset: i64) -> Self;
     fn finish(self) -> Self;
     fn flush(self) -> Self;
     fn lookup(self) -> Self;
@@ -185,6 +188,10 @@ trait Edit {
 impl Edit for pb::BidiWriteObjectRequest {
     fn first(mut self, first: FirstMessage) -> Self {
         self.first_message = Some(first);
+        self
+    }
+    fn at(mut self, offset: i64) -> Self {
+        self.write_offset = offset;
         self
     }
     fn finish(mut self) -> Self {
@@ -1509,29 +1516,21 @@ async fn grpc_appendable_write_message_errors() {
             failed(InvalidArgument, STORED_MISMATCH, Left::Object(3))
                 .after(vec![Reply::Resource(0)]),
         ),
-        // The opening message's offset and the size limit are checked against the object it
-        // created, so a refused one leaves that empty object behind.
+        // A creating stream's object starts empty, so its opening offset and the size limit are
+        // checked before the object is created, and a refused opening creates nothing.
         bidi(
             "too-large",
             |n| vec![appendable(n, &[0; 17])],
             failed(
                 ResourceExhausted,
                 "Object exceeds the upload size limit",
-                Left::Object(0),
+                Left::Nothing,
             ),
         ),
         bidi(
             "opening-gap",
-            |n| {
-                let mut message = appendable(n, b"abc");
-                message.write_offset = 2;
-                vec![message]
-            },
-            failed(
-                OutOfRange,
-                "write_offset leaves a gap after the 0 bytes received; resume at persisted_size",
-                Left::Object(0),
-            ),
+            |n| vec![appendable(n, b"abc").at(2)],
+            failed(OutOfRange, OPENING_GAP, Left::Nothing),
         ),
         bidi(
             "opening-checksums-before-finish",
@@ -1589,7 +1588,7 @@ async fn grpc_appendable_write_message_errors() {
 /// When one appendable message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_appendable_write_error_precedence() {
-    use Code::{InvalidArgument, Unimplemented};
+    use Code::{InvalidArgument, OutOfRange, Unimplemented};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         bidi(
@@ -1620,9 +1619,10 @@ async fn grpc_appendable_write_error_precedence() {
             |n| vec![appendable(n, b"abc"), chunk(-1, b"d").finish().md5(16)],
             failed(InvalidArgument, APPEND_MD5, Left::Object(0)).after(vec![Reply::Resource(0)]),
         ),
-        // The opening message is checked before its spec creates the object.
+        // The spec is checked first, then the opening message, and both before the object is
+        // created.
         bidi(
-            "opening-message-over-spec",
+            "spec-over-opening-message",
             |n| {
                 let mut message = appendable(n, b"abc").bad_crc();
                 if let Some(FirstMessage::WriteObjectSpec(spec)) = message.first_message.as_mut() {
@@ -1630,7 +1630,33 @@ async fn grpc_appendable_write_error_precedence() {
                 }
                 vec![message]
             },
+            failed(
+                Unimplemented,
+                unsupported("appendable object_size; omit it and finalize with finish_write"),
+                Left::Nothing,
+            ),
+        ),
+        bidi(
+            "opening-message-over-gap",
+            |n| vec![appendable(n, b"abc").at(2).bad_crc()],
             failed(InvalidArgument, crc_mismatch(b"abc"), Left::Nothing),
+        ),
+        bidi(
+            "opening-gap-over-max",
+            |n| vec![appendable(n, &[0; 17]).at(2)],
+            failed(OutOfRange, OPENING_GAP, Left::Nothing),
+        ),
+        // The bucket is found only when the object is created, after the opening message.
+        bidi(
+            "opening-gap-over-bucket",
+            |n| {
+                let mut message = appendable(n, b"abc").at(2);
+                if let Some(FirstMessage::WriteObjectSpec(spec)) = message.first_message.as_mut() {
+                    spec.resource.as_mut().unwrap().bucket = "projects/_/buckets/missing".into();
+                }
+                vec![message]
+            },
+            failed(OutOfRange, OPENING_GAP, Left::Nothing),
         ),
     ];
     run_on_objects(&storage, cases).await;

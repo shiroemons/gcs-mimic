@@ -23986,7 +23986,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Appendable writes (WriteObjectSpec.appendable and AppendObjectSpec with flush, state_lookup, write handles and finish_write) are routed to the separate Rapid state machine: docs/en/slices/grpc-v2-rapid-append.md. Each per-message error of single-shot, resumed and appendable streams has a pinned status, message and precedence; an appendable opening message's own fields are checked before it creates or takes over the object, and its offset and the size limit against the opened object. BidiWriteObject answers finish_write and reads no further message. A persisted size carries persisted_data_checksums. Streams sharing an upload ID take turns on its session lease. Non-final flush/state_lookup on non-resumable writes, predefined ACLs, unmodeled resource fields and non-final object_checksums on upload_id streams return UNIMPLEMENTED; use StartResumableWrite and upload_id, and supply checksums to StartResumableWrite or with finish_write=true.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Appendable writes (WriteObjectSpec.appendable and AppendObjectSpec with flush, state_lookup, write handles and finish_write) are routed to the separate Rapid state machine: docs/en/slices/grpc-v2-rapid-append.md. Each per-message error of single-shot, resumed and appendable streams has a pinned status, message and precedence; an appendable stream checks its spec and the caller's permission, then its opening message's own fields and, when it creates the object, the opening offset and the size limit, before it creates or takes over the object; a takeover checks its opening offset and the size limit after the takeover. BidiWriteObject answers finish_write and reads no further message. A persisted size carries persisted_data_checksums. Streams sharing an upload ID take turns on its session lease. Non-final flush/state_lookup on non-resumable writes, predefined ACLs, unmodeled resource fields and non-final object_checksums on upload_id streams return UNIMPLEMENTED; use StartResumableWrite and upload_id, and supply checksums to StartResumableWrite or with finish_write=true.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -24020,7 +24020,7 @@
         },
         {
           "id": "per_message_errors",
-          "description": "For single-shot, resumed and appendable streams, BidiWriteObject answers each per-message error (first message, offsets, chunk CRC32C, object_checksums placement, MD5 and mismatch, object_size, max_object_bytes, keys, a missing finish_write) with a pinned status, message and precedence, the replies sent before it and what the write leaves behind. An appendable opening message's own fields are checked before it creates or takes over the object; its offset and max_object_bytes are checked against the opened object, so such a refusal leaves the empty object it created or the takeover. A resumed message whose complete object fails its declared checksums invalidates the session. flush and state_lookup on an upload_id stream are answered with the persisted size, and a clean close answers with it when the last message got no answer. A persisted size carries the CRC32C and MD5 of the persisted bytes in persisted_data_checksums.",
+          "description": "For single-shot, resumed and appendable streams, BidiWriteObject answers each per-message error (first message, offsets, chunk CRC32C, object_checksums placement, MD5 and mismatch, object_size, max_object_bytes, keys, a missing finish_write) with a pinned status, message and precedence, the replies sent before it and what the write leaves behind. An appendable stream checks its spec and the caller's permission first, then its opening message's own fields and, when it creates the object, the opening offset and max_object_bytes against the empty object, all before it creates or takes over the object, so such a refusal creates nothing and leaves the current writer in place; a takeover checks its opening offset and max_object_bytes against the object it took over, so such a refusal leaves the takeover. A resumed message whose complete object fails its declared checksums invalidates the session. flush and state_lookup on an upload_id stream are answered with the persisted size, and a clean close answers with it when the last message got no answer. A persisted size carries the CRC32C and MD5 of the persisted bytes in persisted_data_checksums.",
           "result": "PASS",
           "test_ids": [
             "grpc_single_shot_write_message_errors",
@@ -24030,6 +24030,7 @@
             "grpc_appendable_write_message_errors",
             "grpc_appendable_write_error_precedence",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
+            "append_checks_the_permission_before_the_opening_message",
             "append_checks_an_opening_offset_after_the_takeover",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums"
           ]
@@ -24075,6 +24076,7 @@
         "grpc_appendable_write_message_errors",
         "grpc_appendable_write_error_precedence",
         "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
+        "append_checks_the_permission_before_the_opening_message",
         "append_checks_an_opening_offset_after_the_takeover",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
         "grpc_resumable_write_waits_for_a_leased_session",
@@ -24144,6 +24146,7 @@
             "grpc_appendable_write_message_errors",
             "grpc_appendable_write_error_precedence",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
+            "append_checks_the_permission_before_the_opening_message",
             "append_checks_an_opening_offset_after_the_takeover",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
             "grpc_resumable_write_waits_for_a_leased_session",
@@ -38095,7 +38098,7 @@
         },
         {
           "id": "per_message_errors",
-          "description": "Single-shot, resumed and appendable streams over WriteObject and BidiWriteObject answer each offset, chunk CRC32C, object checksum, object_size, max_object_bytes, first-message and finish_write error with a pinned status, message, precedence, replies and what the write leaves behind. A refused single-shot write publishes nothing; a refused resumed message stages nothing, except that a complete object failing its declared checksums invalidates the session; an appendable opening message's own fields are checked before it creates or takes over the object, and its offset and max_object_bytes against the opened object. On a resumed stream WriteObject reads past finish_write after the checks that need no upload session (routing metadata, the upload_id's shape, the caller's permission, an upload_id on a later message) and before it leases the session: it answers a refusal by those checks at once, and a refusal by the session lookup or a later check, or a replay of a finalized upload, only once the stream ends. A persisted size carries the CRC32C and MD5 of the persisted bytes.",
+          "description": "Single-shot, resumed and appendable streams over WriteObject and BidiWriteObject answer each offset, chunk CRC32C, object checksum, object_size, max_object_bytes, first-message and finish_write error with a pinned status, message, precedence, replies and what the write leaves behind. A refused single-shot write publishes nothing; a refused resumed message stages nothing, except that a complete object failing its declared checksums invalidates the session; an appendable stream checks its spec and the caller's permission, then its opening message's own fields and, when it creates the object, the opening offset and max_object_bytes, before it creates or takes over the object, and a takeover's opening offset and max_object_bytes after the takeover. On a resumed stream WriteObject reads past finish_write after the checks that need no upload session (routing metadata, the upload_id's shape, the caller's permission, an upload_id on a later message) and before it leases the session: it answers a refusal by those checks at once, and a refusal by the session lookup or a later check, or a replay of a finalized upload, only once the stream ends. A persisted size carries the CRC32C and MD5 of the persisted bytes.",
           "result": "PASS",
           "test_ids": [
             "grpc_single_shot_write_message_errors",
@@ -38108,6 +38111,7 @@
             "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
             "grpc_io_write_object_refuses_before_the_session_lookup_at_once",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
+            "append_checks_the_permission_before_the_opening_message",
             "append_checks_an_opening_offset_after_the_takeover",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums"
           ]
@@ -38150,6 +38154,7 @@
         "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
         "grpc_io_write_object_refuses_before_the_session_lookup_at_once",
         "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
+        "append_checks_the_permission_before_the_opening_message",
         "append_checks_an_opening_offset_after_the_takeover",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
         "grpc_resumable_write_waits_for_a_leased_session",
@@ -38188,6 +38193,7 @@
             "grpc_io_write_object_answers_a_finishing_message_after_the_stream_end",
             "grpc_io_write_object_refuses_before_the_session_lookup_at_once",
             "append_refuses_an_invalid_opening_message_before_creating_or_taking_over",
+            "append_checks_the_permission_before_the_opening_message",
             "append_checks_an_opening_offset_after_the_takeover",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
             "grpc_resumable_write_waits_for_a_leased_session",

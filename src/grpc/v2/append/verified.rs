@@ -19,6 +19,10 @@ impl VerifiedChunk {
         self.0.is_empty()
     }
 
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
+    }
+
     pub(super) fn into_bytes(self) -> bytes::Bytes {
         self.0
     }
