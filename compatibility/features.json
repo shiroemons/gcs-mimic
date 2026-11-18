@@ -21680,10 +21680,9 @@
           "test_ids": ["delete_bucket_follows_the_shared_catalog_for_retained_state"]
         },
         {
-          "id": "grpc_bucket_delete_condition_validation",
-          "description": "DeleteBucket, GetBucket and UpdateBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold), as Cloud Storage answered (case grpc-probe-bucket-conditions, recorded 2026-11-18): a zero or negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a zero or negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated; a missing bucket is reported first, and a not-match that alone fails on DeleteBucket is worded as a resource that has not been modified. Only LockBucketRetentionPolicy, whose request has only a required if_metageneration_match, refuses 0 and negative values with INVALID_ARGUMENT before the lookup (strict_bucket_conditions in src/grpc/validate.rs); the differential harness never locks a real bucket, so that rule is not recorded and stays a local choice (RPC-STORAGE-005).",
+          "id": "grpc_bucket_delete_condition_validation",          "description": "DeleteBucket, GetBucket and UpdateBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold), as Cloud Storage answered (case grpc-probe-bucket-conditions, recorded 2026-11-18): a zero or negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a zero or negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated; a missing bucket is reported first, and a not-match that alone fails on DeleteBucket is worded as a resource that has not been modified. That wording comes from the shared Storage v2 conversion of the catalog's not-match failure, which GetBucket and UpdateBucket use too (a Rust test pins it on all three); the legacy v1 service keeps the failed-condition answer for both catalog failures (legacy_bucket_conditions_keep_the_failed_condition_answer). Only LockBucketRetentionPolicy, whose request has only a required if_metageneration_match, refuses 0 and negative values with INVALID_ARGUMENT before the lookup (strict_bucket_conditions in src/grpc/validate.rs); the differential harness never locks a real bucket, so that rule is not recorded and stays a local choice (RPC-STORAGE-005).",
           "result": "PASS",
-          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules", "grpc-probe-bucket-conditions"]
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules", "legacy_bucket_conditions_keep_the_failed_condition_answer", "grpc-probe-bucket-conditions"]
         },
         {
           "id": "grpc_bucket_delete_local_precedence",
@@ -21699,6 +21698,7 @@
         "TestGRPCBucketsStrict",
         "delete_bucket_follows_the_shared_catalog_for_retained_state",
         "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+        "legacy_bucket_conditions_keep_the_failed_condition_answer",
         "delete_bucket_reports_authorization_existence_conditions_then_contents",
         "grpc-probe-bucket-conditions"
       ],
@@ -21740,6 +21740,7 @@
           "test_ids": [
             "delete_bucket_follows_the_shared_catalog_for_retained_state",
             "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+            "legacy_bucket_conditions_keep_the_failed_condition_answer",
             "delete_bucket_reports_authorization_existence_conditions_then_contents"
           ]
         }
@@ -21853,9 +21854,9 @@
         },
         {
           "id": "grpc_bucket_get_condition_validation",
-          "description": "GetBucket compares its metageneration conditions without validating them, after the lookup, as Cloud Storage answered (case grpc-probe-bucket-conditions, recorded 2026-11-18): a zero or negative if_metageneration_match never matches and fails as FAILED_PRECONDITION with the shared precondition message, a zero or negative if_metageneration_not_match always holds, a match together with a not-match is evaluated, and a missing bucket answers NOT_FOUND first. UpdateBucket and DeleteBucket compare their conditions the same way (RPC-STORAGE-001 grpc_bucket_delete_condition_validation); only LockBucketRetentionPolicy refuses such values.",
+          "description": "GetBucket compares its metageneration conditions without validating them, after the lookup, as Cloud Storage answered (case grpc-probe-bucket-conditions, recorded 2026-11-18): a zero or negative if_metageneration_match never matches and fails as FAILED_PRECONDITION with the shared precondition message, a zero or negative if_metageneration_not_match always holds, a match together with a not-match is evaluated, and a missing bucket answers NOT_FOUND first. A not-match that alone fails, naming the bucket's current metageneration, is worded as a resource that has not been modified, 'The resource you requested has not been modified according to the condition you specified.' (step get-not-match-current of case grpc-probe-inferred-bucket-masks, recorded 2026-11-18, which asks it on GetBucket and UpdateBucket); the shared Storage v2 conversion of the catalog's not-match failure words it, and the Rust test asserts it. UpdateBucket and DeleteBucket compare their conditions the same way (RPC-STORAGE-001 grpc_bucket_delete_condition_validation); only LockBucketRetentionPolicy refuses such values.",
           "result": "PASS",
-          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules", "grpc-probe-bucket-conditions"]
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules", "grpc-probe-bucket-conditions", "grpc-probe-inferred-bucket-masks"]
         }
       ],
       "test_ids": [
@@ -21873,7 +21874,8 @@
         "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
         "bucket_masks_reject_mixed_wildcards_and_nested_paths",
         "grpc-probe-bucket-masks",
-        "grpc-probe-bucket-conditions"
+        "grpc-probe-bucket-conditions",
+        "grpc-probe-inferred-bucket-masks"
       ],
       "verification": [
         {
@@ -21883,6 +21885,15 @@
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
             "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter grpc-probe --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "grpc-probe-inferred-bucket-masks"
           ]
         },
         {
@@ -22335,6 +22346,16 @@
           "description": "A ListBuckets read_mask naming satisfies_pzs returns UNIMPLEMENTED with ErrorInfo naming the path through the shared BucketMask::parse, after the caller, the project permission, page_size and prefix are checked and before the page token is decoded; recorded as the scoped difference RPC-STORAGE-002 records under SPEC-GRPC-UNMODELED-SETTINGS.",
           "result": "PASS",
           "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        },
+        {
+          "id": "grpc_bucket_list_routing",
+          "description": "ListBuckets needs the x-goog-request-params metadata and compares the project it routes, a resource name projects/<id>, by ID with the parent's: a routed project other than the parent's answers INVALID_ARGUMENT 'The x-goog-request-params must specify the same project as the resource in the request. Request project was ..., but x-goog-request-params specified ...' with reason GRPC_INVALID_X_GOOG_REQUEST_PARAMS_PROJECT (step list-buckets-routing-other-project of case grpc-probe-inferred-routing, recorded 2026-11-18), and a bucket pair beside the right project must be a bucket resource name, so a bare bucket ID answers INVALID_ARGUMENT 'Invalid bucket name found in x-goog-request-params metadata (...)' (step list-buckets-routing-bare-bucket-beside-project, recorded 2026-11-18). The Rust tests assert the messages and reasons; without the metadata the call answers INVALID_ARGUMENT 'An x-goog-request-params request metadata property must be provided for this request.' (recorded 2026-11-18, case grpc-probe-routing). Metadata that routes no project is not compared (a local choice, see the scoped difference).",
+          "result": "PASS",
+          "test_ids": [
+            "routed_projects_are_resource_names_compared_by_id",
+            "routing_validates_every_routed_key_whichever_rpc_is_called",
+            "routing_requires_the_metadata"
+          ]
         }
       ],
       "test_ids": [
@@ -22346,9 +22367,22 @@
         "grpc_lists_a_project_by_the_number_its_buckets_render",
         "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
         "bucket_masks_reject_mixed_wildcards_and_nested_paths",
-        "grpc-probe-bucket-masks"
+        "routed_projects_are_resource_names_compared_by_id",
+        "routing_validates_every_routed_key_whichever_rpc_is_called",
+        "routing_requires_the_metadata",
+        "grpc-probe-bucket-masks",
+        "grpc-probe-inferred-routing"
       ],
       "verification": [
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter grpc-probe --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "grpc-probe-inferred-routing"
+          ]
+        },
         {
           "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -22364,7 +22398,10 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
-            "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"
+            "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
+            "routed_projects_are_resource_names_compared_by_id",
+            "routing_validates_every_routed_key_whichever_rpc_is_called",
+            "routing_requires_the_metadata"
           ]
         },
         {
@@ -22426,6 +22463,11 @@
           "text": "A read_mask that selects satisfies_pzs returns UNIMPLEMENTED with ErrorInfo: the emulator stores no zone-separation fact, and Cloud Storage may report true by location, so a selected value would be a guess. The other settings that bucket creation refuses are selectable and come back unset.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        },
+        {
+          "text": "ListBuckets serves a call whose metadata routes no project and compares nothing then; CreateBucket routes its project through the same admission (the bucket's project, else the parent) and does alike, though no Rust test asserts CreateBucket's own route. Cloud Storage was recorded refusing a routed project other than the parent's and a call without the metadata on ListBuckets, but not metadata that routes only another key, and CreateBucket was never recorded because the harness refuses it, so that answer is the emulator's.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["routed_projects_are_resource_names_compared_by_id"]
         }
       ],
       "implemented_in": "3e8d13d",
@@ -23151,19 +23193,20 @@
         },
         {
           "id": "grpc_bucket_update_condition_validation",
-          "description": "UpdateBucket evaluates whatever metageneration conditions arrive, as Cloud Storage does (steps update-match-zero, update-match-negative, update-not-match-zero, update-not-match-negative and update-match-and-not-match of case grpc-probe-bucket-conditions, recorded 2026-11-18): a zero or negative if_metageneration_match never holds and fails as FAILED_PRECONDITION without a change, a zero or negative if_metageneration_not_match always holds, a match and a not-match are compared together, and a missing bucket answers NOT_FOUND before any condition is compared. Shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
+          "description": "UpdateBucket evaluates whatever metageneration conditions arrive, as Cloud Storage does (steps update-match-zero, update-match-negative, update-not-match-zero, update-not-match-negative and update-match-and-not-match of case grpc-probe-bucket-conditions, recorded 2026-11-18): a zero or negative if_metageneration_match never holds and fails as FAILED_PRECONDITION without a change, a zero or negative if_metageneration_not_match always holds, a match and a not-match are compared together, and a missing bucket answers NOT_FOUND before any condition is compared. A not-match that alone fails is worded as a resource that has not been modified, 'The resource you requested has not been modified according to the condition you specified.', through the shared Storage v2 conversion (step update-not-match-current of case grpc-probe-inferred-bucket-masks, recorded 2026-11-18); the legacy v1 UpdateBucket keeps the failed-condition answer (legacy_bucket_conditions_keep_the_failed_condition_answer). Shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
           "result": "PASS",
-          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules", "grpc-probe-bucket-conditions"]
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules", "legacy_bucket_conditions_keep_the_failed_condition_answer", "grpc-probe-bucket-conditions", "grpc-probe-inferred-bucket-masks"]
         },
         {
           "id": "grpc_bucket_update_mask_paths",
-          "description": "Each update_mask path is parsed once into UpdatePath (src/grpc/v2/bucket_update.rs) and applied in mask order: labels, labels.KEY (any nonempty key, dots included), storage_class, autoclass[.enabled|.terminal_storage_class], versioning[.enabled], default_event_based_hold, cors, lifecycle[.rule], retention_policy[.retention_duration], soft_delete_policy[.retention_duration], iam_config, iam_config.public_access_prevention, iam_config.uniform_bucket_level_access[.enabled], acl and default_object_acl, each changing only its setting. A path whose first segment names no Bucket field, such as no_such_field or another case spelling, answers INVALID_ARGUMENT \"There is no field for this resource named '<path>'.\" without ErrorInfo (step update-unknown-path of case grpc-probe-bucket-masks, recorded 2026-11-18). An output-only field named without a member path (create_time and update_time recorded; bucket_id, metageneration, location_type and owner inferred from the proto's OUTPUT_ONLY marks, not recorded) is accepted and changes nothing. Every other path under a Bucket field, such as an empty label key, a subpath of an accepted field, name, etag or a setting the emulator does not model, returns UNIMPLEMENTED with ErrorInfo naming the path, and the first failing path in mask order names the error. An absent or empty update_mask answers INVALID_ARGUMENT 'Invalid update_mask. Requests should specify at least one update field.' with reason GRPC_MISSING_UPDATE_MASK_FIELDS (steps update-empty-mask and update-absent-mask, recorded 2026-11-18).",
+          "description": "Each update_mask path is parsed once into UpdatePath (src/grpc/v2/bucket_update.rs) and applied in mask order: labels, labels.KEY (any nonempty key, dots included), storage_class, autoclass[.enabled|.terminal_storage_class], versioning[.enabled], default_event_based_hold, cors, lifecycle[.rule], retention_policy[.retention_duration], soft_delete_policy[.retention_duration], iam_config, iam_config.public_access_prevention, iam_config.uniform_bucket_level_access[.enabled], acl and default_object_acl, each changing only its setting. A path whose first segment names no Bucket field, such as no_such_field or another case spelling, answers INVALID_ARGUMENT \"There is no field for this resource named '<path>'.\" without ErrorInfo (step update-unknown-path of case grpc-probe-bucket-masks, recorded 2026-11-18). Each Bucket field is classified once by who supplies its value (FieldSetting in src/grpc/v2/mask.rs). A path that names, without a member path, an output-only field (create_time, update_time, bucket_id, metageneration, location_type or owner), the identifier name, the immutable project or location, or the service-kept etag is accepted and changes nothing, as Cloud Storage did (create_time and update_time recorded 2026-11-18, the others in case grpc-probe-inferred-bucket-masks, recorded 2026-11-18, with the request carrying metageneration 7, location_type dual-region and another owner, and the stored values of the other fields); the Rust test asserts that the parsed update stays empty and untouched, and only the replay of that case compares the unchanged metageneration and the response, with the one declared exception of location_type (see the scoped differences). A member that versioning or iam_config does not have (versioning.no_such_field, iam_config.no_such_field) answers INVALID_ARGUMENT 'There is no field for this resource named ...' without ErrorInfo, and an empty label key (labels.) answers INVALID_ARGUMENT 'Invalid user label:  with value . Reason: Invalid field \"user_labels_list\"; key is empty.' with a BadRequest repeating it, the first failing path in mask order naming the error (steps update-mask-versioning-unknown-member, update-mask-iam-config-unknown-member and update-mask-labels-empty-key of case grpc-probe-inferred-bucket-masks, recorded 2026-11-18). Every other path under a Bucket field, such as a subpath of another accepted field (acl.role, lifecycle.rule.action, retention_policy.is_locked) or a setting the emulator does not model, returns UNIMPLEMENTED with ErrorInfo naming the path, and the first failing path in mask order names the error (a local choice for the subpaths, see the scoped differences). An absent or empty update_mask answers INVALID_ARGUMENT 'Invalid update_mask. Requests should specify at least one update field.' with reason GRPC_MISSING_UPDATE_MASK_FIELDS (steps update-empty-mask and update-absent-mask, recorded 2026-11-18).",
           "result": "PASS",
           "test_ids": [
             "update_mask_paths_select_their_settings_and_refuse_the_rest",
             "output_only_paths_change_nothing_and_unknown_paths_are_invalid",
             "grpc_masks_reject_unsupported_and_accept_defaults",
-            "grpc-probe-bucket-masks"
+            "grpc-probe-bucket-masks",
+            "grpc-probe-inferred-bucket-masks"
           ]
         },
         {
@@ -23231,8 +23274,10 @@
         "bucket_rpcs_keep_their_own_metageneration_condition_rules",
         "update_mask_paths_select_their_settings_and_refuse_the_rest",
         "output_only_paths_change_nothing_and_unknown_paths_are_invalid",
+        "legacy_bucket_conditions_keep_the_failed_condition_answer",
         "grpc-probe-bucket-masks",
-        "grpc-probe-bucket-conditions"
+        "grpc-probe-bucket-conditions",
+        "grpc-probe-inferred-bucket-masks"
       ],
       "verification": [
         {
@@ -23242,6 +23287,15 @@
           "artifact": "docs/en/slices/grpc-v2-update-copy.md",
           "test_ids": [
             "output_only_paths_change_nothing_and_unknown_paths_are_invalid"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter grpc-probe --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
+          "test_ids": [
+            "grpc-probe-inferred-bucket-masks"
           ]
         },
         {
@@ -23260,6 +23314,7 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
+            "legacy_bucket_conditions_keep_the_failed_condition_answer",
             "grpc_bucket_update_ignores_the_bucket_etag",
             "grpc_bucket_update_rounds_retention_nanos_down",
             "bucket_rpcs_keep_their_own_metageneration_condition_rules",
@@ -23384,6 +23439,7 @@
       "known_deviations": [
         "An update_mask of * returns UNIMPLEMENTED instead of updating every field, although Cloud Storage accepted it (a declared local choice of case grpc-probe-bucket-masks, recorded 2026-11-18).",
         "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED, although Cloud Storage and the JSON PATCH apply them.",
+        "An update whose mask names only location_type leaves the metageneration as it is, where Cloud Storage raised it from 1 to 2 once (step update-mask-location-type of case grpc-probe-inferred-bucket-masks, a declared local choice, recorded 2026-11-18).",
         "No test pins the separate storage.buckets.setIamPolicy check for public access prevention and ACL changes."
       ],
       "scoped_differences": [
@@ -23400,6 +23456,21 @@
           "test_ids": [
             "grpc_lifecycle_precheck_retries_only_implicit_matches",
             "grpc_lifecycle_precheck_stops_after_three_conflicts"
+          ]
+        },
+        {
+          "text": "An update_mask that names only location_type is accepted as the no-op every output-only path is, and gcs-mimic advances the metageneration only when an update changes a setting. Cloud Storage raised the metageneration from 1 to 2 on that step, although the same recording's steps for etag, bucket_id and metageneration left it at 1, and the request's location_type (dual-region) differing from the stored region does not explain it, since the metageneration step sent 7 against the stored 1 and the owner step another owner entity without raising it. No recording explains what moved it, so it is a declared local choice. The Rust test pins the parsed update as empty; the metageneration is compared only by the replay of the case.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "update_mask_paths_select_their_settings_and_refuse_the_rest",
+            "grpc-probe-inferred-bucket-masks"
+          ]
+        },
+        {
+          "text": "A member path under a bucket message field other than the recorded versioning and iam_config members, such as acl.role, lifecycle.rule.action, autoclass.toggle_time or retention_policy.is_locked, returns UNIMPLEMENTED with ErrorInfo naming the path; Cloud Storage was recorded only for versioning.no_such_field and iam_config.no_such_field, which name no field. Whether it answers an unknown member of the other fields as naming no field, or accepts their output-only members, is not recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "update_mask_paths_select_their_settings_and_refuse_the_rest"
           ]
         }
       ],
