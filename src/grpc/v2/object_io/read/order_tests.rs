@@ -2,8 +2,8 @@
 //! recorded, so this order is a local choice (SPEC-GRPC-LOCAL-CHOICES): the customer key, the
 //! name and the read mask are checked with the request; the caller is then authorized for the
 //! bucket, which refuses a caller only when the bucket does not exist and the caller holds the
-//! permission in no project; then the generation and the conditions are checked; the caller is
-//! authorized for the object when it is looked up, before its conditions are evaluated; and only
+//! permission in no project; then the generation is checked; the caller is
+//! authorized for the object when it is looked up, before its conditions, whatever their values, are evaluated; and only
 //! then are the read offset and the read limit checked against the object.
 
 use super::super::tests::{message, setup, write};
@@ -12,8 +12,6 @@ use super::*;
 use crate::grpc::test_support::{assert_code, assert_customer_encryption};
 
 const BUCKET: &str = "projects/_/buckets/grpc-io";
-const CONDITIONS: &str =
-    "Preconditions must be nonnegative; use if_generation_match=0 to create only";
 const GENERATION: &str = "generation must be positive, or 0 to select the live object";
 const CONTENT_MASK: &str =
     "The 'read_mask' field must include checksummed_data.content, but was 'metadata.name'.";
@@ -75,8 +73,8 @@ async fn read_object_reports_each_failure_before_the_ones_it_precedes() {
         tonic::Code::InvalidArgument,
         CONTENT_MASK,
     );
-    // In an existing bucket, the generation precedes the conditions, and both precede the
-    // object's authorization and the lookup.
+    // In an existing bucket, the generation precedes
+    // the object's authorization and the lookup, which compare the conditions.
     let malformed = || pb::ReadObjectRequest {
         generation: -1,
         if_metageneration_match: Some(-1),
@@ -87,7 +85,8 @@ async fn read_object_reports_each_failure_before_the_ones_it_precedes() {
         tonic::Code::InvalidArgument,
         GENERATION,
     );
-    assert_status(
+    // A negative condition is compared with the lookup, after the object's authorization.
+    assert_code(
         open(
             &storage,
             pb::ReadObjectRequest {
@@ -97,8 +96,7 @@ async fn read_object_reports_each_failure_before_the_ones_it_precedes() {
             anonymous,
         )
         .await,
-        tonic::Code::InvalidArgument,
-        CONDITIONS,
+        tonic::Code::PermissionDenied,
     );
     // Authorization with the lookup precedes the conditions, the offset and the limit, and
     // reveals nothing about a missing object.
@@ -163,10 +161,10 @@ async fn a_missing_bucket_is_authorized_before_the_generation_and_the_conditions
         tonic::Code::InvalidArgument,
         GENERATION,
     );
-    assert_status(
+    // A negative condition is only compared when the object is looked up, so it hides nothing.
+    assert_code(
         open(&storage, missing(0, Some(-1)), reader).await,
-        tonic::Code::InvalidArgument,
-        CONDITIONS,
+        tonic::Code::NotFound,
     );
     assert_code(
         open(&storage, missing(0, None), reader).await,

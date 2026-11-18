@@ -64,8 +64,8 @@ async fn move_object_refuses_condition_pairs_and_failing_conditions_without_movi
             if_source_metageneration_not_match: Some(1),
             ..move_request()
         },
-        // The pair is refused for its shape; whether Cloud Storage also refuses one whose
-        // conditions both hold is not recorded.
+        // The pair is refused for its shape, whatever its values: pairs whose conditions both
+        // hold were refused too (case grpc-probe-inferred-conditions).
         pb::MoveObjectRequest {
             if_source_generation_match: Some(source.generation),
             if_source_generation_not_match: Some(source.generation + 1),
@@ -74,17 +74,19 @@ async fn move_object_refuses_condition_pairs_and_failing_conditions_without_movi
     ] {
         assert_bad_request(move_with(pair).await, CONFLICT);
     }
+    // A negative value is compared like any other, so a match of -1 never holds (case
+    // grpc-probe-inferred-conditions, which recorded it on the other object RPCs).
     let negative = assert_code(
         move_with(pb::MoveObjectRequest {
             if_source_generation_match: Some(-1),
             ..move_request()
         })
         .await,
-        Code::InvalidArgument,
+        Code::FailedPrecondition,
     );
     assert_eq!(
         negative.message(),
-        "Preconditions must be nonnegative; use if_generation_match=0 to create only"
+        "At least one of the pre-conditions you specified did not hold."
     );
     for (name, original) in [("source", source), ("destination", destination)] {
         let stored = stored_object(&s, name).await.unwrap();

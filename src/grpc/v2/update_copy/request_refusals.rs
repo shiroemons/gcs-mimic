@@ -10,8 +10,6 @@ use crate::grpc::test_support::{
 };
 use tonic::Code;
 
-const NEGATIVE_CONDITION: &str =
-    "Preconditions must be nonnegative; use if_generation_match=0 to create only";
 /// A match condition that does not hold (recorded 2026-11-18 for `if_metageneration_match` 0).
 const NOT_HELD: &str = "At least one of the pre-conditions you specified did not hold.";
 /// A not-match condition that names the current value, beside a match that holds (recorded
@@ -81,13 +79,15 @@ async fn update_object_refuses_malformed_and_unmodeled_requests_without_changing
         .await,
         "Invalid update_mask. Requests should specify at least one update field.",
     );
-    assert_invalid(
+    // A negative value is compared like any other and never matches (case
+    // grpc-probe-inferred-conditions).
+    assert_failed_precondition(
         update(pb::UpdateObjectRequest {
             if_generation_match: Some(-1),
             ..relabel()
         })
         .await,
-        NEGATIVE_CONDITION,
+        NOT_HELD,
     );
     // Cloud Storage compares the conditions instead of refusing their shape (recorded
     // 2026-11-18).
@@ -139,8 +139,8 @@ async fn update_object_refuses_malformed_and_unmodeled_requests_without_changing
         update(retention(pb::object::retention::Mode::Unlocked, None)).await,
         "retention.retain_until_time is required with retention.mode",
     );
-    // Object contexts are not modeled, and only a rewrite changes a storage class.
-    for path in ["contexts", "contexts.custom", "storage_class"] {
+    // Object contexts are not modeled.
+    for path in ["contexts", "contexts.custom"] {
         assert_unsupported(
             update(pb::UpdateObjectRequest {
                 update_mask: fixtures::mask(&[path]),
@@ -150,15 +150,27 @@ async fn update_object_refuses_malformed_and_unmodeled_requests_without_changing
             &format!("UpdateObject update_mask {path}"),
         );
     }
-    // `*` alone replaces the metadata; beside another path it stays refused.
-    assert_unsupported(
-        update(pb::UpdateObjectRequest {
-            update_mask: fixtures::mask(&["*", "content_language"]),
-            ..relabel()
-        })
-        .await,
-        "UpdateObject update_mask *",
-    );
+    // Only a rewrite changes a storage class, and a KMS key cannot change (recorded in case
+    // grpc-probe-inferred-object-masks).
+    for (path, message) in [
+        (
+            "storage_class",
+            "Client is not allowed to directly modify storage_class.",
+        ),
+        (
+            "kms_key",
+            "Cannot change the Cloud KMS key associated with a resource.",
+        ),
+    ] {
+        assert_bad_request(
+            update(pb::UpdateObjectRequest {
+                update_mask: fixtures::mask(&[path]),
+                ..relabel()
+            })
+            .await,
+            message,
+        );
+    }
     // Recorded 2026-11-18: a path that names no object field is a client error.
     assert_invalid(
         update(pb::UpdateObjectRequest {
@@ -216,7 +228,16 @@ async fn compose_object_refuses_malformed_and_unmodeled_requests_without_creatin
             if_generation_match: Some(-1),
         },
     );
-    assert_invalid(compose_with(conditioned).await, NEGATIVE_CONDITION);
+    // A negative source match is compared, like the destination's recorded in case
+    // grpc-probe-inferred-conditions, and names the component's generation. The wording of the
+    // component refusal is inferred.
+    let status = assert_code(compose_with(conditioned).await, Code::FailedPrecondition);
+    assert!(
+        status
+            .message()
+            .starts_with("Generation -1 required for component object"),
+        "{status:?}"
+    );
     // Recorded 2026-11-18: a metageneration match of 0 is compared, and no destination has it.
     assert_failed_precondition(
         compose_with(pb::ComposeObjectRequest {
@@ -336,13 +357,15 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
         .await,
         "Invalid rewrite token; use the token from the preceding response",
     );
-    assert_invalid(
+    // A negative source match is compared like the destination's, which was recorded (case
+    // grpc-probe-inferred-conditions); the source answer itself is inferred.
+    assert_failed_precondition(
         rewrite_with(pb::RewriteObjectRequest {
-            if_source_generation_not_match: Some(-1),
+            if_source_generation_match: Some(-1),
             ..rewrite()
         })
         .await,
-        NEGATIVE_CONDITION,
+        NOT_HELD,
     );
     // Cloud Storage compares the source and destination conditions instead of refusing their
     // shape (recorded 2026-11-18); a source not-match that names the current value is worded as
@@ -383,14 +406,12 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
         .await,
         NOT_HELD,
     );
-    // Recorded 2026-11-18 for a destination carrying a generation, a metageneration, a size, a
-    // creation time and an update time.
+    // A destination that carries a generation is the one service-set field a rewrite refuses
+    // (recorded in case grpc-probe-inferred-destinations).
     assert_bad_request(
         rewrite_with(pb::RewriteObjectRequest {
             destination: Some(pb::Object {
                 generation: 1,
-                metageneration: 7,
-                size: 99,
                 ..Default::default()
             }),
             ..rewrite()

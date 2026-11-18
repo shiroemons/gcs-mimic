@@ -52,7 +52,7 @@ impl Storage {
         let access = self.access(caller, bucket, auth::OBJECTS_UPDATE).await?;
         // Cloud Storage compares whatever conditions arrive: a metageneration match of 0 and a
         // match beside a not-match fail as conditions that do not hold (recorded 2026-11-18).
-        let c = super::object_io::conditions(ObjectConditions::from(&r))?;
+        let c = ObjectConditions::from(&r);
         crate::server::authorize_retention_update(
             &self.state.catalog,
             &access,

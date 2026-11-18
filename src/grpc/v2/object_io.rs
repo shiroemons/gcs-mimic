@@ -132,13 +132,6 @@ fn ended_session_status(error: ResumableError) -> Status {
     }
 }
 
-pub(super) fn conditions(conditions: ObjectConditions) -> Result<ObjectConditions, Status> {
-    validate::lenient_conditions(
-        conditions,
-        "Preconditions must be nonnegative; use if_generation_match=0 to create only",
-    )
-}
-
 fn generation(value: i64) -> Result<Option<Generation>, Status> {
     validate::selected_generation(value).map_err(|NegativeGeneration| {
         Status::invalid_argument("generation must be positive, or 0 to select the live object")
@@ -220,7 +213,7 @@ impl Storage {
         let access = self.access(caller, bucket, OBJECTS_DELETE).await?;
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
-        self.delete_including_appendable(target, conditions(ObjectConditions::from(&r))?, &access)
+        self.delete_including_appendable(target, ObjectConditions::from(&r), &access)
             .await
             .map_err(named_object_status(bucket, name))?;
         Ok(Response::new(()))

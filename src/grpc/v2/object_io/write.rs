@@ -177,7 +177,7 @@ impl Storage {
             .transpose()
             .map_err(super::super::object_update::input_error)?;
         super::super::object_update::validate(&metadata)?;
-        let conditions = conditions(ObjectConditions::from(&spec))?;
+        let conditions = ObjectConditions::from(&spec);
         let total = spec
             .object_size
             .map(|n| {

@@ -79,9 +79,43 @@ const RESTORE_TOKEN_REFUSAL: &str = "We encountered an internal error. Please tr
 #[derive(Debug, PartialEq, Eq)]
 struct FirstResponseMask {
     metadata: MetadataMask,
-    object_checksums: ResponseField,
+    object_checksums: ChecksumsMask,
     content_range: ResponseField,
     data_checksum: DataChecksum,
+}
+
+/// The digests of the first response's `object_checksums` that a mask keeps. A mask that names
+/// `object_checksums.crc32c` alone gets a message with that digest only (recorded in case
+/// grpc-probe-inferred-object-masks); `md5_hash` is selected the same way by inference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ChecksumsMask {
+    crc32c: ResponseField,
+    md5_hash: ResponseField,
+}
+
+impl ChecksumsMask {
+    const WHOLE: Self = Self {
+        crc32c: ResponseField::Kept,
+        md5_hash: ResponseField::Kept,
+    };
+    const NONE: Self = Self {
+        crc32c: ResponseField::Cleared,
+        md5_hash: ResponseField::Cleared,
+    };
+
+    fn apply(self, field: &mut Option<pb::ObjectChecksums>) {
+        if self == Self::NONE {
+            *field = None;
+            return;
+        }
+        let Some(checksums) = field else {
+            return;
+        };
+        self.crc32c.apply(&mut checksums.crc32c);
+        if self.md5_hash == ResponseField::Cleared {
+            checksums.md5_hash.clear();
+        }
+    }
 }
 
 /// Whether the first response keeps one of its own fields.
@@ -140,7 +174,7 @@ impl MetadataMask {
 impl FirstResponseMask {
     const EVERYTHING: Self = Self {
         metadata: MetadataMask::Whole,
-        object_checksums: ResponseField::Kept,
+        object_checksums: ChecksumsMask::WHOLE,
         content_range: ResponseField::Kept,
         data_checksum: DataChecksum::Sent,
     };
@@ -150,7 +184,7 @@ impl FirstResponseMask {
         let Some(paths) = mask.selective_paths() else {
             return Ok(Self::EVERYTHING);
         };
-        let mut object_checksums = ResponseField::Cleared;
+        let mut object_checksums = ChecksumsMask::NONE;
         let mut content_range = ResponseField::Cleared;
         // A mask that selects `checksummed_data.content` alone gets the bytes without their
         // CRC32C (recorded 2026-11-18).
@@ -163,7 +197,9 @@ impl FirstResponseMask {
                     data_checksum = DataChecksum::Sent;
                 }
                 "checksummed_data.content" => {}
-                "object_checksums" => object_checksums = ResponseField::Kept,
+                "object_checksums" => object_checksums = ChecksumsMask::WHOLE,
+                "object_checksums.crc32c" => object_checksums.crc32c = ResponseField::Kept,
+                "object_checksums.md5_hash" => object_checksums.md5_hash = ResponseField::Kept,
                 "content_range" => content_range = ResponseField::Kept,
                 "metadata" => whole = true,
                 p if let Some(field) = p.strip_prefix("metadata.") => fields.push(field.to_owned()),
@@ -230,7 +266,7 @@ impl Storage {
             return Err(Status::internal(RESTORE_TOKEN_REFUSAL));
         }
         let selected = generation(r.generation)?.map(Generation::get);
-        let conditions = conditions(ObjectConditions::from(&r))?;
+        let conditions = ObjectConditions::from(&r);
         let readable = if r.soft_deleted == Some(true) {
             let generation = selected.ok_or_else(|| {
                 Status::invalid_argument(
@@ -333,12 +369,7 @@ impl Storage {
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
         let (record, mut reader, finality) = self
-            .open_readable(
-                target,
-                conditions(ObjectConditions::from(&r))?,
-                &access,
-                key,
-            )
+            .open_readable(target, ObjectConditions::from(&r), &access, key)
             .await
             .map_err(named_object_status(bucket, name))?;
         check_read_offset(&record, r.read_offset)?;

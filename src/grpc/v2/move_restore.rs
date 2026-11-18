@@ -1,9 +1,7 @@
 //! MoveObject and RestoreObject.
 
 use super::{
-    Storage, convert, names,
-    object_io::conditions,
-    pb,
+    Storage, convert, names, pb,
     status::{invalid_field, unsupported},
 };
 use crate::{
@@ -19,10 +17,9 @@ use tonic::{Request, Response, Status};
 /// One side's conditions of a MoveObject. Unlike the other object RPCs, which compare a match
 /// beside a not-match, Cloud Storage refused such a pair here, for the destination and for the
 /// source, while it compared a metageneration match of 0, which failed (recorded 2026-11-18).
-/// Every recorded pair gave the match and the not-match the same value; refusing a pair by its
-/// shape whatever its values is inferred.
+/// The pair is refused by its shape: pairs of different values, whether the match failed or both
+/// conditions held, were refused alike (case grpc-probe-inferred-conditions).
 fn move_conditions(requested: ObjectConditions) -> Result<ObjectConditions, Status> {
-    let requested = conditions(requested)?;
     let generation_pair =
         requested.if_generation_match.is_some() && requested.if_generation_not_match.is_some();
     let metageneration_pair = requested.if_metageneration_match.is_some()
@@ -101,7 +98,7 @@ impl Storage {
         // The bucket's soft delete policy is checked before the conditions, which the catalog
         // then compares (recorded 2026-11-18 without a policy; with one, comparing is inferred
         // from the other object RPCs).
-        let c = conditions(ObjectConditions::from(&r))?;
+        let c = ObjectConditions::from(&r);
         let target = ObjectTarget::new(bucket, name, generation.get());
         let access = RestoreAccess {
             restore: &restore,
