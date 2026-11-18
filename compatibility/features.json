@@ -21658,8 +21658,8 @@
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Bucket deletion contract: docs/en/slices/grpc-v2-buckets.md. Empty deletion, atomic metageneration conditions, nonempty protection and shared strict authorization are the scoped acceptance cases.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -21674,8 +21674,20 @@
           ]
         },
         {
-          "id": "grpc_bucket_delete_remaining",
-          "description": "Provider-exact error detail and authorization/condition precedence remain unverified. Bucket soft-delete/restore and multipart/Rapid interactions are outside the shared empty-bucket deletion contract.",
+          "id": "grpc_bucket_delete_shared_state",
+          "description": "The proto keeps a bucket deletable when it holds only soft-deleted objects or unfinished uploads, and soft-deletes it under its soft delete policy (storage.proto lines 76-95). DeleteBucket uses the shared catalog deletion that JSON-BUCKETS-001 tests for these states (BUCKET-SOFT-DELETE-CONTRIBUTION, BUCKET-HISTORY-NONEMPTY), but no Storage v2 test covers a bucket with only soft-deleted objects, only noncurrent versions, only unfinished XML multipart uploads or only an unfinalized appendable object, or a bucket with a positive soft delete policy.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_delete_condition_validation",
+          "description": "DeleteBucket and GetBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold): a negative value fails as FAILED_PRECONDITION and a match together with a not-match is evaluated. UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both together with INVALID_ARGUMENT (strict_bucket_conditions in src/grpc/validate.rs), and the legacy v1 adapter refuses negative values. The proto states no validation rule; choose one rule for every bucket RPC and test it.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_delete_local_precedence",
+          "description": "Pin the order of strict authorization, bucket existence, the metageneration conditions and the nonempty check, and the status and message of each, with a test. Today the adapter authorizes first and the catalog checks the rest in its deletion transaction. Google documents no order and none was recorded, so the pinned order then becomes a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21721,7 +21733,9 @@
         }
       ],
       "known_deviations": [
-        "Provider-exact error detail and authorization/condition precedence remain unverified. Bucket soft-delete/restore and multipart/Rapid interactions are outside the shared empty-bucket deletion contract."
+        "No Storage v2 test deletes a bucket that holds only soft-deleted objects, noncurrent versions, unfinished multipart uploads or an unfinalized appendable object, or one with a positive soft delete policy.",
+        "DeleteBucket does not validate its metageneration conditions, while UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both conditions together.",
+        "The order and wording of authorization, missing-bucket, condition and nonempty failures are not pinned by a test."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -21744,8 +21758,8 @@
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Bucket read contract: docs/en/slices/grpc-v2-buckets.md. Existing/missing buckets, metageneration conditions, supported masks and shared strict authorization are scoped acceptance cases. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket versioning is omitted when disabled and bucket errors use the recorded messages. Covered by the differential replay, not by a dedicated Rust test.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -21794,8 +21808,14 @@
           ]
         },
         {
-          "id": "grpc_bucket_get_remaining",
-          "description": "Nested masks and satisfies_pzs remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
+          "id": "grpc_bucket_get_nested_mask",
+          "description": "A nested read_mask path such as versioning.enabled returns UNIMPLEMENTED (BucketMask::parse in src/grpc/v2/mask.rs, pinned by grpc_bucket_options_reject_only_what_is_unsupported), while Cloud Storage served a nested bucket read mask (case grpc-unsupported-options, step get-bucket-nested-mask, a declared local_choice, recorded 2026-11-13). Select sub-fields by protobuf field-mask rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_get_condition_validation",
+          "description": "GetBucket compares its metageneration conditions without validating them: a negative value fails as FAILED_PRECONDITION and a match together with a not-match is evaluated, unlike UpdateBucket and LockBucketRetentionPolicy. The rule to choose is shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21917,7 +21937,17 @@
         }
       ],
       "known_deviations": [
-        "Nested masks and satisfies_pzs remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
+        "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them.",
+        "GetBucket does not validate its metageneration conditions, while UpdateBucket and LockBucketRetentionPolicy refuse 0, negative values and both conditions together."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A read_mask that selects satisfies_pzs returns UNIMPLEMENTED with ErrorInfo: the emulator stores no zone-separation fact, and Cloud Storage may report true by location, so a selected value would be a guess. The other settings that bucket creation refuses are selectable and come back unset.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_buckets_crud_conditions_and_masks"
+          ]
+        }
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-11-17"
@@ -21940,8 +21970,8 @@
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Bucket creation contract: docs/en/slices/grpc-v2-buckets.md. Shared typed retention/soft-delete/PAP/CORS/Autoclass validation, duplicate protection, strict project authorization and explicit unsupported values are scoped acceptance cases. Creation still uses the JSON insert parser for the remaining creation fields; a shared creation builder remains unimplemented. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): bucket versioning is omitted when disabled and bucket errors use the recorded messages. Covered by the differential replay, not by a dedicated Rust test.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -21980,8 +22010,32 @@
           ]
         },
         {
-          "id": "grpc_bucket_create_remaining",
-          "description": "Nonempty lifecycle, ACL, predefined ACLs, requester-pays, encryption, logging, custom placement, hierarchical namespace and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
+          "id": "grpc_bucket_create_lifecycle",
+          "description": "A nonempty bucket.lifecycle returns UNIMPLEMENTED ('CreateBucket fields outside the supported metadata subset', create_body in src/grpc/v2/buckets.rs, pinned by create_bucket_rejects_each_field_outside_the_supported_subset), although UpdateBucket accepts the lifecycle mask through the shared lifecycle validation and the JSON insert stores lifecycle rules. Apply it through the shared creation path.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_create_acls",
+          "description": "A nonempty bucket.acl or bucket.default_object_acl returns UNIMPLEMENTED (create_body), although UpdateBucket's acl and default_object_acl masks replace them through the shared ACL entry validation. Store them through the shared creation path.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_create_predefined_acls",
+          "description": "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED and create nothing (pinned by grpc_bucket_options_reject_only_what_is_unsupported). The proto documents both (CreateBucketRequest, storage.proto lines 695-704); the JSON insert refuses predefinedAcl and predefinedDefaultObjectAcl too (bucket_predefined_acls in src/json/buckets.rs), so both adapters need creation-time ACL entries first.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_create_output_fields",
+          "description": "Fields the proto marks OUTPUT_ONLY (bucket_id, metageneration, location_type, create_time, update_time and owner, storage.proto lines 2579-2687, and the Autoclass toggle and terminal-class update times) return UNIMPLEMENTED instead of being ignored, which google.api.field_behavior describes as 'given as output but ignored as input'; so do a nonempty etag, the server-determined retention and soft delete effective times, a retention is_locked and a uniform access lock_time (create_body, pinned by create_bucket_rejects_each_field_outside_the_supported_subset and create_rejects_output_fields_and_fractional_durations_in_order). Ignore them, as the JSON insert ignores effectiveTime and isLocked (SPEC-RETENTION-POLICY).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_create_fractional_retention",
+          "description": "A retention_policy.retention_duration with nonzero nanos returns UNIMPLEMENTED ('fractional bucket retention duration', whole_seconds in src/grpc/v2/buckets.rs, pinned by create_rejects_output_fields_and_fractional_durations_in_order), while the proto rounds any nanos value down to the nearest second (storage.proto lines 2429-2433), as UpdateBucket already does.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -21993,9 +22047,21 @@
         "grpc_buckets_create_accepts_name_matching_bucket_id",
         "grpc_buckets_create_enables_object_retention",
         "TestGRPCBuckets",
-        "TestGRPCBucketsStrict"
+        "TestGRPCBucketsStrict",
+        "create_bucket_rejects_each_field_outside_the_supported_subset",
+        "create_rejects_output_fields_and_fractional_durations_in_order"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "create_bucket_rejects_each_field_outside_the_supported_subset",
+            "create_rejects_output_fields_and_fractional_durations_in_order"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22057,7 +22123,26 @@
         }
       ],
       "known_deviations": [
-        "Nonempty lifecycle, ACL, predefined ACLs, requester-pays, encryption, logging, custom placement, hierarchical namespace and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted."
+        "A nonempty lifecycle, bucket ACL or default object ACL returns UNIMPLEMENTED, although UpdateBucket accepts them.",
+        "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED, as the JSON insert's canned ACLs do.",
+        "Output-only and server-determined fields set on the new bucket return UNIMPLEMENTED instead of being ignored.",
+        "A fractional retention_policy.retention_duration returns UNIMPLEMENTED instead of being rounded down to whole seconds."
+      ],
+      "scoped_differences": [
+        {
+          "text": "website, logging, encryption, billing (Requester Pays), custom_placement_config, hierarchical_namespace, ip_filter, satisfies_pzs=true and an rpo other than DEFAULT return UNIMPLEMENTED with ErrorInfo and create nothing; empty messages and rpo DEFAULT are the absent setting. The JSON API stores none of these settings either.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "create_bucket_rejects_each_field_outside_the_supported_subset"
+          ]
+        },
+        {
+          "text": "A soft_delete_policy.retention_duration with nonzero nanos returns UNIMPLEMENTED: the proto states no rounding for it, the JSON API carries whole seconds, and nothing was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "create_rejects_output_fields_and_fractional_durations_in_order"
+          ]
+        }
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -22080,8 +22165,8 @@
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Bucket listing contract: docs/en/slices/grpc-v2-buckets.md. Project/prefix filtering, bounded pagination, supported masks and shared project authorization are scoped acceptance cases.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22104,8 +22189,30 @@
           ]
         },
         {
-          "id": "grpc_bucket_list_remaining",
-          "description": "Nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported.",
+          "id": "grpc_bucket_list_project_number",
+          "description": "parent may name the project by the number its buckets render (projects/<number>), which resolves to the project ID before authorization, and a page token issued under one spelling continues under the other (BEHAVIOR-COMMON-014-PROJECT-NUMBER).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_lists_a_project_by_the_number_its_buckets_render"
+          ]
+        },
+        {
+          "id": "grpc_bucket_list_opaque_tokens",
+          "description": "next_page_token is an opaque cursor bound to the project and prefix; clients may not interpret page tokens, so their bytes need not match Cloud Storage's. A malformed token, or one issued for another prefix, returns INVALID_ARGUMENT.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_pagination_and_routing"
+          ]
+        },
+        {
+          "id": "grpc_bucket_list_nested_mask",
+          "description": "A nested read_mask path returns UNIMPLEMENTED through the same BucketMask::parse as GetBucket (src/grpc/v2/mask.rs), while Cloud Storage served a nested bucket read mask (case grpc-unsupported-options, recorded 2026-11-13). Select sub-fields by protobuf field-mask rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_list_satisfies_pzs",
+          "description": "A ListBuckets read_mask naming satisfies_pzs returns UNIMPLEMENTED through the shared BucketMask::parse, but no test pins it on ListBuckets. Pin it, then record it as the scoped difference RPC-STORAGE-002 records under SPEC-GRPC-UNMODELED-SETTINGS.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -22115,9 +22222,19 @@
         "grpc_buckets_pagination_and_routing",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
-        "TestGRPCBucketsStrict"
+        "TestGRPCBucketsStrict",
+        "grpc_lists_a_project_by_the_number_its_buckets_render"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_lists_a_project_by_the_number_its_buckets_render"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22161,7 +22278,8 @@
         }
       ],
       "known_deviations": [
-        "Nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported."
+        "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them.",
+        "The satisfies_pzs read mask refusal is not pinned by a ListBuckets test."
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -22178,14 +22296,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22202,8 +22320,17 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_lock_metageneration",
+          "description": "if_metageneration_match 0 returns INVALID_ARGUMENT, as the proto requires a positive value (storage.proto lines 776-778); a stale metageneration returns FAILED_PRECONDITION and leaves the policy unlocked; the current one locks it, advances the metageneration and answers with is_locked; UpdateBucket can no longer remove the locked policy.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_retention_lock_and_compose_limits",
+            "grpc_retention_lock_requires_a_policy_and_the_current_metageneration"
+          ]
+        },
+        {
+          "id": "grpc_lock_strict_authorization",
+          "description": "Strict LockBucketRetentionPolicy checks storage.buckets.update on the bucket (lock_bucket_retention_policy in src/grpc/v2/update_bucket.rs), but no test pins an anonymous, a denied or a permitted strict caller for this RPC; TestGRPCUpdateCopyStrict does not lock.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -22214,9 +22341,19 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_retention_lock_requires_a_policy_and_the_current_metageneration"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_retention_lock_requires_a_policy_and_the_current_metageneration"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -22266,7 +22403,16 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "No test pins strict authorization of LockBucketRetentionPolicy."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A bucket without a retention policy and a policy that is already locked both return INVALID_ARGUMENT and change nothing. Google documents neither answer, and the differential harness refuses every lock request, so nothing was recorded.",
+          "gap": "SPEC-RETENTION-POLICY",
+          "test_ids": [
+            "grpc_retention_lock_requires_a_policy_and_the_current_metageneration"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
@@ -22283,14 +22429,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22315,10 +22461,12 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "grpc_iam_get_strict",
+          "description": "Through the shared handler, which also serves google.storage.control.v2.StorageControl/GetIamPolicy, a caller without credentials gets UNAUTHENTICATED and a registered caller without storage.buckets.getIamPolicy gets PERMISSION_DENIED; an admin reads the bindings with a nonempty opaque etag, and reads back what SetIamPolicy wrote.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
         }
       ],
       "test_ids": [
@@ -22328,9 +22476,19 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_storage_control_bucket_iam"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22389,7 +22547,23 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "Every acceptance case passes and the remaining refusals are scoped differences; the row stays PARTIAL until the owner reviews the 2026-11-18 decomposition."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A managed-folder resource (projects/_/buckets/<bucket>/managedFolders/<folder>) returns UNIMPLEMENTED with ErrorInfo and changes nothing: the emulator models no managed folders, on any protocol. Cloud Storage answered FAILED_PRECONDITION for a bucket without uniform access (case grpc-unsupported-options, a declared local_choice).",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
+        {
+          "text": "An object resource (projects/_/buckets/<bucket>/objects/<object>) returns UNIMPLEMENTED: the proto names only bucket and managed-folder resources for GetIamPolicy (storage.proto lines 192-196), and nothing was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
@@ -22406,14 +22580,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22440,8 +22614,22 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_iam_set_strict_and_etag",
+          "description": "Through the shared handler, which also serves google.storage.control.v2.StorageControl/SetIamPolicy, a registered caller without storage.buckets.setIamPolicy gets PERMISSION_DENIED and the policy stays; an admin replaces the bindings, receives a new etag, and GetIamPolicy then returns the written policy.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
+        },
+        {
+          "id": "grpc_iam_set_partial_masks",
+          "description": "An update_mask other than absent, empty or exactly bindings plus etag (for example bindings alone) returns UNIMPLEMENTED (set_iam_policy in src/grpc/v2/bucket_iam.rs, pinned by grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy), while google.iam.v1.SetIamPolicyRequest documents a mask that modifies only the named policy fields (src/grpc/proto/google/iam/v1/iam_policy.proto lines 114-119). Apply the named fields.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_iam_set_conditions_pinned",
+          "description": "Bindings with a condition and nonempty audit_configs return UNIMPLEMENTED (set_iam_policy), but no test pins this refusal. Pin it, then record it as a scoped difference under SPEC-GRPC-UNMODELED-SETTINGS, which keeps conditional IAM bindings and audit configs as explicit refusals.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -22455,9 +22643,19 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_storage_control_bucket_iam"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22517,7 +22715,31 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "An update_mask that names only some policy fields returns UNIMPLEMENTED instead of modifying them.",
+        "The refusal of conditional bindings and audit configs is not pinned by a test."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A managed-folder resource returns UNIMPLEMENTED with ErrorInfo and leaves every policy unchanged: the emulator models no managed folders, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
+        {
+          "text": "An object resource returns UNIMPLEMENTED: the proto names only bucket and managed-folder resources for SetIamPolicy (storage.proto lines 215-219), and nothing was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
+          ]
+        },
+        {
+          "text": "A stale or malformed policy etag returns FAILED_PRECONDITION and leaves the policy unchanged, the shared mapping of the 412 that Cloud Storage returned over JSON (observed 2026-10-31); the Storage v2 status was not recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
@@ -22534,14 +22756,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22558,8 +22780,24 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_iam_test_permission_values",
+          "description": "An empty permission, one that cannot be tested on a bucket (storage.buckets.create), an unknown one and one carrying a query string return INVALID_ARGUMENT; 1024 copies of one permission are answered once; a recognized permission of a feature the emulator does not model (storage.anywhereCaches.create) returns UNIMPLEMENTED.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_iam_validates_typed_policy_and_permission_values"
+          ]
+        },
+        {
+          "id": "grpc_iam_test_strict",
+          "description": "Through the shared handler, which also serves google.storage.control.v2.StorageControl/TestIamPermissions, an admin gets every requested permission it holds on a bucket and a registered caller without grants gets an empty list instead of an error.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
+        },
+        {
+          "id": "grpc_iam_test_object_resource",
+          "description": "An object resource (projects/_/buckets/<bucket>/objects/<object>) returns UNIMPLEMENTED (iam_bucket in src/grpc/v2/bucket_iam.rs, pinned by grpc_storage_control_bucket_iam), while the proto documents object resources for TestIamPermissions (storage.proto lines 232-237) and Cloud Storage served one (case grpc-unsupported-options, step test-iam-permissions-object, a declared local_choice, recorded 2026-11-13). Answer it from the object's bucket permissions and ACL.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -22570,9 +22808,21 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_iam_validates_typed_policy_and_permission_values",
+        "grpc_storage_control_bucket_iam"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-sdk-parity.md",
+          "test_ids": [
+            "grpc_iam_validates_typed_policy_and_permission_values",
+            "grpc_storage_control_bucket_iam"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -22622,7 +22872,16 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "An object resource returns UNIMPLEMENTED, although the proto documents it and Cloud Storage serves it."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A managed-folder resource returns UNIMPLEMENTED with ErrorInfo: the emulator models no managed folders, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_storage_control_bucket_iam"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
@@ -22639,14 +22898,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22681,8 +22940,38 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_bucket_update_etag",
+          "description": "bucket.etag is never read (bucket_update::from_proto and update_bucket in src/grpc/v2), so an UpdateBucket carrying a stale etag still applies, while the proto makes the update conditional on a set etag (storage.proto lines 2581-2584). Compare it with the stored bucket ETag inside the mutation transaction.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_update_wildcard_mask",
+          "description": "An update_mask of * returns UNIMPLEMENTED (the catch-all arm of apply_path in src/grpc/v2/bucket_update.rs, pinned by grpc_masks_reject_unsupported_and_accept_defaults), while the proto defines * as a full update equivalent to the JSON update (storage.proto lines 806-813), which the JSON adapter serves for its supported subset (JSON-BUCKETS-013).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_update_predefined_acls",
+          "description": "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED without changing the bucket (pinned by grpc_updates_reject_predefined_acls_without_changing_metadata), while Cloud Storage applied them (case grpc-unsupported-options, step update-bucket-predefined-acl, a declared local_choice, recorded 2026-11-13) and the JSON PATCH and PUT apply predefinedAcl and predefinedDefaultObjectAcl (bucket_predefined_acls in src/json/buckets.rs).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_update_retention_nanos",
+          "description": "retention_policy.retention_duration keeps only its seconds (apply_path in src/grpc/v2/bucket_update.rs), which follows the proto's rounding of nanos down to the nearest second (storage.proto lines 2429-2433), but no test pins the truncation. CreateBucket still refuses the same input (RPC-STORAGE-003 grpc_bucket_create_fractional_retention).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_update_set_iam_permission",
+          "description": "Changing public access prevention or the ACLs also requires storage.buckets.setIamPolicy (storage.proto lines 254-266; the catalog checks it in src/storage/catalog/bucket_update.rs and src/server/acl.rs), but the Storage v2 strict tests deny only callers that lack storage.buckets.update as well (grpc_buckets_acl_strict_authorization, TestGRPCUpdateCopyStrict). Pin a caller with storage.buckets.update and without storage.buckets.setIamPolicy.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_bucket_update_condition_validation",
+          "description": "UpdateBucket refuses 0, negative values and both metageneration conditions together with INVALID_ARGUMENT (strict_bucket_conditions), while GetBucket and DeleteBucket evaluate them unvalidated. The rule to choose is shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -22736,9 +23025,23 @@
         "entity_alt_names_only_teams_of_the_buckets_project",
         "bucket_times_keep_milliseconds_and_a_disabled_policy_has_no_effective_time",
         "grpc_record_conversion",
-        "bkt-gaps-legacy-class-region"
+        "bkt-gaps-legacy-class-region",
+        "bucket_updates_validate_proto_fields_without_json_bodies",
+        "grpc_lifecycle_precheck_retries_only_implicit_matches",
+        "grpc_lifecycle_precheck_stops_after_three_conflicts"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "bucket_updates_validate_proto_fields_without_json_bodies",
+            "grpc_lifecycle_precheck_retries_only_implicit_matches",
+            "grpc_lifecycle_precheck_stops_after_three_conflicts"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -22842,7 +23145,36 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "A set bucket.etag is ignored instead of making the update conditional.",
+        "An update_mask of * returns UNIMPLEMENTED instead of updating every field.",
+        "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED, although Cloud Storage and the JSON PATCH apply them.",
+        "The whole-second truncation of retention_policy.retention_duration is not pinned by a test.",
+        "No test pins the separate storage.buckets.setIamPolicy check for public access prevention and ACL changes.",
+        "UpdateBucket validates its metageneration conditions strictly, while GetBucket and DeleteBucket do not validate them."
+      ],
+      "scoped_differences": [
+        {
+          "text": "Update mask paths for settings the JSON API does not store either (rpo, website, logging, encryption, billing, custom_placement_config, hierarchical_namespace, ip_filter, satisfies_pzs) return UNIMPLEMENTED with ErrorInfo through the catch-all arm of apply_path, as every other unsupported path does; pinned for logging, owner and acl.entity.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults"
+          ]
+        },
+        {
+          "text": "A soft_delete_policy.retention_duration with nonzero nanos returns UNIMPLEMENTED: the proto states no rounding for it, the JSON API carries whole seconds, and nothing was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "bucket_updates_validate_proto_fields_without_json_bodies"
+          ]
+        },
+        {
+          "text": "Without if_metageneration_match and without a lifecycle change, the update reads the bucket, checks that its stored lifecycle converts, and writes under that metageneration; it retries up to three times when another update intervenes and then answers ABORTED. An explicit condition fails at once with FAILED_PRECONDITION. Google documents no such conflict.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_lifecycle_precheck_retries_only_implicit_matches",
+            "grpc_lifecycle_precheck_stops_after_three_conflicts"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-11-17"
@@ -22859,14 +23191,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -22900,8 +23232,43 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_compose_source_deletion",
+          "description": "delete_source_objects=true deletes every source after the composite is published; absent or false keeps them, as Cloud Storage did (case grpc-unsupported-options, step compose-delete-sources, recorded 2026-11-13).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_compose_deletes_its_sources_only_when_asked"
+          ]
+        },
+        {
+          "id": "grpc_compose_owner_view",
+          "description": "Without a canned ACL ComposeObject answers without acl and owner, as Cloud Storage did (case grpc-unsupported-options, recorded 2026-11-13), in a uniform-access bucket too.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+            "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
+          ]
+        },
+        {
+          "id": "grpc_compose_canned_acl_view",
+          "description": "A ComposeObject that names a canned ACL answers with acl and owner, as recorded; for a caller without ACL read permission the shared write view (add_written_owner_fields in src/grpc/v2/object_io/resource.rs) leaves both empty. That view was not recorded and no test pins it; pin it, then record it as a scoped difference under SPEC-GRPC-DERIVED-OWNER-VIEW.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_compose_destination_storage_class",
+          "description": "A destination storage_class returns UNIMPLEMENTED and creates nothing (compose_object in src/grpc/v2/update_copy.rs, pinned by grpc_derived_writes_reject_unsupported_options_without_creating_objects), although the destination Object may carry storage_class (storage.proto line 2925) and the shared compose already takes a requested destination class that every source must match (combine_sources in src/storage/catalog/compose.rs), as Cloud Storage's recorded refusal of mixed classes describes (SPEC-SDK-UNSUPPORTED, update 2026-11-17).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_compose_destination_fields",
+          "description": "A destination with retention, an acl list or any field outside the editable metadata, output-only fields included, returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs). The proto names the storage.objects.setRetention permission ComposeObject needs when the destination carries retention (storage.proto lines 278-284), and google.api.field_behavior describes OUTPUT_ONLY fields as ignored on input. Apply retention and acl, and ignore output-only fields.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_compose_strict_permissions",
+          "description": "The proto requires storage.objects.create and storage.objects.get, and storage.objects.delete when the composite replaces an object (storage.proto lines 278-284). The Storage v2 strict tests deny only a viewer (TestGRPCUpdateCopyStrict); pin a caller that lacks only storage.objects.get on the sources, and one that lacks only storage.objects.delete when overwriting.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -22917,9 +23284,23 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_compose_deletes_its_sources_only_when_asked",
+        "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+        "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_compose_deletes_its_sources_only_when_asked",
+            "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+            "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -22989,7 +23370,19 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "A destination storage_class returns UNIMPLEMENTED instead of selecting the composite's class.",
+        "A destination with retention, an acl list or output-only fields returns UNIMPLEMENTED.",
+        "No test pins the storage.objects.get and overwrite storage.objects.delete permissions the proto lists.",
+        "No test pins the response view of a canned-ACL ComposeObject for a caller without ACL read permission."
+      ],
+      "scoped_differences": [
+        {
+          "text": "kms_key returns UNIMPLEMENTED with ErrorInfo and creates no destination: the emulator models no Cloud KMS keys, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-11-17"
@@ -23006,14 +23399,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Provider-exact status precedence remains unverified; a customer-supplied key is ignored, as Cloud Storage does (BEHAVIOR-OBJECT-037).",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23027,8 +23420,22 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Provider-exact status precedence remains unverified; a customer-supplied key is ignored, as Cloud Storage does (BEHAVIOR-OBJECT-037).",
+          "id": "delete_ignores_customer_key",
+          "description": "common_object_request_params is not read: a key for an object that has none still deletes it, as Cloud Storage deleted whatever key the request carried (case grpc-csek, recorded 2026-11-15; BEHAVIOR-OBJECT-037).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_delete_ignores_a_customer_key_as_cloud_storage_does"
+          ]
+        },
+        {
+          "id": "delete_condition_validation",
+          "description": "DeleteObject validates its conditions leniently (only negative values are refused, conditions in src/grpc/v2/object_io.rs), so a metageneration condition of 0 and a match together with a not-match are evaluated. GetObject, ReadObject, BidiReadObject and a WriteObjectSpec do the same, while UpdateObject, MoveObject, RestoreObject, RewriteObject and ComposeObject refuse them with INVALID_ARGUMENT (strict_conditions in src/grpc/validate.rs). ListObjects takes no conditions. The proto states no validation rule; choose one rule for every object RPC and test it.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "delete_local_precedence",
+          "description": "Pin the order of authorization, object lookup, generation selection, conditions and the hold and retention refusals, and the status of each, with a test. Google documents no order and none was recorded, so the pinned order then becomes a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23036,9 +23443,19 @@
       "test_ids": [
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "TestGRPCObjectIODeletePolicies",
-        "TestGRPCObjectIOStrict"
+        "TestGRPCObjectIOStrict",
+        "grpc_delete_ignores_a_customer_key_as_cloud_storage_does"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-customer-supplied-keys.md",
+          "test_ids": [
+            "grpc_delete_ignores_a_customer_key_as_cloud_storage_does"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
           "result": "PASS",
@@ -23077,7 +23494,8 @@
         }
       ],
       "known_deviations": [
-        "Provider-exact status precedence remains unverified; a customer-supplied key is ignored, as Cloud Storage does (BEHAVIOR-OBJECT-037)."
+        "DeleteObject validates its conditions leniently, while the object mutation RPCs refuse a metageneration condition of 0 and a match together with a not-match.",
+        "The order of authorization, lookup, condition and hold or retention failures is not pinned by a test."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -23094,14 +23512,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23126,8 +23544,8 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_restore_copy_source_acl",
+          "description": "copy_source_acl=true returns UNIMPLEMENTED (restore_object in src/grpc/v2/move_restore.rs), while the proto documents it as restoring the soft-deleted object's own ACL and refusing it under uniform access (storage.proto lines 974-977). The JSON restore refuses copySourceAcl too (the SDK fail-fast probe, SPEC-SDK-UNSUPPORTED), so both adapters need it.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23139,9 +23557,19 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_derived_writes_return_the_recorded_owner_and_acl_views"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_derived_writes_return_the_recorded_owner_and_acl_views"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -23200,7 +23628,30 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "copy_source_acl=true returns UNIMPLEMENTED instead of restoring the soft-deleted object's ACL."
+      ],
+      "scoped_differences": [
+        {
+          "text": "restore_token returns UNIMPLEMENTED with ErrorInfo: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 948-953), and the emulator models no hierarchical namespace, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
+          "text": "A customer-supplied key returns UNIMPLEMENTED, as the JSON API rejects restore key headers; no recording covers RestoreObject with a key.",
+          "gap": "SPEC-GRPC-CSEK",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        },
+        {
+          "text": "The restored object is answered with owner and ACL, as RewriteObject's recorded answer is; Cloud Storage's RestoreObject view was not recorded.",
+          "gap": "SPEC-GRPC-DERIVED-OWNER-VIEW",
+          "test_ids": [
+            "grpc_derived_writes_return_the_recorded_owner_and_acl_views"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
@@ -23217,14 +23668,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Cancels a shared resumable session through the same catalog operation as the JSON session-URI DELETE: the session becomes unusable and its staged bytes are released without publishing. Contract and results: docs/en/slices/grpc-v2-object-io.md; googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23247,18 +23698,38 @@
         },
         {
           "id": "provider_status_parity",
-          "description": "Google documents no status for cancelling a finalized upload, a repeated cancel or a cancel during an in-progress write; provider parity of the local choices is unverified.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Google documents no status for cancelling a finalized upload, a repeated cancel or a cancel during an in-progress write, and none was recorded. Under the owner decision of 2026-11-18 (no real Cloud Storage runs) the local answers, FAILED_PRECONDITION, NOT_FOUND and retryable UNAVAILABLE, are recorded local choices: the tests pin them and the row records them as a scoped difference under SPEC-GRPC-LOCAL-CHOICES instead of pending provider verification.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_cancel_discards_sessions_and_staged_bytes"
+          ]
+        },
+        {
+          "id": "cancel_checks_permission_before_lookup",
+          "description": "A caller without storage.objects.create gets PERMISSION_DENIED, and an anonymous caller UNAUTHENTICATED, whether or not the upload_id names a session, so a denied caller learns nothing about it; a permitted caller gets NOT_FOUND for an unknown upload_id. QueryWriteStatus and resumed writes answer the same.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+          ]
         }
       ],
       "test_ids": [
         "grpc_io_cancel_discards_sessions_and_staged_bytes",
         "grpc_io_strict_cancel_requires_create_permission",
         "TestGRPCCancelResumableWrite",
-        "TestGRPCFoundationStrictAuth"
+        "TestGRPCFoundationStrictAuth",
+        "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -23293,7 +23764,23 @@
         }
       ],
       "known_deviations": [
-        "FAILED_PRECONDITION for a finalized upload, NOT_FOUND for a repeated cancel and UNAVAILABLE during an active write are local choices; Google documents no status for them. Any principal with storage.objects.create on the bucket may cancel, not only the session creator."
+        "Every acceptance case passes and the remaining local answers are scoped differences; the row stays PARTIAL until the owner reviews the 2026-11-18 decomposition."
+      ],
+      "scoped_differences": [
+        {
+          "text": "FAILED_PRECONDITION for a finalized upload, NOT_FOUND for a repeated cancel and for an unknown, malformed, other-bucket or expired upload_id, and retryable UNAVAILABLE while a write holds the session lease are local choices; Google documents no status for them and none was recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_io_cancel_discards_sessions_and_staged_bytes"
+          ]
+        },
+        {
+          "text": "Any caller with storage.objects.create on the bucket may cancel, not only the session creator, because a Storage v2 upload_id is not a bearer capability; Google documents no creator rule.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_io_strict_cancel_requires_create_permission"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -23310,14 +23797,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups and restore tokens remain unsupported. The owner carries only entity, as every recorded Storage v2 owner does (compatibility/differential/reference/gcs.json).",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23348,8 +23835,32 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Nested masks other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH), explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported.",
+          "id": "get_object_nested_masks",
+          "description": "A sub-path of an Object field other than checksums.crc32c and checksums.md5_hash (accepted by GetObject, ListObjects and, under metadata., ReadObject; see SPEC-GRPC-CHECKSUM-SUBPATH), for example owner.entity, returns UNIMPLEMENTED (mask_object in src/grpc/v2/object_io/resource.rs). Select sub-fields by protobuf field-mask rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "get_object_soft_deleted",
+          "description": "soft_deleted=true returns UNIMPLEMENTED ('GetObject soft_deleted/restore_token', get_object in src/grpc/v2/object_io/read.rs), while the proto documents it as returning the soft-deleted version (storage.proto lines 1080-1081). Select the soft-deleted generation through the shared catalog, as ListObjects soft_deleted already does.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "get_object_restore_token_pinned",
+          "description": "restore_token returns UNIMPLEMENTED; it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 1113-1118), an explicit refusal under SPEC-GRPC-UNMODELED-SETTINGS, but no test pins it on GetObject. Pin it, then record it as a scoped difference.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "get_object_mask_validation_order",
+          "description": "The read_mask is checked only after the object is read (mask_object runs on the result), so an invalid path on a missing object answers NOT_FOUND and a caller may learn whether an object exists before the mask error. Validate the mask before authorization and lookup, as GetBucket does with BucketMask::parse.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "get_object_condition_validation",
+          "description": "GetObject validates its conditions leniently (only negative values are refused), unlike the object mutation RPCs. The rule to choose is shared with RPC-STORAGE-011 delete_condition_validation.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23420,7 +23931,11 @@
         }
       ],
       "known_deviations": [
-        "Full and `*` read masks return ACL and owner through the shared JSON ACL projection. Nested masks, explicitly soft-deleted lookups, restore tokens and the owner entity_id field remain unsupported."
+        "Nested Object read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
+        "soft_deleted=true returns UNIMPLEMENTED instead of returning the soft-deleted version.",
+        "The restore_token refusal is not pinned by a GetObject test.",
+        "The read_mask is validated after the lookup, so a missing object answers NOT_FOUND before a mask error.",
+        "GetObject validates its conditions leniently, while the object mutation RPCs refuse a metageneration condition of 0 and a match together with a not-match."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"
@@ -23437,14 +23952,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): ReadObject no longer ends with an empty trailing message. Covered by the differential replay, not by a dedicated Rust test.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23476,8 +23991,20 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified.",
+          "id": "read_object_nested_masks",
+          "description": "A metadata. sub-path other than metadata.checksums.crc32c and metadata.checksums.md5_hash, for example metadata.owner.entity, returns UNIMPLEMENTED (mask_object through mask_first_response in src/grpc/v2/object_io/read.rs). Select sub-fields by protobuf field-mask rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "read_object_transcoding",
+          "description": "ReadObject returns the stored bytes of an object stored with content_encoding gzip as they are; it does not decompress them. The proto and the RPC reference say nothing about decompressive transcoding over Storage v2, nothing was recorded, and the JSON and XML behavior is BEHAVIOR-OBJECT-017. Choose whether Storage v2 transcodes, then pin the choice with a test (a scoped difference under SPEC-GRPC-LOCAL-CHOICES if it stays as is).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "read_object_local_precedence",
+          "description": "Pin the order of key parsing, the checksummed_data.content mask requirement, authorization, object selection with its conditions, and the read_offset check (the order of read_object in src/grpc/v2/object_io/read.rs), and the status of each, with a test. Google documents no order and none was recorded, so the pinned order then becomes a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23549,7 +24076,9 @@
         }
       ],
       "known_deviations": [
-        "Nested object masks, transcoding and exhaustive provider error precedence remain unsupported or unverified."
+        "Nested metadata. read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
+        "Whether ReadObject transcodes a gzip-encoded object is undecided; it returns the stored bytes.",
+        "The order of key, mask, authorization, selection and offset failures is not pinned by a test."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"
@@ -23566,14 +24095,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped BidiReadObject implementation: shared authorized generation/condition selection, initial metadata/handle, interleaved and later ranges, per-chunk CRC32C, signed offsets and EOF, and ordinary Go MultiRangeDownloader. Handles reopen their fixed generation with current authorization; deletion or nonversioned replacement returns NOT_FOUND. Handles hold no reader and expire after ten injected-clock minutes. Provider-exact lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Contract: docs/en/slices/grpc-v2-bidi-read.md; googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c.",
-      "dependencies": [],
-      "dependency_status": "SATISFIED",
+      "dependencies": ["BEHAVIOR-RAPID-005", "BEHAVIOR-RPC-004", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {"id": "bidi-ranges", "description": "Initial spec/metadata/handle, multiple and later read_ids, CRC32C, EOF/negative offsets and bounded streaming; see docs/en/slices/grpc-v2-bidi-read.md.", "result": "PASS", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "bidi_range_bounds_and_ids"]},
@@ -23583,10 +24112,12 @@
         {"id": "bidi-shared-status", "description": "Reuse status::from_json for backend UNAVAILABLE and unsupported JSON 501 with ErrorInfo-bearing UNIMPLEMENTED.", "result": "PASS", "test_ids": ["bidi_shared_error_status"]},
         {"id": "bidi-unfinalized", "description": "Without a finalized object, the stream selects an unfinalized appendable generation, returns metadata without MD5 and reads its persisted prefix; see docs/en/slices/grpc-v2-rapid-append.md.", "result": "PASS", "test_ids": ["TestGRPCAppendable"]},
         {"id": "bidi-outstanding-errors", "description": "Stream failure details retain the failing read_id's status and enumerate other unfinished admitted IDs as ABORTED; provider-exact status values remain unobserved in SPEC-GRPC-PENDING-RANGES.", "result": "PASS", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"]},
-        {"id": "bidi-remaining-fields", "description": "Redirects, nondefault read masks, preconditions combined with read handles, provider error parity and reads that follow later appends remain pending.", "result": "PENDING", "test_ids": []}
+        {"id": "bidi-read-mask", "description": "A read_mask other than absent, empty or * returns UNIMPLEMENTED (validate_spec in src/grpc/v2/bidi_read.rs). The field is deprecated but still documented: without it the response carries every field except metadata.owner and metadata.acl, and * means every field (storage.proto lines 1183-1190). Apply it to the first response's metadata as ReadObject does.", "result": "PENDING", "test_ids": []},
+        {"id": "bidi-handle-preconditions", "description": "A read_handle together with any generation or metageneration condition returns UNIMPLEMENTED (validate_spec), while the spec carries both fields with no rule against combining them (storage.proto lines 1145-1200). Evaluate the conditions against the handle's generation when the handle reopens it.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status"],
+      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "routing_token_and_read_mask_stay_unimplemented"],
       "verification": [
+        {"command": "cargo test --locked --offline --lib grpc::", "result": "PASS", "verified_at": "2026-11-18", "artifact": "docs/en/slices/grpc-v2-customer-supplied-keys.md", "test_ids": ["routing_token_and_read_mask_stay_unimplemented"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc_io_read_failures_use_shared_storage_status -- --test-threads=1", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["grpc_io_read_failures_use_shared_storage_status"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound"]},
@@ -23597,7 +24128,13 @@
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}, {"language": "Java", "toolchain": "openjdk 27.0.1", "sdk": "com.google.cloud:google-cloud-storage", "version": "2.78.0", "transport": "Storage v2 gRPC; blobReadSession with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Java)"]}, {"language": "Python", "toolchain": "3.15.2", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "Storage v2 gRPC; AsyncMultiRangeDownloader with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Python)"]}, {"language": "Rust", "toolchain": "1.100.0", "sdk": "google-cloud-storage", "version": "1.22.0", "transport": "Storage v2 gRPC; Storage::open_object with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.rust.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Rust)"]}],
-      "known_deviations": ["Process-local FIFO retains at most 1024 reader-free handle descriptors for ten injected-clock minutes; eviction, expiry or restart requires reopening without a handle. Missing generations return NOT_FOUND and invalidate the handle. Provider lifetime and removed-generation behavior remain unobserved in SPEC-GRPC-READ-HANDLES. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Other unfinished admitted read_ids receive ABORTED when a range or stream fails; provider status values remain unobserved in SPEC-GRPC-PENDING-RANGES. Provider-exact errors and restart-persistent handles are not claimed.", "Unfinalized appendable objects are read as a snapshot bounded by the size persisted when the stream or handle opened."],
+      "known_deviations": ["A read_mask other than absent, empty or * returns UNIMPLEMENTED.", "A read_handle combined with generation or metageneration conditions returns UNIMPLEMENTED."],
+      "scoped_differences": [
+        {"text": "Read handles are process-local and reader-free: a FIFO keeps at most 1024 of them for ten injected-clock minutes, and eviction, expiry or a restart answers FAILED_PRECONDITION, so the client reopens without a handle. A deleted or nonversioned-replaced generation answers NOT_FOUND and invalidates the handle. Google documents no lifetime, capacity or answer for a removed generation.", "gap": "SPEC-GRPC-READ-HANDLES", "test_ids": ["read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "read_handle_rejects_a_deleted_generation_and_discards_the_token"]},
+        {"text": "When a range or the stream fails, BidiReadObjectError keeps the failed read_id's own status and reports every other unfinished admitted read_id as ABORTED; the proto requires an entry for each pending read_id without naming its status.", "gap": "SPEC-GRPC-PENDING-RANGES", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
+        {"text": "Each message accepts at most 100 ranges, as the proto says, with non-retryable INVALID_ARGUMENT above it; the stream stops reading requests while 100 descriptors are queued (at most 199 after one admitted batch), reads one 64 KiB chunk at a time and holds two queued responses. Go v1.70.0 resends every pending range in one message after an interruption, so a reconnect with more than 100 pending ranges breaks the proto's limit and fails without retry; ordinary multi-message Add and Wait use the backpressure.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids"]},
+        {"text": "A routing_token returns UNIMPLEMENTED: the emulator never redirects a stream, so it never issues a BidiReadObjectRedirectedError whose token a client could repeat.", "gap": "SPEC-GRPC-UNMODELED-SETTINGS", "test_ids": ["routing_token_and_read_mask_stay_unimplemented"]}
+      ],
       "implemented_in": null,
       "last_verified": "2026-10-29"
     },
@@ -23613,14 +24150,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. A bare metadata mask merges the request's entries into the stored map and clears it when the request names none, and metadata. names the empty key, as Cloud Storage did (recorded 2026-11-17, case obj-gaps-empty-metadata-key); the change applies inside the mutation transaction without adding implicit preconditions, and explicit client conditions remain enforced. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23665,8 +24202,20 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_update_object_etag",
+          "description": "object.etag is never read (update_object in src/grpc/v2/update_object.rs), so an update carrying a stale etag still applies, while the proto makes the update conditional on a set etag matching the live object (storage.proto lines 2902-2906). Compare it with the stored object ETag inside the mutation transaction.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_update_object_wildcard_mask",
+          "description": "An update_mask of * returns UNIMPLEMENTED (pinned by grpc_masks_reject_unsupported_and_accept_defaults), while the proto defines * as a full update equivalent to the JSON update (storage.proto lines 2034-2041) and Cloud Storage served it (case grpc-unsupported-options, step update-object-wildcard-mask, a declared local_choice, recorded 2026-11-13).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_update_object_condition_validation",
+          "description": "UpdateObject refuses a metageneration condition of 0 and a match together with a not-match with INVALID_ARGUMENT (strict_conditions), while GetObject, ReadObject, BidiReadObject, DeleteObject and a WriteObjectSpec evaluate them. The rule to choose is shared with RPC-STORAGE-011 delete_condition_validation.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23772,7 +24321,18 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Rewrite continuation tokens stay on gRPC."
+        "A set object.etag is ignored instead of making the update conditional.",
+        "An update_mask of * returns UNIMPLEMENTED, although the proto defines it and Cloud Storage serves it.",
+        "UpdateObject validates its conditions strictly, while the object read RPCs, DeleteObject and writes evaluate the same conditions."
+      ],
+      "scoped_differences": [
+        {
+          "text": "An update path for object contexts returns UNIMPLEMENTED with ErrorInfo through the catch-all arm of object_update::from_proto (pinned for contexts.custom): the emulator stores no object contexts, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-11-17"
@@ -23789,14 +24349,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23810,8 +24370,34 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Unsupported write resource fields/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "id": "write_owner_view",
+          "description": "A finished write answers with acl and owner, as Cloud Storage did (recorded 2026-11-01), and its ACL entries for a team of the bucket's project carry entity_alt.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_write_returns_acl_and_owner_and_read_ends_with_data"
+          ]
+        },
+        {
+          "id": "write_lease_after_finish",
+          "description": "When a resumed upload_id message sets finish_write, WriteObject waits for the client to end the request stream, so that it can refuse a following message, while it still holds the session writer lease (receive_resumable_write in src/grpc/v2/object_io/resumable.rs). A client that keeps the stream open after finish_write therefore keeps another stream that resumes the upload waiting for the lease and makes CancelResumableWrite answer UNAVAILABLE until it closes. Check for a following message without holding the lease.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "write_predefined_acl",
+          "description": "write_object_spec.predefined_acl returns UNIMPLEMENTED (write_spec in src/grpc/v2/object_io/write.rs), while the proto documents it (storage.proto lines 1358-1361) and the JSON upload applies predefinedAcl (BucketAclWrite::ObjectUpload in src/json/buckets.rs).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "write_resource_fields",
+          "description": "A write resource with acl, retention or a field the proto marks OUTPUT_ONLY (for example generation, metageneration, size, create_time or update_time) returns UNIMPLEMENTED ('write_object_spec.resource fields', write_spec), instead of applying acl and retention as the JSON upload applies a retention, and ignoring output-only fields as google.api.field_behavior describes. resource.checksums, which the proto also marks OUTPUT_ONLY (storage.proto line 2983), is instead verified as the expected digests; decide whether to keep that.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "write_local_precedence",
+          "description": "Pin the order and status of spec validation, key parsing, authorization, conditions, offsets, checksums and size checks, and of malformed streams (a message after finish_write, a second spec, a stream that ends without finish_write), with a test. Google documents no order and none was recorded, so the pinned order then becomes a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23819,9 +24405,21 @@
       "test_ids": [
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "TestGRPCObjectIOWire",
-        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
+        "grpc_io_write_returns_acl_and_owner_and_read_ends_with_data",
+        "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_write_returns_acl_and_owner_and_read_ends_with_data",
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
           "result": "PASS",
@@ -23859,7 +24457,19 @@
         }
       ],
       "known_deviations": [
-        "Unsupported write resource fields/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+        "A resumed WriteObject holds the session writer lease while it waits for the stream to end after finish_write.",
+        "write_object_spec.predefined_acl returns UNIMPLEMENTED instead of applying the canned ACL.",
+        "A write resource with acl, retention or output-only fields returns UNIMPLEMENTED.",
+        "The order and status of validation, authorization and malformed-stream failures are not pinned by a test."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A write resource with kms_key, or with object contexts, returns UNIMPLEMENTED with ErrorInfo through the shared resource check of write_spec (pinned for kms_key): the emulator models no Cloud KMS keys and stores no object contexts, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -23876,14 +24486,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Appendable writes (WriteObjectSpec.appendable and AppendObjectSpec with flush, state_lookup, write handles and finish_write) are routed to the separate Rapid state machine: docs/en/slices/grpc-v2-rapid-append.md. Non-final flush/state_lookup without upload_id on non-appendable writes, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RAPID-002", "BEHAVIOR-RAPID-003", "BEHAVIOR-RAPID-004", "BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -23914,8 +24524,32 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "id": "bidi_write_predefined_acl",
+          "description": "write_object_spec.predefined_acl returns UNIMPLEMENTED through the write_spec shared with WriteObject; see RPC-STORAGE-018 write_predefined_acl.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "bidi_write_resource_fields",
+          "description": "A write resource with acl, retention or output-only fields returns UNIMPLEMENTED through the write_spec shared with WriteObject; see RPC-STORAGE-018 write_resource_fields.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "bidi_write_append_first_message",
+          "description": "On an appendable stream, open_writer creates the appendable generation (WriteObjectSpec.appendable) or takes the object over (AppendObjectSpec, which issues a new write handle and supersedes the previous writer) before append_step checks the first message's per-chunk CRC32C, an MD5 in object_checksums and a negative write_offset (src/grpc/v2/append.rs); a takeover's object_checksums without finish_write is also checked only then, while a creating spec refuses it before creating anything. A first message that fails those checks leaves a new empty appendable object, or a superseded writer, behind. Check the whole first message before opening the writer.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "bidi_write_append_routing_token",
+          "description": "AppendObjectSpec.routing_token is accepted and ignored (open_writer never reads it; BEHAVIOR-RAPID-003 records it), while BidiReadObject refuses a routing_token with UNIMPLEMENTED and the owner decision of 2026-11-18 keeps redirect routing tokens as explicit refusals (SPEC-GRPC-UNMODELED-SETTINGS). Decide whether the appendable path refuses it too; the emulator never sends BidiWriteObjectRedirectedError, so a client has no token of its own to repeat.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "bidi_write_cancel_race",
+          "description": "A message received before a client cancellation still commits after QueryWriteStatus answered, so a status queried right after cancelling can report an offset that the write then advances, and resuming from it returns OUT_OF_RANGE until the client queries again (docs/en/evidence/grpc-deadlines.md). Letting the first message of a resumed stream start before the persisted offset (BEHAVIOR-RPC-003 stream_resume_offset) would let that retry succeed; decide both together.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23933,9 +24567,19 @@
         "append_takeover_supersedes_the_previous_writer",
         "append_rejects_replacement_and_invalid_messages_without_false_success",
         "TestGRPCAppendable",
-        "TestGRPCAppendableSingleWriter"
+        "TestGRPCAppendableSingleWriter",
+        "append_strict_requires_create_and_allows_viewer_reads"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-rapid-append.md",
+          "test_ids": [
+            "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        },
         {
           "command": "cargo test --locked --lib grpc::v2::append",
           "result": "PASS",
@@ -24019,9 +24663,26 @@
         }
       ],
       "known_deviations": [
-        "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
-        "Appendable writes follow the Rapid limitations recorded in BEHAVIOR-RAPID-002 to BEHAVIOR-RAPID-005.",
+        "write_object_spec.predefined_acl, and a write resource with acl, retention or output-only fields, return UNIMPLEMENTED.",
+        "An appendable stream creates or takes over the object before it checks the rest of its first message.",
+        "AppendObjectSpec.routing_token is accepted and ignored, while BidiReadObject refuses a routing token.",
         "A message received before a client cancellation still commits, and QueryWriteStatus does not wait for that in-flight write, so a status queried right after cancelling can report an offset that the write then advances; resuming from it returns OUT_OF_RANGE until the client queries again (docs/en/evidence/grpc-deadlines.md)."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A write resource with kms_key, or with object contexts, returns UNIMPLEMENTED with ErrorInfo through the shared resource check of write_spec (pinned for kms_key): the emulator models no Cloud KMS keys and stores no object contexts, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
+          ]
+        },
+        {
+          "text": "Finalizing an appendable object answers with owner and ACL through the common write view; appendable objects need a zonal bucket, so Cloud Storage's answer was not recorded.",
+          "gap": "SPEC-GRPC-DERIVED-OWNER-VIEW",
+          "test_ids": [
+            "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29"
@@ -24038,14 +24699,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 ListObjects constructs a typed shared query directly, validates combinations with the JSON adapter's shared rules and encodes query-bound page tokens without rendering JSON resources. Validation errors use proto field names. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -24083,8 +24744,31 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+          "id": "list_folders_as_prefixes",
+          "description": "include_folders_as_prefixes with delimiter / lists the same prefixes as without it, because no local bucket holds folders or managed folders; without delimiter / it returns INVALID_ARGUMENT naming delimiter=/, as the JSON listing does (storage.proto lines 1666-1669).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_list_folders_as_prefixes_follows_the_json_rule"
+          ]
+        },
+        {
+          "id": "list_page_budget",
+          "description": "A page ends near 2 MiB of encoded objects with a next_page_token, whatever page_size asks for, and always holds one entry: 600 objects with 8000-byte metadata list in several pages that each stay under 4 MiB and together reach every object in order, and a page budget smaller than any entry still advances one entry, prefixes included, per page.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_object_lists_page_on_their_size_and_reach_every_object",
+            "an_object_page_past_its_budget_still_advances_one_entry_at_a_time"
+          ]
+        },
+        {
+          "id": "list_nested_masks",
+          "description": "A sub-path of an Object field other than checksums.crc32c and checksums.md5_hash returns UNIMPLEMENTED (mask_object in src/grpc/v2/object_io/resource.rs), as on GetObject. Select sub-fields by protobuf field-mask rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "list_mask_validation_order",
+          "description": "The read_mask is checked per returned object (mask_object in the response loop of list_objects in src/grpc/v2/object_io/read.rs), so an invalid mask on an empty page or an empty bucket returns OK, and it is checked only after authorization and the catalog query. Validate the mask before authorization and the query.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24095,9 +24779,23 @@
         "TestGRPCObjectIO",
         "grpc_list_soft_deleted_objects",
         "grpc_list_soft_deleted_objects_strict",
-        "grpc_listing_uses_proto_errors_and_preserves_page_tokens"
+        "grpc_listing_uses_proto_errors_and_preserves_page_tokens",
+        "grpc_list_folders_as_prefixes_follows_the_json_rule",
+        "grpc_object_lists_page_on_their_size_and_reach_every_object",
+        "an_object_page_past_its_budget_still_advances_one_entry_at_a_time"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_list_folders_as_prefixes_follows_the_json_rule",
+            "grpc_object_lists_page_on_their_size_and_reach_every_object",
+            "an_object_page_past_its_budget_still_advances_one_entry_at_a_time"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -24154,7 +24852,17 @@
         }
       ],
       "known_deviations": [
-        "Nested masks, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified."
+        "Nested Object read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
+        "The read_mask is validated per returned object, so an invalid mask on an empty page returns OK."
+      ],
+      "scoped_differences": [
+        {
+          "text": "filter, an expression over object contexts (storage.proto lines 1677-1682), returns UNIMPLEMENTED with ErrorInfo: the emulator stores no object contexts, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_list_folders_as_prefixes_follows_the_json_rule"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"
@@ -24171,14 +24879,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -24214,8 +24922,20 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "rewrite_destination_fields",
+          "description": "A destination resource with retention, an acl list or any field outside the editable metadata, output-only fields included, returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs), although the JSON rewrite applies a destination retention (SPEC-SDK-UNSUPPORTED, update 2026-11-17) and google.api.field_behavior describes OUTPUT_ONLY fields as ignored on input. Apply retention and acl, and ignore output-only fields.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "rewrite_content_type",
+          "description": "Cloud Storage answered two completed RewriteObject calls without the source's text/plain content_type, which gcs-mimic copies (case grpc-gaps-derived-checksums, recorded 2026-11-17; those steps compare without it). Whether and when Storage v2 drops a rewritten content type is undecided; decide from the recording and align or record the local choice.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "rewrite_cross_transport_token",
+          "description": "A rewrite_token issued over Storage v2 is meant only for Storage v2 continuations, and a JSON rewriteToken only for JSON (completed Storage v2 responses are stored as protobuf bytes in the shared session); no test pins what either transport answers for the other's token. Pin it, then record it as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24308,7 +25028,18 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "A destination with retention, an acl list or output-only fields returns UNIMPLEMENTED.",
+        "A rewritten object keeps the source's content type, where Cloud Storage's recorded completed rewrites carried none.",
+        "Rewrite continuation tokens stay on the transport that issued them, and no test pins the answer for the other transport's token."
+      ],
+      "scoped_differences": [
+        {
+          "text": "destination_kms_key returns UNIMPLEMENTED with ErrorInfo and creates no destination: the emulator models no Cloud KMS keys, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-11-17"
@@ -24325,14 +25056,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unhandled write metadata/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -24347,8 +25078,22 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Unhandled write metadata/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days.",
+          "id": "start_resumable_key_binding",
+          "description": "The request's customer-supplied key binds the session: a malformed key creates no session, upload_id messages need no key and one with another key is ignored, and the finished object is encrypted with the starting key, as Cloud Storage did (case grpc-csek, recorded 2026-11-15).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_resumable_key_binds_at_start_and_status_ignores_keys"
+          ]
+        },
+        {
+          "id": "start_resumable_resource_fields",
+          "description": "write_object_spec.predefined_acl, and a resource with acl, retention or output-only fields, return UNIMPLEMENTED through the write_spec shared with WriteObject; see RPC-STORAGE-018 write_predefined_acl and write_resource_fields.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "start_resumable_expiry",
+          "description": "Sessions expire seven days after StartResumableWrite and their number is unlimited unless max_resumable_sessions sets a limit, while the proto leaves the validity of a resumable write service-dependent (storage.proto lines 558-566). No Storage v2 test pins the expiry (JSON resumable tests pin the shared engine's); pin it with the injected clock, then record it as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24357,9 +25102,21 @@
         "grpc_io_resumes_durable_offsets_and_queries_completion",
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "TestGRPCObjectIOWire",
-        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
+        "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+        "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
           "result": "PASS",
@@ -24398,7 +25155,17 @@
         }
       ],
       "known_deviations": [
-        "Unhandled write metadata/ACL and exhaustive recovery/fault injection remain pending; shared sessions are unlimited by default (max_resumable_sessions sets a limit) and expire after seven days."
+        "write_object_spec.predefined_acl, and a resource with acl, retention or output-only fields, return UNIMPLEMENTED.",
+        "The seven-day session expiry (sessions are otherwise unlimited unless max_resumable_sessions sets a limit) is not pinned by a Storage v2 test."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A resource with kms_key, or with object contexts, returns UNIMPLEMENTED with ErrorInfo through the shared resource check of write_spec (pinned for kms_key) and creates no session: the emulator models no Cloud KMS keys and stores no object contexts, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
+          ]
+        }
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -24415,14 +25182,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Optional persisted-prefix checksums and exhaustive concurrent status/recovery/error details remain unverified; shared retained-session expiry applies.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -24436,8 +25203,36 @@
           ]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Optional persisted-prefix checksums and exhaustive concurrent status/recovery/error details remain unverified; shared retained-session expiry applies.",
+          "id": "query_status_ignores_keys",
+          "description": "common_object_request_params is not read: any key, even a wrong one, is ignored on an open or a finished session, and a finished session's resource shows its checksums and customer_encryption, as Cloud Storage did (case grpc-csek, recorded 2026-11-15).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_resumable_key_binds_at_start_and_status_ignores_keys"
+          ]
+        },
+        {
+          "id": "query_status_permission_before_lookup",
+          "description": "A caller without storage.objects.create gets PERMISSION_DENIED, and an anonymous caller UNAUTHENTICATED, whether or not the upload_id names a session; a permitted caller gets NOT_FOUND for an unknown upload_id.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+          ]
+        },
+        {
+          "id": "query_status_persisted_checksums",
+          "description": "QueryWriteStatus answers persisted_size without persisted_data_checksums (the response is built with ..Default::default() in query_write_status, src/grpc/v2/object_io/resumable.rs), while the proto returns the checksums of the persisted data whenever persisted_size is set (storage.proto line 1714). The session already keeps a running digest of its persisted prefix to report from.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "query_status_monotonic",
+          "description": "The proto requires the persisted_size values that successive QueryWriteStatus calls return for an object to be non-decreasing (storage.proto lines 581-597). Each answer reads the committed session offset, which only grows, but no test pins this across concurrent writes, restarts and failed messages.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "query_status_expiry",
+          "description": "A session past its seven-day expiry answers NOT_FOUND, the shared engine's local bound, but no Storage v2 test pins it; pin it with the injected clock, then record it as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24445,9 +25240,21 @@
       "test_ids": [
         "grpc_io_resumes_durable_offsets_and_queries_completion",
         "TestGRPCObjectIOWire",
-        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion",
+        "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+        "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::object_io",
           "result": "PASS",
@@ -24485,7 +25292,9 @@
         }
       ],
       "known_deviations": [
-        "Optional persisted-prefix checksums and exhaustive concurrent status/recovery/error details remain unverified; shared retained-session expiry applies."
+        "persisted_data_checksums is never returned with persisted_size.",
+        "No test pins non-decreasing persisted_size answers across concurrent writes, restarts and failed messages.",
+        "The seven-day session expiry is not pinned by a Storage v2 test."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -24502,14 +25311,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
       "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
+      "dependencies": ["BEHAVIOR-RPC-005"],
+      "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
@@ -24526,8 +25335,23 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "id": "grpc_move_response_and_same_name",
+          "description": "MoveObject answers without acl and owner, as Cloud Storage did (case grpc-unsupported-options, recorded 2026-11-13), also for a caller without ACL read permission; a move onto the source's own name returns INVALID_ARGUMENT 'Source and destination object names must be different.', the JSON API's message.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+            "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
+          ]
+        },
+        {
+          "id": "grpc_move_permissions",
+          "description": "The adapter checks storage.objects.get, storage.objects.delete and storage.objects.create on the bucket for every move (move_object in src/grpc/v2/move_restore.rs), as the JSON move does, while the proto lists storage.objects.move, storage.objects.create, and storage.objects.delete only when the move overwrites an object (storage.proto lines 612-622). Decide whether both adapters check storage.objects.move and drop delete for a move that overwrites nothing, then pin the set with strict tests.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_move_condition_validation",
+          "description": "MoveObject refuses a metageneration condition of 0 and a match together with a not-match, for source and destination, with INVALID_ARGUMENT (strict_conditions). The rule to choose is shared with RPC-STORAGE-011 delete_condition_validation.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24538,9 +25362,21 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+        "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+            "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
           "result": "PASS",
@@ -24590,7 +25426,8 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "The permissions checked for a move differ from the proto's list (storage.objects.move is not checked; storage.objects.delete is checked even when nothing is overwritten).",
+        "MoveObject validates its conditions strictly, while the object read RPCs, DeleteObject and writes evaluate the same conditions."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"
@@ -37345,7 +38182,7 @@
         }
       ],
       "known_deviations": [
-        "Finalized appendable objects carry an MD5 hash because shared publication computes it, and finalize_time is not reported."
+        "Finalized appendable objects carry an MD5 hash because shared publication computes it, and their finalize_time is the time the generation was created, not the moment finish_write arrived."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-29"
@@ -37473,11 +38310,12 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "projects/_/buckets names, x-goog-request-params, read/write handles and routing tokens.",
+      "notes": "projects/_/buckets names, x-goog-request-params, read/write handles and routing tokens. Request metadata beyond routing (x-goog-user-project, grpc-timeout, grpc-encoding) is tracked here too. Read handles belong to BEHAVIOR-RPC-004, write handles to BEHAVIOR-RAPID-003, and the legacy v1 adapter's refusal of routing metadata to its RPC-LEGACY rows.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -37497,8 +38335,29 @@
           ]
         },
         {
-          "id": "grpc_bucket_routing_remaining",
-          "description": "Provider-exact invalid-name status and complete SDK routing interoperability remain pending in SPEC-GRPC-ROUTING-NAMES. BidiReadObject handles and Rapid write handles have separate partial contracts. Redirect routing tokens remain unsupported in metadata; legacy v1 rejects routing metadata with UNIMPLEMENTED. Unknown semantic routing keys fail explicitly.",
+          "id": "grpc_routing_field_rules",
+          "description": "Each routed field is compared by its own rule: an appendable value must be exactly true or false and match the request, a bucket the request does not name matches no routed bucket, a malformed upload_id routes by the text before its first slash, and a source_bucket is parsed only when the RPC routes it. The Go direct_connectivity_diagnostic key is accepted and routes nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "routing_compares_each_field_with_its_own_rule",
+            "deferred_routing_checks_only_the_field"
+          ]
+        },
+        {
+          "id": "grpc_routing_sdk_lanes",
+          "description": "Run the pinned Go and Rust gRPC SDK lanes against the routing checks (CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust), as SPEC-GRPC-ROUTING-NAMES requires; this row records no SDK run after the 2026-11-04 routing change, and the Node SDK harness has no gRPC lane.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_request_deadline",
+          "description": "The server applies no grpc-timeout of its own: a call ends at its deadline only when the client resets the stream, and an abandoned call publishes nothing and holds no writer (docs/en/evidence/grpc-deadlines.md). Decide whether Storage v2 enforces grpc-timeout on the server and answers DEADLINE_EXCEEDED, as the gRPC HTTP/2 protocol lets a server do, or records the client-side enforcement as a scoped difference with a test.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_message_compression",
+          "description": "No message compression is offered: tonic is built with only its codegen feature (Cargo.toml) and no service enables accept_compressed or send_compressed, so tonic refuses a request whose grpc-encoding names gzip before a handler runs, and responses are never compressed. No test pins the refusal. Decide whether to accept and send gzip, or record the refusal as a scoped difference with a test.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -37510,9 +38369,21 @@
         "grpc_buckets_pagination_and_routing",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
-        "TestGRPCBucketsStrict"
+        "TestGRPCBucketsStrict",
+        "routing_compares_each_field_with_its_own_rule",
+        "deferred_routing_checks_only_the_field"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "routing_compares_each_field_with_its_own_rule",
+            "deferred_routing_checks_only_the_field"
+          ]
+        },
         {
           "command": "cargo test --lib grpc::v2 -- --test-threads=4",
           "result": "PASS",
@@ -37565,7 +38436,27 @@
         }
       ],
       "known_deviations": [
-        "Routing metadata is validated only for the four bucket RPCs; object RPCs take the resource from the request and do not cross-check x-goog-request-params. BidiReadObject read handles are covered by BEHAVIOR-RPC-004; write handles, Rapid append and routing tokens return UNIMPLEMENTED, and legacy v1 rejects routing metadata with UNIMPLEMENTED. Unknown semantic routing fields return UNIMPLEMENTED."
+        "No SDK lane run is recorded for the routing checks since the 2026-11-04 routing change.",
+        "The server applies no grpc-timeout of its own; only the client ends a call at its deadline.",
+        "No message compression is offered, and the refusal of a gzip-compressed request is not pinned by a test."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A malformed routed bucket returns INVALID_ARGUMENT with the GRPC_INVALID_X_GOOG_REQUEST_PARAMS_INVALID_BUCKET_FORMAT reason, and a routed value that conflicts with the request returns INVALID_ARGUMENT; bucket IDs follow the configured native or fake-gcs-server naming profile. Google documents no status for these and none was recorded.",
+          "gap": "SPEC-GRPC-ROUTING-NAMES",
+          "test_ids": [
+            "routing_validates_all_values_and_resumed_upload_buckets",
+            "grpc_names_follow_the_configured_bucket_profile"
+          ]
+        },
+        {
+          "text": "An x-goog-request-params key that the RPC does not route returns UNIMPLEMENTED with ErrorInfo (pinned for project on RPCs that do not route it), and so does any other key, a redirect routing token included: the emulator never redirects, so it never issues a routing token to repeat.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "routing_validates_all_values_and_resumed_upload_buckets",
+            "deferred_routing_checks_only_the_field"
+          ]
+        }
       ],
       "implemented_in": "3e8d13d",
       "last_verified": "2026-10-28"
@@ -37583,7 +38474,8 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
@@ -37614,8 +38506,49 @@
           ]
         },
         {
-          "id": "grpc_full_contract",
-          "description": "Read masks, wildcard masks and complete output-only/nested field-mask parity remain outside this update-mask subset.",
+          "id": "grpc_bucket_read_masks",
+          "description": "GetBucket and ListBuckets read masks select top-level Bucket fields, including the settings that are never stored, which come back unset; the Java SDK's default mask that names every field reads what a request without a mask reads; * alone selects every field; * beside a name returns INVALID_ARGUMENT with Cloud Storage's recorded message.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_bucket_options_reject_only_what_is_unsupported",
+            "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset"
+          ]
+        },
+        {
+          "id": "grpc_object_read_masks",
+          "description": "GetObject and ListObjects read masks accept every top-level Object field and *; [name, acl] keeps only those fields; checksums.crc32c or checksums.md5_hash keeps only that digest; ReadObject's metadata, metadata.acl and metadata.owner paths and * select the object's ACL and owner.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
+        {
+          "id": "grpc_masks_nested_paths",
+          "description": "Nested read-mask paths return UNIMPLEMENTED on GetBucket, ListBuckets, GetObject, ListObjects and ReadObject, except the two checksum digests on objects (BucketMask::parse in src/grpc/v2/mask.rs, mask_object in src/grpc/v2/object_io/resource.rs), while Cloud Storage served a nested bucket read mask (case grpc-unsupported-options, recorded 2026-11-13). Select sub-fields by protobuf field-mask rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_masks_wildcard_update",
+          "description": "An update_mask of * returns UNIMPLEMENTED on UpdateBucket and UpdateObject, while the proto defines it as a full update equivalent to the JSON update (storage.proto lines 806-813 and 2034-2041) and Cloud Storage served it on UpdateObject (case grpc-unsupported-options, recorded 2026-11-13).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_masks_unknown_bucket_path",
+          "description": "A bucket read_mask path that names no Bucket field returns UNIMPLEMENTED (UnselectableBucketPath in src/grpc/v2/mask.rs), while an object read_mask path that names no Object field returns INVALID_ARGUMENT 'There is no field for this resource named ...', as Cloud Storage answered for objects (2026-11-01, replayed in docs/en/evidence/differential-comparison.md). Answer an unknown bucket path the same way.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_masks_output_only_update_paths",
+          "description": "UpdateObject ignores the output-only create_time path, which the pinned Go SDK sends in an ordinary update, but refuses every other output-only path, such as update_time, with UNIMPLEMENTED; UpdateBucket refuses every output-only path. Decide whether output-only update paths are ignored on both RPCs.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_masks_validation_order",
+          "description": "Bucket read masks are validated before authorization and lookup, while object read masks are validated after the lookup (GetObject) or per returned object (ListObjects), so an invalid object mask on a missing object or an empty page goes unreported; see RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -37640,9 +38573,23 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access"
+        "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access",
+        "grpc_bucket_options_reject_only_what_is_unsupported",
+        "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
+        "grpc_io_full_read_masks_return_acl_and_owner"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_bucket_options_reject_only_what_is_unsupported",
+            "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
+            "grpc_io_full_read_masks_return_acl_and_owner"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -37714,7 +38661,11 @@
         }
       ],
       "known_deviations": [
-        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+        "Nested read-mask paths return UNIMPLEMENTED, except the two checksum digests on objects.",
+        "An update_mask of * returns UNIMPLEMENTED on UpdateBucket and UpdateObject.",
+        "An unknown bucket read_mask path returns UNIMPLEMENTED, while an unknown object path returns INVALID_ARGUMENT.",
+        "Output-only update paths other than UpdateObject's create_time return UNIMPLEMENTED.",
+        "Object read masks are validated after the lookup or per returned object, bucket read masks before authorization."
       ],
       "implemented_in": null,
       "last_verified": "2026-11-13"
@@ -37732,7 +38683,8 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "SPEC_BASED",
@@ -37761,8 +38713,44 @@
           "test_ids": ["grpc_io_finalized_resume_returns_the_original_resource", "grpc_io_bidi_half_close_reports_unacknowledged_persisted_size", "grpc_io_disconnected_resumable_stream_releases_its_lease", "grpc_io_concurrent_finalization_rejects_later_messages"]
         },
         {
-          "id": "broader_rpc_semantics",
-          "description": "Non-final non-resumable flush/state_lookup, concurrent streams for one upload ID, post-finish messages and exhaustive fault/resource cases remain unverified or unsupported. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "id": "stream_single_flush",
+          "description": "On a non-resumable stream (write_object_spec without appendable), flush or state_lookup on a message without finish_write returns UNIMPLEMENTED (produce_single_write in src/grpc/v2/object_io/write.rs), while the BidiWriteObject RPC documents both for its streams (storage.proto lines 515-531). Persist and report the received prefix as an upload_id stream does.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "stream_after_finish",
+          "description": "BidiWriteObject answers at finish_write and stops reading, so a later message is not reported as an error (EndOfStream::NotChecked in src/grpc/v2/object_io/write.rs), while the proto says any request after finish_write causes an error (storage.proto lines 494-496 and 1572-1574). WriteObject does refuse one with INVALID_ARGUMENT (message_after_finish), but no test pins that refusal. Check how the pinned SDKs half-close a BidiWriteObject stream after finish_write before refusing later messages.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "stream_resume_offset",
+          "description": "The first message of a resumed upload_id stream must name exactly the persisted offset; an earlier offset returns OUT_OF_RANGE (resumable_piece in src/grpc/v2/object_io/resumable.rs), while later messages may overlap persisted bytes. The write_offset field comments require exactly the persisted size (storage.proto lines 1411-1415 and 1529-1533), but the WriteObject RPC comment lets a client start earlier and have the service skip persisted bytes (storage.proto lines 480-489). The proto's two comments disagree; choose one and test it (RPC-STORAGE-019 bidi_write_cancel_race depends on the choice).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "stream_persisted_checksums",
+          "description": "Progress responses of resumable and non-resumable writes carry persisted_size without persisted_data_checksums (send_status in src/grpc/v2/object_io/write.rs, and the WriteObjectResponse built in write_object); only appendable writes return them (status_response in src/grpc/v2/append.rs). The proto returns the checksums of the persisted data whenever persisted_size is set (storage.proto lines 1465 and 1599).",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "stream_resumable_first_checksums",
+          "description": "On an upload_id stream, object_checksums on a message without finish_write returns UNIMPLEMENTED (check_resumable_message in src/grpc/v2/object_io/resumable.rs), but the proto allows them on the first message of a non-appendable write (storage.proto lines 1431-1434 and 1548-1551). The stated reason, that the session cannot persist a changed checksum, no longer holds: the checkpoint stores each message's options, the merged digests included, in the same update as its offset (checkpoint_resumable_output in src/storage/catalog/resumable.rs). Accept them on the first message.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "stream_concurrent_upload",
+          "description": "A second stream that resumes an upload_id while another holds the session writer lease waits for that lease (wait_for_writer through lock_resumable_session in src/storage/catalog/resumable.rs); only a finalization by another stream is pinned (grpc_io_concurrent_finalization_rejects_later_messages). The proto names ABORTED for concurrent attempts to update a resumable write (storage.proto lines 472-479). Decide between waiting and answering ABORTED, then pin it.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "stream_faults",
+          "description": "Restart and catalog reopen are pinned (grpc_io_resumes_durable_offsets_and_queries_completion), but no Storage v2 test drives a failed write, a failed sync or a crash at a resumable session checkpoint through the fault seam (src/storage/catalog/fault.rs); the shared engine's JSON resumable tests cover the seam itself.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -37823,7 +38811,13 @@
         }
       ],
       "known_deviations": [
-        "Non-final non-resumable flush/state_lookup, concurrent streams for one upload ID, post-finish messages and exhaustive fault/resource cases remain unverified or unsupported. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+        "Non-final flush or state_lookup on a non-resumable stream returns UNIMPLEMENTED.",
+        "BidiWriteObject does not report a message sent after finish_write, and WriteObject's refusal of one is not pinned by a test.",
+        "The first message of a resumed stream must name exactly the persisted offset, while one proto comment allows an earlier offset.",
+        "persisted_data_checksums is returned only on appendable writes.",
+        "object_checksums on the first message of an upload_id stream returns UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+        "A concurrent stream on the same upload_id waits for the writer lease instead of answering ABORTED, and neither choice is pinned.",
+        "No Storage v2 test drives write, sync or crash faults at a session checkpoint."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -37841,7 +38835,8 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto"
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "SPEC_BASED",
@@ -37853,10 +38848,11 @@
         {"id": "bidi-multi-range", "description": "Interleaved read_ids, later requests, stable read handles, range_end and invalid-range error details; see docs/en/slices/grpc-v2-bidi-read.md.", "result": "PASS", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict"]},
         {"id": "bidi-backpressure", "description": "600 default high-level Add calls complete without an aggregate rejection; an oversized single message fails with non-retryable INVALID_ARGUMENT.", "result": "PASS", "test_ids": ["TestGRPCBidiReadManyRanges", "TestGRPCBidiReadWire"]},
         {"id": "bidi-outstanding-errors-local", "description": "Stream failure details enumerate unfinished admitted IDs, preserving the failed range's status and marking the others ABORTED. Rich status code/message always match the outer gRPC status, including I/O failures and duplicate read_ids.", "result": "PASS", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details"]},
-        {"id": "bidi-all-range-errors", "description": "Verify provider-exact statuses and ordering for unfinished ranges, errors and redirects.", "result": "PENDING", "test_ids": []}
+        {"id": "bidi-all-range-errors", "description": "Statuses for unfinished ranges and redirects are now recorded local choices or explicit refusals (the scoped differences under SPEC-GRPC-PENDING-RANGES and SPEC-GRPC-UNMODELED-SETTINGS, owner decision 2026-11-18). What remains is the order of the read_range_errors entries: the proto names none, and bidi_range_errors_report_every_submitted_read_id compares the entries as a map, so no test pins it. Pin the order, then add it to the SPEC-GRPC-PENDING-RANGES scoped difference.", "result": "PENDING", "test_ids": []}
       ],
-      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details"],
+      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "bidi_range_bounds_and_ids", "routing_token_and_read_mask_stay_unimplemented"],
       "verification": [
+        {"command": "cargo test --locked --offline --lib grpc::", "result": "PASS", "verified_at": "2026-11-18", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "bidi_range_bounds_and_ids", "routing_token_and_read_mask_stay_unimplemented"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc:: -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_duplicate_id_keeps_outer_error_in_details", "stream_errors_normalize_existing_rich_status_and_preserve_details"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc::v2::bidi_read -- --test-threads=4", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
         {"command": "CARGO_BUILD_JOBS=4 cargo test --lib grpc_io_read_failures_use_shared_storage_status -- --test-threads=1", "result": "PASS", "verified_at": "2026-11-04", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["grpc_io_read_failures_use_shared_storage_status"]},
@@ -37864,7 +38860,13 @@
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; interleaved ranges, 600 Add calls with backpressure and generation-stable handles", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
-      "known_deviations": ["Handles are process-local, reader-free and bounded to 1024 FIFO entries with a ten-minute injected-clock expiry. Removed generations return NOT_FOUND and invalidate the handle; provider-exact lifetime and removed-generation behavior remain unobserved. Input backpressure bounds queued descriptors to 199; the protocol limit of 100 ranges applies per message, not to the number of Add calls. Go v1.70.0 can exceed that per-message limit when resending more than 100 interrupted ranges; such an invalid retry returns non-retryable INVALID_ARGUMENT. Other unfinished admitted IDs receive local ABORTED statuses; provider-exact range statuses, redirects and error parity remain pending. Unsupported masks and handle/precondition combinations fail with UNIMPLEMENTED."],
+      "known_deviations": ["The order of read_range_errors entries is not pinned by a test. BidiReadObject's own refusals of nondefault read masks and of handles combined with preconditions are pending cases of RPC-STORAGE-016."],
+      "scoped_differences": [
+        {"text": "Read handles are process-local and reader-free: a FIFO keeps at most 1024 of them for ten injected-clock minutes, and eviction, expiry or a restart answers FAILED_PRECONDITION; a removed generation answers NOT_FOUND and invalidates the handle. Google documents no lifetime, capacity or answer for a removed generation.", "gap": "SPEC-GRPC-READ-HANDLES", "test_ids": ["read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "read_handle_rejects_a_deleted_generation_and_discards_the_token"]},
+        {"text": "When a range or the stream fails, the failed read_id keeps its own status and every other unfinished admitted read_id is reported as ABORTED; the proto requires an entry for each pending read_id without naming its status.", "gap": "SPEC-GRPC-PENDING-RANGES", "test_ids": ["bidi_range_errors_report_every_submitted_read_id"]},
+        {"text": "The proto's limit of 100 ranges applies per message, with non-retryable INVALID_ARGUMENT above it; input pauses while 100 descriptors are queued (at most 199 after one admitted batch), so any number of Add calls across messages completes. Go v1.70.0 can exceed the per-message limit when it resends more than 100 interrupted ranges in one message, and that invalid retry fails without retry.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids"]},
+        {"text": "A routing_token, the only input of a redirect, returns UNIMPLEMENTED: the emulator never redirects a stream.", "gap": "SPEC-GRPC-UNMODELED-SETTINGS", "test_ids": ["routing_token_and_read_mask_stay_unimplemented"]}
+      ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
     },
