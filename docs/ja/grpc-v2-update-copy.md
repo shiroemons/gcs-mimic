@@ -16,7 +16,7 @@ UpdateBucket・UpdateObject・TestIamPermissionsの再現精度は、共有す�
 
 対応するmaskは、labels・versioning・CORS・lifecycle・保持・soft delete・UBLAなど、JSONで対応済みの項目に限ります。バケットでは`acl`・`default_object_acl`も更新できます。オブジェクトではmetadata・固定メタデータ・custom time・holdに加え、`acl`（オブジェクトACLの置換）と`retention`（object retentionの設定・削除）を更新できます（[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)）。指定しない項目は保持し、未対応maskはErrorInfo付きのUNIMPLEMENTEDです。Go SDKが空の更新で送る出力専用のcreate_timeは無視します。`metadata` maskは、リクエストのエントリを保存済みのマップへマージし、エントリがなければマップを空にします。`metadata.`は空のキーを指します。Cloud Storageは2026-11-17にどちらもそう動作しました（ケース`obj-gaps-empty-metadata-key`）。固定したGo SDKは、全キーを消すときだけ空のマップでこのmaskを送ります。`labels` maskはバケットのラベル全体を置き換えますが、記録はありません。これらの変更は共有の更新トランザクション内で行い、暗黙の前提条件は追加せず、クライアントが明示した条件だけを適用します。キー単位の更新は指定したキーだけをマージします。
 
-iam_configの親maskはメッセージ全体を置き換えます。省略したPAPはinheritedに戻り、省略したUBLAは無効になります。Cloud Storageは空の`iam_config`でPAPをinheritedに戻しました（2026-11-13に記録したケース`grpc-empty-iam-update`）。UBLAが有効なバケットで無効になる点は同じ規則からの推定で、記録はありません。Go Storage 1.70.0は個別の設定でも親maskを送るため、片方だけを指定するともう片方も戻ります。`iam_config.public_access_prevention`などの末端maskは、その設定だけを変えます。versioning・保持・soft delete・lifecycleなどの親maskも確認し、単一の編集項目やリストの明示的な解除・置換は維持します。
+iam_configの親maskでは、2つの設定の扱いが異なります。省略したPAPはinheritedに戻り、UBLAはそのメッセージがあるときだけ変わります。Cloud Storageは、空の`iam_config`でPAPをinheritedに戻してmetagenerationを進め（ケース`grpc-empty-iam-update`）、UBLAだけの`iam_config`でUBLAを有効にしてPAPをinheritedに戻し、PAPだけの`iam_config`では有効なUBLAを保ちました（ケース`grpc-iam-config-partial-update`）。いずれも2026-11-13の記録です。Go Storage 1.70.0は個別の設定でも親maskを送るため、UBLAだけを指定するとPAPも戻り、PAPだけを指定してもUBLAは保たれます。`iam_config.public_access_prevention`などの末端maskは、その設定だけを変えます。versioning・保持・soft delete・lifecycleなどの親maskも確認し、単一の編集項目やリストの明示的な解除・置換は維持します。
 
 UpdateBucketはprotoから共有の`BucketMetadataUpdate`を直接作り、JSON本文の組み立てと再解析を行いません。
 UpdateObjectも`ObjectMetadataUpdate`を直接作り、ACL・保持時刻を型付きで渡します。
@@ -24,7 +24,7 @@ WriteObject・ComposeObject・RewriteObjectはprotoのメタデータ変換と�
 rewrite tokenの照合用保存形式は既存互換を保ちますが、適用時のJSONパーサーは通りません。
 SetIamPolicyは共有の型付きポリシーを直接作ります。TestIamPermissionsは渡された権限文字列をそのまま検証し、クエリ文字列を組み立てません。
 権限の重複は入力順に除き、入力サイズはgRPCメッセージ上限で制限します。権限ごとのカタログ呼び出しは残ります。
-空の`iam_config`親maskも更新としてmetagenerationを進め、両方の設定を戻します。
+空の`iam_config`親maskも更新としてmetagenerationを進め、PAPをinheritedに戻し、UBLAは保ちます。
 この動作は2026-11-13の記録で確認し、SPEC-GRPC-EMPTY-IAM-UPDATEは解決済みです。
 
 バケットの共有検証で返るAutoclass・lifecycle・保持エラーも、gRPCではprotoのフィールド名で案内します。
@@ -45,10 +45,22 @@ IAM設定の保持については、修正前にRustとGoの両方で失敗を�
 
 bucket・object I/Oを統合した最終ソースでjust checkも成功しました。ライブラリ528件、全統合テスト、native・Windows・Linuxのclippy、台帳591行と生成表の整合性を確認済みです。IAM設定の保持の問題は解消し、ほかの親maskは単一項目の解除・置換として正しいため変更しません。
 
-2026-11-14に、テストのなかった未対応オプションの拒否を3つのテストで固定しました。どのオプションも、状態を変える前に、オプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。UpdateBucket・UpdateObjectのpredefined ACLはメタデータとmetagenerationを変えません。ComposeObject・RewriteObjectのKMS鍵・ACL・checksum・`storage_class`・`temporary_hold`・`custom_time`と、RestoreObjectの`restore_token`・顧客指定の暗号鍵は、宛先オブジェクトを作りません。ComposeObject・RewriteObject・UpdateObjectの顧客指定の暗号鍵は[gRPC の CSEK](grpc-v2-customer-supplied-keys.md)のとおりに扱います。SetIamPolicyの`bindings`と`etag`以外のmaskと、managed folder・objectのIAMリソースはポリシーを変えません。`cargo test --locked --offline --lib grpc::`の168件が成功しました。RPC-STORAGE-006・007・009・010・012・017・021には成功ケース`grpc_unsupported_option_rejections`として記録し、`grpc_full_contract`は残りのフィールド・エラーの組み合わせ・実機との一致のためPENDINGのままです。
+2026-11-14に、テストのなかった未対応オプションの拒否を3つのテストで固定しました。どのオプションも、状態を変える前に、オプション名を含むErrorInfo付きUNIMPLEMENTEDを返します。UpdateBucket・UpdateObjectのpredefined ACLはメタデータとmetagenerationを変えません。ComposeObject・RewriteObjectのKMS鍵・ACL・checksum・`storage_class`・`temporary_hold`・`custom_time`と、RestoreObjectの`restore_token`・顧客指定の暗号鍵は、宛先オブジェクトを作りません。ComposeObject・RewriteObject・UpdateObjectの顧客指定の暗号鍵は[gRPC の CSEK](grpc-v2-customer-supplied-keys.md)のとおりに扱います。SetIamPolicyの`bindings`と`etag`以外のmaskと、managed folder・objectのIAMリソースはポリシーを変えません。`cargo test --locked --offline --lib grpc::`の168件が成功しました。RPC-STORAGE-006・007・009・010・012・017・021には成功ケース`grpc_unsupported_option_rejections`として記録し、`grpc_full_contract`は残りのフィールド・エラーの組み合わせ・実機との一致のためPENDINGのままです。2026-11-18に、`grpc_full_contract`を個別のケースに分けました（下の台帳のケースを参照）。
 
 これらのテストが固定しているのはgcs-mimic自身の拒否で、Cloud Storageも同じ要求を断ることを示すものではありません。実機記録（UTC で 2026-11-13、ケース`grpc-unsupported-options`）では、Cloud StorageはpredefinedのACL、UpdateObjectの`*`マスク、派生書き込みの`custom_time`、ポリシーのバージョン2、オブジェクトへのTestIamPermissionsを受け付けました。誤ったchecksumはINVALID_ARGUMENT、uniform accessのないバケットのmanaged folder IAMはFAILED_PRECONDITIONで断りました。gcs-mimicはポリシーのバージョン2を受け付けるように変え、ほかの拒否はSPEC-SDK-UNSUPPORTEDの記録済みローカル選択として残します。また、ComposeObjectとMoveObjectの応答には`acl`と`owner`が含まれず、RewriteObjectには含まれると分かったので、gcs-mimicもこの2つのRPCでは省きます。
 
 2026-11-17に、UpdateObject・ComposeObject・RewriteObjectのpredefined ACLと、ComposeObject・RewriteObjectの`temporary_hold`・`custom_time`を、JSONと同じカタログの経路で受け付けるようにしました。UpdateObjectはACLを置き換えます。同じ要求で`acl`も更新する場合は拒否します。ComposeObjectとRewriteObjectは公開時にpredefined ACLを適用し、匿名の呼び出し元からの指定は拒否します。rewriteのtokenは`destinationPredefinedAcl`も束縛します。ComposeObjectは、predefined ACLを指定したときだけ`acl`と`owner`を返します。実機記録のCloud Storageと同じ動きです。UpdateBucketのpredefined ACL、`storage_class`、KMS鍵、宛先の`retention`は引き続き拒否します。
 
 同じ2026-11-17に、ComposeObjectとRewriteObjectのリクエストのchecksumを、新しい実機記録（ケース`grpc-gaps-derived-checksums`、[実機記録の証跡（英語）](../en/evidence/provider-differential-gap-probes.md#sixth-recording-storage-v2-request-checksums-on-derived-writes)）に合わせ、誤ったchecksumの記録済みローカル選択を2件外しました。ComposeObjectは、指定されたCRC32Cを、ソースから合成したCRC32Cとバイトを読む前に照合します。合成オブジェクトにはMD5がないため、MD5の指定は値によらずINVALID_ARGUMENT`Invalid argument.`です。RewriteObjectは、16バイトでないMD5を`Provided value (<base64>) is not a base64-encoded 128-bit MD5 hash.`で拒否してから、指定されたCRC32CとMD5をセッション開始前にソースの保存済みハッシュと照合します。tokenはこれらを`destinationPredefinedAcl`の後に束縛するため、別のchecksumを指定した継続はtokenの不一致として拒否します。不一致はCRC32Cを先に調べ、Cloud StorageのCRC32CまたはMD5のメッセージと、それを繰り返す`BadRequest`を付けたINVALID_ARGUMENTを返し、何も書き込みません。合成オブジェクトのように、MD5を示さないソースのrewriteでは、composeと同じくMD5の指定を`Invalid argument.`で拒否します（推定）。JSONのrewriteは指定された`md5Hash`を無視しますが、Storage v2のrewriteはCloud Storageと同じく検証します。ソースに記録されたハッシュとコピーしたバイトが合わない場合は、保存データの破損（UNAVAILABLE）として報告し、クライアントが指定したchecksumの誤りとは扱いません。`grpc_derived_writes_verify_request_checksums`、`grpc_rewrite_tokens_bind_declared_checksums`、`rewrite_tokens_bind_the_stored_parameter_spelling`がこの動作を固定しています。なお、このケースで完了したrewriteの応答には、ソースの`contentType`がありませんでした。gcs-mimicはこれをコピーします。Storage v2がいつ`contentType`を落とすかは未解決です。
+
+## 台帳のケース
+
+2026-11-18 に、台帳の各行を、確かめられる振る舞いごとの受け入れケースに分けました。実機の Cloud Storage では実行しないため、Google が定めておらず記録もない応答はローカルな選択とし、固定するテストと合わせて scoped difference に記録します。概要は次のとおりです。
+
+- 意図した拒否（SPEC-GRPC-UNMODELED-SETTINGS の scoped difference）: JSON API も保存しない設定（`rpo`・`website`・`logging`・`encryption`・`billing`・`custom_placement_config`・`hierarchical_namespace`・`ip_filter`・`satisfies_pzs`）への UpdateBucket の mask、UpdateObject のコンテキストの mask、ComposeObject の`kms_key`と RewriteObject の`destination_kms_key`、managed folder の IAM リソース、階層型名前空間のバケットだけが使う RestoreObject の`restore_token`。
+- 記録済みのローカルな選択: GetIamPolicy・SetIamPolicy のオブジェクトリソースへの UNIMPLEMENTED（proto はバケットと managed folder だけを挙げています）、古いまたは不正なポリシーの etag への FAILED_PRECONDITION、小数を含む soft delete の期間の拒否、UpdateBucket の暗黙の lifecycle 確認が 3 回競合した後の ABORTED（いずれも SPEC-GRPC-LOCAL-CHOICES）。ポリシーのないバケットのロックと 2 回目のロックへの INVALID_ARGUMENT（SPEC-RETENTION-POLICY）。RestoreObject の顧客指定の暗号鍵の拒否（SPEC-GRPC-CSEK）と、owner・ACL を付けた応答（SPEC-GRPC-DERIVED-OWNER-VIEW）。
+- 実装が必要なもの: proto が更新の条件とする`bucket.etag`と`object.etag`を無視していること、`*`の update mask、Cloud Storage と JSON の PATCH が適用する UpdateBucket の predefined ACL、ポリシーの一部のフィールドだけを指定する SetIamPolicy の mask、proto が定め Cloud Storage が受け付けるオブジェクトへの TestIamPermissions、ComposeObject の宛先の`storage_class`、ComposeObject・RewriteObject の宛先の`retention`・`acl`・出力専用フィールド、RestoreObject の`copy_source_acl`。
+- テストが必要なもの: strict の LockBucketRetentionPolicy、proto の切り捨てに従う`retention_policy.retention_duration`の秒単位への切り捨て（CreateBucket は同じ入力をまだ拒否します）、PAP と ACL の変更で別に確かめる`storage.buckets.setIamPolicy`、条件付きバインディングと監査設定の拒否、ComposeObject のソースの`storage.objects.get`と上書き時の`storage.objects.delete`、ACL 読み取り権限のない呼び出し元への predefined ACL 付き ComposeObject の応答、もう一方の転送方式で使う rewrite token。
+- 判断が必要なもの: RPC をまたいだバケット・オブジェクトの前提条件の検証規則、MoveObject の権限（JSON の move と同じく`storage.objects.get`・`.delete`・`.create`を確かめますが、proto は`storage.objects.move`・`.create`と、上書き時だけの`.delete`を挙げています）、rewrite したオブジェクトにソースの content type を残すか（記録した Cloud Storage の完了応答にはありませんでした）。
+
+GetIamPolicy（RPC-STORAGE-006）には未完了のケースがなく、所有者のレビュー待ちです。

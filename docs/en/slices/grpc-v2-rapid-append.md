@@ -63,7 +63,8 @@ SPEC-GRPC-DERIVED-OWNER-VIEW.
 - Replacing an existing object with a new appendable generation returns UNIMPLEMENTED; delete the object first.
 - BidiReadObject reads a snapshot bounded by the size persisted when the stream or read handle opened; reopen to observe later appends.
 - A superseded writer learns of the takeover at its next write or flush, not immediately.
-- `routing_token` is accepted without effect because the emulator never redirects.
+- `routing_token` is accepted without effect because the emulator never redirects. BidiReadObject refuses a routing token instead, and redirect routing tokens are explicit refusals elsewhere (SPEC-GRPC-UNMODELED-SETTINGS), so whether the appendable path refuses it too is a pending decision of RPC-STORAGE-019.
+- The opening message creates the appendable generation, or takes the object over and supersedes the previous writer, before its per-chunk CRC32C, an MD5 in `object_checksums` and a negative `write_offset` are checked (a takeover's `object_checksums` without `finish_write` too). A first message that fails those checks leaves a new empty appendable object or a superseded writer behind; checking it first is pending work of RPC-STORAGE-019.
 - Finalized objects carry an MD5 hash because shared publication computes it.
 - Finalized objects, ordinary or appendable, report `finalize_time`; unfinalized appendable objects do not. The official Java SDK's appendable upload waits for `finalize_time` before `finalizeAndClose` completes. The value is the stored creation time that JSON reports as `timeFinalized`, so for an appendable object it is the time the generation was created, not the moment `finish_write` arrived.
 - No provider-exact error messages are claimed.

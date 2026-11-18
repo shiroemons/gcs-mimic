@@ -36,3 +36,5 @@ Rapidの確定応答も共通のowner・ACL表示処理を使い、UBLAとACL読
 - BidiReadObject は開いた時点の永続化済みサイズまでのスナップショットを読む。後の追記を読むには開き直す。
 - 確定した appendable オブジェクトには共有の公開処理が計算した MD5 が付く。
 - 確定したオブジェクトは、通常・appendableを問わず`finalize_time`を返す。未確定のappendableオブジェクトは返さない。値はJSONの`timeFinalized`と同じ保存済みの作成時刻で、appendableでは`finish_write`の到着時刻ではなく世代を作った時刻になる。
+- `routing_token`は、エミュレーターがリダイレクトしないため、受け付けて何もしない。BidiReadObject はルーティングトークンを拒否し、リダイレクトのトークンはほかでも意図した拒否としている（SPEC-GRPC-UNMODELED-SETTINGS）。appendable の経路でも拒否するかは、RPC-STORAGE-019 の判断待ちのケース。
+- 最初のメッセージは、チャンクの CRC32C、`object_checksums`の MD5、負の`write_offset`（引き継ぎでは`finish_write`のない`object_checksums`も）を検査する前に、appendable の世代を作るか、オブジェクトを引き継いで前の書き手を無効にする。検査で失敗すると、空の appendable オブジェクトや無効になった書き手が残る。先に検査することは RPC-STORAGE-019 の未完了の作業。
