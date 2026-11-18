@@ -537,6 +537,49 @@ async fn grpc_scheme_tls_refuses_h2c_clients() {
     server.stop();
 }
 
+/// The gRPC listener alone uses the TLS identity when the primary listener is plain HTTP, so
+/// the certificate files are accepted there and both listeners serve one catalog.
+#[tokio::test]
+async fn grpc_scheme_tls_serves_beside_a_plain_http_listener() {
+    let dir = TestDir::new();
+    let certs = dir.0.join("tls");
+    fixtures(&certs);
+    let server = Server::start(
+        &dir.0.join("data"),
+        &[
+            "--scheme",
+            "http",
+            "--grpc-scheme",
+            "tls",
+            "--tls-cert",
+            certs.join("server.pem").to_str().unwrap(),
+            "--tls-key",
+            certs.join("server.key").to_str().unwrap(),
+        ],
+    );
+    assert_eq!(server.grpc_listener_scheme(), "h2");
+    assert_eq!(json_status(&server, "/storage/v1/b/beside-http", None), 404);
+    let tls = connect_tls(
+        &server.grpc,
+        "localhost",
+        grpc_client(&certs.join("ca.pem")),
+    )
+    .await
+    .unwrap();
+    let reply = unary(
+        tls,
+        "https",
+        "CreateBucket",
+        &create_bucket("beside-http"),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(reply.status, "0", "{reply:?}");
+    assert_eq!(json_status(&server, "/storage/v1/b/beside-http", None), 200);
+    server.stop();
+}
+
 /// `grpc_scheme=h2c` keeps the listener plaintext only, with the ready event's listener entry of
 /// earlier releases; the only addition is the `grpc_scheme` member.
 #[tokio::test]
