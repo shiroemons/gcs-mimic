@@ -1,7 +1,4 @@
-use super::write::{
-    EndOfStream, MessagePosition, Reported, Responses, check_later_key, message_after_finish,
-    send_status,
-};
+use super::write::{MessagePosition, WriteRpc, check_later_key, message_after_finish};
 use super::*;
 use crate::grpc::v2::stored;
 use crate::storage::{ChunkEnd, ChunkWait, Written};
@@ -169,8 +166,7 @@ impl Storage {
         mut message: pb::BidiWriteObjectRequest,
         upload: &UploadId,
         caller: Option<Caller<'_>>,
-        responses: Option<&Responses>,
-        end: EndOfStream,
+        rpc: WriteRpc<'_>,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
         use pb::bidi_write_object_response::WriteStatus;
         let (bucket, id) = (upload.bucket(), upload.session());
@@ -178,7 +174,7 @@ impl Storage {
         loop {
             check_resumable_message(&message, caller)?;
             let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
-            let trailing = read_past_finish(stream, &message, end).await;
+            let trailing = read_past_finish(stream, &message, rpc).await;
             let lease = self
                 .state
                 .catalog
@@ -192,7 +188,7 @@ impl Storage {
                     .await?;
                 drop(lease);
                 let result = WriteStatus::Resource(resource);
-                send_status(responses, &result).await?;
+                rpc.report(&result).await?;
                 return Ok(result);
             }
             let mut options = lease.session.options.clone();
@@ -256,18 +252,19 @@ impl Storage {
                     "persisted_size",
                 )?),
             };
-            let reported = if message.finish_write || message.flush || message.state_lookup {
-                send_status(responses, &result).await?
-            } else {
-                Reported::No
-            };
+            // The proto answers finish_write, flush and state_lookup, and a clean close after a
+            // message none of them answered.
+            let answered = message.finish_write || message.flush || message.state_lookup;
+            if answered {
+                rpc.report(&result).await?;
+            }
             if message.finish_write {
                 return Ok(result);
             }
             position = MessagePosition::Later;
             let Some(next) = stream.next().await.transpose()? else {
-                if reported == Reported::No {
-                    send_status(responses, &result).await?;
+                if !answered {
+                    rpc.report(&result).await?;
                 }
                 return Ok(result);
             };
@@ -283,12 +280,9 @@ impl Storage {
 async fn read_past_finish<S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin>(
     stream: &mut S,
     message: &pb::BidiWriteObjectRequest,
-    end: EndOfStream,
+    rpc: WriteRpc<'_>,
 ) -> Result<(), Status> {
-    if message.finish_write
-        && end == EndOfStream::Required
-        && stream.next().await.transpose()?.is_some()
-    {
+    if message.finish_write && rpc.ends_at_finish() && stream.next().await.transpose()?.is_some() {
         return Err(message_after_finish());
     }
     Ok(())

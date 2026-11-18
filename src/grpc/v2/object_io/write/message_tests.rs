@@ -1472,7 +1472,7 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
     };
     let mut stream = ReceiverStream::new(incoming);
     let (result, seen) = tokio::join!(
-        storage.receive_write(&mut stream, None, Some(&responses), EndOfStream::NotChecked),
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
         other
     );
     let seen: Vec<_> = seen

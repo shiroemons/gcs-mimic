@@ -83,7 +83,7 @@ impl Storage {
             })
         });
         let result = self
-            .receive_write(&mut stream, caller, None, EndOfStream::Required)
+            .receive_write(&mut stream, caller, WriteRpc::WriteObject)
             .await?;
         Ok(Response::new(pb::WriteObjectResponse {
             write_status: Some(result.into()),
@@ -114,7 +114,7 @@ impl Storage {
             } else {
                 let mut input = tonic::codegen::tokio_stream::once(Ok(first)).chain(stream);
                 storage
-                    .receive_write(&mut input, caller, Some(&tx), EndOfStream::NotChecked)
+                    .receive_write(&mut input, caller, WriteRpc::Bidi(&tx))
                     .await
                     .map(|_| ())
             };
@@ -228,8 +228,7 @@ impl Storage {
         &self,
         stream: &mut S,
         caller: Option<Caller<'_>>,
-        responses: Option<&Responses>,
-        end: EndOfStream,
+        rpc: WriteRpc<'_>,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
         use pb::bidi_write_object_request::FirstMessage;
         let mut message = stream.next().await.transpose()?.ok_or_else(|| {
@@ -237,12 +236,7 @@ impl Storage {
         })?;
         let session = match message.first_message.take() {
             Some(FirstMessage::WriteObjectSpec(spec)) => {
-                let write = SingleWrite {
-                    spec,
-                    caller,
-                    responses,
-                    end,
-                };
+                let write = SingleWrite { spec, caller, rpc };
                 return self.receive_single_write(stream, message, write).await;
             }
             Some(FirstMessage::UploadId(upload)) => upload.parse::<UploadId>()?,
@@ -255,7 +249,7 @@ impl Storage {
                 ));
             }
         };
-        self.receive_resumable_write(stream, message, &session, caller, responses, end)
+        self.receive_resumable_write(stream, message, &session, caller, rpc)
             .await
     }
 
@@ -267,12 +261,7 @@ impl Storage {
         message: pb::BidiWriteObjectRequest,
         write: SingleWrite<'_>,
     ) -> Result<pb::bidi_write_object_response::WriteStatus, Status> {
-        let SingleWrite {
-            spec,
-            caller,
-            responses,
-            end,
-        } = write;
+        let SingleWrite { spec, caller, rpc } = write;
         let WriteSpec {
             bucket,
             name,
@@ -309,7 +298,7 @@ impl Storage {
             max_object_bytes: self.max_object_bytes,
             key: options.metadata.customer_key_sha256,
         };
-        let producer = produce_single_write(stream, message, limits, tx, caller, end);
+        let producer = produce_single_write(stream, message, limits, tx, caller, rpc);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
                 bucket: &bucket,
@@ -330,7 +319,7 @@ impl Storage {
             .written_object(&record, crate::csek::StoredHashes::Revealed, caller)
             .await?;
         let result = pb::bidi_write_object_response::WriteStatus::Resource(resource);
-        send_status(responses, &result).await?;
+        rpc.report(&result).await?;
         Ok(result)
     }
 }
@@ -347,18 +336,43 @@ pub(in crate::grpc::v2) async fn send(
         .map_err(|_| Status::cancelled("Response stream closed"))
 }
 
-/// Whether a write must end its request stream at `finish_write`. WriteObject rejects a later
-/// message; BidiWriteObject answers at `finish_write` without waiting for the stream to close.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EndOfStream {
-    Required,
-    NotChecked,
+/// The RPC a write stream arrived on. WriteObject answers once, when the write returns, and
+/// rejects a message after `finish_write`. BidiWriteObject sends each status it reports on its
+/// response stream and answers at `finish_write` without reading further.
+#[derive(Clone, Copy)]
+pub(super) enum WriteRpc<'a> {
+    WriteObject,
+    Bidi(&'a Responses),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Reported {
-    Yes,
-    No,
+impl WriteRpc<'_> {
+    /// Sends `status` to a BidiWriteObject client; WriteObject returns it instead.
+    pub(super) async fn report(
+        self,
+        status: &pb::bidi_write_object_response::WriteStatus,
+    ) -> Result<(), Status> {
+        match self {
+            Self::WriteObject => Ok(()),
+            Self::Bidi(tx) => {
+                send(
+                    tx,
+                    pb::BidiWriteObjectResponse {
+                        write_status: Some(status.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            }
+        }
+    }
+
+    /// Whether the request stream must end at `finish_write`.
+    pub(super) fn ends_at_finish(self) -> bool {
+        match self {
+            Self::WriteObject => true,
+            Self::Bidi(_) => false,
+        }
+    }
 }
 
 /// Whether a resumable message is the first one of its stream, which must resume exactly at
@@ -380,12 +394,11 @@ impl MessagePosition {
     }
 }
 
-/// A non-resumable write and where its replies go.
+/// A non-resumable write and the RPC it arrived on.
 struct SingleWrite<'a> {
     spec: pb::WriteObjectSpec,
     caller: Option<Caller<'a>>,
-    responses: Option<&'a Responses>,
-    end: EndOfStream,
+    rpc: WriteRpc<'a>,
 }
 
 /// The checksum and size limits a non-resumable write's body must satisfy, and the key its
@@ -398,24 +411,6 @@ struct SingleWriteLimits {
     key: Option<[u8; 32]>,
 }
 
-pub(super) async fn send_status(
-    responses: Option<&Responses>,
-    status: &pb::bidi_write_object_response::WriteStatus,
-) -> Result<Reported, Status> {
-    let Some(tx) = responses else {
-        return Ok(Reported::No);
-    };
-    send(
-        tx,
-        pb::BidiWriteObjectResponse {
-            write_status: Some(status.clone()),
-            ..Default::default()
-        },
-    )
-    .await?;
-    Ok(Reported::Yes)
-}
-
 /// Streams a non-resumable write's messages to the upload consumer, validating offsets,
 /// checksums and sizes, and ends the body only after the whole object checks out.
 async fn produce_single_write<
@@ -426,7 +421,7 @@ async fn produce_single_write<
     limits: SingleWriteLimits,
     tx: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
     caller: Option<Caller<'_>>,
-    end: EndOfStream,
+    rpc: WriteRpc<'_>,
 ) -> Result<(), Status> {
     let mut position = MessagePosition::First;
     let mut intake = Intake::new(
@@ -491,7 +486,7 @@ async fn produce_single_write<
             })?;
         position = MessagePosition::Later;
     }
-    if end == EndOfStream::Required
+    if rpc.ends_at_finish()
         && upload::next(stream, &tx)
             .await
             .map_err(intake_status)?

@@ -3,7 +3,7 @@ use super::{
     read::read_range,
     resource::mask_object,
     resumable::{Persisted, resumable_piece},
-    write::{EndOfStream, MessagePosition},
+    write::{MessagePosition, WriteRpc},
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, registry};
 use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
@@ -134,8 +134,7 @@ pub(super) async fn write_as(
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter(messages.into_iter().map(Ok)),
             caller,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
 }
@@ -193,7 +192,7 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
     };
     let mut stream = ReceiverStream::new(incoming);
     let (result, ()) = tokio::join!(
-        storage.receive_write(&mut stream, None, Some(&responses), EndOfStream::Required),
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
         later
     );
     assert_code(result, tonic::Code::FailedPrecondition);
@@ -225,7 +224,7 @@ async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
         let mut stream = tonic::codegen::tokio_stream::iter([Ok(message)]);
         let (tx, mut rx) = mpsc::channel(2);
         let result = storage
-            .receive_write(&mut stream, None, Some(&tx), EndOfStream::NotChecked)
+            .receive_write(&mut stream, None, WriteRpc::Bidi(&tx))
             .await
             .unwrap();
         assert_eq!(
@@ -343,7 +342,7 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     ]);
     assert_code(
         storage
-            .receive_write(&mut stream, None, None, EndOfStream::Required)
+            .receive_write(&mut stream, None, WriteRpc::WriteObject)
             .await,
         tonic::Code::Cancelled,
     );
@@ -410,7 +409,7 @@ async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session(
         free
     };
     let (result, free) = tokio::join!(
-        storage.receive_write(&mut stream, None, None, EndOfStream::Required),
+        storage.receive_write(&mut stream, None, WriteRpc::WriteObject),
         other
     );
     assert!(
@@ -809,8 +808,7 @@ async fn grpc_io_write_returns_acl_and_owner_and_read_ends_with_data() {
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(message("written", b"hello"))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
@@ -860,8 +858,7 @@ async fn grpc_io_full_read_masks_return_acl_and_owner() {
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(message("masked", b"masked"))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
@@ -1538,8 +1535,7 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"private"))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
@@ -1552,8 +1548,7 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
             .receive_write(
                 &mut tonic::codegen::tokio_stream::iter([Ok(message("private", b"denied"))]),
                 reader,
-                None,
-                EndOfStream::Required,
+                WriteRpc::WriteObject,
             )
             .await,
         tonic::Code::PermissionDenied,
@@ -1774,8 +1769,7 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
         .receive_write(
             &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, b"abc", false))]),
             admin,
-            None,
-            EndOfStream::Required,
+            WriteRpc::WriteObject,
         )
         .await
         .unwrap();
