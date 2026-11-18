@@ -161,8 +161,9 @@ async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
             assert_eq!(status.code(), tonic::Code::NotFound, "{method}: {status}");
         }
     }
-    // Recorded 2026-11-18 (case grpc-probe-routing): the wording of a routed bucket other than
-    // the request's, of metadata that routes no bucket, and of a bare bucket ID.
+    // Recorded 2026-11-18 on GetObject (case grpc-probe-routing): the wording of a routed bucket
+    // other than the request's, of metadata that routes no bucket, and of a bare bucket ID.
+    // WriteObject was not recorded with them; it answers the same by inference.
     for (value, message) in [
         (
             "bucket=projects%2F_%2Fbuckets%2Fother-bucket",
@@ -191,8 +192,9 @@ async fn grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets() {
 }
 
 /// Recorded 2026-11-18 (case grpc-probe-routing): GetObject, GetBucket, ListBuckets and
-/// WriteObject without `x-goog-request-params` are refused, while an unknown key or a
-/// `routing_token` beside the bucket reaches the handler.
+/// WriteObject without `x-goog-request-params` are refused, while an unknown key beside the
+/// bucket (GetObject, GetBucket) or a `routing_token` (GetObject; GetBucket by inference)
+/// reaches the handler.
 #[tokio::test]
 async fn grpc_calls_need_routing_metadata_and_ignore_unknown_keys() {
     let dir = TestDir::new();

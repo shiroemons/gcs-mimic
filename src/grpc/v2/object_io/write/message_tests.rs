@@ -294,8 +294,10 @@ fn reply(status: pb::bidi_write_object_response::WriteStatus) -> Reply {
 }
 
 /// The routing metadata a client sends with `messages`: the bucket its opening spec names.
-/// Cloud Storage refuses a stream without the metadata (recorded 2026-11-18), so a stream
-/// that names no well-formed bucket, or only an upload ID, sends a key that routes nothing.
+/// Cloud Storage refused a WriteObject stream without the metadata (recorded 2026-11-18, case
+/// grpc-probe-routing), and the emulator refuses a BidiWriteObject stream the same way by
+/// inference, so a stream that names no well-formed bucket, or only an upload ID, sends a key
+/// that routes nothing.
 fn routing(messages: &[pb::BidiWriteObjectRequest]) -> String {
     let bucket = match messages.first().and_then(|m| m.first_message.as_ref()) {
         Some(FirstMessage::WriteObjectSpec(spec)) => {

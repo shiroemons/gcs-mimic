@@ -58,7 +58,8 @@ pub(super) async fn call(
                 .header("content-type", "application/grpc")
                 .header("te", "trailers")
                 .header("authorization", format!("Bearer {token}"))
-                // Cloud Storage refuses a Storage v2 call without routing metadata.
+                // Cloud Storage refused GetObject without routing metadata (recorded 2026-11-18,
+                // case grpc-probe-routing).
                 .header(
                     "x-goog-request-params",
                     "bucket=projects%2F_%2Fbuckets%2Ftest-bucket",

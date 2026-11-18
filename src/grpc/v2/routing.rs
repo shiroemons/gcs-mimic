@@ -42,7 +42,8 @@ impl std::str::FromStr for RoutingField {
 pub(super) enum Route<'a> {
     /// A resource name `projects/_/buckets/<id>` or a bare ID resolved from a token; `None`
     /// when the request names no bucket. The metadata must route the same bucket: metadata
-    /// that routes none is compared as routing the empty name.
+    /// that routes none is compared as routing the empty name (recorded 2026-11-18 on GetObject
+    /// routed by a project alone, case grpc-probe-routing).
     Bucket(Option<&'a str>),
     /// Compared with the routed source bucket when the metadata routes one.
     SourceBucket(Option<&'a str>),
@@ -55,7 +56,10 @@ pub(super) enum Route<'a> {
 /// The routing fields a call compares and whether [`admit`] needs the metadata at all.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Routes<'a> {
-    /// The metadata is required, and each listed field must name the same resource.
+    /// The metadata is required, and each listed field must name the same resource. Of the
+    /// RPCs routed this way, Cloud Storage was recorded refusing GetObject, GetBucket and
+    /// ListBuckets sent without it (2026-11-18, case grpc-probe-routing, which also recorded
+    /// WriteObject); requiring it on the others is a generalization from those four.
     Request(&'a [Route<'a>]),
     /// The call is admitted with or without the metadata, and nothing is compared. Cloud
     /// Storage answered QueryWriteStatus and CancelResumableWrite sent without it for their
@@ -69,7 +73,10 @@ pub(super) enum Routes<'a> {
     Optional,
     /// The metadata is required, but the handler learns its resources later (a stream's first
     /// message, a rewrite token): only the metadata's form is checked, and the handler calls
-    /// [`check`] again with `Request`.
+    /// [`check`] again with `Request`. Of these RPCs only WriteObject was recorded without the
+    /// metadata (case grpc-probe-routing); BidiWriteObject and RewriteObject follow it by
+    /// inference, and BidiReadObject, which Cloud Storage refused for the test project, could
+    /// not be recorded at all.
     Deferred,
 }
 
@@ -183,15 +190,17 @@ fn routed(metadata: &MetadataMap) -> Result<Option<Vec<(RoutingField, String)>>,
 }
 
 /// The check every RPC passes before its handler runs: the metadata must be sent, unless the
-/// call's routes are `Optional`, and must agree with the request.
+/// call's routes are `Optional`, and must agree with the request. The refusal of a call
+/// without the metadata was recorded only on GetObject, GetBucket, ListBuckets and WriteObject;
+/// refusing it on every other RPC but the `Optional` ones is a generalization from those four.
 pub(super) fn admit(metadata: &MetadataMap, routes: Routes<'_>) -> Result<(), Status> {
     let required = match routes {
         Routes::Request(_) | Routes::Deferred => true,
         Routes::Optional => false,
     };
     if required && metadata.get("x-goog-request-params").is_none() {
-        // Recorded 2026-11-18 on GetObject, GetBucket, ListBuckets and WriteObject (case
-        // grpc-probe-routing).
+        // Cloud Storage's wording on GetObject, GetBucket, ListBuckets and WriteObject (recorded
+        // 2026-11-18, case grpc-probe-routing).
         return Err(status::invalid_with_reason(
             "An x-goog-request-params request metadata property must be provided for this request.",
             "GRPC_INVALID_X_GOOG_REQUEST_PARAMS",
@@ -216,7 +225,8 @@ pub(super) fn check(metadata: &MetadataMap, routes: Routes<'_>) -> Result<(), St
         Routes::Optional | Routes::Deferred => return Ok(()),
     };
     // A routed field the call does not list is not compared: Cloud Storage answered a routed
-    // project on GetObject for the bucket the metadata left out (recorded 2026-11-18).
+    // project on GetObject for the bucket the metadata left out (recorded 2026-11-18, case
+    // grpc-probe-routing).
     for route in routes {
         let mut values = routed
             .iter()

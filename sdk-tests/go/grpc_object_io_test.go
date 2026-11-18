@@ -248,8 +248,11 @@ func TestGRPCObjectIODeletePolicies(t *testing.T) {
 }
 
 // grpcRouted adds the x-goog-request-params metadata the SDK sends for a call on bucket.
-// Cloud Storage refuses a Storage v2 call without it (recorded 2026-11-18), so raw calls
-// carry it too.
+// Cloud Storage was recorded refusing GetObject, GetBucket, ListBuckets and WriteObject
+// without it (2026-11-18, case grpc-probe-routing), and the emulator refuses every other
+// Storage v2 RPC without it by inference, except QueryWriteStatus and CancelResumableWrite,
+// which Cloud Storage was recorded answering without it (case
+// grpc-probe-resumable-sessions). Raw calls that need it carry it too.
 func grpcRouted(ctx context.Context, bucket string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", "bucket=projects/_/buckets/"+bucket)
 }
