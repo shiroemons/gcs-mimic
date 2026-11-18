@@ -596,26 +596,39 @@ mod tests {
                 assert!(update.touched, "{path}");
             }
         }
-        // Aliases build the same update; the autoclass subpaths are tested by value elsewhere.
-        for (short, long) in [
-            ("versioning", "versioning.enabled"),
-            ("lifecycle", "lifecycle.rule"),
-            ("retention_policy", "retention_policy.retention_duration"),
-            (
-                "soft_delete_policy",
-                "soft_delete_policy.retention_duration",
-            ),
-            (
-                "iam_config.uniform_bucket_level_access",
-                "iam_config.uniform_bucket_level_access.enabled",
-            ),
-        ] {
-            assert_eq!(
-                format!("{:?}", from_proto(&bucket, &[short.into()]).unwrap()),
-                format!("{:?}", from_proto(&bucket, &[long.into()]).unwrap()),
-                "{short}"
-            );
-        }
+        // Aliases set their one setting, checked above, to the same value; the autoclass
+        // subpaths are tested by value elsewhere.
+        let update = |path: &str| from_proto(&bucket, &[path.into()]).unwrap();
+        assert_eq!(
+            update("versioning").versioning,
+            update("versioning.enabled").versioning
+        );
+        assert_eq!(
+            update("lifecycle").lifecycle,
+            update("lifecycle.rule").lifecycle
+        );
+        assert_eq!(
+            update("retention_policy").retention_policy,
+            update("retention_policy.retention_duration").retention_policy
+        );
+        assert_eq!(
+            update("soft_delete_policy").soft_delete_retention,
+            update("soft_delete_policy.retention_duration").soft_delete_retention
+        );
+        assert_eq!(
+            update("iam_config.uniform_bucket_level_access").uniform_bucket_level_access_enabled,
+            update("iam_config.uniform_bucket_level_access.enabled")
+                .uniform_bucket_level_access_enabled
+        );
+        // A key path takes the rest of the path as one key, dots included.
+        let dotted = pb::Bucket {
+            labels: [("a.b".into(), "c".into())].into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            from_proto(&dotted, &["labels.a.b".into()]).unwrap().labels,
+            MapPatch::Merge([("a.b".into(), Some("c".into()))].into())
+        );
         let error = from_proto(&bucket, &["labels.".into()]).unwrap_err();
         assert_eq!(error.code(), tonic::Code::Unimplemented);
         assert_eq!(
