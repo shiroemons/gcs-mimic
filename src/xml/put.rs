@@ -359,7 +359,10 @@ fn upload_error(
 
 /// A CRC32C as Cloud Storage prints it in a mismatch: unpadded hex, then the base64 form.
 fn crc_detail(crc32c: u32) -> String {
-    format!("0x{crc32c:x} ({})", json::base64(&crc32c.to_be_bytes()))
+    format!(
+        "0x{crc32c:x} ({})",
+        crate::base64::encode(&crc32c.to_be_bytes())
+    )
 }
 
 #[expect(

@@ -30,7 +30,7 @@ use crate::{
     json,
     object::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch,
-        generation::Generation,
+        WriteMode, generation::Generation,
     },
     server::State,
 };
@@ -233,14 +233,11 @@ struct ObjectUpdate<'a> {
     selected: i64,
     conditions: ObjectConditions,
     object: pb::Object,
-    write: json::WriteMode,
+    write: WriteMode,
 }
 
-fn metadata(
-    mut object: pb::Object,
-    write: json::WriteMode,
-) -> Result<ObjectMetadataUpdate, Status> {
-    let replace = write == json::WriteMode::Replace;
+fn metadata(mut object: pb::Object, write: WriteMode) -> Result<ObjectMetadataUpdate, Status> {
+    let replace = write == WriteMode::Replace;
     let mut update = ObjectMetadataUpdate {
         write,
         ..Default::default()
@@ -649,7 +646,7 @@ impl Storage {
             selected: r.generation,
             conditions: conditions(ObjectConditions::from(&r))?,
             object: r.metadata.unwrap_or_default(),
-            write: json::WriteMode::Replace,
+            write: WriteMode::Replace,
         };
         self.update(caller, update).await
     }
@@ -676,7 +673,7 @@ impl Storage {
             selected: r.generation,
             conditions: conditions(ObjectConditions::from(&r))?,
             object: r.metadata.unwrap_or_default(),
-            write: json::WriteMode::Patch,
+            write: WriteMode::Patch,
         };
         self.update(caller, update).await
     }
@@ -759,7 +756,7 @@ impl Storage {
             ));
         }
         let content_type = object.content_type.clone();
-        let metadata = metadata(object, json::WriteMode::Replace)?;
+        let metadata = metadata(object, WriteMode::Replace)?;
         let sources = r
             .source_objects
             .into_iter()

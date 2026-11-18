@@ -1188,8 +1188,8 @@ impl From<Hashes> for HashFields {
 pub(crate) fn insert_hashes(headers: &mut HeaderMap, hashes: impl Into<HashFields>) {
     let HashFields { crc32c, md5 } = hashes.into();
     headers.remove("x-goog-hash");
-    let crc32c = format!("crc32c={}", json::base64(&crc32c.to_be_bytes()));
-    let md5 = md5.map(|md5| format!("md5={}", json::base64(&md5)));
+    let crc32c = format!("crc32c={}", crate::base64::encode(&crc32c.to_be_bytes()));
+    let md5 = md5.map(|md5| format!("md5={}", crate::base64::encode(&md5)));
     // Base64 always forms a valid header value; omitting a hash is safer than panicking
     // if that ever changes.
     for value in std::iter::once(crc32c).chain(md5) {
