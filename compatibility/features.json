@@ -23494,7 +23494,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. The destination service-set fields and the negative conditions follow the recordings of 2026-11-18 (cases grpc-probe-derived-writes, grpc-probe-inferred-destinations and grpc-probe-inferred-conditions); the answers they did not cover are marked 'Not recorded' in the code and listed as scoped differences.",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -23572,17 +23572,18 @@
         },
         {
           "id": "grpc_compose_destination_service_fields",
-          "description": "A destination that carries a generation, a metageneration, a size, a creation time and an update time composes as if it had none of them: the result has a new generation, metageneration 1, the composed size and its own times, as Cloud Storage answered (case grpc-probe-derived-writes, step compose-destination-output-only, recorded 2026-11-18). Ignoring the other fields the proto marks OUTPUT_ONLY is inferred from google.api.field_behavior, not recorded.",
+          "description": "A destination that carries a generation, a metageneration, a size, an etag, a creation time, an update time, checksums, an owner or a component count, each set alone or together, composes as if it had none of them: the result has a new generation, metageneration 1, the composed size and its own times, as Cloud Storage answered (case grpc-probe-derived-writes, step compose-destination-output-only, and case grpc-probe-inferred-destinations, the nine compose-destination-* steps for those fields, recorded 2026-11-18). compose_object_accepts_the_sources_class_and_ignores_service_set_fields asserts the generation, metageneration, size, etag and the two times; the checksums, owner and component count steps are proven by the differential replay and, for the dropped fields, by service_set_fields_are_the_generation_and_the_output_only_fields. Ignoring the other fields that are service-set (restore_token, delete_time, finalize_time, update_storage_class_time, soft_delete_time, hard_delete_time and retention_expire_time) is inferred from google.api.field_behavior and the proto, not recorded (a scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "compose_object_accepts_the_sources_class_and_ignores_service_set_fields",
             "service_set_fields_are_the_generation_and_the_output_only_fields",
-            "grpc-probe-derived-writes"
+            "grpc-probe-derived-writes",
+            "grpc-probe-inferred-destinations"
           ]
         },
         {
           "id": "grpc_compose_destination_fields",
-          "description": "A destination with an object retention, or with any other field outside the editable metadata and the service-set fields (customer_encryption, contexts, retention_expire_time and similar), returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs; pinned for retention by compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination). The proto names the storage.objects.setRetention permission ComposeObject needs when the destination carries retention (storage.proto lines 278-284); a retention needs a bucket with object retention, so the 2026-11-18 recording did not ask it. Apply the retention.",
+          "description": "A destination with an object retention, or with any other field outside the editable metadata and the service-set fields (kms_key, customer_encryption, contexts and an acl; the service-set fields, retention_expire_time among them, are ignored and no longer refused), returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs; pinned for retention, kms_key and acl by compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination). The proto names the storage.objects.setRetention permission ComposeObject needs when the destination carries retention (storage.proto lines 278-284); a retention needs a bucket with object retention, so the 2026-11-18 recording did not ask it. Apply the retention.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -23594,11 +23595,12 @@
         },
         {
           "id": "grpc_compose_condition_validation",
-          "description": "ComposeObject compares the destination conditions it declares instead of refusing their shape: an if_metageneration_match of 0 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', as Cloud Storage answered (case grpc-probe-object-conditions, step compose-metageneration-match-zero, recorded 2026-11-18). ComposeObject declares no not-match condition. A negative condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only' (pinned for a source's object_preconditions; the destination conditions take the same check); that refusal is not recorded (scoped difference below).",
+          "description": "ComposeObject compares the destination conditions it declares instead of refusing their shape: an if_metageneration_match of 0 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', as Cloud Storage answered (case grpc-probe-object-conditions, step compose-metageneration-match-zero, recorded 2026-11-18). ComposeObject declares no not-match condition. A negative if_generation_match or if_metageneration_match on the destination is compared, never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', as Cloud Storage answered (case grpc-probe-inferred-conditions, steps compose-generation-match-negative and compose-metageneration-match-negative, recorded 2026-11-18); no Rust test sends a negative destination condition, so those two steps are proven by the differential replay alone. A negative source if_generation_match in object_preconditions is compared against the component too and answers FAILED_PRECONDITION 'Generation -1 required for component object ...', which the test asserts; that wording is inferred (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions"
           ]
         }
       ],
@@ -23621,7 +23623,9 @@
         "compose_object_accepts_the_sources_class_and_ignores_service_set_fields",
         "service_set_fields_are_the_generation_and_the_output_only_fields",
         "grpc-probe-derived-writes",
-        "grpc-probe-object-conditions"
+        "grpc-probe-object-conditions",
+        "grpc-probe-inferred-destinations",
+        "grpc-probe-inferred-conditions"
       ],
       "verification": [
         {
@@ -23642,7 +23646,9 @@
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
             "grpc-probe-derived-writes",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-destinations",
+            "grpc-probe-inferred-conditions"
           ]
         },
         {
@@ -23725,7 +23731,7 @@
         }
       ],
       "known_deviations": [
-        "A destination with an object retention or another field outside the editable metadata returns UNIMPLEMENTED.",
+        "A destination with an object retention, kms_key, customer_encryption or contexts returns UNIMPLEMENTED instead of applying it.",
         "No test pins the storage.objects.get and overwrite storage.objects.delete permissions the proto lists.",
         "No test pins the response view of a canned-ACL ComposeObject for a caller without ACL read permission."
       ],
@@ -23746,10 +23752,17 @@
           ]
         },
         {
-          "text": "A negative generation or metageneration condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only', on each source's object_preconditions and, by the same check, on the destination conditions. Not recorded: only 0 and pairs were asked of objects, and Cloud Storage compared negative bucket conditions (case grpc-probe-bucket-conditions).",
+          "text": "A negative if_generation_match on a source's object_preconditions is compared with the component and answers FAILED_PRECONDITION with a message that starts 'Generation -1 required for component object'. Cloud Storage compared negative destination conditions (case grpc-probe-inferred-conditions) but its wording for a component was not recorded; the message is inferred.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
+        {
+          "text": "The destination fields restore_token, delete_time, finalize_time, update_storage_class_time, soft_delete_time, hard_delete_time and retention_expire_time are dropped as service-set fields. Cloud Storage was recorded ignoring the generation, metageneration, size, etag, create_time, update_time, checksums, owner and component_count of a compose destination (case grpc-probe-inferred-destinations); the others follow by inference from the proto's OUTPUT_ONLY marks and the service-kept fields.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "service_set_fields_are_the_generation_and_the_output_only_fields"
           ]
         }
       ],
@@ -23798,10 +23811,12 @@
         },
         {
           "id": "delete_condition_validation",
-          "description": "DeleteObject compares the conditions it receives instead of refusing their shape, as Cloud Storage does (case grpc-probe-object-conditions, recorded 2026-11-18): an if_metageneration_match of 0 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current generation or metageneration beside a match answers FAILED_PRECONDITION 'The resource you requested has not been modified according to the condition you specified.'. A negative condition answers INVALID_ARGUMENT; that answer was not recorded and no DeleteObject test pins it (delete_local_precedence).",
+          "description": "DeleteObject compares the conditions it receives instead of refusing their shape, as Cloud Storage does (case grpc-probe-object-conditions, recorded 2026-11-18): an if_metageneration_match of 0 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current generation or metageneration beside a match answers FAILED_PRECONDITION 'The resource you requested has not been modified according to the condition you specified.'. A negative condition is compared like any other value: an if_generation_match or if_metageneration_match of -1 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and an if_generation_not_match of -1 holds and deletes the object (case grpc-probe-inferred-conditions, steps delete-generation-match-negative, delete-metageneration-match-negative and delete-generation-not-match-negative, recorded 2026-11-18). write_and_delete_object_compare_negative_conditions asserts the generation match and the generation not-match; the metageneration step is proven by the differential replay alone.",
           "result": "PASS",
           "test_ids": [
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions",
+            "write_and_delete_object_compare_negative_conditions"
           ]
         },
         {
@@ -23814,7 +23829,7 @@
         },
         {
           "id": "delete_local_precedence",
-          "description": "The adapter authorizes first, then checks the generation and rejects negative conditions (delete_object in src/grpc/v2/object_io.rs) before the catalog lookup. Neither step was recorded, because the recording caller held every permission and no negative condition was asked, and no test pins them in this order for DeleteObject. Pin the order of authorization against the lookup and of the negative-condition refusal against a missing object.",
+          "description": "The adapter authorizes first, then checks the generation (a negative generation answers INVALID_ARGUMENT 'generation must be positive, or 0 to select the live object') before the catalog lookup and the conditions (delete_object in src/grpc/v2/object_io.rs). Neither step was recorded, because the recording caller held every permission, and no test pins them in this order for DeleteObject. Pin the order of authorization against the lookup and of the generation check against a missing object.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -23825,7 +23840,9 @@
         "TestGRPCObjectIOStrict",
         "grpc_delete_ignores_a_customer_key_as_cloud_storage_does",
         "grpc-probe-object-conditions",
-        "grpc-probe-object-precedence"
+        "grpc-probe-object-precedence",
+        "grpc-probe-inferred-conditions",
+        "write_and_delete_object_compare_negative_conditions"
       ],
       "verification": [
         {
@@ -23834,7 +23851,8 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-customer-supplied-keys.md",
           "test_ids": [
-            "grpc_delete_ignores_a_customer_key_as_cloud_storage_does"
+            "grpc_delete_ignores_a_customer_key_as_cloud_storage_does",
+            "write_and_delete_object_compare_negative_conditions"
           ]
         },
         {
@@ -23844,7 +23862,8 @@
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
             "grpc-probe-object-conditions",
-            "grpc-probe-object-precedence"
+            "grpc-probe-object-precedence",
+            "grpc-probe-inferred-conditions"
           ]
         },
         {
@@ -23885,7 +23904,7 @@
         }
       ],
       "known_deviations": [
-        "The order of authorization, the generation check and the negative-condition refusal against the lookup is not pinned by a test."
+        "The order of authorization and the generation check against the lookup is not pinned by a test."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-28"
@@ -24120,7 +24139,7 @@
       "acceptance_cases": [
         {
           "id": "cancel_discards_session_and_staged_bytes",
-          "description": "Cancelling a fresh or partially written session returns OK, releases its staged bytes and publishes no object; cancelling it again also returns OK. Later QueryWriteStatus answers FAILED_PRECONDITION 'Upload has already been cancelled.' with GRPC_UPLOAD_ALREADY_CANCELLED and a resumed write INVALID_ARGUMENT with the same message, as Cloud Storage did (recorded 2026-11-18, case grpc-probe-resumable-sessions, steps cancel, cancel-again, status-cancelled and write-cancelled). A finalized upload answers FAILED_PRECONDITION 'Upload has already been completed.' with GRPC_UPLOAD_ALREADY_COMPLETED, keeps its object, and QueryWriteStatus still reports its resource (steps cancel-finalized and status-after-cancel-finalized). Text that is no upload ID answers INVALID_ARGUMENT \"Invalid upload ID '<id>'.\" (an empty ID included) and an ID the service cannot read, a bucket part followed by anything but a session, answers INTERNAL (steps cancel-malformed, cancel-empty, cancel-unknown-under-bucket and cancel-appended). These answers come from the ID: the call routes nothing (BEHAVIOR-RPC-001 grpc_routing_upload_id_rpcs). While an active write holds the session lease, the cancel waits for it through the shared writer wait (lock_resumable_session): a server waits up to catalog_wait_timeout_ms, an embedded catalog not at all, and a lease still held when the wait ends returns retryable UNAVAILABLE with the session unchanged (the test pins the embedded catalog's immediate answer; not recorded).",
+          "description": "Cancelling a fresh or partially written session returns OK, releases its staged bytes and publishes no object; cancelling it again also returns OK. Later QueryWriteStatus answers FAILED_PRECONDITION 'Upload has already been cancelled.' with GRPC_UPLOAD_ALREADY_CANCELLED and a resumed write INVALID_ARGUMENT with the same message, as Cloud Storage did (recorded 2026-11-18, case grpc-probe-resumable-sessions, steps cancel, cancel-again, status-cancelled and write-cancelled). A finalized upload answers FAILED_PRECONDITION 'Upload has already been completed.' with GRPC_UPLOAD_ALREADY_COMPLETED, keeps its object, and QueryWriteStatus still reports its resource (steps cancel-finalized and status-after-cancel-finalized). Text that is no upload ID answers INVALID_ARGUMENT \"Invalid upload ID '<id>'.\" (an empty ID included) and an ID the service cannot read, a bucket part followed by anything but a session, answers INTERNAL (steps cancel-malformed, cancel-empty, cancel-unknown-under-bucket and cancel-appended). The ID is read first and the malformed-ID answers do not depend on the routing metadata; for a readable ID the call then needs the x-goog-request-params metadata, and after the caller is authorized for the ID's bucket (a local choice: no recorded call sent missing or rejected credentials) the routed bucket must equal the ID's, else INVALID_ARGUMENT as in BEHAVIOR-RPC-001 grpc_routing_upload_id_rpcs (recorded for an issued ID without the metadata and under another routed bucket, case grpc-probe-inferred-routing, steps cancel-resumable-write-without-routing and cancel-resumable-write-routed-other-bucket; asserted by grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata and grpc_io_upload_id_calls_authorize_before_comparing_the_routing). While an active write holds the session lease, the cancel waits for it through the shared writer wait (lock_resumable_session): a server waits up to catalog_wait_timeout_ms, an embedded catalog not at all, and a lease still held when the wait ends returns retryable UNAVAILABLE with the session unchanged (the test pins the embedded catalog's immediate answer; not recorded).",
           "result": "PASS",
           "test_ids": [
             "grpc_io_cancel_discards_sessions_and_staged_bytes",
@@ -24131,20 +24150,22 @@
         },
         {
           "id": "cancel_unknown_session",
-          "description": "An upload ID of the issued shape (64 hexadecimal digits after the bucket) whose session does not exist, has expired or belongs to another bucket answers NOT_FOUND 'Upload session not found; start a new resumable write', on CancelResumableWrite, QueryWriteStatus and a resumed write alike, after the permission check. Not recorded: Cloud Storage answered INTERNAL only to IDs it could not read, and INTERNAL makes SDKs retry a call that can never succeed, so NOT_FOUND is a deliberate local choice.",
+          "description": "An upload ID of the issued shape (64 hexadecimal digits after the bucket) that names no session the emulator knows, or one under another bucket, answers INTERNAL 'We encountered an internal error. Please try again.' (without the opaque 'Internal details' tail Cloud Storage adds) on CancelResumableWrite, QueryWriteStatus and a resumed write alike, after the permission check. Recorded for an issued ID with one character changed in the middle or at the end (case grpc-probe-inferred-upload-ids, steps cancel-middle-altered, status-middle-altered, write-middle-altered, cancel-last-altered, status-last-altered and write-last-altered) and for an appended character (recorded 2026-11-18); the altered requests left the real session untouched (steps status-middle-issued and status-last-issued). grpc_io_cancel_discards_sessions_and_staged_bytes asserts the cancel and the query for an unknown ID and for the ID under another bucket, and grpc_io_upload_ids_are_looked_up_after_the_permission_check asserts all three RPCs after the permission check; the resumed write against the recorded steps is proven by that test's INTERNAL answer and the differential replay.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_cancel_discards_sessions_and_staged_bytes",
-            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check",
+            "grpc-probe-inferred-upload-ids"
           ]
         },
         {
           "id": "cancel_terminated_session",
-          "description": "A session the emulator ended, for example one whose finishing message did not match object_size, answers CancelResumableWrite FAILED_PRECONDITION 'Upload has already been terminated.' with GRPC_UPLOAD_ALREADY_TERMINATED and a write INVALID_ARGUMENT with the same wording, and QueryWriteStatus answers as recorded (case grpc-probe-write-streams, step status-after-below-object-size). Not recorded; inferred: the cancel and the write on a terminated session, from the recorded answers for a cancelled session and for QueryWriteStatus.",
+          "description": "A session a finishing message ended because its size missed object_size answers CancelResumableWrite, QueryWriteStatus and a resumed write, with and without finish_write, FAILED_PRECONDITION 'Upload has already been terminated.' with GRPC_UPLOAD_ALREADY_TERMINATED, and the cancel does not undo it (case grpc-probe-write-streams, step status-after-below-object-size, and case grpc-probe-inferred-session-states, steps terminated-write-without-finish, terminated-write-finish, terminated-cancel and terminated-status-after-cancel, recorded 2026-11-18). A session the emulator ended for another reason answers the same; that is inferred from the recorded answers (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "grpc_io_terminated_sessions_refuse_cancels_and_writes",
-            "grpc_io_ended_sessions_answer_as_recorded"
+            "grpc_io_ended_sessions_answer_as_recorded",
+            "grpc-probe-inferred-session-states"
           ]
         },
         {
@@ -24158,7 +24179,7 @@
         },
         {
           "id": "cancel_expired_session",
-          "description": "A session expires seven days after StartResumableWrite on the catalog clock: a millisecond earlier QueryWriteStatus still reports its persisted size, and from that instant CancelResumableWrite, QueryWriteStatus and a resumed write all return NOT_FOUND and no object is published.",
+          "description": "A session expires seven days after StartResumableWrite on the catalog clock: a millisecond earlier QueryWriteStatus still reports its persisted size, and from that instant CancelResumableWrite, QueryWriteStatus and a resumed write all answer INTERNAL, as for an ID that names no session, and no object is published. The catalog answers an expired session as a missing one and deletes its row, so the answer cannot differ from the recorded one for an unknown ID; Cloud Storage's own answer to an expired session and its lifetime were not recorded (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "grpc_io_resumable_sessions_expire_seven_days_after_start"
@@ -24166,7 +24187,7 @@
         },
         {
           "id": "provider_status_parity",
-          "description": "Google documents no status for cancelling a finalized upload, a repeated cancel or a cancel during an in-progress write. The recording of 2026-11-18 answered the finalized upload (FAILED_PRECONDITION) and the repeated cancel (OK), and those answers are adopted. It did not cover a cancel while a write holds the session, a session that expired, or an ID of the issued shape that names no session: NOT_FOUND for the last two and retryable UNAVAILABLE for the first are local choices that the tests pin, recorded as scoped differences under SPEC-GRPC-LOCAL-CHOICES.",
+          "description": "Google documents no status for cancelling a finalized upload, a repeated cancel or a cancel during an in-progress write. The recording of 2026-11-18 answered the finalized upload (FAILED_PRECONDITION), the repeated cancel (OK), a cancelled and a terminated session and an ID of the issued shape that names no session (INTERNAL, case grpc-probe-inferred-upload-ids), and those answers are adopted. It did not cover a cancel while a write holds the session or a session that expired: retryable UNAVAILABLE for the first and INTERNAL for the second (the catalog cannot tell an expired session from an ID never issued) are local choices that the tests pin, recorded as scoped differences under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_cancel_discards_sessions_and_staged_bytes",
@@ -24175,10 +24196,11 @@
         },
         {
           "id": "cancel_checks_permission_before_lookup",
-          "description": "A caller without storage.objects.create gets PERMISSION_DENIED, and an anonymous caller UNAUTHENTICATED, whether or not the upload_id names a session, so a denied caller learns nothing about it; a permitted caller gets NOT_FOUND for an unknown upload_id. QueryWriteStatus and resumed writes answer the same.",
+          "description": "A caller without storage.objects.create gets PERMISSION_DENIED, and an anonymous caller UNAUTHENTICATED, whether or not the upload_id names a session, and before the routed bucket is compared, so a denied caller learns nothing about the session or the routing; a permitted caller gets INTERNAL for an unknown upload_id. QueryWriteStatus and resumed writes answer the same (this order is a local choice).",
           "result": "PASS",
           "test_ids": [
-            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check",
+            "grpc_io_upload_id_calls_authorize_before_comparing_the_routing"
           ]
         }
       ],
@@ -24187,10 +24209,15 @@
         "grpc_io_ended_sessions_answer_as_recorded",
         "grpc_io_terminated_sessions_refuse_cancels_and_writes",
         "grpc-probe-resumable-sessions",
+        "grpc-probe-inferred-session-states",
+        "grpc-probe-inferred-upload-ids",
+        "grpc-probe-inferred-routing",
         "grpc_io_strict_cancel_requires_create_permission",
         "TestGRPCCancelResumableWrite",
         "TestGRPCFoundationStrictAuth",
         "grpc_io_upload_ids_are_looked_up_after_the_permission_check",
+        "grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata",
+        "grpc_io_upload_id_calls_authorize_before_comparing_the_routing",
         "grpc_io_resumable_sessions_expire_seven_days_after_start"
       ],
       "verification": [
@@ -24210,7 +24237,10 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
-            "grpc-probe-resumable-sessions"
+            "grpc-probe-resumable-sessions",
+            "grpc-probe-inferred-session-states",
+            "grpc-probe-inferred-upload-ids",
+            "grpc-probe-inferred-routing"
           ]
         },
         {
@@ -24219,6 +24249,8 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
+            "grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata",
+            "grpc_io_upload_id_calls_authorize_before_comparing_the_routing",
             "grpc_io_upload_ids_are_looked_up_after_the_permission_check",
             "grpc_io_cancel_discards_sessions_and_staged_bytes",
             "grpc_io_strict_cancel_requires_create_permission",
@@ -24261,10 +24293,16 @@
       "known_deviations": [],
       "scoped_differences": [
         {
-          "text": "NOT_FOUND for a well-formed upload_id whose session does not exist, expired or belongs to another bucket, and retryable UNAVAILABLE when a write still holds the session lease at the end of the shared writer wait, are local choices; Google documents no status for them and the recording of 2026-11-18 did not cover them (it answered INTERNAL only to IDs it could not read, which are kept). A cancel of a session the emulator ended answers FAILED_PRECONDITION by inference from QueryWriteStatus.",
+          "text": "Retryable UNAVAILABLE when a write still holds the session lease at the end of the shared writer wait is a local choice; Google documents no status for it and no recording covers it (an embedded catalog does not wait). Not recorded, an older choice still true.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "grpc_io_cancel_discards_sessions_and_staged_bytes",
+            "grpc_io_cancel_discards_sessions_and_staged_bytes"
+          ]
+        },
+        {
+          "text": "A session that expires seven days after StartResumableWrite on the catalog clock answers INTERNAL on CancelResumableWrite, QueryWriteStatus and a resumed write, like an ID that names no session: the catalog answers an expired session as a missing one and its maintenance deletes the row. Cloud Storage's answer to an expired session was not recorded (only unknown IDs were), and the seven-day lifetime is the shared engine's bound; the proto leaves a resumable write's validity service-dependent. A session the emulator ended for a reason other than a size mismatch (ResumableError::Gone) answers FAILED_PRECONDITION 'Upload has already been terminated.' by inference from the recorded terminated session; the test pins only the size-mismatch session. Not recorded.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
             "grpc_io_resumable_sessions_expire_seven_days_after_start",
             "grpc_io_terminated_sessions_refuse_cancels_and_writes"
           ]
@@ -24331,12 +24369,15 @@
         },
         {
           "id": "get_object_nested_masks",
-          "description": "A read mask path under a singular message selects that member: owner.entity answers with no owner at all, as Cloud Storage answered on GetObject, ListObjects and ReadObject (metadata.owner.entity) (case grpc-probe-object-masks, steps get-nested-owner-entity, list-nested-owner-entity and read-nested-owner-entity, recorded 2026-11-18). A member the message does not have (owner.no_such_field) and any path under a repeated field (acl.role) answer INVALID_ARGUMENT 'There is no field for this resource named ...' (steps get-nested-unknown-leaf and get-nested-repeated, recorded). The members the code selects are checksums.crc32c and md5_hash, owner.entity and entity_id, customer_encryption.encryption_algorithm and key_sha256_bytes, and retention.mode and retain_until_time (src/grpc/v2/object_io/object_mask.rs); only owner.entity was recorded, the other members are inferred (scoped difference below).",
+          "description": "A read mask path under a singular message selects that member: owner.entity answers with no owner at all, as Cloud Storage answered on GetObject, ListObjects and ReadObject (metadata.owner.entity) (case grpc-probe-object-masks, steps get-nested-owner-entity, list-nested-owner-entity and read-nested-owner-entity, recorded 2026-11-18). A member the message does not have (owner.no_such_field) and any path under a repeated field (acl.role) answer INVALID_ARGUMENT 'There is no field for this resource named ...' (steps get-nested-unknown-leaf and get-nested-repeated, recorded). The second recording of 2026-11-18 asked more paths on GetObject (case grpc-probe-inferred-object-masks): a map key (metadata.somekey), a path under a scalar (name.x) or under a member (owner.entity.x), an empty path, a trailing dot (checksums.) and a leading dot (.name) answer INVALID_ARGUMENT 'There is no field for this resource named ...' (steps get-mask-metadata-key, get-mask-under-scalar, get-mask-under-member, get-mask-empty-path, get-mask-trailing-dot and get-mask-leading-dot), while a timestamp member (create_time.seconds), a member of the unset retention (retention.retain_until_time) and contexts.custom are served (steps get-mask-timestamp-member, get-mask-retention-member and get-mask-contexts-custom): create_time.seconds selects a timestamp of whole seconds and contexts.custom an empty message. The members the code selects are checksums.crc32c and md5_hash, owner.entity and entity_id, customer_encryption.encryption_algorithm and key_sha256_bytes, retention.mode and retain_until_time, the seconds and nanos of every timestamp field, and contexts.custom (src/grpc/v2/object_io/object_mask.rs). The unit tests paths_that_name_no_field_are_unknown and a_part_of_a_timestamp_and_the_context_map_are_selected_as_members assert the mask parser for the recorded paths; the RPC-level answers of those steps are proven by the differential replay. The members not asked are inferred (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "a_nested_owner_path_is_served_without_the_owner",
             "an_invalid_read_mask_is_reported_for_a_missing_object",
-            "grpc-probe-object-masks"
+            "paths_that_name_no_field_are_unknown",
+            "a_part_of_a_timestamp_and_the_context_map_are_selected_as_members",
+            "grpc-probe-object-masks",
+            "grpc-probe-inferred-object-masks"
           ]
         },
         {
@@ -24360,7 +24401,7 @@
         },
         {
           "id": "get_object_mask_validation_order",
-          "description": "The read_mask is checked with the request, after the customer key and the name and before authorization, the soft_deleted and restore_token checks, the generation and condition checks and the lookup (check_object_mask in src/grpc/v2/object_io/read.rs): a path naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' for a missing object and for a missing bucket alike, as Cloud Storage answered (case grpc-probe-object-masks, steps get-missing-object-unknown-path and get-missing-bucket-unknown-path, recorded 2026-11-18), and a valid mask still reports a missing object as NOT_FOUND. Checking the mask before authorization, so that an unauthorized or anonymous caller is told too, and the order against the soft_deleted and restore_token checks were not recorded (scoped difference below).",
+          "description": "The read_mask is checked with the request, after the customer key and the name and before authorization, the soft_deleted and restore_token checks, the generation and condition checks and the lookup (object_mask in src/grpc/v2/object_io/read.rs): a path naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' for a missing object and for a missing bucket alike, as Cloud Storage answered (case grpc-probe-object-masks, steps get-missing-object-unknown-path and get-missing-bucket-unknown-path, recorded 2026-11-18), and a valid mask still reports a missing object as NOT_FOUND. Checking the mask before authorization, so that an unauthorized or anonymous caller is told too, and the order against the soft_deleted and restore_token checks were not recorded (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
@@ -24372,12 +24413,13 @@
         },
         {
           "id": "get_object_condition_validation",
-          "description": "GetObject compares the conditions it receives: an if_metageneration_match of 0 fails with FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a match together with a not-match that both hold is served, for the generation and for the metageneration pair, as Cloud Storage answered (case grpc-probe-object-conditions, steps get-metageneration-match-zero, get-generation-match-and-not-match and get-metageneration-match-and-not-match, recorded 2026-11-18). A negative condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only' (scoped difference below).",
+          "description": "GetObject compares the conditions it receives: an if_metageneration_match of 0 fails with FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a match together with a not-match that both hold is served, for the generation and for the metageneration pair, as Cloud Storage answered (case grpc-probe-object-conditions, steps get-metageneration-match-zero, get-generation-match-and-not-match and get-metageneration-match-and-not-match, recorded 2026-11-18). A negative condition is compared, not refused: an if_generation_match or if_metageneration_match of -1 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and an if_generation_not_match of -1 holds and serves the object (case grpc-probe-inferred-conditions, steps get-generation-match-negative, get-metageneration-match-negative and get-generation-not-match-negative, recorded 2026-11-18). get_object_refuses_restore_tokens_and_negative_values asserts the not-match step; the two failing match steps are proven by the differential replay alone (no GetObject test sends a negative match). A negative generation still answers INVALID_ARGUMENT (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "get_object_reads_a_soft_deleted_generation",
             "get_object_refuses_restore_tokens_and_negative_values",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions"
           ]
         }
       ],
@@ -24394,8 +24436,13 @@
         "a_nested_owner_path_is_served_without_the_owner",
         "get_object_reads_a_soft_deleted_generation",
         "get_object_soft_deleted_needs_a_soft_delete_policy",
+        "paths_that_name_no_field_are_unknown",
+        "a_part_of_a_timestamp_and_the_context_map_are_selected_as_members",
+        "real_members_that_are_not_selected_alone_are_unsupported",
         "grpc-probe-object-masks",
         "grpc-probe-object-conditions",
+        "grpc-probe-inferred-object-masks",
+        "grpc-probe-inferred-conditions",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
       ],
@@ -24413,7 +24460,10 @@
             "get_object_refuses_restore_tokens_and_negative_values",
             "a_nested_owner_path_is_served_without_the_owner",
             "get_object_reads_a_soft_deleted_generation",
-            "get_object_soft_deleted_needs_a_soft_delete_policy"
+            "get_object_soft_deleted_needs_a_soft_delete_policy",
+            "paths_that_name_no_field_are_unknown",
+            "a_part_of_a_timestamp_and_the_context_map_are_selected_as_members",
+            "real_members_that_are_not_selected_alone_are_unsupported"
           ]
         },
         {
@@ -24423,7 +24473,9 @@
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
             "grpc-probe-object-masks",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-object-masks",
+            "grpc-probe-inferred-conditions"
           ]
         },
         {
@@ -24494,11 +24546,13 @@
           ]
         },
         {
-          "text": "Object read-mask members other than owner.entity are selected or refused by inference: owner.entity_id, the customer_encryption members and retention.mode and retain_until_time are selected, a path under a scalar or a map key (metadata.k) names no field, and the parts of a timestamp (create_time.seconds) and the context map (contexts.custom) answer UNIMPLEMENTED with ErrorInfo. Not recorded.",
+          "text": "Object read-mask members the recordings did not ask are selected or refused by inference: owner.entity_id, the customer_encryption members and retention.mode are selected, nanos of a timestamp and the seconds of every timestamp field but create_time follow create_time.seconds, a path under an unknown name, under contexts.custom or under a timestamp part names no field, and the parts of the retention's timestamp (retention.retain_until_time.seconds and .nanos) answer UNIMPLEMENTED with ErrorInfo. Not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
-            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them"
+            "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
+            "paths_that_name_no_field_are_unknown",
+            "real_members_that_are_not_selected_alone_are_unsupported"
           ]
         },
         {
@@ -24509,7 +24563,7 @@
           ]
         },
         {
-          "text": "A negative generation or metageneration condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only', and a negative generation answers INVALID_ARGUMENT. Not recorded: only 0 and pairs were asked of objects, and Cloud Storage compared negative bucket conditions (case grpc-probe-bucket-conditions).",
+          "text": "A negative generation answers INVALID_ARGUMENT 'generation must be positive, or 0 to select the live object', before the object is authorized and looked up. The negative conditions were recorded (case grpc-probe-inferred-conditions) and are compared; no recording asked a negative generation. Not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "get_object_refuses_restore_tokens_and_negative_values"
@@ -24572,13 +24626,15 @@
         },
         {
           "id": "read_object_nested_masks",
-          "description": "A metadata. path under a singular message selects that member: metadata.owner.entity answers with no owner at all, and a mask that selects the content alone (checksummed_data.content) gets it without its CRC32C, as Cloud Storage answered (case grpc-probe-object-masks, step read-nested-owner-entity, recorded 2026-11-18). A metadata. member the message does not have, or a path under a repeated field, answers INVALID_ARGUMENT 'There is no field for this resource named ...' (recorded for GetObject, steps get-nested-unknown-leaf and get-nested-repeated; ReadObject's answer is inferred from them). The members selected are those GetObject selects (src/grpc/v2/object_io/object_mask.rs); only owner.entity was recorded (scoped difference below).",
+          "description": "A metadata. path under a singular message selects that member: metadata.owner.entity answers with no owner at all, and a mask that selects the content alone (checksummed_data.content) gets it without its CRC32C, as Cloud Storage answered (case grpc-probe-object-masks, step read-nested-owner-entity, recorded 2026-11-18). A mask that names object_checksums.crc32c beside checksummed_data.content answers the first response with that digest alone (case grpc-probe-inferred-object-masks, step read-mask-content-and-object-checksums, recorded 2026-11-18; asserted by a_read_mask_keeps_only_the_response_fields_it_names, which also asserts that object_checksums.md5_hash is selected the same way, an inference). A metadata. member the message does not have, or a path under a repeated field, answers INVALID_ARGUMENT 'There is no field for this resource named ...' (recorded for GetObject, steps get-nested-unknown-leaf and get-nested-repeated; ReadObject's answer is inferred from them). Recorded for ReadObject: a mask without checksummed_data.content, such as metadata.no_such_field or metadata.owner.entity, answers INVALID_ARGUMENT \"The 'read_mask' field must include checksummed_data.content, but was '...'\" before any path is read (steps read-mask-metadata-unknown and read-mask-metadata-owner-entity of grpc-probe-inferred-object-masks; the Rust tests assert that refusal for metadata.name, and the two steps are proven by the differential replay). The members selected are those GetObject selects (src/grpc/v2/object_io/object_mask.rs); the ones no recording asked are inferred (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "a_nested_owner_path_is_served_without_the_owner",
             "a_read_mask_keeps_only_the_response_fields_it_names",
             "an_invalid_read_mask_is_reported_for_a_missing_object",
-            "grpc-probe-object-masks"
+            "request_checks_before_the_mask_keep_their_order",
+            "grpc-probe-object-masks",
+            "grpc-probe-inferred-object-masks"
           ]
         },
         {
@@ -24592,7 +24648,7 @@
         },
         {
           "id": "read_object_local_precedence",
-          "description": "ReadObject reports a malformed customer key, a malformed name and a read mask without checksummed_data.content (INVALID_ARGUMENT) with the request, before the object is looked up, and a failing generation condition before an offset past the end (FAILED_PRECONDITION, then OUT_OF_RANGE); a read mask without the content is reported before a failing condition, as Cloud Storage answered (case grpc-probe-object-precedence, steps read-missing-mask-without-content, read-missing-malformed-key, read-generation-match-failing-offset-past-end and read-generation-match-failing-mask-without-content, recorded 2026-11-18). The rest of the order is a local choice: a malformed key precedes a malformed name, and the name the read mask; a mask path it does not select answers UNIMPLEMENTED (read_object_unknown_response_paths); the caller is then authorized for the bucket, which refuses a caller only when the bucket does not exist and the caller holds storage.objects.get in no project (an anonymous caller gets UNAUTHENTICATED and a principal PERMISSION_DENIED); then come a negative generation and a negative condition, both INVALID_ARGUMENT; the caller is authorized for the object with the lookup, so in an existing bucket an anonymous caller is denied with PERMISSION_DENIED for a missing object too; then NOT_FOUND for a missing object, FAILED_PRECONDITION for a failed condition, OUT_OF_RANGE for an offset past the end, and last INVALID_ARGUMENT for a negative read_limit (scoped difference below).",
+          "description": "ReadObject reports a malformed customer key, a malformed name and a read mask without checksummed_data.content (INVALID_ARGUMENT) with the request, before the object is looked up, and a failing generation condition before an offset past the end (FAILED_PRECONDITION, then OUT_OF_RANGE); a read mask without the content is reported before a failing condition, as Cloud Storage answered (case grpc-probe-object-precedence, steps read-missing-mask-without-content, read-missing-malformed-key, read-generation-match-failing-offset-past-end and read-generation-match-failing-mask-without-content, recorded 2026-11-18). The rest of the order is a local choice: a malformed key precedes a malformed name, and the name the read mask; a mask path it does not select answers UNIMPLEMENTED (read_object_unknown_response_paths); the caller is then authorized for the bucket, which refuses a caller only when the bucket does not exist and the caller holds storage.objects.get in no project (an anonymous caller gets UNAUTHENTICATED and a principal PERMISSION_DENIED); then comes a negative generation, INVALID_ARGUMENT; the caller is authorized for the object with the lookup, so in an existing bucket an anonymous caller is denied with PERMISSION_DENIED for a missing object too; then NOT_FOUND for a missing object, FAILED_PRECONDITION for a failed condition (a negative condition among them), OUT_OF_RANGE for an offset past the end, and last INVALID_ARGUMENT for a negative read_limit (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "read_object_reports_each_failure_before_the_ones_it_precedes",
@@ -24610,10 +24666,11 @@
         },
         {
           "id": "read_object_condition_validation",
-          "description": "ReadObject compares the conditions it receives: an if_metageneration_match of 0 fails with FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a match together with a not-match that both hold is served, as Cloud Storage answered (case grpc-probe-object-conditions, steps read-metageneration-match-zero, read-generation-match-and-not-match and read-metageneration-match-and-not-match, recorded 2026-11-18). A negative condition answers INVALID_ARGUMENT (scoped difference below).",
+          "description": "ReadObject compares the conditions it receives: an if_metageneration_match of 0 fails with FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a match together with a not-match that both hold is served, as Cloud Storage answered (case grpc-probe-object-conditions, steps read-metageneration-match-zero, read-generation-match-and-not-match and read-metageneration-match-and-not-match, recorded 2026-11-18). A negative condition is compared, not refused: an if_metageneration_match of -1 never holds and answers FAILED_PRECONDITION with the same message, which read_object_refuses_negative_limits_and_offsets_past_the_end asserts and read_object_reports_each_failure_before_the_ones_it_precedes pins against the other checks. Cloud Storage was recorded comparing negative conditions on GetObject (case grpc-probe-inferred-conditions, steps get-*-negative, recorded 2026-11-18), not on ReadObject: ReadObject takes the answer from GetObject by inference (scoped difference below). A negative generation and a negative read_limit still answer INVALID_ARGUMENT (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "read_object_refuses_negative_limits_and_offsets_past_the_end",
+            "read_object_reports_each_failure_before_the_ones_it_precedes",
             "grpc-probe-object-conditions"
           ]
         }
@@ -24635,6 +24692,7 @@
         "grpc-probe-object-masks",
         "grpc-probe-object-conditions",
         "grpc-probe-object-precedence",
+        "grpc-probe-inferred-object-masks",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOWire"
       ],
@@ -24664,7 +24722,8 @@
           "test_ids": [
             "grpc-probe-object-masks",
             "grpc-probe-object-conditions",
-            "grpc-probe-object-precedence"
+            "grpc-probe-object-precedence",
+            "grpc-probe-inferred-object-masks"
           ]
         },
         {
@@ -24729,21 +24788,22 @@
       ],
       "scoped_differences": [
         {
-          "text": "Object read-mask members other than owner.entity are selected or refused by inference, as on GetObject: a path under a scalar or a map key names no field, and the parts of a timestamp and the context map answer UNIMPLEMENTED. Not recorded.",
+          "text": "Object read-mask members the recordings did not ask are selected or refused by inference, as on GetObject: ReadObject's answers for a path under a map key, a scalar or a member and for the timestamp parts and contexts.custom are taken from the GetObject steps, object_checksums.md5_hash is selected like the recorded crc32c, and the parts of the retention's timestamp answer UNIMPLEMENTED. Not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "an_invalid_read_mask_is_reported_for_a_missing_object"
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "a_read_mask_keeps_only_the_response_fields_it_names"
           ]
         },
         {
-          "text": "A negative generation, condition or read_limit answers INVALID_ARGUMENT; the generation and conditions are refused before the object is authorized and looked up, and the read_limit last. Not recorded: only 0 and pairs were asked of objects, and Cloud Storage compared negative bucket conditions (case grpc-probe-bucket-conditions).",
+          "text": "A negative generation or read_limit answers INVALID_ARGUMENT, the generation before the object is authorized and looked up and the read_limit last. A negative condition is compared with the lookup (an if_metageneration_match of -1 never holds); Cloud Storage was recorded comparing negative conditions on GetObject, DeleteObject and the other object RPCs but was not asked ReadObject, so ReadObject's answer is inferred. Not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "read_object_refuses_negative_limits_and_offsets_past_the_end"
           ]
         },
         {
-          "text": "ReadObject checks the customer key, the name and the read mask with the request; then authorizes the caller for the bucket, which refuses a caller only when the bucket does not exist and the caller holds storage.objects.get in no project; then checks the generation and the conditions; then authorizes the caller for the object with the lookup, evaluates the conditions, and checks the read offset and then the read limit last. The recording covers the key, the mask and the failing condition against the offset only (case grpc-probe-object-precedence); the rest of the order is not recorded.",
+          "text": "ReadObject checks the customer key, the name and the read mask with the request; then authorizes the caller for the bucket, which refuses a caller only when the bucket does not exist and the caller holds storage.objects.get in no project; then checks the generation; then authorizes the caller for the object with the lookup, evaluates the conditions, and checks the read offset and then the read limit last. The recording covers the key, the mask and the failing condition against the offset only (case grpc-probe-object-precedence); the rest of the order is not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "read_object_reports_each_failure_before_the_ones_it_precedes",
@@ -24788,7 +24848,7 @@
         {"id": "bidi-read-mask", "description": "An absent or empty read_mask selects every object field except acl and owner, and a read_mask of *, or an x-goog-fieldmask header of *, selects every field, the object's ACL and owner included, as storage.proto lines 1185-1187 define the deprecated field (the header is the alternative the proto names at line 1189); the first response then carries the same object ReadObject returns for the same mask (first_read_metadata in src/grpc/v2/object_io/read.rs). Any other read_mask, and any other x-goog-fieldmask header, answers UNIMPLEMENTED with ErrorInfo before any response (validate_spec and header_fields in src/grpc/v2/bidi_read.rs). The deprecated field's text is copied from ReadObjectRequest: it says the checksummed_data field and its children are always present, a field BidiReadObjectResponse does not have, and its sentence on the grpc metadata alternative breaks off (storage.proto lines 1183-1190, response fields at lines 1222-1241). Which response paths another mask selects is therefore undefined, so that refusal is kept as a local choice (SPEC-GRPC-LOCAL-CHOICES).", "result": "PASS", "test_ids": ["a_wildcard_mask_returns_the_acl_and_owner_the_default_omits", "the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header"]},
         {"id": "bidi-handle-preconditions", "description": "A read_handle together with any generation or metageneration condition answers UNIMPLEMENTED with ErrorInfo ('BidiReadObject preconditions with read_handle; reopen without read_handle to apply conditions', validate_spec). The spec carries both fields (storage.proto lines 1145-1200) without saying whether a condition applies to the generation the handle reopens or to the live object, so the refusal is kept as a local choice (SPEC-GRPC-LOCAL-CHOICES).", "result": "PASS", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]},
         {"id": "bidi-request-validation", "description": "A stream that sends no message, or whose first message lacks read_object_spec, answers INVALID_ARGUMENT naming read_object_spec; a later message that carries read_object_spec answers INVALID_ARGUMENT 'read_object_spec is only allowed in the first message'; a negative generation answers INVALID_ARGUMENT 'Generation conditions must be nonnegative; use generation 0 for the live object'.", "result": "PASS", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header"]},
-        {"id": "bidi-condition-validation", "description": "BidiReadObject refuses only negative read_object_spec conditions (validate_spec in src/grpc/v2/bidi_read.rs, pinned by the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle) and so evaluates a metageneration condition of 0 and a match together with a not-match, as Cloud Storage was recorded evaluating them on GetObject and ReadObject (case grpc-probe-object-conditions, 2026-11-18). That is an inference: Cloud Storage refused BidiReadObject to the recording project as not allowlisted (case grpc-gaps-bidi-read), and no test pins a zero or paired condition on this RPC. Pin both.", "result": "PENDING", "test_ids": []}
+        {"id": "bidi-condition-validation", "description": "BidiReadObject refuses no condition by value: validate_spec in src/grpc/v2/bidi_read.rs accepts a negative if_generation_match, if_generation_not_match, if_metageneration_match and if_metageneration_not_match (pinned by the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle, which asserts only that validate_spec accepts them), so the object read compares them like any other value, a metageneration condition of 0 and a match together with a not-match included, as Cloud Storage was recorded comparing them on GetObject and Delete (cases grpc-probe-object-conditions and grpc-probe-inferred-conditions, 2026-11-18). That is an inference for BidiReadObject: Cloud Storage refused BidiReadObject to the recording project as not allowlisted (case grpc-gaps-bidi-read), and no test opens a stream with a zero, negative or paired condition and checks the answer. Pin the stream-level answers.", "result": "PENDING", "test_ids": []}
       ],
       "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status", "TestGRPCAppendable", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog", "appendable_read_handles_keep_the_issued_size_after_flush_and_finalize", "closed_read_handles_do_not_reserve_deleted_ram_blobs", "read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "bidi_range_errors_report_every_submitted_read_id", "grpc_io_read_failures_use_shared_storage_status", "routing_token_and_read_mask_stay_unimplemented", "read_handles_are_isolated_by_state_and_survive_reconnection", "the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header", "bidi_range_errors_list_the_failed_range_first_then_queue_and_request_order", "a_wildcard_mask_returns_the_acl_and_owner_the_default_omits"],
       "verification": [
@@ -24805,13 +24865,14 @@
         {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
       ],
       "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}, {"language": "Java", "toolchain": "openjdk 27.0.1", "sdk": "com.google.cloud:google-cloud-storage", "version": "2.78.0", "transport": "Storage v2 gRPC; blobReadSession with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.java.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Java)"]}, {"language": "Python", "toolchain": "3.15.2", "sdk": "google-cloud-storage", "version": "3.17.1", "transport": "Storage v2 gRPC; AsyncMultiRangeDownloader with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.python.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Python)"]}, {"language": "Rust", "toolchain": "1.100.0", "sdk": "google-cloud-storage", "version": "1.22.0", "transport": "Storage v2 gRPC; Storage::open_object with two ranges", "result": "PASS", "verified_at": "2026-11-15", "command": "bash sdk-scorecard/run.sh", "artifact": "sdk-scorecard/results/2026-11-15-5/gcs-mimic.rust.jsonl", "test_ids": ["sdk-scorecard grpc.multi_range_read (Rust)"]}],
-      "known_deviations": ["No test pins how BidiReadObject evaluates a metageneration condition of 0 or a match together with a not-match."],
+      "known_deviations": ["No test pins how a BidiReadObject stream evaluates a metageneration condition of 0, a negative condition or a match together with a not-match."],
       "scoped_differences": [
         {"text": "Read handles are process-local and reader-free: a FIFO keeps at most 1024 of them for ten injected-clock minutes. A handle the table does not hold answers FAILED_PRECONDITION, so the client reopens without a handle: one the FIFO evicted, one past its ten minutes, and one this process never issued, as after a restart, which starts with an empty table. A deleted or nonversioned-replaced generation answers NOT_FOUND and invalidates the handle. Google documents no lifetime, capacity or answer for a removed generation.", "gap": "SPEC-GRPC-READ-HANDLES", "test_ids": ["read_handles_expire_with_the_injected_clock", "read_handle_table_evicts_the_oldest_entry_at_its_bound", "read_handles_are_isolated_by_state_and_survive_reconnection", "read_handle_rejects_a_deleted_generation_and_discards_the_token", "read_handles_reopen_only_generations_still_in_the_catalog"]},
         {"text": "When a range or the stream fails, BidiReadObjectError keeps the failed read_id's own status and reports every other unfinished admitted read_id as ABORTED, listing the failed range first, then the ranges already queued, in queue order, then the rest of the rejected message in request order; the proto requires an entry for each pending read_id without naming its status or an order.", "gap": "SPEC-GRPC-PENDING-RANGES", "test_ids": ["bidi_range_errors_report_every_submitted_read_id", "bidi_range_errors_list_the_failed_range_first_then_queue_and_request_order"]},
         {"text": "Each message accepts at most 100 ranges, as the proto says, with non-retryable INVALID_ARGUMENT above it; the stream stops reading requests while 100 descriptors are queued (at most 199 after one admitted batch), reads one 64 KiB chunk at a time and holds two queued responses. Go v1.70.0 resends every pending range in one message after an interruption, so a reconnect with more than 100 pending ranges breaks the proto's limit and fails without retry; ordinary multi-message Add and Wait use the backpressure.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids"]},
         {"text": "A routing_token returns UNIMPLEMENTED: the emulator never redirects a stream, so it never issues a BidiReadObjectRedirectedError whose token a client could repeat.", "gap": "SPEC-GRPC-UNMODELED-SETTINGS", "test_ids": ["routing_token_and_read_mask_stay_unimplemented", "the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]},
         {"text": "A read_mask other than absent, empty or *, and an x-goog-fieldmask header other than *, answer UNIMPLEMENTED with ErrorInfo. The deprecated field's text, copied from ReadObjectRequest, names a checksummed_data field BidiReadObjectResponse does not have and breaks off where it names the grpc metadata alternative, so which response paths a mask selects is undefined.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle", "the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header"]},
+        {"text": "A negative generation or metageneration condition in the read_object_spec is compared like any other value, as GetObject and Delete were recorded comparing it (case grpc-probe-inferred-conditions, 2026-11-18). BidiReadObject itself could not be recorded (not allowlisted for the recording project), so its answer is inferred; the test asserts only that validate_spec accepts the values.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]},
         {"text": "A read_handle together with a generation or metageneration condition answers UNIMPLEMENTED with ErrorInfo, and a client reopens without the handle to apply conditions. The proto does not say whether a condition applies to the generation a handle reopens or to the live object.", "gap": "SPEC-GRPC-LOCAL-CHOICES", "test_ids": ["the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle"]}
       ],
       "implemented_in": null,
@@ -24834,7 +24895,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. A bare metadata mask merges the request's entries into the stored map and clears it when the request names none, and metadata. names the empty key, as Cloud Storage did (recorded 2026-11-17, case obj-gaps-empty-metadata-key); the change applies inside the mutation transaction without adding implicit preconditions, and explicit client conditions remain enforced. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. A bare metadata mask merges the request's entries into the stored map and clears it when the request names none, and metadata. names the empty key, as Cloud Storage did (recorded 2026-11-17, case obj-gaps-empty-metadata-key); the change applies inside the mutation transaction without adding implicit preconditions, and explicit client conditions remain enforced. Update masks are classified by one field setting per Object field (output-only, identifier, service-kept or client-set) as recorded on 2026-11-18 (cases grpc-probe-object-masks and grpc-probe-inferred-object-masks); the answers they did not cover are marked 'Not recorded' in the code and listed as scoped differences. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner. Covered by the differential replay, not by a dedicated Rust test.",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -24898,32 +24959,39 @@
         },
         {
           "id": "grpc_update_object_wildcard_mask",
-          "description": "An update_mask of * alone replaces the editable metadata, as a JSON PUT does: a * update that carried only a content type cleared the content language, the cache control and the custom metadata and left the ACL, advancing the metageneration (case grpc-probe-object-masks, steps update-wildcard-content-type-only and get-after-wildcard, recorded 2026-11-18). A * beside another path answers UNIMPLEMENTED with ErrorInfo (scoped difference below).",
+          "description": "An update_mask of * alone replaces the editable metadata, as a JSON PUT does: a * update that carried only a content type cleared the content language, the cache control and the custom metadata and left the ACL, advancing the metageneration (case grpc-probe-object-masks, steps update-wildcard-content-type-only and get-after-wildcard, recorded 2026-11-18). A * beside another path is a replacement as well: * with content_language answered as * alone did, and the other paths are not read (case grpc-probe-inferred-object-masks, step update-wildcard-and-another-path, recorded 2026-11-18; a_wildcard_beside_another_path_replaces_the_metadata_and_releases_holds asserts it). * also released a temporary hold and an event-based hold that the request left out (steps update-wildcard-over-temporary-hold, get-after-wildcard-over-temporary-hold, update-wildcard-over-event-based-hold and get-after-wildcard-over-event-based-hold, recorded); the same test asserts the temporary hold, and the event-based hold step is proven by the differential replay alone (a_wildcard_mask_replaces_the_editable_metadata asserts only that the replacement is a WriteMode::Replace). That the other paths are not read at all (a storage_class, kms_key or unknown path beside * changes nothing) is inferred (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "a_wildcard_mask_replaces_the_editable_metadata_and_keeps_the_acl",
             "a_wildcard_mask_replaces_the_editable_metadata",
-            "grpc-probe-object-masks"
+            "a_wildcard_beside_another_path_replaces_the_metadata_and_releases_holds",
+            "a_wildcard_beside_another_path_does_not_read_that_path",
+            "grpc-probe-object-masks",
+            "grpc-probe-inferred-object-masks"
           ]
         },
         {
           "id": "grpc_update_object_mask_paths",
-          "description": "A path that names no object field answers INVALID_ARGUMENT 'There is no field for this resource named ...'; an output-only path such as create_time or update_time is accepted, applies nothing and advances the metageneration; an empty or absent update_mask answers INVALID_ARGUMENT 'Invalid update_mask. Requests should specify at least one update field.' with the reason GRPC_MISSING_UPDATE_MASK_FIELDS, all as Cloud Storage answered (case grpc-probe-object-masks, steps update-unknown-path, update-output-only-create-time, update-output-only-update-time, update-empty-mask and update-absent-mask, recorded 2026-11-18). Treating the other output-only fields alike is inferred from the proto (scoped difference below).",
+          "description": "A path that names no object field answers INVALID_ARGUMENT 'There is no field for this resource named ...'; an output-only path such as create_time or update_time is accepted, applies nothing and advances the metageneration; an empty or absent update_mask answers INVALID_ARGUMENT 'Invalid update_mask. Requests should specify at least one update field.' with the reason GRPC_MISSING_UPDATE_MASK_FIELDS, all as Cloud Storage answered (case grpc-probe-object-masks, steps update-unknown-path, update-output-only-create-time, update-output-only-update-time, update-empty-mask and update-absent-mask, recorded 2026-11-18). Every path is classified by one field setting (FieldSetting in src/grpc/v2/mask.rs): the other fields the proto marks OUTPUT_ONLY (metageneration, size, delete_time, finalize_time, checksums, update_storage_class_time, owner, component_count, restore_token, soft_delete_time, hard_delete_time), the identifiers name and bucket, and the fields the service keeps (etag, generation, retention_expire_time) are accepted and change nothing, as Cloud Storage answered (case grpc-probe-inferred-object-masks, the update-mask-* steps for those paths, recorded 2026-11-18; update_paths_separate_output_only_unsupported_and_unknown_paths asserts the classification, service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused asserts the five service-kept and identifier paths, and the output-only paths' RPC answers are proven by the differential replay). storage_class and kms_key answer INVALID_ARGUMENT with a BadRequest, 'Client is not allowed to directly modify storage_class.' for storage_class set to NEARLINE and 'Cannot change the Cloud KMS key associated with a resource.' for a key that does not exist (steps update-mask-storage-class and update-mask-kms-key, recorded); that every other class value and an empty key are refused the same way is inferred (scoped difference below). A path for contexts answers UNIMPLEMENTED (SPEC-GRPC-UNMODELED-SETTINGS).",
           "result": "PASS",
           "test_ids": [
             "an_output_only_path_changes_nothing_but_the_metageneration",
             "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
             "grpc_masks_reject_unsupported_and_accept_defaults",
-            "grpc-probe-object-masks"
+            "update_paths_separate_output_only_unsupported_and_unknown_paths",
+            "service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused",
+            "grpc-probe-object-masks",
+            "grpc-probe-inferred-object-masks"
           ]
         },
         {
           "id": "grpc_update_object_condition_validation",
-          "description": "UpdateObject compares the conditions it receives instead of refusing their shape: an if_metageneration_match of 0 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current generation or metageneration beside a match answers FAILED_PRECONDITION 'The resource you requested has not been modified according to the condition you specified.', all without changing the object, as Cloud Storage answered (case grpc-probe-object-conditions, steps update-metageneration-match-zero, update-generation-match-and-not-match and update-metageneration-match-and-not-match, recorded 2026-11-18). A negative condition answers INVALID_ARGUMENT (scoped difference below).",
+          "description": "UpdateObject compares the conditions it receives instead of refusing their shape: an if_metageneration_match of 0 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current generation or metageneration beside a match answers FAILED_PRECONDITION 'The resource you requested has not been modified according to the condition you specified.', all without changing the object, as Cloud Storage answered (case grpc-probe-object-conditions, steps update-metageneration-match-zero, update-generation-match-and-not-match and update-metageneration-match-and-not-match, recorded 2026-11-18). A negative condition is compared, not refused: an if_generation_match or if_metageneration_match of -1 never holds and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and an if_generation_not_match of -1 holds and applies the update (case grpc-probe-inferred-conditions, steps update-generation-match-negative, update-metageneration-match-negative and update-generation-not-match-negative, recorded 2026-11-18). update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object asserts the generation match of -1 and leaves the object unchanged; the metageneration match and the not-match steps are proven by the differential replay alone.",
           "result": "PASS",
           "test_ids": [
             "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions"
           ]
         }
       ],
@@ -24948,8 +25016,14 @@
         "a_wildcard_mask_replaces_the_editable_metadata_and_keeps_the_acl",
         "a_wildcard_mask_replaces_the_editable_metadata",
         "an_output_only_path_changes_nothing_but_the_metageneration",
+        "a_wildcard_beside_another_path_replaces_the_metadata_and_releases_holds",
+        "a_wildcard_beside_another_path_does_not_read_that_path",
+        "update_paths_separate_output_only_unsupported_and_unknown_paths",
+        "service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused",
         "grpc-probe-object-masks",
-        "grpc-probe-object-conditions"
+        "grpc-probe-object-conditions",
+        "grpc-probe-inferred-object-masks",
+        "grpc-probe-inferred-conditions"
       ],
       "verification": [
         {
@@ -24962,7 +25036,11 @@
             "update_object_ignores_the_request_etag",
             "a_wildcard_mask_replaces_the_editable_metadata_and_keeps_the_acl",
             "a_wildcard_mask_replaces_the_editable_metadata",
-            "an_output_only_path_changes_nothing_but_the_metageneration"
+            "an_output_only_path_changes_nothing_but_the_metageneration",
+            "a_wildcard_beside_another_path_replaces_the_metadata_and_releases_holds",
+            "a_wildcard_beside_another_path_does_not_read_that_path",
+            "update_paths_separate_output_only_unsupported_and_unknown_paths",
+            "service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused"
           ]
         },
         {
@@ -24981,7 +25059,9 @@
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
             "grpc-probe-object-masks",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-object-masks",
+            "grpc-probe-inferred-conditions"
           ]
         },
         {
@@ -25077,26 +25157,18 @@
           ]
         },
         {
-          "text": "An update path storage_class returns UNIMPLEMENTED with ErrorInfo and changes nothing. The proto does not say whether UpdateObject changes an object's storage class, and nothing was recorded; a JSON metadata update refuses a changed storageClass as an unsupported setting and accepts only an equal repeated value (src/json/object_metadata.rs), and a rewrite to a destination storage_class changes it.",
+          "text": "The refusal of an update path storage_class or kms_key was recorded with storage_class NEARLINE and with a key that does not exist (case grpc-probe-inferred-object-masks); that every other class value and an empty kms_key are refused the same way is inferred, since the proto does not say whether UpdateObject changes a storage class. A JSON metadata update refuses a changed storageClass as an unsupported setting and accepts only an equal repeated value (src/json/object_metadata.rs), and a rewrite to a destination storage_class changes it. Not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
+            "service_kept_paths_change_nothing_and_a_class_or_key_path_is_refused"
           ]
         },
         {
-          "text": "A * update_mask beside another path answers UNIMPLEMENTED with ErrorInfo. A * replacement also releases each hold the request does not set, as the JSON PUT does, keeps an ACL or retention the request leaves out and applies one it carries as its own path does. The recorded * update carried only a content type, so none of this was recorded. Output-only update paths other than create_time and update_time are accepted and applied as nothing by inference from the proto's OUTPUT_ONLY marks.",
+          "text": "A * update_mask beside another path replaces the editable metadata and the other paths are not read, so a storage_class, kms_key or unknown path beside * changes nothing and is not refused; only * beside content_language was recorded, whose answer reading the paths would not change. A * replacement keeps an ACL or retention the request leaves out (recorded for the ACL; the retention is not recorded) and applies one it carries as its own path does. Not recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
-            "a_wildcard_mask_replaces_the_editable_metadata",
-            "grpc_masks_reject_unsupported_and_accept_defaults"
-          ]
-        },
-        {
-          "text": "A negative generation or metageneration condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only'. Not recorded: only 0 and pairs were asked of objects, and Cloud Storage compared negative bucket conditions (case grpc-probe-bucket-conditions).",
-          "gap": "SPEC-GRPC-LOCAL-CHOICES",
-          "test_ids": [
-            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
+            "a_wildcard_beside_another_path_does_not_read_that_path",
+            "a_wildcard_mask_replaces_the_editable_metadata"
           ]
         }
       ],
