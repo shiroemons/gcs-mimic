@@ -379,8 +379,10 @@ impl Piece {
     /// message's bytes. Not recorded; inferred from that answer: a checksum the finishing message
     /// or `StartResumableWrite` declared, and an MD5, are refused the same way.
     ///
-    /// A session an earlier release staged has no running digest. The catalog then checks the
-    /// staged object as it publishes it, and its refusal ends the session.
+    /// A session an earlier release staged has no running digest, so nothing is checked here.
+    /// The catalog then checks the staged object as it publishes it, and its refusal differs
+    /// from the recorded one: it ends the session, and it keeps the catalog's wording ("Provided
+    /// CRC32C ... doesn't match calculated CRC32C ...") instead of "Object crc32c mismatch".
     fn verify(&self, lease: &SessionLease, expected: ExpectedHashes) -> Result<(), Status> {
         if expected == ExpectedHashes::default() {
             return Ok(());

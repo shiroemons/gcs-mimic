@@ -113,9 +113,11 @@ fn session_status(error: ResumableError) -> Status {
     }
 }
 
-/// [`session_status`] for QueryWriteStatus and CancelResumableWrite, which answer a cancelled
-/// session with FAILED_PRECONDITION and its reason (recorded 2026-11-18) where a write answers
-/// INVALID_ARGUMENT.
+/// [`session_status`] for QueryWriteStatus and CancelResumableWrite. QueryWriteStatus answers a
+/// cancelled session with FAILED_PRECONDITION and the reason GRPC_UPLOAD_ALREADY_CANCELLED where
+/// a write answers INVALID_ARGUMENT (recorded 2026-11-18). CancelResumableWrite answers a
+/// cancelled session with success before it reaches this function (recorded 2026-11-18), so
+/// only QueryWriteStatus answers through the cancelled branch.
 fn ended_session_status(error: ResumableError) -> Status {
     match error {
         ResumableError::Cancelled => with_reason(
