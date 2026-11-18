@@ -1,8 +1,8 @@
 use super::write::{MessagePosition, WriteRpc, check_later_key, finished, persisted_answer};
 use super::*;
 use crate::grpc::v2::{routing, stored};
-use crate::hashing::{Hasher, Hashes};
-use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written, failure::object_unavailable};
+use crate::hashing::Hashes;
+use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written};
 
 impl Storage {
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -163,9 +163,9 @@ impl Storage {
 
     /// Completes the session's `options` (already carrying the caller's current access) for one
     /// admitted message of the open session `lease` holds: the conditions rechecked and, when
-    /// the message finishes the upload, the complete object checked against `expected`, the
-    /// checksums the session and its call declared ([`Piece::verify`]). A refused message stages
-    /// nothing and leaves the session usable.
+    /// the message's `end` finishes the upload, the complete object checked against `expected`,
+    /// the checksums the session and its call declared ([`Piece::verify`]). A refused message
+    /// stages nothing and leaves the session usable.
     ///
     /// The conditions answer after what the message carries: recorded (case
     /// grpc-probe-inferred-session-states), a wrong data checksum, a first offset past the
@@ -180,6 +180,7 @@ impl Storage {
         mut options: ResumableOptions,
         expected: ExpectedHashes,
         piece: &Piece,
+        end: StepEnd,
     ) -> Result<ResumableOptions, Status> {
         let session = &lease.session;
         self.state
@@ -192,7 +193,7 @@ impl Storage {
             )
             .await
             .map_err(object_status)?;
-        if piece.end.finalizes() {
+        if end.finishes() {
             piece.verify(lease, expected)?;
             options.expected = expected;
         }
@@ -264,7 +265,7 @@ impl Storage {
             };
             let expected = call.declare(&checksums, options.expected)?;
             let options = self
-                .message_options(&lease, options, expected, &piece)
+                .message_options(&lease, options, expected, &piece, end)
                 .await?;
             let answer = match self.write_piece(lease, options, piece).await? {
                 Written::Complete(value) => finished(
@@ -380,20 +381,13 @@ impl Piece {
     /// A session an earlier release staged has no running digest. The catalog then checks the
     /// staged object as it publishes it, and its refusal ends the session.
     fn verify(&self, lease: &SessionLease, expected: ExpectedHashes) -> Result<(), Status> {
-        let Some(state) = lease.session.running_hash.as_ref() else {
-            return Ok(());
-        };
         if expected == ExpectedHashes::default() {
             return Ok(());
         }
-        let mut hasher = Hasher::resume(state, lease.session.offset)
-            .map_err(|error| object_status(object_unavailable(error)))?;
-        for part in &self.parts {
-            hasher.update(part);
-        }
-        expected
-            .verify(&hasher.finish())
-            .map_err(|mismatch| intake_status(IntakeError::ObjectChecksum(mismatch)))
+        let Some(hashes) = lease.digest_with(&self.parts).map_err(session_status)? else {
+            return Ok(());
+        };
+        upload::verify_object(&expected, &hashes).map_err(intake_status)
     }
 }
 

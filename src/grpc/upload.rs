@@ -1,5 +1,5 @@
 use crate::{
-    hashing::Hasher,
+    hashing::{Hasher, Hashes},
     object::{
         ChecksumConflict, ExpectedHashes, HashMismatch, ObjectError, ObjectRecord, UploadChunk,
     },
@@ -117,9 +117,7 @@ impl Intake {
     }
 
     pub(super) async fn finish(self, sender: &Sender, end: EndMarker) -> Result<(), IntakeError> {
-        self.expected
-            .verify(&self.hasher.finish())
-            .map_err(IntakeError::ObjectChecksum)?;
+        verify_object(&self.expected, &self.hasher.finish())?;
         let end = match end {
             EndMarker::Plain => UploadChunk::End,
             EndMarker::WithHashes => UploadChunk::EndWithHashes(self.expected),
@@ -185,6 +183,17 @@ pub(super) fn admit_bytes(
     }
     verify_crc32c(&piece.content, piece.crc32c)?;
     Ok((added, written))
+}
+
+/// Checks the `computed` digests of a complete object against the checksums its client declared
+/// for it (`expected`).
+pub(super) fn verify_object(
+    expected: &ExpectedHashes,
+    computed: &Hashes,
+) -> Result<(), IntakeError> {
+    expected
+        .verify(computed)
+        .map_err(IntakeError::ObjectChecksum)
 }
 
 pub(super) fn verify_crc32c(content: &[u8], client: Option<u32>) -> Result<(), CrcMismatch> {

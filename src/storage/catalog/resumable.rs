@@ -273,6 +273,33 @@ pub(crate) struct SessionLease {
     pub(super) guard: std::sync::Arc<WriterGuard>,
 }
 impl SessionLease {
+    /// The session's running digest of its `offset` persisted bytes, to continue over the bytes
+    /// that follow them; `None` for a session an earlier release staged, which has none.
+    pub(super) fn running_hasher(&self) -> Result<Option<Hasher>, ObjectError> {
+        self.session
+            .running_hash
+            .as_ref()
+            .map(|state| Hasher::resume(state, self.session.offset))
+            .transpose()
+            .map_err(object_unavailable)
+    }
+
+    /// The digests of the object that the session's persisted bytes followed by `parts` would
+    /// make, without writing anything; `None` for a session an earlier release staged, which has
+    /// no running digest.
+    pub(crate) fn digest_with(
+        &self,
+        parts: &[bytes::Bytes],
+    ) -> Result<Option<Hashes>, ResumableError> {
+        let Some(mut hasher) = self.running_hasher()? else {
+            return Ok(None);
+        };
+        for part in parts {
+            hasher.update(part);
+        }
+        Ok(Some(hasher.finish()))
+    }
+
     #[cfg(test)]
     pub(crate) fn staging_path(&self) -> PathBuf {
         self.session

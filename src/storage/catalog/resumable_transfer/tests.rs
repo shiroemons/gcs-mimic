@@ -222,6 +222,19 @@ fn digest(bytes: &[u8]) -> Hashes {
     hasher.finish()
 }
 
+/// The digests a lease on the session `id` reports for its persisted bytes followed by `tail`,
+/// passed as two parts.
+async fn digest_with_tail(catalog: &Catalog, id: &str, tail: &'static [u8]) -> Option<Hashes> {
+    let (head, rest) = tail.split_at(tail.len() / 2);
+    let lease = catalog.lock_resumable_session(id, "bucket").await.unwrap();
+    lease
+        .digest_with(&[
+            bytes::Bytes::from_static(head),
+            bytes::Bytes::from_static(rest),
+        ])
+        .unwrap()
+}
+
 #[tokio::test]
 async fn a_session_staged_before_running_digests_reports_none_and_still_completes() {
     let dir = crate::test_support::TestDir::new();
@@ -248,6 +261,21 @@ async fn a_session_staged_before_running_digests_reports_none_and_still_complete
             hashes: Some(digest(b"part"))
         }
     );
+    // A lease digests the persisted bytes with the ones that would follow them, and writes
+    // nothing: the session reports the same progress afterwards.
+    assert_eq!(
+        digest_with_tail(&catalog, &id, b"tail").await,
+        Some(digest(b"parttail"))
+    );
+    assert_eq!(
+        catalog
+            .resumable_session(&id, "bucket")
+            .await
+            .unwrap()
+            .progress()
+            .unwrap(),
+        progress
+    );
     catalog.close().await.unwrap();
     // Schema 55 had no running digest column.
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -264,6 +292,7 @@ async fn a_session_staged_before_running_digests_reports_none_and_still_complete
             hashes: None
         }
     );
+    assert_eq!(digest_with_tail(&catalog, &id, b"tail").await, None);
     // Completion digests the staged bytes, so the stored checksums cover the whole object.
     let Written::Complete(resource) = append(&catalog, &id, 4, b"tail").await else {
         panic!("the final chunk completes the upload");
