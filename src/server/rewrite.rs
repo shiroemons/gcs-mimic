@@ -111,7 +111,7 @@ pub(super) async fn respond(
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
             request.uri().query(),
-            json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+            crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
             json::PredefinedAclTarget::DerivedObject,
             &destination_access,
         )?;
@@ -133,7 +133,7 @@ pub(super) async fn respond(
             "x-upload-content-length",
         ],
     )?;
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let body = json::derived_resource(&bytes)?;
     let wait = begin_catalog_wait(activity).await;
     // Once mutation starts, await its durable result instead of timing out a detached commit.

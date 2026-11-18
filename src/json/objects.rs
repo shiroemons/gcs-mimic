@@ -1,14 +1,14 @@
 use super::{
     FieldSelection, JsonError, Projection, ResponseCache, Schema, WriteMode,
-    buckets::{PredefinedAclTarget, encode_segment, timestamp},
+    buckets::{PredefinedAclTarget, encode_segment},
     checksum::{self, each_declared_hash},
     integer::take_long,
-    query::{
-        BUCKET_PATH, BucketCheck, Decoding, MAX_OBJECT_SEGMENT_BYTES, boolean, decode, parse_query,
-        path_bucket, projection,
-    },
+    query::{BUCKET_PATH, BucketCheck, MAX_OBJECT_SEGMENT_BYTES, boolean, path_bucket, projection},
 };
 use crate::decimal::Grammar;
+use crate::etag::object_etag;
+use crate::percent::{Decoding, decode, parse_query};
+use crate::time_format::timestamp;
 use crate::{
     auth,
     config::CompatProfile,
@@ -1409,39 +1409,6 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
         }
     }
     Ok(gzip.or(wildcard).unwrap_or(false))
-}
-
-/// The JSON API validator of one object generation. It carries no content hash, so a keyless
-/// metadata read of an encrypted object learns nothing about its plaintext.
-pub(crate) fn object_etag(object: &ObjectRecord) -> String {
-    revision_etag(Some(object.generation), object.metageneration)
-}
-
-/// The unquoted base64 protobuf message Cloud Storage uses as a JSON API ETag: the generation
-/// as field 1 (objects only) and the metageneration as field 2 (field 1 for buckets). Recorded
-/// responses carry the same value in the `ETag` header and the resource `etag` field. ACL
-/// entries, buckets, objects and gRPC messages all share this encoding.
-pub(crate) fn revision_etag(generation: Option<i64>, metageneration: i64) -> String {
-    fn varint(bytes: &mut Vec<u8>, mut value: u64) {
-        while value >= 0x80 {
-            let [byte, ..] = value.to_le_bytes();
-            bytes.push(byte | 0x80);
-            value >>= 7;
-        }
-        let [byte, ..] = value.to_le_bytes();
-        bytes.push(byte);
-    }
-    let mut bytes = Vec::new();
-    match generation {
-        Some(generation) => {
-            bytes.push(0x08);
-            varint(&mut bytes, generation.cast_unsigned());
-            bytes.push(0x10);
-        }
-        None => bytes.push(0x08),
-    }
-    varint(&mut bytes, metageneration.cast_unsigned());
-    base64(&bytes)
 }
 
 pub(crate) use crate::base64::encode as base64;

@@ -1,17 +1,15 @@
-use super::buckets::validate_bucket_name_for_profile;
 use super::{
-    EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, decode_page_token,
-    integer::take_int64,
+    EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, integer::take_int64,
 };
+use crate::page_token::decode_page_token;
 use crate::{
     bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
     config::CompatProfile,
     decimal::Grammar,
+    percent::{Decoding, decode, parse_query},
 };
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
-
-pub(crate) const MAX_QUERY_BYTES: usize = 16 * 1024;
 
 /// The path prefix of every bucket-scoped JSON API resource.
 pub(super) const BUCKET_PATH: &str = "/storage/v1/b/";
@@ -44,7 +42,7 @@ pub(super) fn path_bucket(
 ) -> Result<String, JsonError> {
     let bucket = decode_bucket_segment(segment)?;
     if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
-        validate_bucket_name_for_profile(&bucket, profile)?;
+        crate::bucket::name::validate_for_profile(&bucket, profile)?;
     }
     Ok(bucket)
 }
@@ -55,7 +53,7 @@ pub(crate) fn decode_bucket_segment(segment: &str) -> Result<String, JsonError> 
     if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
         return Err(JsonError::invalid_parameter("Invalid bucket name"));
     }
-    decode(segment, Decoding::Path)
+    Ok(decode(segment, Decoding::Path)?)
 }
 
 /// Reads an advisory parameter with the same decoding as the validating route parser.
@@ -336,7 +334,7 @@ fn parse_lock_retention_policy(
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
@@ -370,7 +368,7 @@ fn parse_restore(
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
@@ -412,7 +410,7 @@ fn soft_deleted_list(
     let start_after = query
         .remove("pageToken")
         .filter(|token| !token.is_empty())
-        .map(|token| super::decode_soft_deleted_page_token(&token, &project, &prefix))
+        .map(|token| crate::page_token::decode_soft_deleted_page_token(&token, &project, &prefix))
         .transpose()?;
     finish(query)?;
     Ok(BucketRequest::ListSoftDeleted(SoftDeletedListParams {
@@ -473,7 +471,7 @@ fn parse_storage_layout(
         ));
     }
     let bucket = decode(segment, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::BucketStorageLayout)?;
     common(&mut query)?;
@@ -495,7 +493,7 @@ fn parse_iam(
         return Err(JsonError::invalid_parameter("Invalid bucket name"));
     }
     if profile == CompatProfile::Native {
-        validate_bucket_name_for_profile(&bucket, profile)?;
+        crate::bucket::name::validate_for_profile(&bucket, profile)?;
     }
     if !matches!(*method, Method::GET | Method::PUT) {
         return Err(JsonError::method_not_allowed(
@@ -765,24 +763,6 @@ fn parse_bucket_list(
     }))
 }
 
-pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
-    if raw.len() > MAX_QUERY_BYTES {
-        return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
-    }
-    let mut query = BTreeMap::new();
-    for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let key = decode(key, Decoding::Form)?;
-        let value = decode(value, Decoding::Form)?;
-        if query.insert(key.clone(), value).is_some() {
-            return Err(JsonError::invalid_parameter(format!(
-                "Duplicate query parameter: {key}"
-            )));
-        }
-    }
-    Ok(query)
-}
-
 /// Parameters every JSON method may carry and gcs-mimic does not implement. Accepting one would
 /// report success for a query token or a JSONP response that never happened.
 const UNSUPPORTED_STANDARD_PARAMETERS: &[&str] = &["oauth_token", "callback"];
@@ -877,12 +857,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
 }
 
 pub(crate) fn validate_project(project: &str) -> Result<(), JsonError> {
-    if !crate::auth::valid_project_id(project) {
-        return Err(JsonError::invalid_parameter(
-            "project must be a nonempty identifier of at most 256 bytes",
-        ));
-    }
-    Ok(())
+    Ok(crate::auth::validate_project_id(project)?)
 }
 
 pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {
@@ -953,30 +928,4 @@ pub(super) fn finish(query: &BTreeMap<String, String>) -> Result<(), JsonError> 
         .at_parameter(key)),
         None => Ok(()),
     }
-}
-
-/// How `decode` treats `+`: form-encoded query components use it for a space, while path
-/// segments keep it literally.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Decoding {
-    Path,
-    Form,
-}
-
-pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, JsonError> {
-    let invalid = || JsonError::invalid_parameter("Malformed URI encoding");
-    let mut bytes = Vec::with_capacity(raw.len());
-    let mut input = raw.bytes();
-    while let Some(byte) = input.next() {
-        bytes.push(match byte {
-            b'%' => crate::hex::byte([
-                input.next().ok_or_else(invalid)?,
-                input.next().ok_or_else(invalid)?,
-            ])
-            .ok_or_else(invalid)?,
-            b'+' if decoding == Decoding::Form => b' ',
-            byte => byte,
-        });
-    }
-    String::from_utf8(bytes).map_err(|_| invalid())
 }

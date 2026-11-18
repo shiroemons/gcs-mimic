@@ -256,7 +256,7 @@ pub(super) fn content_type_and_hashes(
         Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
     })?;
     if let Some(md5) = single(headers, "content-md5")? {
-        let content_md5 = json::decode_hash::<16>(md5)
+        let content_md5 = crate::hashing::decode_hash::<16>(md5)
             .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid Content-MD5."))?;
         expected
             .agree(Checksum::Md5(content_md5))
@@ -269,7 +269,11 @@ pub(super) fn content_type_and_hashes(
 
 pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
-        customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
+        customer_key_sha256: crate::csek::CustomerKey::from_headers(
+            headers,
+            crate::csek::DESTINATION_PREFIX,
+        )?
+        .map(crate::csek::CustomerKey::sha256),
         acl: super::canned_acl::parse(headers)?.into(),
         ..Default::default()
     };
@@ -359,7 +363,10 @@ fn upload_error(
 
 /// A CRC32C as Cloud Storage prints it in a mismatch: unpadded hex, then the base64 form.
 fn crc_detail(crc32c: u32) -> String {
-    format!("0x{crc32c:x} ({})", json::base64(&crc32c.to_be_bytes()))
+    format!(
+        "0x{crc32c:x} ({})",
+        crate::base64::encode(&crc32c.to_be_bytes())
+    )
 }
 
 #[expect(
@@ -478,7 +485,7 @@ pub(crate) async fn respond(
         })?;
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     let mut response = boxed(empty_response(StatusCode::OK));
-    json::insert_response_headers(&record, response.headers_mut());
+    crate::csek::insert_response_headers(&record, response.headers_mut());
     super::move_headers(
         &mut headers,
         response.headers_mut(),

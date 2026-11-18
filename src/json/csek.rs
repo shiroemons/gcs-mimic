@@ -6,7 +6,7 @@ use crate::{
     csek::{CopyKeys, CustomerKey, DESTINATION_PREFIX, SOURCE_PREFIX},
     object::ObjectRecord,
 };
-use hyper::{HeaderMap, header::HeaderValue};
+use hyper::HeaderMap;
 use serde_json::{Map, Value, json};
 
 /// The key for the addressed (or destination) object: `x-goog-encryption-*`.
@@ -66,19 +66,4 @@ pub(crate) fn object_resource_keyed(
         }
     }
     Ok(value)
-}
-
-/// Response headers identifying the key of an encrypted object's data.
-pub(crate) fn insert_response_headers(object: &ObjectRecord, headers: &mut HeaderMap) {
-    if let Some(sha256) = object.customer_key_sha256 {
-        headers.insert(
-            "x-goog-encryption-algorithm",
-            HeaderValue::from_static(crate::csek::ALGORITHM),
-        );
-        // Base64 always forms a valid header value; omitting the header is safer than
-        // panicking if that ever changes.
-        if let Ok(value) = HeaderValue::from_str(&super::base64(&sha256)) {
-            headers.insert("x-goog-encryption-key-sha256", value);
-        }
-    }
 }

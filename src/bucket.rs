@@ -11,6 +11,7 @@ use std::{
 pub(crate) mod lifecycle;
 
 pub(crate) mod autoclass;
+pub(crate) mod cors;
 pub(crate) mod location;
 pub(crate) mod name;
 
@@ -249,6 +250,27 @@ impl UniformAccessRequest {
 impl From<bool> for UniformAccessRequest {
     fn from(enabled: bool) -> Self {
         Self::Set(enabled)
+    }
+}
+
+/// Whether uniform bucket-level access governs the bucket a request targets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum UniformAccess {
+    Enabled,
+    Disabled,
+}
+
+impl UniformAccess {
+    /// Enabled once the bucket records a lock time, or when the request itself enables it.
+    pub(crate) fn of(
+        locked_time: Option<SystemTime>,
+        requested: Option<UniformAccessRequest>,
+    ) -> Self {
+        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
+            Self::Enabled
+        } else {
+            Self::Disabled
+        }
     }
 }
 

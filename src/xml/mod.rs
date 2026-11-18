@@ -21,6 +21,7 @@ mod copy;
 mod cors;
 mod document;
 pub(crate) mod envelope;
+mod error_mapping;
 #[cfg(test)]
 mod error_tests;
 pub(crate) mod extension_headers;
@@ -470,8 +471,8 @@ pub(crate) fn unselectable_bucket(
     if segment.is_empty() {
         return None;
     }
-    let bucket = json::decode(segment, json::Decoding::Path).ok()?;
-    if json::validate_bucket_name_for_profile(&bucket, profile).is_ok() {
+    let bucket = crate::percent::decode(segment, crate::percent::Decoding::Path).ok()?;
+    if crate::bucket::name::validate_for_profile(&bucket, profile).is_ok() {
         return None;
     }
     Some(if bucket.contains('/') {
@@ -726,7 +727,7 @@ pub(crate) fn select_object_with_endpoints(
         _ => {
             let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
             (
-                json::decode(bucket, json::Decoding::Path)?,
+                crate::percent::decode(bucket, crate::percent::Decoding::Path)?,
                 name,
                 BucketSource::Path,
             )
@@ -734,7 +735,7 @@ pub(crate) fn select_object_with_endpoints(
     };
     if public.is_none()
         && !is_virtual
-        && json::validate_bucket_name_for_profile(&bucket, config.compat_profile).is_err()
+        && crate::bucket::name::validate_for_profile(&bucket, config.compat_profile).is_err()
     {
         return Ok(None);
     }
@@ -771,7 +772,7 @@ fn route_object(
         .path()
         .get(name_start..)
         .ok_or_else(|| Error::invalid("Invalid object path"))?;
-    json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile)?;
     let mut query = crate::auth::signature::xml_query(uri.query().unwrap_or_default(), headers)?;
     let v2 = query
         .keys()
@@ -783,10 +784,9 @@ fn route_object(
         ));
     }
     if multipart::matches(&uri) {
-        let name = json::decode(name, json::Decoding::Path)?;
+        let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
         if !name.is_empty() {
-            crate::object::name::validate(&name)
-                .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+            crate::object::name::validate(&name)?;
         }
         return Ok(ReadRequest {
             target: ObjectTarget::new(bucket, name, None),
@@ -808,9 +808,8 @@ fn route_object(
             "{method} route; use GET, HEAD, PUT or DELETE on /BUCKET/OBJECT"
         )));
     }
-    let name = json::decode(name, json::Decoding::Path)?;
-    crate::object::name::validate(&name)
-        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
+    crate::object::name::validate(&name)?;
     if *method == Method::PUT
         && let Some(key) = query.keys().find(|key| !accepted_parameter(key))
     {
@@ -1103,7 +1102,7 @@ pub(crate) fn object_etag(record: &ObjectRecord) -> String {
     // the JSON validator, because XML entity tags are always quoted; Cloud Storage's XML ETag for
     // composite and encrypted objects has not been recorded.
     if !record.has_md5() || record.customer_key_sha256.is_some() {
-        format!("\"{}\"", json::object_etag(record))
+        format!("\"{}\"", crate::etag::object_etag(record))
     } else {
         format!("\"{}\"", crate::hashing::encode_lower(&record.md5))
     }
@@ -1119,7 +1118,7 @@ pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<
         CacheScope::Private => PRIVATE_CACHE_CONTROL,
     });
     let etag = object_etag(record);
-    let date = json::http_date(record.updated)
+    let date = crate::time_format::http_date(record.updated)
         .map_err(|_| Error::new(XmlCode::ServiceUnavailable, "Invalid stored timestamp."))?;
     for (key, value) in [
         ("cache-control", cache),
@@ -1188,8 +1187,8 @@ impl From<Hashes> for HashFields {
 pub(crate) fn insert_hashes(headers: &mut HeaderMap, hashes: impl Into<HashFields>) {
     let HashFields { crc32c, md5 } = hashes.into();
     headers.remove("x-goog-hash");
-    let crc32c = format!("crc32c={}", json::base64(&crc32c.to_be_bytes()));
-    let md5 = md5.map(|md5| format!("md5={}", json::base64(&md5)));
+    let crc32c = format!("crc32c={}", crate::base64::encode(&crc32c.to_be_bytes()));
+    let md5 = md5.map(|md5| format!("md5={}", crate::base64::encode(&md5)));
     // Base64 always forms a valid header value; omitting a hash is safer than panicking
     // if that ever changes.
     for value in std::iter::once(crc32c).chain(md5) {

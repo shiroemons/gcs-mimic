@@ -50,9 +50,13 @@ pub(super) async fn respond(
         .map(auth::signature::PayloadHash::digest)
         .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid SHA256 declaration"))?;
     let md5 = super::super::put::single(request.headers(), "content-md5")?
-        .map(json::decode_hash::<16>)
+        .map(crate::hashing::decode_hash::<16>)
         .transpose()?;
-    let bytes = json::read_body(request.into_body(), json::RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(
+        request.into_body(),
+        crate::bounded_body::RESOURCE_BODY_LIMIT,
+    )
+    .await?;
     if super::super::sha256_mismatch(sha, &bytes) {
         return Err(Error::new(
             XmlCode::BadDigest,
@@ -77,7 +81,7 @@ pub(super) async fn respond(
             "legacy bucket creation settings; use the native compatibility profile",
         ));
     }
-    let mut record = json::insert_from_object(
+    let mut record = crate::json::insert_from_object(
         &configuration.into_insert_body(bucket, period),
         &project,
         ctx.state.clock.now(),

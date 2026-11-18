@@ -292,7 +292,7 @@ async fn restore(
     generation: i64,
     projection: json::Projection,
 ) -> Result<Rendered, JsonError> {
-    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     validate_bodyless_post(request, &query, EmptyJsonBody::Refused).await?;
     let record = ctx
         .state
@@ -342,7 +342,7 @@ async fn write(
 ) -> Result<Rendered, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // Only the native profile checks the body name against the path (recorded 2026-10-31).
     if profile == CompatProfile::Native {
         json::require_matching_bucket_name(&bytes, bucket)?;
@@ -358,7 +358,7 @@ async fn write(
         .ok_or(CatalogError::NotFound)?;
     let predefined = json::bucket_predefined_acls(
         acl_query.as_deref(),
-        json::UniformAccess::of(
+        crate::bucket::UniformAccess::of(
             record.uniform_bucket_level_access_locked_time,
             update.uniform_bucket_level_access_enabled,
         ),
@@ -445,7 +445,7 @@ async fn set_iam(
     bucket: &str,
 ) -> Result<Value, JsonError> {
     let if_match = policy_if_match_lines(request.headers());
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let policy = json::parse_policy(&bytes)?;
     let policy =
         ctx.state
@@ -497,7 +497,7 @@ async fn insert(
 ) -> Result<Rendered, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut record = json::parse_insert_with_profile(
         &bytes,
         &params.project,
@@ -514,7 +514,7 @@ async fn insert(
     let name = record.name.clone();
     json::bucket_predefined_acls(
         acl_query.as_deref(),
-        json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
         json::BucketAclWrite::Insert,
         profile,
     )?;
@@ -569,7 +569,7 @@ async fn get(
     }
     read_metadata_response(
         request.headers(),
-        &json::bucket_etag(&record),
+        &crate::etag::bucket_etag(&record),
         resource.value,
         fields,
         query,
@@ -594,7 +594,9 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, 
         .items
         .last()
         .filter(|_| page.has_more)
-        .map(|last| json::encode_page_token(&params.project, &params.prefix, &last.name))
+        .map(|last| {
+            crate::page_token::encode_page_token(&params.project, &params.prefix, &last.name)
+        })
         .transpose()?;
     let value = json::bucket_list_with_profile(
         &page.items,
@@ -628,7 +630,7 @@ async fn list_soft_deleted(
         .last()
         .filter(|_| page.has_more)
         .map(|last| {
-            json::encode_soft_deleted_page_token(
+            crate::page_token::encode_soft_deleted_page_token(
                 &params.project,
                 &params.prefix,
                 &last.record.name,

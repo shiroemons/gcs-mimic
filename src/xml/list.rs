@@ -4,7 +4,7 @@ use super::name_encoding::NameEncoding;
 use super::{Error, MinValue, Namespace, ReadRequest, XmlWriter, accepted_parameter, number};
 use crate::server::RequestBody as Incoming;
 use crate::{
-    auth, json,
+    auth,
     server::{ObjectCtx, ResponseBody, anonymous_error, boxed},
     storage::{ObjectListCursor, ObjectListPage, ObjectListQuery},
 };
@@ -211,7 +211,7 @@ fn parse_v2(
 fn continuation_cursor(token: &str, query: &ObjectListQuery) -> Result<ObjectListCursor, Error> {
     token
         .strip_prefix(CONTINUATION_PREFIX)
-        .and_then(|payload| json::decode_object_page_token(payload, query).ok())
+        .and_then(|payload| crate::page_token::decode_object_page_token(payload, query).ok())
         .ok_or_else(Error::invalid_page_token)
 }
 
@@ -401,7 +401,7 @@ fn render_header_v2(
             "NextContinuationToken",
             &format!(
                 "{CONTINUATION_PREFIX}{}",
-                json::encode_object_page_token(cursor)
+                crate::page_token::encode_object_page_token(cursor)
             ),
         );
     }
@@ -440,11 +440,14 @@ fn render_item(
         if versions {
             w.value("IsLatest", object.time_deleted.is_none());
         }
-        w.element("LastModified", &json::timestamp(object.updated)?);
+        w.element(
+            "LastModified",
+            &crate::time_format::timestamp(object.updated)?,
+        );
         if versions {
             let deleted = object
                 .time_deleted
-                .map(json::timestamp)
+                .map(crate::time_format::timestamp)
                 .transpose()?
                 .unwrap_or_default();
             w.element("DeletedTime", &deleted);

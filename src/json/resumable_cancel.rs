@@ -1,4 +1,5 @@
-use super::{JsonError, read_body};
+use super::JsonError;
+use crate::bounded_body::read_body;
 use crate::storage::{
     Catalog, ResumableError, ResumableOptions, SessionState,
     failure::{BackendFailure, object_unavailable},

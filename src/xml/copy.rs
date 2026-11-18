@@ -4,8 +4,9 @@ use super::{Error, MinValue, Namespace, ReadRequest, XmlCode, XmlWriter, number,
 use crate::{
     auth,
     bucket::BucketAccess,
-    json,
-    object::{ObjectConditions, ObjectRecord, ObjectTarget, Patch, WriteMode},
+    object::{
+        ObjectConditions, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
+    },
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed,
         copy::{self, CopyBudget, CopyJob},
@@ -50,11 +51,10 @@ fn source(headers: &HeaderMap, ctx: ObjectCtx<'_>) -> Result<Source, Error> {
         .unwrap_or(value)
         .split_once('/')
         .ok_or_else(|| Error::invalid("x-goog-copy-source must be /BUCKET/OBJECT"))?;
-    let bucket = json::decode(bucket, json::Decoding::Path)?;
-    let name = json::decode(name, json::Decoding::Path)?;
-    json::validate_bucket_name_for_profile(&bucket, ctx.config.compat_profile)?;
-    crate::object::name::validate(&name)
-        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    let bucket = crate::percent::decode(bucket, crate::percent::Decoding::Path)?;
+    let name = crate::percent::decode(name, crate::percent::Decoding::Path)?;
+    crate::bucket::name::validate_for_profile(&bucket, ctx.config.compat_profile)?;
+    crate::object::name::validate(&name)?;
     let generation = source_number(headers, "x-goog-copy-source-generation")?;
     let conditions = ObjectConditions {
         if_generation_match: source_number(headers, "x-goog-copy-source-if-generation-match")?,
@@ -176,7 +176,8 @@ pub(super) async fn respond(
         ctx,
     )
     .await?;
-    let key = json::source_key(request.headers())?;
+    let key =
+        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::SOURCE_PREFIX)?;
     let target = ObjectTarget::new(source.bucket, source.name, source.generation);
     let source = ctx
         .await_catalog(ctx.state.catalog.resolve_derived_source_keyed(
@@ -190,7 +191,7 @@ pub(super) async fn respond(
             put::storage_error(error, ctx.caller).naming_object(&source_bucket, &source_name)
         })?;
     validate_source_etags(request.headers(), &source.object)?;
-    json::read_body(request.into_body(), 0).await?;
+    crate::bounded_body::read_body(request.into_body(), 0).await?;
     let modified = source.object.updated;
     let destination = destination(operation, &source.object, options, directive, access)?;
     let source_location = if source.object.component_count.is_some() {
@@ -198,8 +199,7 @@ pub(super) async fn respond(
             ctx.state
                 .catalog
                 .get_bucket(&source.object.bucket, &BucketAccess::Permissive)
-                .await
-                .map_err(json::JsonError::from)?
+                .await?
                 .ok_or_else(|| {
                     put::storage_error(crate::object::ObjectError::BucketNotFound, ctx.caller)
                 })?
@@ -253,7 +253,9 @@ fn destination(
         });
         options.metadata
     } else {
-        let mut inherited = json::derived_metadata_of(None, source)?.update;
+        // Publishing checks the encoded size as well, but only after the whole body is copied.
+        let mut inherited = ObjectMetadataUpdate::inheriting(source);
+        inherited.check_encoded_size()?;
         inherited.custom_time = Patch::nullable(source.custom_time.clone());
         inherited
     };
@@ -279,7 +281,7 @@ pub(super) fn response(
     modified: std::time::SystemTime,
 ) -> Result<Response<ResponseBody>, Error> {
     let mut document = XmlWriter::new("CopyObjectResult", Namespace::None);
-    document.element("LastModified", &json::timestamp(modified)?);
+    document.element("LastModified", &crate::time_format::timestamp(modified)?);
     document.element("ETag", &super::object_etag(record));
     let mut response = super::document_response(document.finish());
     let mut headers = super::media_headers(record, super::CacheScope::Private)?;
@@ -296,6 +298,6 @@ pub(super) fn response(
             "x-goog-component-count",
         ],
     );
-    json::insert_response_headers(record, response.headers_mut());
+    crate::csek::insert_response_headers(record, response.headers_mut());
     Ok(boxed(response))
 }

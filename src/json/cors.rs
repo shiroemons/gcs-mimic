@@ -1,4 +1,5 @@
 use super::JsonError;
+use crate::bucket::cors::{CorsRequest, origin};
 use hyper::{
     HeaderMap, Method, StatusCode, Uri,
     header::{HeaderName, HeaderValue},
@@ -20,35 +21,6 @@ pub(crate) fn is_route(uri: &Uri) -> bool {
     })
 }
 
-pub(crate) fn origin(headers: &HeaderMap) -> Option<&HeaderValue> {
-    let mut values = headers.get_all("origin").iter();
-    let origin = values.next()?;
-    let value = origin.to_str().ok()?;
-    if values.next().is_some() || value.is_empty() || value.contains([',', '@', '?', '#']) {
-        return None;
-    }
-    if value != "null" {
-        let uri: Uri = value.parse().ok()?;
-        let (scheme, authority) = (uri.scheme_str()?, uri.authority()?);
-        if value
-            .strip_prefix(scheme)
-            .and_then(|v| v.strip_prefix("://"))
-            != Some(authority.as_str())
-            || authority.host().is_empty()
-        {
-            return None;
-        }
-        if authority
-            .as_str()
-            .rsplit_once(':')
-            .is_some_and(|(_, port)| !port.contains(']') && port.parse::<u16>().is_err())
-        {
-            return None;
-        }
-    }
-    Some(origin)
-}
-
 pub(crate) fn requested_headers(headers: &HeaderMap) -> Result<Vec<HeaderName>, JsonError> {
     let mut names = Vec::new();
     for value in headers.get_all("access-control-request-headers") {
@@ -63,13 +35,6 @@ pub(crate) fn requested_headers(headers: &HeaderMap) -> Result<Vec<HeaderName>, 
         }
     }
     Ok(names)
-}
-
-/// Whether a CORS request is a browser preflight or the actual request.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum CorsRequest {
-    Preflight,
-    Actual,
 }
 
 pub(crate) fn response_headers(

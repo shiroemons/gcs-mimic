@@ -43,10 +43,9 @@ pub(crate) fn route(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<R
 
 /// The bucket and decoded object name of an XML resumable request.
 fn target(object: &ObjectPath, ctx: ObjectCtx<'_>) -> Result<String, Error> {
-    json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile)?;
-    let name = json::decode(object.name(), json::Decoding::Path)?;
-    crate::object::name::validate(&name)
-        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    crate::bucket::name::validate_for_profile(&object.bucket, ctx.config.compat_profile)?;
+    let name = crate::percent::decode(object.name(), crate::percent::Decoding::Path)?;
+    crate::object::name::validate(&name)?;
     Ok(name)
 }
 
@@ -131,7 +130,7 @@ pub(crate) async fn start(
         ctx,
     )
     .await?;
-    json::read_body(request.into_body(), 0)
+    crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
     let id = resumable::create_session(ctx, &object.bucket, &name, options, None)
@@ -163,7 +162,7 @@ pub(crate) async fn session(
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
     let name = target(object, ctx)?;
-    let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let mut query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let id = query
         .remove("upload_id")
         .ok_or_else(|| Error::invalid("Missing upload_id."))?;
@@ -204,7 +203,7 @@ async fn cancel(
     ctx: ObjectCtx<'_>,
 ) -> Result<(), json::JsonError> {
     let catalog = &ctx.state.catalog;
-    json::read_body(request.into_body(), 0)
+    crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| json::JsonError::invalid_parameter("Cancellation requires an empty body"))?;
     let session = ctx
@@ -250,7 +249,7 @@ fn completed(value: &serde_json::Value) -> Result<Response<ResponseBody>, Error>
     let etag = match md5 {
         Some(md5) if plain => format!(
             "\"{}\"",
-            crate::hashing::encode_lower(&json::decode_hash::<16>(md5)?)
+            crate::hashing::encode_lower(&crate::hashing::decode_hash::<16>(md5)?)
         ),
         _ => format!("\"{etag}\""),
     };

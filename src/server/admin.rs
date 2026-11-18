@@ -1,11 +1,7 @@
 //! Opt-in local management never confers Google API permissions; sync retains its ownership authority.
 
 use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
-use crate::{
-    auth,
-    config::EndpointError,
-    json::{self, JsonError},
-};
+use crate::{auth, config::EndpointError, json::JsonError};
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::Deserialize;
@@ -172,7 +168,7 @@ async fn run_lifecycle(
             "Lifecycle execution does not accept query parameters or time travel",
         ));
     }
-    if !json::read_body(request.into_body(), RESOURCE_BODY_LIMIT)
+    if !crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT)
         .await?
         .is_empty()
     {
@@ -215,7 +211,7 @@ async fn update(
             "Local configuration does not accept query parameters",
         ));
     }
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let update: Update = serde_json::from_slice(&bytes).map_err(|_| {
         JsonError::invalid_argument(
             "Send one JSON object with string externalUrl and publicHost fields",

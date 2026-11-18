@@ -5,7 +5,6 @@ use super::{Error, put};
 use crate::{
     acl::{InvalidCannedAcl, PredefinedObjectAcl},
     bucket::BucketAccess,
-    json,
     object::ObjectError,
     server::ObjectCtx,
 };
@@ -50,11 +49,10 @@ pub(super) async fn check(
         .state
         .catalog
         .get_bucket(bucket, &BucketAccess::Permissive)
-        .await
-        .map_err(json::JsonError::from)?
+        .await?
         .ok_or_else(|| put::storage_error(ObjectError::BucketNotFound, ctx.caller))?;
-    if json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None)
-        == json::UniformAccess::Enabled
+    if crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None)
+        == crate::bucket::UniformAccess::Enabled
     {
         return Err(Error::uniform_access_acl());
     }

@@ -1,6 +1,9 @@
 use super::*;
-use crate::bucket::{BucketRecord, CatalogError, Rpo};
+use crate::bounded_body::read_body;
+use crate::bucket::{BucketRecord, CatalogError, Rpo, UniformAccess};
 use crate::config::CompatProfile;
+use crate::page_token::{decode_page_token, encode_page_token};
+use crate::time_format::{http_date, timestamp, timestamp_micros};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
     Method, StatusCode, Uri,
@@ -127,14 +130,14 @@ fn query_booleans_accept_only_lowercase_and_python_spellings() {
         ("false", false),
         ("False", false),
     ] {
-        let mut query = parse_query(&format!("flag={wire}")).unwrap();
+        let mut query = crate::percent::parse_query(&format!("flag={wire}")).unwrap();
         assert_eq!(super::query::boolean(&mut query, "flag").unwrap(), expected);
         assert!(query.is_empty());
     }
     for wire in [
         "", "yes", "no", "0", "1", "TRUE", "FALSE", "TrUe", "true%20",
     ] {
-        let mut query = parse_query(&format!("flag={wire}")).unwrap();
+        let mut query = crate::percent::parse_query(&format!("flag={wire}")).unwrap();
         assert_eq!(
             super::query::boolean(&mut query, "flag")
                 .unwrap_err()
@@ -158,7 +161,7 @@ fn rejected_query_booleans_name_the_actual_parameter() {
         "overrideUnlockedRetention",
         "copySourceAcl",
     ] {
-        let mut query = parse_query(&format!("{name}=invalid")).unwrap();
+        let mut query = crate::percent::parse_query(&format!("{name}=invalid")).unwrap();
         let error = super::query::boolean(&mut query, name).unwrap_err();
         assert_eq!(error.reason, "invalidParameter");
         let location = error.location.unwrap();
@@ -1610,7 +1613,7 @@ fn http_dates_render_calendar_fields_and_refuse_out_of_range_times() {
         UNIX_EPOCH + Duration::from_secs(253_402_300_800),
     ] {
         assert_eq!(
-            http_date(time).unwrap_err().status,
+            JsonError::from(http_date(time).unwrap_err()).status,
             StatusCode::SERVICE_UNAVAILABLE,
             "{time:?}"
         );
@@ -1786,7 +1789,7 @@ fn bkt_lst_002_token_tampering_and_invalid_shapes() {
         "a".repeat(4097),
     ] {
         assert_eq!(
-            decode_page_token(&invalid, "p", "").unwrap_err().reason,
+            JsonError::from(decode_page_token(&invalid, "p", "").unwrap_err()).reason,
             "invalidParameter"
         );
     }
@@ -1898,9 +1901,11 @@ async fn bkt_body_001_empty_exact_cap_multiframe_and_trailers() {
 #[tokio::test]
 async fn bkt_body_001_rejects_oversize_and_read_errors() {
     for cap in [0, 3] {
-        let error = read_body(Full::new(Bytes::from_static(b"1234")), cap)
-            .await
-            .unwrap_err();
+        let error = JsonError::from(
+            read_body(Full::new(Bytes::from_static(b"1234")), cap)
+                .await
+                .unwrap_err(),
+        );
         assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(error.reason, "uploadTooLarge");
     }
@@ -1913,7 +1918,7 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         .into(),
     };
     assert_eq!(
-        read_body(frames, 4).await.unwrap_err().status,
+        JsonError::from(read_body(frames, 4).await.unwrap_err()).status,
         StatusCode::PAYLOAD_TOO_LARGE
     );
     let frames = Frames {
@@ -1923,7 +1928,10 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         ]
         .into(),
     };
-    assert_eq!(read_body(frames, 4).await.unwrap_err().reason, "badRequest");
+    assert_eq!(
+        JsonError::from(read_body(frames, 4).await.unwrap_err()).reason,
+        "badRequest"
+    );
 }
 
 /// Every bucket read answers with this resource, so pin its whole JSON text for both profiles,

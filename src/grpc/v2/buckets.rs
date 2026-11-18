@@ -30,7 +30,7 @@ fn project_name(resource: &str) -> Result<&str, Status> {
                 "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
             ))
         })?;
-    json::validate_project(project)?;
+    crate::auth::validate_project_id(project)?;
     // Project numbers are positive and a derived one is never zero, so `projects/0` names no
     // project (recorded 2026-11-17). Earlier releases rendered every project ID as `projects/0`;
     // taking that value back would silently address a different project called "0".
@@ -272,7 +272,7 @@ impl Storage {
     }
 
     fn apply_bucket_acl(bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
-        use crate::json::acl::AclOwner;
+        use crate::acl::AclOwner;
         // Cloud Storage answers a uniform-access bucket without its owner as well as its ACLs
         // (recorded 2026-11-13), as JSON does.
         if acl.uniform_access {
@@ -461,7 +461,7 @@ impl Storage {
         let start = if request.page_token.is_empty() {
             None
         } else {
-            Some(json::decode_page_token(
+            Some(crate::page_token::decode_page_token(
                 &request.page_token,
                 project,
                 &request.prefix,
@@ -476,7 +476,7 @@ impl Storage {
         // A continuation page is never empty, so its last bucket always names the next start.
         let next_page_token = match page.items.last() {
             Some(last) if page.has_more => {
-                json::encode_page_token(project, &request.prefix, &last.name)?
+                crate::page_token::encode_page_token(project, &request.prefix, &last.name)?
             }
             _ => String::new(),
         };
@@ -2156,7 +2156,7 @@ mod tests {
         let condition = rules[0].condition.as_ref().unwrap();
         assert_eq!(condition.age_days, Some(30));
         assert_eq!(condition.matches_prefix, ["logs/"]);
-        assert_eq!(fetched.etag, json::bucket_etag(&record));
+        assert_eq!(fetched.etag, crate::etag::bucket_etag(&record));
         assert_eq!(
             fetched.object_retention,
             Some(pb::bucket::ObjectRetention { enabled: true })

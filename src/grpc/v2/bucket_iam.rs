@@ -4,7 +4,6 @@ use super::{Storage, iam, names, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
-    json,
     server::authorize_bucket,
 };
 use tonic::{Request, Response, Status};
@@ -17,13 +16,13 @@ fn iam_bucket(resource: &str, profile: crate::config::CompatProfile) -> Result<&
         .and_then(|rest| rest.split_once('/'))
         && (child.starts_with("managedFolders/") || child.starts_with("objects/"))
     {
-        json::validate_bucket_name_for_profile(bucket, profile)?;
+        crate::bucket::name::validate_for_profile(bucket, profile)?;
         return Err(unsupported(
             "managed folder and object IAM policies; use a bucket resource such as projects/_/buckets/example-bucket",
         ));
     }
     let bucket = names::bucket_name(resource)?;
-    json::validate_bucket_name_for_profile(bucket, profile)?;
+    crate::bucket::name::validate_for_profile(bucket, profile)?;
     Ok(bucket)
 }
 
@@ -34,9 +33,13 @@ fn policy(policy: auth::Policy) -> Result<iam::Policy, Status> {
         etag: policy
             .etag
             .map(|v| {
-                json::decode_hash::<8>(&v).map(|v| v.to_vec()).map_err(|_| {
-                    Status::internal("Invalid stored policy etag; restore a valid catalog backup")
-                })
+                crate::hashing::decode_hash::<8>(&v)
+                    .map(|v| v.to_vec())
+                    .map_err(|_| {
+                        Status::internal(
+                            "Invalid stored policy etag; restore a valid catalog backup",
+                        )
+                    })
             })
             .transpose()?
             .unwrap_or_default(),
@@ -102,7 +105,7 @@ impl Storage {
                     "Policy etag does not match; read the current policy before updating",
                 )
             })?;
-            Some(json::policy_etag(i64::from_be_bytes(bytes)))
+            Some(crate::etag::policy_etag(i64::from_be_bytes(bytes)))
         };
         let p = auth::policy_input::PolicyInput {
             version: p.version,
@@ -128,7 +131,7 @@ impl Storage {
         }
         let mut requested = Vec::new();
         for permission in r.permissions {
-            let permission = json::check_testable_permission(&permission)?;
+            let permission = auth::testable::testable_permission(&permission)?;
             if !requested.contains(&permission) {
                 requested.push(permission);
             }

@@ -5,7 +5,6 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
 };
 use crate::{
-    json,
     object::ObjectError,
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, empty_response, stream_upload,
@@ -28,9 +27,9 @@ const MANIFEST_LIMIT: usize = 2 * 1024 * 1024;
 pub(crate) fn matches(uri: &Uri) -> bool {
     uri.query().is_some_and(|query| {
         query.split('&').any(|field| {
-            json::decode(
+            crate::percent::decode(
                 field.split('=').next().unwrap_or_default(),
-                json::Decoding::Form,
+                crate::percent::Decoding::Form,
             )
             .is_ok_and(|name| matches!(name.as_str(), "uploads" | "uploadId" | "partNumber"))
         })
@@ -444,7 +443,8 @@ fn check_customer_key(
     upload: &storage::Upload,
     ctx: ObjectCtx<'_>,
 ) -> Result<(), Error> {
-    let key = json::request_key(request.headers())?;
+    let key =
+        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::DESTINATION_PREFIX)?;
     crate::csek::check_data(upload.options.metadata.customer_key_sha256, key)
         .map_err(|error| put::storage_error(ObjectError::CustomerEncryption(error), ctx.caller))
 }
@@ -515,7 +515,7 @@ async fn complete(
     headers: put::Headers,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let bytes = json::read_body(request.into_body(), MANIFEST_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), MANIFEST_LIMIT).await?;
     if super::sha256_mismatch(headers.sha256, &bytes) {
         return Err(signed_digest_mismatch());
     }
@@ -537,7 +537,7 @@ async fn complete(
         .map_err(|error| storage_error(error, ctx))?;
     drop(wait);
     let mut response = document(render::complete_body(ctx.endpoints.api_base_url(), &record));
-    json::insert_response_headers(&record, response.headers_mut());
+    crate::csek::insert_response_headers(&record, response.headers_mut());
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     // The completion document carries the ETag; Cloud Storage sends no ETag header beside it
     // (recorded 2026-11-16).

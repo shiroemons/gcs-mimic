@@ -44,7 +44,7 @@ async fn purge(
         ));
     }
     let bucket = bucket(request.uri().path())?;
-    if !json::read_body(request.into_body(), RESOURCE_BODY_LIMIT)
+    if !crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT)
         .await?
         .is_empty()
     {

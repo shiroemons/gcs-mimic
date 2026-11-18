@@ -178,9 +178,12 @@ async fn object_listing_preserves_encoded_query_and_uri_limits() {
     let storage = storage(&dir, Auth::permissive()).await;
     let fixed_query = "prefix=&delimiter=&pageToken=&maxResults=1000&versions=false&includeTrailingDelimiter=false";
     for (prefix, expected) in [
-        ("a".repeat(json::MAX_QUERY_BYTES - fixed_query.len()), None),
         (
-            "a".repeat(json::MAX_QUERY_BYTES - fixed_query.len() + 1),
+            "a".repeat(crate::percent::MAX_QUERY_BYTES - fixed_query.len()),
+            None,
+        ),
+        (
+            "a".repeat(crate::percent::MAX_QUERY_BYTES - fixed_query.len() + 1),
             Some("Invalid object listing or page token; use the token with its original query"),
         ),
         (
@@ -191,9 +194,13 @@ async fn object_listing_preserves_encoded_query_and_uri_limits() {
     ] {
         let uri = format!("/storage/v1/b/list-a/o?prefix={}&delimiter=&pageToken=&maxResults=1000&versions=false&includeTrailingDelimiter=false", crate::auth::signature::encode_query_component(&prefix)).parse::<hyper::Uri>();
         match expected {
-            None => assert!(json::parse_query(uri.as_ref().unwrap().query().unwrap()).is_ok()),
+            None => {
+                assert!(crate::percent::parse_query(uri.as_ref().unwrap().query().unwrap()).is_ok())
+            }
             Some("Invalid list request") => assert!(uri.is_err()),
-            Some(_) => assert!(json::parse_query(uri.as_ref().unwrap().query().unwrap()).is_err()),
+            Some(_) => assert!(
+                crate::percent::parse_query(uri.as_ref().unwrap().query().unwrap()).is_err()
+            ),
         }
         let actual = Legacy::list_objects(
             &storage,
@@ -543,7 +550,7 @@ async fn list_buckets_without_project_spans_projects_with_paging() {
         .into_inner();
     assert_eq!(names(&rest), ["list-c"]);
     assert!(rest.next_page_token.is_empty());
-    let project_token = json::encode_page_token("p1", "list-", "list-a").unwrap();
+    let project_token = crate::page_token::encode_page_token("p1", "list-", "list-a").unwrap();
     assert_code(
         Legacy::list_buckets(&storage, list("", None, 2, &project_token)).await,
         tonic::Code::InvalidArgument,

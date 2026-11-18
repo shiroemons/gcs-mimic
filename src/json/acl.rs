@@ -2,18 +2,17 @@
 //! routes, request bodies and resources, plus the ACL fields of `projection=full` resources.
 
 use super::{
-    Decoding, Fields, JsonError, Schema,
+    Fields, JsonError, Schema,
     buckets::encode_segment,
-    decode,
     integer::take_int64,
-    objects::revision_etag,
-    parse_query,
     query::{common, finish_for_profile},
-    validate_bucket_name_for_profile, validate_object_name,
+    validate_object_name,
 };
+use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     acl::{
-        AclEntry, AclKind, AclRole, AclTarget, Entity, ProjectTeam, parse_entity, validate_role,
+        AclEntry, AclKind, AclOwner, AclRole, AclTarget, Entity, ProjectTeam, parse_entity,
+        validate_role,
     },
     bucket::BucketConditions,
     config::CompatProfile,
@@ -27,19 +26,7 @@ use serde_json::{Map, Value, json};
 /// error has no underlying cause to keep.
 impl From<crate::acl::AclError> for JsonError {
     fn from(error: crate::acl::AclError) -> Self {
-        use crate::acl::AclError;
-        // Cloud Storage's wording for the two most common mistakes (recorded 2026-10-31).
-        match error {
-            AclError::InvalidEntity(entity) => {
-                Self::invalid(format!("Scope text \"{entity}\" is not valid."))
-            }
-            AclError::InvalidRole { role, .. } => {
-                Self::invalid(format!("Invalid value for: {role} is not a valid value"))
-            }
-            error @ (AclError::TooManyEntries
-            | AclError::DuplicateEntity(_)
-            | AclError::EntityTooLong) => Self::invalid(error.to_string()),
-        }
+        Self::invalid(crate::storage::failure::wording::acl_refusal(&error))
     }
 }
 
@@ -201,7 +188,7 @@ fn parse_route(
     profile: CompatProfile,
 ) -> Result<AclRequest, JsonError> {
     let bucket = decode(bucket, Decoding::Path)?;
-    validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let served_by_fake_gcs_server = target.served_by_fake_gcs_server(selection);
     let operation = match selection {
         Selection::List => AclOperation::List,
@@ -346,73 +333,8 @@ fn entity_fields(resource: &mut Map<String, Value>, entity: &Entity) {
     }
 }
 
-/// The resource that owns rendered entries, at the version their etags carry.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum AclOwner<'a> {
-    Bucket {
-        bucket: &'a str,
-        metageneration: i64,
-    },
-    /// Default object ACL entries describe future objects, so they name no resource.
-    DefaultObject { metageneration: i64 },
-    Object {
-        bucket: &'a str,
-        name: &'a str,
-        generation: i64,
-        metageneration: i64,
-    },
-}
-
-impl<'a> AclOwner<'a> {
-    /// The owner of the entries a read or change of `target` returned at `metageneration`.
-    pub(crate) fn of(target: &'a AclTarget<i64>, metageneration: i64) -> Self {
-        match target {
-            AclTarget::Bucket(bucket) => Self::Bucket {
-                bucket,
-                metageneration,
-            },
-            AclTarget::DefaultObject(_) => Self::DefaultObject { metageneration },
-            AclTarget::Object {
-                bucket,
-                name,
-                generation,
-            } => Self::Object {
-                bucket,
-                name,
-                generation: *generation,
-                metageneration,
-            },
-        }
-    }
-
-    /// The resource ID of an entry; `None` for default object ACL entries, which describe
-    /// future objects.
-    pub(crate) fn entry_id(self, entity: &Entity) -> Option<String> {
-        match self {
-            Self::Bucket { bucket, .. } => Some(format!("{bucket}/{entity}")),
-            Self::DefaultObject { .. } => None,
-            Self::Object {
-                bucket,
-                name,
-                generation,
-                ..
-            } => Some(format!("{bucket}/{name}/{generation}/{entity}")),
-        }
-    }
-
-    pub(crate) fn etag(self) -> String {
-        match self {
-            Self::Bucket { metageneration, .. } | Self::DefaultObject { metageneration, .. } => {
-                revision_etag(None, metageneration)
-            }
-            Self::Object {
-                generation,
-                metageneration,
-                ..
-            } => revision_etag(Some(generation), metageneration),
-        }
-    }
-
+/// The JSON resource kinds of the entries an owner holds.
+impl AclOwner<'_> {
     fn resource_kind(self) -> &'static str {
         match self {
             Self::Bucket { .. } => "storage#bucketAccessControl",

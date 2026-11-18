@@ -12,9 +12,9 @@ use super::{
 };
 use crate::{
     auth::Caller,
-    bucket::{BucketAccess, CatalogError, CorsRule},
+    bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
-    json::{self, JsonError, ObjectRequest, cors::CorsRequest},
+    json::{self, JsonError, ObjectRequest},
     xml,
 };
 use http_body_util::{BodyExt, Full};
@@ -207,7 +207,7 @@ fn protocol_upload<B>(
     }) {
         return None;
     }
-    let query = json::parse_query(uri.query().unwrap_or_default()).ok()?;
+    let query = crate::percent::parse_query(uri.query().unwrap_or_default()).ok()?;
     let upload_type = query.get("uploadType")?;
     let kind = if query.contains_key("upload_id") {
         ProtocolUpload::Session
@@ -274,7 +274,7 @@ async fn route_xml(
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
     if selected.as_ref().is_some_and(|object| {
-        json::validate_bucket_name_for_profile(&object.bucket, ctx.config.compat_profile).is_ok()
+        crate::bucket::name::validate_for_profile(&object.bucket, ctx.config.compat_profile).is_ok()
     }) {
         return respond_xml_cors(request, ctx, selected).await;
     }

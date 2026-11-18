@@ -268,8 +268,8 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             .unwrap();
         assert_eq!(patched.updated, expected);
         assert_eq!(
-            json::timestamp(expected).unwrap(),
-            json::timestamp(now).unwrap()
+            crate::time_format::timestamp(expected).unwrap(),
+            crate::time_format::timestamp(now).unwrap()
         );
         let object = catalog
             .put_object(permissive_upload("timestamp-bucket", "media", 1), body())
@@ -544,8 +544,8 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
             .unwrap();
         assert_eq!(updated.updated, expected);
         assert_eq!(
-            json::timestamp(updated.updated).unwrap(),
-            json::timestamp(clock.now()).unwrap()
+            crate::time_format::timestamp(updated.updated).unwrap(),
+            crate::time_format::timestamp(clock.now()).unwrap()
         );
         clock.set(UNIX_EPOCH);
         catalog.cancel_derived(&transfer.id).await.unwrap();

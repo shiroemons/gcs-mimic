@@ -198,7 +198,7 @@ async fn transition_crash_and_power_loss_restart_converge_without_rewriting_or_d
             );
             assert_eq!(
                 payload["timeStorageClassUpdated"],
-                crate::json::timestamp(clock.now()).unwrap()
+                crate::time_format::timestamp(clock.now()).unwrap()
             );
             recovered
                 .acknowledge_notification(pending.id)

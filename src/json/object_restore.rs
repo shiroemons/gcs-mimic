@@ -3,11 +3,15 @@ use super::{
     integer::take_long,
     objects::{ConditionKeys, take_conditions},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
-        finish_for_profile, parse_query, projection, standard_parameters,
+        BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, finish_for_profile,
+        projection, standard_parameters,
     },
 };
-use crate::{config::CompatProfile, object::ObjectTarget};
+use crate::{
+    config::CompatProfile,
+    object::ObjectTarget,
+    percent::{Decoding, decode, parse_query},
+};
 use hyper::{Method, Uri};
 
 pub(super) fn route(
@@ -46,7 +50,7 @@ fn parse(
     }
     let bucket = decode(bucket, Decoding::Path)?;
     let name = decode(name, Decoding::Path)?;
-    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     super::validate_object_name(&name)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Object)?;

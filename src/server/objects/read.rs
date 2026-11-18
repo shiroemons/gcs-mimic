@@ -81,7 +81,7 @@ async fn media(
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let mut headers = json::object_media_headers(&record)?;
     insert_provider_headers(&record, &mut headers)?;
-    json::insert_response_headers(&record, &mut headers);
+    crate::csek::insert_response_headers(&record, &mut headers);
     if reader.publicly_readable {
         // An anonymous-capable read revalidates, varies by the allowed-resources header and
         // sends no `pragma` (observed 2026-10-31, anonymous reads only). Whether the header
@@ -102,7 +102,7 @@ async fn media(
     let transcode = json::object_media_transcoding(request.headers(), &record)?;
     let etag_outcome = crate::http_conditions::etag_not_modified_first(
         request.headers(),
-        &json::object_etag(&record),
+        &crate::etag::object_etag(&record),
     );
     let conditional = match etag_outcome {
         Err(crate::http_conditions::EtagError::PreconditionFailed) => {
@@ -329,7 +329,8 @@ fn insert_provider_headers(
     let invalid = JsonError::invalid_stored_header;
     headers.insert(
         "last-modified",
-        HeaderValue::try_from(json::http_date(record.updated)?).map_err(|_| invalid())?,
+        HeaderValue::try_from(crate::time_format::http_date(record.updated)?)
+            .map_err(|_| invalid())?,
     );
     headers.insert(
         "x-goog-storage-class",
@@ -426,7 +427,7 @@ async fn metadata(
     };
     Ok(boxed(read_metadata_response(
         request.headers(),
-        &json::object_etag(&record),
+        &crate::etag::object_etag(&record),
         resource.value,
         fields,
         query,

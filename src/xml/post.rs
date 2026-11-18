@@ -42,7 +42,7 @@ mod failure_tests;
 /// All non-file fields together, which bounds the policy document as well. They stay in memory
 /// until the file part starts, so a field's name and map entry count too: nothing else would stop
 /// a form of empty fields from growing, now that the number of fields has no limit of its own.
-const FORM_CAP: usize = json::RESOURCE_BODY_LIMIT;
+const FORM_CAP: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
 /// What one field's map entry takes beside its name and value.
 const FIELD_ENTRY_CHARGE: usize = 64;
 
@@ -180,7 +180,7 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
     let too_large = || {
         Error::invalid(format!(
             "Form fields before the file field are limited to {} in total.",
-            json::RESOURCE_BODY_LIMIT_TEXT
+            crate::bounded_body::RESOURCE_BODY_LIMIT_TEXT
         ))
     };
     let mut fields = BTreeMap::new();
@@ -571,8 +571,7 @@ fn plan<'f>(form: &'f Form, bucket: &str) -> Result<Plan<'f>, Error> {
     } else {
         key.clone()
     };
-    crate::object::name::validate(&name)
-        .map_err(|_| json::JsonError::invalid_parameter("Invalid object name"))?;
+    crate::object::name::validate(&name)?;
     let success = success_action(fields)?;
     let mut selected = HeaderMap::new();
     if let Some(value) = fields.get("content-type") {
@@ -663,7 +662,7 @@ pub(crate) async fn respond(
 ) -> Result<Response<ResponseBody>, Error> {
     let RequestCtx { state, config, .. } = ctx;
     let bucket = object.bucket.clone();
-    json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, config.compat_profile)?;
     // POST Object takes every option from the form; query options belong to other operations.
     if let Some(query) = request.uri().query() {
         let key = query.split('&').next().unwrap_or_default();

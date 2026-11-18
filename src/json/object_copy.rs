@@ -3,11 +3,16 @@ use super::{
     integer::take_long,
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
-        parse_query, projection, standard_parameters,
+        BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, projection,
+        standard_parameters,
     },
 };
-use crate::{acl::PredefinedObjectAcl, config::CompatProfile, object::ObjectConditions};
+use crate::{
+    acl::PredefinedObjectAcl,
+    config::CompatProfile,
+    object::ObjectConditions,
+    percent::{Decoding, decode, parse_query},
+};
 use hyper::{Method, Uri};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,7 +107,7 @@ fn names(path: &str, profile: CompatProfile) -> Result<(String, String), JsonErr
         return Err(JsonError::invalid_parameter("Invalid copy path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let name = decode(name, Decoding::Path)?;
     super::validate_object_name(&name)?;
     Ok((bucket, name))

@@ -727,6 +727,74 @@ impl JsonError {
     }
 }
 
+impl From<crate::percent::MalformedEncoding> for JsonError {
+    fn from(error: crate::percent::MalformedEncoding) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
+impl From<crate::percent::QueryError> for JsonError {
+    fn from(error: crate::percent::QueryError) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
+/// A bucket named in a path or parameter: the native refusal is a malformed parameter, while the
+/// fake-gcs-server profile reports an invalid value.
+impl From<crate::bucket::name::ProfileNameError> for JsonError {
+    fn from(error: crate::bucket::name::ProfileNameError) -> Self {
+        use crate::bucket::name::ProfileNameError;
+        match error {
+            ProfileNameError::Native(_) => Self::invalid_parameter(error.to_string()),
+            ProfileNameError::FakeGcsServer => Self::invalid(error.to_string()),
+        }
+    }
+}
+
+/// A refused bucket token is a malformed parameter and a refused object token an invalid value,
+/// as Cloud Storage reported them.
+impl From<crate::page_token::PageTokenError> for JsonError {
+    fn from(error: crate::page_token::PageTokenError) -> Self {
+        use crate::page_token::PageTokenError;
+        match error {
+            PageTokenError::BucketCursor => Self::invalid_parameter(error.to_string()),
+            PageTokenError::ObjectCursor(_) => Self::invalid(error.to_string()),
+            PageTokenError::Project(error) => error.into(),
+            PageTokenError::BucketName(error) => error.into(),
+        }
+    }
+}
+
+impl From<crate::hashing::InvalidDigest> for JsonError {
+    fn from(error: crate::hashing::InvalidDigest) -> Self {
+        Self::invalid_parameter(error.to_string())
+    }
+}
+
+impl From<crate::bounded_body::BodyError> for JsonError {
+    fn from(error: crate::bounded_body::BodyError) -> Self {
+        use crate::bounded_body::BodyError;
+        match error {
+            BodyError::TooLarge => Self::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "uploadTooLarge",
+                error.to_string(),
+            ),
+            BodyError::OutOfMemory => Self::service_unavailable(error.to_string()),
+            BodyError::Unreadable => {
+                Self::new(StatusCode::BAD_REQUEST, "badRequest", error.to_string())
+            }
+        }
+    }
+}
+
+/// A stored time that cannot be rendered is a backend failure.
+impl From<crate::time_format::TimeOutOfRange> for JsonError {
+    fn from(error: crate::time_format::TimeOutOfRange) -> Self {
+        Self::service_unavailable(error.to_string())
+    }
+}
+
 /// A project path segment outside the identifier rules is a malformed parameter.
 impl From<crate::auth::InvalidProjectId> for JsonError {
     fn from(error: crate::auth::InvalidProjectId) -> Self {
@@ -769,16 +837,20 @@ impl From<AuthFailure> for JsonError {
     fn from(failure: AuthFailure) -> Self {
         match failure {
             // Documented status-code example for a missing credential.
-            AuthFailure::LoginRequired => {
-                Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required")
-                    .with_kind(ErrorKind::Required)
-                    .at(&AUTHORIZATION_HEADER)
-            }
+            AuthFailure::LoginRequired => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "required",
+                wording::LOGIN_REQUIRED,
+            )
+            .with_kind(ErrorKind::Required)
+            .at(&AUTHORIZATION_HEADER),
             // The reason is documented; message and location are a local choice.
-            AuthFailure::InvalidCredentials => {
-                Self::new(StatusCode::UNAUTHORIZED, "authError", "Invalid Credentials")
-                    .at(&AUTHORIZATION_HEADER)
-            }
+            AuthFailure::InvalidCredentials => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "authError",
+                wording::INVALID_CREDENTIALS,
+            )
+            .at(&AUTHORIZATION_HEADER),
             AuthFailure::Denied(denied) => denied.into(),
             AuthFailure::Forbidden => Self::forbidden(),
         }

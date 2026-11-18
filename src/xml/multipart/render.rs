@@ -211,7 +211,10 @@ pub(super) fn uploads_body(
             encoding.element(w, "Key", &upload.target.name);
             w.element("UploadId", &upload.target.id);
             w.element("StorageClass", class(&upload));
-            w.element("Initiated", &json::timestamp_micros(upload.created)?);
+            w.element(
+                "Initiated",
+                &crate::time_format::timestamp_micros(upload.created)?,
+            );
             Ok::<_, Error>(())
         })?;
     }
@@ -246,7 +249,10 @@ pub(super) fn parts_body(
     for part in parts {
         w.try_group("Part", |w| {
             w.value("PartNumber", part.number);
-            w.element("LastModified", &json::timestamp_micros(part.updated)?);
+            w.element(
+                "LastModified",
+                &crate::time_format::timestamp_micros(part.updated)?,
+            );
             w.element("ETag", &part.etag);
             w.value("Size", part.size);
             Ok::<_, Error>(())

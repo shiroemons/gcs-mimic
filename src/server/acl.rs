@@ -6,12 +6,12 @@ use super::{
     json_response_selected, read_metadata_response, require_empty_body,
 };
 use crate::{
-    acl::{AclEntry, AclKind, AclTarget},
+    acl::{AclEntry, AclKind, AclOwner, AclTarget},
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord},
     json::{
         self, JsonError,
-        acl::{AclAccess, AclOperation, AclOwner, AclRequest},
+        acl::{AclAccess, AclOperation, AclRequest},
     },
     object::{ObjectRecord, owner::ObjectOwner},
     storage::{AclChange, AclError, AclProjection, AclState, ObjectAcl},
@@ -161,7 +161,9 @@ pub(super) async fn respond(
             return Ok(response);
         }
         AclOperation::Write(write) => {
-            let bytes = json::read_body(request.into_body(), super::RESOURCE_BODY_LIMIT).await?;
+            let bytes =
+                crate::bounded_body::read_body(request.into_body(), super::RESOURCE_BODY_LIMIT)
+                    .await?;
             let body = json::acl::parse_acl_body(&bytes, target.kind(), write)?;
             let (acl, entry) = state
                 .catalog

@@ -1,9 +1,9 @@
-use super::JsonError;
+//! Collecting a small request document into memory under a bound: a JSON resource, an XML
+//! manifest, a form or a body that must be empty. Object bodies stream instead.
+
 use http_body_util::BodyExt;
-use hyper::{
-    StatusCode,
-    body::{Body, Buf},
-};
+use hyper::body::{Body, Buf};
+use std::fmt;
 
 /// The most one JSON document may occupy in memory: a request body, an expanded gzip body, a
 /// multipart metadata part, a form, an initialization entry or a source metadata record.
@@ -15,44 +15,54 @@ use hyper::{
 pub(crate) const RESOURCE_BODY_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const RESOURCE_BODY_LIMIT_TEXT: &str = "16 MiB";
 
+/// Why a body could not be collected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BodyError {
+    /// The body is longer than the caller's bound.
+    TooLarge,
+    /// The buffer for the body could not be allocated.
+    OutOfMemory,
+    /// The transport failed while the body was read.
+    Unreadable,
+}
+
+impl fmt::Display for BodyError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::TooLarge => "JSON request body exceeds the configured limit",
+            Self::OutOfMemory => "Could not allocate request body buffer",
+            Self::Unreadable => "Could not read request body",
+        })
+    }
+}
+
+impl std::error::Error for BodyError {}
+
 /// Collect at most `cap` bytes; the caller must also bound transport frames and read time.
 pub(crate) async fn read_body<B: Body + Unpin>(
     mut body: B,
     cap: usize,
-) -> Result<Vec<u8>, JsonError> {
-    let too_large = || {
-        JsonError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "uploadTooLarge",
-            "JSON request body exceeds the configured limit",
-        )
-    };
+) -> Result<Vec<u8>, BodyError> {
     if body.size_hint().lower() > cap as u64 {
-        return Err(too_large());
+        return Err(BodyError::TooLarge);
     }
     let mut bytes = Vec::new();
     if let Some(length) = body.size_hint().exact() {
-        let length = usize::try_from(length).map_err(|_| too_large())?;
-        bytes.try_reserve(length).map_err(|_| {
-            JsonError::service_unavailable("Could not allocate request body buffer")
-        })?;
+        let length = usize::try_from(length).map_err(|_| BodyError::TooLarge)?;
+        bytes
+            .try_reserve(length)
+            .map_err(|_| BodyError::OutOfMemory)?;
     }
     while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|_| {
-            JsonError::new(
-                StatusCode::BAD_REQUEST,
-                "badRequest",
-                "Could not read request body",
-            )
-        })?;
+        let frame = frame.map_err(|_| BodyError::Unreadable)?;
         if let Ok(mut data) = frame.into_data() {
             let length = data.remaining();
             if length > cap - bytes.len() {
-                return Err(too_large());
+                return Err(BodyError::TooLarge);
             }
-            bytes.try_reserve(length).map_err(|_| {
-                JsonError::service_unavailable("Could not allocate request body buffer")
-            })?;
+            bytes
+                .try_reserve(length)
+                .map_err(|_| BodyError::OutOfMemory)?;
             while data.has_remaining() {
                 let chunk = data.chunk();
                 bytes.extend_from_slice(chunk);

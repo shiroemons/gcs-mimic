@@ -461,7 +461,7 @@ impl Storage {
             })
             .map_err(super::super::status::list_query_status)?;
         if !r.page_token.is_empty() {
-            query.cursor = Some(json::decode_object_page_token(&r.page_token, &query).map_err(|_| Status::invalid_argument("Invalid page_token; use a next_page_token from an earlier listing response"))?);
+            query.cursor = Some(crate::page_token::decode_object_page_token(&r.page_token, &query).map_err(|_| Status::invalid_argument("Invalid page_token; use a next_page_token from an earlier listing response"))?);
         }
         let object_mask = object_mask(mask, unknown_list_field)?;
         let access = self.access(caller, bucket, OBJECTS_LIST).await?;
@@ -474,7 +474,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map_or_default(json::encode_object_page_token);
+            .map_or_default(crate::page_token::encode_object_page_token);
         let mut objects = page
             .items
             .iter()

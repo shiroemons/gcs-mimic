@@ -1,6 +1,7 @@
 mod acl;
 pub mod auth;
 mod base64;
+mod bounded_body;
 pub mod bounded_file;
 pub mod bucket;
 pub mod bucket_init;
@@ -11,6 +12,7 @@ mod csek;
 mod decimal;
 pub mod diagnostics;
 mod error;
+mod etag;
 pub mod fd_limit;
 // The descriptor and xattr FFI calls carry their `unsafe_code` expectations on the individual
 // wrapper functions in this module, so new unsafe code elsewhere in it still fails the lint.
@@ -28,6 +30,8 @@ pub mod mime;
 pub mod net;
 mod notification;
 pub mod object;
+mod page_token;
+mod percent;
 mod project;
 pub mod seed;
 mod serde_util;
@@ -42,6 +46,7 @@ mod task;
     reason = "Unit tests use a subset of the fixtures shared with the integration tests"
 )]
 mod test_support;
+mod time_format;
 pub mod time_limit;
 pub mod tls;
 pub mod url;

@@ -126,7 +126,7 @@ pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Polic
         [bucket],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    Policy::from_stored(&bindings, crate::json::policy_etag(revision))
+    Policy::from_stored(&bindings, crate::etag::policy_etag(revision))
         .map_err(|reason| CatalogError::Corrupt(reason.into()))
 }
 
@@ -142,7 +142,7 @@ pub(super) fn store_policy(
         "UPDATE bucket_policies SET bindings = ?2, revision = ?3 WHERE bucket = ?1",
         params![bucket, encoded, revision],
     )?;
-    policy.etag = Some(crate::json::policy_etag(revision));
+    policy.etag = Some(crate::etag::policy_etag(revision));
     Ok(())
 }
 

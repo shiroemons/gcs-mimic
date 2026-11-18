@@ -1,8 +1,10 @@
 use super::{BucketRequest, Fields, JsonError, Schema, objects::base64, query};
 use crate::auth::{
-    Binding, Policy, Role,
+    Binding, Policy,
     policy_input::{self, PolicyInputError},
+    testable::{UntestablePermission, testable_permission},
 };
+use crate::percent::{self, Decoding};
 use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -60,9 +62,9 @@ pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermission
     let mut rest = Vec::new();
     for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if query::decode(key, query::Decoding::Form)? == "permissions" {
-            let permission = query::decode(value, query::Decoding::Form)?;
-            let permission = check_testable_permission(&permission)?;
+        if percent::decode(key, Decoding::Form)? == "permissions" {
+            let permission = percent::decode(value, Decoding::Form)?;
+            let permission = testable_permission(&permission)?;
             if !permissions.contains(&permission) {
                 permissions.push(permission);
             }
@@ -75,7 +77,7 @@ pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermission
             JsonError::required("Required parameter: permissions").at_parameter("permissions")
         );
     }
-    let mut undeclared = query::parse_query(&rest.join("&"))?;
+    let mut undeclared = percent::parse_query(&rest.join("&"))?;
     let fields = Fields::take(&mut undeclared, Schema::TestIamPermissionsResponse)?;
     query::common(&mut undeclared)?;
     Ok(TestPermissionsQuery {
@@ -89,29 +91,17 @@ fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
-pub(crate) fn check_testable_permission(
-    permission: &str,
-) -> Result<crate::auth::Permission, JsonError> {
-    let Ok(parsed) = crate::auth::Permission::try_from(permission) else {
-        if Role::ALL
-            .iter()
-            .any(|role| role.permissions().contains(&permission))
-        {
-            return Err(JsonError::unsupported(&format!(
-                "permission {permission}; use a supported operation permission such as storage.objects.get"
-            )));
+/// A recognized permission no supported operation checks is an unsupported setting; any other
+/// refusal is an invalid value.
+impl From<UntestablePermission> for JsonError {
+    fn from(error: UntestablePermission) -> Self {
+        match error {
+            UntestablePermission::Unsupported(_) => JsonError::unsupported(&error.to_string()),
+            UntestablePermission::Unknown(_) | UntestablePermission::ProjectScoped => {
+                invalid(error.to_string())
+            }
         }
-        return Err(invalid(format!(
-            "{permission} is not a valid Google Cloud Storage permission."
-        )));
-    };
-    if matches!(
-        parsed,
-        crate::auth::Permission::BucketsCreate | crate::auth::Permission::BucketsList
-    ) {
-        return Err(invalid("Invalid argument."));
     }
-    Ok(parsed)
 }
 
 impl From<PolicyInputError> for JsonError {
@@ -223,10 +213,6 @@ fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
 pub(crate) fn policy_resource(policy: &Policy, bucket: &str) -> Value {
     json!({"kind": "storage#policy", "resourceId": format!("projects/_/buckets/{bucket}"),
         "version": 1, "etag": policy.etag, "bindings": policy.bindings_json()})
-}
-
-pub(crate) fn policy_etag(sequence: i64) -> String {
-    base64(&sequence.to_be_bytes())
 }
 
 #[cfg(test)]

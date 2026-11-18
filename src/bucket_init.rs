@@ -48,7 +48,7 @@ const FILE_BYTES_PER_BUCKET: usize = 1024;
 /// The whole file is read into memory and parsed, so even without a bucket limit a mistaken path
 /// to some huge file must fail here. A million buckets of 1 KiB each still fit.
 const UNLIMITED_FILE_LIMIT: usize = 1024 * 1024 * 1024;
-pub(crate) const ENTRY_LIMIT: usize = crate::json::RESOURCE_BODY_LIMIT;
+pub(crate) const ENTRY_LIMIT: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
 pub(crate) const DIAGNOSTIC_LIMIT: usize = 256;
 pub(crate) const DIAGNOSTIC_BYTES_LIMIT: usize = 64 * 1024;
 const ARRAY_DIAGNOSTIC_LIMIT: usize = 4;

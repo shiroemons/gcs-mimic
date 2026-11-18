@@ -1,10 +1,11 @@
 //! JSON wire form of object retention (`retention`) and bucket `objectRetention`.
 
-use super::{JsonError, buckets::timestamp_nanos};
+use super::JsonError;
 use crate::object::{
     retention::{ObjectRetention, RetentionMode},
     unix_nanos::UnixNanos,
 };
+use crate::time_format::timestamp_nanos;
 use serde_json::{Value, json};
 
 const EXAMPLE: &str = "use {\"mode\":\"Unlocked\",\"retainUntilTime\":\"2030-01-01T00:00:00Z\"}";
@@ -95,7 +96,7 @@ pub(super) fn render_bucket(bucket: &crate::bucket::BucketRecord) -> Option<Valu
 
 /// Returned as `retentionExpirationTime`: the later of bucket-policy and object retention.
 pub(super) fn expiration(time: Option<UnixNanos>) -> Result<Option<String>, JsonError> {
-    time.map(timestamp_nanos).transpose()
+    Ok(time.map(timestamp_nanos).transpose()?)
 }
 
 #[cfg(test)]

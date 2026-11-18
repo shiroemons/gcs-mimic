@@ -3,26 +3,13 @@
 //! recorded answers and tests pin, so this module only reads the declarations.
 
 use super::JsonError;
+use crate::hashing::decode_hash;
 use crate::object::{Checksum, HashAlgorithm};
 use hyper::HeaderMap;
 use serde_json::{Map, Value};
 
 /// A resource digest field whose value is not a string.
 pub(super) const NOT_BASE64: &str = "Checksum must be a base64 string";
-
-pub(crate) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
-    let invalid = || JsonError::invalid_parameter("Invalid base64 checksum");
-    if raw.len() != N.div_ceil(3) * 4 {
-        return Err(invalid());
-    }
-    crate::base64::decode(
-        raw,
-        crate::base64::Alphabet::Standard,
-        crate::base64::Padding::Required,
-    )
-    .and_then(|bytes| bytes.try_into().ok())
-    .ok_or_else(invalid)
-}
 
 /// Decodes a base64 digest of the algorithm's width.
 pub(super) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, JsonError> {

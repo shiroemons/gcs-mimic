@@ -107,7 +107,7 @@ impl Default for WorkPools {
     }
 }
 
-pub(crate) use crate::json::RESOURCE_BODY_LIMIT;
+pub(crate) use crate::bounded_body::RESOURCE_BODY_LIMIT;
 
 mod batch;
 mod browser;
@@ -1784,7 +1784,7 @@ pub(crate) async fn authorize_bucket(
 
 /// The access `caller` holds for `permission` on `bucket`. The error stays a `CatalogError`,
 /// so a caller that hides a refusal tells it apart with `CatalogError::is_refusal`.
-async fn bucket_access(
+pub(crate) async fn bucket_access(
     state: &State,
     caller: Option<Caller<'_>>,
     permission: auth::Permission,
@@ -1879,13 +1879,13 @@ async fn validate_bodyless_post(
         Some("application/json") => BodylessPostType::Json,
         _ => BodylessPostType::Other,
     };
-    let body = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let body = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let accepted = body.is_empty()
         || match declared {
             BodylessPostType::Form => {
                 std::str::from_utf8(&body)
                     .ok()
-                    .and_then(|body| json::parse_query(body).ok())
+                    .and_then(|body| crate::percent::parse_query(body).ok())
                     .as_ref()
                     == Some(expected)
             }

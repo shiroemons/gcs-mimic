@@ -217,9 +217,60 @@ fn metadata(error: &MetadataError, unsupported: fn(&str) -> String) -> Status {
     }
 }
 
+/// A permission no supported operation checks is unsupported, worded as the JSON API words an
+/// unsupported bucket setting; any other refusal is an invalid argument.
+impl From<crate::auth::testable::UntestablePermission> for Status {
+    fn from(error: crate::auth::testable::UntestablePermission) -> Self {
+        use crate::auth::testable::UntestablePermission;
+        match error {
+            UntestablePermission::Unsupported(_) => {
+                unsupported_message(wording::unsupported_bucket_setting(&error.to_string()))
+            }
+            UntestablePermission::Unknown(_) | UntestablePermission::ProjectScoped => {
+                Status::invalid_argument(error.to_string())
+            }
+        }
+    }
+}
+
+impl From<crate::page_token::PageTokenError> for Status {
+    fn from(error: crate::page_token::PageTokenError) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
+impl From<crate::auth::InvalidProjectId> for Status {
+    fn from(error: crate::auth::InvalidProjectId) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
+impl From<crate::bucket::name::ProfileNameError> for Status {
+    fn from(error: crate::bucket::name::ProfileNameError) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
+/// A routing value or resource name whose percent-encoding cannot be decoded.
+impl From<crate::percent::MalformedEncoding> for Status {
+    fn from(error: crate::percent::MalformedEncoding) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
+/// A missing or unverifiable credential is unauthenticated and a refusal is permission denied,
+/// with the messages the JSON API sends.
 impl From<crate::auth::AuthFailure> for Status {
     fn from(error: crate::auth::AuthFailure) -> Self {
-        Self::from(crate::json::JsonError::from(error))
+        use crate::auth::AuthFailure;
+        match error {
+            AuthFailure::LoginRequired => Status::unauthenticated(wording::LOGIN_REQUIRED),
+            AuthFailure::InvalidCredentials => {
+                Status::unauthenticated(wording::INVALID_CREDENTIALS)
+            }
+            AuthFailure::Denied(denied) => Status::permission_denied(denied.to_string()),
+            AuthFailure::Forbidden => Status::permission_denied(wording::FORBIDDEN),
+        }
     }
 }
 
@@ -344,7 +395,7 @@ pub(crate) fn unsupported(method: &str) -> Status {
 }
 
 /// JSON unsupported messages already include a remedy and must not be wrapped again.
-fn unsupported_message(message: String) -> Status {
+pub(super) fn unsupported_message(message: String) -> Status {
     unsupported_with_remedy(
         message,
         "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event",

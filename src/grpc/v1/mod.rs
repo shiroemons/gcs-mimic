@@ -30,8 +30,9 @@ use crate::{
     json,
     object::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch,
-        generation::Generation,
+        WriteMode, generation::Generation,
     },
+    page_token::{self, PageTokenError},
     server::State,
 };
 use std::sync::Arc;
@@ -185,7 +186,7 @@ fn validate_list_query(request: &pb::ListObjectsRequest, max_results: usize) -> 
     if uri_len > usize::from(u16::MAX) - 1 {
         return Err(Status::invalid_argument("Invalid list request"));
     }
-    if query_len > json::MAX_QUERY_BYTES {
+    if query_len > crate::percent::MAX_QUERY_BYTES {
         return Err(Status::invalid_argument(
             "Invalid object listing or page token; use the token with its original query",
         ));
@@ -211,17 +212,17 @@ impl<'a> ProjectScope<'a> {
         }
     }
 
-    fn decode_token(self, token: &str, prefix: &str) -> Result<String, json::JsonError> {
+    fn decode_token(self, token: &str, prefix: &str) -> Result<String, PageTokenError> {
         match self {
-            Self::All => json::decode_all_projects_page_token(token, prefix),
-            Self::One(project) => json::decode_page_token(token, project, prefix),
+            Self::All => page_token::decode_all_projects_page_token(token, prefix),
+            Self::One(project) => page_token::decode_page_token(token, project, prefix),
         }
     }
 
-    fn encode_token(self, prefix: &str, last: &str) -> Result<String, json::JsonError> {
+    fn encode_token(self, prefix: &str, last: &str) -> Result<String, PageTokenError> {
         match self {
-            Self::All => json::encode_all_projects_page_token(prefix, last),
-            Self::One(project) => json::encode_page_token(project, prefix, last),
+            Self::All => page_token::encode_all_projects_page_token(prefix, last),
+            Self::One(project) => page_token::encode_page_token(project, prefix, last),
         }
     }
 }
@@ -233,14 +234,11 @@ struct ObjectUpdate<'a> {
     selected: i64,
     conditions: ObjectConditions,
     object: pb::Object,
-    write: json::WriteMode,
+    write: WriteMode,
 }
 
-fn metadata(
-    mut object: pb::Object,
-    write: json::WriteMode,
-) -> Result<ObjectMetadataUpdate, Status> {
-    let replace = write == json::WriteMode::Replace;
+fn metadata(mut object: pb::Object, write: WriteMode) -> Result<ObjectMetadataUpdate, Status> {
+    let replace = write == WriteMode::Replace;
     let mut update = ObjectMetadataUpdate {
         write,
         ..Default::default()
@@ -327,7 +325,7 @@ impl Storage {
         bucket: &str,
         permission: crate::auth::Permission,
     ) -> Result<BucketAccess, Status> {
-        json::validate_bucket_name_for_profile(bucket, self.compat_profile)?;
+        crate::bucket::name::validate_for_profile(bucket, self.compat_profile)?;
         crate::server::authorize_bucket(&self.state, caller, permission, bucket)
             .await
             .map_err(|e| Status::from(crate::server::anonymous_error(e, caller)))
@@ -340,7 +338,7 @@ impl Storage {
         named: &str,
         permission: crate::auth::Permission,
     ) -> Result<String, Status> {
-        json::validate_project(named)?;
+        crate::auth::validate_project_id(named)?;
         let project = self.state.project_id(named).await?;
         if let Some(caller) = caller {
             caller.authorize(permission, Some(&project))?;
@@ -649,7 +647,7 @@ impl Storage {
             selected: r.generation,
             conditions: conditions(ObjectConditions::from(&r))?,
             object: r.metadata.unwrap_or_default(),
-            write: json::WriteMode::Replace,
+            write: WriteMode::Replace,
         };
         self.update(caller, update).await
     }
@@ -676,7 +674,7 @@ impl Storage {
             selected: r.generation,
             conditions: conditions(ObjectConditions::from(&r))?,
             object: r.metadata.unwrap_or_default(),
-            write: json::WriteMode::Patch,
+            write: WriteMode::Patch,
         };
         self.update(caller, update).await
     }
@@ -704,7 +702,7 @@ impl Storage {
             ..Default::default()
         };
         if !r.page_token.is_empty() {
-            query.cursor = Some(json::decode_object_page_token(
+            query.cursor = Some(page_token::decode_object_page_token(
                 &r.page_token, &query,
             ).map_err(|_| Status::invalid_argument(
                 "Invalid object listing or page token; use the token with its original query",
@@ -718,7 +716,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map_or_default(json::encode_object_page_token);
+            .map_or_default(page_token::encode_object_page_token);
         Ok(Response::new(pb::ListObjectsResponse {
             items: page
                 .items
@@ -758,7 +756,7 @@ impl Storage {
             ));
         }
         let content_type = object.content_type.clone();
-        let metadata = metadata(object, json::WriteMode::Replace)?;
+        let metadata = metadata(object, WriteMode::Replace)?;
         let sources = r
             .source_objects
             .into_iter()

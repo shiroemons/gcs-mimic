@@ -9,10 +9,29 @@
 //! HTTP headers carry the key and fingerprint as Base64 text; Storage v2 carries raw bytes and
 //! validates in another order (recorded 2026-11-15), so each transport has its own constructor.
 
-use hyper::HeaderMap;
+use hyper::{HeaderMap, header::HeaderValue};
 
 /// The only algorithm Cloud Storage accepts for customer-supplied keys.
 pub(crate) const ALGORITHM: &str = "AES256";
+
+/// Response headers identifying the key of an encrypted object's data, which the JSON and XML
+/// APIs both send.
+pub(crate) fn insert_response_headers(
+    object: &crate::object::ObjectRecord,
+    headers: &mut HeaderMap,
+) {
+    if let Some(sha256) = object.customer_key_sha256 {
+        headers.insert(
+            "x-goog-encryption-algorithm",
+            HeaderValue::from_static(ALGORITHM),
+        );
+        // Base64 always forms a valid header value; omitting the header is safer than
+        // panicking if that ever changes.
+        if let Ok(value) = HeaderValue::from_str(&crate::base64::encode(&sha256)) {
+            headers.insert("x-goog-encryption-key-sha256", value);
+        }
+    }
+}
 
 /// Header prefix carrying the key that encrypts (or decrypts) the addressed object.
 pub(crate) const DESTINATION_PREFIX: &str = "x-goog-encryption-";

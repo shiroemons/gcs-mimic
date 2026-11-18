@@ -224,7 +224,7 @@ async fn control(
         Control::Resolve => conflicts::resolve(request, registration, identity, ctx).await,
         Control::Status => {
             let page = Page::parse(request.uri().query())?;
-            let bytes = json::read_body(request.into_body(), 1).await?;
+            let bytes = crate::bounded_body::read_body(request.into_body(), 1).await?;
             if !bytes.is_empty() {
                 return Err(JsonError::invalid_argument(
                     "GET synchronization controls do not accept a body",
@@ -259,7 +259,7 @@ async fn wait(
     }
     let bytes = tokio::time::timeout_at(
         preparation_deadline,
-        json::read_body(request.into_body(), 64 * 1024),
+        crate::bounded_body::read_body(request.into_body(), 64 * 1024),
     )
     .await
     .map_err(|_| busy())??;
@@ -333,7 +333,7 @@ async fn mutate(
             "Synchronization mutations do not accept query parameters",
         ));
     }
-    let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), 64 * 1024).await?;
     let value = match mutation {
         Mutation::Approve => approve(&bytes, &registration, identity, ctx).await?,
         Mutation::Rescan => rescan(&bytes, &registration, identity, ctx).await?,
@@ -453,7 +453,7 @@ enum PagedRevision {
 
 impl Page {
     fn parse(query: Option<&str>) -> Result<Self, JsonError> {
-        let mut values = json::parse_query(query.unwrap_or_default())?;
+        let mut values = crate::percent::parse_query(query.unwrap_or_default())?;
         if values.is_empty() {
             return Ok(Self::Summary);
         }

@@ -114,7 +114,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<Element, Error> {
     let mut stack: Vec<Element> = Vec::new();
     let mut root = None;
     let mut count = 0;
-    walk(bytes, crate::json::RESOURCE_BODY_LIMIT, |node| {
+    walk(bytes, crate::bounded_body::RESOURCE_BODY_LIMIT, |node| {
         match node {
             Node::Start(name) => {
                 if root.is_some() || stack.len() >= 8 || count >= 256 {

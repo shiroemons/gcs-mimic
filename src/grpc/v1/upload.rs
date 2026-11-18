@@ -62,7 +62,7 @@ impl Storage {
         let name = object.name.clone();
         let content_type = object.content_type.clone();
         object_name(&name)?;
-        let metadata = metadata(object, crate::json::WriteMode::Patch)?;
+        let metadata = metadata(object, crate::object::WriteMode::Patch)?;
         let conditions = conditions(ObjectConditions::from(&spec))?;
         let access = self
             .access(caller, &bucket, crate::auth::OBJECTS_CREATE)

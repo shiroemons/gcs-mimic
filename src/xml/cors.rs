@@ -1,4 +1,7 @@
-use crate::{bucket::CorsRule, config::CorsFallback, json::cors::CorsRequest};
+use crate::{
+    bucket::{CorsRule, cors::CorsRequest},
+    config::CorsFallback,
+};
 use hyper::{
     HeaderMap, Method,
     header::{HeaderName, HeaderValue},
@@ -36,7 +39,7 @@ pub(crate) fn warn_unconfigured_cors(
     bucket: &str,
     headers: &HeaderMap,
 ) {
-    if crate::json::cors::origin(headers).is_none() {
+    if crate::bucket::cors::origin(headers).is_none() {
         return;
     }
     let first = state.xml_cors_warned_buckets.claim(bucket);
@@ -85,7 +88,7 @@ pub(crate) fn cors(
         };
         value.to_str().ok()
     };
-    let Some(origin_value) = crate::json::cors::origin(headers) else {
+    let Some(origin_value) = crate::bucket::cors::origin(headers) else {
         return result;
     };
     let Ok(origin) = origin_value.to_str() else {

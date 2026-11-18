@@ -759,7 +759,7 @@ pub(super) fn check_object_fields(
     };
     let created_micros = timestamp(report, relative, ObjectField::Created, &attrs.created)?;
     let updated_micros = timestamp(report, relative, ObjectField::Updated, &attrs.updated)?;
-    let md5 = match crate::json::decode_hash::<16>(&attrs.md5_hash) {
+    let md5 = match crate::hashing::decode_hash::<16>(&attrs.md5_hash) {
         Ok(md5) => Ok(md5),
         Err(_) => Err(reject(
             report,
@@ -769,7 +769,7 @@ pub(super) fn check_object_fields(
             attrs.md5_hash.clone(),
         )?),
     };
-    let crc32c = match crate::json::decode_hash::<4>(&attrs.crc32c) {
+    let crc32c = match crate::hashing::decode_hash::<4>(&attrs.crc32c) {
         Ok(crc32c) => Ok(u32::from_be_bytes(crc32c)),
         Err(_) => Err(reject(
             report,

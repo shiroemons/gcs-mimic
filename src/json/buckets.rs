@@ -2,12 +2,15 @@ use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
     RETENTION_RANGE_MESSAGE, RetentionPeriod, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE,
-    SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning,
-    VersioningUpdate, cors_from_value, cors_value, valid_label, validate_storage_class,
+    SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccess,
+    UniformAccessRequest, Versioning, VersioningUpdate, cors_from_value, cors_value, valid_label,
+    validate_storage_class,
 };
 use crate::bucket::{autoclass::AutoclassState, lifecycle::LifecycleRules};
 use crate::config::CompatProfile;
-use crate::object::{MapPatch, Patch, unix_nanos::UnixNanos};
+use crate::etag::bucket_etag;
+use crate::object::{MapPatch, Patch};
+use crate::time_format::timestamp;
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, time::SystemTime};
 
@@ -46,27 +49,6 @@ fn validate_new_bucket_name(name: &str) -> Result<(), JsonError> {
     }
     validate_bucket_name(name)
         .map_err(|_| JsonError::invalid(format!("Invalid bucket name: '{name}'")))
-}
-
-pub(crate) fn validate_bucket_name_for_profile(
-    name: &str,
-    profile: CompatProfile,
-) -> Result<(), JsonError> {
-    if profile == CompatProfile::Native {
-        return validate_bucket_name(name);
-    }
-    let edge = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    if (2..=666).contains(&name.len())
-        && name.bytes().next().is_some_and(edge)
-        && name.bytes().last().is_some_and(edge)
-        && name
-            .bytes()
-            .all(|byte| edge(byte) || b"._-".contains(&byte))
-    {
-        Ok(())
-    } else {
-        Err(JsonError::invalid("invalid bucket name"))
-    }
 }
 
 /// Parse the native bucket metadata subset.
@@ -267,7 +249,7 @@ pub(crate) fn insert_from_object(
     if profile == CompatProfile::Native {
         validate_new_bucket_name(&name)?;
     } else {
-        validate_bucket_name_for_profile(&name, profile)
+        crate::bucket::name::validate_for_profile(&name, profile)
             .map_err(|_| JsonError::invalid("invalid bucket name"))?;
     }
     let versioning = match body.get("versioning") {
@@ -812,27 +794,6 @@ fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, JsonError>
         .transpose()
 }
 
-/// Whether uniform bucket-level access governs the bucket a request targets.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum UniformAccess {
-    Enabled,
-    Disabled,
-}
-
-impl UniformAccess {
-    /// Enabled once the bucket records a lock time, or when the request itself enables it.
-    pub(crate) fn of(
-        locked_time: Option<SystemTime>,
-        requested: Option<UniformAccessRequest>,
-    ) -> Self {
-        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
-            Self::Enabled
-        } else {
-            Self::Disabled
-        }
-    }
-}
-
 /// The resource a predefined ACL query parameter would apply to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PredefinedAclTarget {
@@ -892,7 +853,7 @@ pub(crate) fn bucket_predefined_acls(
     write: BucketAclWrite,
     profile: CompatProfile,
 ) -> Result<BucketPredefinedAcls, JsonError> {
-    let query = super::parse_query(query.unwrap_or_default())?;
+    let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // The fake-gcs-server profile never applied canned ACLs; it refuses them as before.
     if profile != CompatProfile::Native {
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
@@ -960,7 +921,7 @@ pub(crate) fn reject_predefined_acl(
     target: PredefinedAclTarget,
     access: &crate::bucket::BucketAccess,
 ) -> Result<(), JsonError> {
-    let query = super::parse_query(query.unwrap_or_default())?;
+    let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // Documented for uploads: an anonymous caller cannot name a canned ACL. Its object belongs
     // to the project owners team, so the caller would choose the ACL of an object it does not
     // own. A copy, rewrite or compose publishes the same kind of object, as an XML copy with
@@ -1277,12 +1238,6 @@ fn add_optional_bucket_fields(
     Ok(())
 }
 
-/// Cloud Storage encodes only the metageneration, so by inference from the encoding a recreated
-/// bucket repeats its etag; that repetition itself has not been observed.
-pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
-    super::objects::revision_etag(None, bucket.metageneration)
-}
-
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.
 pub(crate) fn bucket_list_with_profile(
     buckets: &[BucketRecord],
@@ -1357,128 +1312,3 @@ pub(crate) fn soft_deleted_bucket_list(
 }
 
 pub(super) use crate::url::encode_unreserved as encode_segment;
-
-fn timestamp_error() -> JsonError {
-    JsonError::service_unavailable("Bucket timestamp is outside the supported RFC 3339 range")
-}
-
-/// Weekday names from 1970-01-01, a Thursday.
-const WEEKDAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-
-/// A UTC instant broken into the calendar fields that both RFC 3339 and HTTP dates render.
-struct CivilTime {
-    year: i64,
-    /// 1 to 12.
-    month: i64,
-    day: i64,
-    /// Seconds into the day.
-    daytime: i64,
-    /// Microseconds into the second.
-    micros: i64,
-    /// Days since 1970-01-01, which fixes the weekday.
-    days: i64,
-}
-
-/// The calendar fields of `time`, computed without a platform calendar. Fails outside the
-/// RFC 3339 range that every rendered timestamp shares.
-fn civil_time(time: UnixNanos) -> Result<CivilTime, JsonError> {
-    let micros = i128::from(time.secs()) * 1_000_000 + i128::from(time.subsec_nanos() / 1000);
-    if !crate::clock::rfc3339_micros(micros) {
-        return Err(timestamp_error());
-    }
-    let micros = i64::try_from(micros).map_err(|_| timestamp_error())?;
-    let seconds = micros.div_euclid(1_000_000);
-    let days = seconds.div_euclid(86400);
-    // Gregorian 400-year cycles avoid platform-local timezone and time_t limits.
-    let shifted = days + 719468;
-    let era = shifted.div_euclid(146097);
-    let day_of_era = shifted.rem_euclid(146097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_from_march = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
-    let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
-    Ok(CivilTime {
-        year: year_of_era + era * 400 + i64::from(month <= 2),
-        month,
-        day,
-        daytime: seconds.rem_euclid(86400),
-        micros: micros.rem_euclid(1_000_000),
-        days,
-    })
-}
-
-/// The RFC 9110 date of a stored timestamp, as `Last-Modified` carries it.
-pub(crate) fn http_date(time: SystemTime) -> Result<String, JsonError> {
-    let CivilTime {
-        year,
-        month,
-        day,
-        daytime,
-        days,
-        ..
-    } = civil_time(UnixNanos::from(time))?;
-    // A negative day count is an instant before the epoch, which is never rendered as a date.
-    let days = usize::try_from(days).map_err(|_| timestamp_error())?;
-    let weekday = WEEKDAYS.get(days % 7).ok_or_else(timestamp_error)?;
-    let month = usize::try_from(month - 1)
-        .ok()
-        .and_then(|index| MONTHS.get(index))
-        .ok_or_else(timestamp_error)?;
-    Ok(format!(
-        "{weekday}, {day:02} {month} {year:04} {:02}:{:02}:{:02} GMT",
-        daytime / 3600,
-        daytime / 60 % 60,
-        daytime % 60,
-    ))
-}
-
-/// Render a stored time as RFC 3339 UTC with exactly three fractional digits, the precision
-/// Cloud Storage emits (observed 2026-10-31). Stored times keep their finer precision; only
-/// the rendering floors, so ordering and stored deadlines are unaffected.
-pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
-    timestamp_nanos(UnixNanos::from(time))
-}
-
-/// [`timestamp`] for a time that is already seconds and nanoseconds, such as a retention time.
-pub(crate) fn timestamp_nanos(time: UnixNanos) -> Result<String, JsonError> {
-    rfc3339(time, Fraction::Millis)
-}
-
-/// Render a stored time as RFC 3339 UTC with exactly six fractional digits, as Cloud Storage
-/// writes XML multipart `Initiated` and part `LastModified` times (recorded 2026-11-16).
-pub(crate) fn timestamp_micros(time: SystemTime) -> Result<String, JsonError> {
-    rfc3339(UnixNanos::from(time), Fraction::Micros)
-}
-
-/// The fractional-second digits of a rendered time; finer precision is floored.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Fraction {
-    Millis,
-    Micros,
-}
-
-fn rfc3339(time: UnixNanos, fraction: Fraction) -> Result<String, JsonError> {
-    let CivilTime {
-        year,
-        month,
-        day,
-        daytime,
-        micros,
-        ..
-    } = civil_time(time)?;
-    let fraction = match fraction {
-        Fraction::Millis => format!("{:03}", micros / 1000),
-        Fraction::Micros => format!("{micros:06}"),
-    };
-    Ok(format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{fraction}Z",
-        daytime / 3600,
-        daytime / 60 % 60,
-        daytime % 60,
-    ))
-}

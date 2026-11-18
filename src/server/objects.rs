@@ -90,7 +90,7 @@ pub(super) async fn respond(
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = ctx.authorize(permission, bucket).await?;
-    let query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let acl_full = operation.projection() == json::Projection::Full;
     if query.contains_key("predefinedAcl") || query.contains_key("destinationPredefinedAcl") {
         check_predefined_acl(request.uri(), ctx, bucket, &operation, &access).await?;
@@ -176,7 +176,7 @@ async fn check_predefined_acl(
         .ok_or(CatalogError::NotFound)?;
     json::reject_predefined_acl(
         uri.query(),
-        json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
         operation.predefined_acl_target(),
         access,
     )
@@ -292,7 +292,7 @@ async fn move_object(
         projection,
     } = params;
     json::validate_object_get_headers(request.headers())?;
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // The Node SDK serializes empty options as {}, without move semantics.
     if !bytes.is_empty()
         && serde_json::from_slice::<Value>(&bytes).ok() != Some(serde_json::json!({}))
@@ -398,7 +398,7 @@ async fn update(
     // requests naming a superseded or bogus entity tag (case obj-gaps-json). Only the query
     // conditions guard a concurrent update.
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
     update.update.acl = std::mem::take(&mut update.update.acl).with_predefined(predefined_acl)?;
     let target = update.select_target(target)?;

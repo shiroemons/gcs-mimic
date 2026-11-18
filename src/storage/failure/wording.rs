@@ -16,6 +16,10 @@ pub(crate) const PRECONDITION_NOT_HELD: &str =
     "At least one of the pre-conditions you specified did not hold.";
 /// The documented example message, for a refusal that no Cloud Storage permission names.
 pub(crate) const FORBIDDEN: &str = "Forbidden";
+/// The documented status-code example for a missing credential.
+pub(crate) const LOGIN_REQUIRED: &str = "Login Required";
+/// The message of a credential that does not verify; only its reason is documented.
+pub(crate) const INVALID_CREDENTIALS: &str = "Invalid Credentials";
 pub(crate) const PUBLIC_ACCESS_PREVENTED: &str = "Public access prevention is enforced";
 pub(crate) const BUCKET_ALREADY_OWNED: &str =
     "Your previous request to create the named bucket succeeded and you already own it.";
@@ -95,6 +99,21 @@ pub(crate) fn unsupported_bucket_setting(name: &str) -> String {
     format!(
         "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
     )
+}
+
+/// A rejected ACL entity, role or entry list. Cloud Storage's wording covers the two most common
+/// mistakes (recorded 2026-10-31); the others keep the error's own description.
+pub(crate) fn acl_refusal(error: &crate::acl::AclError) -> String {
+    use crate::acl::AclError;
+    match error {
+        AclError::InvalidEntity(entity) => format!("Scope text \"{entity}\" is not valid."),
+        AclError::InvalidRole { role, .. } => {
+            format!("Invalid value for: {role} is not a valid value")
+        }
+        AclError::TooManyEntries | AclError::DuplicateEntity(_) | AclError::EntityTooLong => {
+            error.to_string()
+        }
+    }
 }
 
 /// A recognized object setting gcs-mimic does not implement, with the request that avoids it.

@@ -1,13 +1,21 @@
-use super::{JsonError, validate_bucket_name_for_profile};
-use crate::config::CompatProfile;
-use crate::storage::{ObjectListCursor, ObjectListQuery};
-use crate::{bucket::name::MAX_BUCKET_NAME_BYTES, object::name::MAX_OBJECT_NAME_BYTES};
+//! Listing continuation tokens. The JSON, XML and gRPC adapters hand out the same tokens for
+//! the same listing, so a client can continue a listing that another protocol started; each
+//! adapter answers a refused token in its own protocol.
+
+use crate::{
+    auth::InvalidProjectId,
+    bucket::name::{MAX_BUCKET_NAME_BYTES, ProfileNameError},
+    config::CompatProfile,
+    object::name::MAX_OBJECT_NAME_BYTES,
+    storage::{ObjectListCursor, ObjectListQuery},
+};
 use serde::{Serialize, de::DeserializeOwned};
+use std::fmt;
 
 /// The tag that opens a cursor payload. Each listing has its own, so a cursor cannot be
 /// replayed against another listing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CursorTag {
+pub(crate) enum CursorTag {
     Buckets,
     /// Buckets of every project: only the legacy gRPC adapter lists without a project.
     AllProjectBuckets,
@@ -21,7 +29,7 @@ pub(super) enum CursorTag {
 }
 
 impl CursorTag {
-    pub(super) const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Buckets => "b1",
             Self::AllProjectBuckets => "b1*",
@@ -32,8 +40,61 @@ impl CursorTag {
     }
 }
 
+/// Why a page token was refused, or why a listing position cannot become one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PageTokenError {
+    /// A bucket listing token that no listing of this project and prefix issued.
+    BucketCursor,
+    /// An object listing token that no listing issued. Cloud Storage names the token it
+    /// refuses; only a short one is named, so the size of an error stays independent of what
+    /// the client sent.
+    ObjectCursor(Option<String>),
+    /// A listing project that cannot be bound into a token.
+    Project(InvalidProjectId),
+    /// A last bucket name outside even the fake-gcs-server rules.
+    BucketName(ProfileNameError),
+}
+
+impl fmt::Display for PageTokenError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BucketCursor => {
+                formatter.write_str("Invalid pageToken for this project and prefix")
+            }
+            Self::ObjectCursor(Some(token)) => {
+                write!(formatter, "Next page token not valid: {token}")
+            }
+            Self::ObjectCursor(None) => formatter.write_str("Next page token not valid"),
+            Self::Project(error) => error.fmt(formatter),
+            Self::BucketName(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for PageTokenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Project(error) => Some(error),
+            Self::BucketName(error) => Some(error),
+            Self::BucketCursor | Self::ObjectCursor(_) => None,
+        }
+    }
+}
+
+impl From<InvalidProjectId> for PageTokenError {
+    fn from(error: InvalidProjectId) -> Self {
+        Self::Project(error)
+    }
+}
+
+impl From<ProfileNameError> for PageTokenError {
+    fn from(error: ProfileNameError) -> Self {
+        Self::BucketName(error)
+    }
+}
+
 const BUCKET_TOKEN_MAX_BYTES: usize = 4096;
-pub(super) const HMAC_TOKEN_MAX_BYTES: usize = 4096;
+pub(crate) const HMAC_TOKEN_MAX_BYTES: usize = 4096;
 /// Object names reach 1024 bytes and JSON escaping can grow them sixfold before hex doubles
 /// them.
 const OBJECT_TOKEN_MAX_BYTES: usize = 16 * 1024;
@@ -46,7 +107,7 @@ const OBJECT_TOKEN_MAX_BYTES: usize = 16 * 1024;
     clippy::expect_used,
     reason = "every payload is a tuple of strings, booleans and integers, which serde_json writes to a Vec without error"
 )]
-pub(super) fn seal(payload: &impl Serialize) -> String {
+pub(crate) fn seal(payload: &impl Serialize) -> String {
     let bytes = serde_json::to_vec(payload).expect("cursor payloads serialize");
     format!(
         "{}.{:016x}",
@@ -57,7 +118,7 @@ pub(super) fn seal(payload: &impl Serialize) -> String {
 
 /// The payload of a token whose form and checksum are intact. `max_bytes` bounds the work an
 /// untrusted token can cause.
-pub(super) fn open<T: DeserializeOwned>(token: &str, max_bytes: usize) -> Option<T> {
+pub(crate) fn open<T: DeserializeOwned>(token: &str, max_bytes: usize) -> Option<T> {
     if token.len() > max_bytes {
         return None;
     }
@@ -88,13 +149,13 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 /// The project a bucket or HMAC key cursor binds: its number, the one name a project's ID and
 /// number share, so a listing continues whichever of the two the next request spells.
-pub(super) fn cursor_project(project: &str) -> String {
+pub(crate) fn cursor_project(project: &str) -> String {
     crate::project::ProjectNumber::of(project).to_string()
 }
 
 /// Whether a cursor binds `project`: by number, or by the spelling cursors bound before they
 /// named projects by number, so a token issued then still opens for that spelling.
-pub(super) fn cursor_binds(bound: &str, project: &str) -> bool {
+pub(crate) fn cursor_binds(bound: &str, project: &str) -> bool {
     bound == project || bound == cursor_project(project)
 }
 
@@ -103,8 +164,8 @@ pub(crate) fn encode_page_token(
     project: &str,
     prefix: &str,
     last_name: &str,
-) -> Result<String, JsonError> {
-    super::query::validate_project(project)?;
+) -> Result<String, PageTokenError> {
+    crate::auth::validate_project_id(project)?;
     encode_bucket_cursor(
         CursorTag::Buckets,
         &cursor_project(project),
@@ -117,7 +178,7 @@ pub(crate) fn encode_page_token(
 pub(crate) fn encode_all_projects_page_token(
     prefix: &str,
     last_name: &str,
-) -> Result<String, JsonError> {
+) -> Result<String, PageTokenError> {
     encode_bucket_cursor(CursorTag::AllProjectBuckets, "", prefix, last_name)
 }
 
@@ -126,12 +187,12 @@ fn encode_bucket_cursor(
     project: &str,
     prefix: &str,
     last_name: &str,
-) -> Result<String, JsonError> {
+) -> Result<String, PageTokenError> {
     if prefix.len() > MAX_BUCKET_NAME_BYTES || !last_name.starts_with(prefix) {
-        return Err(invalid());
+        return Err(PageTokenError::BucketCursor);
     }
     // Native listing must retain cursors for source-only names after a profile switch.
-    validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
+    crate::bucket::name::validate_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     Ok(seal(&(tag.as_str(), project, prefix, last_name)))
 }
 
@@ -139,14 +200,14 @@ pub(crate) fn decode_page_token(
     token: &str,
     project: &str,
     prefix: &str,
-) -> Result<String, JsonError> {
+) -> Result<String, PageTokenError> {
     decode_bucket_cursor(token, CursorTag::Buckets, project, prefix)
 }
 
 pub(crate) fn decode_all_projects_page_token(
     token: &str,
     prefix: &str,
-) -> Result<String, JsonError> {
+) -> Result<String, PageTokenError> {
     decode_bucket_cursor(token, CursorTag::AllProjectBuckets, "", prefix)
 }
 
@@ -155,12 +216,12 @@ pub(crate) fn encode_soft_deleted_page_token(
     prefix: &str,
     last_name: &str,
     last_generation: i64,
-) -> Result<String, JsonError> {
-    super::query::validate_project(project)?;
+) -> Result<String, PageTokenError> {
+    crate::auth::validate_project_id(project)?;
     if prefix.len() > MAX_BUCKET_NAME_BYTES || !last_name.starts_with(prefix) {
-        return Err(invalid());
+        return Err(PageTokenError::BucketCursor);
     }
-    validate_bucket_name_for_profile(last_name, CompatProfile::FakeGcsServer)?;
+    crate::bucket::name::validate_for_profile(last_name, CompatProfile::FakeGcsServer)?;
     Ok(seal(&(
         CursorTag::SoftDeletedBuckets.as_str(),
         cursor_project(project),
@@ -174,23 +235,26 @@ pub(crate) fn decode_soft_deleted_page_token(
     token: &str,
     project: &str,
     prefix: &str,
-) -> Result<(String, i64), JsonError> {
+) -> Result<(String, i64), PageTokenError> {
     let (tag, token_project, token_prefix, name, generation): (
         String,
         String,
         String,
         String,
         String,
-    ) = open(token, BUCKET_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
+    ) = open(token, BUCKET_TOKEN_MAX_BYTES).ok_or(PageTokenError::BucketCursor)?;
     if tag != CursorTag::SoftDeletedBuckets.as_str()
         || !cursor_binds(&token_project, project)
         || token_prefix != prefix
         || !name.starts_with(prefix)
     {
-        return Err(invalid());
+        return Err(PageTokenError::BucketCursor);
     }
-    validate_bucket_name_for_profile(&name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
-    let generation = generation.parse::<i64>().map_err(|_| invalid())?;
+    crate::bucket::name::validate_for_profile(&name, CompatProfile::FakeGcsServer)
+        .map_err(|_| PageTokenError::BucketCursor)?;
+    let generation = generation
+        .parse::<i64>()
+        .map_err(|_| PageTokenError::BucketCursor)?;
     Ok((name, generation))
 }
 
@@ -199,17 +263,18 @@ fn decode_bucket_cursor(
     expected: CursorTag,
     project: &str,
     prefix: &str,
-) -> Result<String, JsonError> {
+) -> Result<String, PageTokenError> {
     let (tag, token_project, token_prefix, name): (String, String, String, String) =
-        open(token, BUCKET_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
+        open(token, BUCKET_TOKEN_MAX_BYTES).ok_or(PageTokenError::BucketCursor)?;
     if tag != expected.as_str()
         || !cursor_binds(&token_project, project)
         || token_prefix != prefix
         || !name.starts_with(prefix)
     {
-        return Err(invalid());
+        return Err(PageTokenError::BucketCursor);
     }
-    validate_bucket_name_for_profile(&name, CompatProfile::FakeGcsServer).map_err(|_| invalid())?;
+    crate::bucket::name::validate_for_profile(&name, CompatProfile::FakeGcsServer)
+        .map_err(|_| PageTokenError::BucketCursor)?;
     Ok(name)
 }
 
@@ -231,15 +296,9 @@ const NAMED_TOKEN_BYTES: usize = 256;
 pub(crate) fn decode_object_page_token(
     token: &str,
     query: &ObjectListQuery,
-) -> Result<ObjectListCursor, JsonError> {
-    // Cloud Storage names the token it refuses. Only a short one is named here, so the size of an
-    // error stays independent of what the client sent.
+) -> Result<ObjectListCursor, PageTokenError> {
     let invalid = || {
-        if token.len() > NAMED_TOKEN_BYTES {
-            JsonError::invalid("Next page token not valid")
-        } else {
-            JsonError::invalid(format!("Next page token not valid: {token}"))
-        }
+        PageTokenError::ObjectCursor((token.len() <= NAMED_TOKEN_BYTES).then(|| token.to_owned()))
     };
     let (tag, name, is_prefix, generation): (String, String, bool, Option<i64>) =
         open(token, OBJECT_TOKEN_MAX_BYTES).ok_or_else(invalid)?;
@@ -252,7 +311,7 @@ pub(crate) fn decode_object_page_token(
         return Err(invalid());
     }
     if !is_prefix {
-        super::validate_object_name(&name).map_err(|_| invalid())?;
+        crate::object::name::validate(&name).map_err(|_| invalid())?;
     }
     let is_prefix = is_prefix && groups(query, &name);
     let paged_generations = (query.versions || query.soft_deleted) && !is_prefix;
@@ -273,10 +332,6 @@ fn groups(query: &ObjectListQuery, name: &str) -> bool {
         })
 }
 
-fn invalid() -> JsonError {
-    JsonError::invalid_parameter("Invalid pageToken for this project and prefix")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,7 +339,7 @@ mod tests {
     fn refusal(token: &str) -> String {
         decode_object_page_token(token, &ObjectListQuery::default())
             .unwrap_err()
-            .message
+            .to_string()
     }
 
     #[test]

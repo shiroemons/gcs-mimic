@@ -13,7 +13,7 @@ mod transfer;
 
 const HEADER_CAP: usize = 8192;
 const DISCARD_CAP: usize = 4096;
-const JSON_CAP: usize = super::RESOURCE_BODY_LIMIT;
+const JSON_CAP: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
 /// What a multipart upload may send besides its media: the metadata and checksum parts at
 /// `JSON_CAP` each, and the headers, delimiter padding and discarded text, which stay under 256 KiB.
 pub(crate) const FRAMING_LIMIT: u64 = 2 * JSON_CAP as u64 + 256 * 1024;
@@ -30,11 +30,11 @@ impl JsonPart {
         let message = match self {
             Self::Metadata => format!(
                 "Multipart metadata exceeds {}",
-                super::RESOURCE_BODY_LIMIT_TEXT
+                crate::bounded_body::RESOURCE_BODY_LIMIT_TEXT
             ),
             Self::Checksums => format!(
                 "Multipart checksums exceed {}",
-                super::RESOURCE_BODY_LIMIT_TEXT
+                crate::bounded_body::RESOURCE_BODY_LIMIT_TEXT
             ),
         };
         JsonError::new(StatusCode::PAYLOAD_TOO_LARGE, "uploadTooLarge", message)

@@ -267,7 +267,7 @@ impl ObjectRecord {
 /// A custom time as Cloud Storage prints it in the decrease refusal: UTC with a `+00:00` offset
 /// and microsecond fraction only when one is present.
 fn custom_time_display(time: UnixNanos) -> String {
-    let rendered = crate::json::timestamp_nanos(time).unwrap_or_default();
+    let rendered = crate::time_format::timestamp_nanos(time).unwrap_or_default();
     let fraction = if time.subsec_nanos() == 0 {
         String::new()
     } else {

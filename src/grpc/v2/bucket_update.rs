@@ -2,7 +2,7 @@ use super::{
     convert,
     mask::{BucketField, UnappliedUpdatePath, update_paths},
     pb,
-    status::unsupported,
+    status::{unsupported, unsupported_message},
 };
 use crate::{
     acl::{AclEntry, AclEntryInput, AclKind},
@@ -10,9 +10,9 @@ use crate::{
         self, BucketMetadataUpdate, CatalogError, CorsRule, RetentionPolicyUpdate,
         autoclass::AutoclassUpdate,
     },
-    json::JsonError,
     metadata_error::MetadataError,
     object::MapPatch,
+    storage::failure::wording,
 };
 use tonic::Status;
 
@@ -165,24 +165,18 @@ pub(super) fn input_error(error: CatalogError) -> Status {
         CatalogError::Metadata(reason) => {
             let message = reason.message(proto_field);
             if reason.unsupported() {
-                JsonError::unsupported(&message).into()
+                unsupported_message(wording::unsupported_bucket_setting(&message))
             } else {
                 Status::invalid_argument(message)
             }
         }
-        error @ CatalogError::RetentionPolicyLocked(period) => {
-            let message = format!(
-                "Bucket retention policy is locked and cannot be removed or shortened; keep retention_policy.retention_duration at least {period} seconds or extend it"
-            );
-            let mut error = JsonError::from(error);
-            error.message = message;
-            error.into()
-        }
-        error @ CatalogError::RetentionPolicyNotSet => {
-            let mut error = JsonError::from(error);
-            error.message = "No retention policy to lock; set retention_policy.retention_duration first, for example 3600 seconds".into();
-            error.into()
-        }
+        // Both retention refusals keep INVALID_ARGUMENT with a message naming the proto field.
+        CatalogError::RetentionPolicyLocked(period) => Status::invalid_argument(format!(
+            "Bucket retention policy is locked and cannot be removed or shortened; keep retention_policy.retention_duration at least {period} seconds or extend it"
+        )),
+        CatalogError::RetentionPolicyNotSet => Status::invalid_argument(
+            "No retention policy to lock; set retention_policy.retention_duration first, for example 3600 seconds",
+        ),
         error => error.into(),
     }
 }
@@ -425,7 +419,7 @@ pub(super) fn acl_entries<'a>(
             })
             .collect(),
     )
-    .map_err(|error| Status::from(JsonError::from(error)))
+    .map_err(|error| Status::invalid_argument(wording::acl_refusal(&error)))
 }
 
 #[cfg(test)]
@@ -856,7 +850,9 @@ mod tests {
                 error.message(),
                 format!("Invalid storage class \"{value}\"")
             );
-            let json = JsonError::from(bucket::validate_update_storage_class(value).unwrap_err());
+            let json = crate::json::JsonError::from(
+                bucket::validate_update_storage_class(value).unwrap_err(),
+            );
             assert_eq!(json.message, error.message());
         }
     }

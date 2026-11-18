@@ -4,7 +4,6 @@ use super::{Auth, Caller};
 use crate::{
     clock::Clock,
     hashing::encode_lower,
-    json,
     url::{is_unreserved, push_percent_encoded},
 };
 use hyper::{HeaderMap, Method, Uri, header::HeaderValue};
@@ -283,6 +282,14 @@ impl fmt::Display for SigningError {
 // this crate does not enable, so `InvalidPrivateKey` keeps it typed but cannot expose it as
 // `source()`.
 impl std::error::Error for SigningError {}
+
+/// The refused query is client input that `InvalidQuery` names in its message; the public error
+/// type keeps the crate's query error out of its interface.
+impl From<crate::percent::QueryError> for SigningError {
+    fn from(error: crate::percent::QueryError) -> Self {
+        Self::InvalidQuery(error.to_string())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct PublicKey {
@@ -844,7 +851,7 @@ pub fn parse_timestamp(raw: &str) -> Result<SystemTime, SigningError> {
 
 /// Format a time as the `YYYYMMDDTHHMMSSZ` value of X-Goog-Date and x-goog-date.
 pub fn timestamp(now: SystemTime) -> Result<String, SigningError> {
-    let date = json::timestamp(now).map_err(|_| SigningError::TimestampOutOfRange)?;
+    let date = crate::time_format::timestamp(now).map_err(|_| SigningError::TimestampOutOfRange)?;
     let part = |range| date.get(range).ok_or(SigningError::TimestampOutOfRange);
     Ok(format!(
         "{}{}{}T{}{}{}Z",
@@ -925,8 +932,7 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
     let date = timestamp(now)?;
     let day = date.get(..8).ok_or(SigningError::TimestampOutOfRange)?;
     let scope = format!("{day}/auto/storage/goog4_request");
-    let mut query = json::parse_query(uri.query().unwrap_or_default())
-        .map_err(|e| SigningError::InvalidQuery(e.message))?;
+    let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
     if query
         .keys()
         .any(|key| signing_param(key.as_bytes()).is_some())

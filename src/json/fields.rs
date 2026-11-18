@@ -1,9 +1,10 @@
-use super::{JsonError, parse_query};
+use super::JsonError;
+use crate::percent::{MAX_QUERY_BYTES, parse_query};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::LazyLock};
 
 /// A query string holds no more than this, so it also bounds the selections: each takes two bytes.
-const MAX_LENGTH: usize = super::MAX_QUERY_BYTES;
+const MAX_LENGTH: usize = MAX_QUERY_BYTES;
 const MAX_DEPTH: usize = 32;
 
 crate::config::string_enum! {
@@ -624,7 +625,7 @@ mod tests {
     #[test]
     fn fields_bound_length_depth_and_selection_count() {
         let exact = format!("metadata/{}", "k".repeat(MAX_LENGTH - 9));
-        assert_eq!(exact.len(), crate::json::MAX_QUERY_BYTES);
+        assert_eq!(exact.len(), crate::percent::MAX_QUERY_BYTES);
         assert!(Fields::parse(&exact, Schema::Object).is_ok());
         assert_eq!(
             Fields::parse(&(exact + "k"), Schema::Object)

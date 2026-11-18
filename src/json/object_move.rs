@@ -2,10 +2,11 @@ use super::{
     JsonError, ObjectRequest, Projection,
     objects::{ConditionKeys, match_and_not_match, take_conditions},
     query::{
-        BUCKET_PATH, Decoding, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, decode,
-        finish_for_profile, parse_query, projection, standard_parameters,
+        BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, finish_for_profile,
+        projection, standard_parameters,
     },
 };
+use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     config::CompatProfile,
     object::ObjectConditions,
@@ -59,7 +60,7 @@ fn parse(
         return Err(JsonError::invalid_parameter("Invalid move path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
-    super::validate_bucket_name_for_profile(&bucket, profile)?;
+    crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let source = decode(source, Decoding::Path)?;
     let destination = decode(destination, Decoding::Path)?;
     super::validate_object_name(&source)?;

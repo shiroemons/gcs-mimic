@@ -538,8 +538,8 @@ async fn a_selected_storage_class_action_updates_metadata_once() {
     assert_eq!(current.updated, clock.now());
     assert_eq!(current.storage_class_updated(), clock.now());
     assert_ne!(
-        crate::json::object_etag(&current),
-        crate::json::object_etag(&object)
+        crate::etag::object_etag(&current),
+        crate::etag::object_etag(&object)
     );
     assert_eq!(execute(&catalog).await.transitioned, 0);
     let scans = catalog.0.lifecycle.state().scans;

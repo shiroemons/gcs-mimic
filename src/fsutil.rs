@@ -1142,7 +1142,7 @@ pub(crate) fn move_write_through(
     }
 }
 
-pub(crate) const SOURCE_METADATA_CAP: usize = crate::json::RESOURCE_BODY_LIMIT;
+pub(crate) const SOURCE_METADATA_CAP: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
 
 /// The field stays private, so a caller cannot supply a smaller allocation. A zeroed allocation
 /// this large is mapped lazily and only pages an attribute reaches take memory; building it as an

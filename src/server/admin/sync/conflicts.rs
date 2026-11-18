@@ -10,7 +10,7 @@ pub(super) async fn list(
     session: &str,
     authority: ControlAuthority,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let mut query = json::parse_query(request.uri().query().unwrap_or_default())?;
+    let mut query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let limit = parse_limit(query.remove("limit"))?;
     let revision = query
         .remove("revision")
@@ -47,7 +47,10 @@ pub(super) async fn list(
             "Unknown conflict query parameter",
         ));
     }
-    if !json::read_body(request.into_body(), 1).await?.is_empty() {
+    if !crate::bounded_body::read_body(request.into_body(), 1)
+        .await?
+        .is_empty()
+    {
         return Err(JsonError::invalid_argument(
             "GET synchronization controls do not accept a body",
         ));
@@ -191,7 +194,7 @@ pub(super) async fn resolve(
             "Synchronization mutations do not accept query parameters",
         ));
     }
-    let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), 64 * 1024).await?;
     let request = parse(&bytes)?;
     let (reply, receive) = tokio::sync::oneshot::channel();
     let command = Command::Resolve {
