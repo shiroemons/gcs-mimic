@@ -135,7 +135,7 @@ async fn an_invalid_read_mask_is_reported_for_an_empty_listing() {
 }
 
 /// The mask is checked before the caller is authorized and before the generation, the
-/// conditions and the read range, which the RPCs check after authorization.
+/// conditions and the read range.
 #[tokio::test]
 async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
     let (_dir, storage) = setup(true).await;
