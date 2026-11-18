@@ -176,7 +176,8 @@ pub(super) async fn respond(
         ctx,
     )
     .await?;
-    let key = json::source_key(request.headers())?;
+    let key =
+        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::SOURCE_PREFIX)?;
     let target = ObjectTarget::new(source.bucket, source.name, source.generation);
     let source = ctx
         .await_catalog(ctx.state.catalog.resolve_derived_source_keyed(
@@ -296,6 +297,6 @@ pub(super) fn response(
             "x-goog-component-count",
         ],
     );
-    json::insert_response_headers(record, response.headers_mut());
+    crate::csek::insert_response_headers(record, response.headers_mut());
     Ok(boxed(response))
 }

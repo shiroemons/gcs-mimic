@@ -5,7 +5,6 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, drive_upload, upload_channel,
 };
 use crate::{
-    json,
     object::ObjectError,
     server::{
         ObjectCtx, RequestBody, ResponseBody, anonymous_error, boxed, empty_response, stream_upload,
@@ -444,7 +443,8 @@ fn check_customer_key(
     upload: &storage::Upload,
     ctx: ObjectCtx<'_>,
 ) -> Result<(), Error> {
-    let key = json::request_key(request.headers())?;
+    let key =
+        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::DESTINATION_PREFIX)?;
     crate::csek::check_data(upload.options.metadata.customer_key_sha256, key)
         .map_err(|error| put::storage_error(ObjectError::CustomerEncryption(error), ctx.caller))
 }
@@ -537,7 +537,7 @@ async fn complete(
         .map_err(|error| storage_error(error, ctx))?;
     drop(wait);
     let mut response = document(render::complete_body(ctx.endpoints.api_base_url(), &record));
-    json::insert_response_headers(&record, response.headers_mut());
+    crate::csek::insert_response_headers(&record, response.headers_mut());
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     // The completion document carries the ETag; Cloud Storage sends no ETag header beside it
     // (recorded 2026-11-16).

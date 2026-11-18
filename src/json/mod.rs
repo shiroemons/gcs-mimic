@@ -52,9 +52,7 @@ pub(crate) use buckets::{
     validate_bucket_name,
 };
 pub(crate) use compose::ComposeParams;
-pub(crate) use csek::{
-    copy_keys, insert_response_headers, object_resource_keyed, request_key, source_key,
-};
+pub(crate) use csek::{copy_keys, object_resource_keyed, request_key};
 pub(crate) use derived_metadata::{
     DerivedMetadata, DestinationLocation, derived_component_count, derived_metadata,
     derived_metadata_of, derived_resource,

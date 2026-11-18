@@ -51,7 +51,8 @@ pub(super) async fn respond(
     {
         return Err(xml::Error::unsupported(&name));
     }
-    let key = json::request_key(request.headers())?;
+    let key =
+        crate::csek::CustomerKey::from_headers(request.headers(), crate::csek::DESTINATION_PREFIX)?;
     // Reads and DELETE have no payload; consume framing before any mutation or response.
     xml::empty_body(request.body_mut()).await?;
     if delete {
@@ -142,7 +143,7 @@ async fn read(
     {
         headers.insert("expires", value);
     }
-    json::insert_response_headers(&record, &mut headers);
+    crate::csek::insert_response_headers(&record, &mut headers);
     if let Some(response) = conditional_read(request.headers(), &record, &mut headers)? {
         return Ok(response);
     }

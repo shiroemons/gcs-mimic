@@ -81,7 +81,7 @@ async fn media(
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
     let mut headers = json::object_media_headers(&record)?;
     insert_provider_headers(&record, &mut headers)?;
-    json::insert_response_headers(&record, &mut headers);
+    crate::csek::insert_response_headers(&record, &mut headers);
     if reader.publicly_readable {
         // An anonymous-capable read revalidates, varies by the allowed-resources header and
         // sends no `pragma` (observed 2026-10-31, anonymous reads only). Whether the header

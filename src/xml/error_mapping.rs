@@ -6,6 +6,7 @@ use crate::{
     auth::InvalidProjectId,
     bounded_body::BodyError,
     bucket::name::ProfileNameError,
+    csek::CsekError,
     hashing::InvalidDigest,
     percent::{MalformedEncoding, QueryError},
     time_format::TimeOutOfRange,
@@ -29,6 +30,13 @@ impl From<BodyError> for Error {
 impl From<TimeOutOfRange> for Error {
     fn from(error: TimeOutOfRange) -> Self {
         Self::new(XmlCode::ServiceUnavailable, error.to_string())
+    }
+}
+
+/// Each customer-supplied key failure has its own XML code and the shared message.
+impl From<CsekError> for Error {
+    fn from(error: CsekError) -> Self {
+        Self::new(XmlCode::Csek(error), error.message())
     }
 }
 

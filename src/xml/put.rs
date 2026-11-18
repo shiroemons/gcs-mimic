@@ -269,7 +269,11 @@ pub(super) fn content_type_and_hashes(
 
 pub(super) fn metadata(headers: &HeaderMap) -> Result<ObjectMetadataUpdate, Error> {
     let mut metadata = ObjectMetadataUpdate {
-        customer_key_sha256: json::request_key(headers)?.map(crate::csek::CustomerKey::sha256),
+        customer_key_sha256: crate::csek::CustomerKey::from_headers(
+            headers,
+            crate::csek::DESTINATION_PREFIX,
+        )?
+        .map(crate::csek::CustomerKey::sha256),
         acl: super::canned_acl::parse(headers)?.into(),
         ..Default::default()
     };
@@ -481,7 +485,7 @@ pub(crate) async fn respond(
         })?;
     let mut headers = super::media_headers(&record, super::CacheScope::Private)?;
     let mut response = boxed(empty_response(StatusCode::OK));
-    json::insert_response_headers(&record, response.headers_mut());
+    crate::csek::insert_response_headers(&record, response.headers_mut());
     super::move_headers(
         &mut headers,
         response.headers_mut(),
