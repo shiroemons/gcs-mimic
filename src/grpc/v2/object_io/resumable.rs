@@ -1,8 +1,8 @@
-use super::write::{MessagePosition, WriteRpc, check_later_key, finished, message_after_finish};
+use super::write::{MessagePosition, WriteRpc, check_later_key, finished, persisted_answer};
 use super::*;
 use crate::grpc::v2::stored;
 use crate::hashing::Hashes;
-use crate::storage::{ChunkEnd, ChunkWait, Progress, Written};
+use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written};
 
 impl Storage {
     /// Shares the JSON session-URI cancellation so staged bytes follow one cleanup journal.
@@ -23,10 +23,13 @@ impl Storage {
             .cancel_resumable_session(id, bucket)
             .await
         {
-            Ok(()) => Ok(Response::new(pb::CancelResumableWriteResponse {})),
+            // Cancelling a cancelled upload again succeeds (recorded 2026-11-18).
+            Ok(()) | Err(ResumableError::Cancelled) => {
+                Ok(Response::new(pb::CancelResumableWriteResponse {}))
+            }
             Err(ResumableError::Gone) => {
                 // A completed object is not an in-progress upload; report that distinctly
-                // from a cancelled or expired session, matching resumed WriteObject.
+                // from a session the emulator ended.
                 let finalized = self
                     .state
                     .catalog
@@ -34,14 +37,17 @@ impl Storage {
                     .await
                     .is_ok_and(|session| session.state == SessionState::Complete);
                 Err(if finalized {
-                    Status::failed_precondition(
-                        "Upload already finalized; delete the object instead of cancelling",
+                    // Recorded 2026-11-18.
+                    with_reason(
+                        Code::FailedPrecondition,
+                        "Upload has already been completed.",
+                        "GRPC_UPLOAD_ALREADY_COMPLETED",
                     )
                 } else {
-                    session_status(ResumableError::Gone)
+                    ended_session_status(ResumableError::Gone)
                 })
             }
-            Err(error) => Err(session_status(error)),
+            Err(error) => Err(ended_session_status(error)),
         }
     }
     pub(in crate::grpc::v2) async fn start_resumable_write(
@@ -63,7 +69,7 @@ impl Storage {
             .keyed_write_spec(
                 spec,
                 r.common_object_request_params.as_ref(),
-                r.object_checksums.as_ref(),
+                &DeclaredChecksums::from(r.object_checksums),
                 caller,
             )
             .await?;
@@ -93,7 +99,7 @@ impl Storage {
             .catalog
             .resumable_session(id, bucket)
             .await
-            .map_err(session_status)?;
+            .map_err(ended_session_status)?;
         let allowed = self
             .state
             .catalog
@@ -105,9 +111,14 @@ impl Storage {
             return Err(object_status(ObjectError::Forbidden));
         }
         let response = if session.state == SessionState::Complete {
+            // The finished resource carries the caller's ACL and owner view, as the write's
+            // own answer does (recorded 2026-11-18).
+            let resource = self
+                .completed_resource(session.completion.as_ref(), caller, bucket)
+                .await?;
             pb::QueryWriteStatusResponse {
                 write_status: Some(pb::query_write_status_response::WriteStatus::Resource(
-                    stored::from_completion(session.completion.as_ref())?,
+                    resource,
                 )),
                 persisted_data_checksums: None,
             }
@@ -124,24 +135,13 @@ impl Storage {
     }
 }
 
-/// The proto's `persisted_data_checksums` for persisted bytes with digests `hashes`. A session
-/// an earlier release staged has no running digests and reports none.
+/// QueryWriteStatus's `persisted_data_checksums` for persisted bytes with digests `hashes`. A
+/// session an earlier release staged has no running digests and reports none.
 fn persisted_checksums(hashes: Hashes) -> pb::ObjectChecksums {
     pb::ObjectChecksums {
         crc32c: Some(hashes.crc32c),
         md5_hash: hashes.md5.to_vec(),
     }
-}
-
-/// The answer to a message that left the upload open with `progress` persisted.
-fn persisted_answer(progress: Progress) -> Result<pb::BidiWriteObjectResponse, Status> {
-    Ok(pb::BidiWriteObjectResponse {
-        write_status: Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
-            crate::grpc::convert::signed(progress.offset, "persisted_size")?,
-        )),
-        persisted_data_checksums: progress.hashes.map(persisted_checksums),
-        write_handle: None,
-    })
 }
 
 impl Storage {
@@ -160,49 +160,44 @@ impl Storage {
 
     /// Completes the session's `options` (already carrying the caller's current access) for one
     /// message of the open session `bucket`/`name`: the conditions rechecked and the message's
-    /// final checksums merged in. The key stays the one `StartResumableWrite` bound, so a
-    /// refused message stages nothing and leaves the session usable.
+    /// checksums merged in, on whichever message they arrive (Cloud Storage accepted them on a
+    /// first and on a middle message, recorded 2026-11-18). The key stays the one
+    /// `StartResumableWrite` bound, so a refused message stages nothing and leaves the session
+    /// usable.
     async fn message_options(
         &self,
         bucket: &str,
         name: &str,
         mut options: ResumableOptions,
-        message: &pb::BidiWriteObjectRequest,
+        step: &WriteStep,
     ) -> Result<ResumableOptions, Status> {
-        check_later_key(
-            options.metadata.customer_key_sha256,
-            message.common_object_request_params.as_ref(),
-        )?;
+        check_later_key(options.metadata.customer_key_sha256, step.params.as_ref())?;
         self.state
             .catalog
             .check_upload(bucket, name, options.conditions, &options.access)
             .await
             .map_err(object_status)?;
-        options.expected =
-            merge_hashes(options.expected, hashes(message.object_checksums.as_ref())?)?;
+        options.expected = merge_hashes(options.expected, step.checksums.expected()?)?;
         Ok(options)
     }
 
+    /// Serves one stream of messages for the session `upload` names, starting with `step`.
+    /// A later message that names the `upload_id` again is read like any other, as Cloud
+    /// Storage reads it (recorded 2026-11-18).
     pub(super) async fn receive_resumable_write<
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     >(
         &self,
         stream: &mut S,
-        mut message: pb::BidiWriteObjectRequest,
+        mut step: WriteStep,
         upload: &UploadId,
         caller: Option<Caller<'_>>,
         rpc: WriteRpc<'_>,
     ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let (bucket, id) = (upload.bucket(), upload.session());
-        let mut position = MessagePosition::First;
+        let mut call = Call::default();
         loop {
-            check_resumable_message(&message, caller)?;
             let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
-            let trailing = if message.finish_write {
-                read_past_finish(stream, rpc).await
-            } else {
-                Ok(())
-            };
             let lease = self
                 .state
                 .catalog
@@ -210,7 +205,7 @@ impl Storage {
                 .await
                 .map_err(session_status)?;
             if lease.session.state == SessionState::Complete {
-                position.require_resume_start()?;
+                call.position.require_resume_start()?;
                 let resource = self
                     .completed_resource(lease.session.completion.as_ref(), caller, bucket)
                     .await?;
@@ -222,175 +217,296 @@ impl Storage {
             let mut options = lease.session.options.clone();
             options.access = access;
             let options = self
-                .message_options(bucket, &lease.session.name, options, &message)
+                .message_options(bucket, &lease.session.name, options, &step)
                 .await?;
+            let end = step.end;
             let persisted = Persisted {
                 offset: lease.session.offset,
                 total: lease.session.total,
             };
-            let data = take_data(&mut message);
-            let ResumablePiece {
-                offset,
-                written,
-                length,
-            } = resumable_piece(&message, &data, persisted, position, self.max_object_bytes)?;
-            trailing?;
-            let (tx, rx) = mpsc::channel(2);
-            let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
-            let chunk = ResumableChunk {
-                start: offset,
-                length,
-                end: ChunkEnd::Exact {
-                    total: persisted.total.or(message.finish_write.then_some(written)),
-                    finalize: message.finish_write,
-                },
-                options,
-                catalog_wait,
+            let piece = match call.admit(step, persisted, self.max_object_bytes) {
+                Ok(piece) => piece,
+                Err(Refusal::Message(status)) => return Err(status),
+                Err(Refusal::Session(status)) => {
+                    self.state
+                        .catalog
+                        .invalidate_resumable_session(&lease)
+                        .await
+                        .map_err(session_status)?;
+                    return Err(status);
+                }
             };
-            let permit = self
-                .state
-                .catalog
-                .admit_object_upload()
-                .map_err(object_status)?;
-            let producer = async {
-                stage(&tx, &data.content).await?;
-                tx.send(Ok(UploadChunk::End))
-                    .await
-                    .map_err(|_| Status::cancelled("Upload consumer stopped"))
-            };
-            let write = self.state.catalog.write_resumable_session(
-                lease,
-                chunk,
-                rx,
-                permit,
-                stored::completion,
-            );
-            let (sent, written_record) = tokio::join!(producer, write);
-            let written_record = written_record.map_err(session_status)?;
-            sent?;
-            let answer = match written_record {
+            let answer = match self.write_piece(lease, options, piece).await? {
                 Written::Complete(value) => finished(
                     self.completed_resource(Some(&value), caller, bucket)
                         .await?,
                 ),
-                Written::Open(progress) => persisted_answer(progress)?,
+                Written::Open(progress) => persisted_answer(
+                    progress.offset,
+                    progress
+                        .hashes
+                        .map(|hashes| rpc.persisted_checksums(hashes)),
+                )?,
             };
             // finish_write, flush and state_lookup are answered at once. A clean close is
             // answered too, even right after an answered message: "When the stream is closed, a
             // BidiWriteObjectResponse is always sent to the client, regardless of the value of
             // state_lookup."
-            if message.finish_write || message.flush || message.state_lookup {
+            if end.finishes() || end.asks_for_status() {
                 rpc.report(&answer).await?;
             }
-            if message.finish_write {
+            if end.finishes() {
                 return Ok(answer);
             }
-            position = MessagePosition::Later;
-            let Some(next) = stream.next().await.transpose()? else {
+            let Some(next) = next_step(stream).await? else {
+                call.close()?;
                 rpc.report(&answer).await?;
                 return Ok(answer);
             };
-            message = next;
+            step = next;
         }
     }
-}
 
-/// Reads past a message that set `finish_write` when its stream must end there, and returns
-/// the failure a further message implies. The loop reads it before taking the session lease,
-/// so a client that never half-closes cannot hold the session, and reports it after the
-/// message's own checks, which take precedence; a replay of a finalized upload answers with
-/// the resource and does not report it.
-async fn read_past_finish<S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin>(
-    stream: &mut S,
-    rpc: WriteRpc<'_>,
-) -> Result<(), Status> {
-    if rpc.ends_at_finish() && stream.next().await.transpose()?.is_some() {
-        return Err(message_after_finish());
+    /// Persists `piece` under `lease` and finalizes the upload when the piece ends it.
+    async fn write_piece(
+        &self,
+        lease: SessionLease,
+        options: ResumableOptions,
+        piece: Piece,
+    ) -> Result<Written, Status> {
+        let (tx, rx) = mpsc::channel(2);
+        let (catalog_wait, _wait) = watch::channel(ChunkWait::Transfer);
+        let chunk = ResumableChunk {
+            start: lease.session.offset,
+            length: piece.length,
+            end: piece.end,
+            options,
+            catalog_wait,
+        };
+        let permit = self
+            .state
+            .catalog
+            .admit_object_upload()
+            .map_err(object_status)?;
+        let producer = async {
+            for part in &piece.parts {
+                upload::stage(&tx, part).await.map_err(intake_status)?;
+            }
+            tx.send(Ok(UploadChunk::End))
+                .await
+                .map_err(|_| Status::cancelled("Upload consumer stopped"))
+        };
+        let write = self.state.catalog.write_resumable_session(
+            lease,
+            chunk,
+            rx,
+            permit,
+            stored::completion,
+        );
+        let (sent, written) = tokio::join!(producer, write);
+        let written = written.map_err(session_status)?;
+        sent?;
+        Ok(written)
     }
-    Ok(())
 }
 
 /// What a resumable session had persisted when its lease was taken.
 #[derive(Clone, Copy)]
 pub(super) struct Persisted {
     pub(super) offset: u64,
+    /// The session's `object_size`, when its start declared one.
     pub(super) total: Option<u64>,
 }
 
-pub(super) struct ResumablePiece {
-    offset: u64,
-    pub(super) written: u64,
-    length: u64,
+/// Why a resumable message is refused.
+pub(super) enum Refusal {
+    /// The session stays as it was and another stream can continue it.
+    Message(Status),
+    /// The refusal ends the session: after a finishing message whose size did not match the
+    /// session's `object_size`, Cloud Storage answered QueryWriteStatus with "Upload has
+    /// already been terminated." (recorded 2026-11-18).
+    Session(Status),
 }
 
-/// Sends `content` to the upload consumer in bounded chunks.
-async fn stage(
-    tx: &mpsc::Sender<Result<UploadChunk, std::io::Error>>,
-    content: &bytes::Bytes,
-) -> Result<(), Status> {
-    upload::stage(tx, content).await.map_err(intake_status)
+/// The bytes one message makes a session persist.
+pub(super) struct Piece {
+    /// The bytes in order: the unpersisted tail of earlier messages, then this message's.
+    pub(super) parts: [bytes::Bytes; 2],
+    pub(super) length: u64,
+    end: ChunkEnd,
 }
 
-fn check_resumable_message(
-    message: &pb::BidiWriteObjectRequest,
-    caller: Option<Caller<'_>>,
-) -> Result<(), Status> {
-    if message.first_message.is_some() {
-        return Err(Status::invalid_argument(
-            "Only the first message may contain write_object_spec or upload_id",
-        ));
-    }
-    if message.object_checksums.is_some() && !message.finish_write {
-        return Err(unsupported_for(
-            "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true",
-            caller,
-        ));
-    }
-    Ok(())
-}
-
-/// Validates one resumable message's offset, data checksum and size against the persisted
-/// session, retaining the checked length for the catalog write.
-pub(super) fn resumable_piece(
-    message: &pb::BidiWriteObjectRequest,
-    data: &pb::ChecksummedData,
-    persisted: Persisted,
+/// What one WriteObject or BidiWriteObject call has sent to a resumable session.
+///
+/// Cloud Storage persists whole granules until `finish_write`: three bytes sent without it
+/// left the persisted size at 0, and closing the stream there failed (recorded 2026-11-18).
+/// So the bytes past the last whole granule wait in `tail` for the call's next message, and
+/// are dropped with the call.
+pub(super) struct Call {
     position: MessagePosition,
-    max_object_bytes: u64,
-) -> Result<ResumablePiece, Status> {
-    let offset = u64::try_from(message.write_offset).map_err(|_| {
-        Status::out_of_range("write_offset must be nonnegative; query the persisted offset")
-    })?;
-    if (position == MessagePosition::First && offset != persisted.offset)
-        || offset > persisted.offset
-    {
-        return Err(Status::out_of_range(
-            "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
-        ));
+    /// Received bytes the session has not persisted; always shorter than a granule.
+    tail: bytes::Bytes,
+    /// The object offset of the first byte of `tail`: the session's persisted size when the
+    /// call's last message was admitted.
+    tail_start: u64,
+    /// The data bytes the call's messages carried.
+    uploaded: u64,
+}
+
+impl Default for Call {
+    fn default() -> Self {
+        Self {
+            position: MessagePosition::First,
+            tail: bytes::Bytes::new(),
+            tail_start: 0,
+            uploaded: 0,
+        }
     }
-    verify_crc32c(data)?;
-    let (length, end) = u64::try_from(data.content.len())
-        .ok()
-        .and_then(|length| offset.checked_add(length).map(|end| (length, end)))
-        .filter(|(_, end)| i64::try_from(*end).is_ok())
-        .ok_or_else(|| Status::out_of_range("write_offset plus content length overflows"))?;
-    let end = end.max(persisted.offset);
-    if end > max_object_bytes {
-        return Err(Status::resource_exhausted(
-            "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
-        ));
+}
+
+impl Call {
+    /// Checks `step` against what its session `persisted` and returns what the session
+    /// persists for it. The order is Cloud Storage's on a non-resumable write, the only one
+    /// recorded (2026-11-18): the offset, then the size, then the data checksum.
+    pub(super) fn admit(
+        &mut self,
+        step: WriteStep,
+        persisted: Persisted,
+        max_object_bytes: u64,
+    ) -> Result<Piece, Refusal> {
+        let Persisted {
+            offset: persisted,
+            total,
+        } = persisted;
+        let offset = step.offset.position().map_err(|NegativeOffset| {
+            Refusal::Message(Status::out_of_range(
+                "write_offset must be nonnegative; query the persisted offset",
+            ))
+        })?;
+        let overflow = || {
+            Refusal::Message(Status::out_of_range(
+                "write_offset plus content length overflows",
+            ))
+        };
+        self.drop_persisted_tail(persisted);
+        let received = u64::try_from(self.tail.len())
+            .ok()
+            .and_then(|tail| persisted.checked_add(tail))
+            .ok_or_else(overflow)?;
+        self.check_offset(offset, received)?;
+        // Bytes a later message repeats were received already and are not written twice.
+        let repeated = usize::try_from(received - offset)
+            .unwrap_or(usize::MAX)
+            .min(step.data.len());
+        let end = u64::try_from(step.data.len() - repeated)
+            .ok()
+            .and_then(|added| received.checked_add(added))
+            .filter(|end| i64::try_from(*end).is_ok())
+            .ok_or_else(overflow)?;
+        if end > max_object_bytes {
+            return Err(Refusal::Message(Status::resource_exhausted(
+                "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
+            )));
+        }
+        let finish = step.end.finishes();
+        if let Some(total) = total {
+            if finish && end != total {
+                return Err(Refusal::Session(size_mismatch(end, total)));
+            }
+            if end > total {
+                return Err(Refusal::Message(size_mismatch(end, total)));
+            }
+        }
+        let content = step
+            .data
+            .verify()
+            .map_err(|error| Refusal::Message(error.into()))?
+            .into_bytes();
+        self.uploaded = self
+            .uploaded
+            .saturating_add(u64::try_from(content.len()).unwrap_or(u64::MAX));
+        self.position = MessagePosition::Later;
+        let parts = self.take_whole_granules(&content.slice(repeated..), step.end);
+        let length = parts
+            .iter()
+            .try_fold(0_u64, |length, part| {
+                length.checked_add(u64::try_from(part.len()).ok()?)
+            })
+            .ok_or_else(overflow)?;
+        self.tail_start = persisted.checked_add(length).ok_or_else(overflow)?;
+        Ok(Piece {
+            parts,
+            length,
+            end: ChunkEnd::Exact {
+                total: total.or(finish.then_some(end)),
+                finalize: finish,
+            },
+        })
     }
-    if persisted
-        .total
-        .is_some_and(|total| end > total || (message.finish_write && end != total))
-    {
-        return Err(Status::out_of_range(
-            "Written bytes do not match object_size; start a new upload with the correct size",
-        ));
+
+    /// Drops the waiting bytes another stream persisted since this call's last message, so
+    /// that `tail` again starts at the session's `persisted` size and no byte is written twice.
+    fn drop_persisted_tail(&mut self, persisted: u64) {
+        let stale = usize::try_from(persisted.saturating_sub(self.tail_start))
+            .unwrap_or(usize::MAX)
+            .min(self.tail.len());
+        self.tail = self.tail.slice(stale..);
+        self.tail_start = persisted;
     }
-    Ok(ResumablePiece {
-        offset,
-        written: end,
-        length,
-    })
+
+    /// A stream's first message must start exactly at the persisted size; a later one may
+    /// repeat received bytes but not skip ahead.
+    fn check_offset(&self, offset: u64, received: u64) -> Result<(), Refusal> {
+        let mismatch = || {
+            Status::out_of_range(
+                "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
+            )
+        };
+        let refusal = match self.position {
+            // Recorded 2026-11-18.
+            MessagePosition::First if offset > received => with_reason(
+                Code::OutOfRange,
+                format!(
+                    "Upload request started at offset '{offset}', which is past expected offset '{received}'."
+                ),
+                "GRPC_UPLOAD_INVALID_START_OFFSET",
+            ),
+            MessagePosition::First if offset < received => mismatch(),
+            MessagePosition::Later if offset > received => mismatch(),
+            MessagePosition::First | MessagePosition::Later => return Ok(()),
+        };
+        Err(Refusal::Message(refusal))
+    }
+
+    /// Adds `added` to the unpersisted tail and takes the bytes to persist now: everything on
+    /// a finishing message, otherwise the whole granules.
+    fn take_whole_granules(&mut self, added: &bytes::Bytes, end: StepEnd) -> [bytes::Bytes; 2] {
+        let kept = match end {
+            StepEnd::Finish => 0,
+            StepEnd::Continue { .. } => (self.tail.len() + added.len()) % WRITE_GRANULE,
+        };
+        let Some(cut) = added.len().checked_sub(kept) else {
+            // Less than a granule in all: nothing to persist yet.
+            let mut tail = bytes::BytesMut::with_capacity(kept);
+            tail.extend_from_slice(&self.tail);
+            tail.extend_from_slice(added);
+            self.tail = tail.freeze();
+            return [bytes::Bytes::new(), bytes::Bytes::new()];
+        };
+        // The new tail is copied so that it does not keep the whole message alive.
+        let tail = bytes::Bytes::copy_from_slice(&added.slice(cut..));
+        [std::mem::replace(&mut self.tail, tail), added.slice(..cut)]
+    }
+
+    /// The client closed the stream without `finish_write`: bytes still waiting for a whole
+    /// granule are dropped, and Cloud Storage says so (recorded 2026-11-18).
+    pub(super) fn close(&self) -> Result<(), Status> {
+        if self.tail.is_empty() {
+            return Ok(());
+        }
+        Err(Status::invalid_argument(format!(
+            "Exactly {} bytes were uploaded in this call, which is not a multiple of the {WRITE_GRANULE} byte write granularity, but finish_write was not set. Some trailing data was not written. Call 'QueryWriteStatus' to see exactly how much data has been recorded.",
+            self.uploaded
+        )))
+    }
 }

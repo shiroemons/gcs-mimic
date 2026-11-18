@@ -1,5 +1,6 @@
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
+use crate::hashing::Hashes;
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
 enum TaskCaller {
@@ -32,13 +33,6 @@ pub(in crate::grpc::v2) struct WriteSpec {
     pub(in crate::grpc::v2) options: ResumableOptions,
     /// `object_size`, when the client declared it.
     pub(in crate::grpc::v2) total: Option<u64>,
-}
-
-/// A write stream sent a message after the one that set `finish_write`.
-pub(super) fn message_after_finish() -> Status {
-    Status::invalid_argument(
-        "A message followed finish_write; finish_write must be the final message",
-    )
 }
 
 /// Checks the `common_object_request_params` of a write message that did not start the write,
@@ -128,10 +122,11 @@ impl Storage {
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
+    /// Validates `spec` for `caller`; `checksums` are the ones the request declared beside it.
     pub(in crate::grpc::v2) async fn write_spec(
         &self,
         mut spec: pb::WriteObjectSpec,
-        checksums: Option<&pb::ObjectChecksums>,
+        checksums: &DeclaredChecksums,
         caller: Option<Caller<'_>>,
     ) -> Result<WriteSpec, Status> {
         if spec.appendable == Some(true) || !spec.predefined_acl.is_empty() {
@@ -166,8 +161,10 @@ impl Storage {
         resource.temporary_hold = false;
         resource.name.clear();
         resource.bucket.clear();
-        let expected = merge_hashes(hashes(resource.checksums.as_ref())?, hashes(checksums)?)?;
-        resource.checksums = None;
+        let expected = merge_hashes(
+            DeclaredChecksums::from(resource.checksums.take()).expected()?,
+            checksums.expected()?,
+        )?;
         if resource != pb::Object::default() {
             return Err(unsupported_for(
                 "write_object_spec.resource fields; use content_type, fixed/custom metadata and holds",
@@ -213,7 +210,7 @@ impl Storage {
         &self,
         spec: pb::WriteObjectSpec,
         params: Option<&pb::CommonObjectRequestParams>,
-        checksums: Option<&pb::ObjectChecksums>,
+        checksums: &DeclaredChecksums,
         caller: Option<Caller<'_>>,
     ) -> Result<WriteSpec, Status> {
         let key = super::super::customer_key::key(params)?;
@@ -230,27 +227,22 @@ impl Storage {
         caller: Option<Caller<'_>>,
         rpc: WriteRpc<'_>,
     ) -> Result<pb::BidiWriteObjectResponse, Status> {
-        use pb::bidi_write_object_request::FirstMessage;
-        let mut message = stream.next().await.transpose()?.ok_or_else(|| {
-            Status::invalid_argument("First message must contain write_object_spec or upload_id")
-        })?;
-        let session = match message.first_message.take() {
+        let Some(mut first) = next_step(stream).await? else {
+            return Err(missing_first_message());
+        };
+        match first.first.take() {
             Some(FirstMessage::WriteObjectSpec(spec)) => {
                 let write = SingleWrite { spec, caller, rpc };
-                return self.receive_single_write(stream, message, write).await;
+                self.receive_single_write(stream, first, write).await
             }
-            Some(FirstMessage::UploadId(upload)) => upload.parse::<UploadId>()?,
-            Some(FirstMessage::AppendObjectSpec(_)) => {
-                return Err(unsupported_for("Rapid append", caller));
+            Some(FirstMessage::UploadId(upload)) => {
+                let session = upload.parse::<UploadId>()?;
+                self.receive_resumable_write(stream, first, &session, caller, rpc)
+                    .await
             }
-            None => {
-                return Err(Status::invalid_argument(
-                    "First message must contain write_object_spec or upload_id",
-                ));
-            }
-        };
-        self.receive_resumable_write(stream, message, &session, caller, rpc)
-            .await
+            Some(FirstMessage::AppendObjectSpec(_)) => Err(unsupported_for("Rapid append", caller)),
+            None => Err(missing_first_message()),
+        }
     }
 
     async fn receive_single_write<
@@ -258,7 +250,7 @@ impl Storage {
     >(
         &self,
         stream: &mut S,
-        message: pb::BidiWriteObjectRequest,
+        first: WriteStep,
         write: SingleWrite<'_>,
     ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let SingleWrite { spec, caller, rpc } = write;
@@ -268,13 +260,22 @@ impl Storage {
             options,
             total,
         } = self
-            .keyed_write_spec(
-                spec,
-                message.common_object_request_params.as_ref(),
-                message.object_checksums.as_ref(),
-                caller,
-            )
+            .keyed_write_spec(spec, first.params.as_ref(), &first.checksums, caller)
             .await?;
+        let mut body = SingleBody {
+            intake: Intake::new(
+                options.expected,
+                self.max_object_bytes,
+                total,
+                Resend::DiscardOverlap,
+            ),
+            key: options.metadata.customer_key_sha256,
+            persisted: GranulePrefix::default(),
+        };
+        // Cloud Storage answers the first message's offset, size and data checksum before the
+        // write's conditions (recorded 2026-11-18), so the message is admitted before the
+        // catalog is asked.
+        let opening = body.admit(first, MessagePosition::First)?;
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "every other object error keeps the shared Storage v2 mapping"
@@ -292,13 +293,7 @@ impl Storage {
                 error => object_status(error),
             })?;
         let (tx, rx) = mpsc::channel(2);
-        let limits = SingleWriteLimits {
-            expected: options.expected,
-            total,
-            max_object_bytes: self.max_object_bytes,
-            key: options.metadata.customer_key_sha256,
-        };
-        let producer = produce_single_write(stream, message, limits, tx, caller, rpc);
+        let producer = body.produce(stream, opening, tx, rpc);
         let write = self.state.catalog.put_object_prechecked(
             ObjectUpload {
                 bucket: &bucket,
@@ -324,6 +319,10 @@ impl Storage {
     }
 }
 
+fn missing_first_message() -> Status {
+    Status::invalid_argument("First message must contain write_object_spec or upload_id")
+}
+
 /// The answer to a write that published `resource`; only a persisted size carries
 /// `persisted_data_checksums`.
 pub(super) fn finished(resource: pb::Object) -> pb::BidiWriteObjectResponse {
@@ -333,6 +332,20 @@ pub(super) fn finished(resource: pb::Object) -> pb::BidiWriteObjectResponse {
         )),
         ..Default::default()
     }
+}
+
+/// The answer to a message that left `size` bytes persisted with `checksums`.
+pub(super) fn persisted_answer(
+    size: u64,
+    checksums: Option<pb::ObjectChecksums>,
+) -> Result<pb::BidiWriteObjectResponse, Status> {
+    Ok(pb::BidiWriteObjectResponse {
+        write_status: Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
+            crate::grpc::convert::signed(size, "persisted_size")?,
+        )),
+        persisted_data_checksums: checksums,
+        write_handle: None,
+    })
 }
 
 pub(in crate::grpc::v2) type Responses = mpsc::Sender<Result<pb::BidiWriteObjectResponse, Status>>;
@@ -347,9 +360,10 @@ pub(in crate::grpc::v2) async fn send(
         .map_err(|_| Status::cancelled("Response stream closed"))
 }
 
-/// The RPC a write stream arrived on. WriteObject answers once, when the write returns, and
-/// rejects a message after `finish_write`. BidiWriteObject sends each status it reports on its
-/// response stream and answers at `finish_write` without reading further.
+/// The RPC a write stream arrived on. WriteObject answers once, when the write returns.
+/// BidiWriteObject sends each status it reports on its response stream. Both answer at
+/// `finish_write` without reading further: Cloud Storage ignored a message that followed it
+/// (recorded 2026-11-18).
 #[derive(Clone, Copy)]
 pub(super) enum WriteRpc<'a> {
     WriteObject,
@@ -365,17 +379,27 @@ impl WriteRpc<'_> {
         }
     }
 
-    /// Whether the request stream must end at `finish_write`.
-    pub(super) fn ends_at_finish(self) -> bool {
+    /// The `persisted_data_checksums` beside a persisted size whose bytes have digests
+    /// `hashes`. BidiWriteObject reported the CRC32C alone where QueryWriteStatus reported the
+    /// MD5 too (recorded 2026-11-18). No WriteObject answer with a persisted size was recorded;
+    /// it keeps both.
+    pub(super) fn persisted_checksums(self, hashes: Hashes) -> pb::ObjectChecksums {
         match self {
-            Self::WriteObject => true,
-            Self::Bidi(_) => false,
+            Self::WriteObject => pb::ObjectChecksums {
+                crc32c: Some(hashes.crc32c),
+                md5_hash: hashes.md5.to_vec(),
+            },
+            Self::Bidi(_) => pb::ObjectChecksums {
+                crc32c: Some(hashes.crc32c),
+                md5_hash: Vec::new(),
+            },
         }
     }
 }
 
-/// Whether a resumable message is the first one of its stream, which must resume exactly at
-/// the persisted offset; later messages may overlap bytes already persisted.
+/// Whether a message is the first one of its stream. A resumable stream must start exactly at
+/// the persisted offset and a non-resumable one at 0; later messages may overlap bytes already
+/// received.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MessagePosition {
     First,
@@ -400,104 +424,133 @@ struct SingleWrite<'a> {
     rpc: WriteRpc<'a>,
 }
 
-/// The checksum and size limits a non-resumable write's body must satisfy, and the key its
-/// first message chose, which later messages cannot change.
-#[derive(Clone, Copy)]
-struct SingleWriteLimits {
-    expected: ExpectedHashes,
-    total: Option<u64>,
-    max_object_bytes: u64,
-    key: Option<[u8; 32]>,
+/// The whole granules at the start of a non-resumable write's body, which is what a `flush` or
+/// a `state_lookup` reports as persisted. After three bytes Cloud Storage answered 0 with a
+/// CRC32C of 0 and no MD5 (recorded 2026-11-18). A body of a granule or more was not recorded;
+/// its whole granules are reported, as the resumable path persists them.
+#[derive(Default)]
+struct GranulePrefix {
+    /// Bytes received past the last granule boundary.
+    partial: usize,
+    /// The CRC32C of every byte received.
+    running: u32,
+    size: u64,
+    crc32c: u32,
 }
 
-/// Streams a non-resumable write's messages to the upload consumer, validating offsets,
-/// checksums and sizes, and ends the body only after the whole object checks out.
-async fn produce_single_write<
-    S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
->(
-    stream: &mut S,
-    mut message: pb::BidiWriteObjectRequest,
-    limits: SingleWriteLimits,
-    tx: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
-    caller: Option<Caller<'_>>,
-    rpc: WriteRpc<'_>,
-) -> Result<(), Status> {
-    let mut position = MessagePosition::First;
-    let mut intake = Intake::new(
-        limits.expected,
-        limits.max_object_bytes,
-        limits.total,
-        Resend::DiscardOverlap,
-    );
-    loop {
-        // The first message's key was parsed with its spec.
+impl GranulePrefix {
+    fn extend(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            let (head, rest) = data.split_at(data.len().min(WRITE_GRANULE - self.partial));
+            self.running = crc32c::crc32c_append(self.running, head);
+            self.partial += head.len();
+            if self.partial == WRITE_GRANULE {
+                self.partial = 0;
+                self.size = self.size.saturating_add(WRITE_GRANULE_BYTES);
+                self.crc32c = self.running;
+            }
+            data = rest;
+        }
+    }
+
+    fn answer(&self) -> Result<pb::BidiWriteObjectResponse, Status> {
+        let checksums = pb::ObjectChecksums {
+            crc32c: Some(self.crc32c),
+            md5_hash: Vec::new(),
+        };
+        persisted_answer(self.size, Some(checksums))
+    }
+}
+
+/// The bytes a message adds to a non-resumable write and how the message ends.
+struct Admitted {
+    added: bytes::Bytes,
+    end: StepEnd,
+}
+
+/// The body of a non-resumable write as its messages arrive: offsets, sizes and checksums are
+/// checked against what was received, and the body ends only after the whole object checks
+/// out.
+struct SingleBody {
+    intake: Intake,
+    /// The key the first message chose, which later messages cannot change.
+    key: Option<[u8; 32]>,
+    persisted: GranulePrefix,
+}
+
+impl SingleBody {
+    /// Checks one message and returns what it adds. The first message's key and checksums were
+    /// read with its spec.
+    fn admit(&mut self, step: WriteStep, position: MessagePosition) -> Result<Admitted, Status> {
         if position == MessagePosition::Later {
-            check_later_key(limits.key, message.common_object_request_params.as_ref())?;
+            check_later_key(self.key, step.params.as_ref())?;
+            self.intake
+                .checksums(step.checksums.expected()?)
+                .map_err(intake_status)?;
         }
-        if message.first_message.is_some() {
-            return Err(Status::invalid_argument(
-                "Only the first message may contain write_object_spec",
-            ));
-        }
-        if (message.flush || message.state_lookup) && !message.finish_write {
-            return Err(unsupported_for(
-                "non-resumable flush/state_lookup; use StartResumableWrite and upload_id",
-                caller,
-            ));
-        }
-        if message.object_checksums.is_some()
-            && position == MessagePosition::Later
-            && !message.finish_write
-        {
-            return Err(Status::invalid_argument(
-                "object_checksums is allowed only in the first or final message",
-            ));
-        }
-        let checksums = hashes(message.object_checksums.as_ref())?;
-        intake.checksums(checksums).map_err(intake_status)?;
-        let start = u64::try_from(message.write_offset).map_err(|_| {
+        let offset = step.offset.position().map_err(|NegativeOffset| {
             Status::out_of_range("write_offset must be nonnegative; use 0 for the first message")
         })?;
-        let data = take_data(&mut message);
-        intake
-            .accept(
-                IntakePiece {
-                    offset: start,
-                    content: data.content,
-                    crc32c: data.crc32c,
-                    finish: message.finish_write,
-                },
-                &tx,
-            )
-            .await
-            .map_err(intake_status)?;
-        if message.finish_write {
-            break;
+        if position == MessagePosition::First && offset != 0 {
+            // Recorded 2026-11-18, ahead of a wrong data checksum in the same message.
+            return Err(with_reason(
+                Code::OutOfRange,
+                format!(
+                    "A new upload request must start with write_offset 0, but received '{offset}'."
+                ),
+                "GRPC_UPLOAD_INVALID_START_OFFSET_NEW_UPLOAD",
+            ));
         }
-        message = upload::next(stream, &tx)
-            .await
-            .map_err(intake_status)?
-            .transpose()?
-            .ok_or_else(|| {
-                Status::invalid_argument(
-                    "Non-resumable write requires finish_write=true on its final message",
-                )
-            })?;
-        position = MessagePosition::Later;
+        let added = self
+            .intake
+            .admit(&step.data.into_piece(offset, step.end))
+            .map_err(intake_status)?;
+        Ok(Admitted {
+            added,
+            end: step.end,
+        })
     }
-    if rpc.ends_at_finish()
-        && upload::next(stream, &tx)
+
+    /// Streams the write's messages to the upload consumer, starting with the admitted
+    /// `opening` message. A `flush` or `state_lookup` is answered with the persisted prefix;
+    /// a later `write_object_spec` is ignored, as Cloud Storage ignores it (recorded
+    /// 2026-11-18).
+    async fn produce<S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin>(
+        mut self,
+        stream: &mut S,
+        opening: Admitted,
+        tx: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
+        rpc: WriteRpc<'_>,
+    ) -> Result<(), Status> {
+        let mut message = opening;
+        loop {
+            self.persisted.extend(&message.added);
+            upload::stage(&tx, &message.added)
+                .await
+                .map_err(intake_status)?;
+            if message.end.finishes() {
+                break;
+            }
+            if message.end.asks_for_status() {
+                rpc.report(&self.persisted.answer()?).await?;
+            }
+            let next = upload::next(stream, &tx)
+                .await
+                .map_err(intake_status)?
+                .transpose()?
+                .ok_or_else(|| {
+                    // Cloud Storage's wording (recorded 2026-11-18).
+                    Status::invalid_argument(
+                        "Non-resumable write closed without setting finish_write parameter.",
+                    )
+                })?;
+            message = self.admit(WriteStep::from(next), MessagePosition::Later)?;
+        }
+        self.intake
+            .finish(&tx, EndMarker::Plain)
             .await
-            .map_err(intake_status)?
-            .transpose()?
-            .is_some()
-    {
-        return Err(message_after_finish());
+            .map_err(intake_status)
     }
-    intake
-        .finish(&tx, EndMarker::Plain)
-        .await
-        .map_err(intake_status)
 }
 
 #[cfg(test)]

@@ -132,7 +132,8 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 	defer conn.Close()
 	// A well-formed upload_id in an absent bucket reaches shared authorization without
 	// creating state: rejected and absent credentials fail authentication, and the admin
-	// learns that no such session exists.
+	// gets the answer for an upload_id that names no session, which is INTERNAL as Cloud
+	// Storage answered upload IDs it could not read (recorded 2026-11-18).
 	request := grpcIOMessage(t, "CancelResumableWriteRequest", map[string]any{"upload_id": "grpc-foundation-absent/" + strings.Repeat("0", 64)})
 	for _, token := range []string{"", "Basic garbage", "Bearer unknown", "Bearer local-admin-token"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -143,7 +144,7 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 		cancel()
 		want := codes.Unauthenticated
 		if token == "Bearer local-admin-token" {
-			want = codes.NotFound
+			want = codes.Internal
 		}
 		if status.Code(err) != want {
 			t.Errorf("credential %q: expected %v, got %v", token, want, err)

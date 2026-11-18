@@ -340,20 +340,24 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		_ = bucket.Object("finalized").Delete(cleanup)
 	})
 
+	// Recorded 2026-11-18: a resumable stream persists whole 256 KiB granules until
+	// finish_write; a cancelled upload answers QueryWriteStatus with FAILED_PRECONDITION and a
+	// write with INVALID_ARGUMENT, and cancelling it again succeeds.
+	granule := strings.Repeat("a", 256*1024)
 	partial := start("cancelled")
-	if err := write(partial, 0, "abc", false); err != nil {
+	if err := write(partial, 0, granule, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := cancelUpload(partial); err != nil {
 		t.Fatalf("cancel=%v", err)
 	}
-	if err := query(partial); status.Code(err) != codes.NotFound {
+	if err := query(partial); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("query after cancel=%v", err)
 	}
-	if err := write(partial, 3, "def", true); status.Code(err) != codes.NotFound {
+	if err := write(partial, int64(len(granule)), "def", true); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("write after cancel=%v", err)
 	}
-	if err := cancelUpload(partial); status.Code(err) != codes.NotFound {
+	if err := cancelUpload(partial); err != nil {
 		t.Fatalf("repeated cancel=%v", err)
 	}
 	if _, err := bucket.Object("cancelled").Attrs(ctx); !errors.Is(err, storage.ErrObjectNotExist) {
@@ -370,8 +374,15 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 	if attrs, err := bucket.Object("finalized").Attrs(ctx); err != nil || attrs.Size != 4 {
 		t.Fatalf("finalized object changed: %v %v", attrs, err)
 	}
-	for _, id := range []string{"", bucket.BucketName(), bucket.BucketName() + "/not-hex", bucket.BucketName() + "/" + strings.Repeat("0", 64)} {
-		if err := cancelUpload(id); status.Code(err) != codes.NotFound {
+	// Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT; an ID the service
+	// cannot read, or that names no session, fails as INTERNAL.
+	for id, code := range map[string]codes.Code{
+		"":                               codes.InvalidArgument,
+		bucket.BucketName():              codes.InvalidArgument,
+		bucket.BucketName() + "/not-hex": codes.Internal,
+		bucket.BucketName() + "/" + strings.Repeat("0", 64): codes.Internal,
+	} {
+		if err := cancelUpload(id); status.Code(err) != code {
 			t.Fatalf("cancel %q=%v", id, err)
 		}
 	}
@@ -426,15 +437,19 @@ func TestGRPCObjectIOWire(t *testing.T) {
 	data := func(content string) *dynamicpb.Message {
 		return msg("ChecksummedData", map[string]any{"content": []byte(content)})
 	}
+	// Recorded 2026-11-18: a resumable stream persists whole 256 KiB granules until
+	// finish_write, so the prefix is one granule.
+	granule := strings.Repeat("a", 256*1024-3) + "abc"
+	persistedSize := int64(len(granule))
 	stream := open("BidiWriteObject")
-	if err := stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "checksummed_data": data("abc"), "state_lookup": true})); err != nil {
+	if err := stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "checksummed_data": data(granule), "state_lookup": true})); err != nil {
 		t.Fatal(err)
 	}
 	persisted := msg("BidiWriteObjectResponse", nil)
 	if err := stream.RecvMsg(persisted); err != nil {
 		t.Fatal(err)
 	}
-	if grpcIOField(persisted, "persisted_size").Int() != 3 {
+	if grpcIOField(persisted, "persisted_size").Int() != persistedSize {
 		t.Fatalf("persisted=%v", persisted)
 	}
 	stream.CloseSend()
@@ -445,8 +460,8 @@ func TestGRPCObjectIOWire(t *testing.T) {
 		}
 		return response
 	}
-	if grpcIOField(query(), "persisted_size").Int() != 3 {
-		t.Fatal("durable offset is not 3")
+	if grpcIOField(query(), "persisted_size").Int() != persistedSize {
+		t.Fatal("durable offset is not one granule")
 	}
 	wrong := open("BidiWriteObject")
 	wrong.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": int64(2), "finish_write": true}))
@@ -455,13 +470,13 @@ func TestGRPCObjectIOWire(t *testing.T) {
 		t.Fatalf("wrong offset=%v", err)
 	}
 	stream = open("BidiWriteObject")
-	stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": int64(3), "checksummed_data": data("def"), "finish_write": true}))
+	stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": persistedSize, "checksummed_data": data("def"), "finish_write": true}))
 	stream.CloseSend()
 	if err := stream.RecvMsg(msg("BidiWriteObjectResponse", nil)); err != nil {
 		t.Fatal(err)
 	}
-	if grpcIOField(query(), "resource").Message().Get(resource("x").Descriptor().Fields().ByName("size")).Int() != 6 {
-		t.Fatal("completed size is not 6")
+	if grpcIOField(query(), "resource").Message().Get(resource("x").Descriptor().Fields().ByName("size")).Int() != persistedSize+3 {
+		t.Fatal("completed size is not the granule plus 3")
 	}
 	stream = open("WriteObject")
 	stream.SendMsg(msg("WriteObjectRequest", map[string]any{"write_object_spec": spec("streamed"), "checksummed_data": data("hello")}))
@@ -520,27 +535,25 @@ func TestGRPCObjectIOWire(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := grpcIOField(started, "upload_id").String()
-		stream = open("BidiWriteObject")
-		stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": id, "checksummed_data": data("abc"), "object_checksums": test.checksum}))
-		stream.CloseSend()
-		if err := stream.RecvMsg(msg("BidiWriteObjectResponse", nil)); status.Code(err) != codes.Unimplemented {
-			t.Fatalf("non-final resumable checksum=%v", err)
-		}
+		// Recorded 2026-11-18: object_checksums is accepted on a message that does not
+		// finish the upload; it declares the complete object's checksum, which the finish
+		// verifies.
 		state := msg("QueryWriteStatusResponse", nil)
-		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), state); err != nil || grpcIOField(state, "persisted_size").Int() != 0 {
-			t.Fatalf("rejected checksum advanced offset: %v %v", state, err)
-		}
 		stream = open("BidiWriteObject")
-		stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": id, "checksummed_data": data("abc"), "state_lookup": true}))
+		prefix := map[string]any{"upload_id": id, "checksummed_data": data(granule), "state_lookup": true}
+		if test.atStart {
+			prefix["object_checksums"] = test.checksum
+		}
+		stream.SendMsg(msg("BidiWriteObjectRequest", prefix))
 		if err := stream.RecvMsg(msg("BidiWriteObjectResponse", nil)); err != nil {
 			t.Fatal(err)
 		}
 		stream.CloseSend()
-		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), state); err != nil || grpcIOField(state, "persisted_size").Int() != 3 {
+		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), state); err != nil || grpcIOField(state, "persisted_size").Int() != persistedSize {
 			t.Fatalf("prefix status=%v %v", state, err)
 		}
 		stream = open("BidiWriteObject")
-		final := map[string]any{"upload_id": id, "write_offset": int64(3), "checksummed_data": data("def"), "finish_write": true}
+		final := map[string]any{"upload_id": id, "write_offset": persistedSize, "checksummed_data": data("def"), "finish_write": true}
 		if !test.atStart {
 			final["object_checksums"] = test.checksum
 		}
@@ -552,7 +565,8 @@ func TestGRPCObjectIOWire(t *testing.T) {
 		if _, err := bucket.Object(test.name).Attrs(ctx); err == nil {
 			t.Fatal("resumed checksum failure published an object")
 		}
-		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), msg("QueryWriteStatusResponse", nil)); status.Code(err) != codes.NotFound {
+		// The failed completion ended the session: "Upload has already been terminated."
+		if err := invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), msg("QueryWriteStatusResponse", nil)); status.Code(err) != codes.FailedPrecondition {
 			t.Fatalf("failed session remains usable: %v", err)
 		}
 	}

@@ -2,8 +2,8 @@ use super::*;
 use super::{
     read::read_range,
     resource::mask_object,
-    resumable::{Persisted, resumable_piece},
-    write::{MessagePosition, WriteRpc},
+    resumable::{Call, Persisted, Refusal},
+    write::WriteRpc,
 };
 use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported, registry};
 use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
@@ -13,41 +13,173 @@ use prost::Message;
 use serde_json::json;
 use std::sync::Arc;
 
+/// A decoded data message; `finish` sets `finish_write`.
+fn data_step(offset: i64, content: bytes::Bytes, finish: bool) -> WriteStep {
+    WriteStep::from(pb::BidiWriteObjectRequest {
+        write_offset: offset,
+        data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
+            pb::ChecksummedData {
+                content,
+                ..Default::default()
+            },
+        )),
+        finish_write: finish,
+        ..Default::default()
+    })
+}
+
+fn open_session(offset: u64) -> Persisted {
+    Persisted {
+        offset,
+        total: None,
+    }
+}
+
+/// The status of a refusal that leaves the session usable.
+fn message_refusal(result: Result<super::resumable::Piece, Refusal>) -> Status {
+    match result {
+        Err(Refusal::Message(status)) => status,
+        Err(Refusal::Session(status)) => panic!("the refusal ended the session: {status:?}"),
+        Ok(_) => panic!("the message was accepted"),
+    }
+}
+
 #[test]
 fn resumable_message_end_must_fit_the_wire_offset() {
-    let max = i64::MAX.cast_unsigned();
     for (offset, accepted) in [(i64::MAX - 1, true), (i64::MAX, false)] {
-        let mut message = pb::BidiWriteObjectRequest {
-            write_offset: offset,
-            data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
-                pb::ChecksummedData {
-                    content: bytes::Bytes::from_static(b"x"),
-                    ..Default::default()
-                },
-            )),
-            ..Default::default()
-        };
-        let data = take_data(&mut message);
-        let result = resumable_piece(
-            &message,
-            &data,
-            Persisted {
-                offset: offset.cast_unsigned(),
-                total: None,
-            },
-            MessagePosition::First,
-            u64::MAX,
-        );
+        let step = data_step(offset, bytes::Bytes::from_static(b"x"), true);
+        let result = Call::default().admit(step, open_session(offset.cast_unsigned()), u64::MAX);
         if accepted {
-            assert_eq!(result.unwrap().written, max);
+            assert_eq!(result.ok().unwrap().length, 1);
         } else {
-            let error = result.err().unwrap();
+            let error = message_refusal(result);
             assert_eq!(error.code(), tonic::Code::OutOfRange);
             assert_eq!(
                 error.message(),
                 "write_offset plus content length overflows"
             );
         }
+    }
+}
+
+/// Recorded 2026-11-18: Cloud Storage persists whole 256 KiB granules until `finish_write`,
+/// and a call that closes with bytes past the last granule fails.
+#[test]
+fn resumable_call_persists_whole_granules_until_finish() {
+    const GRANULE: usize = 256 * 1024;
+    let mut call = Call::default();
+    call.close().unwrap();
+    let piece = call
+        .admit(
+            data_step(0, bytes::Bytes::from_static(b"hel"), false),
+            open_session(0),
+            u64::MAX,
+        )
+        .ok()
+        .unwrap();
+    assert_eq!(piece.length, 0);
+    let closed = call.close().unwrap_err();
+    assert_eq!(closed.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        closed.message(),
+        "Exactly 3 bytes were uploaded in this call, which is not a multiple of the 262144 byte write granularity, but finish_write was not set. Some trailing data was not written. Call 'QueryWriteStatus' to see exactly how much data has been recorded."
+    );
+    // The next message completes the granule: the waiting bytes are persisted ahead of it.
+    let rest = bytes::Bytes::from(vec![b'x'; GRANULE]);
+    let piece = call
+        .admit(data_step(3, rest, false), open_session(0), u64::MAX)
+        .ok()
+        .unwrap();
+    assert_eq!(piece.length, 262_144);
+    assert_eq!(piece.parts[0], b"hel"[..]);
+    assert_eq!(piece.parts[1].len(), GRANULE - 3);
+    assert!(call.close().is_err());
+    // A later message may repeat received bytes; they are not written twice. finish_write
+    // persists everything that waits.
+    let piece = call
+        .admit(
+            data_step(262_146, bytes::Bytes::from_static(b"xyz"), true),
+            open_session(262_144),
+            u64::MAX,
+        )
+        .ok()
+        .unwrap();
+    assert_eq!(piece.parts[0], b"xxx"[..]);
+    assert_eq!(piece.parts[1], b"yz"[..]);
+    assert_eq!(piece.length, 5);
+    call.close().unwrap();
+
+    // Bytes that wait while another stream persists past them are not written again.
+    let mut call = Call::default();
+    call.admit(
+        data_step(0, bytes::Bytes::from_static(b"hel"), false),
+        open_session(0),
+        u64::MAX,
+    )
+    .ok()
+    .unwrap();
+    let piece = call
+        .admit(
+            data_step(3, bytes::Bytes::from_static(b"lo"), false),
+            open_session(262_144),
+            u64::MAX,
+        )
+        .ok()
+        .unwrap();
+    assert_eq!(piece.length, 0);
+    call.close().unwrap();
+}
+
+/// Recorded 2026-11-18: a first offset past the persisted size names both offsets with
+/// GRPC_UPLOAD_INVALID_START_OFFSET, and a wrong final size ends the session.
+#[test]
+fn resumable_call_refuses_offsets_and_sizes_as_recorded() {
+    let hello = || bytes::Bytes::from_static(b"hello");
+    let past = message_refusal(Call::default().admit(
+        data_step(5, hello(), false),
+        open_session(0),
+        u64::MAX,
+    ));
+    assert_eq!(past.code(), tonic::Code::OutOfRange);
+    assert_eq!(
+        past.message(),
+        "Upload request started at offset '5', which is past expected offset '0'."
+    );
+    fixtures::assert_reason(&past, "GRPC_UPLOAD_INVALID_START_OFFSET");
+    let below = message_refusal(Call::default().admit(
+        data_step(1, hello(), false),
+        open_session(262_144),
+        u64::MAX,
+    ));
+    assert_eq!(below.code(), tonic::Code::OutOfRange);
+    assert_eq!(
+        below.message(),
+        "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size"
+    );
+    let sized = Persisted {
+        offset: 0,
+        total: Some(9),
+    };
+    for (finish, ends_session) in [(true, true), (false, false)] {
+        let content = if finish {
+            hello()
+        } else {
+            bytes::Bytes::from_static(b"0123456789")
+        };
+        let written = content.len();
+        let status = match Call::default().admit(data_step(0, content, finish), sized, u64::MAX) {
+            Err(Refusal::Session(status)) if ends_session => status,
+            Err(Refusal::Message(status)) if !ends_session => status,
+            _ => panic!("finish_write={finish} was not refused as expected"),
+        };
+        assert_eq!(status.code(), tonic::Code::OutOfRange);
+        assert_eq!(
+            status.message(),
+            format!(
+                "Invalid request. The final size of the upload is {written} byte(s). This does not match the expected size of 9 byte(s), which was specified in the StartResumableWrite request."
+            )
+        );
+        fixtures::assert_reason(&status, "GRPC_MISMATCHED_UPLOAD_SIZE");
     }
 }
 
@@ -184,7 +316,7 @@ async fn grpc_io_finalized_resume_returns_the_original_resource() {
 async fn grpc_io_concurrent_finalization_rejects_later_messages() {
     let (_dir, storage) = setup(false).await;
     let upload = start(&storage, "concurrent", None).await;
-    let mut first = resume(&upload, 0, b"abc", false);
+    let mut first = resume(&upload, 0, &granule(), false);
     first.flush = true;
     let (requests, incoming) = mpsc::channel(1);
     requests.send(Ok(first)).await.unwrap();
@@ -192,10 +324,10 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
         mpsc::channel::<Result<pb::BidiWriteObjectResponse, Status>>(1);
     let later = async {
         acknowledgements.recv().await.unwrap().unwrap();
-        write(&storage, vec![resume(&upload, 3, b"winner", true)])
+        write(&storage, vec![resume(&upload, GRANULE, b"winner", true)])
             .await
             .unwrap();
-        let mut next = resume(&upload, 3, b"discarded", true);
+        let mut next = resume(&upload, GRANULE, b"discarded", true);
         next.first_message = None;
         requests.send(Ok(next)).await.unwrap();
         drop(requests);
@@ -216,23 +348,25 @@ async fn grpc_io_concurrent_finalization_rejects_later_messages() {
         )
         .await
         .unwrap();
-    assert_eq!(record.size, 9);
+    assert_eq!(record.size, GRANULE.cast_unsigned() + 6);
     storage.state.catalog.close().await.unwrap();
 }
 
 /// The proto: "When the stream is closed, a `BidiWriteObjectResponse` is always sent to the
 /// client, regardless of the value of `state_lookup`." A clean close of a resumed stream answers
-/// with the persisted size, also after a flush already answered.
+/// with the persisted size, also after a flush already answered. The stream sends whole
+/// granules: bytes past the last one fail the close
+/// (`grpc_io_resumable_close_drops_bytes_past_the_last_granule`).
 #[tokio::test]
 async fn grpc_io_bidi_half_close_reports_unacknowledged_persisted_size() {
     let (_dir, storage) = setup(false).await;
     for (name, data, flush, answers) in [
-        ("half-close", b"abc".as_slice(), false, 1),
-        ("flushed", b"abc".as_slice(), true, 2),
-        ("empty", b"".as_slice(), false, 1),
+        ("half-close", granule(), false, 1),
+        ("flushed", granule(), true, 2),
+        ("empty", Vec::new(), false, 1),
     ] {
         let upload = start(&storage, name, None).await;
-        let mut message = resume(&upload, 0, data, false);
+        let mut message = resume(&upload, 0, &data, false);
         message.flush = flush;
         let mut stream = tonic::codegen::tokio_stream::iter([Ok(message)]);
         let (tx, mut rx) = mpsc::channel(2);
@@ -354,7 +488,7 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     let (dir, storage) = setup(false).await;
     let upload = start(&storage, "disconnected", None).await;
     let mut stream = tonic::codegen::tokio_stream::iter([
-        Ok(resume(&upload, 0, b"abc", false)),
+        Ok(resume(&upload, 0, &granule(), false)),
         Err(Status::cancelled("client disconnected")),
     ]);
     assert_code(
@@ -365,9 +499,9 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     );
     assert_eq!(
         query(&storage, &upload, None).await.unwrap(),
-        pb::query_write_status_response::WriteStatus::PersistedSize(3)
+        pb::query_write_status_response::WriteStatus::PersistedSize(GRANULE)
     );
-    write(&storage, vec![resume(&upload, 3, b"def", true)])
+    write(&storage, vec![resume(&upload, GRANULE, b"def", true)])
         .await
         .unwrap();
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
@@ -420,51 +554,64 @@ impl<T: Unpin> Stream for HeldOpen<T> {
     }
 }
 
-/// WriteObject must see its stream end after finish_write. A client that keeps the stream open
-/// must not hold the session meanwhile, or no other stream and no cancellation could use it.
+/// Recorded 2026-11-18: Cloud Storage answers WriteObject at finish_write and ignores a message
+/// that follows it. So the answer does not wait for the stream to end, a client that keeps its
+/// stream open holds no session, and a message after finish_write changes nothing.
 #[tokio::test]
-async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session() {
+async fn grpc_io_write_object_answers_at_finish_write_without_reading_further() {
     let (_dir, storage) = setup(false).await;
     let upload = start(&storage, "held-open", None).await;
     let id = upload.parse::<UploadId>().unwrap();
-    let (mut stream, Hold { waited, release }) =
-        HeldOpen::new([Ok(resume(&upload, 0, b"abc", true))]);
-    let other = async {
-        waited.await.unwrap();
-        let lease = storage
-            .state
-            .catalog
-            .lock_resumable_session(id.session(), id.bucket())
-            .await;
-        let free = lease.is_ok();
-        drop(lease);
-        release.send(()).unwrap();
-        free
-    };
-    let (result, free) = tokio::join!(
-        storage.receive_write(&mut stream, None, WriteRpc::WriteObject),
-        other
-    );
+    let (mut stream, mut hold) = HeldOpen::new([Ok(resume(&upload, 0, b"abc", true))]);
+    let result = storage
+        .receive_write(&mut stream, None, WriteRpc::WriteObject)
+        .await;
     assert!(
-        free,
-        "the session stayed leased while the stream stayed open"
+        hold.waited.try_recv().is_err(),
+        "the write read past finish_write"
     );
+    let lease = storage
+        .state
+        .catalog
+        .lock_resumable_session(id.session(), id.bucket())
+        .await;
+    assert!(lease.is_ok(), "the session stayed leased after the answer");
+    drop(lease);
     let Some(pb::bidi_write_object_response::WriteStatus::Resource(object)) =
         result.unwrap().write_status
     else {
         panic!("not finalized")
     };
     assert_eq!(object.size, 3);
+
+    let followed = start(&storage, "followed", None).await;
+    let mut later = resume(&followed, 3, b"d", false);
+    later.first_message = None;
+    let written = write(&storage, vec![resume(&followed, 0, b"abc", true), later])
+        .await
+        .unwrap();
+    let pb::bidi_write_object_response::WriteStatus::Resource(object) = written else {
+        panic!("not finalized")
+    };
+    assert_eq!(object.size, 3);
+    let mut later = message("ignored", b"d");
+    later.first_message = None;
+    later.write_offset = 3;
+    later.finish_write = false;
+    let written = write(&storage, vec![message("single-followed", b"abc"), later])
+        .await
+        .unwrap();
+    let pb::bidi_write_object_response::WriteStatus::Resource(object) = written else {
+        panic!("not written")
+    };
+    assert_eq!(object.size, 3);
     storage.state.catalog.close().await.unwrap();
 }
 
-/// WriteObject reads past a resumed stream's finish_write before it looks up the session, so it
-/// answers only once the stream ends when a check that needs the session refuses the finishing
-/// message (the session itself, the offset, the chunk CRC32C) or the message replays a finalized
-/// upload. A refusal before the session lookup is answered at once
-/// (`grpc_io_write_object_refuses_before_the_session_lookup_at_once`).
+/// A finishing message that is refused, or that replays a finalized upload, is answered at once
+/// as well: WriteObject reads nothing past finish_write (recorded 2026-11-18).
 #[tokio::test]
-async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end() {
+async fn grpc_io_write_object_answers_a_refused_finishing_message_at_once() {
     let (_dir, storage) = setup(false).await;
     let refused = start(&storage, "refused-held-open", None).await;
     let mut bad_crc = resume(&refused, 0, b"abc", true);
@@ -486,8 +633,8 @@ async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end()
             "unknown-session",
             resume(&unknown, 0, b"abc", true),
             (
-                tonic::Code::NotFound,
-                "Upload session not found; start a new resumable write",
+                tonic::Code::Internal,
+                "We encountered an internal error. Please try again.",
             ),
         ),
         (
@@ -495,7 +642,7 @@ async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end()
             resume(&refused, 5, b"abc", true),
             (
                 tonic::Code::OutOfRange,
-                "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
+                "Upload request started at offset '5', which is past expected offset '0'.",
             ),
         ),
         (
@@ -509,15 +656,14 @@ async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end()
             (tonic::Code::Ok, ""),
         ),
     ] {
-        let (mut stream, Hold { waited, release }) = HeldOpen::new([Ok(message)]);
-        let answer = storage.receive_write(&mut stream, None, WriteRpc::WriteObject);
-        tokio::pin!(answer);
-        tokio::select! {
-            result = answer.as_mut() => panic!("{label} answered before the stream ended: {result:?}"),
-            asked = waited => asked.unwrap(),
-        }
-        release.send(()).unwrap();
-        let result = answer.await;
+        let (mut stream, mut hold) = HeldOpen::new([Ok(message)]);
+        let result = storage
+            .receive_write(&mut stream, None, WriteRpc::WriteObject)
+            .await;
+        assert!(
+            hold.waited.try_recv().is_err(),
+            "{label} read past finish_write"
+        );
         assert_eq!(
             result.as_ref().map_or_else(
                 |status| (status.code(), status.message()),
@@ -548,11 +694,27 @@ fn grpc_io_range_and_masks() {
     ));
     assert_eq!(unsupported.code(), tonic::Code::Unimplemented);
     assert!(!unsupported.details().is_empty());
-    let mismatch = verify_crc32c(&pb::ChecksummedData {
-        content: b"hello".to_vec().into(),
-        crc32c: Some(1),
+    let mismatch = WriteStep::from(pb::BidiWriteObjectRequest {
+        data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
+            pb::ChecksummedData {
+                content: b"hello".to_vec().into(),
+                crc32c: Some(1),
+            },
+        )),
+        ..Default::default()
     })
+    .data
+    .verify()
+    .map(|_| ())
     .unwrap_err();
+    assert_eq!(
+        mismatch,
+        MessageError::ChunkCrc {
+            computed: 0x9a71_bb4c,
+            client: 1
+        }
+    );
+    let mismatch = Status::from(mismatch);
     assert_eq!(mismatch.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         mismatch.message(),
@@ -1414,14 +1576,14 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
         .unwrap()
         .into_inner()
         .upload_id;
-    let mut first = message("ignored", b"abc");
+    let mut first = message("ignored", &granule());
     first.finish_write = false;
     first.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
         upload.clone(),
     ));
     assert!(matches!(
         write(&storage, vec![first.clone()]).await.unwrap(),
-        pb::bidi_write_object_response::WriteStatus::PersistedSize(3)
+        pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
     ));
     let query = || {
         Request::new(pb::QueryWriteStatusRequest {
@@ -1437,7 +1599,7 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
             .into_inner()
             .write_status,
         Some(pb::query_write_status_response::WriteStatus::PersistedSize(
-            3
+            GRANULE
         ))
     ));
     storage.state.catalog.close().await.unwrap();
@@ -1445,7 +1607,7 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
     Arc::get_mut(&mut storage.state).unwrap().catalog = Catalog::open(&dir.0).await.unwrap();
     assert_code(write(&storage, vec![first]).await, tonic::Code::OutOfRange);
     let mut final_message = message("ignored", b"def");
-    final_message.write_offset = 3;
+    final_message.write_offset = GRANULE;
     final_message.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
         upload.clone(),
     ));
@@ -1453,10 +1615,10 @@ async fn grpc_io_resumes_durable_offsets_and_queries_completion() {
     let pb::bidi_write_object_response::WriteStatus::Resource(object) = result else {
         panic!("not complete")
     };
-    assert_eq!(object.size, 6);
+    assert_eq!(object.size, GRANULE + 3);
     assert_eq!(
         object.checksums.unwrap().crc32c,
-        Some(crc32c::crc32c(b"abcdef"))
+        Some(crc32c::crc32c(&[granule().as_slice(), b"def"].concat()))
     );
     assert!(matches!(
         storage
@@ -1706,7 +1868,11 @@ async fn grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values()
         set(unsupported_spec.resource.as_mut().unwrap());
         assert_unsupported(
             storage
-                .write_spec(unsupported_spec.clone(), None, admin)
+                .write_spec(
+                    unsupported_spec.clone(),
+                    &DeclaredChecksums::default(),
+                    admin,
+                )
                 .await,
             REFUSED,
         );
@@ -1782,6 +1948,15 @@ async fn query(
         .map_err(|status| status.code())
 }
 
+/// The size of one write granule: a resumable stream persists whole granules until
+/// finish_write (recorded 2026-11-18).
+const GRANULE: i64 = 256 * 1024;
+
+/// One granule of data, the least a resumable stream persists without finish_write.
+fn granule() -> Vec<u8> {
+    vec![b'a'; 256 * 1024]
+}
+
 fn resume(upload_id: &str, offset: i64, data: &[u8], finish: bool) -> pb::BidiWriteObjectRequest {
     let mut next = message("ignored", data);
     next.write_offset = offset;
@@ -1806,29 +1981,26 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     let (dir, storage) = setup(false).await;
     let fresh = start(&storage, "fresh", None).await;
     assert_eq!(cancel(&storage, &fresh, None).await, Ok(()));
+    // Recorded 2026-11-18: a cancelled upload answers QueryWriteStatus with FAILED_PRECONDITION
+    // and a resumed write with INVALID_ARGUMENT, and cancelling it again succeeds.
     assert_eq!(
         query(&storage, &fresh, None).await,
-        Err(tonic::Code::NotFound)
+        Err(tonic::Code::FailedPrecondition)
     );
     for finish in [false, true] {
         assert_code(
             write(&storage, vec![resume(&fresh, 0, b"abc", finish)]).await,
-            tonic::Code::NotFound,
+            tonic::Code::InvalidArgument,
         );
     }
-    // Repeating a successful cancellation reports the session as gone rather than
-    // succeeding again, so callers cannot mistake it for a still-live upload.
-    assert_eq!(
-        cancel(&storage, &fresh, None).await,
-        Err(tonic::Code::NotFound)
-    );
+    assert_eq!(cancel(&storage, &fresh, None).await, Ok(()));
 
     let partial = start(&storage, "partial", None).await;
     assert!(matches!(
-        write(&storage, vec![resume(&partial, 0, b"abc", false)])
+        write(&storage, vec![resume(&partial, 0, &granule(), false)])
             .await
             .unwrap(),
-        pb::bidi_write_object_response::WriteStatus::PersistedSize(3)
+        pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
     ));
     let partial_id = partial.parse::<UploadId>().unwrap();
     let blob = storage
@@ -1844,8 +2016,8 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     assert!(!staged.exists());
     assert!(!blob.blob_path(&dir.0).exists());
     assert_code(
-        write(&storage, vec![resume(&partial, 3, b"def", true)]).await,
-        tonic::Code::NotFound,
+        write(&storage, vec![resume(&partial, GRANULE, b"def", true)]).await,
+        tonic::Code::InvalidArgument,
     );
     for name in ["fresh", "partial"] {
         assert!(missing(&storage, name).await);
@@ -1865,15 +2037,21 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     ));
     assert!(!missing(&storage, "done").await);
 
+    // Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT, and an ID the service
+    // cannot read, or that names no session, fails as INTERNAL.
     let unknown = format!("grpc-io/{}", "0".repeat(64));
-    for id in [
-        unknown.as_str(),
-        "",
-        "grpc-io",
-        "grpc-io/not-hex",
-        "/0000000000000000000000000000000000000000000000000000000000000000",
+    for (id, code) in [
+        (unknown.as_str(), tonic::Code::Internal),
+        ("grpc-io/not-hex", tonic::Code::Internal),
+        ("", tonic::Code::InvalidArgument),
+        ("grpc-io", tonic::Code::InvalidArgument),
+        (
+            "/0000000000000000000000000000000000000000000000000000000000000000",
+            tonic::Code::InvalidArgument,
+        ),
     ] {
-        assert_eq!(cancel(&storage, id, None).await, Err(tonic::Code::NotFound));
+        assert_eq!(cancel(&storage, id, None).await, Err(code), "{id}");
+        assert_eq!(query(&storage, id, None).await, Err(code), "{id}");
     }
     // An upload_id is scoped to its bucket; reusing it under another bucket finds nothing.
     let scoped = start(&storage, "scoped", None).await;
@@ -1881,7 +2059,7 @@ async fn grpc_io_cancel_discards_sessions_and_staged_bytes() {
     let id = scoped_id.session();
     assert_eq!(
         cancel(&storage, &format!("other-bucket/{id}"), None).await,
-        Err(tonic::Code::NotFound)
+        Err(tonic::Code::Internal)
     );
     assert!(query(&storage, &scoped, None).await.is_ok());
 
@@ -1917,7 +2095,7 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
     let upload = start(&storage, "strict", admin).await;
     storage
         .receive_write(
-            &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, b"abc", false))]),
+            &mut tonic::codegen::tokio_stream::iter([Ok(resume(&upload, 0, &granule(), false))]),
             admin,
             WriteRpc::WriteObject,
         )
@@ -1934,13 +2112,13 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
     assert!(matches!(
         query(&storage, &upload, admin).await,
         Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
-            3
+            GRANULE
         ))
     ));
     assert_eq!(cancel(&storage, &upload, admin).await, Ok(()));
     assert_eq!(
         query(&storage, &upload, admin).await,
-        Err(tonic::Code::NotFound)
+        Err(tonic::Code::FailedPrecondition)
     );
     // The upload_id binds no creator: a different caller that holds storage.objects.create on
     // the bucket cancels a session the admin started.
@@ -1952,13 +2130,14 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
     assert_eq!(cancel(&storage, &started_by_admin, user).await, Ok(()));
     assert_eq!(
         query(&storage, &started_by_admin, admin).await,
-        Err(tonic::Code::NotFound)
+        Err(tonic::Code::FailedPrecondition)
     );
     storage.state.catalog.close().await.unwrap();
 }
 
 /// A session lives seven days from StartResumableWrite on the catalog clock. Past that, every
-/// call that names its upload_id answers NOT_FOUND, as for an unknown upload_id.
+/// call that names its upload_id answers as for an upload_id that names no session: INTERNAL,
+/// as Cloud Storage answered IDs it could not read (recorded 2026-11-18).
 #[tokio::test]
 async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1974,31 +2153,31 @@ async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
     let storage = storage_over(catalog, false).await;
     let upload = start(&storage, "expiring", None).await;
     assert!(matches!(
-        write(&storage, vec![resume(&upload, 0, b"abc", false)])
+        write(&storage, vec![resume(&upload, 0, &granule(), false)])
             .await
             .unwrap(),
-        pb::bidi_write_object_response::WriteStatus::PersistedSize(3)
+        pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
     ));
     let lifetime = Duration::from_secs(7 * 24 * 60 * 60);
     clock.advance(lifetime - Duration::from_millis(1));
     assert!(matches!(
         query(&storage, &upload, None).await,
         Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
-            3
+            GRANULE
         ))
     ));
     clock.advance(Duration::from_millis(1));
     assert_eq!(
         query(&storage, &upload, None).await,
-        Err(tonic::Code::NotFound)
+        Err(tonic::Code::Internal)
     );
     assert_code(
-        write(&storage, vec![resume(&upload, 3, b"def", true)]).await,
-        tonic::Code::NotFound,
+        write(&storage, vec![resume(&upload, GRANULE, b"def", true)]).await,
+        tonic::Code::Internal,
     );
     assert_eq!(
         cancel(&storage, &upload, None).await,
-        Err(tonic::Code::NotFound)
+        Err(tonic::Code::Internal)
     );
     assert!(missing(&storage, "expiring").await);
     storage.state.catalog.close().await.unwrap();
@@ -2006,7 +2185,7 @@ async fn grpc_io_resumable_sessions_expire_seven_days_after_start() {
 
 /// An upload ID of the issued shape names its session only in the catalog, which runs after the
 /// permission check: a caller without access is denied whatever the ID's case, and one with
-/// access gets the catalog's wording for a session that does not exist.
+/// access gets the answer for an ID that names no session (INTERNAL, recorded 2026-11-18).
 #[tokio::test]
 async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
     let (_dir, storage) = setup(true).await;
@@ -2056,10 +2235,10 @@ async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
         assert_eq!(code, tonic::Code::Unauthenticated);
     }
     for (code, message) in status(admin).await {
-        assert_eq!(code, tonic::Code::NotFound);
+        assert_eq!(code, tonic::Code::Internal);
         assert_eq!(
             message,
-            "Upload session not found; start a new resumable write"
+            "We encountered an internal error. Please try again."
         );
     }
     storage.state.catalog.close().await.unwrap();
@@ -2069,7 +2248,8 @@ async fn grpc_io_upload_ids_are_looked_up_after_the_permission_check() {
 async fn grpc_io_resumable_checksums_survive_reconnect_and_failed_completion() {
     let (dir, mut storage) = setup(false).await;
     let mut hasher = crate::hashing::Hasher::default();
-    hasher.update(b"abcdef");
+    hasher.update(&granule());
+    hasher.update(b"def");
     let correct = hasher.finish();
     for (name, checksum) in [
         (
@@ -2100,39 +2280,22 @@ async fn grpc_io_resumable_checksums_survive_reconnect_and_failed_completion() {
             .unwrap()
             .into_inner()
             .upload_id;
-        let mut prefix = message("ignored", b"abc");
+        // Recorded 2026-11-18: object_checksums is accepted on a message that does not finish
+        // the upload; here it repeats the checksum the session started with.
+        let mut prefix = message("ignored", &granule());
         prefix.finish_write = false;
         prefix.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
             upload.clone(),
         ));
-        let mut rejected = prefix.clone();
-        rejected.object_checksums = Some(checksum);
-        assert_code(
-            write(&storage, vec![rejected]).await,
-            tonic::Code::Unimplemented,
-        );
+        prefix.object_checksums = Some(checksum);
         assert!(matches!(
-            storage
-                .query_write_status(
-                    Request::new(pb::QueryWriteStatusRequest {
-                        upload_id: upload.clone(),
-                        ..Default::default()
-                    }),
-                    None
-                )
-                .await
-                .unwrap()
-                .into_inner()
-                .write_status,
-            Some(pb::query_write_status_response::WriteStatus::PersistedSize(
-                0
-            ))
+            write(&storage, vec![prefix]).await.unwrap(),
+            pb::bidi_write_object_response::WriteStatus::PersistedSize(GRANULE)
         ));
-        write(&storage, vec![prefix]).await.unwrap();
         storage.state.catalog.close().await.unwrap();
         Arc::get_mut(&mut storage.state).unwrap().catalog = Catalog::open(&dir.0).await.unwrap();
         let mut bad = message("ignored", b"xxx");
-        bad.write_offset = 3;
+        bad.write_offset = GRANULE;
         bad.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
             upload.clone(),
         ));
@@ -2159,9 +2322,12 @@ async fn grpc_io_resumable_checksums_survive_reconnect_and_failed_completion() {
                     None,
                 )
                 .await,
-            tonic::Code::NotFound,
+            tonic::Code::FailedPrecondition,
         );
-        assert_code(write(&storage, vec![bad]).await, tonic::Code::NotFound);
+        assert_code(
+            write(&storage, vec![bad]).await,
+            tonic::Code::InvalidArgument,
+        );
     }
     let upload = storage
         .start_resumable_write(
@@ -2175,14 +2341,14 @@ async fn grpc_io_resumable_checksums_survive_reconnect_and_failed_completion() {
         .unwrap()
         .into_inner()
         .upload_id;
-    let mut prefix = message("ignored", b"abc");
+    let mut prefix = message("ignored", &granule());
     prefix.finish_write = false;
     prefix.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
         upload.clone(),
     ));
     write(&storage, vec![prefix]).await.unwrap();
     let mut bad = message("ignored", b"def");
-    bad.write_offset = 3;
+    bad.write_offset = GRANULE;
     bad.first_message = Some(pb::bidi_write_object_request::FirstMessage::UploadId(
         upload,
     ));
@@ -2203,5 +2369,238 @@ async fn grpc_io_resumable_checksums_survive_reconnect_and_failed_completion() {
             .unwrap_err(),
         ObjectError::ObjectNotFound
     );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// Recorded 2026-11-18: three bytes sent to a session without finish_write are not persisted.
+/// Closing the stream there fails, QueryWriteStatus still reports 0, and a stream that resumes
+/// past 0 is refused with both offsets.
+#[tokio::test]
+async fn grpc_io_resumable_close_drops_bytes_past_the_last_granule() {
+    let (_dir, storage) = setup(false).await;
+    let upload = start(&storage, "granules", None).await;
+    let dropped = "Exactly 3 bytes were uploaded in this call, which is not a multiple of the 262144 byte write granularity, but finish_write was not set. Some trailing data was not written. Call 'QueryWriteStatus' to see exactly how much data has been recorded.";
+    let closed = assert_code(
+        write(&storage, vec![resume(&upload, 0, b"hel", false)]).await,
+        tonic::Code::InvalidArgument,
+    );
+    assert_eq!(closed.message(), dropped);
+    assert!(closed.details().is_empty());
+    assert_eq!(
+        query(&storage, &upload, None).await,
+        Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
+            0
+        ))
+    );
+    let past = assert_code(
+        write(&storage, vec![resume(&upload, 3, b"lo", true)]).await,
+        tonic::Code::OutOfRange,
+    );
+    assert_eq!(
+        past.message(),
+        "Upload request started at offset '3', which is past expected offset '0'."
+    );
+    fixtures::assert_reason(&past, "GRPC_UPLOAD_INVALID_START_OFFSET");
+
+    // Over BidiWriteObject the flush is answered first, with the CRC32C of the persisted
+    // bytes and no MD5, and the close then fails the same way.
+    let mut flushed = resume(&upload, 0, b"hel", false);
+    flushed.flush = true;
+    flushed.state_lookup = true;
+    let (tx, mut rx) = mpsc::channel(4);
+    let closed = assert_code(
+        storage
+            .receive_write(
+                &mut tonic::codegen::tokio_stream::iter([Ok(flushed)]),
+                None,
+                WriteRpc::Bidi(&tx),
+            )
+            .await,
+        tonic::Code::InvalidArgument,
+    );
+    assert_eq!(closed.message(), dropped);
+    let nothing_persisted = pb::BidiWriteObjectResponse {
+        write_status: Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
+            0,
+        )),
+        persisted_data_checksums: Some(pb::ObjectChecksums {
+            crc32c: Some(0),
+            md5_hash: Vec::new(),
+        }),
+        write_handle: None,
+    };
+    assert_eq!(rx.recv().await.unwrap().unwrap(), nothing_persisted);
+    // A lookup without data is answered, and so is the close after it.
+    let mut lookup = resume(&upload, 0, b"", false);
+    lookup.state_lookup = true;
+    storage
+        .receive_write(
+            &mut tonic::codegen::tokio_stream::iter([Ok(lookup)]),
+            None,
+            WriteRpc::Bidi(&tx),
+        )
+        .await
+        .unwrap();
+    drop(tx);
+    for _ in 0..2 {
+        assert_eq!(rx.recv().await.unwrap().unwrap(), nothing_persisted);
+    }
+    assert!(rx.recv().await.is_none());
+
+    // The bytes that wait for a whole granule are persisted once later messages complete it.
+    let mut rest = resume(&upload, 3, &granule(), false);
+    rest.first_message = None;
+    let closed = assert_code(
+        write(&storage, vec![resume(&upload, 0, b"hel", false), rest]).await,
+        tonic::Code::InvalidArgument,
+    );
+    assert_eq!(
+        closed.message(),
+        dropped.replace("Exactly 3 bytes", "Exactly 262147 bytes")
+    );
+    assert_eq!(
+        query(&storage, &upload, None).await,
+        Ok(pb::query_write_status_response::WriteStatus::PersistedSize(
+            GRANULE
+        ))
+    );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// The statuses of a QueryWriteStatus, a CancelResumableWrite and a resumed WriteObject that
+/// all fail.
+async fn session_failures(storage: &Storage, upload: &str) -> [Status; 3] {
+    let queried = storage
+        .query_write_status(
+            Request::new(pb::QueryWriteStatusRequest {
+                upload_id: upload.into(),
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    let cancelled = storage
+        .cancel_resumable_write(
+            Request::new(pb::CancelResumableWriteRequest {
+                upload_id: upload.into(),
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    let written = write(storage, vec![resume(upload, 0, b"hello", true)])
+        .await
+        .unwrap_err();
+    [queried, cancelled, written]
+}
+
+/// Recorded 2026-11-18: how a session that ended answers. A cancelled one fails
+/// QueryWriteStatus with FAILED_PRECONDITION and a write with INVALID_ARGUMENT, and cancelling
+/// it again succeeds; a finalized one refuses cancellation and still reports its resource, with
+/// the caller's ACL and owner view; a finishing message whose size differs from object_size
+/// ends the session.
+#[tokio::test]
+async fn grpc_io_ended_sessions_answer_as_recorded() {
+    let (_dir, storage) = setup(false).await;
+    let cancelled = start(&storage, "ended-cancelled", None).await;
+    assert_eq!(cancel(&storage, &cancelled, None).await, Ok(()));
+    assert_eq!(cancel(&storage, &cancelled, None).await, Ok(()));
+    let queried = storage
+        .query_write_status(
+            Request::new(pb::QueryWriteStatusRequest {
+                upload_id: cancelled.clone(),
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (queried.code(), queried.message()),
+        (
+            tonic::Code::FailedPrecondition,
+            "Upload has already been cancelled."
+        )
+    );
+    fixtures::assert_reason(&queried, "GRPC_UPLOAD_ALREADY_CANCELLED");
+    let written = assert_code(
+        write(&storage, vec![resume(&cancelled, 0, b"hello", true)]).await,
+        tonic::Code::InvalidArgument,
+    );
+    assert_eq!(written.message(), "Upload has already been cancelled.");
+    assert!(written.details().is_empty());
+
+    let finalized = start(&storage, "ended-finalized", None).await;
+    write(&storage, vec![resume(&finalized, 0, b"hello", true)])
+        .await
+        .unwrap();
+    let refused = storage
+        .cancel_resumable_write(
+            Request::new(pb::CancelResumableWriteRequest {
+                upload_id: finalized.clone(),
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (refused.code(), refused.message()),
+        (
+            tonic::Code::FailedPrecondition,
+            "Upload has already been completed."
+        )
+    );
+    fixtures::assert_reason(&refused, "GRPC_UPLOAD_ALREADY_COMPLETED");
+    let Ok(pb::query_write_status_response::WriteStatus::Resource(resource)) =
+        query(&storage, &finalized, None).await
+    else {
+        panic!("a finalized upload reports its resource")
+    };
+    assert!(!resource.acl.is_empty());
+    assert!(resource.owner.is_some());
+
+    let mut sized = spec("ended-terminated");
+    sized.object_size = Some(5);
+    let terminated = storage
+        .start_resumable_write(
+            Request::new(pb::StartResumableWriteRequest {
+                write_object_spec: Some(sized),
+                ..Default::default()
+            }),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .upload_id;
+    let mismatch = assert_code(
+        write(&storage, vec![resume(&terminated, 0, b"abc", true)]).await,
+        tonic::Code::OutOfRange,
+    );
+    assert_eq!(
+        mismatch.message(),
+        "Invalid request. The final size of the upload is 3 byte(s). This does not match the expected size of 5 byte(s), which was specified in the StartResumableWrite request."
+    );
+    fixtures::assert_reason(&mismatch, "GRPC_MISMATCHED_UPLOAD_SIZE");
+    let [queried, cancelled, written] = session_failures(&storage, &terminated).await;
+    for status in [&queried, &cancelled] {
+        assert_eq!(
+            (status.code(), status.message()),
+            (
+                tonic::Code::FailedPrecondition,
+                "Upload has already been terminated."
+            )
+        );
+        fixtures::assert_reason(status, "GRPC_UPLOAD_ALREADY_TERMINATED");
+    }
+    assert_eq!(
+        (written.code(), written.message()),
+        (
+            tonic::Code::InvalidArgument,
+            "Upload has already been terminated."
+        )
+    );
+    assert!(missing(&storage, "ended-terminated").await);
     storage.state.catalog.close().await.unwrap();
 }

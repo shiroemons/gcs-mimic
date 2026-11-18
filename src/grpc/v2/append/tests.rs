@@ -6,7 +6,7 @@ use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use pb::bidi_write_object_response::WriteStatus;
 use std::sync::Arc;
-use tonic::{Code, Request};
+use tonic::{Code, Request, codegen::tokio_stream::StreamExt};
 
 const BUCKET: &str = "projects/_/buckets/grpc-append";
 

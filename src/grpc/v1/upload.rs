@@ -191,7 +191,9 @@ fn intake_status(error: IntakeError) -> Status {
         IntakeError::Overflow | IntakeError::TooLarge => {
             Status::resource_exhausted("Upload exceeds max_object_bytes; reduce the body")
         }
-        IntakeError::SizeMismatch => Status::out_of_range("Written bytes do not match object_size"),
+        IntakeError::SizeMismatch { .. } => {
+            Status::out_of_range("Written bytes do not match object_size")
+        }
         IntakeError::ObjectChecksum => {
             Status::invalid_argument("Object checksum mismatch; recompute object_checksums")
         }

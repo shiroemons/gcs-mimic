@@ -58,7 +58,15 @@ async fn invalid_intake_never_stages_bytes_or_a_completion_marker() {
         ),
         (piece(1, b"a"), 3, None, IntakeError::Offset),
         (piece(0, b"abc"), 2, None, IntakeError::TooLarge),
-        (short, 3, Some(3), IntakeError::SizeMismatch),
+        (
+            short,
+            3,
+            Some(3),
+            IntakeError::SizeMismatch {
+                written: 1,
+                total: 3,
+            },
+        ),
     ] {
         let mut intake = Intake::new(Default::default(), max, total, Resend::DiscardOverlap);
         assert_eq!(intake.accept(piece, &tx).await, Err(error));

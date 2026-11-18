@@ -359,20 +359,27 @@ const ERROR_INFO_TYPE: &str = "type.googleapis.com/google.rpc.ErrorInfo";
 /// not the endpoint the client dialed, so an emulator on another host keeps the same value.
 const ERROR_DOMAIN: &str = "storage.googleapis.com";
 
-/// An `INVALID_ARGUMENT` status that carries one `google.rpc.ErrorInfo`, as Cloud Storage does
-/// for malformed resource names.
-pub(crate) fn invalid_with_reason(message: impl Into<String>, reason: &str) -> Status {
+/// A status that carries one `google.rpc.ErrorInfo` naming `reason` in Cloud Storage's domain.
+pub(super) fn with_reason(code: Code, message: impl Into<String>, reason: &str) -> Status {
     let info = ErrorInfo {
         reason: reason.into(),
         domain: ERROR_DOMAIN.into(),
         metadata: Default::default(),
     };
-    with_detail(
-        Code::InvalidArgument,
-        message.into(),
-        ERROR_INFO_TYPE,
-        info.encode_to_vec(),
-    )
+    with_detail(code, message.into(), ERROR_INFO_TYPE, info.encode_to_vec())
+}
+
+/// An `INVALID_ARGUMENT` status that carries one `google.rpc.ErrorInfo`, as Cloud Storage does
+/// for malformed resource names.
+pub(crate) fn invalid_with_reason(message: impl Into<String>, reason: &str) -> Status {
+    with_reason(Code::InvalidArgument, message, reason)
+}
+
+/// The answer Cloud Storage gives where its own implementation fails, such as an upload ID it
+/// cannot read (recorded 2026-11-18). The recorded message ends in an opaque
+/// `Internal details:` value that differs for every request and is not reproduced.
+pub(super) fn internal_error() -> Status {
+    Status::internal("We encountered an internal error. Please try again.")
 }
 
 /// An `INVALID_ARGUMENT` status that carries a `google.rpc.BadRequest` with one field violation
