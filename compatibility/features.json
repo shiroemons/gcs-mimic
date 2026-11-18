@@ -21675,28 +21675,31 @@
         },
         {
           "id": "grpc_bucket_delete_shared_state",
-          "description": "The proto keeps a bucket deletable when it holds only soft-deleted objects or unfinished uploads, and soft-deletes it under its soft delete policy (storage.proto lines 76-95). DeleteBucket uses the shared catalog deletion that JSON-BUCKETS-001 tests for these states (BUCKET-SOFT-DELETE-CONTRIBUTION, BUCKET-HISTORY-NONEMPTY), but no Storage v2 test covers a bucket with only soft-deleted objects, only noncurrent versions, only unfinished XML multipart uploads or only an unfinalized appendable object, or a bucket with a positive soft delete policy.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The proto keeps a bucket deletable when it holds only soft-deleted objects or unfinished uploads, refuses one with live or noncurrent objects, and soft-deletes it under its soft delete policy (storage.proto lines 76-95). DeleteBucket uses the shared catalog deletion: a bucket holding only a soft-deleted object, only an unfinished XML multipart upload or only an unfinalized appendable object is deleted, one holding only a noncurrent version answers FAILED_PRECONDITION 'Bucket is not empty; delete its objects and versions before deleting the bucket' and stays, and a bucket with a positive soft delete policy is kept as a soft-deleted version while one without is deleted permanently. An open appendable writer then finds its object superseded at its next flush.",
+          "result": "PASS",
+          "test_ids": ["delete_bucket_follows_the_shared_catalog_for_retained_state"]
         },
         {
           "id": "grpc_bucket_delete_condition_validation",
-          "description": "DeleteBucket and GetBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold): a negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated. UpdateBucket refuses 0, negative values and both together with INVALID_ARGUMENT, LockBucketRetentionPolicy, whose request has only if_metageneration_match, refuses 0 and negative values (strict_bucket_conditions in src/grpc/validate.rs), and the legacy v1 adapter refuses negative values. The proto states no validation rule; choose one rule for every bucket RPC and test it.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "DeleteBucket and GetBucket compare if_metageneration_match and if_metageneration_not_match without validating them (BucketConditions::from in src/grpc/conditions.rs, then BucketConditions::hold): a zero or negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a zero or negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated; a missing bucket is reported first. UpdateBucket refuses 0, negative values and both together with INVALID_ARGUMENT, and LockBucketRetentionPolicy, whose request has only if_metageneration_match, refuses 0 and negative values, both before the lookup (strict_bucket_conditions in src/grpc/validate.rs). The proto states no validation rule, and the owner decided on 2026-11-18 to keep each RPC's rule as a recorded local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules"]
         },
         {
           "id": "grpc_bucket_delete_local_precedence",
-          "description": "Pin the order of strict authorization, bucket existence, the metageneration conditions and the nonempty check, and the status and message of each, with a test. Today the adapter authorizes first and the catalog checks the rest in its deletion transaction. Google documents no order and none was recorded, so the pinned order then becomes a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The adapter authorizes first, so an anonymous caller gets UNAUTHENTICATED 'Login Required' and a caller without storage.buckets.delete gets PERMISSION_DENIED for a missing and for an existing bucket alike; the catalog's deletion transaction then answers NOT_FOUND for a missing bucket, FAILED_PRECONDITION with the shared precondition message for a failed condition, and FAILED_PRECONDITION 'Bucket is not empty; delete its objects and versions before deleting the bucket' for remaining objects, in that order, and a failure deletes nothing. Google documents no order and none was recorded, so the order is a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
+          "result": "PASS",
+          "test_ids": ["delete_bucket_reports_authorization_existence_conditions_then_contents"]
         }
       ],
       "test_ids": [
         "grpc_buckets_crud_conditions_and_masks",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
-        "TestGRPCBucketsStrict"
+        "TestGRPCBucketsStrict",
+        "delete_bucket_follows_the_shared_catalog_for_retained_state",
+        "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+        "delete_bucket_reports_authorization_existence_conditions_then_contents"
       ],
       "verification": [
         {
@@ -21718,6 +21721,17 @@
             "TestGRPCBuckets",
             "TestGRPCBucketsStrict"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "delete_bucket_follows_the_shared_catalog_for_retained_state",
+            "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+            "delete_bucket_reports_authorization_existence_conditions_then_contents"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -21732,13 +21746,26 @@
           ]
         }
       ],
-      "known_deviations": [
-        "No Storage v2 test deletes a bucket that holds only soft-deleted objects, noncurrent versions, unfinished multipart uploads or an unfinalized appendable object, or one with a positive soft delete policy.",
-        "DeleteBucket does not validate its metageneration conditions, while UpdateBucket refuses 0, negative values and both conditions together and LockBucketRetentionPolicy refuses 0 and negative values.",
-        "The order and wording of authorization, missing-bucket, condition and nonempty failures are not pinned by a test."
+      "known_deviations": [],
+      "scoped_differences": [
+        {
+          "text": "GetBucket and DeleteBucket compare their metageneration conditions as they arrive: a zero or negative match never holds and a zero or negative not-match always holds. UpdateBucket refuses 0, negative values and both conditions together with INVALID_ARGUMENT before the lookup. The proto states no validation rule.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules"]
+        },
+        {
+          "text": "DeleteBucket answers authorization failures first, then a missing bucket, a failed condition and remaining live or noncurrent objects, with the statuses and messages the test pins. Google documents no order.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["delete_bucket_reports_authorization_existence_conditions_then_contents"]
+        },
+        {
+          "text": "An unfinalized appendable object does not keep its bucket: DeleteBucket counts it with the unfinished uploads the proto allows, although the object is readable while it is appended, and the open writer then finds it superseded. The proto does not say whether an unfinalized appendable object is a live object.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["delete_bucket_follows_the_shared_catalog_for_retained_state"]
+        }
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-002",
@@ -21815,9 +21842,9 @@
         },
         {
           "id": "grpc_bucket_get_condition_validation",
-          "description": "GetBucket compares its metageneration conditions without validating them: a negative if_metageneration_match never matches and fails as FAILED_PRECONDITION, a negative if_metageneration_not_match always holds, and a match together with a not-match is evaluated, unlike UpdateBucket and LockBucketRetentionPolicy. The rule to choose is shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "GetBucket compares its metageneration conditions without validating them, after the lookup: a zero or negative if_metageneration_match never matches and fails as FAILED_PRECONDITION with the shared precondition message, a zero or negative if_metageneration_not_match always holds, a match together with a not-match is evaluated, and a missing bucket answers NOT_FOUND first. UpdateBucket and LockBucketRetentionPolicy refuse such values instead; the owner decided on 2026-11-18 to keep each RPC's rule as a recorded local choice (SPEC-GRPC-LOCAL-CHOICES), shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
+          "result": "PASS",
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules"]
         }
       ],
       "test_ids": [
@@ -21830,9 +21857,19 @@
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict",
         "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
-        "grpc-bucket-unset-settings-mask"
+        "grpc-bucket-unset-settings-mask",
+        "bucket_rpcs_keep_their_own_metageneration_condition_rules"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "bucket_rpcs_keep_their_own_metageneration_condition_rules"
+          ]
+        },
         {
           "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -21937,8 +21974,7 @@
         }
       ],
       "known_deviations": [
-        "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them.",
-        "GetBucket does not validate its metageneration conditions, while UpdateBucket refuses 0, negative values and both conditions together and LockBucketRetentionPolicy refuses 0 and negative values."
+        "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them."
       ],
       "scoped_differences": [
         {
@@ -21947,10 +21983,15 @@
           "test_ids": [
             "grpc_buckets_crud_conditions_and_masks"
           ]
+        },
+        {
+          "text": "GetBucket compares its metageneration conditions as they arrive: a zero or negative match never holds and a zero or negative not-match always holds, while UpdateBucket refuses such values. The proto states no validation rule.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules"]
         }
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-003",
@@ -22029,15 +22070,20 @@
         },
         {
           "id": "grpc_bucket_create_output_fields",
-          "description": "Fields the proto marks OUTPUT_ONLY (bucket_id, metageneration, location_type, create_time, update_time and owner, storage.proto lines 2579-2687, and the Autoclass toggle and terminal-class update times) return UNIMPLEMENTED instead of being ignored, which google.api.field_behavior describes as 'given as output but ignored as input'; so do a nonempty etag, the server-determined retention and soft delete effective times, a retention is_locked and a uniform access lock_time (create_body, pinned by create_bucket_rejects_each_field_outside_the_supported_subset and create_rejects_output_fields_and_fractional_durations_in_order). Ignore them, as the JSON insert ignores effectiveTime and isLocked (SPEC-RETENTION-POLICY).",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Fields the proto marks OUTPUT_ONLY (bucket_id, metageneration, location_type, create_time, update_time and owner, storage.proto lines 2579-2687, and the Autoclass toggle_time and terminal_storage_class_update_time) are ignored, as google/api/field_behavior.proto requires ('the server *must* ignore it and *must not* throw an error'): the new bucket carries the server's values (create_body and autoclass_body in src/grpc/v2/buckets.rs). The fields the proto does not mark output only stay refused with UNIMPLEMENTED and create nothing, a recorded local choice: a nonempty etag, the retention and soft delete effective times, a locked retention policy and a uniform access lock_time.",
+          "result": "PASS",
+          "test_ids": [
+            "create_bucket_ignores_output_only_fields",
+            "grpc_buckets_create_autoclass_shares_json_rules",
+            "create_rejects_output_fields_and_fractional_durations_in_order",
+            "create_bucket_rejects_each_field_outside_the_supported_subset"
+          ]
         },
         {
           "id": "grpc_bucket_create_fractional_retention",
-          "description": "A retention_policy.retention_duration with nonzero nanos returns UNIMPLEMENTED ('fractional bucket retention duration', whole_seconds in src/grpc/v2/buckets.rs, pinned by create_rejects_output_fields_and_fractional_durations_in_order), while the proto rounds any nanos value down to the nearest second (storage.proto lines 2429-2433), as UpdateBucket already does.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A retention_policy.retention_duration with nonzero nanos is rounded down to whole seconds, as the proto requires (storage.proto lines 2429-2433) and as UpdateBucket does, through the shared retention_seconds in src/grpc/v2/bucket_update.rs: 3600.999999999 seconds stores 3600, and a duration under one second is no period and answers INVALID_ARGUMENT without creating the bucket.",
+          "result": "PASS",
+          "test_ids": ["create_bucket_rounds_retention_nanos_down"]
         }
       ],
       "test_ids": [
@@ -22049,9 +22095,25 @@
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict",
         "create_bucket_rejects_each_field_outside_the_supported_subset",
-        "create_rejects_output_fields_and_fractional_durations_in_order"
+        "create_rejects_output_fields_and_fractional_durations_in_order",
+        "create_bucket_ignores_output_only_fields",
+        "grpc_buckets_create_autoclass_shares_json_rules",
+        "create_bucket_rounds_retention_nanos_down"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "create_bucket_ignores_output_only_fields",
+            "grpc_buckets_create_autoclass_shares_json_rules",
+            "create_rejects_output_fields_and_fractional_durations_in_order",
+            "create_bucket_rejects_each_field_outside_the_supported_subset",
+            "create_bucket_rounds_retention_nanos_down"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22124,13 +22186,11 @@
       ],
       "known_deviations": [
         "A nonempty lifecycle, bucket ACL or default object ACL returns UNIMPLEMENTED, although UpdateBucket accepts them.",
-        "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED, as the JSON insert's canned ACLs do.",
-        "Output-only and server-determined fields set on the new bucket return UNIMPLEMENTED instead of being ignored.",
-        "A fractional retention_policy.retention_duration returns UNIMPLEMENTED instead of being rounded down to whole seconds."
+        "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED, as the JSON insert's canned ACLs do."
       ],
       "scoped_differences": [
         {
-          "text": "website, logging, encryption, billing (Requester Pays), custom_placement_config, hierarchical_namespace, ip_filter, satisfies_pzs=true and an rpo other than DEFAULT return UNIMPLEMENTED with ErrorInfo and create nothing; empty messages and rpo DEFAULT are the absent setting. The JSON API stores none of these settings either.",
+          "text": "website, logging, encryption, billing (Requester Pays), custom_placement_config, hierarchical_namespace, ip_filter, satisfies_pzs=true and an rpo other than DEFAULT return UNIMPLEMENTED with ErrorInfo and create nothing; empty messages other than website, and rpo DEFAULT, are the absent setting, while an empty website message is refused too. The JSON API stores none of these settings either.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
             "create_bucket_rejects_each_field_outside_the_supported_subset"
@@ -22142,10 +22202,18 @@
           "test_ids": [
             "create_rejects_output_fields_and_fractional_durations_in_order"
           ]
+        },
+        {
+          "text": "A nonempty etag, a retention_policy or soft_delete_policy effective_time, a locked retention policy and a uniform access lock_time return UNIMPLEMENTED and create nothing. The proto does not mark them output only and says nothing about them on creation; locking takes LockBucketRetentionPolicy.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "create_rejects_output_fields_and_fractional_durations_in_order",
+            "create_bucket_rejects_each_field_outside_the_supported_subset"
+          ]
         }
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-004",
@@ -22212,9 +22280,9 @@
         },
         {
           "id": "grpc_bucket_list_satisfies_pzs",
-          "description": "A ListBuckets read_mask naming satisfies_pzs returns UNIMPLEMENTED through the shared BucketMask::parse, but no test pins it on ListBuckets. Pin it, then record it as the scoped difference RPC-STORAGE-002 records under SPEC-GRPC-UNMODELED-SETTINGS.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A ListBuckets read_mask naming satisfies_pzs returns UNIMPLEMENTED with ErrorInfo naming the path through the shared BucketMask::parse, after the caller, the project permission, page_size and prefix are checked and before the page token is decoded; recorded as the scoped difference RPC-STORAGE-002 records under SPEC-GRPC-UNMODELED-SETTINGS.",
+          "result": "PASS",
+          "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
         }
       ],
       "test_ids": [
@@ -22223,9 +22291,19 @@
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict",
-        "grpc_lists_a_project_by_the_number_its_buckets_render"
+        "grpc_lists_a_project_by_the_number_its_buckets_render",
+        "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22278,11 +22356,17 @@
         }
       ],
       "known_deviations": [
-        "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them.",
-        "The satisfies_pzs read mask refusal is not pinned by a ListBuckets test."
+        "Nested bucket read_mask paths return UNIMPLEMENTED, although Cloud Storage serves them."
+      ],
+      "scoped_differences": [
+        {
+          "text": "A read_mask that selects satisfies_pzs returns UNIMPLEMENTED with ErrorInfo: the emulator stores no zone-separation fact, and Cloud Storage may report true by location, so a selected value would be a guess. The other settings that bucket creation refuses are selectable and come back unset.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        }
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-005",
@@ -22321,18 +22405,19 @@
         },
         {
           "id": "grpc_lock_metageneration",
-          "description": "if_metageneration_match 0 returns INVALID_ARGUMENT, as the proto requires a positive value (storage.proto lines 776-778); a stale metageneration returns FAILED_PRECONDITION and leaves the policy unlocked; the current one locks it, advances the metageneration and answers with is_locked; UpdateBucket can no longer remove the locked policy.",
+          "description": "if_metageneration_match 0 or a negative value returns INVALID_ARGUMENT before the bucket is looked up, as the proto requires a positive value (storage.proto lines 776-778); a stale metageneration returns FAILED_PRECONDITION and leaves the policy unlocked; the current one locks it, advances the metageneration and answers with is_locked; UpdateBucket can no longer remove the locked policy.",
           "result": "PASS",
           "test_ids": [
             "grpc_retention_lock_and_compose_limits",
-            "grpc_retention_lock_requires_a_policy_and_the_current_metageneration"
+            "grpc_retention_lock_requires_a_policy_and_the_current_metageneration",
+            "bucket_rpcs_keep_their_own_metageneration_condition_rules"
           ]
         },
         {
           "id": "grpc_lock_strict_authorization",
-          "description": "Strict LockBucketRetentionPolicy checks storage.buckets.update on the bucket (lock_bucket_retention_policy in src/grpc/v2/update_bucket.rs), but no test pins an anonymous, a denied or a permitted strict caller for this RPC; TestGRPCUpdateCopyStrict does not lock.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Strict LockBucketRetentionPolicy checks storage.buckets.update on the bucket before the lookup (lock_bucket_retention_policy in src/grpc/v2/update_bucket.rs): an anonymous caller gets UNAUTHENTICATED 'Login Required' and callers without the permission (no role, or roles/storage.objectViewer) get PERMISSION_DENIED naming storage.buckets.update, for an existing and a missing bucket alike, and the policy stays unlocked; roles/storage.admin gets NOT_FOUND for a missing bucket and locks an existing one.",
+          "result": "PASS",
+          "test_ids": ["grpc_retention_lock_requires_bucket_update_permission"]
         }
       ],
       "test_ids": [
@@ -22342,9 +22427,21 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_retention_lock_requires_a_policy_and_the_current_metageneration"
+        "grpc_retention_lock_requires_a_policy_and_the_current_metageneration",
+        "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+        "grpc_retention_lock_requires_bucket_update_permission"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+            "grpc_retention_lock_requires_bucket_update_permission"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22402,9 +22499,7 @@
           ]
         }
       ],
-      "known_deviations": [
-        "No test pins strict authorization of LockBucketRetentionPolicy."
-      ],
+      "known_deviations": [],
       "scoped_differences": [
         {
           "text": "A bucket without a retention policy and a policy that is already locked both return INVALID_ARGUMENT and change nothing. Google documents neither answer, and the differential harness refuses every lock request, so nothing was recorded.",
@@ -22415,7 +22510,7 @@
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-006",
@@ -22627,9 +22722,9 @@
         },
         {
           "id": "grpc_iam_set_conditions_pinned",
-          "description": "Bindings with a condition and nonempty audit_configs return UNIMPLEMENTED (set_iam_policy), but no test pins this refusal. Pin it, then record it as a scoped difference under SPEC-GRPC-UNMODELED-SETTINGS, which keeps conditional IAM bindings and audit configs as explicit refusals.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A policy with a conditional binding beside an unconditional one, or with nonempty audit_configs, returns UNIMPLEMENTED with ErrorInfo naming 'IAM conditions or audit configs' (set_iam_policy in src/grpc/v2/bucket_iam.rs) and leaves the stored policy unchanged; recorded as a scoped difference under SPEC-GRPC-UNMODELED-SETTINGS, which keeps conditional IAM bindings and audit configs as explicit refusals.",
+          "result": "PASS",
+          "test_ids": ["grpc_iam_set_refuses_conditional_bindings_and_audit_configs"]
         }
       ],
       "test_ids": [
@@ -22642,9 +22737,19 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_storage_control_bucket_iam"
+        "grpc_storage_control_bucket_iam",
+        "grpc_iam_set_refuses_conditional_bindings_and_audit_configs"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_iam_set_refuses_conditional_bindings_and_audit_configs"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -22713,8 +22818,7 @@
         }
       ],
       "known_deviations": [
-        "An update_mask that names only some policy fields returns UNIMPLEMENTED instead of modifying them.",
-        "The refusal of conditional bindings and audit configs is not pinned by a test."
+        "An update_mask that names only some policy fields returns UNIMPLEMENTED instead of modifying them."
       ],
       "scoped_differences": [
         {
@@ -22723,6 +22827,11 @@
           "test_ids": [
             "grpc_iam_rejects_partial_masks_and_child_resources_without_changing_the_policy"
           ]
+        },
+        {
+          "text": "A policy with a conditional binding or with audit configs returns UNIMPLEMENTED with ErrorInfo and leaves the policy unchanged: bucket policies here carry neither, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": ["grpc_iam_set_refuses_conditional_bindings_and_audit_configs"]
         },
         {
           "text": "An object resource returns UNIMPLEMENTED: the proto names only bucket and managed-folder resources for SetIamPolicy (storage.proto lines 215-219), and nothing was recorded.",
@@ -22740,7 +22849,7 @@
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-008",
@@ -22942,13 +23051,13 @@
         },
         {
           "id": "grpc_bucket_update_etag",
-          "description": "bucket.etag is never read (bucket_update::from_proto and update_bucket in src/grpc/v2), so an UpdateBucket carrying a stale etag still applies, while the proto makes the update conditional on a set etag (storage.proto lines 2581-2584). Compare it with the stored bucket ETag inside the mutation transaction.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A nonempty bucket.etag makes the update conditional, as the proto requires (storage.proto lines 2581-2584): after authorization the handler reads the bucket (with_etag_condition in src/grpc/v2/update_bucket.rs), refuses a stale or foreign ETag with FAILED_PRECONDITION and the shared precondition message, and otherwise turns the matching metageneration into an explicit match condition that the catalog compares atomically with the write. A bucket ETag encodes only the metageneration, so the two conditions are equivalent. A failed request metageneration condition beside a matching ETag fails alike, a missing bucket answers NOT_FOUND, and nothing changes on failure, with or without a lifecycle change.",
+          "result": "PASS",
+          "test_ids": ["grpc_bucket_update_requires_a_matching_etag"]
         },
         {
           "id": "grpc_bucket_update_wildcard_mask",
-          "description": "An update_mask of * returns UNIMPLEMENTED (the catch-all arm of apply_path in src/grpc/v2/bucket_update.rs, pinned by grpc_masks_reject_unsupported_and_accept_defaults), while the proto defines * as a full update equivalent to the JSON update (storage.proto lines 806-813), which the JSON adapter serves for its supported subset (JSON-BUCKETS-013).",
+          "description": "An update_mask of * returns UNIMPLEMENTED (UpdatePath::from_str in src/grpc/v2/bucket_update.rs refuses every path it does not name, pinned by grpc_masks_reject_unsupported_and_accept_defaults), while the proto defines * as a full update equivalent to the JSON update (storage.proto lines 806-813), which the JSON adapter serves for its supported subset (JSON-BUCKETS-013).",
           "result": "PENDING",
           "test_ids": []
         },
@@ -22960,21 +23069,30 @@
         },
         {
           "id": "grpc_bucket_update_retention_nanos",
-          "description": "retention_policy.retention_duration keeps only its seconds (apply_path in src/grpc/v2/bucket_update.rs), which follows the proto's rounding of nanos down to the nearest second (storage.proto lines 2429-2433), but no test pins the truncation. CreateBucket still refuses the same input (RPC-STORAGE-003 grpc_bucket_create_fractional_retention).",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "retention_policy.retention_duration keeps only its whole seconds (retention_seconds in src/grpc/v2/bucket_update.rs, shared with CreateBucket), which follows the proto's rounding of nanos down to the nearest second (storage.proto lines 2429-2433): 3600.999999999 seconds stores and answers 3600, and a duration under one second is no period and answers INVALID_ARGUMENT without a change.",
+          "result": "PASS",
+          "test_ids": ["grpc_bucket_update_rounds_retention_nanos_down"]
         },
         {
           "id": "grpc_bucket_update_set_iam_permission",
-          "description": "Changing public access prevention or the ACLs also requires storage.buckets.setIamPolicy (storage.proto lines 254-266; the catalog checks it in src/storage/catalog/bucket_update.rs and src/server/acl.rs), but the Storage v2 strict tests deny only callers that lack storage.buckets.update as well (grpc_buckets_acl_strict_authorization, TestGRPCUpdateCopyStrict). Pin a caller with storage.buckets.update and without storage.buckets.setIamPolicy.",
+          "description": "Changing public access prevention or the ACLs also requires storage.buckets.setIamPolicy (storage.proto lines 254-266; the catalog checks it in src/storage/catalog/bucket_update.rs and src/server/acl.rs), but the Storage v2 strict tests deny only callers that lack storage.buckets.update as well (grpc_buckets_acl_strict_authorization, TestGRPCUpdateCopyStrict). No such caller can be registered today: the only roles that grant storage.buckets.update, roles/storage.admin and roles/storage.legacyBucketOwner (src/auth/roles.rs), also grant storage.buckets.setIamPolicy, and custom roles are refused. Pin a caller with storage.buckets.update and without storage.buckets.setIamPolicy once one can be expressed.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "grpc_bucket_update_condition_validation",
-          "description": "UpdateBucket refuses 0, negative values and both metageneration conditions together with INVALID_ARGUMENT (strict_bucket_conditions), while GetBucket and DeleteBucket evaluate them unvalidated. The rule to choose is shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "UpdateBucket refuses 0, negative values and both metageneration conditions together with INVALID_ARGUMENT 'Invalid generation conditions; use one match or not-match per generation, for example if_generation_match=0' (strict_bucket_conditions in src/grpc/validate.rs) before the bucket is looked up and without a change, while GetBucket and DeleteBucket evaluate them unvalidated. The owner decided on 2026-11-18 to keep each RPC's rule as a recorded local choice (SPEC-GRPC-LOCAL-CHOICES), shared with RPC-STORAGE-001 grpc_bucket_delete_condition_validation.",
+          "result": "PASS",
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules"]
+        },
+        {
+          "id": "grpc_bucket_update_mask_paths",
+          "description": "Each update_mask path is parsed once into UpdatePath (src/grpc/v2/bucket_update.rs) and applied in mask order: labels, labels.KEY (any nonempty key, dots included), storage_class, autoclass[.enabled|.terminal_storage_class], versioning[.enabled], default_event_based_hold, cors, lifecycle[.rule], retention_policy[.retention_duration], soft_delete_policy[.retention_duration], iam_config, iam_config.public_access_prevention, iam_config.uniform_bucket_level_access[.enabled], acl and default_object_acl, each changing only its setting; every other path, an empty key, other case spellings, subpaths of these fields and output-only fields included, returns UNIMPLEMENTED with ErrorInfo naming the path, and the first failing path in mask order names the error.",
+          "result": "PASS",
+          "test_ids": [
+            "update_mask_paths_select_their_settings_and_refuse_the_rest",
+            "update_paths_parse_once_into_the_setting_they_name"
+          ]
         },
         {
           "id": "grpc_iam_config_presence",
@@ -23029,9 +23147,28 @@
         "bkt-gaps-legacy-class-region",
         "bucket_updates_validate_proto_fields_without_json_bodies",
         "grpc_lifecycle_precheck_retries_only_implicit_matches",
-        "grpc_lifecycle_precheck_stops_after_three_conflicts"
+        "grpc_lifecycle_precheck_stops_after_three_conflicts",
+        "grpc_bucket_update_requires_a_matching_etag",
+        "grpc_bucket_update_rounds_retention_nanos_down",
+        "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+        "update_mask_paths_select_their_settings_and_refuse_the_rest",
+        "update_paths_parse_once_into_the_setting_they_name"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_bucket_update_requires_a_matching_etag",
+            "grpc_bucket_update_rounds_retention_nanos_down",
+            "bucket_rpcs_keep_their_own_metageneration_condition_rules",
+            "update_mask_paths_select_their_settings_and_refuse_the_rest",
+            "update_paths_parse_once_into_the_setting_they_name",
+            "grpc_masks_reject_unsupported_and_accept_defaults"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -23147,20 +23284,22 @@
         }
       ],
       "known_deviations": [
-        "A set bucket.etag is ignored instead of making the update conditional.",
         "An update_mask of * returns UNIMPLEMENTED instead of updating every field.",
         "predefined_acl and predefined_default_object_acl return UNIMPLEMENTED, although Cloud Storage and the JSON PATCH apply them.",
-        "The whole-second truncation of retention_policy.retention_duration is not pinned by a test.",
-        "No test pins the separate storage.buckets.setIamPolicy check for public access prevention and ACL changes.",
-        "UpdateBucket validates its metageneration conditions strictly, while GetBucket and DeleteBucket do not validate them."
+        "No test pins the separate storage.buckets.setIamPolicy check for public access prevention and ACL changes."
       ],
       "scoped_differences": [
         {
-          "text": "Update mask paths for settings the JSON API does not store either (rpo, website, logging, encryption, billing, custom_placement_config, hierarchical_namespace, ip_filter, satisfies_pzs) return UNIMPLEMENTED with ErrorInfo naming the path through the catch-all arm of apply_path, as every other unsupported path does; pinned for each of the nine paths, and for owner and acl.entity.",
+          "text": "Update mask paths for settings the JSON API does not store either (rpo, website, logging, encryption, billing, custom_placement_config, hierarchical_namespace, ip_filter, satisfies_pzs) return UNIMPLEMENTED with ErrorInfo naming the path, through UpdatePath::from_str, as every other unsupported path does; pinned for each of the nine paths, and for owner and acl.entity.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults"
           ]
+        },
+        {
+          "text": "UpdateBucket refuses 0, negative values and both metageneration conditions together with INVALID_ARGUMENT before the bucket is looked up, while GetBucket and DeleteBucket compare such values. The proto states no validation rule.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["bucket_rpcs_keep_their_own_metageneration_condition_rules"]
         },
         {
           "text": "A soft_delete_policy.retention_duration with nonzero nanos returns UNIMPLEMENTED: the proto states no rounding for it, the JSON API carries whole seconds, and nothing was recorded.",
@@ -23179,7 +23318,7 @@
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-010",
@@ -38788,9 +38927,24 @@
         },
         {
           "id": "grpc_masks_unknown_bucket_path",
-          "description": "A bucket read_mask path that names no Bucket field returns UNIMPLEMENTED (UnselectableBucketPath in src/grpc/v2/mask.rs), while an object read_mask path that names no Object field returns INVALID_ARGUMENT 'There is no field for this resource named ...', as Cloud Storage answered for objects (2026-11-01, replayed in docs/en/evidence/differential-comparison.md). Answer an unknown bucket path the same way.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A bucket read_mask path that names no Bucket field, such as no_such_field or Name, returns UNIMPLEMENTED with ErrorInfo naming the path on GetBucket and ListBuckets (UnselectableBucketPath in src/grpc/v2/mask.rs), while an object read_mask path that names no Object field returns INVALID_ARGUMENT 'There is no field for this resource named ...', as Cloud Storage answered for objects (2026-11-01, replayed in docs/en/evidence/differential-comparison.md). No bucket answer was recorded and the proto names no status, so under the owner decision of 2026-11-18, which changes an existing status only on proto text, the bucket answer stays and is recorded as a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        },
+        {
+          "id": "grpc_bucket_masks_validation_order",
+          "description": "GetBucket validates its read mask right after the bucket name, before authorization and lookup, so an anonymous or unpermitted caller and a missing bucket get the mask refusal; ListBuckets validates it after the caller, the project permission, page_size and prefix and before the page token is decoded. The object half of the order is grpc_masks_validation_order. Google documents no order, so the bucket order is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        },
+        {
+          "id": "grpc_bucket_update_mask_paths",
+          "description": "Each UpdateBucket update_mask path is parsed once into UpdatePath (src/grpc/v2/bucket_update.rs) and applied in mask order, each changing only its setting; every path UpdatePath does not name, an empty label key, other case spellings, subpaths of the accepted fields and output-only fields included, returns UNIMPLEMENTED with ErrorInfo naming the path, and the first failing path in mask order names the error.",
+          "result": "PASS",
+          "test_ids": [
+            "update_mask_paths_select_their_settings_and_refuse_the_rest",
+            "update_paths_parse_once_into_the_setting_they_name"
+          ]
         },
         {
           "id": "grpc_masks_output_only_update_paths",
@@ -38828,9 +38982,23 @@
         "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access",
         "grpc_bucket_options_reject_only_what_is_unsupported",
         "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
-        "grpc_io_full_read_masks_return_acl_and_owner"
+        "grpc_io_full_read_masks_return_acl_and_owner",
+        "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
+        "update_mask_paths_select_their_settings_and_refuse_the_rest",
+        "update_paths_parse_once_into_the_setting_they_name"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order",
+            "update_mask_paths_select_their_settings_and_refuse_the_rest",
+            "update_paths_parse_once_into_the_setting_they_name"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -38916,12 +39084,23 @@
       "known_deviations": [
         "Nested read-mask paths return UNIMPLEMENTED, except the two checksum digests on objects.",
         "An update_mask of * returns UNIMPLEMENTED on UpdateBucket and UpdateObject.",
-        "An unknown bucket read_mask path returns UNIMPLEMENTED, while an unknown object path returns INVALID_ARGUMENT.",
         "Output-only update paths other than UpdateObject's create_time return UNIMPLEMENTED.",
         "Object read masks are validated after the lookup or per returned object, the GetBucket read mask before authorization and the ListBuckets read mask after it."
       ],
+      "scoped_differences": [
+        {
+          "text": "A bucket read_mask path that names no Bucket field returns UNIMPLEMENTED with ErrorInfo naming the path, where an unknown object path returns the INVALID_ARGUMENT Cloud Storage was recorded answering for objects. No bucket answer was recorded and the proto names no status.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        },
+        {
+          "text": "GetBucket refuses an unselectable read mask before authorization and lookup; ListBuckets refuses it after the caller, the project permission, page_size and prefix and before the page token. Google documents no order.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": ["bucket_read_masks_refuse_unselectable_paths_in_each_rpcs_order"]
+        }
+      ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "BEHAVIOR-RPC-003",
