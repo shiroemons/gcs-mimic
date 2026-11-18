@@ -190,9 +190,10 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
 }
 
 /// A nested sub-path of an object field is UNIMPLEMENTED for an anonymous caller too. A
-/// ReadObject path naming a response field gcs-mimic does not return is refused like an
-/// unmodeled setting: an anonymous caller gets UNAUTHENTICATED instead, before the object is
-/// authorized.
+/// ReadObject path that names no ReadObjectResponse field, such as `read_handle`, or a sub-path
+/// of a response field other than `checksummed_data.content` and `checksummed_data.crc32c` is
+/// refused like an unmodeled setting: an authorized caller gets UNIMPLEMENTED and an anonymous
+/// caller UNAUTHENTICATED, before the object is authorized.
 #[tokio::test]
 async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     let (_dir, storage) = setup(true).await;
@@ -239,6 +240,17 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
         read_as(&storage, handle(), admin).await,
         "ReadObject read_mask read_handle",
     );
+    for path in ["content_range.start", "object_checksums.crc32c"] {
+        assert_unsupported(
+            read_as(
+                &storage,
+                read_request("object", &["checksummed_data", path]),
+                admin,
+            )
+            .await,
+            &format!("ReadObject read_mask {path}"),
+        );
+    }
     storage.state.catalog.close().await.unwrap();
 }
 
