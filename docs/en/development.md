@@ -1018,7 +1018,9 @@ covered because they need a service-account key.
 
 `"protocol": "grpc"` replaces `method` and `path` with `rpc`, the full name
 such as `google.storage.v2.Storage/GetBucket`. `headers` are gRPC metadata
-(for example `x-goog-request-params`, which the real service needs for routing:
+(for example `x-goog-request-params`, which the real service needs for routing
+and gcs-mimic requires on every Storage v2 call except QueryWriteStatus and
+CancelResumableWrite, so a step without it answers INVALID_ARGUMENT:
 the key is the variable name of the RPC's `path_template` in `storage.proto`,
 `bucket=projects%2F_%2Fbuckets%2F{bucket}` for most RPCs and
 `project=projects%2F{project}` for `ListBuckets`, with the value
