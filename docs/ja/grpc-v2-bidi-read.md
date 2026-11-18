@@ -42,8 +42,12 @@ protoはエントリの順序も定めていないため、失敗した範囲、
 詳細内のgoogle.rpc.Statusのcodeとmessageは、I/O障害やread_id重複でも外側のgRPC statusと一致させる。
 read handleの照合は長さを確認した後、32バイトすべてを比較する。
 新しい設定・依存・カタログ変更・ポーリングは加えていない。
-エラーは共有の`status::from_json`を使い、JSONの503はUNAVAILABLE、
-未対応の501はErrorInfo付きUNIMPLEMENTEDへ変換する。
+エラーはストレージのドメインエラーから`src/grpc/v2/status.rs`で直接 Status にし、
+ストレージの失敗はUNAVAILABLE、未対応の設定はErrorInfo付きUNIMPLEMENTEDにする。
+ほかの Storage v2 の呼び出しと同じく`x-goog-request-params`が必要で（なければ INVALID_ARGUMENT）、
+最初のメッセージが届いた時点で、ルーティングされたバケットを`read_object_spec`のバケットと比べる。
+Cloud Storage は記録に使ったプロジェクトでは BidiReadObject を拒否したため、この要求も比較もこの RPC では記録しておらず、
+記録できた RPC（`grpc-probe-routing`）からの推測である。
 
 Go SDK v1.70.0 は再接続時に未完了範囲を 1 メッセージにまとめる。
 100 件を超えた場合は proto の上限に従って再試行されない INVALID_ARGUMENT を返す。
