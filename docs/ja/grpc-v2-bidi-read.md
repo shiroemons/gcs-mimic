@@ -25,12 +25,20 @@ appendableのhandleは、追記や確定後も発行時のサイズまでしか�
 有効期限と削除後のstatusは、Googleが定めておらず実機でも確かめないため、記録済みのローカルな選択とする（SPEC-GRPC-READ-HANDLES。2026-11-18からRPC-STORAGE-016とBEHAVIOR-RPC-004のscoped difference）。
 strict では所有プロジェクトも固定し、別プロジェクトで同名バケットを作り直した場合の再接続を拒否する。
 ルーティングトークンは、エミュレーターがストリームをリダイレクトしないため、意図してUNIMPLEMENTEDで拒否する（SPEC-GRPC-UNMODELED-SETTINGS）。
-handle と前提条件の併用と既定以外の read mask も UNIMPLEMENTED で、RPC-STORAGE-016 の未完了のケースとして残す。後から追記された内容の読み取りは BEHAVIOR-RAPID-005 で扱う。
+最初の応答のオブジェクトは、storage.proto の 1185〜1187 行が定めるとおり、非推奨の`read_mask`に従う。なし・空の mask は`acl`と`owner`以外の全フィールドを返す。`*`は、フィールドでも、proto が代替として挙げる`x-goog-fieldmask`ヘッダーでも、ACL と owner を含む全フィールドを返し、ReadObject の`*`と同じオブジェクトになる。
+それ以外の`read_mask`（なし・空・`*`以外）と、`*`以外の`x-goog-fieldmask`ヘッダーは ErrorInfo 付きの UNIMPLEMENTED とする。
+非推奨のこのフィールドの説明は ReadObjectRequest からの写しで、BidiReadObjectResponse にない`checksummed_data`が常に含まれると述べ、gRPC メタデータによる代替の文が途中で切れている（storage.proto の 1183〜1190 行）。
+このため mask がどの応答パスを選ぶかが定まらない。
+read handle と世代・metageneration の前提条件の併用も ErrorInfo 付きの UNIMPLEMENTED とする。
+条件を handle が開き直す世代に適用するのかライブオブジェクトに適用するのかを proto が定めていないためで、条件を使うときは handle なしで開き直す。
+どちらの拒否も記録済みのローカルな選択とする（SPEC-GRPC-LOCAL-CHOICES）。
+最初のメッセージがない、または`read_object_spec`がないストリームと、後のメッセージで`read_object_spec`を繰り返すストリームは INVALID_ARGUMENT。
+後から追記された内容の読み取りは BEHAVIOR-RAPID-005 で扱う。
 顧客指定の暗号鍵は [gRPC の CSEK](grpc-v2-customer-supplied-keys.md) のとおり、開くたびと再開のたびに spec の鍵を検査する。
 エラー詳細には、受理した未完了範囲のread_idをすべて含める。失敗した範囲は固有のstatusを保ち、ほかの範囲は再試行を促すABORTEDにする。
 通常のバッチ内で一部の範囲が不正な場合も、バッチの全read_idを報告する。100件を超えるバッチは受理しない。
 protoは未完了の各read_idの報告を求めるがstatusを定めていないため、ABORTEDは記録済みのローカルな選択とする（SPEC-GRPC-PENDING-RANGES）。
-エントリの順序はテストで固定しておらず、BEHAVIOR-RPC-004 の未完了のケースとして残す。入力の上限はSPEC-GRPC-LOCAL-CHOICESにローカルな上限として記録する。
+protoはエントリの順序も定めていないため、失敗した範囲、キューにある範囲（キューの順）、拒否したメッセージの残り（リクエストの順）という順序も、同じく記録済みのローカルな選択とする。入力の上限はSPEC-GRPC-LOCAL-CHOICESにローカルな上限として記録する。
 詳細内のgoogle.rpc.Statusのcodeとmessageは、I/O障害やread_id重複でも外側のgRPC statusと一致させる。
 read handleの照合は長さを確認した後、32バイトすべてを比較する。
 新しい設定・依存・カタログ変更・ポーリングは加えていない。
@@ -40,6 +48,19 @@ read handleの照合は長さを確認した後、32バイトすべてを比較�
 Go SDK v1.70.0 は再接続時に未完了範囲を 1 メッセージにまとめる。
 100 件を超えた場合は proto の上限に従って再試行されない INVALID_ARGUMENT を返す。
 この再接続条件は SDK 側の制限として残る。中断のない 600 件の Add/Wait は既定の呼び方で検証済み。
+
+2026-11-18に、テストのなかった上記の応答をテストで固定した。既存の挙動を固定するテストで、最初の実行から通過した。
+`the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle`は spec を検査し、ルーティングトークン、既定以外の read mask、read handle と 4 種類の条件それぞれの併用が ErrorInfo 付きの UNIMPLEMENTED になること、空のルーティングトークンとなし・空・`*`の mask は受け付けること、負の世代と条件が INVALID_ARGUMENT になることを確かめる。
+`the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header`はストリームを wire 経由で実行し、メッセージなし、spec のない最初のメッセージ、後からの spec が INVALID_ARGUMENT になること、`*`以外の`x-goog-fieldmask`ヘッダーが応答の前に ErrorInfo を 1 件持つ UNIMPLEMENTED になり、`*`なら読めることを確かめる。
+`bidi_range_errors_list_the_failed_range_first_then_queue_and_request_order`は`read_range_errors`のエントリの順序を固定する。
+`cargo test --locked --offline --lib grpc::`の 270 件が通過した。SDK のテストは実行していない。
+
+同じ 2026-11-18 のその後に、`*`の mask でオブジェクトの ACL と owner を返すようにした。
+それまでの BidiReadObject は`*`を受け付けても既定のフィールドで応答していたため、proto の「全フィールド」や ReadObject の`*`が含む ACL と owner が最初の応答になかった。
+`a_wildcard_mask_returns_the_acl_and_owner_the_default_omits`は変更より先に書き、ACL が空で owner がないため失敗した。
+変更後は、`*`の read mask、`*`の`x-goog-fieldmask`ヘッダー、その両方のどれでも ReadObject の`*`と同じオブジェクトを返し、なし・空の mask は ReadObject の既定と同じく ACL と owner を含まない。
+ReadObject と BidiReadObject はこのオブジェクトを同じヘルパーで組み立てる。`the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle`は、`validate_spec`が`*`を全フィールド、なし・空を既定と読むことを確かめる。
+`cargo test --locked --offline --lib grpc::`の 273 件が通過した。SDK のテストは実行していない。
 
 2026-11-04にRustの対象10テストとACLのwire 2テストが通過した。
 削除・上書き・バケット再作成・RAM予算解放・TTL・FIFO・appendableのサイズ上限を確認した。

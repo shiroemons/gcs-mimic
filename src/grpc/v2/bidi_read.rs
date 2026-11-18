@@ -113,26 +113,73 @@ fn check_handle_project(expected: Option<&str>, access: &BucketAccess) -> Result
     Ok(())
 }
 
+/// The object fields in BidiReadObject's first response. The deprecated `read_mask` defaults to
+/// every field except `metadata.owner` and `metadata.acl`, and `*` means every field
+/// (storage.proto lines 1183-1187); the `x-goog-fieldmask` header, which the proto names as the
+/// field's alternative, takes `*` the same way. Any other mask is refused: the field's text,
+/// copied from ReadObjectRequest, names a response field BidiReadObjectResponse does not have,
+/// so which response paths a mask selects is undefined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum MetadataFields {
+    /// Every field except the ACL and the owner.
+    Default,
+    /// Every field, the ACL and the owner included.
+    All,
+}
+
+/// A read mask other than the default and `*`.
+struct UnsupportedReadMask;
+
+impl TryFrom<ReadMask<'_>> for MetadataFields {
+    type Error = UnsupportedReadMask;
+
+    fn try_from(mask: ReadMask<'_>) -> Result<Self, Self::Error> {
+        match mask {
+            ReadMask::Default => Ok(Self::Default),
+            ReadMask::Wildcard => Ok(Self::All),
+            ReadMask::MixedWildcard(_) | ReadMask::Paths(_) => Err(UnsupportedReadMask),
+        }
+    }
+}
+
+impl From<MetadataFields> for ReadMask<'static> {
+    fn from(fields: MetadataFields) -> Self {
+        match fields {
+            MetadataFields::Default => Self::Default,
+            MetadataFields::All => Self::Wildcard,
+        }
+    }
+}
+
+/// What a valid `read_object_spec` selects.
+#[derive(Debug, PartialEq, Eq)]
+struct ReadSpec {
+    /// The generation to read, or `None` for the live object.
+    generation: Option<Generation>,
+    /// The object fields the spec's `read_mask` selects.
+    fields: MetadataFields,
+}
+
 #[expect(
     deprecated,
-    reason = "the deprecated read_mask field must still be rejected when a client sets it"
+    reason = "the deprecated read_mask field is still documented, so it is read and checked"
 )]
-fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<Option<Generation>, Status> {
+fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<ReadSpec, Status> {
     const MESSAGE: &str =
         "Generation conditions must be nonnegative; use generation 0 for the live object";
+    const REFUSED: &str = "BidiReadObject routing_token or read_mask";
     let generation = validate::selected_generation(spec.generation)
         .map_err(|NegativeGeneration| Status::invalid_argument(MESSAGE))?;
     validate::lenient_conditions(ObjectConditions::from(spec), MESSAGE)?;
+    let Ok(fields) = MetadataFields::try_from(ReadMask::from(spec.read_mask.as_ref())) else {
+        return Err(unsupported(REFUSED));
+    };
     if spec
         .routing_token
         .as_ref()
         .is_some_and(|token| !token.is_empty())
-        || !matches!(
-            ReadMask::from(spec.read_mask.as_ref()),
-            ReadMask::Default | ReadMask::Wildcard
-        )
     {
-        return Err(unsupported("BidiReadObject routing_token or read_mask"));
+        return Err(unsupported(REFUSED));
     }
     if spec.read_handle.is_some()
         && (spec.if_generation_match.is_some()
@@ -144,7 +191,16 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<Option<Generation>, St
             "BidiReadObject preconditions with read_handle; reopen without read_handle to apply conditions",
         ));
     }
-    Ok(generation)
+    Ok(ReadSpec { generation, fields })
+}
+
+/// The object fields the `x-goog-fieldmask` header selects, which only `*` may name.
+fn header_fields(metadata: &tonic::metadata::MetadataMap) -> Result<MetadataFields, Status> {
+    match metadata.get("x-goog-fieldmask") {
+        None => Ok(MetadataFields::Default),
+        Some(mask) if mask == "*" => Ok(MetadataFields::All),
+        Some(_) => Err(unsupported("BidiReadObject x-goog-fieldmask")),
+    }
 }
 
 impl Storage {
@@ -214,13 +270,7 @@ impl Storage {
         request: Request<Streaming<pb::BidiReadObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<ResponseStream<pb::BidiReadObjectResponse>>, Status> {
-        if request
-            .metadata()
-            .get("x-goog-fieldmask")
-            .is_some_and(|mask| mask != "*")
-        {
-            return Err(unsupported("BidiReadObject x-goog-fieldmask"));
-        }
+        let header_fields = header_fields(request.metadata())?;
         let (metadata, _, mut input) = request.into_parts();
         let first = input.message().await?.ok_or_else(|| {
             Status::invalid_argument(
@@ -232,7 +282,9 @@ impl Storage {
                 "First message requires read_object_spec; specify bucket and object",
             )
         })?;
-        let generation = validate_spec(&spec)?;
+        let ReadSpec { generation, fields } = validate_spec(&spec)?;
+        // `*` in either the field or the header selects every field.
+        let fields = fields.max(header_fields);
         // Real Cloud Storage refused BidiReadObject for the test project, so nothing was
         // recorded. These rules are local decisions that mirror ReadObject, and a resumed
         // read must repeat its key because a handle never stores one.
@@ -289,12 +341,15 @@ impl Storage {
             metadata: if resumed {
                 None
             } else {
-                Some(super::append::object(
-                    &selected.record,
-                    selected.finality,
-                    // Opening verified the key, so the stored bytes' hashes may be shown.
-                    crate::csek::StoredHashes::Revealed,
-                )?)
+                Some(
+                    self.first_read_metadata(
+                        caller,
+                        &selected.record,
+                        selected.finality,
+                        fields.into(),
+                    )
+                    .await?,
+                )
             },
             read_handle: Some(pb::BidiReadHandle {
                 handle: token.0.to_vec(),
@@ -612,7 +667,7 @@ mod tests {
 
     /// The generation BidiReadObject parses from `spec` before resuming its handle.
     fn issued_generation(spec: &pb::BidiReadObjectSpec) -> Option<Generation> {
-        validate_spec(spec).unwrap()
+        validate_spec(spec).unwrap().generation
     }
 
     async fn issued_spec(
@@ -1029,6 +1084,45 @@ mod tests {
         );
     }
 
+    /// The proto requires an entry per pending read_id without naming an order. The failed range
+    /// comes first, then the ranges queued by earlier messages and this one, in queue order, then
+    /// the rest of the rejected message in request order.
+    #[test]
+    fn bidi_range_errors_list_the_failed_range_first_then_queue_and_request_order() {
+        let range = |read_id, read_offset| pb::ReadRange {
+            read_id,
+            read_offset,
+            read_length: 1,
+        };
+        let mut queue = VecDeque::new();
+        submit(&mut queue, vec![range(9, 0), range(4, 1)], 10).unwrap();
+        let error = submit(
+            &mut queue,
+            vec![range(1, 0), range(2, 20), range(8, 0), range(3, 0)],
+            10,
+        )
+        .unwrap_err();
+        let rpc = crate::grpc::generated::google::rpc::Status::decode(error.details()).unwrap();
+        let detail = pb::BidiReadObjectError::decode(rpc.details[0].value.as_slice()).unwrap();
+        let order = detail
+            .read_range_errors
+            .into_iter()
+            .map(|range| (range.read_id, range.status.unwrap().code))
+            .collect::<Vec<_>>();
+        let aborted = tonic::Code::Aborted as i32;
+        assert_eq!(
+            order,
+            [
+                (2, tonic::Code::OutOfRange as i32),
+                (9, aborted),
+                (4, aborted),
+                (1, aborted),
+                (8, aborted),
+                (3, aborted),
+            ]
+        );
+    }
+
     #[test]
     fn bidi_duplicate_id_keeps_outer_error_in_details() {
         let range = pb::ReadRange {
@@ -1170,3 +1264,7 @@ mod tests {
 
 #[cfg(test)]
 mod csek_tests;
+#[cfg(test)]
+mod mask_tests;
+#[cfg(test)]
+mod request_refusals;

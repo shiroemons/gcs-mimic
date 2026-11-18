@@ -43,56 +43,103 @@ fn require_content_in_read_mask(mask: ReadMask<'_>) -> Result<(), Status> {
     ))
 }
 
-/// Applies a ReadObject mask to the first response. Its `metadata.` paths select fields of the
-/// object (`metadata` alone selects all of it); the response's own fields are kept only when
-/// named.
-fn mask_first_response(
-    first: &mut pb::ReadObjectResponse,
-    mask: ReadMask<'_>,
-    caller: Option<Caller<'_>>,
-) -> Result<(), Status> {
-    let Some(paths) = mask.selective_paths() else {
-        return Ok(());
-    };
-    let mut object_paths = Vec::new();
-    let mut metadata = false;
-    for path in paths {
-        match path.as_str() {
-            "checksummed_data"
-            | "checksummed_data.content"
-            | "checksummed_data.crc32c"
-            | "object_checksums"
-            | "content_range" => {}
-            "metadata" => metadata = true,
-            p if let Some(field) = p.strip_prefix("metadata.") => {
-                object_paths.push(field.to_owned())
+/// Checks the object fields a read mask names before the RPC authorizes the caller or looks
+/// anything up, as GetBucket checks its mask. Which fields a mask may name does not depend on the
+/// object, so an invalid mask is reported for a missing object or an empty listing too.
+/// [`mask_object`] applies these same rules, so this runs it on an empty object. ListBuckets
+/// checks its mask later, after it authorizes the project.
+fn check_object_mask(mask: ReadMask<'_>) -> Result<(), Status> {
+    mask_object(pb::Object::default(), mask).map(drop)
+}
+
+/// A ReadObject read mask, checked with the request before the caller is authorized or the
+/// object opened.
+enum FirstResponseMask<'a> {
+    /// An absent or empty mask, or `*`: the first response keeps every field.
+    Everything,
+    /// The mask's paths. Its `metadata` paths select the object; the response's own fields are
+    /// kept only when named.
+    Selected {
+        paths: &'a [String],
+        metadata: MetadataMask,
+    },
+}
+
+/// The object a selective ReadObject mask keeps in the first response's `metadata`.
+enum MetadataMask {
+    /// `metadata` alone: the whole object.
+    Whole,
+    /// The object fields its `metadata.` paths name; when they name none, the response carries
+    /// no object.
+    Fields(Vec<String>),
+}
+
+impl MetadataMask {
+    fn apply(&self, metadata: &mut Option<pb::Object>) -> Result<(), Status> {
+        let fields = match self {
+            Self::Whole => return Ok(()),
+            Self::Fields(fields) => ReadMask::from(fields.as_slice()),
+        };
+        *metadata = match fields {
+            ReadMask::Default => None,
+            ReadMask::Wildcard | ReadMask::MixedWildcard(_) | ReadMask::Paths(_) => metadata
+                .take()
+                .map(|object| mask_object(object, fields))
+                .transpose()?,
+        };
+        Ok(())
+    }
+}
+
+impl<'a> FirstResponseMask<'a> {
+    fn parse(mask: ReadMask<'a>, caller: Option<Caller<'_>>) -> Result<Self, Status> {
+        require_content_in_read_mask(mask)?;
+        let Some(paths) = mask.selective_paths() else {
+            return Ok(Self::Everything);
+        };
+        let mut fields = Vec::new();
+        let mut whole = false;
+        for path in paths {
+            match path.as_str() {
+                "checksummed_data"
+                | "checksummed_data.content"
+                | "checksummed_data.crc32c"
+                | "object_checksums"
+                | "content_range" => {}
+                "metadata" => whole = true,
+                p if let Some(field) = p.strip_prefix("metadata.") => fields.push(field.to_owned()),
+                _ => {
+                    return Err(unsupported_for(
+                        &format!("ReadObject read_mask {path}"),
+                        caller,
+                    ));
+                }
             }
-            _ => {
-                return Err(unsupported_for(
-                    &format!("ReadObject read_mask {path}"),
-                    caller,
-                ));
+        }
+        let metadata = if whole {
+            MetadataMask::Whole
+        } else {
+            check_object_mask(ReadMask::from(fields.as_slice()))?;
+            MetadataMask::Fields(fields)
+        };
+        Ok(Self::Selected { paths, metadata })
+    }
+
+    fn apply(&self, first: &mut pb::ReadObjectResponse) -> Result<(), Status> {
+        match self {
+            Self::Everything => Ok(()),
+            Self::Selected { paths, metadata } => {
+                metadata.apply(&mut first.metadata)?;
+                if !paths.iter().any(|p| p == "object_checksums") {
+                    first.object_checksums = None;
+                }
+                if !paths.iter().any(|p| p == "content_range") {
+                    first.content_range = None;
+                }
+                Ok(())
             }
         }
     }
-    if !metadata {
-        first.metadata = match ReadMask::from(object_paths.as_slice()) {
-            ReadMask::Default => None,
-            object_mask
-            @ (ReadMask::Wildcard | ReadMask::MixedWildcard(_) | ReadMask::Paths(_)) => first
-                .metadata
-                .take()
-                .map(|metadata| mask_object(metadata, object_mask))
-                .transpose()?,
-        };
-    }
-    if !paths.iter().any(|p| p == "object_checksums") {
-        first.object_checksums = None;
-    }
-    if !paths.iter().any(|p| p == "content_range") {
-        first.content_range = None;
-    }
-    Ok(())
 }
 
 pub(super) fn read_range(size: u64, offset: i64, limit: i64) -> Result<ByteRange, Status> {
@@ -123,6 +170,7 @@ impl Storage {
             ));
         }
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
+        check_object_mask(mask)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
@@ -151,6 +199,32 @@ impl Storage {
         }
         Ok(Response::new(mask_object(object, mask)?))
     }
+    /// The object in the first response of ReadObject and BidiReadObject, read from the opened
+    /// `record`. `mask` selects the ACL and owner as a `metadata`-prefixed read mask does; an
+    /// unfinalized appendable object has neither.
+    pub(in crate::grpc::v2) async fn first_read_metadata(
+        &self,
+        caller: Option<Caller<'_>>,
+        record: &crate::object::ObjectRecord,
+        finality: Finality,
+        mask: ReadMask<'_>,
+    ) -> Result<pb::Object, Status> {
+        // Opening the data verified the key (an encrypted object without one fails), so the
+        // stored bytes' hashes are always the caller's to see.
+        let mut object =
+            super::super::append::object(record, finality, crate::csek::StoredHashes::Revealed)?;
+        if finality == Finality::Finalized {
+            self.add_owner_fields(
+                caller,
+                &record.bucket,
+                std::slice::from_mut(&mut object),
+                OwnerFields::selected(mask, Some("metadata")),
+            )
+            .await?;
+        }
+        Ok(object)
+    }
+
     pub(in crate::grpc::v2) async fn read_object(
         &self,
         request: Request<pb::ReadObjectRequest>,
@@ -160,7 +234,7 @@ impl Storage {
         let key = customer_key::key(r.common_object_request_params.as_ref())?;
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let mask = ReadMask::from(r.read_mask.as_ref());
-        require_content_in_read_mask(mask)?;
+        let first_mask = FirstResponseMask::parse(mask, caller)?;
         let access = self.access(caller, bucket, OBJECTS_GET).await?;
         let target =
             ObjectTarget::new(bucket, name, generation(r.generation)?.map(Generation::get));
@@ -179,19 +253,9 @@ impl Storage {
             .set_range(range.start, range.len)
             .await
             .map_err(read_failure)?;
-        // Opening the data verified the key (an encrypted object without one fails), so the
-        // stored bytes' hashes are always the caller's to see.
-        let mut object =
-            super::super::append::object(&record, finality, crate::csek::StoredHashes::Revealed)?;
-        if finality == Finality::Finalized {
-            self.add_owner_fields(
-                caller,
-                bucket,
-                std::slice::from_mut(&mut object),
-                OwnerFields::selected(mask, Some("metadata")),
-            )
+        let object = self
+            .first_read_metadata(caller, &record, finality, mask)
             .await?;
-        }
         let mut first = pb::ReadObjectResponse {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,
@@ -207,7 +271,7 @@ impl Storage {
             }),
             ..Default::default()
         };
-        mask_first_response(&mut first, mask, caller)?;
+        first_mask.apply(&mut first)?;
         let (tx, rx) = mpsc::channel(1);
         crate::task::spawn_supervised("grpc-read-object", async move {
             // Cloud Storage ends the stream after the last data message instead of appending an
@@ -274,6 +338,7 @@ impl Storage {
         if !r.page_token.is_empty() {
             query.cursor = Some(json::decode_object_page_token(&r.page_token, &query).map_err(|_| Status::invalid_argument("Invalid page_token; use a next_page_token from an earlier listing response"))?);
         }
+        check_object_mask(mask)?;
         let access = self.access(caller, bucket, OBJECTS_LIST).await?;
         let page = self
             .state
@@ -318,4 +383,14 @@ impl Storage {
 #[cfg(test)]
 mod list_tests;
 #[cfg(test)]
+mod mask_tests;
+#[cfg(test)]
+mod order_tests;
+#[cfg(test)]
+mod request_refusals;
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transcoding_tests;

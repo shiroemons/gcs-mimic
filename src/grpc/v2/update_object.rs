@@ -6,12 +6,21 @@ use super::{
 use crate::{
     auth::{self, Caller},
     grpc::validate::{self, NegativeGeneration, strict_conditions},
-    object::{ObjectConditions, ObjectError, ObjectTarget, generation::Generation},
+    object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, generation::Generation},
 };
 use tonic::{Request, Response, Status};
 
 #[cfg(test)]
 mod event_hold_release;
+#[cfg(test)]
+mod object_etag;
+
+/// The etag a Storage v2 response renders for `record`. A client sends that value back in
+/// `Object.etag`, so the request is compared with the same rendering; the stored hashes play no
+/// part in it.
+fn rendered_etag(record: &ObjectRecord) -> Result<String, ObjectError> {
+    Ok(super::convert::object(record, crate::csek::StoredHashes::Withheld)?.etag)
+}
 
 impl Storage {
     pub(super) async fn update_object(
@@ -29,7 +38,7 @@ impl Storage {
         } else {
             crate::object::retention::UnlockedOverride::NotRequested
         };
-        let o = r.object.take().ok_or_else(|| {
+        let mut o = r.object.take().ok_or_else(|| {
             Status::invalid_argument("object is required; supply object.bucket and object.name")
         })?;
         let (bucket, name) = self.object_name(&o.bucket, &o.name)?;
@@ -37,6 +46,12 @@ impl Storage {
             validate::selected_generation(o.generation).map_err(|NegativeGeneration| {
                 Status::invalid_argument("generation must be positive or omitted")
             })?;
+        // The proto's `Object.etag`: "If included in the metadata of an update or delete request
+        // message, the operation is only performed if the etag matches that of the live object."
+        // It is compared with the generation the request selects, as the generation and
+        // metageneration conditions are; the proto does not say what a request that selects an
+        // older generation compares.
+        let etag = Some(std::mem::take(&mut o.etag)).filter(|etag| !etag.is_empty());
         let paths = mask(r.update_mask.as_ref())?;
         let mut update = super::object_update::from_proto(&o, paths)?;
         update.acl = std::mem::take(&mut update.acl)
@@ -60,8 +75,14 @@ impl Storage {
                 ObjectTarget::new(bucket, name, generation.map(Generation::get)),
                 c,
                 update,
-                // A wrong key fails before the metadata change commits.
+                // The etag is a condition, checked after the others in the same transaction; a
+                // wrong key fails after it, before the metadata change commits.
                 move |record| {
+                    if let Some(etag) = &etag
+                        && *etag != rendered_etag(record)?
+                    {
+                        return Err(ObjectError::PreconditionFailed);
+                    }
                     crate::csek::check_metadata(record.customer_key_sha256, key)
                         .map(drop)
                         .map_err(ObjectError::CustomerEncryption)

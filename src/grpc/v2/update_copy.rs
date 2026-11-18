@@ -675,6 +675,8 @@ impl Storage {
 #[cfg(test)]
 mod object_keys;
 #[cfg(test)]
+mod request_refusals;
+#[cfg(test)]
 mod rewrite_keys;
 
 #[cfg(test)]
