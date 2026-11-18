@@ -23251,6 +23251,14 @@
           ]
         },
         {
+          "id": "grpc_compose_request_validation",
+          "description": "A missing destination answers INVALID_ARGUMENT 'destination is required; supply bucket and name' and a negative source generation 'source generation must be positive or omitted', and neither creates the destination.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
+        {
           "id": "grpc_compose_canned_acl_view",
           "description": "A ComposeObject that names a canned ACL answers with acl and owner, as recorded; for a caller without ACL read permission the shared write view (add_written_owner_fields in src/grpc/v2/object_io/resource.rs) leaves both empty. That view was not recorded and no test pins it; pin it, then record it as a scoped difference under SPEC-GRPC-DERIVED-OWNER-VIEW.",
           "result": "PENDING",
@@ -23264,7 +23272,7 @@
         },
         {
           "id": "grpc_compose_destination_fields",
-          "description": "A destination with retention, an acl list or any field outside the editable metadata, output-only fields included, returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs). The proto names the storage.objects.setRetention permission ComposeObject needs when the destination carries retention (storage.proto lines 278-284), and google.api.field_behavior describes OUTPUT_ONLY fields as ignored on input. Apply retention and acl, and ignore output-only fields.",
+          "description": "A destination with retention, an acl list or any field outside the editable metadata, output-only fields included, returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs; pinned for retention and acl by compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination). The proto names the storage.objects.setRetention permission ComposeObject needs when the destination carries retention (storage.proto lines 278-284), and google.api.field_behavior describes OUTPUT_ONLY fields as ignored on input. Apply retention and acl, and ignore output-only fields.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -23295,9 +23303,19 @@
         "TestGRPCUpdateCopyStrict",
         "grpc_compose_deletes_its_sources_only_when_asked",
         "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
-        "grpc_derived_write_views_respect_acl_permissions_and_uniform_access"
+        "grpc_derived_write_views_respect_acl_permissions_and_uniform_access",
+        "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -23394,7 +23412,7 @@
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-011",
@@ -23553,8 +23571,16 @@
           ]
         },
         {
+          "id": "grpc_restore_request_validation",
+          "description": "A missing or negative generation answers INVALID_ARGUMENT 'generation is required; select a positive soft-deleted generation' and restores nothing; copy_source_acl=false restores the soft-deleted bytes as a new live generation.",
+          "result": "PASS",
+          "test_ids": [
+            "restore_object_refuses_a_missing_generation_and_copying_the_source_acl"
+          ]
+        },
+        {
           "id": "grpc_restore_copy_source_acl",
-          "description": "copy_source_acl=true returns UNIMPLEMENTED (restore_object in src/grpc/v2/move_restore.rs), while the proto documents it as restoring the soft-deleted object's own ACL and refusing it under uniform access (storage.proto lines 974-977). The JSON restore refuses copySourceAcl too (the SDK fail-fast probe, SPEC-SDK-UNSUPPORTED), so both adapters need it.",
+          "description": "copy_source_acl=true returns UNIMPLEMENTED and restores nothing (restore_object in src/grpc/v2/move_restore.rs, pinned by restore_object_refuses_a_missing_generation_and_copying_the_source_acl), while the proto documents it as restoring the soft-deleted object's own ACL and refusing it under uniform access (storage.proto lines 974-977). The JSON restore refuses copySourceAcl too (the SDK fail-fast probe, SPEC-SDK-UNSUPPORTED), so both adapters need it.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -23573,9 +23599,19 @@
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
         "TestGRPCUpdateCopyStrict",
-        "grpc_derived_writes_return_the_recorded_owner_and_acl_views"
+        "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
+        "restore_object_refuses_a_missing_generation_and_copying_the_source_acl"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "restore_object_refuses_a_missing_generation_and_copying_the_source_acl"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -23648,10 +23684,11 @@
       ],
       "scoped_differences": [
         {
-          "text": "restore_token returns UNIMPLEMENTED with ErrorInfo: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 948-953), and the emulator models no hierarchical namespace, on any protocol.",
+          "text": "restore_token returns UNIMPLEMENTED with ErrorInfo and restores nothing: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 948-953), and the emulator models no hierarchical namespace, on any protocol.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
-            "grpc_derived_writes_reject_unsupported_options_without_creating_objects"
+            "grpc_derived_writes_reject_unsupported_options_without_creating_objects",
+            "restore_object_refuses_a_missing_generation_and_copying_the_source_acl"
           ]
         },
         {
@@ -23670,7 +23707,7 @@
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-27"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-013",
@@ -23869,15 +23906,17 @@
         },
         {
           "id": "get_object_soft_deleted",
-          "description": "soft_deleted=true returns UNIMPLEMENTED ('GetObject soft_deleted/restore_token', get_object in src/grpc/v2/object_io/read.rs), while the proto documents it as returning the soft-deleted version (storage.proto lines 1080-1081). Select the soft-deleted generation through the shared catalog, as ListObjects soft_deleted already does.",
+          "description": "soft_deleted=true returns UNIMPLEMENTED ('GetObject soft_deleted/restore_token', get_object in src/grpc/v2/object_io/read.rs; pinned by get_object_refuses_unmodeled_lookups_and_negative_values, where soft_deleted=false is the default lookup), while the proto documents it as returning the soft-deleted version (storage.proto lines 1080-1081). Select the soft-deleted generation through the shared catalog, as ListObjects soft_deleted already does.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "get_object_restore_token_pinned",
-          "description": "restore_token returns UNIMPLEMENTED; it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 1113-1118), an explicit refusal under SPEC-GRPC-UNMODELED-SETTINGS, but no test pins it on GetObject. Pin it, then record it as a scoped difference.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A nonempty restore_token answers UNIMPLEMENTED with ErrorInfo ('GetObject soft_deleted/restore_token') for a live object too: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 1113-1118), which the emulator does not model, an explicit refusal recorded as a scoped difference under SPEC-GRPC-UNMODELED-SETTINGS.",
+          "result": "PASS",
+          "test_ids": [
+            "get_object_refuses_unmodeled_lookups_and_negative_values"
+          ]
         },
         {
           "id": "get_object_mask_validation_order",
@@ -23904,6 +23943,7 @@
         "an_invalid_read_mask_is_reported_for_a_missing_object",
         "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
         "request_checks_before_the_mask_keep_their_order",
+        "get_object_refuses_unmodeled_lookups_and_negative_values",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
       ],
@@ -23916,7 +23956,8 @@
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_a_missing_object",
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
-            "request_checks_before_the_mask_keep_their_order"
+            "request_checks_before_the_mask_keep_their_order",
+            "get_object_refuses_unmodeled_lookups_and_negative_values"
           ]
         },
         {
@@ -23978,10 +24019,16 @@
       "known_deviations": [
         "Nested Object read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
         "soft_deleted=true returns UNIMPLEMENTED instead of returning the soft-deleted version.",
-        "The restore_token refusal is not pinned by a GetObject test.",
         "GetObject validates its conditions leniently, while the object mutation RPCs refuse a metageneration condition of 0 and a match together with a not-match."
       ],
       "scoped_differences": [
+        {
+          "text": "restore_token returns UNIMPLEMENTED with ErrorInfo: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 1113-1118), and the emulator models no hierarchical namespace, on any protocol.",
+          "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
+          "test_ids": [
+            "get_object_refuses_unmodeled_lookups_and_negative_values"
+          ]
+        },
         {
           "text": "The read mask is checked with the request, after the customer key, the soft_deleted and restore_token refusals and the name and before authorization, the generation and condition checks and the lookup, so an invalid mask is reported for a missing object or an unauthorized caller. Google documents no order, and the recorded mask refusals (cases grpc-read-mask and grpc-composite-checksum-mask) named existing objects.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
@@ -24028,11 +24075,12 @@
         },
         {
           "id": "supported_object_io",
-          "description": "Read full and bounded ranges, negative offsets and selected generations; return CRC32C chunks/object checksums and range metadata; reject invalid limits/offsets.",
+          "description": "Read full and bounded ranges, negative offsets and selected generations; return CRC32C chunks/object checksums and range metadata; reject invalid limits/offsets: a negative read_limit answers INVALID_ARGUMENT 'read_limit must be nonnegative; use 0 to read to the end' and an offset past the end OUT_OF_RANGE naming the object, its generation and its size.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_range_and_masks",
             "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "read_object_refuses_negative_limits_and_offsets_past_the_end",
             "TestGRPCObjectIO",
             "TestGRPCObjectIOWire"
           ]
@@ -24075,10 +24123,20 @@
         "grpc_io_range_and_masks",
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "grpc_io_full_read_masks_return_acl_and_owner",
+        "read_object_refuses_negative_limits_and_offsets_past_the_end",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOWire"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "read_object_refuses_negative_limits_and_offsets_past_the_end"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -24276,8 +24334,16 @@
           ]
         },
         {
+          "id": "grpc_update_object_request_validation",
+          "description": "A missing object or update_mask, a negative object.generation, a retention whose mode is unspecified and a retention without retain_until_time each answer INVALID_ARGUMENT with a message naming the proto field, and the object keeps its metadata and metageneration.",
+          "result": "PASS",
+          "test_ids": [
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
+          ]
+        },
+        {
           "id": "grpc_update_object_wildcard_mask",
-          "description": "An update_mask of * returns UNIMPLEMENTED (pinned by grpc_masks_reject_unsupported_and_accept_defaults), while the proto defines * as a full update equivalent to the JSON update (storage.proto lines 2034-2041) and Cloud Storage served it (case grpc-unsupported-options, step update-object-wildcard-mask, a declared local_choice, recorded 2026-11-13).",
+          "description": "An update_mask of * returns UNIMPLEMENTED (pinned by grpc_masks_reject_unsupported_and_accept_defaults and update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object), while the proto defines * as a full update equivalent to the JSON update (storage.proto lines 2034-2041) and Cloud Storage served it (case grpc-unsupported-options, step update-object-wildcard-mask, a declared local_choice, recorded 2026-11-13).",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24306,7 +24372,8 @@
         "grpc_update_object_retention_strict",
         "update_object_applies_only_when_the_request_etag_matches",
         "a_selected_generation_is_compared_with_its_own_etag",
-        "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+        "the_etag_is_checked_after_the_lookup_and_before_the_customer_key",
+        "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
       ],
       "verification": [
         {
@@ -24315,6 +24382,7 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-update-copy.md",
           "test_ids": [
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
             "update_object_applies_only_when_the_request_etag_matches",
             "a_selected_generation_is_compared_with_its_own_etag",
             "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
@@ -24420,7 +24488,15 @@
           "text": "An update path for object contexts returns UNIMPLEMENTED with ErrorInfo naming the path through the catch-all arm of object_update::from_proto (pinned for contexts and contexts.custom): the emulator stores no object contexts, on any protocol.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
-            "grpc_masks_reject_unsupported_and_accept_defaults"
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
+          ]
+        },
+        {
+          "text": "An update path storage_class returns UNIMPLEMENTED with ErrorInfo and changes nothing. The proto does not say whether UpdateObject changes an object's storage class; a JSON metadata update leaves storageClass unchanged, and a rewrite to a destination storage_class changes it.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
           ]
         },
         {
@@ -24882,6 +24958,14 @@
           ]
         },
         {
+          "id": "list_page_size_validation",
+          "description": "A negative page_size answers INVALID_ARGUMENT 'page_size must be nonnegative; use 1000' and lists nothing.",
+          "result": "PASS",
+          "test_ids": [
+            "list_objects_refuses_a_filter_and_a_negative_page_size"
+          ]
+        },
+        {
           "id": "list_nested_masks",
           "description": "A sub-path of an Object field other than checksums.crc32c and checksums.md5_hash returns UNIMPLEMENTED (mask_object in src/grpc/v2/object_io/resource.rs), as on GetObject. Select sub-fields by protobuf field-mask rules.",
           "result": "PENDING",
@@ -24908,7 +24992,8 @@
         "grpc_object_lists_page_on_their_size_and_reach_every_object",
         "an_object_page_past_its_budget_still_advances_one_entry_at_a_time",
         "an_invalid_read_mask_is_reported_for_an_empty_listing",
-        "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "list_objects_refuses_a_filter_and_a_negative_page_size"
       ],
       "verification": [
         {
@@ -24918,7 +25003,8 @@
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
-            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "list_objects_refuses_a_filter_and_a_negative_page_size"
           ]
         },
         {
@@ -24995,7 +25081,8 @@
           "text": "filter, an expression over object contexts (storage.proto lines 1677-1682), returns UNIMPLEMENTED with ErrorInfo: the emulator stores no object contexts, on any protocol.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
-            "grpc_list_folders_as_prefixes_follows_the_json_rule"
+            "grpc_list_folders_as_prefixes_follows_the_json_rule",
+            "list_objects_refuses_a_filter_and_a_negative_page_size"
           ]
         },
         {
@@ -25065,6 +25152,14 @@
           ]
         },
         {
+          "id": "rewrite_request_validation",
+          "description": "A negative source_generation, or a max_bytes_rewritten_per_call that is negative or not a multiple of 1048576, answers INVALID_ARGUMENT 'source_generation must be positive or omitted; max_bytes_rewritten_per_call must be a multiple of 1048576'; a destination resource that names its bucket or name answers INVALID_ARGUMENT asking for destination_bucket and destination_name; a malformed rewrite_token answers INVALID_ARGUMENT 'Invalid rewrite token; use the token from the preceding response'. None creates the destination.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
+        {
           "id": "rewrite_destination_fields",
           "description": "A destination resource with retention, an acl list or any field outside the editable metadata, output-only fields included, returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs), although the JSON rewrite applies a destination retention (SPEC-SDK-UNSUPPORTED, update 2026-11-17) and google.api.field_behavior describes OUTPUT_ONLY fields as ignored on input. Apply retention and acl, and ignore output-only fields.",
           "result": "PENDING",
@@ -25103,9 +25198,19 @@
         "grpc_rewrite_continuation_and_compose_conditions",
         "grpc_retention_lock_and_compose_limits",
         "TestGRPCUpdateCopy",
-        "TestGRPCUpdateCopyStrict"
+        "TestGRPCUpdateCopyStrict",
+        "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -25192,7 +25297,7 @@
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-022",
