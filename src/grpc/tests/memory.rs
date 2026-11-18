@@ -138,10 +138,15 @@ async fn call<M: Message, R: Message + Default>(
     token: Option<&str>,
     messages: &[M],
 ) -> (Code, Vec<R>) {
+    let routing = if method == "RewriteObject" {
+        fixtures::rewrite_routing("memory-grpc", "memory-grpc")
+    } else {
+        fixtures::bucket_routing("memory-grpc")
+    };
     let (status, messages) = fixtures::routed_rpc_status(
         &format!("/google.storage.v2.Storage/{method}"),
         token,
-        &fixtures::bucket_routing("memory-grpc"),
+        &routing,
         messages,
         async |request| service.call(request).await.unwrap(),
     )

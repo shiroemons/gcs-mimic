@@ -51,9 +51,9 @@ impl Storage {
             .get_bucket(bucket, access)
             .await?
             .ok_or_else(|| Status::from(CatalogError::NotFound))?;
-        if !conditions.hold(record.metageneration) {
-            return Err(CatalogError::PreconditionFailed.into());
-        }
+        conditions
+            .check(record.metageneration)
+            .map_err(super::bucket_update::input_error)?;
         convert::lifecycle(&record.lifecycle)?;
         Ok(record.metageneration)
     }
@@ -259,12 +259,20 @@ mod tests {
             .code(),
             Code::FailedPrecondition
         );
-        // The settings after `iam_config.unknown` are those the JSON API does not store either.
+        // A member that versioning and iam_config do not have names no field (recorded
+        // 2026-11-19, case grpc-probe-inferred-bucket-masks).
+        for path in ["versioning.unknown", "iam_config.unknown"] {
+            let error = bucket_patch(&pb::Bucket::default(), &[path.into()]).unwrap_err();
+            assert_eq!(error.code(), Code::InvalidArgument, "{path}");
+            assert_eq!(
+                error.message(),
+                format!("There is no field for this resource named '{path}'.")
+            );
+        }
+        // The settings after `acl.entity` are those the JSON API does not store either.
         for path in [
             "*",
             "acl.entity",
-            "versioning.unknown",
-            "iam_config.unknown",
             "rpo",
             "website",
             "logging",

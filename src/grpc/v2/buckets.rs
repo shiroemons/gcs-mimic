@@ -343,9 +343,17 @@ impl Storage {
             .await
             .map_err(|error| access_status(error, caller))?
             .ok_or_else(|| access_status(CatalogError::NotFound, caller))?;
-        if !BucketConditions::from(&request).hold(record.metageneration) {
-            return Err(access_status(CatalogError::PreconditionFailed, caller));
-        }
+        // A not-match that alone fails is worded as a resource that has not been modified
+        // (recorded 2026-11-19 on GetBucket, case grpc-probe-inferred-bucket-masks).
+        BucketConditions::from(&request)
+            .check(record.metageneration)
+            .map_err(|error| {
+                if matches!(error, CatalogError::NotModified) {
+                    super::status::not_modified()
+                } else {
+                    access_status(error, caller)
+                }
+            })?;
         let mut bucket = convert::bucket(&record, mask.lifecycle())?;
         if mask.includes_acl(AclDefault::Include) {
             self.add_bucket_acl(caller, &mut bucket).await?;
@@ -1066,9 +1074,33 @@ mod tests {
                 assert_eq!(result.unwrap().into_inner().metageneration, 1);
             } else {
                 let status = assert_code(result, Code::FailedPrecondition);
-                assert_eq!(status.message(), precondition.message());
+                // A not-match that alone fails is worded as a resource that has not been
+                // modified (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+                let expected = if (matching, not_matching) == (Some(1), Some(1)) {
+                    "The resource you requested has not been modified according to the condition you specified."
+                } else {
+                    precondition.message()
+                };
+                assert_eq!(status.message(), expected, "{matching:?} {not_matching:?}");
             }
         }
+        // A not-match that alone fails, with no match beside it.
+        let status = assert_code(
+            storage
+                .get_bucket(
+                    Request::new(pb::GetBucketRequest {
+                        if_metageneration_not_match: Some(1),
+                        ..get("conditions")
+                    }),
+                    None,
+                )
+                .await,
+            Code::FailedPrecondition,
+        );
+        assert_eq!(
+            status.message(),
+            "The resource you requested has not been modified according to the condition you specified."
+        );
         // A missing bucket is reported before any condition is compared.
         let missing = pb::GetBucketRequest {
             if_metageneration_match: Some(-1),
@@ -1129,7 +1161,14 @@ mod tests {
             ..Default::default()
         };
         // UpdateBucket compares the conditions like the reads do (recorded 2026-11-18).
-        for (matching, not_matching) in [(Some(0), None), (Some(-1), None), (Some(1), Some(1))] {
+        // A not-match that alone fails is worded as a resource that has not been modified
+        // (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+        for (matching, not_matching, message) in [
+            (Some(0), None, precondition.message()),
+            (Some(-1), None, precondition.message()),
+            (Some(1), Some(1), NOT_MODIFIED),
+            (None, Some(1), NOT_MODIFIED),
+        ] {
             let status = assert_code(
                 storage
                     .update_bucket(
@@ -1139,7 +1178,7 @@ mod tests {
                     .await,
                 Code::FailedPrecondition,
             );
-            assert_eq!(status.message(), precondition.message());
+            assert_eq!(status.message(), message, "{matching:?} {not_matching:?}");
         }
         let unchanged = storage
             .get_bucket(Request::new(get("conditions")), None)
@@ -1816,11 +1855,13 @@ mod tests {
             // that names only one routes no bucket, answered as an empty routed bucket is
             // (recorded on GetObject routed by a project alone).
             ("unknown=value", other_bucket("")),
-            // No malformed pair was recorded; these refusals are local.
+            // A bucket pair without a value was recorded on GetObject (case
+            // grpc-probe-inferred-routing); a malformed percent escape was not, so that
+            // refusal is local.
             ("bucket=%GG", "Malformed URI encoding".to_owned()),
             (
                 "bucket",
-                "Routing metadata must contain key=value pairs".to_owned(),
+                "Invalid bucket name found in x-goog-request-params metadata (bucket). Must be of the form `projects/_/buckets/{bucket_id}`".to_owned(),
             ),
         ] {
             let request = fixtures::routed_request(header, get("page-a"));

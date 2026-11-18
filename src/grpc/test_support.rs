@@ -190,13 +190,21 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
 }
 
 /// The `x-goog-request-params` value a client sends for a call on `bucket`. The emulator
-/// refuses a call without the metadata on every Storage v2 RPC but QueryWriteStatus and
-/// CancelResumableWrite. Cloud Storage was recorded refusing GetObject, GetBucket, ListBuckets
-/// and WriteObject without it (2026-11-18, case grpc-probe-routing) and answering the two
-/// upload ID RPCs without it (case grpc-probe-resumable-sessions); the other RPCs follow the
-/// four refusals by inference.
+/// refuses a call without the metadata on every Storage v2 RPC, and Cloud Storage was recorded
+/// refusing every RPC asked, including QueryWriteStatus and CancelResumableWrite with a
+/// readable upload ID (2026-11-18 and 2026-11-19, cases grpc-probe-routing and
+/// grpc-probe-inferred-routing).
 pub(super) fn bucket_routing(bucket: &str) -> String {
     format!("bucket=projects%2F_%2Fbuckets%2F{bucket}")
+}
+
+/// The `x-goog-request-params` value a client sends for a rewrite from `source` to
+/// `destination`: both buckets are compared with the request's.
+pub(super) fn rewrite_routing(source: &str, destination: &str) -> String {
+    format!(
+        "source_bucket=projects%2F_%2Fbuckets%2F{source}&{}",
+        bucket_routing(destination)
+    )
 }
 
 /// A Storage v2 request routed by `routing`, the `x-goog-request-params` value.

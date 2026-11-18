@@ -1,6 +1,6 @@
 use super::write::{MessagePosition, WriteRpc, check_later_key, finished, persisted_answer};
 use super::*;
-use crate::grpc::v2::stored;
+use crate::grpc::v2::{routing, stored};
 use crate::hashing::Hashes;
 use crate::storage::{ChunkEnd, ChunkWait, SessionLease, Written};
 
@@ -11,9 +11,10 @@ impl Storage {
         request: Request<pb::CancelResumableWriteRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::CancelResumableWriteResponse>, Status> {
-        let r = request.into_inner();
+        let (_, extensions, r) = request.into_parts();
         let upload = r.upload_id.parse::<UploadId>()?;
         let (bucket, id) = (upload.bucket(), upload.session());
+        routing::check_upload(extensions.get(), bucket)?;
         // gRPC upload IDs are not bearer capabilities, so cancellation requires the
         // same permission as QueryWriteStatus and resumed writes.
         self.access(caller, bucket, OBJECTS_CREATE).await?;
@@ -89,11 +90,12 @@ impl Storage {
         request: Request<pb::QueryWriteStatusRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::QueryWriteStatusResponse>, Status> {
-        let r = request.into_inner();
+        let (_, extensions, r) = request.into_parts();
         // Cloud Storage answers whatever key the request carries, even a wrong one, on an open
         // or a finished session (recorded 2026-11-15), so the parameters are not read.
         let upload = r.upload_id.parse::<UploadId>()?;
         let (bucket, id) = (upload.bucket(), upload.session());
+        routing::check_upload(extensions.get(), bucket)?;
         let access = self.access(caller, bucket, OBJECTS_CREATE).await?;
         let session = self
             .state

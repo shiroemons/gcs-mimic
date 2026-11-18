@@ -2248,6 +2248,115 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
     storage.state.catalog.close().await.unwrap();
 }
 
+/// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-resumable-sessions and
+/// grpc-probe-inferred-routing): QueryWriteStatus and CancelResumableWrite answer a malformed
+/// upload ID without the routing metadata, and for a readable ID require the metadata and a
+/// routed bucket equal to the bucket the ID names; a refused call leaves the session as it was.
+#[tokio::test]
+async fn grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata() {
+    let (_dir, storage) = setup(false).await;
+    let upload = start(&storage, "routed", None).await;
+    let missing =
+        "An x-goog-request-params request metadata property must be provided for this request.";
+    let other = "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified 'other'";
+    let refused = [
+        (None, missing),
+        (Some(""), missing),
+        (
+            Some("project=projects%2Fp"),
+            "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified ''",
+        ),
+        (Some("bucket=projects%2F_%2Fbuckets%2Fother"), other),
+    ];
+    fn routed<T>(routing: Option<&str>, message: T) -> Request<T> {
+        match routing {
+            Some(routing) => fixtures::routed_request(routing, message),
+            None => Request::new(message),
+        }
+    }
+    for (routing, message) in refused {
+        let query = pb::QueryWriteStatusRequest {
+            upload_id: upload.clone(),
+            ..Default::default()
+        };
+        let status = assert_code(
+            pb::storage_server::Storage::query_write_status(&storage, routed(routing, query)).await,
+            tonic::Code::InvalidArgument,
+        );
+        assert_eq!(status.message(), message, "{routing:?}");
+        let cancel = pb::CancelResumableWriteRequest {
+            upload_id: upload.clone(),
+        };
+        let status = assert_code(
+            pb::storage_server::Storage::cancel_resumable_write(&storage, routed(routing, cancel))
+                .await,
+            tonic::Code::InvalidArgument,
+        );
+        assert_eq!(status.message(), message, "{routing:?}");
+    }
+    // The refusals changed nothing: the session is open and answers under its own bucket.
+    let own = fixtures::bucket_routing("grpc-io");
+    pb::storage_server::Storage::query_write_status(
+        &storage,
+        fixtures::routed_request(
+            &own,
+            pb::QueryWriteStatusRequest {
+                upload_id: upload.clone(),
+                ..Default::default()
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    // A malformed ID is answered from the ID alone, with or without the metadata.
+    for upload_id in ["not-an-upload-id", ""] {
+        for routing in [None, Some(own.as_str())] {
+            let status = assert_code(
+                pb::storage_server::Storage::query_write_status(
+                    &storage,
+                    routed(
+                        routing,
+                        pb::QueryWriteStatusRequest {
+                            upload_id: upload_id.into(),
+                            ..Default::default()
+                        },
+                    ),
+                )
+                .await,
+                tonic::Code::InvalidArgument,
+            );
+            assert_eq!(
+                status.message(),
+                format!("Invalid upload ID '{upload_id}'.")
+            );
+            let status = assert_code(
+                pb::storage_server::Storage::cancel_resumable_write(
+                    &storage,
+                    routed(
+                        routing,
+                        pb::CancelResumableWriteRequest {
+                            upload_id: upload_id.into(),
+                        },
+                    ),
+                )
+                .await,
+                tonic::Code::InvalidArgument,
+            );
+            assert_eq!(
+                status.message(),
+                format!("Invalid upload ID '{upload_id}'.")
+            );
+        }
+    }
+    pb::storage_server::Storage::cancel_resumable_write(
+        &storage,
+        fixtures::routed_request(&own, pb::CancelResumableWriteRequest { upload_id: upload }),
+    )
+    .await
+    .unwrap();
+    storage.state.catalog.close().await.unwrap();
+}
+
 /// A session lives seven days from StartResumableWrite on the catalog clock. Past that, every
 /// call that names its upload_id answers as for an upload_id that names no session: NOT_FOUND.
 /// Not recorded; the emulator departs from the INTERNAL Cloud Storage gave IDs it could not
