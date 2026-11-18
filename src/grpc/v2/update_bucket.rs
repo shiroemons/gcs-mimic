@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(
             update
                 .soft_delete_retention
-                .map(|retention| retention.seconds()),
+                .map(crate::bucket::SoftDeleteRetention::seconds),
             Some(0)
         );
         assert!(update.cors.unwrap().is_empty());

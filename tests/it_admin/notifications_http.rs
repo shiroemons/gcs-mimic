@@ -18,15 +18,12 @@ fn insert(server: &Server, headers: &str, body: Value) -> Value {
 fn ids(server: &Server, headers: &str) -> Vec<String> {
     let list = server.request("GET", CONFIGS, headers, b"").json_ok();
     assert_eq!(list["kind"], "storage#notifications");
-    list["items"]
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| item["id"].as_str().unwrap().to_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    list["items"].as_array().map_or_default(|items| {
+        items
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect()
+    })
 }
 
 fn metageneration(server: &Server) -> String {
@@ -695,15 +692,12 @@ fn serve_topic_lookups(
 
 fn event_server_ids(server: &EventServer) -> Vec<String> {
     let list = server.request("GET", CONFIGS, b"").json_ok();
-    list["items"]
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| item["id"].as_str().unwrap().to_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    list["items"].as_array().map_or_default(|items| {
+        items
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect()
+    })
 }
 
 #[test]

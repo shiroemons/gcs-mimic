@@ -13,7 +13,7 @@ use std::sync::Arc;
 #[test]
 fn malformed_stored_acl_keeps_the_json_error_source() {
     let error = decode("[", AclKind::Bucket).unwrap_err();
-    assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+    assert!(crate::error::causes(&error).any(<dyn std::error::Error>::is::<serde_json::Error>));
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn invalid_stored_acl_entity_is_catalog_corruption() {
         let error = decode(&encoded, AclKind::Bucket).unwrap_err();
         assert!(matches!(error, CatalogError::Corrupt(_)), "{entity}");
         assert!(
-            crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()),
+            crate::error::causes(&error).any(<dyn std::error::Error>::is::<serde_json::Error>),
             "{entity}"
         );
     }

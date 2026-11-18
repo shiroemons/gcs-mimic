@@ -567,7 +567,7 @@ fn descriptor_directory_pages_are_bounded_and_never_follow_redirects() {
     assert_eq!(
         gcs_mimic::fsutil::directory_names_after(
             &directory,
-            page.last().map(|s| s.as_os_str()),
+            page.last().map(std::ffi::OsString::as_os_str),
             256
         )
         .unwrap()

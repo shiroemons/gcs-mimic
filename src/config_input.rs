@@ -1126,7 +1126,10 @@ mod tests {
         assert!(matches!(config.scheme, crate::config::Scheme::Http));
         assert_eq!(config.listen.to_string(), "0.0.0.0:4443");
         assert_eq!(
-            config.public_base_url.as_ref().map(|url| url.as_str()),
+            config
+                .public_base_url
+                .as_ref()
+                .map(crate::url::PublicOrigin::as_str),
             Some("http://gcs:4443")
         );
         assert_eq!(config.data_dir, std::path::Path::new("/var/lib/gcs-mimic"));

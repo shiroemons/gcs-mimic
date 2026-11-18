@@ -169,9 +169,9 @@ fn copy_token_rechecks_source_destination_and_acl_permissions() {
         )
         .json_ok();
     let policy = |bucket: &str, role: Option<&str>| {
-        let bindings = role
-            .map(|role| vec![json!({"role":role,"members":["user:scoped@example.test"]})])
-            .unwrap_or_default();
+        let bindings = role.map_or_default(|role| {
+            vec![json!({"role":role,"members":["user:scoped@example.test"]})]
+        });
         server
             .request(
                 "PUT",

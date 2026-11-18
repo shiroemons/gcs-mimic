@@ -7,9 +7,7 @@ const TYPE: &str = "Content-Type: multipart/mixed; boundary=\"batch-boundary\"\r
 const BUCKET: &str = "/storage/v1/b/batch-bucket";
 
 fn part(id: Option<&str>, method: &str, path: &str, headers: &str, body: &str) -> String {
-    let id = id
-        .map(|id| format!("Content-ID: {id}\r\n"))
-        .unwrap_or_default();
+    let id = id.map_or_default(|id| format!("Content-ID: {id}\r\n"));
     format!(
         "--batch-boundary\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n{id}\r\n{method} {path} HTTP/1.1\r\n{headers}\r\n{body}\r\n"
     )

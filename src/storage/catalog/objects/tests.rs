@@ -388,7 +388,9 @@ async fn publication_settings_reject_missing_buckets_and_corrupt_autoclass() {
             )?;
             let error = BucketPublication::load(connection, "bucket").err().unwrap();
             assert!(matches!(error, ObjectError::Corrupt(_)));
-            assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+            assert!(
+                crate::error::causes(&error).any(<dyn std::error::Error>::is::<serde_json::Error>)
+            );
             Ok::<_, ObjectError>(())
         })
         .await

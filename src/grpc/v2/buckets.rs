@@ -2339,11 +2339,7 @@ mod tests {
                             .any(|entry| entry.entity == "allAuthenticatedUsers")
                     );
                 }
-                "batch-denied" => {
-                    assert!(bucket.owner.is_none());
-                    assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
-                }
-                "batch-uniform" => {
+                "batch-denied" | "batch-uniform" => {
                     assert!(bucket.owner.is_none());
                     assert!(bucket.acl.is_empty() && bucket.default_object_acl.is_empty());
                 }

@@ -15,7 +15,7 @@ async fn nested_file_jobs_fail_without_consuming_another_worker() {
         .run(move || runtime.block_on(nested.run(|| Ok::<_, AdminError>(()))))
         .await
         .unwrap_err();
-    assert!(crate::error::causes(&error).any(|cause| cause.is::<NestedFileJob>()));
+    assert!(crate::error::causes(&error).any(<dyn std::error::Error>::is::<NestedFileJob>));
     let error = workers
         .run::<(), AdminError>(|| panic!("injected file job panic"))
         .await;

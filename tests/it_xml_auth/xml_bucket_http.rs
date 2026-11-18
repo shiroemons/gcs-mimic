@@ -48,7 +48,7 @@ impl Server {
         reply.expect(200);
     }
 
-    fn sign(&self, method: hyper::Method, path: &str, headers: hyper::HeaderMap) -> hyper::Uri {
+    fn sign(method: hyper::Method, path: &str, headers: hyper::HeaderMap) -> hyper::Uri {
         sign_url(SignUrlRequest {
             url: &format!("http://localhost{path}"),
             method: &method,
@@ -210,7 +210,7 @@ fn xml_service_strict_authorization_and_signed_project_binding() {
     }
     let mut headers = hyper::HeaderMap::new();
     headers.insert("x-goog-project-id", "project-a".parse().unwrap());
-    let url = server.sign(hyper::Method::GET, "/", headers);
+    let url = Server::sign(hyper::Method::GET, "/", headers);
     let path = url.path_and_query().unwrap().as_str();
     server.request("GET", path, PROJECT, "").expect(200);
     let changed = server.request("GET", path, "x-goog-project-id: project-b\r\n", "");
@@ -244,7 +244,7 @@ fn xml_head_bucket_checks_access_and_sends_no_body_on_success_or_error() {
     let reply = server.host("head-bucket.storage.local", "HEAD", "/", ADMIN, "");
     reply.expect(200);
     assert!(reply.body.is_empty());
-    let url = server.sign(
+    let url = Server::sign(
         hyper::Method::HEAD,
         "/head%2Dbucket",
         hyper::HeaderMap::new(),
@@ -519,7 +519,7 @@ fn xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions() {
     let mut signed_headers = hyper::HeaderMap::new();
     signed_headers.insert("x-goog-project-id", "project-a".parse().unwrap());
     signed_headers.insert("x-goog-content-sha256", sha.parse().unwrap());
-    let url = server.sign(hyper::Method::PUT, "/signed-bucket", signed_headers);
+    let url = Server::sign(hyper::Method::PUT, "/signed-bucket", signed_headers);
     let headers = format!("{PROJECT}x-goog-content-sha256: {sha}\r\n");
     let mismatch = server.request(
         "PUT",
@@ -540,7 +540,7 @@ fn xml_bucket_strict_creation_retention_signed_body_and_deletion_permissions() {
             body,
         )
         .expect(200);
-    let url = server.sign(
+    let url = Server::sign(
         hyper::Method::DELETE,
         "/signed-bucket",
         hyper::HeaderMap::new(),
@@ -586,7 +586,7 @@ fn xml_delete_object_enforces_generation_metageneration_versioning_and_signed_bi
         reply.expect(412);
         assert!(reply.body.contains("PreconditionFailed"));
     }
-    let url = server.sign(
+    let url = Server::sign(
         hyper::Method::DELETE,
         &format!("/delete-bucket/a%2Fb?generation={generation}"),
         hyper::HeaderMap::new(),
@@ -737,7 +737,7 @@ fn xml_head_bucket_uses_iam_ubla_and_public_access_prevention() {
     server
         .request("HEAD", "/policy-bucket", NONE, "")
         .expect(200);
-    let url = server.sign(
+    let url = Server::sign(
         hyper::Method::HEAD,
         "/policy-bucket",
         hyper::HeaderMap::new(),
@@ -789,7 +789,7 @@ fn xml_delete_object_preserves_soft_deleted_bytes_and_enforces_holds_and_pap() {
     server
         .request("DELETE", "/soft-bucket/protected", "", "")
         .expect(401);
-    let url = server.sign(
+    let url = Server::sign(
         hyper::Method::DELETE,
         &format!("/soft-bucket/protected?generation={generation}"),
         hyper::HeaderMap::new(),

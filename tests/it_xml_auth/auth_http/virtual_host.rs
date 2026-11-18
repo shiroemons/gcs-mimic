@@ -68,7 +68,7 @@ fn public_origin_ready_reports_normalized_dns_ip_and_unset_values() {
         let (mut server, ready) = Server::start_with_stderr(&data, &options, Stdio::piped());
         assert_eq!(
             ready.get("public_base_url"),
-            Some(&expected.map(Value::from).unwrap_or(Value::Null))
+            Some(&expected.map_or(Value::Null, Value::from))
         );
         assert_eq!(ready["public_virtual_host_enabled"], enabled);
         server

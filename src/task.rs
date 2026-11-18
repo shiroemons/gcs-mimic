@@ -457,7 +457,7 @@ pub(crate) mod tests {
     pub(super) fn record_panic(name: &'static str, message: &str) {
         PANICS
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push((name, message.to_owned()));
     }
 
@@ -465,7 +465,7 @@ pub(crate) mod tests {
     pub(crate) fn reported_panics(name: &str) -> Vec<String> {
         PANICS
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .filter(|(task, _)| *task == name)
             .map(|(_, message)| message.clone())

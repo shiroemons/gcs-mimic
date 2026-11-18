@@ -435,7 +435,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(result.component_count, Some(i32::MAX as i64));
+        assert_eq!(result.component_count, Some(i64::from(i32::MAX)));
         assert_eq!(result.size, 12);
         assert_eq!(result.crc32c, crc32c::crc32c(b"sourcesource"));
         assert_eq!(
