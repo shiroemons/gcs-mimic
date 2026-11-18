@@ -97,6 +97,21 @@ pub(crate) fn unsupported_bucket_setting(name: &str) -> String {
     )
 }
 
+/// A rejected ACL entity, role or entry list. Cloud Storage's wording covers the two most common
+/// mistakes (recorded 2026-10-31); the others keep the error's own description.
+pub(crate) fn acl_refusal(error: &crate::acl::AclError) -> String {
+    use crate::acl::AclError;
+    match error {
+        AclError::InvalidEntity(entity) => format!("Scope text \"{entity}\" is not valid."),
+        AclError::InvalidRole { role, .. } => {
+            format!("Invalid value for: {role} is not a valid value")
+        }
+        AclError::TooManyEntries | AclError::DuplicateEntity(_) | AclError::EntityTooLong => {
+            error.to_string()
+        }
+    }
+}
+
 /// A recognized object setting gcs-mimic does not implement, with the request that avoids it.
 pub(crate) fn unsupported_object_setting(name: &str) -> String {
     format!(

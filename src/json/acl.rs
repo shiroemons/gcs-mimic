@@ -26,19 +26,7 @@ use serde_json::{Map, Value, json};
 /// error has no underlying cause to keep.
 impl From<crate::acl::AclError> for JsonError {
     fn from(error: crate::acl::AclError) -> Self {
-        use crate::acl::AclError;
-        // Cloud Storage's wording for the two most common mistakes (recorded 2026-10-31).
-        match error {
-            AclError::InvalidEntity(entity) => {
-                Self::invalid(format!("Scope text \"{entity}\" is not valid."))
-            }
-            AclError::InvalidRole { role, .. } => {
-                Self::invalid(format!("Invalid value for: {role} is not a valid value"))
-            }
-            error @ (AclError::TooManyEntries
-            | AclError::DuplicateEntity(_)
-            | AclError::EntityTooLong) => Self::invalid(error.to_string()),
-        }
+        Self::invalid(crate::storage::failure::wording::acl_refusal(&error))
     }
 }
 

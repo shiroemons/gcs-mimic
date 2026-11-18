@@ -385,7 +385,7 @@ pub(crate) fn unsupported(method: &str) -> Status {
 }
 
 /// JSON unsupported messages already include a remedy and must not be wrapped again.
-fn unsupported_message(message: String) -> Status {
+pub(super) fn unsupported_message(message: String) -> Status {
     unsupported_with_remedy(
         message,
         "Use the JSON API; set STORAGE_EMULATOR_HOST to api_base_url from the server ready event",
