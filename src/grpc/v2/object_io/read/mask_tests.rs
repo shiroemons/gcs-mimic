@@ -224,30 +224,25 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
         list(&storage, list_request(&["name", "owner.entity"]), anonymous).await,
         nested,
     );
-    let handle = || read_request("object", &["checksummed_data", "read_handle"]);
-    let status = assert_code(
-        read_as(&storage, handle(), anonymous).await,
-        tonic::Code::Unauthenticated,
-    );
-    assert!(
-        status
-            .message()
-            .contains("strict authentication requires a registered local Bearer token"),
-        "{status}"
-    );
     let admin = crate::grpc::test_support::caller(&storage, "admin").await;
-    assert_unsupported(
-        read_as(&storage, handle(), admin).await,
-        "ReadObject read_mask read_handle",
-    );
-    for path in ["content_range.start", "object_checksums.crc32c"] {
+    for path in [
+        "read_handle",
+        "content_range.start",
+        "object_checksums.crc32c",
+    ] {
+        let unselected = || read_request("object", &["checksummed_data", path]);
+        let status = assert_code(
+            read_as(&storage, unselected(), anonymous).await,
+            tonic::Code::Unauthenticated,
+        );
+        assert!(
+            status
+                .message()
+                .contains("strict authentication requires a registered local Bearer token"),
+            "{path}: {status}"
+        );
         assert_unsupported(
-            read_as(
-                &storage,
-                read_request("object", &["checksummed_data", path]),
-                admin,
-            )
-            .await,
+            read_as(&storage, unselected(), admin).await,
             &format!("ReadObject read_mask {path}"),
         );
     }
