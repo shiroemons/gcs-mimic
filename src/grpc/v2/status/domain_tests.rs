@@ -578,6 +578,7 @@ fn catalog_variant(error: &CatalogError) -> &'static str {
         CatalogError::NotEmpty => "NotEmpty",
         CatalogError::RestoreConflict => "RestoreConflict",
         CatalogError::PreconditionFailed => "PreconditionFailed",
+        CatalogError::NotModified => "NotModified",
         CatalogError::PublicAccessPrevention => "PublicAccessPrevention",
         CatalogError::Denied(_) => "Denied",
         CatalogError::Forbidden => "Forbidden",
@@ -593,13 +594,14 @@ fn catalog_variant(error: &CatalogError) -> &'static str {
     }
 }
 
-const CATALOG_VARIANTS: [&str; 18] = [
+const CATALOG_VARIANTS: [&str; 19] = [
     "AuthenticationAlreadyConfigured",
     "AlreadyExists",
     "NotFound",
     "NotEmpty",
     "RestoreConflict",
     "PreconditionFailed",
+    "NotModified",
     "PublicAccessPrevention",
     "Denied",
     "Forbidden",
@@ -648,6 +650,12 @@ fn catalog_cases() -> Vec<Case<CatalogError>> {
         ),
         case(
             CatalogError::PreconditionFailed,
+            plain(Code::FailedPrecondition, PRECONDITION),
+        ),
+        // Only Storage v2 DeleteBucket words it apart; the shared mapping, which the legacy
+        // DeleteBucket uses, keeps the failed-condition wording.
+        case(
+            CatalogError::NotModified,
             plain(Code::FailedPrecondition, PRECONDITION),
         ),
         case(

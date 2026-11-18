@@ -382,7 +382,7 @@ impl From<CatalogError> for AdminError {
         match error {
             CatalogError::Io(cause) => Self::from_io(cause),
             CatalogError::Corrupt(cause) => Self::Corrupt(cause),
-            CatalogError::PreconditionFailed => Self::Precondition,
+            CatalogError::PreconditionFailed | CatalogError::NotModified => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
             CatalogError::PublicAccessPrevention
             | CatalogError::Denied(_)

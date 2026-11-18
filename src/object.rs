@@ -1190,6 +1190,7 @@ impl From<crate::bucket::CatalogError> for ObjectError {
             | CatalogError::NotEmpty
             | CatalogError::RestoreConflict
             | CatalogError::PreconditionFailed
+            | CatalogError::NotModified
             | CatalogError::RetentionPolicyLocked(_)
             | CatalogError::RetentionPolicyNotSet
             | CatalogError::InvalidMetadata(_)

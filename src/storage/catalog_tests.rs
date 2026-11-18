@@ -1258,7 +1258,14 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
         .insert_bucket(bucket("conditional", "project"))
         .await
         .unwrap();
-    for (matching, not_matching) in [(Some(2), None), (None, Some(3)), (Some(3), Some(3))] {
+    // A failing match is a failed precondition even beside a not-match naming the current
+    // metageneration; a not-match that alone fails is told apart.
+    for (matching, not_matching, expected) in [
+        (Some(2), None, CatalogError::PreconditionFailed),
+        (Some(2), Some(3), CatalogError::PreconditionFailed),
+        (None, Some(3), CatalogError::NotModified),
+        (Some(3), Some(3), CatalogError::NotModified),
+    ] {
         let conditions = BucketConditions {
             if_metageneration_match: matching,
             if_metageneration_not_match: not_matching,
@@ -1267,7 +1274,7 @@ async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
             catalog
                 .delete_bucket("conditional", conditions, PERMISSIVE)
                 .await,
-            Err(CatalogError::PreconditionFailed)
+            Err(expected)
         );
         assert!(
             catalog

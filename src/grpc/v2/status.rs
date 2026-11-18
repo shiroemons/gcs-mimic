@@ -151,7 +151,9 @@ impl From<CatalogError> for Status {
             CatalogError::AlreadyExists => Status::already_exists(wording::BUCKET_ALREADY_OWNED),
             CatalogError::RestoreConflict => Status::already_exists(wording::RESTORE_CONFLICT),
             CatalogError::NotEmpty => Status::failed_precondition(BUCKET_NOT_EMPTY),
-            CatalogError::PreconditionFailed => {
+            // Storage v2 DeleteBucket words a not-match that alone fails itself; the legacy
+            // DeleteBucket answers it as any failed condition.
+            CatalogError::PreconditionFailed | CatalogError::NotModified => {
                 Status::failed_precondition(wording::PRECONDITION_NOT_HELD)
             }
             CatalogError::PublicAccessPrevention => {

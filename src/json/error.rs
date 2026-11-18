@@ -817,7 +817,9 @@ impl From<CatalogError> for JsonError {
             CatalogError::NotEmpty => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Bucket is not empty")
             }
-            CatalogError::PreconditionFailed => Self::precondition_not_held(),
+            CatalogError::PreconditionFailed | CatalogError::NotModified => {
+                Self::precondition_not_held()
+            }
             CatalogError::Denied(denied) => denied.into(),
             CatalogError::Forbidden => Self::forbidden(),
             error @ CatalogError::RetentionPolicyLocked(_) => Self::new(
