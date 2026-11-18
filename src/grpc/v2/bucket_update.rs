@@ -142,9 +142,10 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
             let period = b
                 .retention_policy
                 .as_ref()
-                .and_then(|policy| policy.retention_duration)
+                .and_then(|policy| policy.retention_duration.as_ref())
                 .map(|duration| {
-                    bucket::RetentionPeriod::try_from(duration.seconds).map_err(input_error)
+                    bucket::RetentionPeriod::try_from(retention_seconds(duration))
+                        .map_err(input_error)
                 })
                 .transpose()?;
             update.retention_policy = match period {
@@ -207,6 +208,14 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
         }
     }
     Ok(())
+}
+
+/// The whole seconds of a retention duration: the proto rounds any `nanos` down to the nearest
+/// second (storage.proto lines 2429-2433). A valid `Duration`'s nanos share the sign of its
+/// seconds, so dropping them rounds every positive duration down, and no other duration is a
+/// valid period.
+pub(super) fn retention_seconds(duration: &prost_types::Duration) -> i64 {
+    duration.seconds
 }
 
 fn apply_autoclass(

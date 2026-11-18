@@ -48,7 +48,8 @@ fn is_set<T: Default + PartialEq>(field: Option<&T>) -> bool {
     field.is_some_and(|value| value != &T::default())
 }
 
-/// A bucket policy duration in whole seconds.
+/// A soft delete duration in whole seconds. Unlike a retention duration, the proto states no
+/// rounding for it, so a fractional one is refused rather than silently shortened.
 fn whole_seconds(duration: &prost_types::Duration) -> Result<i64, Status> {
     if duration.nanos != 0 {
         return Err(super::status::unsupported(
@@ -68,7 +69,7 @@ fn retention_body(policy: &pb::bucket::RetentionPolicy) -> Result<Option<Value>,
     let Some(duration) = &policy.retention_duration else {
         return Ok(None);
     };
-    let seconds = whole_seconds(duration)?;
+    let seconds = super::bucket_update::retention_seconds(duration);
     crate::bucket::RetentionPeriod::try_from(seconds)?;
     Ok(Some(json!({"retentionPeriod": seconds.to_string()})))
 }
@@ -577,7 +578,9 @@ mod tests {
             seconds: 1,
             nanos: 1,
         };
-        let cases: [InvalidCase; 7] = [
+        // A fractional retention_policy duration is rounded down instead
+        // (create_bucket_rounds_retention_nanos_down), so only the soft delete one is refused.
+        let cases: [InvalidCase; 6] = [
             ("create bucket autoclass output fields", |b| {
                 b.autoclass
                     .get_or_insert_default()
@@ -599,13 +602,10 @@ mod tests {
                 b.soft_delete_policy.get_or_insert_default().effective_time =
                     Some(Default::default())
             }),
-            ("fractional bucket retention duration", |b| {
-                b.retention_policy
-                    .get_or_insert_default()
-                    .retention_duration = Some(FRACTIONAL)
-            }),
             ("create bucket policy output fields", |b| {
-                b.retention_policy.get_or_insert_default().is_locked = true
+                let policy = b.retention_policy.get_or_insert_default();
+                policy.retention_duration = Some(FRACTIONAL);
+                policy.is_locked = true;
             }),
             ("create bucket policy output fields", |b| {
                 let policy = b.retention_policy.get_or_insert_default();
@@ -621,6 +621,62 @@ mod tests {
             assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
             assert!(status.message().contains(reason), "{reason}: {status}");
         }
+    }
+
+    /// The proto rounds any `nanos` of a retention duration down to the nearest second
+    /// (storage.proto lines 2429-2433), on creation as on update, so a period under one second
+    /// is no period at all.
+    #[tokio::test]
+    async fn create_bucket_rounds_retention_nanos_down() {
+        let (_dir, storage) = storage(false).await;
+        let retention = |name: &str, seconds, nanos| {
+            let mut request = create(name);
+            request.bucket.as_mut().unwrap().retention_policy = Some(pb::bucket::RetentionPolicy {
+                retention_duration: Some(prost_types::Duration { seconds, nanos }),
+                ..Default::default()
+            });
+            request
+        };
+        let created = storage
+            .create_bucket(
+                Request::new(retention("fractional-retention", 3600, 999_999_999)),
+                None,
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            created.retention_policy.unwrap().retention_duration,
+            Some(prost_types::Duration {
+                seconds: 3600,
+                nanos: 0
+            })
+        );
+        let stored = storage
+            .state
+            .catalog
+            .get_bucket("fractional-retention", PERMISSIVE)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.retention_policy.unwrap().retention_period, 3600);
+        let status = assert_code(
+            storage
+                .create_bucket(
+                    Request::new(retention("sub-second-retention", 0, 500_000_000)),
+                    None,
+                )
+                .await,
+            Code::InvalidArgument,
+        );
+        assert!(status.message().contains("retention"), "{status}");
+        assert_code(
+            storage
+                .get_bucket(Request::new(get("sub-second-retention")), None)
+                .await,
+            Code::NotFound,
+        );
+        storage.state.catalog.close().await.unwrap();
     }
 
     /// Every `Bucket` field CreateBucket does not read must be empty: a setting the request
