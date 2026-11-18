@@ -57,7 +57,7 @@ Write metadata supports content type/encoding/disposition/language/cache control
 
 ReadObject clamps negative offsets beyond the start to zero, permits offset equal to size (empty read), rejects greater offsets with OUT_OF_RANGE and rejects negative limits with INVALID_ARGUMENT. Returned content ranges use an exclusive end. GetObject/list masks accept every top-level `Object` field and `*`, matching the 2026-10-31 Google observation in [the gRPC object field evidence](../evidence/grpc-object-fields.md) (the official Java SDK sends all 33 fields); ReadObject additionally selects its metadata (`metadata`, `metadata.FIELD`) and top-level response fields. Responses carry the JSON resource's `etag` and `update_storage_class_time` (`timeStorageClassUpdated`). `acl` and `owner` appear only when a mask names them or uses `*` (or ReadObject's whole `metadata`), as the proto's default masks exclude them; they come from the same shared projection as JSON `projection=full`, so uniform bucket-level access, a caller without `storage.objects.getIamPolicy` on the object, or an unfinalized appendable object leaves both empty while the read succeeds. Fields no local object can hold (`kms_key`, `contexts`, the restore token of a live object) stay empty rather than invented. Nested object-field masks remain UNIMPLEMENTED.
 
-The broader rows remain PARTIAL. Pending scope includes nested field masks, explicit soft-deleted GetObject requests (soft-deleted listings: [SDK parity](grpc-v2-sdk-parity.md)), other unhandled request fields, owner `entity_id`, QueryWriteStatus on an expired session and exhaustive recovery/fault-injection combinations. The shared resumable engine's 128 retained-session/seven-day bound applies only to explicitly resumable writes. Large metadata-heavy listings can reach the existing 4 MiB encoded-response limit and are not claimed as complete pagination conformance.
+The broader rows remain PARTIAL. Pending scope includes nested field masks, explicit soft-deleted GetObject requests (soft-deleted listings: [SDK parity](grpc-v2-sdk-parity.md)), other unhandled request fields, owner `entity_id`, QueryWriteStatus on an expired session and exhaustive recovery/fault-injection combinations. Only explicitly resumable writes use sessions of the shared resumable engine; their number is unlimited by default (`max_resumable_sessions` sets a limit), and each expires seven days after it starts. Large metadata-heavy listings can reach the existing 4 MiB encoded-response limit and are not claimed as complete pagination conformance.
 
 ## Write streams
 
@@ -72,7 +72,8 @@ WriteObject and BidiWriteObject check each message of a single-shot, resumed or 
 | `object_checksums` on an upload_id message without `finish_write`, or `flush`/`state_lookup` on a non-resumable message without it | UNIMPLEMENTED |
 | `object_size` mismatch | OUT_OF_RANGE |
 | More than `max_object_bytes` | RESOURCE_EXHAUSTED |
-| A key after a keyless start | INVALID_ARGUMENT (customer-supplied key wording) |
+| A key after a keyless start of a single-shot or resumed write | INVALID_ARGUMENT (customer-supplied key wording) |
+| A key on any appendable message, the opening one included | UNIMPLEMENTED |
 | No `finish_write` on a single-shot stream's last message | INVALID_ARGUMENT |
 | A message after `finish_write` on WriteObject | INVALID_ARGUMENT |
 

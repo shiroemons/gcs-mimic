@@ -20,7 +20,7 @@ CancelResumableWrite は、JSON の session URI への DELETE と同じカタロ
 
 本文の送受信は上限付きで、本文全体を集約しません。既存の 4 MiB の受信メッセージ制限、64 KiB の本文チャンク、max_object_bytes を使い、新しい設定は追加しません。ListObjects のページは約 2 MiB で区切って次ページのトークンを返し、進むように必ず 1 件を含みます。単発書き込みは resumable session の保存枠を使いません。
 
-未対応は、ネストした read_mask、soft-deletedオブジェクトのGetObject、所有者の`entity_id`、期限切れセッションに対するQueryWriteStatusの検証などです。soft-deletedの一覧は[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)で扱います。顧客指定の暗号鍵は[gRPC の CSEK](grpc-v2-customer-supplied-keys.md)のとおりに扱います。GetObjectと一覧のmaskは`Object`の全トップレベルフィールドと`*`を受け付けます。応答にはJSONと同じ`etag`と`update_storage_class_time`が入ります。`acl`と`owner`はmaskで指定したとき（または`*`）だけ返し、JSONの`projection=full`と同じ共有処理で作るため、UBLAが有効な場合や`storage.objects.getIamPolicy`がない場合は空になります。appendable オブジェクトは [Rapid append の契約](grpc-v2-rapid-append.md) で扱います。受け付けて無視せず UNIMPLEMENTED を返します。メタデータに 8 KiB の上限はありません。Cloud Storage は WriteObject で 8192 バイトと 40,000 バイトの値を、UpdateObject で 20,000 バイトの値を保存しました（2026-11-15 に記録したケース grpc-custom-metadata-limit）。JSON にエンコードした固定メタデータとカスタムメタデータが、JSON・XML と共通のローカル上限 40 KiB を超えると、公開せずに INVALID_ARGUMENT を返します。明示的な resumable session は共有処理の保存上限 128 件・7 日間に従います。
+未対応は、ネストした read_mask、soft-deletedオブジェクトのGetObject、所有者の`entity_id`、期限切れセッションに対するQueryWriteStatusの検証などです。soft-deletedの一覧は[SDK互換（英語）](../en/slices/grpc-v2-sdk-parity.md)で扱います。顧客指定の暗号鍵は[gRPC の CSEK](grpc-v2-customer-supplied-keys.md)のとおりに扱います。GetObjectと一覧のmaskは`Object`の全トップレベルフィールドと`*`を受け付けます。応答にはJSONと同じ`etag`と`update_storage_class_time`が入ります。`acl`と`owner`はmaskで指定したとき（または`*`）だけ返し、JSONの`projection=full`と同じ共有処理で作るため、UBLAが有効な場合や`storage.objects.getIamPolicy`がない場合は空になります。appendable オブジェクトは [Rapid append の契約](grpc-v2-rapid-append.md) で扱います。受け付けて無視せず UNIMPLEMENTED を返します。メタデータに 8 KiB の上限はありません。Cloud Storage は WriteObject で 8192 バイトと 40,000 バイトの値を、UpdateObject で 20,000 バイトの値を保存しました（2026-11-15 に記録したケース grpc-custom-metadata-limit）。JSON にエンコードした固定メタデータとカスタムメタデータが、JSON・XML と共通のローカル上限 40 KiB を超えると、公開せずに INVALID_ARGUMENT を返します。共有処理の resumable session を使うのは明示的な resumable 書き込みだけです。セッション数は既定では無制限で（`max_resumable_sessions` で上限を設定できます）、各セッションは開始から 7 日で期限切れになります。
 
 ## 書き込みストリーム
 
@@ -35,7 +35,8 @@ WriteObject と BidiWriteObject は、単発・再開・appendable のどの書�
 | upload_id の `finish_write` のないメッセージの `object_checksums`、単発書き込みの `finish_write` のないメッセージの `flush`/`state_lookup` | UNIMPLEMENTED |
 | `object_size` の不一致 | OUT_OF_RANGE |
 | `max_object_bytes` の超過 | RESOURCE_EXHAUSTED |
-| 鍵なしで始めた書き込みの後続メッセージの鍵 | INVALID_ARGUMENT（顧客指定鍵の文言） |
+| 鍵なしで始めた単発・再開書き込みの、その後のメッセージの鍵 | INVALID_ARGUMENT（顧客指定鍵の文言） |
+| appendable のメッセージの鍵（最初のメッセージを含む） | UNIMPLEMENTED |
 | 単発書き込みの最後のメッセージに `finish_write` がない | INVALID_ARGUMENT |
 | WriteObject で `finish_write` の後に届いたメッセージ | INVALID_ARGUMENT |
 
