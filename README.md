@@ -296,7 +296,7 @@ The numbers are under [how it compares](#how-it-compares).
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.25.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.26.0
     ports:
       - "127.0.0.1:4443:4443"
     volumes:
@@ -344,7 +344,7 @@ the `gcs` service above:
 ```
 
 You do not have to write this JSON by hand:
-`docker run --rm -it ghcr.io/shiroemons/gcs-mimic:0.25.0 buckets new` asks for
+`docker run --rm -it ghcr.io/shiroemons/gcs-mimic:0.26.0 buckets new` asks for
 the buckets on the terminal and prints a block to paste. Buckets without
 settings need only their names, as in `GCS_MIMIC_BUCKETS: "uploads,exports"`.
 It asks whether each bucket is public or private; a private one makes the block
@@ -524,7 +524,7 @@ full list and what to do instead.
 - [Storage design](docs/en/storage-backends.md), [architecture](docs/en/design.md)
   and [roadmap](docs/en/roadmap.md)
 - [Development](docs/en/development.md) and [release policy](docs/en/release-policy.md)
-- [0.25.0 release notes](docs/en/releases/0.25.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
+- [0.26.0 release notes](docs/en/releases/0.26.0.md) and [all releases](https://github.com/shiroemons/gcs-mimic/releases)
 - [llms.txt](llms.txt), a short guide for coding agents wiring gcs-mimic into a project
 
 ## License
