@@ -441,6 +441,13 @@ impl Call {
     /// persists for it: the offset a stream starts at here, then the rules a resumable write
     /// shares with a non-resumable one ([`WriteStep::admit`]), which also add the message's
     /// object checksums to the call's.
+    ///
+    /// A finishing message whose bytes all lie inside the persisted ones adds nothing, as
+    /// [`upload::admit_bytes`] skips repeated bytes. Not recorded; the emulator's choice, which
+    /// follows from that skip: without an `object_size` the object is finalized at the persisted
+    /// size, and with one that differs from the persisted size the message misses it and ends
+    /// the session, as any finishing message short of `object_size` does (see
+    /// [`Refusal::Session`]).
     pub(super) fn admit(
         &mut self,
         step: WriteStep,
@@ -498,6 +505,8 @@ impl Call {
 
     /// Drops the waiting bytes another stream persisted since this call's last message, so
     /// that `tail` again starts at the session's `persisted` size and no byte is written twice.
+    /// Like repeated bytes ([`upload::admit_bytes`]), they are not compared with the persisted
+    /// ones, which stay.
     fn drop_persisted_tail(&mut self, persisted: u64) {
         let stale = usize::try_from(persisted.saturating_sub(self.tail_start))
             .unwrap_or(usize::MAX)
@@ -508,7 +517,7 @@ impl Call {
 
     /// A stream's first message may not start past the persisted size, and is refused in its
     /// own wording. Like every later message, it may repeat persisted bytes, which are skipped
-    /// ([`upload::admit_bytes`]).
+    /// without being compared with the persisted ones ([`upload::admit_bytes`]).
     ///
     /// Recorded 2026-11-18: a first offset past the persisted size, with nothing persisted.
     /// Recorded (case grpc-probe-inferred-granules): with one granule persisted, a first offset

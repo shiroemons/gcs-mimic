@@ -1293,6 +1293,35 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(GRANULE_SIZE + 3)], Left::Finalized),
             ),
         ),
+        // Not recorded; the emulator's choice, which follows from skipping repeated bytes: a
+        // finishing message whose bytes all lie inside the persisted ones adds nothing. Without
+        // an object_size the object is finalized at the persisted size; with an object_size
+        // that differs from it the message misses it, which ends the session.
+        on(
+            PREFIXED,
+            both(
+                "finish-inside-persisted",
+                |u| vec![resume(u, GRANULE_SIZE / 2, b"a").finish()],
+                || ok(vec![Reply::Resource(GRANULE_SIZE)], Left::Finalized),
+            ),
+        ),
+        on(
+            Session {
+                size: Some(GRANULE_SIZE + 3),
+                ..PREFIXED
+            },
+            both(
+                "finish-inside-persisted-short-of-object-size",
+                |u| vec![resume(u, 0, b"a").finish()],
+                || {
+                    failed(
+                        OutOfRange,
+                        size_mismatch(GRANULE, GRANULE_SIZE + 3),
+                        Left::Terminated,
+                    )
+                },
+            ),
+        ),
         // Recorded 2026-11-18 on a session with nothing persisted, and with a granule persisted
         // (case grpc-probe-inferred-granules).
         on(
@@ -2380,6 +2409,64 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
             &[GRANULE_DATA.as_slice(), &other_granule, b"g"].concat()
         ))
     );
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// The CRC32C of the live object `name`.
+async fn stored_crc32c(storage: &Storage, name: &str) -> Option<u32> {
+    let request = pb::GetObjectRequest {
+        bucket: BUCKET.into(),
+        object: name.into(),
+        ..Default::default()
+    };
+    let object = storage
+        .get_object(Request::new(request), None)
+        .await
+        .unwrap()
+        .into_inner();
+    object.checksums.and_then(|checksums| checksums.crc32c)
+}
+
+/// Not recorded; the emulator's choice (`upload::admit_bytes`): the bytes a message repeats
+/// are skipped without being compared with the ones received, so a message that repeats
+/// different bytes is accepted and the bytes received first stay. Cloud Storage accepted a
+/// resumed stream whose first message repeated persisted bytes (recorded, case
+/// grpc-probe-inferred-granules), but those bytes matched the persisted ones, so its answer for
+/// different bytes is unknown.
+#[tokio::test]
+async fn grpc_repeated_bytes_are_skipped_without_comparison() {
+    let (_dir, storage) = setup(false).await;
+    for rpc in [Rpc::WriteObject, Rpc::Bidi] {
+        // A resumed stream's first message repeats the last two persisted bytes as "zz".
+        let name = format!("repeated-resumable-{rpc:?}");
+        let upload = open_session(&storage, &name, PREFIXED).await;
+        let messages = [resume(&upload, GRANULE_SIZE - 2, b"zzxyz").finish()];
+        let (status, replies) = call(&storage, rpc, &messages).await;
+        assert_eq!(
+            (status.code(), replies),
+            (Code::Ok, vec![Reply::Resource(GRANULE_SIZE + 3)]),
+            "{rpc:?}"
+        );
+        assert_eq!(
+            stored_crc32c(&storage, &name).await,
+            Some(crc32c::crc32c(&[GRANULE_DATA.as_slice(), b"xyz"].concat())),
+            "{rpc:?}"
+        );
+        // A non-resumable write's later message repeats "bc" as "XY".
+        let name = format!("repeated-single-{rpc:?}");
+        let messages = [opening(&name, b"abc"), chunk(1, b"XYdef").finish()];
+        let (status, replies) = call(&storage, rpc, &messages).await;
+        assert_eq!(
+            (status.code(), replies),
+            (Code::Ok, vec![Reply::Resource(6)]),
+            "{rpc:?}"
+        );
+        assert_eq!(
+            stored_crc32c(&storage, &name).await,
+            Some(crc32c::crc32c(b"abcdef")),
+            "{rpc:?}"
+        );
+    }
     storage.state.catalog.close().await.unwrap();
 }
 
