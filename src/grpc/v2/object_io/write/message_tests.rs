@@ -299,14 +299,8 @@ fn reply(status: pb::bidi_write_object_response::WriteStatus) -> Reply {
 /// inference, so a stream that names no well-formed bucket, or only an upload ID, sends a key
 /// that routes nothing.
 fn routing(messages: &[pb::BidiWriteObjectRequest]) -> String {
-    let bucket = match messages.first().and_then(|m| m.first_message.as_ref()) {
-        Some(FirstMessage::WriteObjectSpec(spec)) => {
-            spec.resource.as_ref().map(|r| r.bucket.as_str())
-        }
-        Some(FirstMessage::AppendObjectSpec(spec)) => Some(spec.bucket.as_str()),
-        Some(FirstMessage::UploadId(_)) | None => None,
-    };
-    bucket
+    let first = messages.first().and_then(|m| m.first_message.as_ref());
+    crate::grpc::v2::routing::write_bucket(first)
         .and_then(|bucket| crate::grpc::v2::names::bucket_name(bucket).ok())
         .map_or_else(|| "unrouted=1".to_owned(), bucket_routing)
 }

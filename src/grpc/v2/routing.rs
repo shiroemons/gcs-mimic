@@ -1,4 +1,4 @@
-use super::{names, pb, status};
+use super::{names, pb::bidi_write_object_request::FirstMessage, status};
 use crate::json;
 use tonic::{Status, metadata::MetadataMap};
 
@@ -365,35 +365,41 @@ pub(super) fn iam_bucket(resource: &str) -> &str {
         .map_or(resource, |(bucket, _)| bucket)
 }
 
-pub(super) fn write(
-    metadata: &MetadataMap,
-    first: Option<&pb::bidi_write_object_request::FirstMessage>,
-) -> Result<(), Status> {
-    use pb::bidi_write_object_request::FirstMessage;
-    let (bucket, appendable) = match first {
-        Some(FirstMessage::WriteObjectSpec(spec)) => (
-            Route::Bucket(spec.resource.as_ref().map(|r| r.bucket.as_str())),
-            spec.appendable == Some(true),
-        ),
-        Some(FirstMessage::AppendObjectSpec(spec)) => {
-            (Route::Bucket(Some(spec.bucket.as_str())), true)
-        }
-        // A resumed write's upload ID names its bucket in a form no client routes (see
-        // `Routes::Optional`), and the handler authorizes with that bucket, so only the flag is
-        // compared.
+/// The bucket resource a write stream's first message routes: the bucket its spec names, or
+/// `None` when it names none. A resumed write routes none: its upload ID names its bucket in a
+/// form no client routes (see `Routes::Optional`).
+pub(super) fn write_bucket(first: Option<&FirstMessage>) -> Option<&str> {
+    match first? {
+        FirstMessage::WriteObjectSpec(spec) => spec.resource.as_ref().map(|r| r.bucket.as_str()),
+        FirstMessage::AppendObjectSpec(spec) => Some(spec.bucket.as_str()),
+        FirstMessage::UploadId(_) => None,
+    }
+}
+
+/// Compares the routing of a write stream with its first message.
+pub(super) fn write(metadata: &MetadataMap, first: Option<&FirstMessage>) -> Result<(), Status> {
+    let appendable = match first {
+        Some(FirstMessage::WriteObjectSpec(spec)) => spec.appendable == Some(true),
+        Some(FirstMessage::AppendObjectSpec(_)) => true,
+        // The handler authorizes a resumed write with the bucket its upload ID names, so no
+        // bucket is compared.
         Some(FirstMessage::UploadId(_)) => {
             return check(metadata, Routes::Request(&[Route::Appendable(false)]));
         }
-        None => (Route::Bucket(None), false),
+        None => false,
     };
     check(
         metadata,
-        Routes::Request(&[bucket, Route::Appendable(appendable)]),
+        Routes::Request(&[
+            Route::Bucket(write_bucket(first)),
+            Route::Appendable(appendable),
+        ]),
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::pb;
     use super::*;
     use tonic::{Code, metadata::AsciiMetadataValue};
 
@@ -439,12 +445,7 @@ mod tests {
     /// reading of the recorded upload ID calls (case grpc-probe-resumable-sessions).
     #[test]
     fn routing_compares_only_the_appendable_flag_of_a_resumed_write() {
-        let resumed = |bucket: &str| {
-            pb::bidi_write_object_request::FirstMessage::UploadId(format!(
-                "{bucket}/{}",
-                "a".repeat(64)
-            ))
-        };
+        let resumed = |bucket: &str| FirstMessage::UploadId(format!("{bucket}/{}", "a".repeat(64)));
         let metadata = routed("bucket=projects%2F_%2Fbuckets%2Ftest-bucket&appendable=false");
         write(&metadata, Some(&resumed("test-bucket"))).unwrap();
         write(&metadata, Some(&resumed("other-bucket"))).unwrap();
@@ -521,7 +522,7 @@ mod tests {
     #[test]
     fn routing_compares_each_field_with_its_own_rule() {
         let spec = |appendable| {
-            pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(pb::WriteObjectSpec {
+            FirstMessage::WriteObjectSpec(pb::WriteObjectSpec {
                 resource: Some(pb::Object {
                     bucket: "projects/_/buckets/b".into(),
                     ..Default::default()
@@ -548,8 +549,7 @@ mod tests {
             other_bucket_message("", "b")
         );
         // A resumed write compares no bucket; the handler answers an upload ID it cannot read.
-        let unreadable =
-            pb::bidi_write_object_request::FirstMessage::UploadId("other/not-hex".into());
+        let unreadable = FirstMessage::UploadId("other/not-hex".into());
         write(&bucket, Some(&unreadable)).unwrap();
 
         assert_eq!(

@@ -1830,23 +1830,43 @@ mod tests {
         pb::storage_server::Storage::get_bucket(&storage, request)
             .await
             .unwrap();
-        // Recorded 2026-11-18 (case grpc-probe-routing): an unknown key is ignored, so
-        // metadata that names only one routes no bucket and is refused like another bucket.
-        for header in [
-            "bucket=projects%2F_%2Fbuckets%2Fpage-b",
-            "bucket=%GG",
-            "bucket",
-            "unknown=value",
+        let other_bucket = |routed: &str| {
+            format!(
+                "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'page-a' but x-goog-request-params specified '{routed}'"
+            )
+        };
+        for (header, message) in [
+            // Recorded 2026-11-18 on GetBucket (case grpc-probe-routing).
+            (
+                "bucket=projects%2F_%2Fbuckets%2Fpage-b",
+                other_bucket("page-b"),
+            ),
+            // An unknown key is ignored (recorded on GetBucket beside the bucket), so metadata
+            // that names only one routes no bucket, answered as an empty routed bucket is
+            // (recorded on GetObject routed by a project alone).
+            ("unknown=value", other_bucket("")),
+            // No malformed pair was recorded; these refusals are local.
+            ("bucket=%GG", "Malformed URI encoding".to_owned()),
+            (
+                "bucket",
+                "Routing metadata must contain key=value pairs".to_owned(),
+            ),
         ] {
             let request = fixtures::routed_request(header, get("page-a"));
-            assert_code(
+            let status = assert_code(
                 pb::storage_server::Storage::get_bucket(&storage, request).await,
                 Code::InvalidArgument,
             );
+            assert_eq!(status.message(), message, "{header}");
         }
-        assert_code(
+        // Recorded 2026-11-18 on GetBucket (case grpc-probe-routing).
+        let status = assert_code(
             pb::storage_server::Storage::get_bucket(&storage, Request::new(get("page-a"))).await,
             Code::InvalidArgument,
+        );
+        assert_eq!(
+            status.message(),
+            "An x-goog-request-params request metadata property must be provided for this request."
         );
         storage.state.catalog.close().await.unwrap();
     }
