@@ -319,6 +319,19 @@ async fn restore_object_refuses_a_missing_generation_and_copying_the_source_acl(
         .await,
         "RestoreObject ACL/token",
     );
+    // Hierarchical namespaces, whose soft-deleted objects a restore token tells apart, are not
+    // modeled either.
+    assert_unsupported(
+        s.restore_object(
+            Request::new(pb::RestoreObjectRequest {
+                restore_token: "token".into(),
+                ..restore.clone()
+            }),
+            None,
+        )
+        .await,
+        "RestoreObject ACL/token",
+    );
     assert!(stored_object(&s, "source").await.is_none());
     let restored = s
         .restore_object(

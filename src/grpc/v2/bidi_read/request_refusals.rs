@@ -72,6 +72,17 @@ fn assert_status(status: &Status, code: tonic::Code, message: &str) {
     assert!(status.message().contains(message), "{message}: {status:?}");
 }
 
+/// The status read back from the wire carries one `google.rpc.ErrorInfo`.
+#[track_caller]
+fn assert_error_info(status: &Status) {
+    use prost::Message;
+    let rpc = crate::grpc::generated::google::rpc::Status::decode(status.details()).unwrap();
+    let [detail] = rpc.details.as_slice() else {
+        panic!("one detail expected: {rpc:?}");
+    };
+    assert_eq!(detail.type_url, "type.googleapis.com/google.rpc.ErrorInfo");
+}
+
 #[test]
 #[expect(
     deprecated,
@@ -156,11 +167,8 @@ async fn the_stream_refuses_a_missing_or_late_spec_and_a_field_mask_header() {
     assert!(responses.is_empty());
 
     let (status, responses) = stream(&state, &[opening(spec())], Some("name")).await;
-    assert_status(
-        &status,
-        tonic::Code::Unimplemented,
-        "BidiReadObject x-goog-fieldmask",
-    );
+    assert_error_info(&status);
+    assert_unsupported(Err::<(), _>(status), "BidiReadObject x-goog-fieldmask");
     assert!(responses.is_empty());
     let (status, _) = stream(&state, &[opening(spec())], Some("*")).await;
     assert_eq!(status.code(), tonic::Code::Ok, "{status:?}");

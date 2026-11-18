@@ -153,22 +153,55 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
         .await,
     );
     assert_unknown_field(list(&storage, list_request(&["noSuchField"]), anonymous).await);
-    // Without the mask, the same anonymous requests are refused.
-    assert!(
-        get(&storage, get_request("object", &[]), anonymous)
-            .await
-            .is_err()
+    // Without the mask, the same anonymous requests are refused: the object reads with
+    // PERMISSION_DENIED and the listing with UNAUTHENTICATED.
+    assert_code(
+        get(&storage, get_request("object", &[]), anonymous).await,
+        tonic::Code::PermissionDenied,
     );
-    assert!(list(&storage, list_request(&[]), anonymous).await.is_err());
+    assert_code(
+        read(
+            &storage,
+            read_request("object", &["checksummed_data"]),
+            anonymous,
+        )
+        .await,
+        tonic::Code::PermissionDenied,
+    );
+    assert_code(
+        list(&storage, list_request(&[]), anonymous).await,
+        tonic::Code::Unauthenticated,
+    );
 
     let admin = crate::grpc::test_support::caller(&storage, "admin").await;
-    let mut negative = get_request("object", &["noSuchField"]);
-    negative.generation = -1;
-    negative.if_metageneration_match = Some(-1);
-    assert_unknown_field(get(&storage, negative, admin).await);
-    let mut past_end = read_request("object", &["checksummed_data", "metadata.noSuchField"]);
-    past_end.read_offset = 100;
-    assert_unknown_field(read(&storage, past_end, admin).await);
+    let negative = |paths: &[&str]| {
+        let mut request = get_request("object", paths);
+        request.generation = -1;
+        request.if_metageneration_match = Some(-1);
+        request
+    };
+    assert_unknown_field(get(&storage, negative(&["noSuchField"]), admin).await);
+    assert_code(
+        get(&storage, negative(&[]), admin).await,
+        tonic::Code::InvalidArgument,
+    );
+    let past_end = |paths: &[&str]| {
+        let mut request = read_request("object", paths);
+        request.read_offset = 100;
+        request
+    };
+    assert_unknown_field(
+        read(
+            &storage,
+            past_end(&["checksummed_data", "metadata.noSuchField"]),
+            admin,
+        )
+        .await,
+    );
+    assert_code(
+        read(&storage, past_end(&["checksummed_data"]), admin).await,
+        tonic::Code::OutOfRange,
+    );
     storage.state.catalog.close().await.unwrap();
 }
 
