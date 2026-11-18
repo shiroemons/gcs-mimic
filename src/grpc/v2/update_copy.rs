@@ -29,12 +29,13 @@ use serde_json::{Map, Value};
 use std::num::NonZeroU64;
 use tonic::{Request, Response, Status};
 
-/// A destination without the fields only the service supplies: the generation, the etag and
-/// every field the proto marks `OUTPUT_ONLY` ([`ObjectField::clear_service_set`]). ComposeObject
-/// composed a destination that carried any one of the generation, the metageneration, the size,
-/// the etag, the creation time, the update time, the checksums, the owner or the component
-/// count as if it had none (recorded in case grpc-probe-inferred-destinations). That it ignores
-/// the other service-set fields as well is inferred from the proto.
+/// A destination without the fields only the service supplies: the ones it keeps (the
+/// generation, the etag, the retention expiry) and every field the proto marks `OUTPUT_ONLY`
+/// ([`ObjectField::clear_service_set`]). ComposeObject composed a destination that carried any
+/// one of the generation, the metageneration, the size, the etag, the creation time, the update
+/// time, the checksums, the owner or the component count as if it had none (recorded in case
+/// grpc-probe-inferred-destinations). That it ignores the other service-set fields, the
+/// retention expiry among them, as well is inferred from the proto.
 fn without_service_fields(mut o: pb::Object) -> pb::Object {
     ObjectField::clear_service_set(&mut o);
     o

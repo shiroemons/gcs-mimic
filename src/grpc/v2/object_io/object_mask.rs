@@ -34,15 +34,12 @@ macro_rules! object_fields {
                 }
             }
 
-            /// Resets every field of `object` whose value only the service supplies: the
-            /// `OUTPUT_ONLY` fields and the ones the service keeps ([`FieldSetting`]). An
-            /// identifier stays, since a request names the object with it.
+            /// Resets every field of `object` whose value only the service supplies
+            /// ([`FieldSetting::service_supplied`]): the `OUTPUT_ONLY` fields and the ones the
+            /// service keeps. An identifier stays, since a request names the object with it.
             pub(in crate::grpc::v2) fn clear_service_set(object: &mut pb::Object) {
                 $(
-                    if matches!(
-                        Self::$variant.setting(),
-                        FieldSetting::OutputOnly | FieldSetting::ServiceKept
-                    ) {
+                    if Self::$variant.setting().service_supplied() {
                         object.$field = Default::default();
                     }
                 )+
@@ -156,10 +153,6 @@ object_members!(
 );
 
 impl ResourceField for ObjectField {
-    fn output_only(self) -> bool {
-        self.setting() == FieldSetting::OutputOnly
-    }
-
     fn setting(self) -> FieldSetting {
         use ObjectField as F;
         match self {

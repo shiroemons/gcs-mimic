@@ -24,15 +24,8 @@ enum UpdatePath {
     /// `labels`: replaces the whole map.
     Labels,
     /// `labels.<key>`: sets one label, or removes it when the request does not carry the key.
+    /// `labels.` names no key and is refused when the mask is parsed ([`EMPTY_LABEL_KEY`]).
     Label(String),
-    /// `labels.` with no key, which Cloud Storage refuses as an invalid label (recorded
-    /// 2026-11-19, case grpc-probe-inferred-bucket-masks).
-    EmptyLabelKey,
-    /// `name`, `etag`, `project` and `location`: the identifier and the settings fixed at
-    /// creation. Cloud Storage accepted each and changed nothing, even with the request's etag
-    /// or the values the bucket already has (recorded 2026-11-19, case
-    /// grpc-probe-inferred-bucket-masks). Not a change, so the update is not touched.
-    Immutable,
     StorageClass,
     Autoclass(AutoclassPath),
     Versioning,
@@ -77,9 +70,16 @@ impl AutoclassPath {
     }
 }
 
+/// Cloud Storage's refusal of `labels.` in an update mask, an invalid label with an empty key,
+/// whatever the request carries (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+const EMPTY_LABEL_KEY: &str =
+    "Invalid user label:  with value . Reason: Invalid field \"user_labels_list\"; key is empty.";
+
 impl std::str::FromStr for UpdatePath {
     type Err = UnappliedUpdatePath;
 
+    /// A path no case names is classified by the `Bucket` fields: `name`, `etag`, `project`
+    /// and `location`, for one, change nothing ([`BucketField`]'s setting).
     fn from_str(path: &str) -> Result<Self, Self::Err> {
         Ok(match path {
             "labels" => Self::Labels,
@@ -103,9 +103,8 @@ impl std::str::FromStr for UpdatePath {
             | "iam_config.uniform_bucket_level_access.enabled" => Self::UniformBucketLevelAccess,
             "acl" => Self::Acl,
             "default_object_acl" => Self::DefaultObjectAcl,
-            "name" | "etag" | "project" | "location" => Self::Immutable,
             path => match path.strip_prefix("labels.") {
-                Some("") => Self::EmptyLabelKey,
+                Some("") => return Err(UnappliedUpdatePath::Refused(EMPTY_LABEL_KEY)),
                 Some(key) => Self::Label(key.into()),
                 None if names_no_member(path) => {
                     return Err(UnappliedUpdatePath::Unknown(path.into()));
@@ -142,9 +141,6 @@ pub(super) fn from_proto(
     let remedy = "labels, versioning, lifecycle or iam_config";
     for path in update_paths(paths, "UpdateBucket", remedy) {
         let path = path?;
-        if path == UpdatePath::Immutable {
-            continue;
-        }
         update.touched = true;
         apply_path(&mut update, bucket, path)?;
     }
@@ -228,13 +224,6 @@ fn apply_path(
                     .collect(),
             );
         }
-        UpdatePath::EmptyLabelKey => {
-            return Err(super::status::invalid_field(
-                "Invalid user label:  with value . Reason: Invalid field \"user_labels_list\"; key is empty.",
-            ));
-        }
-        // Skipped before a path is applied.
-        UpdatePath::Immutable => {}
         UpdatePath::Label(key) => {
             let value = b.labels.get(&key).cloned();
             // A `labels` path replaces the map, which cannot carry the removal of a key missing
@@ -653,14 +642,21 @@ mod tests {
             MapPatch::Merge([("a.b".into(), Some("c".into()))].into())
         );
         // Recorded 2026-11-19 (case grpc-probe-inferred-bucket-masks): an empty label key is an
-        // invalid label, answered with a BadRequest that repeats the message.
-        let error = from_proto(&bucket, &["labels.".into()]).unwrap_err();
-        assert_eq!(error.code(), tonic::Code::InvalidArgument);
-        assert_eq!(
-            error.message(),
-            "Invalid user label:  with value . Reason: Invalid field \"user_labels_list\"; key is empty."
+        // invalid label, answered with a BadRequest whose violation repeats the message, and the
+        // first failing path in mask order names the error.
+        crate::grpc::test_support::assert_bad_request(
+            from_proto(&bucket, &["labels.".into()]),
+            "Invalid user label:  with value . Reason: Invalid field \"user_labels_list\"; key is empty.",
         );
-        assert!(!error.details().is_empty());
+        crate::grpc::test_support::assert_bad_request(
+            from_proto(&bucket, &["labels.team".into(), "labels.".into()]),
+            EMPTY_LABEL_KEY,
+        );
+        let first = from_proto(&bucket, &["no_such_field".into(), "labels.".into()]).unwrap_err();
+        assert_eq!(
+            first.message(),
+            "There is no field for this resource named 'no_such_field'."
+        );
         for path in [
             "storage_class.name",
             "autoclass.toggle_time",
@@ -754,11 +750,6 @@ mod tests {
             ("labels", UpdatePath::Labels),
             ("labels.team", UpdatePath::Label("team".into())),
             ("labels.a.b", UpdatePath::Label("a.b".into())),
-            ("labels.", UpdatePath::EmptyLabelKey),
-            ("name", UpdatePath::Immutable),
-            ("etag", UpdatePath::Immutable),
-            ("project", UpdatePath::Immutable),
-            ("location", UpdatePath::Immutable),
             ("versioning.enabled", UpdatePath::Versioning),
             (
                 "autoclass.terminal_storage_class",
@@ -791,8 +782,14 @@ mod tests {
                     "iam_config.uniform_bucket_level_access.lock_time".into(),
                 ),
             ),
-            ("create_time", UnappliedUpdatePath::OutputOnly),
-            ("owner", UnappliedUpdatePath::OutputOnly),
+            ("labels.", UnappliedUpdatePath::Refused(EMPTY_LABEL_KEY)),
+            // Output-only fields, the identifier, the etag and the settings fixed at creation.
+            ("create_time", UnappliedUpdatePath::Ignored),
+            ("owner", UnappliedUpdatePath::Ignored),
+            ("name", UnappliedUpdatePath::Ignored),
+            ("etag", UnappliedUpdatePath::Ignored),
+            ("project", UnappliedUpdatePath::Ignored),
+            ("location", UnappliedUpdatePath::Ignored),
             // An output-only field named with a member path is refused like any other path
             // under a field, and so is a field no mask selects.
             (
@@ -818,6 +815,31 @@ mod tests {
         ] {
             assert_eq!(path.parse::<UpdatePath>().unwrap_err(), unapplied, "{path}");
         }
+    }
+
+    /// `names_no_member` lists the members of `versioning` and `iam_config` by hand, since prost
+    /// has no reflection. Destructuring each message without `..` makes a member the proto adds
+    /// a compile error here until it is listed below and in the table.
+    #[test]
+    fn names_no_member_lists_every_member_the_proto_declares() {
+        let pb::bucket::Versioning { enabled: _ } = pb::bucket::Versioning::default();
+        let pb::bucket::IamConfig {
+            uniform_bucket_level_access: _,
+            public_access_prevention: _,
+        } = pb::bucket::IamConfig::default();
+        for member in [
+            "versioning.enabled",
+            "iam_config.uniform_bucket_level_access",
+            "iam_config.public_access_prevention",
+        ] {
+            assert!(!names_no_member(member), "{member}");
+            assert!(!names_no_member(&format!("{member}.x")), "{member}");
+        }
+        for path in ["versioning.no_such_field", "iam_config.enabled"] {
+            assert!(names_no_member(path), "{path}");
+        }
+        // Only these two messages are listed; another field's members are not judged here.
+        assert!(!names_no_member("autoclass.no_such_field"));
     }
 
     /// Cloud Storage accepts an output-only path and changes nothing, and refuses a path that

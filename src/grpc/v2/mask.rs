@@ -53,18 +53,9 @@ pub(super) trait ResourceField: FromStr + Copy {
     /// Names of the resource's fields that are no variant because no mask selects them.
     const UNSELECTABLE: &[&str] = &[];
 
-    /// Whether the proto marks the field `OUTPUT_ONLY`: only the service sets it.
-    fn output_only(self) -> bool;
-
-    /// Who supplies the field's value. A resource whose fields all are clients' or
-    /// `OUTPUT_ONLY` takes the default, which follows [`ResourceField::output_only`].
-    fn setting(self) -> FieldSetting {
-        if self.output_only() {
-            FieldSetting::OutputOnly
-        } else {
-            FieldSetting::Client
-        }
-    }
+    /// Who supplies the field's value. The only classification of a field: each resource
+    /// answers with an exhaustive `match`, so a new field is classified where it is added.
+    fn setting(self) -> FieldSetting;
 }
 
 /// Who supplies a resource field's value.
@@ -77,9 +68,24 @@ pub(super) enum FieldSetting {
     /// Names or addresses the resource (name, bucket): a request supplies it to select the
     /// resource, so an update that names it changes nothing.
     Identifier,
+    /// The proto marks it `IMMUTABLE` (a bucket's project and location): a client sets it when
+    /// it creates the resource, and an update that names it changes nothing.
+    Immutable,
     /// The proto does not mark it `OUTPUT_ONLY`, but the service keeps its value (the generation,
     /// the etag, the retention expiry): a client value is accepted and ignored.
     ServiceKept,
+}
+
+impl FieldSetting {
+    /// Whether only the service supplies the value, so a request's value is dropped from a
+    /// resource the service creates (a copy destination). An identifier names the resource and
+    /// an immutable field is set at creation, so a request keeps both.
+    pub(super) fn service_supplied(self) -> bool {
+        match self {
+            Self::OutputOnly | Self::ServiceKept => true,
+            Self::Client | Self::Identifier | Self::Immutable => false,
+        }
+    }
 }
 
 /// Whether the first segment of `path` names a field of `F`'s resource, whether or not a mask
@@ -173,7 +179,7 @@ impl ResourceField for BucketField {
     /// `satisfies_pzs`, which no mask selects because the emulator has no value to answer with.
     const UNSELECTABLE: &[&str] = &["satisfies_pzs"];
 
-    fn output_only(self) -> bool {
+    fn setting(self) -> FieldSetting {
         use BucketField as F;
         match self {
             F::BucketId
@@ -181,12 +187,14 @@ impl ResourceField for BucketField {
             | F::LocationType
             | F::CreateTime
             | F::UpdateTime
-            | F::Owner => true,
-            F::Name
-            | F::Etag
-            | F::Project
-            | F::Location
-            | F::StorageClass
+            | F::Owner => FieldSetting::OutputOnly,
+            // UpdateBucket accepted each of these four in its update mask and changed nothing,
+            // even with the request's etag or with the values the bucket already has (recorded
+            // 2026-11-19, case grpc-probe-inferred-bucket-masks).
+            F::Name => FieldSetting::Identifier,
+            F::Project | F::Location => FieldSetting::Immutable,
+            F::Etag => FieldSetting::ServiceKept,
+            F::StorageClass
             | F::Autoclass
             | F::Labels
             | F::DefaultEventBasedHold
@@ -206,7 +214,7 @@ impl ResourceField for BucketField {
             | F::Billing
             | F::CustomPlacementConfig
             | F::HierarchicalNamespace
-            | F::IpFilter => false,
+            | F::IpFilter => FieldSetting::Client,
         }
     }
 }
@@ -312,17 +320,20 @@ pub(super) fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], S
 /// An `update_mask` path an update RPC does not apply.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum UnappliedUpdatePath {
-    /// An output-only field named without a member path. Cloud Storage accepted `create_time`
-    /// and `update_time` on UpdateBucket and UpdateObject and applied nothing from them
-    /// (recorded 2026-11-18; UpdateObject still advanced the metageneration). UpdateObject took
-    /// every other field the proto marks `OUTPUT_ONLY` the same way (recorded in case
-    /// grpc-probe-inferred-object-masks); that UpdateBucket does is inferred, not recorded.
-    OutputOnly,
-    /// A field that is not `OUTPUT_ONLY` but whose value the service keeps or that names the
-    /// resource ([`FieldSetting::Identifier`], [`FieldSetting::ServiceKept`]). UpdateObject took
-    /// `etag`, `generation`, `retention_expire_time`, `name` and `bucket` like an output-only
-    /// field (recorded in case grpc-probe-inferred-object-masks).
+    /// A field named without a member path whose value no update changes: every
+    /// [`FieldSetting`] but [`FieldSetting::Client`]. It is accepted and changes nothing.
+    ///
+    /// Recorded for output-only fields: Cloud Storage accepted `create_time` and `update_time` on
+    /// UpdateBucket and UpdateObject and applied nothing from them (2026-11-18; UpdateObject still
+    /// advanced the metageneration), and UpdateObject took every other `OUTPUT_ONLY` field the
+    /// same way (case grpc-probe-inferred-object-masks); that UpdateBucket does is inferred.
+    /// Recorded for the others: UpdateObject took `etag`, `generation`, `retention_expire_time`,
+    /// `name` and `bucket` (the same case), and UpdateBucket took `name`, `etag`, `project` and
+    /// `location` (case grpc-probe-inferred-bucket-masks).
     Ignored,
+    /// A path the RPC recognizes and refuses whatever value the request carries, answered
+    /// INVALID_ARGUMENT with a BadRequest that repeats this message.
+    Refused(&'static str),
     /// A field of the resource, or a path under one, that gcs-mimic does not update, and `*`
     /// beside other paths.
     Unsupported(String),
@@ -333,26 +344,27 @@ pub(super) enum UnappliedUpdatePath {
 impl UnappliedUpdatePath {
     /// Classifies a path none of the RPC's update paths takes by the fields of `F`'s resource.
     pub(super) fn of<F: ResourceField>(path: &str) -> Self {
-        let setting = path.parse::<F>().ok().map(F::setting);
-        if setting == Some(FieldSetting::OutputOnly) {
-            Self::OutputOnly
-        } else if matches!(
-            setting,
-            Some(FieldSetting::Identifier | FieldSetting::ServiceKept)
-        ) {
-            Self::Ignored
-        } else if path == "*" || starts_with_field::<F>(path) {
-            Self::Unsupported(path.into())
-        } else {
-            Self::Unknown(path.into())
+        match path.parse::<F>().ok().map(F::setting) {
+            Some(
+                FieldSetting::OutputOnly
+                | FieldSetting::Identifier
+                | FieldSetting::Immutable
+                | FieldSetting::ServiceKept,
+            ) => Self::Ignored,
+            Some(FieldSetting::Client) | None if path == "*" || starts_with_field::<F>(path) => {
+                Self::Unsupported(path.into())
+            }
+            Some(FieldSetting::Client) | None => Self::Unknown(path.into()),
         }
     }
 }
 
 /// The update paths `P` an update mask names, parsed in mask order as they are taken, so the
-/// first failing path names the error whether it is refused or its value is invalid. An
-/// output-only field is skipped; any other unapplied path is refused, naming `rpc` and the
-/// paths it does update (`remedy`).
+/// first failing path names the error whether it is refused or its value is invalid. A field no
+/// update changes is skipped ([`UnappliedUpdatePath::Ignored`]). Every other unapplied path is
+/// refused: one the RPC refuses whatever the request carries in its own words, one under a field
+/// gcs-mimic does not update naming `rpc` and the paths it does update (`remedy`), and one that
+/// names no field as Cloud Storage words it.
 pub(super) fn update_paths<'a, P>(
     paths: &'a [String],
     rpc: &'a str,
@@ -363,7 +375,8 @@ where
 {
     paths.iter().filter_map(move |path| match path.parse() {
         Ok(path) => Some(Ok(path)),
-        Err(UnappliedUpdatePath::OutputOnly | UnappliedUpdatePath::Ignored) => None,
+        Err(UnappliedUpdatePath::Ignored) => None,
+        Err(UnappliedUpdatePath::Refused(message)) => Some(Err(status::invalid_field(message))),
         Err(UnappliedUpdatePath::Unsupported(path)) => Some(Err(status::unsupported(&format!(
             "{rpc} update_mask {path}; use {remedy}"
         )))),
