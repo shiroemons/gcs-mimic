@@ -15,7 +15,7 @@ use tonic::Status;
 /// `versioning.enabled` names the same setting as its parent, except the Autoclass and IAM
 /// configuration subpaths, which change only part of their message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum UpdatePath {
+enum UpdatePath {
     /// `labels`: replaces the whole map.
     Labels,
     /// `labels.<key>`: sets one label, or removes it when the request does not carry the key.
@@ -39,7 +39,7 @@ pub(super) enum UpdatePath {
 
 /// The Autoclass settings an `autoclass` path changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum AutoclassPath {
+enum AutoclassPath {
     /// `autoclass`: both settings.
     All,
     /// `autoclass.enabled`.
@@ -100,7 +100,7 @@ impl std::str::FromStr for UpdatePath {
 
 /// An `update_mask` path UpdateBucket does not apply; it names the path the client sent.
 #[derive(Debug)]
-pub(super) struct UnsupportedUpdatePath(String);
+struct UnsupportedUpdatePath(String);
 
 impl std::fmt::Display for UnsupportedUpdatePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
