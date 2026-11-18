@@ -170,7 +170,9 @@ fn validate_spec(spec: &pb::BidiReadObjectSpec) -> Result<ReadSpec, Status> {
     const REFUSED: &str = "BidiReadObject routing_token or read_mask";
     let generation = validate::selected_generation(spec.generation)
         .map_err(|NegativeGeneration| Status::invalid_argument(MESSAGE))?;
-    validate::lenient_conditions(ObjectConditions::from(spec), MESSAGE)?;
+    // Negative condition values are compared like any other value, as GetObject and ReadObject
+    // do (recorded 2026-11-18, case grpc-probe-inferred-conditions). Not recorded for
+    // BidiReadObject itself; inferred from those two reads of the same object.
     let Ok(fields) = MetadataFields::try_from(ReadMask::from(spec.read_mask.as_ref())) else {
         return Err(unsupported(REFUSED));
     };

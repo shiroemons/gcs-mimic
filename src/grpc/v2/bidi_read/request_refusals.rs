@@ -149,19 +149,23 @@ fn the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle() {
         );
     }
     let message = "Generation conditions must be nonnegative; use generation 0 for the live object";
-    let negative = [
-        pb::BidiReadObjectSpec {
-            generation: -1,
-            ..spec()
-        },
-        pb::BidiReadObjectSpec {
-            if_metageneration_match: Some(-1),
-            ..spec()
-        },
-    ];
-    for spec in negative {
-        let status = assert_code(validate_spec(&spec), tonic::Code::InvalidArgument);
-        assert_eq!(status.message(), message);
+    let negative = pb::BidiReadObjectSpec {
+        generation: -1,
+        ..spec()
+    };
+    let status = assert_code(validate_spec(&negative), tonic::Code::InvalidArgument);
+    assert_eq!(status.message(), message);
+    // A negative condition is no refusal: it is compared when the object is read, as on
+    // GetObject and ReadObject (recorded 2026-11-18; not recorded for BidiReadObject).
+    for condition in [
+        (|spec: &mut pb::BidiReadObjectSpec| spec.if_generation_match = Some(-1)) as fn(&mut _),
+        |spec| spec.if_generation_not_match = Some(-1),
+        |spec| spec.if_metageneration_match = Some(-1),
+        |spec| spec.if_metageneration_not_match = Some(-1),
+    ] {
+        let mut compared = spec();
+        condition(&mut compared);
+        validate_spec(&compared).unwrap();
     }
 }
 
