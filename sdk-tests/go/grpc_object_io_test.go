@@ -326,9 +326,15 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		}
 		return grpcIOField(response, "upload_id").String()
 	}
-	cancelUpload := func(id string) error {
-		return invoke("CancelResumableWrite", msg("CancelResumableWriteRequest", map[string]any{"upload_id": id}), msg("CancelResumableWriteResponse", nil))
+	// Recorded 2026-11-18 (case grpc-probe-resumable-sessions): Cloud Storage answered
+	// CancelResumableWrite and QueryWriteStatus from the upload ID, both without
+	// x-goog-request-params and with the bucket the ID starts with routed. An emulator upload
+	// ID does not match the routing template the proto gives these RPCs, so a client routes no
+	// bucket from it, and these calls carry no routing metadata.
+	cancelIn := func(callCtx context.Context, id string) error {
+		return conn.Invoke(callCtx, "/google.storage.v2.Storage/CancelResumableWrite", msg("CancelResumableWriteRequest", map[string]any{"upload_id": id}), msg("CancelResumableWriteResponse", nil))
 	}
+	cancelUpload := func(id string) error { return cancelIn(ctx, id) }
 	write := func(id string, offset int64, content string, finish bool) error {
 		stream, err := conn.NewStream(grpcRouted(ctx, bucket.BucketName()), &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/google.storage.v2.Storage/BidiWriteObject")
 		if err != nil {
@@ -339,7 +345,7 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		return stream.RecvMsg(msg("BidiWriteObjectResponse", nil))
 	}
 	query := func(id string) error {
-		return invoke("QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), msg("QueryWriteStatusResponse", nil))
+		return conn.Invoke(ctx, "/google.storage.v2.Storage/QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": id}), msg("QueryWriteStatusResponse", nil))
 	}
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -380,6 +386,16 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 	}
 	if attrs, err := bucket.Object("finalized").Attrs(ctx); err != nil || attrs.Size != 4 {
 		t.Fatalf("finalized object changed: %v %v", attrs, err)
+	}
+	// A routed bucket other than the upload ID's changes nothing: the emulator answers and
+	// authorizes the call from the ID's bucket. No such call was recorded; this follows from
+	// the recorded answers above.
+	rerouted := start("rerouted")
+	if err := cancelIn(grpcRouted(ctx, "another-bucket"), rerouted); err != nil {
+		t.Fatalf("cancel routed to another bucket=%v", err)
+	}
+	if err := query(rerouted); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("query after a cancel routed to another bucket=%v", err)
 	}
 	// Recorded 2026-11-18: text that is no upload ID is INVALID_ARGUMENT; an ID the service
 	// cannot read, or that names no session, fails as INTERNAL.

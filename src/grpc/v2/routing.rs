@@ -1,4 +1,4 @@
-use super::{names, object_io::UploadId, pb, status};
+use super::{names, pb, status};
 use crate::json;
 use tonic::{Status, metadata::MetadataMap};
 
@@ -44,10 +44,6 @@ pub(super) enum Route<'a> {
     /// when the request names no bucket. The metadata must route the same bucket: metadata
     /// that routes none is compared as routing the empty name.
     Bucket(Option<&'a str>),
-    /// The bucket a local upload ID spells, compared like [`Route::Bucket`] when the metadata
-    /// routes a bucket; `None` for a malformed ID that spells none, which is not compared. Not
-    /// required: a Cloud Storage upload ID spells no bucket a client could route.
-    SessionBucket(Option<&'a str>),
     /// Compared with the routed source bucket when the metadata routes one.
     SourceBucket(Option<&'a str>),
     /// Compared as text when routed; proto3's empty string is a value here.
@@ -61,11 +57,16 @@ pub(super) enum Route<'a> {
 pub(super) enum Routes<'a> {
     /// The metadata is required, and each listed field must name the same resource.
     Request(&'a [Route<'a>]),
-    /// Compared like `Request`, but the call is admitted without the metadata. Cloud Storage
-    /// answered QueryWriteStatus and CancelResumableWrite sent without it for their malformed
-    /// upload ID, not for the metadata (recorded 2026-11-18, case
-    /// grpc-probe-resumable-sessions).
-    Optional(&'a [Route<'a>]),
+    /// The call is admitted with or without the metadata, and nothing is compared. Cloud
+    /// Storage answered QueryWriteStatus and CancelResumableWrite sent without it for their
+    /// malformed upload ID (recorded 2026-11-18, case grpc-probe-resumable-sessions, steps
+    /// cancel-malformed, status-malformed and cancel-empty), and sent with a routed bucket equal
+    /// to the one an upload ID starts with for that ID too (steps cancel-unknown-under-bucket and
+    /// status-unknown-under-bucket): the answer came from the ID, not from a comparison. A local
+    /// upload ID `<bucket>/<session>` does not match the proto's routing template
+    /// `{bucket=projects/*/buckets/*}/**`, so a client routes no bucket from it, and the
+    /// handlers authorize with the bucket the parsed ID names.
+    Optional,
     /// The metadata is required, but the handler learns its resources later (a stream's first
     /// message, a rewrite token): only the metadata's form is checked, and the handler calls
     /// [`check`] again with `Request`.
@@ -102,7 +103,7 @@ fn same_bucket(requested: Option<&str>, routed: Option<&str>) -> Result<(), Stat
 impl Route<'_> {
     fn field(self) -> RoutingField {
         match self {
-            Self::Bucket(_) | Self::SessionBucket(_) => RoutingField::Bucket,
+            Self::Bucket(_) => RoutingField::Bucket,
             Self::SourceBucket(_) => RoutingField::SourceBucket,
             Self::Project(_) => RoutingField::Project,
             Self::Appendable(_) => RoutingField::Appendable,
@@ -114,17 +115,11 @@ impl Route<'_> {
         let Some(routed) = routed else {
             return match self {
                 Self::Bucket(requested) => same_bucket(requested, None),
-                Self::SessionBucket(_)
-                | Self::SourceBucket(_)
-                | Self::Project(_)
-                | Self::Appendable(_) => Ok(()),
+                Self::SourceBucket(_) | Self::Project(_) | Self::Appendable(_) => Ok(()),
             };
         };
         match self {
             Self::Bucket(requested) => same_bucket(requested, Some(routed)),
-            Self::SessionBucket(Some(requested)) => same_bucket(Some(requested), Some(routed)),
-            // The handler answers an upload ID that spells no bucket.
-            Self::SessionBucket(None) => Ok(()),
             Self::SourceBucket(requested) => {
                 let routed = names::bucket_name(routed)?;
                 requested
@@ -192,7 +187,7 @@ fn routed(metadata: &MetadataMap) -> Result<Option<Vec<(RoutingField, String)>>,
 pub(super) fn admit(metadata: &MetadataMap, routes: Routes<'_>) -> Result<(), Status> {
     let required = match routes {
         Routes::Request(_) | Routes::Deferred => true,
-        Routes::Optional(_) => false,
+        Routes::Optional => false,
     };
     if required && metadata.get("x-goog-request-params").is_none() {
         // Recorded 2026-11-18 on GetObject, GetBucket, ListBuckets and WriteObject (case
@@ -216,9 +211,9 @@ pub(super) fn check(metadata: &MetadataMap, routes: Routes<'_>) -> Result<(), St
         return Ok(());
     };
     let routes = match routes {
-        Routes::Request(routes) | Routes::Optional(routes) => routes,
+        Routes::Request(routes) => routes,
         // Stream resources arrive in their first protobuf message.
-        Routes::Deferred => return Ok(()),
+        Routes::Optional | Routes::Deferred => return Ok(()),
     };
     // A routed field the call does not list is not compared: Cloud Storage answered a routed
     // project on GetObject for the bucket the metadata left out (recorded 2026-11-18).
@@ -258,8 +253,11 @@ pub(super) fn write(
         Some(FirstMessage::AppendObjectSpec(spec)) => {
             (Route::Bucket(Some(spec.bucket.as_str())), true)
         }
-        Some(FirstMessage::UploadId(id)) => {
-            (Route::SessionBucket(UploadId::routing_bucket(id)), false)
+        // A resumed write's upload ID names its bucket in a form no client routes (see
+        // `Routes::Optional`), and the handler authorizes with that bucket, so only the flag is
+        // compared.
+        Some(FirstMessage::UploadId(_)) => {
+            return check(metadata, Routes::Request(&[Route::Appendable(false)]));
         }
         None => (Route::Bucket(None), false),
     };
@@ -296,26 +294,29 @@ mod tests {
         )
     }
 
+    /// A resumed write's upload ID names its bucket in a form no client routes, so its routed
+    /// bucket is not compared with the ID's: the handler authorizes with the ID's bucket. No
+    /// resumed write was recorded under another routed bucket; comparing nothing is the local
+    /// reading of the recorded upload ID calls (case grpc-probe-resumable-sessions).
     #[test]
-    fn routing_validates_all_values_and_resumed_upload_buckets() {
+    fn routing_compares_only_the_appendable_flag_of_a_resumed_write() {
+        let resumed = |bucket: &str| {
+            pb::bidi_write_object_request::FirstMessage::UploadId(format!(
+                "{bucket}/{}",
+                "a".repeat(64)
+            ))
+        };
         let metadata = routed("bucket=projects%2F_%2Fbuckets%2Ftest-bucket&appendable=false");
-        let first = pb::bidi_write_object_request::FirstMessage::UploadId(format!(
-            "test-bucket/{}",
-            "a".repeat(64)
-        ));
-        write(&metadata, Some(&first)).unwrap();
-        let wrong = pb::bidi_write_object_request::FirstMessage::UploadId(format!(
-            "other-bucket/{}",
-            "a".repeat(64)
-        ));
-        let error = write(&metadata, Some(&wrong)).unwrap_err();
-        assert_eq!(error.code(), Code::InvalidArgument);
+        write(&metadata, Some(&resumed("test-bucket"))).unwrap();
+        write(&metadata, Some(&resumed("other-bucket"))).unwrap();
+        write(&routed("appendable=false"), Some(&resumed("test-bucket"))).unwrap();
+        // A resumable session is never appendable.
         assert_eq!(
-            error.message(),
-            other_bucket_message("other-bucket", "test-bucket")
+            write(&routed("appendable=true"), Some(&resumed("test-bucket")))
+                .unwrap_err()
+                .message(),
+            CONFLICT
         );
-        // An upload ID need not be routed by a bucket, only by some metadata.
-        write(&routed("appendable=false"), Some(&first)).unwrap();
         let error = check(&routed("bucket=bad"), Routes::Deferred).unwrap_err();
         assert_eq!(error.code(), Code::InvalidArgument);
         assert_eq!(
@@ -345,22 +346,14 @@ mod tests {
             check(&none, routes).unwrap();
         }
         write(&none, None).unwrap();
-        // Recorded 2026-11-18 (case grpc-probe-resumable-sessions): an upload ID RPC without
-        // the metadata reaches its handler, which answers the upload ID.
-        admit(&none, Routes::Optional(&[Route::SessionBucket(None)])).unwrap();
-        admit(&none, Routes::Optional(&[Route::SessionBucket(Some("b"))])).unwrap();
-        // An upload ID that spells no bucket is left to the handler, whatever is routed.
+        // Recorded 2026-11-18 (case grpc-probe-resumable-sessions): an upload ID RPC reaches its
+        // handler, which answers the upload ID, without the metadata and with a routed bucket.
+        admit(&none, Routes::Optional).unwrap();
         admit(
             &routed("bucket=projects%2F_%2Fbuckets%2Fa"),
-            Routes::Optional(&[Route::SessionBucket(None)]),
+            Routes::Optional,
         )
         .unwrap();
-        let error = admit(
-            &routed("bucket=projects%2F_%2Fbuckets%2Fa"),
-            Routes::Optional(&[Route::SessionBucket(Some("b"))]),
-        )
-        .unwrap_err();
-        assert_eq!(error.message(), other_bucket_message("b", "a"));
     }
 
     /// Recorded 2026-11-18 (case grpc-probe-routing): a routed bucket other than the request's,
@@ -428,10 +421,10 @@ mod tests {
             write(&bucket, None).unwrap_err().message(),
             other_bucket_message("", "b")
         );
-        // A malformed upload ID still routes by the text before its first slash; the handler
-        // answers it with NOT_FOUND.
-        let malformed = pb::bidi_write_object_request::FirstMessage::UploadId("b/not-hex".into());
-        write(&bucket, Some(&malformed)).unwrap();
+        // A resumed write compares no bucket; the handler answers an upload ID it cannot read.
+        let unreadable =
+            pb::bidi_write_object_request::FirstMessage::UploadId("other/not-hex".into());
+        write(&bucket, Some(&unreadable)).unwrap();
 
         assert_eq!(
             check(

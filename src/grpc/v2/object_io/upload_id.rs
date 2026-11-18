@@ -51,9 +51,6 @@ impl From<UnknownUploadId> for Status {
     }
 }
 
-/// What a bucket's resource name starts with; an upload ID a client made up may start with one.
-const BUCKET_RESOURCE_PREFIX: &str = "projects/_/buckets/";
-
 impl std::str::FromStr for UploadId {
     type Err = UnknownUploadId;
 
@@ -94,18 +91,6 @@ impl UploadId {
     /// The session part as the client sent it; the catalog's `&str` entry points parse it.
     pub(in crate::grpc::v2) fn session(&self) -> &str {
         &self.session
-    }
-
-    /// The bucket part routing compares, taken before the ID is validated: routing runs ahead
-    /// of the handler, which answers an ID it cannot use. An ID that starts with a bucket's
-    /// resource name routes by that name, as Cloud Storage's routing template does; no issued
-    /// ID starts that way, and the handler then answers it as unreadable.
-    pub(in crate::grpc::v2) fn routing_bucket(id: &str) -> Option<&str> {
-        if let Some(rest) = id.strip_prefix(BUCKET_RESOURCE_PREFIX) {
-            let name = rest.split_once('/').map_or(rest, |(name, _)| name);
-            return id.get(..BUCKET_RESOURCE_PREFIX.len() + name.len());
-        }
-        id.split_once('/').map(|(bucket, _)| bucket)
     }
 }
 
@@ -174,23 +159,6 @@ mod tests {
         assert_eq!(
             UploadId::issued("bucket", session).to_string(),
             format!("bucket/{}", "ab".repeat(32))
-        );
-    }
-
-    #[test]
-    fn routing_takes_the_bucket_before_validation() {
-        assert_eq!(UploadId::routing_bucket("b/not-hex"), Some("b"));
-        assert_eq!(UploadId::routing_bucket("/x"), Some(""));
-        assert_eq!(UploadId::routing_bucket("b"), None);
-        assert_eq!(UploadId::routing_bucket(""), None);
-        // An ID under a bucket's resource name routes by that name.
-        assert_eq!(
-            UploadId::routing_bucket("projects/_/buckets/b/unknown-upload-id"),
-            Some("projects/_/buckets/b")
-        );
-        assert_eq!(
-            UploadId::routing_bucket("projects/_/buckets/b"),
-            Some("projects/_/buckets/b")
         );
     }
 }

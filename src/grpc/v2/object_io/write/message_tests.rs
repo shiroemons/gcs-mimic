@@ -1567,9 +1567,9 @@ struct EarlyRefusal {
 }
 
 /// WriteObject reads nothing past a resumed stream's finish_write (recorded 2026-11-18), so a
-/// refusal is answered at once while the client keeps its stream open: conflicting routing
-/// metadata, an upload_id that is unreadable or no upload ID at all, a caller without
-/// storage.objects.create under the strict profile, and an offset the session refuses
+/// refusal is answered at once while the client keeps its stream open: an upload_id that is
+/// unreadable or no upload ID at all, a caller without storage.objects.create under the strict
+/// profile, and an offset the session refuses
 /// (`grpc_io_write_object_answers_a_refused_finishing_message_at_once` covers the refusals
 /// that need the session).
 #[tokio::test]
@@ -1577,15 +1577,6 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
     use Code::{Internal, InvalidArgument, OutOfRange, PermissionDenied};
     let (_dir, storage) = setup(true).await;
     let cases = [
-        EarlyRefusal {
-            label: "routing",
-            token: "admin",
-            routing: Some("bucket=projects%2F_%2Fbuckets%2Fanother-bucket"),
-            messages: |u| vec![resume(u, 0, b"abc").finish()],
-            code: InvalidArgument,
-            // Recorded 2026-11-18 (case grpc-probe-routing).
-            message: "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified 'another-bucket'",
-        },
         EarlyRefusal {
             label: "unreadable-upload-id",
             token: "admin",
@@ -1644,6 +1635,39 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
         );
         drop(release);
     }
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A resumed write is answered from its upload ID, whatever bucket its metadata routes: the ID
+/// names its bucket in a form no client routes, and the write is authorized and published in
+/// that bucket. No resumed write was recorded under another routed bucket; this is the local
+/// reading of the recorded upload ID calls (case grpc-probe-resumable-sessions), which Cloud
+/// Storage answered from the ID with and without a routed bucket.
+#[tokio::test]
+async fn grpc_io_resumed_write_is_answered_from_its_upload_id_whatever_bucket_is_routed() {
+    let (_dir, storage) = setup(true).await;
+    let upload = open_session(&storage, "routed-elsewhere", PLAIN).await;
+    let send = async |request| {
+        crate::grpc::v2::dispatch(
+            crate::grpc::v2::service(storage.state.clone(), MAX, storage.compat_profile),
+            request,
+        )
+        .await
+        .unwrap()
+    };
+    let (status, _): (_, Vec<pb::WriteObjectResponse>) = routed_rpc_status(
+        "/google.storage.v2.Storage/WriteObject",
+        Some("admin"),
+        "bucket=projects%2F_%2Fbuckets%2Fanother-bucket",
+        &[write_object_request(&resume(&upload, 0, b"abc").finish())],
+        send,
+    )
+    .await;
+    assert_eq!(status.code(), Code::Ok, "{status}");
+    assert_eq!(
+        object_left(&storage, "routed-elsewhere").await,
+        Left::Object(3)
+    );
     storage.state.catalog.close().await.unwrap();
 }
 
