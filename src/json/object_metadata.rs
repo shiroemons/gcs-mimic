@@ -62,7 +62,7 @@ impl ObjectMetadataRequest {
                 && record
                     .owner
                     .as_ref()
-                    .and_then(|owner| owner.entity())
+                    .and_then(crate::object::owner::ObjectOwner::entity)
                     .is_some_and(|entity| *value == serde_json::json!({"entity":entity}));
             let same_link = match source {
                 ApiBaseSource::Explicit => false,

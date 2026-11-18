@@ -1150,7 +1150,7 @@ fn publish_checked_entry(
             blob_id: staged.blob_id(),
             assignment: staged
                 .import_identity()
-                .and_then(|identity| identity.generation())
+                .and_then(ImportedIdentity::generation)
                 .map_or(objects::GenerationAssignment::Automatic, |generation| {
                     objects::GenerationAssignment::Imported(generation)
                 }),

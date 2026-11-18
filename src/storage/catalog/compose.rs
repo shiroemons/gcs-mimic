@@ -251,7 +251,7 @@ impl Catalog {
         let keys = combined.keys;
         let transfer = self
             .begin_derived_ephemeral(
-                sources.into_iter().map(|source| source.whole()).collect(),
+                sources.into_iter().map(DerivedSource::whole).collect(),
                 max_bytes,
             )
             .await?;

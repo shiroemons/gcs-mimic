@@ -324,7 +324,7 @@ impl Drop for UploadGuard {
                 .0
                 .uploads
                 .lock()
-                .unwrap_or_else(|error| error.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             uploads.active -= 1;
             if uploads.active == 0 {
                 catalog.0.uploads_idle.notify_waiters();

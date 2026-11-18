@@ -27,7 +27,9 @@ impl Drop for Publication {
     fn drop(&mut self) {
         if let Some(published) = &self.published {
             // A poisoned lock remains visibly poisoned to subsequent readers.
-            *published.lock().unwrap_or_else(|error| error.into_inner()) = None;
+            *published
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         }
     }
 }

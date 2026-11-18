@@ -638,7 +638,7 @@ impl CanonicalRequest<'_> {
             signed,
             payload,
         } = self;
-        for key in headers.keys().map(|key| key.as_str()) {
+        for key in headers.keys().map(hyper::header::HeaderName::as_str) {
             if (key.starts_with("x-goog-") || key.starts_with("x-amz-"))
                 && !matches!(key, "x-goog-content-sha256" | "x-amz-content-sha256")
                 && !signed.contains(key)
@@ -933,7 +933,10 @@ pub fn sign_url(request: SignUrlRequest<'_>) -> Result<String, SigningError> {
     {
         return Err(SigningError::ExistingSigningParameters);
     }
-    let mut names: Vec<_> = headers.keys().map(|h| h.as_str()).collect();
+    let mut names: Vec<_> = headers
+        .keys()
+        .map(hyper::header::HeaderName::as_str)
+        .collect();
     names.sort();
     let signed = names.join(";");
     for (k, v) in [
