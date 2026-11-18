@@ -1,5 +1,9 @@
-use crate::grpc::generated::google::rpc::{
-    BadRequest, ErrorInfo, Status as RpcStatus, bad_request,
+use crate::{
+    bucket::CatalogError,
+    grpc::generated::google::rpc::{BadRequest, ErrorInfo, Status as RpcStatus, bad_request},
+    metadata_error::MetadataError,
+    object::{ComponentFailure, ComponentFailureKind, ObjectError},
+    storage::failure::{BackendCause, wording},
 };
 use prost::Message;
 use tonic::{Code, Status};
@@ -7,6 +11,10 @@ use tonic::{Code, Status};
 /// The gRPC message of a conditional read that matched `if_*_not_match` (recorded on `GetObject`).
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
+
+/// The Storage v2 refusal to delete a bucket that still holds objects, which names the remedy.
+const BUCKET_NOT_EMPTY: &str =
+    "Bucket is not empty; delete its objects and versions before deleting the bucket";
 
 /// Reader failures keep the storage classification and record the underlying I/O cause.
 pub(super) fn read_failure(error: std::io::Error) -> Status {
@@ -37,20 +45,155 @@ pub(super) fn glob_status(error: &crate::match_glob::GlobError) -> Status {
     Status::invalid_argument(error.message("match_glob"))
 }
 
-impl From<crate::object::ObjectError> for Status {
-    fn from(error: crate::object::ObjectError) -> Self {
-        Self::from(crate::json::JsonError::from(error))
+/// Every object failure picks its gRPC code here; the text it shares with the JSON API comes
+/// from [`wording`].
+impl From<ObjectError> for Status {
+    fn from(error: ObjectError) -> Self {
+        match error {
+            ObjectError::BucketNotFound => Status::not_found(wording::BUCKET_NOT_FOUND),
+            ObjectError::ObjectNotFound => Status::not_found(wording::OBJECT_NOT_FOUND),
+            ObjectError::DerivedTransferNotFound => {
+                Status::not_found(wording::DERIVED_TRANSFER_NOT_FOUND)
+            }
+            ObjectError::Component(failure) => component(&failure),
+            // Only the JSON API answers a write's matching not-match condition with 304.
+            ObjectError::PreconditionFailed | ObjectError::WriteNotModified => {
+                Status::failed_precondition(wording::PRECONDITION_NOT_HELD)
+            }
+            ObjectError::NotModified => Status::failed_precondition(NOT_MODIFIED),
+            ObjectError::PublicAccessPrevention => {
+                Status::failed_precondition(wording::PUBLIC_ACCESS_PREVENTED)
+            }
+            error @ ObjectError::ObjectNotSoftDeleted => {
+                Status::failed_precondition(error.to_string())
+            }
+            ObjectError::DerivedTransferExpired => {
+                Status::failed_precondition(wording::DERIVED_TRANSFER_EXPIRED)
+            }
+            ObjectError::OverwriteForbidden(denied) | ObjectError::Denied(denied) => {
+                Status::permission_denied(denied.to_string())
+            }
+            ObjectError::Forbidden => Status::permission_denied(wording::FORBIDDEN),
+            ObjectError::ActiveHold(held) => Status::permission_denied(wording::held_object(&held)),
+            ObjectError::ObjectRetentionNotMet(retained) => {
+                Status::permission_denied(wording::retained_object(&retained))
+            }
+            ObjectError::UnlockedRetentionOverrideRequired => {
+                Status::permission_denied(crate::object::UNLOCKED_RETENTION_OVERRIDE_MESSAGE)
+            }
+            ObjectError::LockedRetention => {
+                Status::permission_denied(crate::object::LOCKED_RETENTION_MESSAGE)
+            }
+            ObjectError::SoftDeletePolicyRequired(request) => {
+                Status::invalid_argument(request.policy_required_message())
+            }
+            ObjectError::ChecksumMismatch => Status::invalid_argument(wording::CHECKSUM_MISMATCH),
+            ObjectError::HashMismatch(mismatch) => {
+                Status::invalid_argument(wording::hash_mismatch(&mismatch))
+            }
+            ObjectError::BodyAborted(_) => Status::invalid_argument(wording::BODY_ABORTED),
+            ObjectError::InvalidFixedMetadata(reason)
+            | ObjectError::InvalidDerivedArgument(reason) => Status::invalid_argument(reason),
+            ObjectError::UniformAccessPredefinedAcl => {
+                Status::invalid_argument(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
+            }
+            ObjectError::UniformAccessAclUpdate => {
+                Status::invalid_argument(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
+            }
+            error @ ObjectError::ComposeClassMismatch { .. } => {
+                Status::invalid_argument(error.to_string())
+            }
+            ObjectError::DerivedTransferIncomplete => {
+                Status::invalid_argument(wording::DERIVED_TRANSFER_INCOMPLETE)
+            }
+            ObjectError::CustomerEncryption(error) => customer_encryption(error),
+            ObjectError::Metadata(error) => metadata(&error, wording::unsupported_object_setting),
+            ObjectError::UnsupportedMetadata(field) => {
+                unsupported_message(wording::unsupported_object_setting(&field))
+            }
+            ObjectError::TooLarge => Status::resource_exhausted(wording::UPLOAD_TOO_LARGE),
+            ObjectError::DerivedTransferBusy => Status::unavailable(wording::DERIVED_TRANSFER_BUSY),
+            ObjectError::Io(cause) => Status::unavailable(wording::object_io(&cause)),
+            ObjectError::Corrupt(cause) => {
+                Status::unavailable(wording::corrupt_object(&cause).message)
+            }
+            ObjectError::Unavailable(cause) => {
+                Status::unavailable(wording::object_backend(&cause).message)
+            }
+        }
     }
 }
 
-impl From<crate::bucket::CatalogError> for Status {
-    fn from(error: crate::bucket::CatalogError) -> Self {
-        if matches!(error, crate::bucket::CatalogError::NotEmpty) {
-            return Status::failed_precondition(
-                "Bucket is not empty; delete its objects and versions before deleting the bucket",
-            );
+/// Every bucket catalog failure picks its gRPC code here; the text it shares with the JSON API
+/// comes from [`wording`].
+impl From<CatalogError> for Status {
+    fn from(error: CatalogError) -> Self {
+        match error {
+            CatalogError::NotFound => Status::not_found(wording::BUCKET_NOT_FOUND),
+            CatalogError::AlreadyExists => Status::already_exists(wording::BUCKET_ALREADY_OWNED),
+            CatalogError::RestoreConflict => Status::already_exists(wording::RESTORE_CONFLICT),
+            CatalogError::NotEmpty => Status::failed_precondition(BUCKET_NOT_EMPTY),
+            CatalogError::PreconditionFailed => {
+                Status::failed_precondition(wording::PRECONDITION_NOT_HELD)
+            }
+            CatalogError::PublicAccessPrevention => {
+                Status::failed_precondition(wording::PUBLIC_ACCESS_PREVENTED)
+            }
+            CatalogError::Denied(denied) => Status::permission_denied(denied.to_string()),
+            CatalogError::Forbidden => Status::permission_denied(wording::FORBIDDEN),
+            error @ (CatalogError::RetentionPolicyLocked(_)
+            | CatalogError::RetentionPolicyNotSet) => Status::invalid_argument(error.to_string()),
+            CatalogError::InvalidMetadata(reason) => Status::invalid_argument(reason),
+            CatalogError::Metadata(error) => metadata(&error, wording::unsupported_bucket_setting),
+            CatalogError::UnsupportedMetadata(field) => {
+                unsupported_message(wording::unsupported_bucket_setting(&field))
+            }
+            CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
+                Status::unavailable(wording::storage_capacity(&cause))
+            }
+            CatalogError::Unavailable(cause) | CatalogError::Corrupt(cause) => {
+                Status::unavailable(wording::catalog_backend(&cause).message)
+            }
+            // These hold no backend cause; wrapped in one, a fixed failure in their chain still
+            // names its remedy and any other cause is logged, as the JSON API does.
+            error @ (CatalogError::AuthenticationAlreadyConfigured
+            | CatalogError::Io(_)
+            | CatalogError::NewerSchema { .. }) => Status::unavailable(
+                wording::catalog_backend(&BackendCause::from_error(error)).message,
+            ),
         }
-        Self::from(crate::json::JsonError::from(error))
+    }
+}
+
+/// A compose component's failure names the component, as Cloud Storage's wording does.
+fn component(failure: &ComponentFailure) -> Status {
+    match failure.kind {
+        ComponentFailureKind::NotFound => Status::not_found(wording::missing_named_object(
+            &failure.bucket,
+            &failure.name,
+        )),
+        ComponentFailureKind::GenerationMismatch { required, actual } => {
+            Status::failed_precondition(wording::component_generation_mismatch(
+                &failure.bucket,
+                &failure.name,
+                required,
+                actual,
+            ))
+        }
+    }
+}
+
+/// A metadata refusal. A class the bucket's location cannot hold repeats its message in a
+/// `BadRequest`, as Cloud Storage does (recorded 2026-11-17); a recognized setting gcs-mimic
+/// lacks is unsupported in the wording of the API that refused it.
+fn metadata(error: &MetadataError, unsupported: fn(&str) -> String) -> Status {
+    let message = error.to_string();
+    if matches!(error, MetadataError::ClassLocation(_)) {
+        invalid_field(message)
+    } else if error.unsupported() {
+        unsupported_message(unsupported(&message))
+    } else {
+        Status::invalid_argument(message)
     }
 }
 
@@ -116,7 +259,8 @@ impl From<crate::csek::CsekError> for Status {
 
 impl From<crate::json::JsonError> for Status {
     fn from(mut error: crate::json::JsonError) -> Self {
-        // Storage errors reach gRPC through the JSON mapping; keep the gRPC key contract.
+        // A storage error that a handler turned into a JSON error, such as one that names its
+        // object, must still report what the direct conversion above reports.
         if let crate::json::ErrorKind::Csek(error) = error.kind {
             return customer_encryption(error);
         }
