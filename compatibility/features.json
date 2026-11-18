@@ -25192,7 +25192,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields and predefined ACLs remain pending. The stream shapes, per-message answers and their precedence follow the recording of Cloud Storage of 2026-11-18 (cases grpc-probe-write-streams and grpc-probe-object-conditions); the answers it did not cover are marked 'Not recorded' in their cases. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields and predefined ACLs remain pending. The stream shapes, per-message answers and their precedence follow the recordings of Cloud Storage of 2026-11-18 (cases grpc-probe-write-streams, grpc-probe-object-conditions and, for resumable sessions, granules, unknown upload IDs and negative conditions, grpc-probe-inferred-session-states, grpc-probe-inferred-granules, grpc-probe-inferred-upload-ids and grpc-probe-inferred-conditions); the answers they did not cover are marked 'Not recorded' in the code and the test tables of src/grpc/v2/object_io/write/message_tests.rs. WriteObject and BidiWriteObject check each message through one shared implementation (WriteStep::admit in src/grpc/v2/object_io/step.rs and upload::admit_bytes in src/grpc/upload.rs). Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): create and update times are millisecond precision and the response carries acl and owner.",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25211,7 +25211,7 @@
         },
         {
           "id": "write_stream_shapes",
-          "description": "WriteObject answers at finish_write and reads nothing further: a message after finish_write, a write_object_spec or upload_id repeated on a later message, and a stream that ends after finish_write change nothing (recorded 2026-11-18, case grpc-probe-write-streams, steps message-after-finish-write, upload-id-repeated and single-message-after-finish-write, single-spec-repeated). A non-resumable stream that closes without finish_write fails INVALID_ARGUMENT 'Non-resumable write closed without setting finish_write parameter.' and publishes nothing (step single-without-finish-write). A resumable stream persists whole 256 KiB granules until finish_write; bytes past the last granule wait for the call's next message, and a stream that closes with such bytes fails INVALID_ARGUMENT 'Exactly 3 bytes were uploaded in this call, which is not a multiple of the 262144 byte write granularity, but finish_write was not set. ...' and drops them (steps nonfinal-three-bytes and status-after-nonfinal-three-bytes). A first write_offset past the persisted size answers OUT_OF_RANGE naming both offsets with GRPC_UPLOAD_INVALID_START_OFFSET (steps first-offset-above-persisted, first-offset-below-persisted-finish and first-offset-at-persisted-finish, where nothing was persisted). A finishing message whose size misses object_size answers OUT_OF_RANGE with GRPC_MISMATCHED_UPLOAD_SIZE and ends the session (steps finish-below-object-size and status-after-below-object-size); a data crc32c mismatch is INVALID_ARGUMENT and leaves the session usable (steps finish-wrong-data-crc32c and status-after-wrong-data-crc32c).",
+          "description": "WriteObject answers at finish_write and reads nothing further: a message after finish_write, a write_object_spec or upload_id repeated on a later message, and a stream that ends after finish_write change nothing (recorded 2026-11-18, case grpc-probe-write-streams, steps message-after-finish-write, upload-id-repeated and single-message-after-finish-write, single-spec-repeated). A non-resumable stream that closes without finish_write fails INVALID_ARGUMENT 'Non-resumable write closed without setting finish_write parameter.' and publishes nothing (step single-without-finish-write). A resumable stream persists whole 256 KiB granules until finish_write; bytes past the last granule wait for the call's next message, and a stream that closes with such bytes fails INVALID_ARGUMENT 'Exactly 3 bytes were uploaded in this call, which is not a multiple of the 262144 byte write granularity, but finish_write was not set. ...' and drops them (steps nonfinal-three-bytes and status-after-nonfinal-three-bytes). A resumable stream that closes on a whole granule persists it and reports it, and QueryWriteStatus then reports the same persisted size (recorded 2026-11-18, case grpc-probe-inferred-granules, steps granule-without-finish and status-after-granule; the table entry half-close-on-a-granule of grpc_resumable_write_message_errors asserts it). A first write_offset past the persisted size answers OUT_OF_RANGE naming both offsets with GRPC_UPLOAD_INVALID_START_OFFSET (steps first-offset-above-persisted, first-offset-below-persisted-finish and first-offset-at-persisted-finish of grpc-probe-write-streams, where nothing was persisted, and step first-offset-past-persisted of grpc-probe-inferred-granules, with a granule persisted). A first write_offset at 0 or inside the persisted bytes is accepted and leaves the persisted size as it was, the repeated bytes skipped (steps first-offset-zero, first-offset-inside-persisted and first-offset-at-persisted-finish of grpc-probe-inferred-granules, recorded 2026-11-18; the table entries first-offset-zero and first-offset-inside of grpc_resumable_write_message_errors and resumable_call_refuses_offsets_and_sizes_as_recorded assert it). A finishing message whose size misses object_size answers OUT_OF_RANGE with GRPC_MISMATCHED_UPLOAD_SIZE and ends the session (steps finish-below-object-size and status-after-below-object-size), and so do bytes past object_size without finish_write (steps granule-past-object-size-without-finish and status-after-past-object-size of grpc-probe-inferred-granules, recorded 2026-11-18); a data crc32c mismatch is INVALID_ARGUMENT and leaves the session usable (steps finish-wrong-data-crc32c and status-after-wrong-data-crc32c).",
           "result": "PASS",
           "test_ids": [
             "grpc_io_write_object_answers_at_finish_write_without_reading_further",
@@ -25220,7 +25220,18 @@
             "resumable_call_persists_whole_granules_until_finish",
             "resumable_call_refuses_offsets_and_sizes_as_recorded",
             "grpc_io_resumable_close_drops_bytes_past_the_last_granule",
-            "grpc-probe-write-streams"
+            "grpc-probe-write-streams",
+            "grpc-probe-inferred-granules"
+          ]
+        },
+        {
+          "id": "write_stream_object_checksums",
+          "description": "object_checksums that a stream declares hold for that stream alone: a stream whose only message declares a CRC32C and closes without finish_write is answered with persisted size 0 and leaves the session to a later stream that finishes an object the CRC32C does not match (recorded 2026-11-18, case grpc-probe-inferred-session-states, steps object-checksums-nonfinal-only, status-after-object-checksums-nonfinal and finish-after-object-checksums-nonfinal; grpc_resumable_object_checksums_hold_for_their_stream asserts it on WriteObject and BidiWriteObject). A finishing message whose complete object misses a CRC32C declared earlier in its stream answers INVALID_ARGUMENT \"Object crc32c mismatch: server computed: ..., client provided: ...\" (both values in hexadecimal) before anything is written and leaves the session open at its persisted size (step object-checksums-nonfinal-then-finish and status-after-object-checksums-stream; the table entry checksums-before-finish-mismatch of grpc_resumable_write_message_errors asserts the answer and the open session). The wording of an MD5 mismatch, and of the same mismatch on a non-resumable write, was not recorded and follows the CRC32C one (a scoped difference below).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_resumable_object_checksums_hold_for_their_stream",
+            "grpc_resumable_write_message_errors",
+            "grpc-probe-inferred-session-states"
           ]
         },
         {
@@ -25255,22 +25266,26 @@
         },
         {
           "id": "write_local_precedence",
-          "description": "The status and message of every per-message error of a single-shot and of a resumable write, and which error wins when one message has several, are pinned through the RPC service. On a non-resumable first message the recorded order holds: a data crc32c mismatch answers before a failing condition, a first offset past 0 ('A new upload request must start with write_offset 0, but received ...') and an object_size the bytes cannot make answer before a data crc32c mismatch, and a malformed customer key answers before a failing condition (recorded 2026-11-18, case grpc-probe-write-streams, steps single-wrong-crc32c-and-failing-condition, single-wrong-crc32c-and-offset-past-start, single-wrong-crc32c-and-object-size and single-malformed-key-and-failing-condition). The order on a resumable message is not recorded and is the emulator's: the session's key and conditions are checked before the message's offset, size and data checksum, because they belong to the session and a finishing message with the wrong size would otherwise end a session that its conditions alone refuse. The check of max_object_bytes before object_size and the data checksum is the emulator's own choice, and an upload ID of the issued shape that names no session answers NOT_FOUND (not recorded).",
+          "description": "The status and message of every per-message error of a single-shot and of a resumable write, and which error wins when one message has several, are pinned through the RPC service. On a non-resumable first message the recorded order holds: a data crc32c mismatch answers before a failing condition, a first offset past 0 ('A new upload request must start with write_offset 0, but received ...') and an object_size the bytes cannot make answer before a data crc32c mismatch, and a malformed customer key answers before a failing condition (recorded 2026-11-18, case grpc-probe-write-streams, steps single-wrong-crc32c-and-failing-condition, single-wrong-crc32c-and-offset-past-start, single-wrong-crc32c-and-object-size and single-malformed-key-and-failing-condition). Both paths check a message through the one WriteStep::admit: its data (offset, then size, then data CRC32C, in upload::admit_bytes), then the message's own object checksums, then the conditions, then the finished object. Recorded on a resumable message (2026-11-18, case grpc-probe-inferred-session-states, steps condition-failing, condition-failing-and-wrong-crc32c, condition-failing-and-offset-past-persisted, condition-failing-and-size-past-object-size, wrong-crc32c-and-size-past-object-size and malformed-md5-and-offset-past-persisted): a failing condition alone is FAILED_PRECONDITION; a wrong data crc32c, a first offset past the persisted size and a finishing size past object_size each answer before it, the size ending the session; a size past object_size answers before a wrong data crc32c; and a first offset past the persisted size answers before a malformed md5_hash (asserted by the entries conditions, crc-over-conditions, offset-over-conditions, object-size-over-conditions, object-size-over-crc and offset-over-md5-length of grpc_resumable_write_error_precedence). Not recorded, and the emulator's: the session's customer key answers before everything a resumable message carries, a malformed md5_hash answers after the data checksum and before a failing condition, a failing condition answers before the complete object's checksum, a non-resumable write reads each message's object_checksums after its data (the recordings of that path sent none), the spec's own resource.checksums are read with the spec, and max_object_bytes is checked before object_size and the data checksum (scoped difference below). An upload ID of the issued shape that names no session answers INTERNAL, as an ID with a character appended or altered did (recorded 2026-11-18, case grpc-probe-inferred-upload-ids, steps write-middle-altered and write-last-altered; the table entry unknown-session of grpc_resumable_write_message_errors asserts it), and a session a finishing message with the wrong size ended answers FAILED_PRECONDITION 'Upload has already been terminated.' with GRPC_UPLOAD_ALREADY_TERMINATED with and without finish_write (recorded, steps terminated-write-without-finish and terminated-write-finish; grpc_io_terminated_sessions_refuse_cancels_and_writes asserts it), while a write to a cancelled session answers INVALID_ARGUMENT 'Upload has already been cancelled.' (steps cancelled-write-without-finish; grpc_io_cancel_discards_sessions_and_staged_bytes asserts it).",
           "result": "PASS",
           "test_ids": [
             "grpc_single_shot_write_error_precedence",
             "grpc_single_shot_write_message_errors",
             "grpc_resumable_write_error_precedence",
             "grpc_resumable_write_message_errors",
-            "grpc_io_write_object_refuses_before_the_session_lookup_at_once"
+            "grpc_io_write_object_refuses_before_the_session_lookup_at_once",
+            "grpc_io_terminated_sessions_refuse_cancels_and_writes",
+            "grpc_io_cancel_discards_sessions_and_staged_bytes"
           ]
         },
         {
           "id": "write_condition_validation",
-          "description": "A WriteObjectSpec's generation and metageneration conditions are compared as they arrive, not validated: a metageneration match of 0 fails FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current value, alone or beside a match, fails FAILED_PRECONDITION worded as a not-modified resource, as Cloud Storage did (recorded 2026-11-18, case grpc-probe-object-conditions, steps write-metageneration-match-zero, write-generation-match-and-not-match and write-metageneration-match-and-not-match; replayed by the case, no Rust test asserts it). The conditions are rechecked at publication and a create-only write that another write overtakes fails in the publishing transaction (grpc_io_single_shot_conditions_are_rechecked_at_publication).",
+          "description": "A WriteObjectSpec's generation and metageneration conditions are compared as they arrive, not validated: a metageneration match of 0 fails FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current value, alone or beside a match, fails FAILED_PRECONDITION worded as a not-modified resource, as Cloud Storage did (recorded 2026-11-18, case grpc-probe-object-conditions, steps write-metageneration-match-zero, write-generation-match-and-not-match and write-metageneration-match-and-not-match; replayed by the case, no Rust test asserts it). A negative value is compared like any other: a generation match of -1 or a metageneration match of -1 never holds, and a generation not-match of -1 fails on a write of a new object, each FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.' (recorded 2026-11-18, case grpc-probe-inferred-conditions, steps write-generation-match-negative, write-metageneration-match-negative and write-generation-not-match-negative; write_and_delete_object_compare_negative_conditions asserts all three through the write handler). The conditions are rechecked at publication and a create-only write that another write overtakes fails in the publishing transaction (grpc_io_single_shot_conditions_are_rechecked_at_publication).",
           "result": "PASS",
           "test_ids": [
             "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions",
+            "write_and_delete_object_compare_negative_conditions",
             "grpc_io_single_shot_conditions_are_rechecked_at_publication"
           ]
         }
@@ -25294,9 +25309,51 @@
         "grpc_io_single_shot_conditions_are_rechecked_at_publication",
         "resumable_call_refuses_unrecorded_offsets_and_sizes",
         "grpc_io_write_returns_acl_and_owner_and_read_ends_with_data",
-        "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values"
+        "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values",
+        "grpc-probe-inferred-session-states",
+        "grpc-probe-inferred-granules",
+        "grpc-probe-inferred-conditions",
+        "grpc-probe-inferred-upload-ids",
+        "grpc_resumable_object_checksums_hold_for_their_stream",
+        "grpc_repeated_bytes_are_skipped_without_comparison",
+        "write_and_delete_object_compare_negative_conditions",
+        "grpc_io_terminated_sessions_refuse_cancels_and_writes",
+        "grpc_io_cancel_discards_sessions_and_staged_bytes",
+        "grpc_io_resumed_write_compares_the_routed_bucket_after_authorization",
+        "grpc_resumable_write_waits_for_a_leased_session",
+        "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
+        "grpc_resumable_write_to_a_leased_session_fails_without_waiting"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_resumable_object_checksums_hold_for_their_stream",
+            "grpc_repeated_bytes_are_skipped_without_comparison",
+            "write_and_delete_object_compare_negative_conditions",
+            "grpc_io_terminated_sessions_refuse_cancels_and_writes",
+            "grpc_io_cancel_discards_sessions_and_staged_bytes",
+            "grpc_io_resumed_write_compares_the_routed_bucket_after_authorization",
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
+            "grpc_resumable_write_to_a_leased_session_fails_without_waiting"
+          ]
+        },
+        {
+          "command": "cargo xtask differential run --reference compatibility/differential/reference/gcs.json --filter grpc-probe --fail-on-diff --fail-on-note",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc-probe-inferred-session-states",
+            "grpc-probe-inferred-granules",
+            "grpc-probe-inferred-upload-ids",
+            "grpc-probe-inferred-conditions"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -25386,13 +25443,46 @@
           ]
         },
         {
-          "text": "Write answers the recording of 2026-11-18 did not cover are the emulator's: a resumable stream that closes on a whole granule persists and reports it, a first offset below a persisted size above 0 is refused (inferred from the proto's write_offset field, since the recording always had nothing persisted), a finishing message above object_size ends the session as one below it does, bytes past object_size without finish_write are refused and leave the session open, a complete object that fails a checksum declared before the finish is refused in the catalog's wording and ends the session, and the order of a resumable message's checks (the session's key and conditions before its offset, size and data checksum). An upload ID of the issued shape that names no session answers NOT_FOUND.",
+          "text": "Bytes a message repeats inside the persisted ones are skipped without being compared with them, on a resumable stream and on a non-resumable write's later message alike, so a message that repeats different bytes is accepted and the bytes received first stay. Not recorded: Cloud Storage accepted a first offset at or below the persisted size (case grpc-probe-inferred-granules), but the bytes it repeated matched the persisted ones. A finishing message whose bytes all lie inside the persisted ones adds nothing: without an object_size the object is finalized at the persisted size, and with an object_size that differs the message ends the session.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_repeated_bytes_are_skipped_without_comparison",
+            "grpc_resumable_write_message_errors"
+          ]
+        },
+        {
+          "text": "A finishing message above object_size ends the session as the recorded one below it and bytes past object_size without finish_write do; Cloud Storage's refusal of it was recorded (case grpc-probe-write-streams), not the session's state afterwards. A later message that skips past the received bytes is refused OUT_OF_RANGE 'write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size', a wording and code the emulator chose.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "resumable_call_refuses_unrecorded_offsets_and_sizes",
-            "grpc_resumable_write_message_errors",
+            "grpc_resumable_write_message_errors"
+          ]
+        },
+        {
+          "text": "The checks of a message the recordings did not order are the emulator's: the session's customer key answers before everything else a resumable message carries, a malformed md5_hash answers after the data checksum and before a failing condition, a failing condition answers before the complete object's checksum, a non-resumable write reads each message's object_checksums after its data, the spec's own resource.checksums are read with the spec, and max_object_bytes is checked before object_size and the data checksum. The refusal of a complete object that misses a checksum StartResumableWrite declared, or an MD5 declared by any message, takes the recorded CRC32C wording (an MD5 reads 'Object md5 mismatch' from the same function) and leaves the session open; a session an earlier release staged has no running digest and ends with the catalog's wording instead.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
             "grpc_resumable_write_error_precedence",
-            "grpc_io_write_object_answers_a_refused_finishing_message_at_once"
+            "grpc_single_shot_write_error_precedence",
+            "grpc_resumable_write_message_errors",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "text": "A session the catalog holds as aborted for a reason other than a finishing message of the wrong size (ResumableError::Gone) answers a later write, cancel and status as the recorded terminated session does by inference; only the wrong-size ending is recorded. A resumed WriteObject or BidiWriteObject compares the routed bucket with the bucket its upload ID names after authenticating and authorizing the caller, as QueryWriteStatus and CancelResumableWrite do (recorded for those two, case grpc-probe-inferred-routing); that the same holds for a resumed write is inferred, and so is the order after authorization, which no recorded call exercised.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_io_resumed_write_compares_the_routed_bucket_after_authorization",
+            "grpc_io_terminated_sessions_refuse_cancels_and_writes"
+          ]
+        },
+        {
+          "text": "A message for a session another stream holds waits for the lease up to catalog_wait_timeout_ms and then fails with UNAVAILABLE, where the proto names ABORTED for concurrent attempts; a catalog no server configured fails at once. An older local choice that no recording covers.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_resumable_write_waits_for_a_leased_session",
+            "grpc_resumable_write_to_a_session_leased_past_the_catalog_wait_is_unavailable",
+            "grpc_resumable_write_to_a_leased_session_fails_without_waiting"
           ]
         }
       ],
@@ -25416,7 +25506,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Appendable writes (WriteObjectSpec.appendable and AppendObjectSpec with flush, state_lookup, write handles and finish_write) are routed to the separate Rapid state machine: docs/en/slices/grpc-v2-rapid-append.md. Unsupported write resource fields and predefined ACLs remain pending. Flush and state_lookup on non-resumable and resumable streams, messages after finish_write, repeated specs and upload IDs and object_checksums on any message follow the recording of Cloud Storage of 2026-11-18 (cases grpc-probe-bidi-write and grpc-probe-write-streams); the answers it did not cover are marked 'Not recorded' in their cases.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Appendable writes (WriteObjectSpec.appendable and AppendObjectSpec with flush, state_lookup, write handles and finish_write) are routed to the separate Rapid state machine: docs/en/slices/grpc-v2-rapid-append.md. Unsupported write resource fields and predefined ACLs remain pending. Flush and state_lookup on non-resumable and resumable streams, messages after finish_write, repeated specs and upload IDs and object_checksums on any message follow the recordings of Cloud Storage of 2026-11-18 (cases grpc-probe-bidi-write and grpc-probe-write-streams, and for single-shot flush and state_lookup after a granule, resumable sessions and upload IDs grpc-probe-inferred-granules, grpc-probe-inferred-session-states and grpc-probe-inferred-upload-ids); the answers they did not cover are marked 'Not recorded' in the code and the test tables of src/grpc/v2/object_io/write/message_tests.rs. BidiWriteObject checks each message through the same WriteStep::admit as WriteObject, so the answers recorded for WriteObject in RPC-STORAGE-018 hold for it too (the tables of message_tests.rs run each case on both RPCs).",
       "dependencies": ["BEHAVIOR-RAPID-002", "BEHAVIOR-RAPID-003", "BEHAVIOR-RAPID-004", "BEHAVIOR-RPC-001", "BEHAVIOR-RPC-003", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25450,14 +25540,15 @@
         },
         {
           "id": "bidi_write_stream_shapes",
-          "description": "BidiWriteObject was answered by Cloud Storage, not refused (recorded 2026-11-18, case grpc-probe-bidi-write). A non-resumable stream serves flush and state_lookup on a nonfinal message: it answers persisted_size 0 with the CRC32C of the empty prefix alone while less than a granule arrived, then the resource at finish_write (steps single-flush-state-lookup and single-state-lookup-only); a message after finish_write and a repeated write_object_spec are ignored (steps single-message-after-finish-write and single-spec-repeated); a data crc32c mismatch is INVALID_ARGUMENT and a finishing size below object_size is OUT_OF_RANGE (steps single-wrong-data-crc32c and single-below-object-size). A resumable stream's flush with fewer bytes than a granule fails at the close with the granule message and persists nothing, and QueryWriteStatus then reports persisted_size 0 with the CRC32C and the MD5 of the empty prefix (steps resumable-flush-state-lookup and status-after-resumable-flush); a first offset past the persisted size is OUT_OF_RANGE (steps resumable-first-offset-above-persisted and resumable-first-offset-below-persisted-finish, where nothing was persisted); object_checksums on the first message and a repeated upload_id are accepted; a message after finish_write is ignored (steps resumable-object-checksums-on-first-message, resumable-upload-id-repeated, resumable-message-after-finish-write and status-after-resumable-message-after-finish-write). Every stream is decoded once into the shared WriteStep, so the non-resumable, resumable and appendable paths apply the same per-message rules. A flush on a granule or more, and a stream that closes on a whole granule, were not recorded: whole granules are reported and persisted by inference from the granule rule.",
+          "description": "BidiWriteObject was answered by Cloud Storage, not refused (recorded 2026-11-18, case grpc-probe-bidi-write). A non-resumable stream serves flush and state_lookup on a nonfinal message: it answers persisted_size 0 with the CRC32C of the empty prefix alone, then the resource at finish_write (steps single-flush-state-lookup and single-state-lookup-only), and it answers the same after a whole 262144-byte granule arrived, a state_lookup and then a flush beside a state_lookup each reporting 0, because nothing is kept before finish_write (recorded 2026-11-18, case grpc-probe-inferred-granules, step bidi-single-granule-lookups; the table entries flush, state-lookup and state-lookup-past-a-granule of grpc_single_shot_write_message_errors assert it); a message after finish_write and a repeated write_object_spec are ignored (steps single-message-after-finish-write and single-spec-repeated); a data crc32c mismatch is INVALID_ARGUMENT and a finishing size below object_size is OUT_OF_RANGE (steps single-wrong-data-crc32c and single-below-object-size). A resumable stream's flush with fewer bytes than a granule fails at the close with the granule message and persists nothing, and QueryWriteStatus then reports persisted_size 0 with the CRC32C and the MD5 of the empty prefix (steps resumable-flush-state-lookup and status-after-resumable-flush); a first offset past the persisted size is OUT_OF_RANGE (steps resumable-first-offset-above-persisted and resumable-first-offset-below-persisted-finish, where nothing was persisted); object_checksums on the first message and a repeated upload_id are accepted; a message after finish_write is ignored (steps resumable-object-checksums-on-first-message, resumable-upload-id-repeated, resumable-message-after-finish-write and status-after-resumable-message-after-finish-write). Every stream is decoded once into the shared WriteStep, so the non-resumable, resumable and appendable paths apply the same per-message rules. A resumable stream that closes on a whole granule persists it and reports persisted_size 262144 with the CRC32C of the persisted bytes alone, where QueryWriteStatus reports the MD5 as well (recorded 2026-11-18, case grpc-probe-inferred-granules, steps granule-without-finish and status-after-granule; grpc_resumable_persisted_sizes_carry_the_persisted_checksums and the table entry half-close-on-a-granule of grpc_resumable_write_message_errors assert it). A flush with data past a granule and no state_lookup on a non-resumable stream is answered 0 by inference from the recorded lookups (scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "grpc_single_shot_write_message_errors",
             "grpc_resumable_write_message_errors",
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
             "grpc_io_resumable_close_drops_bytes_past_the_last_granule",
-            "grpc-probe-bidi-write"
+            "grpc-probe-bidi-write",
+            "grpc-probe-inferred-granules"
           ]
         },
         {
@@ -25486,7 +25577,7 @@
         },
         {
           "id": "bidi_write_cancel_race",
-          "description": "A message received before a client cancellation still commits after QueryWriteStatus answered, so a status queried right after cancelling can report an offset that the write then advances, and resuming from it returns OUT_OF_RANGE until the client queries again (docs/en/evidence/grpc-deadlines.md). The emulator keeps the write_offset field rule that a resumed stream's first message names exactly the persisted size (BEHAVIOR-RPC-003 stream_resume_offset), so the retry from the stale offset is refused until the client queries again; letting the first message start earlier would let it succeed.",
+          "description": "A message received before a client cancellation still commits after QueryWriteStatus answered, so a status queried right after cancelling can report an offset that the write then advances (docs/en/evidence/grpc-deadlines.md). A resumed stream's first message may start at or below the persisted size (recorded 2026-11-18, case grpc-probe-inferred-granules), so a retry from the stale offset is accepted and the overlap skipped instead of refused; QueryWriteStatus still does not wait for the in-flight write, and no test pins the race.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -25516,7 +25607,8 @@
         "grpc_resumable_write_message_errors",
         "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
         "grpc_io_resumable_close_drops_bytes_past_the_last_granule",
-        "grpc-probe-bidi-write"
+        "grpc-probe-bidi-write",
+        "grpc-probe-inferred-granules"
       ],
       "verification": [
         {
@@ -25537,7 +25629,8 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
-            "grpc-probe-bidi-write"
+            "grpc-probe-bidi-write",
+            "grpc-probe-inferred-granules"
           ]
         },
         {
@@ -25644,7 +25737,7 @@
         "write_object_spec.predefined_acl, and a write resource with acl, retention or output-only fields, return UNIMPLEMENTED.",
         "A takeover's opening offset and size limit are checked only after it opened the object, so a refused one has already superseded the previous writer.",
         "AppendObjectSpec.routing_token is accepted and ignored, while BidiReadObject refuses a routing token.",
-        "A message received before a client cancellation still commits, and QueryWriteStatus does not wait for that in-flight write, so a status queried right after cancelling can report an offset that the write then advances; resuming from it returns OUT_OF_RANGE until the client queries again (docs/en/evidence/grpc-deadlines.md).",
+        "A message received before a client cancellation still commits, and QueryWriteStatus does not wait for that in-flight write, so a status queried right after cancelling can report an offset that the write then advances (docs/en/evidence/grpc-deadlines.md); a retry from that earlier offset is accepted, since a first offset at or below the persisted size is.",
         "No test pins the conditions of an AppendObjectSpec or an appendable WriteObjectSpec when a metageneration condition is 0 or a match comes beside a not-match; Cloud Storage's answer for appendable objects was not recorded."
       ],
       "scoped_differences": [
@@ -25660,6 +25753,13 @@
           "gap": "SPEC-GRPC-DERIVED-OWNER-VIEW",
           "test_ids": [
             "append_strict_requires_create_and_allows_viewer_reads"
+          ]
+        },
+        {
+          "text": "A flush beside data past a whole granule, without a state_lookup, on a non-resumable stream is answered persisted_size 0 by inference from the recorded lookups (case grpc-probe-inferred-granules, step bidi-single-granule-lookups sent a state_lookup beside each flush). The write-path answers shared with WriteObject (check order, repeated bytes, finishing messages past or inside the persisted size, routing of a resumed stream) are listed in RPC-STORAGE-018.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_single_shot_write_message_errors"
           ]
         }
       ],
@@ -25683,7 +25783,7 @@
       ],
       "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 ListObjects constructs a typed shared query directly, validates combinations with the JSON adapter's shared rules and encodes query-bound page tokens without rendering JSON resources. Validation errors use proto field names. Contract and results: docs/en/slices/grpc-v2-object-io.md. Folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+      "notes": "Storage v2 ListObjects constructs a typed shared query directly, validates combinations with the shared ObjectListQuery rules and encodes query-bound page tokens (crate::page_token) without rendering JSON resources. Validation errors use proto field names. Contract and results: docs/en/slices/grpc-v2-object-io.md. Folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-002", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25749,16 +25849,20 @@
         },
         {
           "id": "list_nested_masks",
-          "description": "A read mask path under a singular message selects that member, as on GetObject: owner.entity lists each object with no owner at all, as Cloud Storage answered (case grpc-probe-object-masks, step list-nested-owner-entity, recorded 2026-11-18). The other members are selected or refused by inference, as GetObject records.",
+          "description": "A read mask path under a singular message selects that member, as on GetObject: owner.entity lists each object with no owner at all, as Cloud Storage answered (case grpc-probe-object-masks, step list-nested-owner-entity, recorded 2026-11-18). The other members are selected or refused by the one object mask that GetObject, ReadObject and ListObjects share: a part of a timestamp (create_time.seconds) is selected as a timestamp of whole seconds and contexts.custom as an empty message, and a path under a map key, a scalar or a member and an empty, trailing-dot or leading-dot path name no field (recorded 2026-11-18 on GetObject, case grpc-probe-inferred-object-masks; the unit tests a_part_of_a_timestamp_and_the_context_map_are_selected_as_members and paths_that_name_no_field_are_unknown assert the shared mask, and the replay of ListObjects itself covers owner.entity only). The parts of timestamps other than create_time.seconds follow it by inference, and the parts of the retention's timestamp are unselectable (real_members_that_are_not_selected_alone_are_unsupported).",
           "result": "PASS",
           "test_ids": [
             "a_nested_owner_path_is_served_without_the_owner",
-            "grpc-probe-object-masks"
+            "grpc-probe-object-masks",
+            "grpc-probe-inferred-object-masks",
+            "a_part_of_a_timestamp_and_the_context_map_are_selected_as_members",
+            "paths_that_name_no_field_are_unknown",
+            "real_members_that_are_not_selected_alone_are_unsupported"
           ]
         },
         {
           "id": "list_mask_validation_order",
-          "description": "The read_mask is checked once with the request, before authorization and the catalog query (check_object_mask in list_objects, src/grpc/v2/object_io/read.rs), so a path naming no Object field answers INVALID_ARGUMENT \"Invalid read_mask field: 'no_such_field'.\", the wording ListObjects has, on an empty bucket or page and on a page with an object, as Cloud Storage answered (case grpc-probe-object-masks, steps list-empty-page-unknown-path and list-unknown-path, recorded 2026-11-18); a part of a timestamp or the context map answers UNIMPLEMENTED with ErrorInfo (not recorded), and a valid mask on an empty page lists nothing. Checking the mask before authorization, so an unauthenticated caller is told too, was not recorded (scoped difference).",
+          "description": "The read_mask is checked once with the request, before authorization and the catalog query (check_object_mask in list_objects, src/grpc/v2/object_io/read.rs), so a path naming no Object field answers INVALID_ARGUMENT \"Invalid read_mask field: 'no_such_field'.\", the wording ListObjects has, on an empty bucket or page and on a page with an object, as Cloud Storage answered (case grpc-probe-object-masks, steps list-empty-page-unknown-path and list-unknown-path, recorded 2026-11-18); the parts of the retention's timestamp (retention.retain_until_time.seconds) answer UNIMPLEMENTED with ErrorInfo (not recorded), where the parts of the other timestamps and contexts.custom are selected as GetObject does (see list_nested_masks), and a valid mask on an empty page lists nothing. Checking the mask before authorization, so an unauthenticated caller is told too, was not recorded (scoped difference).",
           "result": "PASS",
           "test_ids": [
             "an_invalid_read_mask_is_reported_for_an_empty_listing",
@@ -25783,7 +25887,11 @@
         "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
         "list_objects_refuses_a_filter_and_a_negative_page_size",
         "a_nested_owner_path_is_served_without_the_owner",
-        "grpc-probe-object-masks"
+        "grpc-probe-object-masks",
+        "grpc-probe-inferred-object-masks",
+        "a_part_of_a_timestamp_and_the_context_map_are_selected_as_members",
+        "paths_that_name_no_field_are_unknown",
+        "real_members_that_are_not_selected_alone_are_unsupported"
       ],
       "verification": [
         {
@@ -25796,7 +25904,10 @@
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
             "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
             "list_objects_refuses_a_filter_and_a_negative_page_size",
-            "a_nested_owner_path_is_served_without_the_owner"
+            "a_nested_owner_path_is_served_without_the_owner",
+            "a_part_of_a_timestamp_and_the_context_map_are_selected_as_members",
+            "paths_that_name_no_field_are_unknown",
+            "real_members_that_are_not_selected_alone_are_unsupported"
           ]
         },
         {
@@ -25805,7 +25916,8 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
-            "grpc-probe-object-masks"
+            "grpc-probe-object-masks",
+            "grpc-probe-inferred-object-masks"
           ]
         },
         {
@@ -25920,7 +26032,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. The destination fields, the conditions and the routing follow the recordings of Cloud Storage of 2026-11-18 (cases grpc-probe-derived-writes, grpc-probe-object-conditions, grpc-probe-inferred-destinations, grpc-probe-inferred-conditions and grpc-probe-inferred-routing).",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25967,17 +26079,20 @@
         },
         {
           "id": "rewrite_destination_fields",
-          "description": "A destination resource with an object retention, or with any other field outside the editable metadata and the service-set fields (customer_encryption, contexts, retention_expire_time and similar), returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs; pinned for kms_key by rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination), although the JSON rewrite applies a destination retention (SPEC-SDK-UNSUPPORTED, update 2026-11-17). A retention needs a bucket with object retention, so the 2026-11-18 recording did not ask it. Apply the retention.",
+          "description": "A destination resource with an object retention, an explicit acl, kms_key, contexts, customer_encryption or any other field outside the editable metadata and the service-set fields, returns UNIMPLEMENTED ('derived object fields', validate_derived_fields in src/grpc/v2/update_copy.rs; asserted for kms_key on RewriteObject by rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination, and for a retention, kms_key and an acl on ComposeObject, which shares the check, by compose_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination; no Rust test sends a retention or an acl to RewriteObject), although the JSON rewrite applies a destination retention (SPEC-SDK-UNSUPPORTED, update 2026-11-17). retention_expire_time is no longer among the refused fields: it is a service-set field and is ignored. A retention needs a bucket with object retention, so the recordings of 2026-11-18 did not ask it. Apply the retention.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "rewrite_destination_accepted_fields",
-          "description": "A destination that carries only a content type, or only custom metadata, rewrites and the result carries them, as Cloud Storage answered (case grpc-probe-derived-writes, steps rewrite-destination-content-type and rewrite-destination-metadata-only, recorded 2026-11-18). A destination that carries a generation, a metageneration, a size, a creation time or an update time answers INVALID_ARGUMENT with a BadRequest 'You must specify an object name.' and creates nothing (step rewrite-destination-output-only, recorded with all five fields set together; refusing each field alone is inferred).",
+          "description": "A destination that carries only a content type, or only custom metadata, rewrites and the result carries them, as Cloud Storage answered (case grpc-probe-derived-writes, steps rewrite-destination-content-type and rewrite-destination-metadata-only, recorded 2026-11-18). A destination that carries a generation answers INVALID_ARGUMENT with a BadRequest 'You must specify an object name.' and creates nothing (step rewrite-destination-generation of grpc-probe-inferred-destinations, recorded 2026-11-18 with the generation alone; step rewrite-destination-output-only of grpc-probe-derived-writes set five fields together). The generation is the only service-set field a rewrite refuses: a destination that carries only a metageneration, a size, an etag, a creation time, an update time, checksums, an owner or a component count is rewritten as if it carried none (steps rewrite-destination-metageneration, -size, -etag, -create-time, -update-time, -checksums, -owner and -component-count of grpc-probe-inferred-destinations, recorded 2026-11-18). That the other service-set fields, the retention expiry among them, are ignored the same way follows the proto's OUTPUT_ONLY marks and was not asked (the unit test service_set_fields_are_the_generation_and_the_output_only_fields asserts the set). rewrite_object_ignores_each_service_set_destination_field_but_the_generation asserts the eight recorded fields and rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination the generation refusal.",
           "result": "PASS",
           "test_ids": [
             "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
-            "grpc-probe-derived-writes"
+            "rewrite_object_ignores_each_service_set_destination_field_but_the_generation",
+            "service_set_fields_are_the_generation_and_the_output_only_fields",
+            "grpc-probe-derived-writes",
+            "grpc-probe-inferred-destinations"
           ]
         },
         {
@@ -25996,11 +26111,22 @@
         },
         {
           "id": "rewrite_condition_validation",
-          "description": "RewriteObject compares the destination and the source conditions it receives instead of refusing their shape: an if_metageneration_match or if_source_metageneration_match of 0 answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current generation or metageneration beside a match answers FAILED_PRECONDITION 'The resource you requested has not been modified according to the condition you specified.', for the source as for the destination, as Cloud Storage answered (case grpc-probe-object-conditions, steps rewrite-* and rewrite-source-*, recorded 2026-11-18). A source match that fails beside the not-match keeps the failed-condition wording (not recorded). A negative condition answers INVALID_ARGUMENT (scoped difference below).",
+          "description": "RewriteObject compares the destination and the source conditions it receives instead of refusing their shape: an if_metageneration_match or if_source_metageneration_match of 0 answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and a not-match that names the current generation or metageneration beside a match answers FAILED_PRECONDITION 'The resource you requested has not been modified according to the condition you specified.', for the source as for the destination, as Cloud Storage answered (case grpc-probe-object-conditions, steps rewrite-* and rewrite-source-*, recorded 2026-11-18). A source match that fails beside the not-match keeps the failed-condition wording (not recorded). Negative values are compared, not refused: a destination if_generation_match of -1, an if_metageneration_match of -1 and an if_generation_not_match of -1 each answer FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.' (recorded 2026-11-18, case grpc-probe-inferred-conditions, steps rewrite-generation-match-negative, rewrite-metageneration-match-negative and rewrite-generation-not-match-negative; only the replay of that case proves the destination's negative values, no Rust test sends them). A source if_source_generation_match of -1 answers the same, and source not-matches of -1 hold against an existing source, which went ahead (rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination and rewrite_object_holds_a_negative_source_not_match_on_an_existing_source assert it; inferred from the recorded destination answers, scoped difference below).",
           "result": "PASS",
           "test_ids": [
             "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
-            "grpc-probe-object-conditions"
+            "rewrite_object_holds_a_negative_source_not_match_on_an_existing_source",
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions"
+          ]
+        },
+        {
+          "id": "rewrite_routing",
+          "description": "RewriteObject compares the routed source bucket first and the routed destination bucket second, each refused INVALID_ARGUMENT in its own words and with its own reason: a source_bucket other than the request's names GRPC_INVALID_X_GOOG_REQUEST_PARAMS_SOURCE_BUCKET, a bucket other than the destination's GRPC_INVALID_X_GOOG_REQUEST_PARAMS_DEST_BUCKET, and metadata that routes only one side compares the other as the empty name (recorded 2026-11-18, case grpc-probe-inferred-routing, steps rewrite-routing-other-source-bucket, rewrite-routing-bucket-only and rewrite-routing-source-bucket-only; deferred_routing_is_compared_with_what_admit_read asserts the messages, reasons and order). A call without the metadata is refused with the missing-metadata answer (step rewrite-without-routing).",
+          "result": "PASS",
+          "test_ids": [
+            "deferred_routing_is_compared_with_what_admit_read",
+            "grpc-probe-inferred-routing"
           ]
         }
       ],
@@ -26021,7 +26147,14 @@
         "TestGRPCUpdateCopyStrict",
         "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
         "grpc-probe-derived-writes",
-        "grpc-probe-object-conditions"
+        "grpc-probe-object-conditions",
+        "grpc-probe-inferred-destinations",
+        "grpc-probe-inferred-conditions",
+        "grpc-probe-inferred-routing",
+        "rewrite_object_ignores_each_service_set_destination_field_but_the_generation",
+        "service_set_fields_are_the_generation_and_the_output_only_fields",
+        "rewrite_object_holds_a_negative_source_not_match_on_an_existing_source",
+        "deferred_routing_is_compared_with_what_admit_read"
       ],
       "verification": [
         {
@@ -26030,7 +26163,11 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-update-copy.md",
           "test_ids": [
-            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
+            "rewrite_object_ignores_each_service_set_destination_field_but_the_generation",
+            "service_set_fields_are_the_generation_and_the_output_only_fields",
+            "rewrite_object_holds_a_negative_source_not_match_on_an_existing_source",
+            "deferred_routing_is_compared_with_what_admit_read"
           ]
         },
         {
@@ -26040,7 +26177,10 @@
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
             "grpc-probe-derived-writes",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-destinations",
+            "grpc-probe-inferred-conditions",
+            "grpc-probe-inferred-routing"
           ]
         },
         {
@@ -26126,17 +26266,26 @@
           ]
         },
         {
-          "text": "A destination acl returns UNIMPLEMENTED and creates nothing, where Cloud Storage accepted it (case grpc-probe-derived-writes, step rewrite-destination-acl, a declared local_choice, recorded 2026-11-18): publication gives a new generation the default object ACL or a canned one and a rewrite session stores no entries, so listed entries are refused instead of dropped.",
+          "text": "A destination acl returns UNIMPLEMENTED and creates nothing, where Cloud Storage accepted it (case grpc-probe-derived-writes, step rewrite-destination-acl, a declared local_choice, recorded 2026-11-18): publication gives a new generation the default object ACL or a canned one and a rewrite session stores no entries, so listed entries are refused instead of dropped. Only the differential replay of that step proves it; no Rust test sends a destination acl to RewriteObject.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "grpc-probe-derived-writes"
           ]
         },
         {
-          "text": "A negative generation or metageneration condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only', pinned for the source conditions and applied by the same check to the destination conditions. Not recorded: only 0 and pairs were asked of objects, and Cloud Storage compared negative bucket conditions (case grpc-probe-bucket-conditions).",
+          "text": "The source conditions of a rewrite take negative values as the recorded destination conditions do: a source generation match of -1 fails, and source generation and metageneration not-matches of -1 hold against an existing source. Not recorded: case grpc-probe-inferred-conditions sent negative values to the destination conditions only.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination"
+            "rewrite_object_refuses_malformed_and_unmodeled_requests_without_creating_the_destination",
+            "rewrite_object_holds_a_negative_source_not_match_on_an_existing_source"
+          ]
+        },
+        {
+          "text": "A source that shows no MD5, such as a composite object, refuses a declared MD5 with 'Invalid argument.' as a ComposeObject does; no rewrite of such a source was recorded. The retention expiry and the other service-set destination fields not listed in case grpc-probe-inferred-destinations are ignored by inference from the proto.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "grpc_derived_writes_verify_request_checksums",
+            "service_set_fields_are_the_generation_and_the_output_only_fields"
           ]
         }
       ],
@@ -26193,10 +26342,19 @@
         },
         {
           "id": "start_resumable_expiry",
-          "description": "A session expires seven days after StartResumableWrite on the catalog clock, the shared engine's local bound (BEHAVIOR-OBJECT-013 pins it for the JSON session URI), while the proto leaves the validity of a resumable write and the consequences of its end service-dependent (storage.proto lines 560-566): a millisecond before the deadline QueryWriteStatus still reports the persisted size, and from the deadline on QueryWriteStatus, a resumed write and CancelResumableWrite return NOT_FOUND and nothing is published. Recorded as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
+          "description": "A session expires seven days after StartResumableWrite on the catalog clock, the shared engine's local bound (BEHAVIOR-OBJECT-013 pins it for the JSON session URI), while the proto leaves the validity of a resumable write and the consequences of its end service-dependent (storage.proto lines 560-566): a millisecond before the deadline QueryWriteStatus still reports the persisted size, and from the deadline on QueryWriteStatus, a resumed write and CancelResumableWrite answer INTERNAL, as an upload ID that names no session does (recorded 2026-11-18 for such IDs, case grpc-probe-inferred-upload-ids), and nothing is published. The catalog answers an expired session as a missing one and its maintenance deletes the row, so it cannot tell it from an ID never issued; Cloud Storage's answer for an expired session was not recorded. Recorded as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_resumable_sessions_expire_seven_days_after_start"
+          ]
+        },
+        {
+          "id": "start_resumable_routing",
+          "description": "StartResumableWrite sent without x-goog-request-params answers INVALID_ARGUMENT 'An x-goog-request-params request metadata property must be provided for this request.' with GRPC_INVALID_X_GOOG_REQUEST_PARAMS and issues no session; its dispatch compares the routed bucket with the bucket of write_object_spec.resource (recorded 2026-11-18, case grpc-probe-inferred-routing, steps start-resumable-without-routing; replayed by the case, and routing_requires_the_metadata asserts the shared admission for a routed call, but no Rust test sends StartResumableWrite itself).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc-probe-inferred-routing",
+            "routing_requires_the_metadata"
           ]
         },
         {
@@ -26214,7 +26372,9 @@
         "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
         "grpc-probe-resumable-sessions",
         "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values",
-        "grpc_io_resumable_sessions_expire_seven_days_after_start"
+        "grpc_io_resumable_sessions_expire_seven_days_after_start",
+        "grpc-probe-inferred-routing",
+        "routing_requires_the_metadata"
       ],
       "verification": [
         {
@@ -26223,7 +26383,8 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
-            "grpc-probe-resumable-sessions"
+            "grpc-probe-resumable-sessions",
+            "grpc-probe-inferred-routing"
           ]
         },
         {
@@ -26234,7 +26395,8 @@
           "test_ids": [
             "grpc_resumable_key_binds_at_start_and_status_ignores_keys",
             "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values",
-            "grpc_io_resumable_sessions_expire_seven_days_after_start"
+            "grpc_io_resumable_sessions_expire_seven_days_after_start",
+            "routing_requires_the_metadata"
           ]
         },
         {
@@ -26287,7 +26449,7 @@
           ]
         },
         {
-          "text": "A session expires seven days after StartResumableWrite on the catalog clock; from then on QueryWriteStatus, a resumed write and CancelResumableWrite answer NOT_FOUND. The proto leaves the validity of a resumable write service-dependent (storage.proto lines 560-566), nothing was recorded, and the bound is the shared engine's.",
+          "text": "A session expires seven days after StartResumableWrite on the catalog clock; from then on QueryWriteStatus, a resumed write and CancelResumableWrite answer INTERNAL, the answer recorded for an upload ID that names no session (case grpc-probe-inferred-upload-ids). The proto leaves the validity of a resumable write service-dependent (storage.proto lines 560-566), no expired session was recorded, the catalog cannot tell an expired session from an ID never issued, and the bound is the shared engine's.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "grpc_io_resumable_sessions_expire_seven_days_after_start"
@@ -26339,10 +26501,22 @@
         },
         {
           "id": "query_status_permission_before_lookup",
-          "description": "A caller without storage.objects.create gets PERMISSION_DENIED, and an anonymous caller UNAUTHENTICATED, whether or not the upload_id names a session; a permitted caller gets NOT_FOUND for an unknown upload_id.",
+          "description": "A caller without storage.objects.create gets PERMISSION_DENIED, and an anonymous caller UNAUTHENTICATED, whether or not the upload_id names a session; a permitted caller gets INTERNAL for an upload_id of the issued shape that names no session, the answer recorded for such IDs (case grpc-probe-inferred-upload-ids, steps status-middle-altered and status-last-altered, 2026-11-18). Cloud Storage was recorded without credentials checks, so the order of the permission check against the lookup is the emulator's (scoped difference below).",
           "result": "PASS",
           "test_ids": [
-            "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
+            "grpc_io_upload_ids_are_looked_up_after_the_permission_check",
+            "grpc-probe-inferred-upload-ids"
+          ]
+        },
+        {
+          "id": "query_status_routing",
+          "description": "QueryWriteStatus reads the upload ID first: text that is no upload ID is INVALID_ARGUMENT and an ID it cannot read INTERNAL, both without x-goog-request-params. For a readable ID the metadata is then required, and a routed bucket other than the bucket the ID names is refused INVALID_ARGUMENT 'The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was ... but x-goog-request-params specified ...' with GRPC_INVALID_X_GOOG_REQUEST_PARAMS_BUCKET (recorded 2026-11-18, case grpc-probe-inferred-routing, steps query-write-status-without-routing and query-write-status-routed-other-bucket; grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata asserts the order and the answers, and upload_routing_is_compared_once_the_upload_id_is_read the shared comparison). The authorization of the caller for the ID's bucket comes before the comparison, so an unauthenticated or unauthorized caller is refused for its access whatever it routes (grpc_io_upload_id_calls_authorize_before_comparing_the_routing; a local choice, since no recorded call lacked credentials).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata",
+            "grpc_io_upload_id_calls_authorize_before_comparing_the_routing",
+            "upload_routing_is_compared_once_the_upload_id_is_read",
+            "grpc-probe-inferred-routing"
           ]
         },
         {
@@ -26356,13 +26530,16 @@
         },
         {
           "id": "query_status_ended_and_unreadable_sessions",
-          "description": "QueryWriteStatus answers as Cloud Storage did (recorded 2026-11-18, case grpc-probe-resumable-sessions and grpc-probe-write-streams): a cancelled session FAILED_PRECONDITION 'Upload has already been cancelled.' with GRPC_UPLOAD_ALREADY_CANCELLED, a session that a finishing message with the wrong size ended FAILED_PRECONDITION 'Upload has already been terminated.' with GRPC_UPLOAD_ALREADY_TERMINATED (steps status-cancelled and status-after-below-object-size), a finalized session its resource with the caller's ACL and owner view (step status-after-cancel-finalized), text that is no upload ID INVALID_ARGUMENT \"Invalid upload ID '<id>'.\" and an ID it cannot read INTERNAL (steps status-malformed, status-unknown-under-bucket and status-appended), the last two without x-goog-request-params, which the call does not need (BEHAVIOR-RPC-001 grpc_routing_required). Not recorded: an ID of the issued shape that names no session answers NOT_FOUND, and QueryWriteStatus on a session the emulator ended for another reason, such as a complete object that failed its declared checksum, answers FAILED_PRECONDITION by inference from the terminated answer.",
+          "description": "QueryWriteStatus answers as Cloud Storage did (recorded 2026-11-18, case grpc-probe-resumable-sessions and grpc-probe-write-streams): a cancelled session FAILED_PRECONDITION 'Upload has already been cancelled.' with GRPC_UPLOAD_ALREADY_CANCELLED, a session that a finishing message with the wrong size ended FAILED_PRECONDITION 'Upload has already been terminated.' with GRPC_UPLOAD_ALREADY_TERMINATED (steps status-cancelled and status-after-below-object-size), a finalized session its resource with the caller's ACL and owner view (step status-after-cancel-finalized), text that is no upload ID INVALID_ARGUMENT \"Invalid upload ID '<id>'.\" and an ID it cannot read INTERNAL (steps status-malformed, status-unknown-under-bucket and status-appended), the last two without x-goog-request-params, which the call does not need for an ID it cannot read (BEHAVIOR-RPC-001 grpc_routing_required). An ID of the issued shape with one character appended (recorded 2026-11-18), changed in the middle or changed at the end names no session and answers INTERNAL as well (recorded 2026-11-18, case grpc-probe-inferred-upload-ids, steps status-middle-altered and status-last-altered; grpc_io_cancel_discards_sessions_and_staged_bytes asserts INTERNAL for an unknown ID). The same ID under another bucket's name answers INTERNAL too, which no recorded step asked. The terminated answer is also recorded after a cancel of the terminated session (steps terminated-cancel and terminated-status-after-cancel of grpc-probe-inferred-session-states; grpc_io_terminated_sessions_refuse_cancels_and_writes asserts it). Not recorded: a session the catalog holds as aborted for a reason other than the wrong-size finishing message answers the terminated answer by inference.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_ended_sessions_answer_as_recorded",
             "grpc_io_cancel_discards_sessions_and_staged_bytes",
+            "grpc_io_terminated_sessions_refuse_cancels_and_writes",
             "grpc_calls_need_routing_metadata_and_ignore_unknown_keys",
-            "grpc-probe-resumable-sessions"
+            "grpc-probe-resumable-sessions",
+            "grpc-probe-inferred-upload-ids",
+            "grpc-probe-inferred-session-states"
           ]
         },
         {
@@ -26373,7 +26550,7 @@
         },
         {
           "id": "query_status_expiry",
-          "description": "A session answers NOT_FOUND from exactly seven days after StartResumableWrite on the catalog clock, the shared engine's local bound, and still reports its persisted size a millisecond earlier. Recorded as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
+          "description": "A session answers INTERNAL, as an upload ID that names no session does (recorded for such IDs, case grpc-probe-inferred-upload-ids), from exactly seven days after StartResumableWrite on the catalog clock, the shared engine's local bound, and still reports its persisted size a millisecond earlier. Cloud Storage's answer for an expired session was not recorded: the catalog cannot tell it from an ID never issued. Recorded as a scoped difference under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PASS",
           "test_ids": [
             "grpc_io_resumable_sessions_expire_seven_days_after_start"
@@ -26392,7 +26569,14 @@
         "grpc_io_cancel_discards_sessions_and_staged_bytes",
         "grpc_calls_need_routing_metadata_and_ignore_unknown_keys",
         "grpc-probe-bidi-write",
-        "grpc-probe-resumable-sessions"
+        "grpc-probe-resumable-sessions",
+        "grpc-probe-inferred-upload-ids",
+        "grpc-probe-inferred-session-states",
+        "grpc-probe-inferred-routing",
+        "grpc_io_terminated_sessions_refuse_cancels_and_writes",
+        "grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata",
+        "grpc_io_upload_id_calls_authorize_before_comparing_the_routing",
+        "upload_routing_is_compared_once_the_upload_id_is_read"
       ],
       "verification": [
         {
@@ -26404,7 +26588,11 @@
             "grpc_resumable_persisted_sizes_carry_the_persisted_checksums",
             "grpc_io_ended_sessions_answer_as_recorded",
             "grpc_io_cancel_discards_sessions_and_staged_bytes",
-            "grpc_calls_need_routing_metadata_and_ignore_unknown_keys"
+            "grpc_calls_need_routing_metadata_and_ignore_unknown_keys",
+            "grpc_io_terminated_sessions_refuse_cancels_and_writes",
+            "grpc_io_upload_id_calls_read_the_id_before_the_routing_metadata",
+            "grpc_io_upload_id_calls_authorize_before_comparing_the_routing",
+            "upload_routing_is_compared_once_the_upload_id_is_read"
           ]
         },
         {
@@ -26414,7 +26602,10 @@
           "artifact": "docs/en/slices/grpc-v2-object-io.md",
           "test_ids": [
             "grpc-probe-bidi-write",
-            "grpc-probe-resumable-sessions"
+            "grpc-probe-resumable-sessions",
+            "grpc-probe-inferred-upload-ids",
+            "grpc-probe-inferred-session-states",
+            "grpc-probe-inferred-routing"
           ]
         },
         {
@@ -26469,17 +26660,17 @@
       ],
       "scoped_differences": [
         {
-          "text": "A session expires seven days after StartResumableWrite on the catalog clock, and QueryWriteStatus then answers NOT_FOUND, as for an unknown upload_id. The proto leaves the validity of a resumable write service-dependent (storage.proto lines 560-566), nothing was recorded, and the bound is the shared engine's.",
+          "text": "A session expires seven days after StartResumableWrite on the catalog clock, and QueryWriteStatus then answers INTERNAL, as for an unknown upload_id (recorded for those, case grpc-probe-inferred-upload-ids). The proto leaves the validity of a resumable write service-dependent (storage.proto lines 560-566), no expired session was recorded, the catalog cannot tell an expired session from an ID never issued, and the bound is the shared engine's.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "grpc_io_resumable_sessions_expire_seven_days_after_start"
           ]
         },
         {
-          "text": "An upload ID of the issued shape that names no session, belongs to another bucket or has expired answers NOT_FOUND after the permission check. Not recorded: Cloud Storage answered INTERNAL only to IDs it could not read, which are kept, and INTERNAL would make SDKs retry a session that can never be found.",
+          "text": "The caller is authenticated and authorized for the bucket the upload ID names before the routed bucket is compared with it, so a caller without access is refused for its access whatever it routes; and a session the catalog holds as aborted for a reason other than the wrong-size finishing message answers the recorded terminated answer. Not recorded: no recorded call lacked credentials, and only the wrong-size ending was recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "grpc_io_cancel_discards_sessions_and_staged_bytes",
+            "grpc_io_upload_id_calls_authorize_before_comparing_the_routing",
             "grpc_io_upload_ids_are_looked_up_after_the_permission_check"
           ]
         }
@@ -26504,7 +26695,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending. The condition answers follow the recordings of Cloud Storage of 2026-11-18 (cases grpc-probe-object-conditions and grpc-probe-inferred-conditions).",
       "dependencies": ["BEHAVIOR-RPC-001", "BEHAVIOR-RPC-005"],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -26539,11 +26730,12 @@
         },
         {
           "id": "grpc_move_condition_validation",
-          "description": "MoveObject compares a metageneration match of 0 for the destination and the source and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and refuses a match beside a not-match, for the generation and the metageneration pair, destination and source, with INVALID_ARGUMENT and a BadRequest 'Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.', as Cloud Storage answered (case grpc-probe-object-conditions, steps move-*, recorded 2026-11-18). The recorded pairs named the same value in both conditions; refusing every pair by its shape, including one whose conditions both hold, is inferred (scoped difference below).",
+          "description": "MoveObject compares a metageneration match of 0 for the destination and the source and answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.', and refuses a match beside a not-match, for the generation and the metageneration pair, destination and source, with INVALID_ARGUMENT and a BadRequest 'Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.', as Cloud Storage answered (case grpc-probe-object-conditions, steps move-*, recorded 2026-11-18). Every such pair is refused by its shape, whatever the values: a match beside a not-match of a different value, for the destination generation and metageneration and the source generation and metageneration, was refused with the same answer whether the match failed or both conditions held, and the sources and the destination stayed unmoved (recorded 2026-11-18, case grpc-probe-inferred-conditions, steps move-generation-pair-match-failing, move-metageneration-pair-match-failing, move-source-generation-pair-match-failing, move-source-metageneration-pair-match-failing and the four -pair-holding steps; move_object_refuses_condition_pairs_and_failing_conditions_without_moving asserts the answer for equal-valued pairs and for a source pair of different values whose conditions both hold, and the replay covers the other combinations).",
           "result": "PASS",
           "test_ids": [
             "move_object_refuses_condition_pairs_and_failing_conditions_without_moving",
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions"
           ]
         }
       ],
@@ -26557,7 +26749,8 @@
         "grpc_derived_writes_return_the_recorded_owner_and_acl_views",
         "grpc_derived_write_views_respect_acl_permissions_and_uniform_access",
         "move_object_refuses_condition_pairs_and_failing_conditions_without_moving",
-        "grpc-probe-object-conditions"
+        "grpc-probe-object-conditions",
+        "grpc-probe-inferred-conditions"
       ],
       "verification": [
         {
@@ -26577,7 +26770,8 @@
           "verified_at": "2026-11-18",
           "artifact": "docs/en/evidence/provider-differential-gap-probes.md",
           "test_ids": [
-            "grpc-probe-object-conditions"
+            "grpc-probe-object-conditions",
+            "grpc-probe-inferred-conditions"
           ]
         },
         {
@@ -26633,14 +26827,7 @@
       ],
       "scoped_differences": [
         {
-          "text": "MoveObject refuses every generation or metageneration match beside a not-match by its shape, whatever the values. Cloud Storage was recorded refusing pairs that named the same value in both conditions; whether it also refuses a pair whose conditions both hold was not recorded.",
-          "gap": "SPEC-GRPC-LOCAL-CHOICES",
-          "test_ids": [
-            "move_object_refuses_condition_pairs_and_failing_conditions_without_moving"
-          ]
-        },
-        {
-          "text": "A negative generation or metageneration condition answers INVALID_ARGUMENT 'Preconditions must be nonnegative; use if_generation_match=0 to create only'. Not recorded: only 0 and pairs were asked of objects, and Cloud Storage compared negative bucket conditions (case grpc-probe-bucket-conditions).",
+          "text": "A negative generation or metageneration condition is compared like any other value: a match of -1 never holds (FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.'). Not recorded for MoveObject: case grpc-probe-inferred-conditions sent negative values to the other object RPCs and only pairs to MoveObject.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "move_object_refuses_condition_pairs_and_failing_conditions_without_moving"
