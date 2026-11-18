@@ -40,82 +40,105 @@ enum Acknowledgement {
     PersistedSize,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Flush {
     No,
     Yes,
 }
 
-#[derive(PartialEq, Eq)]
-enum Report {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lookup {
     No,
     Yes,
 }
 
-/// Whether a message finalizes the object, with the CRC32C the client declared for all of it.
-enum Finish {
-    No,
-    Yes { expected_crc32c: Option<u32> },
+/// How a message ends its part of the write.
+enum StepEnd {
+    /// More messages may follow. The proto ignores `flush` and `state_lookup` on a message that
+    /// sets `finish_write`, so only this variant carries them.
+    Continue { flush: Flush, lookup: Lookup },
+    /// The message finalizes the object, whose CRC32C must match the one declared, if any.
+    Finish { expected_crc32c: Option<u32> },
 }
 
-/// A message's validations finish before any of its bytes reach the writer.
-struct AppendStep {
-    data: Option<(u64, bytes::Bytes)>,
-    finish: Finish,
-    flush: Flush,
-    report: Report,
+/// Content whose CRC32C matched the one its message declared, if any. Only
+/// [`VerifiedChunk::verify`] makes one, so no unchecked byte reaches the writer.
+struct VerifiedChunk(bytes::Bytes);
+
+impl VerifiedChunk {
+    fn verify(data: pb::ChecksummedData) -> Result<Self, Status> {
+        verify_crc32c(&data)?;
+        Ok(Self(data.content))
+    }
+
+    fn into_bytes(self) -> bytes::Bytes {
+        self.0
+    }
 }
 
-fn append_step(
-    message: &pb::BidiWriteObjectRequest,
-    data: pb::ChecksummedData,
-) -> Result<AppendStep, Status> {
-    super::customer_key::reject(
-        message.common_object_request_params.as_ref(),
-        "appendable objects",
-    )?;
-    if message.first_message.is_some() {
-        return Err(Status::invalid_argument(
-            "Only the first message may contain write_object_spec or append_object_spec",
-        ));
-    }
-    verify_crc32c(&data)?;
-    if message.object_checksums.is_some() && !message.finish_write {
-        return Err(Status::invalid_argument(
-            "Appendable objects accept object_checksums only with finish_write=true",
-        ));
-    }
-    let expected = hashes(message.object_checksums.as_ref())?;
-    if expected.md5.is_some() {
-        return Err(Status::invalid_argument(
-            "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
-        ));
-    }
-    // A takeover only asks for the persisted size; its offset has no meaning without data.
-    let data = if data.content.is_empty() {
-        None
-    } else {
-        let offset = u64::try_from(message.write_offset).map_err(|_| {
-            Status::out_of_range("write_offset must be nonnegative; resume at persisted_size")
-        })?;
-        Some((offset, data.content))
-    };
-    Ok(AppendStep {
-        data,
-        finish: if message.finish_write {
-            Finish::Yes {
+/// Bytes a message appends at `offset`.
+struct Chunk {
+    offset: u64,
+    content: VerifiedChunk,
+}
+
+/// One decoded message of an appendable stream. Every check of the message runs before any of
+/// its bytes reach the writer.
+struct WriteStep {
+    /// `None` for a message without data: a takeover only asks for the persisted size, and an
+    /// offset means nothing without data.
+    chunk: Option<Chunk>,
+    end: StepEnd,
+}
+
+impl WriteStep {
+    /// Decodes a message whose first message, if any, the caller already took.
+    fn decode(message: &mut pb::BidiWriteObjectRequest) -> Result<Self, Status> {
+        super::customer_key::reject(
+            message.common_object_request_params.as_ref(),
+            "appendable objects",
+        )?;
+        if message.first_message.is_some() {
+            return Err(Status::invalid_argument(
+                "Only the first message may contain write_object_spec or append_object_spec",
+            ));
+        }
+        let content = VerifiedChunk::verify(take_data(message))?;
+        if message.object_checksums.is_some() && !message.finish_write {
+            return Err(Status::invalid_argument(
+                "Appendable objects accept object_checksums only with finish_write=true",
+            ));
+        }
+        let expected = hashes(message.object_checksums.as_ref())?;
+        if expected.md5.is_some() {
+            return Err(Status::invalid_argument(
+                "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
+            ));
+        }
+        let chunk = if content.0.is_empty() {
+            None
+        } else {
+            let offset = u64::try_from(message.write_offset).map_err(|_| {
+                Status::out_of_range("write_offset must be nonnegative; resume at persisted_size")
+            })?;
+            Some(Chunk { offset, content })
+        };
+        let end = if message.finish_write {
+            StepEnd::Finish {
                 expected_crc32c: expected.crc32c,
             }
         } else {
-            Finish::No
-        },
-        flush: if message.flush { Flush::Yes } else { Flush::No },
-        report: if message.flush || message.state_lookup {
-            Report::Yes
-        } else {
-            Report::No
-        },
-    })
+            StepEnd::Continue {
+                flush: if message.flush { Flush::Yes } else { Flush::No },
+                lookup: if message.state_lookup {
+                    Lookup::Yes
+                } else {
+                    Lookup::No
+                },
+            }
+        };
+        Ok(Self { chunk, end })
+    }
 }
 
 /// Unfinalized generations have no MD5 and no finalize time.
@@ -288,8 +311,7 @@ impl Storage {
         let first = message.first_message.take();
         // The opening message is checked before it creates or takes over the object, so a
         // refused one changes nothing.
-        let data = take_data(&mut message);
-        let mut step = append_step(&message, data)?;
+        let mut step = WriteStep::decode(&mut message)?;
         let OpenedWriter {
             mut writer,
             access,
@@ -300,47 +322,32 @@ impl Storage {
         // for that resource after a spec-only first message before it sends any data.
         let mut opening = Some(acknowledgement);
         loop {
-            if let Some((offset, content)) = step.data {
+            if let Some(Chunk { offset, content }) = step.chunk {
                 writer
-                    .append(offset, content, self.max_object_bytes)
+                    .append(offset, content.into_bytes(), self.max_object_bytes)
                     .await
                     .map_err(|e| append_status(e, caller))?;
             }
-            if let Finish::Yes { expected_crc32c } = step.finish {
-                let record = writer
-                    .finalize(expected_crc32c, access.clone(), self.max_object_bytes)
-                    .await
-                    .map_err(|e| append_status(e, caller))?;
-                return send(
-                    tx,
-                    pb::BidiWriteObjectResponse {
-                        write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
-                            self.written_object(
-                                &record,
-                                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
-                                caller,
-                            )
-                            .await?,
-                        )),
-                        ..Default::default()
-                    },
-                )
-                .await;
-            }
-            if step.flush == Flush::Yes {
+            let (flush, lookup) = match step.end {
+                StepEnd::Continue { flush, lookup } => (flush, lookup),
+                StepEnd::Finish { expected_crc32c } => {
+                    return self
+                        .finalize_append(writer, expected_crc32c, access, caller, tx)
+                        .await;
+                }
+            };
+            if flush == Flush::Yes {
                 writer.flush().await.map_err(|e| append_status(e, caller))?;
             }
-            let report = opening
-                .take()
-                .or_else(|| (step.report == Report::Yes).then_some(Acknowledgement::PersistedSize));
+            let report = opening.take().or_else(|| {
+                (flush == Flush::Yes || lookup == Lookup::Yes)
+                    .then_some(Acknowledgement::PersistedSize)
+            });
             if let Some(acknowledgement) = report {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
             }
             match stream.next().await.transpose()? {
-                Some(mut next) => {
-                    let data = take_data(&mut next);
-                    step = append_step(&next, data)?;
-                }
+                Some(mut next) => step = WriteStep::decode(&mut next)?,
                 None => {
                     // Closing the stream without finish_write leaves the object appendable; the
                     // service still reports the persisted size for a clean close.
@@ -353,6 +360,38 @@ impl Storage {
                 }
             }
         }
+    }
+
+    /// Publishes the appendable object `writer` holds and answers with the finalized resource.
+    async fn finalize_append(
+        &self,
+        mut writer: AppendWriter,
+        expected_crc32c: Option<u32>,
+        access: BucketAccess,
+        caller: Option<Caller<'_>>,
+        tx: &Responses,
+    ) -> Result<(), Status> {
+        let record = writer
+            .finalize(expected_crc32c, access, self.max_object_bytes)
+            .await
+            .map_err(|e| append_status(e, caller))?;
+        let resource = self
+            .written_object(
+                &record,
+                crate::csek::StoredHashes::keyless(record.customer_key_sha256),
+                caller,
+            )
+            .await?;
+        send(
+            tx,
+            pb::BidiWriteObjectResponse {
+                write_status: Some(pb::bidi_write_object_response::WriteStatus::Resource(
+                    resource,
+                )),
+                ..Default::default()
+            },
+        )
+        .await
     }
 
     /// Finalized objects come from the catalog; an absent name falls back to an unfinalized
