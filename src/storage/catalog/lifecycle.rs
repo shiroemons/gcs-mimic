@@ -66,6 +66,10 @@ impl RuleWriteScope {
         RULES_WRITTEN.set(RuleWrites::Unwritten);
         Self
     }
+    #[expect(
+        clippy::unused_self,
+        reason = "the guard witnesses an open write scope, which the thread-local flag it reads belongs to"
+    )]
     pub(super) fn written(&self) -> bool {
         RULES_WRITTEN.get() == RuleWrites::Written
     }

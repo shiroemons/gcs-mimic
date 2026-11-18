@@ -112,6 +112,13 @@ fn open_storage(backing: Backing) -> Result<OpenedStorage, CatalogError> {
     }
 }
 
+#[cfg_attr(
+    unix,
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "only a Windows path can fail to encode, and both targets share one signature"
+    )
+)]
 pub(super) fn immutable_catalog_uri(path: &Path) -> Result<String, CatalogError> {
     #[cfg(unix)]
     let bytes = path.as_os_str().as_encoded_bytes();

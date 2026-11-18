@@ -267,11 +267,11 @@ impl Storage {
         let Some(acl) = self.state.catalog.acl_projection(name, Vec::new()).await? else {
             return Ok(());
         };
-        self.apply_bucket_acl(bucket, &acl);
+        Self::apply_bucket_acl(bucket, &acl);
         Ok(())
     }
 
-    fn apply_bucket_acl(&self, bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
+    fn apply_bucket_acl(bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
         use crate::json::acl::AclOwner;
         // Cloud Storage answers a uniform-access bucket without its owner as well as its ACLs
         // (recorded 2026-11-13), as JSON does.
@@ -502,7 +502,7 @@ impl Storage {
         for record in &page.items {
             let mut bucket = convert::bucket(record, mask.lifecycle())?;
             if let Some(Some(projection)) = projections.next() {
-                self.apply_bucket_acl(&mut bucket, &projection);
+                Self::apply_bucket_acl(&mut bucket, &projection);
             }
             buckets.push(mask.apply(bucket));
         }

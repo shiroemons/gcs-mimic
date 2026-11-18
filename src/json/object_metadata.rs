@@ -279,7 +279,7 @@ fn custom_metadata(body: &Map<String, Value>, null: NullValue) -> Result<MapPatc
         None => Ok(MapPatch::Keep),
         Some(Value::Null) => Ok(MapPatch::Clear),
         Some(Value::Object(entries)) => {
-            Ok(custom_metadata_entries(entries, null)?.map_or(MapPatch::Clear, MapPatch::Merge))
+            Ok(custom_metadata_entries(entries, null).map_or(MapPatch::Clear, MapPatch::Merge))
         }
         // A value that is neither an object nor null was ignored (recorded for a string).
         Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
@@ -293,7 +293,7 @@ fn custom_metadata(body: &Map<String, Value>, null: NullValue) -> Result<MapPatc
 fn custom_metadata_entries(
     entries: &Map<String, Value>,
     null: NullValue,
-) -> Result<Option<BTreeMap<String, Option<String>>>, JsonError> {
+) -> Option<BTreeMap<String, Option<String>>> {
     let mut changes = BTreeMap::new();
     for (key, value) in entries {
         let change = match (CustomMetadataValue::from(value), null) {
@@ -306,7 +306,7 @@ fn custom_metadata_entries(
         };
         changes.insert(key.clone(), change);
     }
-    Ok((!changes.is_empty()).then_some(changes))
+    (!changes.is_empty()).then_some(changes)
 }
 
 /// The text Cloud Storage stored for a JSON number on 2026-11-09. Integers within 64 bits keep
