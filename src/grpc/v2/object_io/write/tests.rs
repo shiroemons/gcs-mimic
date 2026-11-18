@@ -6,6 +6,7 @@ use super::super::tests::{message, setup, write};
 use super::*;
 use crate::csek::key_sha256;
 use crate::grpc::test_support::{assert_customer_encryption, key_params};
+use crate::grpc::v2::test_support::undispatched;
 use crate::object::ObjectRecord;
 use crate::storage::Catalog;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
@@ -85,7 +86,7 @@ async fn start(storage: &Storage, name: &str, key: Option<&[u8; 32]>) -> Result<
 async fn query(storage: &Storage, upload_id: &str, key: Option<&[u8; 32]>) -> QueriedStatus {
     storage
         .query_write_status(
-            Request::new(pb::QueryWriteStatusRequest {
+            undispatched(pb::QueryWriteStatusRequest {
                 upload_id: upload_id.into(),
                 common_object_request_params: key.and_then(key_params),
             }),

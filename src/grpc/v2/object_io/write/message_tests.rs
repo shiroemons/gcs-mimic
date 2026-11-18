@@ -7,6 +7,7 @@
 use super::super::tests::{HeldOpen, Hold, setup, spec};
 use super::*;
 use crate::grpc::test_support::{bucket_routing, key_params, routed_rpc_status};
+use crate::grpc::v2::test_support::{UNDISPATCHED, undispatched};
 use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use tonic::Code;
@@ -302,16 +303,19 @@ fn reply(status: pb::bidi_write_object_response::WriteStatus) -> Reply {
     }
 }
 
-/// The routing metadata a client sends with `messages`: the bucket its opening spec names.
-/// Cloud Storage refused a WriteObject stream without the metadata (recorded 2026-11-18, case
-/// grpc-probe-routing), and the emulator refuses a BidiWriteObject stream the same way by
-/// inference, so a stream that names no well-formed bucket, or only an upload ID, sends a key
-/// that routes nothing.
+/// The routing metadata a client sends with `messages`: the bucket its opening spec names, or
+/// the bucket its upload ID names, as the Go SDK routes a resumed write. Cloud Storage refused a
+/// WriteObject stream without the metadata (recorded 2026-11-18, case grpc-probe-routing), and
+/// the emulator refuses a BidiWriteObject stream the same way by inference, so a stream that
+/// names no well-formed bucket sends a key that routes nothing.
 fn routing(messages: &[pb::BidiWriteObjectRequest]) -> String {
     let first = messages.first().and_then(|m| m.first_message.as_ref());
-    crate::grpc::v2::routing::write_bucket(first)
-        .and_then(|bucket| crate::grpc::v2::names::bucket_name(bucket).ok())
-        .map_or_else(|| "unrouted=1".to_owned(), bucket_routing)
+    let bucket = match first {
+        Some(FirstMessage::UploadId(upload)) => upload.split_once('/').map(|(bucket, _)| bucket),
+        first => crate::grpc::v2::routing::write_bucket(first)
+            .and_then(|bucket| crate::grpc::v2::names::bucket_name(bucket).ok()),
+    };
+    bucket.map_or_else(|| "unrouted=1".to_owned(), bucket_routing)
 }
 
 /// Sends `messages` over `rpc` and returns its status and the write statuses it answered.
@@ -394,7 +398,7 @@ async fn query_status(
         ..Default::default()
     };
     storage
-        .query_write_status(Request::new(request), None)
+        .query_write_status(undispatched(request), None)
         .await
         .map(Response::into_inner)
 }
@@ -1796,15 +1800,15 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// A resumed write is answered from its upload ID, whatever bucket its metadata routes: the ID
-/// names its bucket in a form no client routes, and the write is authorized and published in
-/// that bucket. No resumed write was recorded under another routed bucket; this is the local
-/// reading of the recorded upload ID calls (case grpc-probe-resumable-sessions), which Cloud
-/// Storage answered from the ID with and without a routed bucket.
-#[tokio::test]
-async fn grpc_io_resumed_write_is_answered_from_its_upload_id_whatever_bucket_is_routed() {
-    let (_dir, storage) = setup(true).await;
-    let upload = open_session(&storage, "routed-elsewhere", PLAIN).await;
+/// Resumes `upload` over `rpc` as the caller `token` names, routed by `routing`, with one
+/// finishing message of three bytes, and returns the call's status.
+async fn resume_routed(
+    storage: &Storage,
+    rpc: Rpc,
+    token: Option<&str>,
+    routing: &str,
+    upload: &str,
+) -> Status {
     let send = async |request| {
         crate::grpc::v2::dispatch(
             crate::grpc::v2::service(storage.state.clone(), MAX, storage.compat_profile),
@@ -1813,19 +1817,58 @@ async fn grpc_io_resumed_write_is_answered_from_its_upload_id_whatever_bucket_is
         .await
         .unwrap()
     };
-    let (status, _): (_, Vec<pb::WriteObjectResponse>) = routed_rpc_status(
-        "/google.storage.v2.Storage/WriteObject",
-        Some("admin"),
-        "bucket=projects%2F_%2Fbuckets%2Fanother-bucket",
-        &[write_object_request(&resume(&upload, 0, b"abc").finish())],
-        send,
-    )
-    .await;
-    assert_eq!(status.code(), Code::Ok, "{status}");
-    assert_eq!(
-        object_left(&storage, "routed-elsewhere").await,
-        Left::Object(3)
-    );
+    let message = resume(upload, 0, b"abc").finish();
+    match rpc {
+        Rpc::WriteObject => {
+            let path = "/google.storage.v2.Storage/WriteObject";
+            let messages = [write_object_request(&message)];
+            let (status, _): (_, Vec<pb::WriteObjectResponse>) =
+                routed_rpc_status(path, token, routing, &messages, send).await;
+            status
+        }
+        Rpc::Bidi => {
+            let path = "/google.storage.v2.Storage/BidiWriteObject";
+            let (status, _): (_, Vec<pb::BidiWriteObjectResponse>) =
+                routed_rpc_status(path, token, routing, &[message], send).await;
+            status
+        }
+    }
+}
+
+/// A resumed write must route the bucket its upload ID names, which is compared once the
+/// caller is authorized for that bucket, as QueryWriteStatus and CancelResumableWrite compare it
+/// (recorded, case grpc-probe-inferred-routing). Not recorded for a resumed write; inferred from
+/// those two RPCs. A caller without access is refused for its access whatever it routes, a local
+/// choice (see `Admitted::compare_upload`). That a refused stream leaves the session as it was
+/// is the emulator's behavior; no recorded case checks a session after such a refusal.
+#[tokio::test]
+async fn grpc_io_resumed_write_compares_the_routed_bucket_after_authorization() {
+    let (_dir, storage) = setup(true).await;
+    let other = "bucket=projects%2F_%2Fbuckets%2Fanother-bucket";
+    for rpc in [Rpc::WriteObject, Rpc::Bidi] {
+        let name = format!("routed-elsewhere-{rpc:?}");
+        let upload = open_session(&storage, &name, PLAIN).await;
+        for (token, code) in [
+            (None, Code::Unauthenticated),
+            (Some("reader"), Code::PermissionDenied),
+        ] {
+            for routing in [other, "unrouted=1"] {
+                let status = resume_routed(&storage, rpc, token, routing, &upload).await;
+                assert_eq!(status.code(), code, "{rpc:?} {token:?} {routing}: {status}");
+            }
+        }
+        let refused = resume_routed(&storage, rpc, Some("admin"), other, &upload).await;
+        assert_eq!(refused.code(), Code::InvalidArgument, "{rpc:?}");
+        assert_eq!(
+            refused.message(),
+            "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified 'another-bucket'"
+        );
+        assert_eq!(session_left(&storage, &upload).await, Left::Persisted(0));
+        let routed = bucket_routing("grpc-io");
+        let status = resume_routed(&storage, rpc, Some("admin"), &routed, &upload).await;
+        assert_eq!(status.code(), Code::Ok, "{rpc:?}: {status}");
+        assert_eq!(object_left(&storage, &name).await, Left::Object(3));
+    }
     storage.state.catalog.close().await.unwrap();
 }
 
@@ -2247,7 +2290,7 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
         let mut theirs =
             tonic::codegen::tokio_stream::iter([Ok(resume(&upload, GRANULE_SIZE, &other_granule))]);
         storage
-            .receive_write(&mut theirs, None, WriteRpc::WriteObject)
+            .receive_write(&mut theirs, None, WriteRpc::WriteObject, UNDISPATCHED)
             .await
             .unwrap();
         requests
@@ -2264,7 +2307,7 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
     };
     let mut stream = ReceiverStream::new(incoming);
     let (result, seen) = tokio::join!(
-        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses), UNDISPATCHED),
         other
     );
     let seen: Vec<_> = seen

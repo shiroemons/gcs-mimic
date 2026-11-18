@@ -1,5 +1,9 @@
 use super::{
-    ResponseStream, Storage, mask::ReadMask, object_io::naming_object, pb, routing::Route,
+    ResponseStream, Storage,
+    mask::ReadMask,
+    object_io::naming_object,
+    pb,
+    routing::{Admitted, Route},
     status::unsupported,
 };
 use crate::{
@@ -284,10 +288,7 @@ impl Storage {
         // recorded. These rules are local decisions that mirror ReadObject, and a resumed
         // read must repeat its key because a handle never stores one.
         let key = super::customer_key::key(spec.common_object_request_params.as_ref())?;
-        super::routing::check(
-            extensions.get(),
-            &[Route::Bucket(Some(spec.bucket.as_str()))],
-        )?;
+        Admitted::of(&extensions)?.compare(&[Route::Bucket(Some(spec.bucket.as_str()))])?;
         let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let resumed = spec.read_handle.is_some();

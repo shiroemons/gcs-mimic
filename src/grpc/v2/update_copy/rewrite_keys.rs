@@ -2,7 +2,7 @@
 //! destination key in `common_object_request_params`. The rules for a single call follow Cloud
 //! Storage's recorded answers (2026-11-15); continuations follow the JSON API.
 
-use super::super::test_support::{RESOURCE, setup, stored_object};
+use super::super::test_support::{RESOURCE, setup, stored_object, undispatched};
 use super::*;
 use crate::auth::Auth;
 use crate::csek::{CsekError, key_sha256};
@@ -55,7 +55,7 @@ async fn call(
     request: pb::RewriteObjectRequest,
 ) -> Result<pb::RewriteResponse, Status> {
     storage
-        .rewrite_object(Request::new(request), None)
+        .rewrite_object(undispatched(request), None)
         .await
         .map(Response::into_inner)
 }

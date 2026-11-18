@@ -2,7 +2,7 @@
 //! grpc-probe-derived-writes): a storage class every source has, and fields only the service
 //! sets, which change nothing.
 
-use super::super::test_support::{RESOURCE, setup, upload};
+use super::super::test_support::{RESOURCE, setup, undispatched, upload};
 use super::*;
 
 fn compose(destination: pb::Object) -> pb::ComposeObjectRequest {
@@ -185,7 +185,7 @@ async fn rewrite_object_ignores_each_service_set_destination_field_but_the_gener
     for (name, destination) in destinations {
         let rewritten = s
             .rewrite_object(
-                Request::new(pb::RewriteObjectRequest {
+                undispatched(pb::RewriteObjectRequest {
                     source_bucket: RESOURCE.into(),
                     source_object: "source".into(),
                     destination_bucket: RESOURCE.into(),

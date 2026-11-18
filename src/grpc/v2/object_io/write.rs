@@ -1,5 +1,6 @@
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
+use crate::grpc::v2::routing;
 
 /// A caller the write task can own: [`Caller`] borrows its identity from the request.
 enum TaskCaller {
@@ -64,20 +65,20 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::WriteObjectResponse>, Status> {
         let (_, extensions, input) = request.into_parts();
-        let admitted = extensions.get();
+        let admitted = routing::Admitted::of(&extensions)?;
         let mut position = MessagePosition::First;
         let mut stream = input.map(|result| {
             result.and_then(|r| {
                 let message = pb::BidiWriteObjectRequest::from(r);
                 if position == MessagePosition::First {
-                    super::super::routing::write(admitted, message.first_message.as_ref())?;
+                    routing::write(admitted, message.first_message.as_ref())?;
                     position = MessagePosition::Later;
                 }
                 Ok(message)
             })
         });
         let answer = self
-            .receive_write(&mut stream, caller, WriteRpc::WriteObject)
+            .receive_write(&mut stream, caller, WriteRpc::WriteObject, admitted)
             .await?;
         Ok(Response::new(pb::WriteObjectResponse {
             write_status: answer.write_status.map(Into::into),
@@ -93,7 +94,8 @@ impl Storage {
         let first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
-        super::super::routing::write(extensions.get(), first.first_message.as_ref())?;
+        let admitted = routing::Admitted::of(&extensions)?.clone();
+        routing::write(&admitted, first.first_message.as_ref())?;
         let append = super::super::append::is_append(&first);
         let caller = caller.map(TaskCaller::from);
         let storage = self.clone();
@@ -108,7 +110,7 @@ impl Storage {
             } else {
                 let mut input = tonic::codegen::tokio_stream::once(Ok(first)).chain(stream);
                 storage
-                    .receive_write(&mut input, caller, WriteRpc::Bidi(&tx))
+                    .receive_write(&mut input, caller, WriteRpc::Bidi(&tx), &admitted)
                     .await
                     .map(|_| ())
             };
@@ -226,6 +228,7 @@ impl Storage {
         stream: &mut S,
         caller: Option<Caller<'_>>,
         rpc: WriteRpc<'_>,
+        admitted: &routing::Admitted,
     ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let Some(mut first) = next_step(stream).await? else {
             return Err(missing_first_message());
@@ -237,7 +240,7 @@ impl Storage {
             }
             Some(FirstMessage::UploadId(upload)) => {
                 let session = upload.parse::<UploadId>()?;
-                self.receive_resumable_write(stream, first, &session, caller, rpc)
+                self.receive_resumable_write(stream, first, &session, caller, rpc, admitted)
                     .await
             }
             Some(FirstMessage::AppendObjectSpec(_)) => Err(unsupported_for("Rapid append", caller)),

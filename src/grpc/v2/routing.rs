@@ -1,6 +1,6 @@
 use super::{names, pb::bidi_write_object_request::FirstMessage, status};
 use crate::percent::{Decoding, decode};
-use tonic::{Status, metadata::MetadataMap};
+use tonic::{Extensions, Status, metadata::MetadataMap};
 
 /// The metadata that routes a Storage v2 call: `key=value` pairs joined by `&`, each key and
 /// value percent-encoded like a form field.
@@ -72,6 +72,32 @@ impl std::str::FromStr for RoutedBucket {
     }
 }
 
+/// The project ID of a routed project resource name `projects/<id>`, the form Cloud Storage
+/// served on ListBuckets, by ID and by number (recorded, cases grpc-bucket-list and
+/// prj-number-inputs). Routing checks only the resource name's form; the handler validates the
+/// request's own project.
+///
+/// A value of any other form is refused in the words of a request's malformed project name:
+/// Cloud Storage answered so to `project=buckets%2Fx` beside the parent `buckets/x` (case
+/// grpc-bucket-list, step list-malformed-parent). That step cannot tell a refusal of the routed
+/// value from one of the parent, so refusing the routed value alone is inferred.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RoutedProject(String);
+
+impl RoutedProject {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::str::FromStr for RoutedProject {
+    type Err = Status;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        names::project_id(name).map(|id| Self(id.to_owned()))
+    }
+}
+
 /// A resource the request names, compared with the value routed under the same key.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Route<'a> {
@@ -87,7 +113,15 @@ pub(super) enum Route<'a> {
     /// routing the empty name (recorded 2026-11-19, case grpc-probe-inferred-routing, step
     /// rewrite-routing-bucket-only).
     SourceBucket(Option<&'a str>),
-    /// Compared as text with the routed project; proto3's empty string is a value here.
+    /// A project resource name `projects/<id>`, whose ID is compared with the routed project's
+    /// (recorded 2026-11-19 on ListBuckets, case grpc-probe-inferred-routing). A malformed name,
+    /// proto3's empty string included, is compared as written, and its handler refuses it.
+    ///
+    /// Unlike a bucket, a project is compared only when the metadata routes one. Metadata that
+    /// routes no bucket compares as routing the empty bucket name (recorded on GetObject routed
+    /// by a project alone, case grpc-probe-routing), but metadata that routes no project was not
+    /// recorded on ListBuckets or CreateBucket; such a call keeps being served, which is a local
+    /// choice.
     Project(&'a str),
     /// Compared with the routed flag.
     Appendable(bool),
@@ -103,8 +137,9 @@ pub(super) enum Route<'a> {
 /// bucket) and a `bucket` pair without a value, and served an unknown key, a `routing_token`
 /// no redirect issued, a malformed unknown pair, a trailing `&` and a percent-encoded key
 /// (recorded 2026-11-18 and 2026-11-19, cases grpc-probe-routing and
-/// grpc-probe-inferred-routing). A malformed `project`, `source_bucket` or `appendable`, and a
-/// duplicated key other than `bucket`, were not recorded; they follow `bucket` by inference.
+/// grpc-probe-inferred-routing). A malformed `source_bucket` or `appendable`, and a duplicated
+/// key other than `bucket`, were not recorded; they follow `bucket` by inference. A malformed
+/// `project` is refused as [`RoutedProject`] states.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Routes<'a> {
     /// The metadata is required, and each listed field must name the same resource. Cloud
@@ -113,16 +148,16 @@ pub(super) enum Routes<'a> {
     /// non-empty value counts as none (step get-routing-empty-value).
     Request(&'a [Route<'a>]),
     /// The metadata is required, but the handler learns its resources later (a stream's first
-    /// message, a rewrite token): the handler compares the [`Routing`] that [`admit`] returns
-    /// through [`check`].
+    /// message, a rewrite token): the handler compares them with the [`Admitted`] it reads
+    /// through [`Admitted::of`].
     Deferred,
-    /// QueryWriteStatus and CancelResumableWrite: the handler parses the upload ID first, and
-    /// only then compares the routing through [`check_upload`], which needs the metadata and
-    /// compares its bucket with the one the ID names. Cloud Storage answered a malformed ID
-    /// without the metadata for the ID (case grpc-probe-resumable-sessions, steps
-    /// cancel-malformed, status-malformed and cancel-empty), and a readable ID without the
-    /// metadata, and under another routed bucket, for the metadata (case
-    /// grpc-probe-inferred-routing, steps `*-without-routing` and `*-routed-other-bucket`).
+    /// QueryWriteStatus and CancelResumableWrite: the call is admitted with or without the
+    /// metadata ([`Admitted::Unrouted`]), and the handler compares it with the bucket its upload
+    /// ID names ([`Admitted::compare_upload`]). Cloud Storage answered a malformed ID without
+    /// the metadata for the ID (case grpc-probe-resumable-sessions, steps cancel-malformed,
+    /// status-malformed and cancel-empty), and a readable ID without the metadata, and under
+    /// another routed bucket, for the metadata (case grpc-probe-inferred-routing, steps
+    /// `*-without-routing` and `*-routed-other-bucket`).
     Upload,
 }
 
@@ -171,19 +206,11 @@ fn other_destination_bucket(requested: &str, routed: &str) -> Status {
 }
 
 /// Cloud Storage's answer to a routed project other than the request's (recorded 2026-11-19 on
-/// ListBuckets, case grpc-probe-inferred-routing); both names are shown without `projects/`.
+/// ListBuckets, case grpc-probe-inferred-routing); both are project IDs, without `projects/`.
 fn other_project(requested: &str, routed: &str) -> Status {
-    let bare = |project: &str| {
-        project
-            .strip_prefix("projects/")
-            .unwrap_or(project)
-            .to_owned()
-    };
     status::invalid_with_reason(
         format!(
-            "The x-goog-request-params must specify the same project as the resource in the request. Request project was '{}', but x-goog-request-params specified '{}'",
-            bare(requested),
-            bare(routed)
+            "The x-goog-request-params must specify the same project as the resource in the request. Request project was '{requested}', but x-goog-request-params specified '{routed}'"
         ),
         "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_PROJECT",
     )
@@ -252,6 +279,12 @@ fn routed_bucket(routed: Option<&RoutedBucket>) -> &str {
     routed.map_or("", RoutedBucket::as_str)
 }
 
+/// The project ID a request's project resource name names, compared with the routed project
+/// ID. A malformed name is compared as written, and its handler refuses it.
+fn request_project(name: &str) -> &str {
+    names::project_id(name).unwrap_or(name)
+}
+
 /// The key of a routing pair, when it decodes to one some RPC routes. A key is percent-decoded
 /// before it is recognized, so `%62ucket` is `bucket`.
 fn routing_key(key: &[u8]) -> Option<RoutingKey> {
@@ -277,15 +310,14 @@ fn fill<T>(slot: &mut Option<T>, key: RoutingKey, value: T) -> Result<(), Status
     Ok(())
 }
 
-/// The values of the routed keys, each parsed into its key's type. A key is routed at most
-/// once, in one `x-goog-request-params` value or across several.
+/// The values of the routed keys of a call that carried the metadata, each parsed into its
+/// key's type; a key the metadata leaves out is `None`. A key is routed at most once, in one
+/// `x-goog-request-params` value or across several.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Routing {
-    /// Whether the call carried any non-empty `x-goog-request-params` value.
-    sent: bool,
     bucket: Option<RoutedBucket>,
     source_bucket: Option<RoutedBucket>,
-    project: Option<String>,
+    project: Option<RoutedProject>,
     appendable: Option<bool>,
 }
 
@@ -309,10 +341,7 @@ impl Routing {
         if values.peek().is_none() {
             return Ok(None);
         }
-        let mut routing = Self {
-            sent: true,
-            ..Self::default()
-        };
+        let mut routing = Self::default();
         for value in values {
             let header = String::from_utf8_lossy(value.as_bytes());
             for pair in value.as_bytes().split(|&byte| byte == b'&') {
@@ -322,7 +351,7 @@ impl Routing {
                     continue;
                 };
                 let value = routed_value(parts.next().unwrap_or_default())?;
-                routing.push(key, value, &header)?;
+                routing.push(key, &value, &header)?;
             }
         }
         Ok(Some(routing))
@@ -330,7 +359,7 @@ impl Routing {
 
     /// Adds `value`, read from the `x-goog-request-params` value `header`, under `key`,
     /// parsed into the key's type.
-    fn push(&mut self, key: RoutingKey, value: String, header: &str) -> Result<(), Status> {
+    fn push(&mut self, key: RoutingKey, value: &str, header: &str) -> Result<(), Status> {
         match key {
             RoutingKey::Bucket => {
                 let bucket = value.parse().map_err(|_| invalid_bucket_format(header))?;
@@ -339,9 +368,9 @@ impl Routing {
             // Refused with the wording of a request's malformed bucket name; a malformed routed
             // source bucket was not recorded.
             RoutingKey::SourceBucket => fill(&mut self.source_bucket, key, value.parse()?),
-            RoutingKey::Project => fill(&mut self.project, key, value),
+            RoutingKey::Project => fill(&mut self.project, key, value.parse()?),
             RoutingKey::Appendable => {
-                let flag = value.parse().map_err(|_| invalid_appendable(&value))?;
+                let flag = value.parse().map_err(|_| invalid_appendable(value))?;
                 fill(&mut self.appendable, key, flag)
             }
         }
@@ -377,9 +406,11 @@ impl Routing {
                 agree(routed, requested, || other_source_bucket(requested, routed))
             }
             Route::Project(requested) => match &self.project {
-                Some(routed) => agree(routed.as_str(), requested, || {
-                    other_project(requested, routed)
-                }),
+                Some(routed) => {
+                    let (requested, routed) = (request_project(requested), routed.as_str());
+                    agree(routed, requested, || other_project(requested, routed))
+                }
+                // Not compared when not routed; see `Route::Project`.
                 None => Ok(()),
             },
             Route::Appendable(requested) => match self.appendable {
@@ -390,47 +421,79 @@ impl Routing {
     }
 }
 
+/// What [`admit`] let a call through with. The dispatch stores it in the request's extensions
+/// for every call, and a handler that compares resources it learns later reads it back through
+/// [`Admitted::of`].
+#[derive(Clone, Debug)]
+pub(super) enum Admitted {
+    /// The call carried a non-empty `x-goog-request-params` value.
+    Routed(Routing),
+    /// An upload ID call without the metadata. Only [`Routes::Upload`] admits one; its handler
+    /// refuses it once the upload ID names a bucket ([`Admitted::compare_upload`]).
+    Unrouted,
+    /// A test called the handler directly, without the dispatch, so nothing was admitted and
+    /// nothing is compared. Only test builds have it, which reach it through
+    /// `crate::grpc::v2::test_support::undispatched`.
+    #[cfg(test)]
+    Undispatched,
+}
+
+impl Admitted {
+    /// The admission the dispatch stored in a request's `extensions`. Every dispatched call
+    /// carries one, so a handler reached without it is the emulator's fault, answered INTERNAL
+    /// rather than compared as nothing.
+    pub(super) fn of(extensions: &Extensions) -> Result<&Self, Status> {
+        extensions.get().ok_or_else(|| {
+            Status::internal("A Storage v2 call reached its handler without routing admission")
+        })
+    }
+
+    /// Compares each route with the value routed under its key, in the order of `routes` (see
+    /// [`Routing::compare`]). A call admitted without the metadata, which only an upload ID
+    /// call can be, is refused as a call without it.
+    pub(super) fn compare(&self, routes: &[Route<'_>]) -> Result<(), Status> {
+        match self {
+            Self::Routed(routing) => routing.compare(routes),
+            Self::Unrouted => Err(missing_metadata()),
+            #[cfg(test)]
+            Self::Undispatched => Ok(()),
+        }
+    }
+
+    /// Compares the routing of a call that names its session by upload ID with `bucket`, the
+    /// bucket the ID names: the metadata must have been sent and must route that bucket.
+    /// Recorded for QueryWriteStatus and CancelResumableWrite with a readable ID (case
+    /// grpc-probe-inferred-routing, steps `*-without-routing` and `*-routed-other-bucket`). Not
+    /// recorded for a resumed WriteObject or BidiWriteObject; inferred from those two RPCs. The
+    /// Go SDK routes the session's bucket when it resumes, so a client that resumes as it does
+    /// passes.
+    ///
+    /// The handler calls this only after it has authorized the caller for `bucket`, so a caller
+    /// without access to the bucket is refused the same whatever it routed, and no routing
+    /// answer precedes its refusal. That order is a local choice: no recorded call sent missing
+    /// or rejected credentials.
+    pub(super) fn compare_upload(&self, bucket: &str) -> Result<(), Status> {
+        self.compare(&[Route::Bucket(Some(bucket))])
+    }
+}
+
 /// The check every RPC passes before its handler runs: the metadata must be sent, unless the
 /// call's routes are `Upload`, and must agree with the request. The refusal of a call without
 /// the metadata was recorded on most RPCs, and follows them on the rest.
 ///
 /// The metadata is read only here. A `Deferred` or `Upload` call's handler compares the
-/// returned routing through [`check`] or [`check_upload`] once it learns its resources; the
-/// dispatch hands it over in the request's extensions.
-pub(super) fn admit(metadata: &MetadataMap, routes: Routes<'_>) -> Result<Routing, Status> {
+/// returned admission once it learns its resources; the dispatch hands it over in the
+/// request's extensions.
+pub(super) fn admit(metadata: &MetadataMap, routes: Routes<'_>) -> Result<Admitted, Status> {
     match (routes, Routing::parse(metadata)?) {
-        (Routes::Upload, routing) => Ok(routing.unwrap_or_default()),
+        (Routes::Upload, None) => Ok(Admitted::Unrouted),
         (Routes::Request(_) | Routes::Deferred, None) => Err(missing_metadata()),
         (Routes::Request(compared), Some(routing)) => {
             routing.compare(compared)?;
-            Ok(routing)
+            Ok(Admitted::Routed(routing))
         }
-        (Routes::Deferred, Some(routing)) => Ok(routing),
+        (Routes::Deferred | Routes::Upload, Some(routing)) => Ok(Admitted::Routed(routing)),
     }
-}
-
-/// Compares the routing [`admit`] read for a `Deferred` call with resources its handler learned
-/// afterwards. `admitted` is the routing the dispatch stored in the request's extensions; it is
-/// `None` only for a handler called without the dispatch, as tests do to pass their own caller,
-/// which admitted nothing to compare.
-pub(super) fn check(admitted: Option<&Routing>, routes: &[Route<'_>]) -> Result<(), Status> {
-    let Some(routing) = admitted else {
-        return Ok(());
-    };
-    routing.compare(routes)
-}
-
-/// Compares the routing [`admit`] read for an `Upload` call with the bucket its upload ID
-/// names, once the handler has parsed the ID: the metadata must have been sent, and its bucket
-/// must be that bucket.
-pub(super) fn check_upload(admitted: Option<&Routing>, bucket: &str) -> Result<(), Status> {
-    let Some(routing) = admitted else {
-        return Ok(());
-    };
-    if !routing.sent {
-        return Err(missing_metadata());
-    }
-    routing.compare(&[Route::Bucket(Some(bucket))])
 }
 
 pub(super) fn iam_bucket(resource: &str) -> &str {
@@ -440,9 +503,9 @@ pub(super) fn iam_bucket(resource: &str) -> &str {
         .map_or(resource, |(bucket, _)| bucket)
 }
 
-/// The bucket resource a write stream's first message routes: the bucket its spec names, or
-/// `None` when it names none. A resumed write routes none: its upload ID names its bucket in a
-/// form no client routes (see `Routes::Optional`).
+/// The bucket resource a write stream's first message names in a spec, or `None` when it names
+/// none. A resumed write's upload ID names its bucket as a bare ID, which the handler compares
+/// once it has authorized the caller for it ([`Admitted::compare_upload`]).
 pub(super) fn write_bucket(first: Option<&FirstMessage>) -> Option<&str> {
     match first? {
         FirstMessage::WriteObjectSpec(spec) => spec.resource.as_ref().map(|r| r.bucket.as_str()),
@@ -451,29 +514,20 @@ pub(super) fn write_bucket(first: Option<&FirstMessage>) -> Option<&str> {
     }
 }
 
-/// Compares the routing a write stream was admitted with (see [`check`]) with its first
-/// message.
-pub(super) fn write(
-    admitted: Option<&Routing>,
-    first: Option<&FirstMessage>,
-) -> Result<(), Status> {
+/// Compares the admission of a write stream with its first message: the bucket a spec names and
+/// the appendable flag. A resumed write compares only the flag here, since a resumable session
+/// is never appendable; its bucket is compared after authorization ([`write_bucket`]).
+pub(super) fn write(admitted: &Admitted, first: Option<&FirstMessage>) -> Result<(), Status> {
     let appendable = match first {
         Some(FirstMessage::WriteObjectSpec(spec)) => spec.appendable == Some(true),
         Some(FirstMessage::AppendObjectSpec(_)) => true,
-        // The handler authorizes a resumed write with the bucket its upload ID names, so no
-        // bucket is compared.
-        Some(FirstMessage::UploadId(_)) => {
-            return check(admitted, &[Route::Appendable(false)]);
-        }
+        Some(FirstMessage::UploadId(_)) => return admitted.compare(&[Route::Appendable(false)]),
         None => false,
     };
-    check(
-        admitted,
-        &[
-            Route::Bucket(write_bucket(first)),
-            Route::Appendable(appendable),
-        ],
-    )
+    admitted.compare(&[
+        Route::Bucket(write_bucket(first)),
+        Route::Appendable(appendable),
+    ])
 }
 
 #[cfg(test)]
@@ -518,27 +572,43 @@ mod tests {
         )
     }
 
-    /// The routing a write stream routed by `params` is admitted with.
-    fn write_stream(params: &str) -> Routing {
+    /// The admission of a write stream routed by `params`.
+    fn write_stream(params: &str) -> Admitted {
         admit(&routed(params), Routes::Deferred).unwrap()
     }
 
-    /// A resumed write's upload ID names its bucket in a form no client routes, so its routed
-    /// bucket is not compared with the ID's: the handler authorizes with the ID's bucket. No
-    /// resumed write was recorded under another routed bucket; comparing nothing is the local
-    /// reading of the recorded upload ID calls (case grpc-probe-resumable-sessions).
+    /// A resumed write's first message compares only the appendable flag, since a resumable
+    /// session is never appendable. Its bucket is the one its upload ID names, which the handler
+    /// compares with `compare_upload` once it has authorized the caller, as QueryWriteStatus and
+    /// CancelResumableWrite do (recorded, case grpc-probe-inferred-routing). Not recorded for a
+    /// resumed write; inferred from those two RPCs.
     #[test]
     fn routing_compares_only_the_appendable_flag_of_a_resumed_write() {
         let resumed = |bucket: &str| FirstMessage::UploadId(format!("{bucket}/{}", "a".repeat(64)));
         let routing = write_stream("bucket=projects%2F_%2Fbuckets%2Ftest-bucket&appendable=false");
-        write(Some(&routing), Some(&resumed("test-bucket"))).unwrap();
-        write(Some(&routing), Some(&resumed("other-bucket"))).unwrap();
+        write(&routing, Some(&resumed("test-bucket"))).unwrap();
+        write(&routing, Some(&resumed("other-bucket"))).unwrap();
+        // The bucket the upload ID names is compared after authorization.
+        routing.compare_upload("test-bucket").unwrap();
+        let error = routing.compare_upload("other-bucket").unwrap_err();
+        assert_eq!(
+            error.message(),
+            other_bucket_message("other-bucket", "test-bucket")
+        );
+        assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_BUCKET");
         let unrouted = write_stream("appendable=false");
-        write(Some(&unrouted), Some(&resumed("test-bucket"))).unwrap();
+        write(&unrouted, Some(&resumed("test-bucket"))).unwrap();
+        assert_eq!(
+            unrouted
+                .compare_upload("test-bucket")
+                .unwrap_err()
+                .message(),
+            other_bucket_message("test-bucket", "")
+        );
         // A resumable session is never appendable.
         let appendable = write_stream("appendable=true");
         assert_eq!(
-            write(Some(&appendable), Some(&resumed("test-bucket")))
+            write(&appendable, Some(&resumed("test-bucket")))
                 .unwrap_err()
                 .message(),
             CONFLICT
@@ -554,18 +624,14 @@ mod tests {
             Routes::Deferred,
         )
         .unwrap();
-        check(
-            Some(&routing),
-            &[Route::Bucket(Some("projects/_/buckets/b"))],
-        )
-        .unwrap();
+        routing
+            .compare(&[Route::Bucket(Some("projects/_/buckets/b"))])
+            .unwrap();
         assert_eq!(
-            check(
-                Some(&routing),
-                &[Route::Bucket(Some("projects/_/buckets/other"))]
-            )
-            .unwrap_err()
-            .message(),
+            routing
+                .compare(&[Route::Bucket(Some("projects/_/buckets/other"))])
+                .unwrap_err()
+                .message(),
             other_bucket_message("other", "b")
         );
         // A rewrite token may resolve a bare source bucket ID.
@@ -574,24 +640,20 @@ mod tests {
             Routes::Deferred,
         )
         .unwrap();
-        check(
-            Some(&rewrite),
-            &[
+        rewrite
+            .compare(&[
                 Route::SourceBucket(Some("a")),
                 Route::Bucket(Some("projects/_/buckets/b")),
-            ],
-        )
-        .unwrap();
+            ])
+            .unwrap();
         // Recorded 2026-11-19 (case grpc-probe-inferred-routing): the source is compared before
         // the destination, each answered in its own words.
-        let error = check(
-            Some(&rewrite),
-            &[
+        let error = rewrite
+            .compare(&[
                 Route::SourceBucket(Some("b")),
                 Route::DestinationBucket(Some("b")),
-            ],
-        )
-        .unwrap_err();
+            ])
+            .unwrap_err();
         assert_eq!(
             error.message(),
             "The x-goog-request-params must specify the same source and destination buckets as in the request. Request source bucket was 'b' but x-goog-request-params specified 'a'"
@@ -600,14 +662,12 @@ mod tests {
             reason(&error),
             "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_SOURCE_BUCKET"
         );
-        let error = check(
-            Some(&rewrite),
-            &[
+        let error = rewrite
+            .compare(&[
                 Route::SourceBucket(Some("a")),
                 Route::DestinationBucket(Some("c")),
-            ],
-        )
-        .unwrap_err();
+            ])
+            .unwrap_err();
         assert_eq!(
             error.message(),
             "The x-goog-request-params must specify the same source and destination buckets as the resource in the request. Request destination bucket was 'c', but x-goog-request-params specified 'b'"
@@ -627,7 +687,8 @@ mod tests {
         )
         .unwrap();
         assert!(
-            check(Some(&bucket_only), &routes)
+            bucket_only
+                .compare(&routes)
                 .unwrap_err()
                 .message()
                 .ends_with("Request source bucket was 'a' but x-goog-request-params specified ''")
@@ -638,7 +699,8 @@ mod tests {
         )
         .unwrap();
         assert!(
-            check(Some(&source_only), &routes)
+            source_only
+                .compare(&routes)
                 .unwrap_err()
                 .message()
                 .ends_with(
@@ -667,9 +729,27 @@ mod tests {
             );
             assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS");
         }
-        // A handler called without the dispatch admitted nothing to compare.
-        check(None, &[Route::Bucket(Some("projects/_/buckets/b"))]).unwrap();
-        write(None, None).unwrap();
+        // Only an upload ID call is admitted without the metadata, and whatever it is compared
+        // with, it is refused as a call without it.
+        let unrouted = admit(&none, Routes::Upload).unwrap();
+        assert!(matches!(unrouted, Admitted::Unrouted));
+        for routes in [
+            [Route::Bucket(Some("projects/_/buckets/b"))],
+            [Route::Appendable(false)],
+        ] {
+            let error = unrouted.compare(&routes).unwrap_err();
+            assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS");
+        }
+        // A handler reached without the dispatch's admission answers INTERNAL instead of
+        // comparing nothing.
+        let error = Admitted::of(&Extensions::new()).unwrap_err();
+        assert_eq!(error.code(), Code::Internal);
+        let mut extensions = Extensions::new();
+        extensions.insert(unrouted);
+        assert!(matches!(
+            Admitted::of(&extensions).unwrap(),
+            Admitted::Unrouted
+        ));
     }
 
     /// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-resumable-sessions and
@@ -679,7 +759,7 @@ mod tests {
     #[test]
     fn upload_routing_is_compared_once_the_upload_id_is_read() {
         let none = admit(&MetadataMap::new(), Routes::Upload).unwrap();
-        let error = check_upload(Some(&none), "b").unwrap_err();
+        let error = none.compare_upload("b").unwrap_err();
         assert_eq!(error.code(), Code::InvalidArgument);
         assert_eq!(
             error.message(),
@@ -689,22 +769,20 @@ mod tests {
         // An empty value is no metadata.
         let empty = admit(&routed(""), Routes::Upload).unwrap();
         assert_eq!(
-            check_upload(Some(&empty), "b").unwrap_err().message(),
+            empty.compare_upload("b").unwrap_err().message(),
             error.message()
         );
         let same = admit(&routed("bucket=projects%2F_%2Fbuckets%2Fb"), Routes::Upload).unwrap();
-        check_upload(Some(&same), "b").unwrap();
-        let error = check_upload(Some(&same), "other").unwrap_err();
+        same.compare_upload("b").unwrap();
+        let error = same.compare_upload("other").unwrap_err();
         assert_eq!(error.message(), other_bucket_message("other", "b"));
         assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_BUCKET");
         // Metadata that routes no bucket is compared as routing the empty name.
         let project = admit(&routed("project=projects%2Fp"), Routes::Upload).unwrap();
         assert_eq!(
-            check_upload(Some(&project), "b").unwrap_err().message(),
+            project.compare_upload("b").unwrap_err().message(),
             other_bucket_message("b", "")
         );
-        // A handler called without the dispatch admitted nothing to compare.
-        check_upload(None, "b").unwrap();
     }
 
     /// Recorded 2026-11-18 (case grpc-probe-routing): a routed bucket other than the request's,
@@ -747,10 +825,10 @@ mod tests {
             })
         };
         let appendable = write_stream("bucket=projects%2F_%2Fbuckets%2Fb&appendable=true");
-        write(Some(&appendable), Some(&spec(Some(true)))).unwrap();
+        write(&appendable, Some(&spec(Some(true)))).unwrap();
         for other in [None, Some(false)] {
             assert_eq!(
-                write(Some(&appendable), Some(&spec(other)))
+                write(&appendable, Some(&spec(other)))
                     .unwrap_err()
                     .message(),
                 CONFLICT
@@ -760,12 +838,13 @@ mod tests {
         // A bucket the request does not name matches no routed bucket.
         let bucket = write_stream("bucket=projects%2F_%2Fbuckets%2Fb");
         assert_eq!(
-            write(Some(&bucket), None).unwrap_err().message(),
+            write(&bucket, None).unwrap_err().message(),
             other_bucket_message("", "b")
         );
-        // A resumed write compares no bucket; the handler answers an upload ID it cannot read.
+        // A resumed write's first message compares no bucket; the handler answers an upload ID
+        // it cannot read before it compares one.
         let unreadable = FirstMessage::UploadId("other/not-hex".into());
-        write(Some(&bucket), Some(&unreadable)).unwrap();
+        write(&bucket, Some(&unreadable)).unwrap();
 
         // Recorded 2026-11-19 on ListBuckets (case grpc-probe-inferred-routing).
         let error = admit(
@@ -778,6 +857,50 @@ mod tests {
             "The x-goog-request-params must specify the same project as the resource in the request. Request project was 'p', but x-goog-request-params specified 'other'"
         );
         assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS_PROJECT");
+    }
+
+    /// A routed project is a resource name `projects/<id>`, compared by its ID with the ID the
+    /// request names. The recorded form and mismatch are cited at `RoutedProject` and
+    /// `Route::Project`; the rest is inferred from them.
+    #[test]
+    fn routed_projects_are_resource_names_compared_by_id() {
+        fn list_buckets(params: &str, parent: &str) -> Result<Admitted, Status> {
+            admit(&routed(params), Routes::Request(&[Route::Project(parent)]))
+        }
+        list_buckets("project=projects%2Fp", "projects/p").unwrap();
+        // A malformed request project is compared as written and left to its handler, so a
+        // routed name with the same ID never contradicts it.
+        list_buckets("project=projects%2Fp", "p").unwrap();
+        assert_eq!(
+            list_buckets("project=projects%2Fp", "q")
+                .unwrap_err()
+                .message(),
+            "The x-goog-request-params must specify the same project as the resource in the request. Request project was 'q', but x-goog-request-params specified 'p'"
+        );
+        // A routed project of another form is refused in the words of a malformed parent, on any
+        // RPC (recorded beside the same malformed parent, case grpc-bucket-list).
+        for (value, name) in [
+            ("buckets%2Fx", "buckets/x"),
+            ("p", "p"),
+            ("projects%2Fp%2Fx", "projects/p/x"),
+        ] {
+            let params = format!("bucket=projects%2F_%2Fbuckets%2Fb&project={value}");
+            for error in [
+                list_buckets(&params, "projects/p").unwrap_err(),
+                admit(&routed(&params), GET_OBJECT).unwrap_err(),
+            ] {
+                assert_eq!(error.code(), Code::InvalidArgument, "{value}");
+                assert_eq!(
+                    error.message(),
+                    format!(
+                        "Invalid project name '{name}'. Project names must take the form 'projects/{{project_number}}'."
+                    )
+                );
+                assert!(error.details().is_empty(), "{value}");
+            }
+        }
+        // Metadata that routes no project is not compared (not recorded; see `Route::Project`).
+        list_buckets("bucket=projects%2F_%2Fbuckets%2Fb", "projects/p").unwrap();
     }
 
     /// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-routing and

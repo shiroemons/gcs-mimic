@@ -365,6 +365,28 @@ async fn object_listing_preserves_json_pagination_prefixes_versions_and_errors()
 const PRECONDITION_NOT_HELD: &str =
     "At least one of the pre-conditions you specified did not hold.";
 
+/// Storage v2 words a not-match that alone fails as a resource that has not been modified; the
+/// legacy DeleteBucket and UpdateBucket keep the failed-condition answer, details included,
+/// for both catalog failures.
+#[test]
+fn legacy_bucket_conditions_keep_the_failed_condition_answer() {
+    for error in [CatalogError::NotModified, CatalogError::PreconditionFailed] {
+        let status = conditional_bucket_error(error);
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(status.message(), PRECONDITION_NOT_HELD);
+        assert!(status.details().is_empty());
+    }
+    assert_ne!(
+        Status::from(CatalogError::NotModified).message(),
+        PRECONDITION_NOT_HELD
+    );
+    let other = conditional_bucket_error(CatalogError::NotEmpty);
+    assert_eq!(
+        other.message(),
+        Status::from(CatalogError::NotEmpty).message()
+    );
+}
+
 #[tokio::test]
 async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
     let dir = TestDir::new();
@@ -451,6 +473,7 @@ async fn bucket_metageneration_conditions_gate_get_update_and_delete() {
         .unwrap_err();
         assert_eq!(error.code(), tonic::Code::FailedPrecondition);
         assert_eq!(error.message(), PRECONDITION_NOT_HELD);
+        assert!(error.details().is_empty());
         assert!(
             storage
                 .state

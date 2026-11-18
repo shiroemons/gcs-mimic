@@ -3,7 +3,6 @@ use super::{
     mask::{UnappliedUpdatePath, update_paths},
     object_io::ObjectField,
     pb,
-    status::invalid_field,
 };
 use crate::{
     acl::{AclKind, AclRequest, PredefinedObjectAcl},
@@ -37,13 +36,17 @@ enum UpdatePath {
     EventBasedHold,
     Acl,
     Retention,
-    /// `storage_class`: only a rewrite changes it, so an update that names it is refused
-    /// whatever the value (recorded in case grpc-probe-inferred-object-masks, with NEARLINE).
-    StorageClass,
-    /// `kms_key`: refused whatever the value (recorded in the same case, with a key that does
-    /// not exist; the refusal of an empty key is inferred).
-    KmsKey,
 }
+
+/// The refusal of `storage_class` in an update mask: only a rewrite changes a storage class.
+/// Recorded with NEARLINE (case grpc-probe-inferred-object-masks); that every other value is
+/// refused the same way is inferred.
+const STORAGE_CLASS_PATH: &str = "Client is not allowed to directly modify storage_class.";
+
+/// The refusal of `kms_key` in an update mask. Recorded with the name of a key that does not
+/// exist (case grpc-probe-inferred-object-masks); that an empty key or any other is refused the
+/// same way is inferred.
+const KMS_KEY_PATH: &str = "Cannot change the Cloud KMS key associated with a resource.";
 
 impl std::str::FromStr for UpdatePath {
     type Err = UnappliedUpdatePath;
@@ -61,8 +64,8 @@ impl std::str::FromStr for UpdatePath {
             "event_based_hold" => Self::EventBasedHold,
             "acl" => Self::Acl,
             "retention" => Self::Retention,
-            "storage_class" => Self::StorageClass,
-            "kms_key" => Self::KmsKey,
+            "storage_class" => return Err(UnappliedUpdatePath::Refused(STORAGE_CLASS_PATH)),
+            "kms_key" => return Err(UnappliedUpdatePath::Refused(KMS_KEY_PATH)),
             // Any other path is classified by the `Object` fields. The pinned Go SDK names the
             // output-only `create_time` in an ordinary empty update, which changes nothing.
             path => match path.strip_prefix("metadata.") {
@@ -133,16 +136,6 @@ fn apply_path(
         UpdatePath::Acl => update.acl = acl_request(object)?,
         UpdatePath::Retention => {
             update.retention = Patch::nullable(retention(object.retention.as_ref())?);
-        }
-        UpdatePath::StorageClass => {
-            return Err(invalid_field(
-                "Client is not allowed to directly modify storage_class.",
-            ));
-        }
-        UpdatePath::KmsKey => {
-            return Err(invalid_field(
-                "Cannot change the Cloud KMS key associated with a resource.",
-            ));
         }
     }
     Ok(())
@@ -328,7 +321,9 @@ mod tests {
         );
         assert_eq!("metadata.".parse(), Ok(UpdatePath::MetadataKey("".into())));
         // Recorded 2026-11-18 for `create_time` and `update_time`, and in case
-        // grpc-probe-inferred-object-masks for the other fields the proto marks OUTPUT_ONLY.
+        // grpc-probe-inferred-object-masks for the other fields the proto marks OUTPUT_ONLY and
+        // for the fields that are not OUTPUT_ONLY but are accepted and ignored: identifiers and
+        // the values the service keeps.
         for path in [
             "restore_token",
             "metageneration",
@@ -343,16 +338,6 @@ mod tests {
             "owner",
             "soft_delete_time",
             "hard_delete_time",
-        ] {
-            assert_eq!(
-                path.parse::<UpdatePath>(),
-                Err(UnappliedUpdatePath::OutputOnly),
-                "{path}"
-            );
-        }
-        // Fields that are not OUTPUT_ONLY but are accepted and ignored: identifiers and the
-        // values the service keeps.
-        for path in [
             "name",
             "bucket",
             "etag",
@@ -365,10 +350,13 @@ mod tests {
                 "{path}"
             );
         }
-        assert_eq!("storage_class".parse(), Ok(UpdatePath::StorageClass));
-        assert_eq!("kms_key".parse(), Ok(UpdatePath::KmsKey));
+        // `*` never reaches the path parser: `from_proto` takes it as a replacement first.
         for (path, unapplied) in [
-            ("*", UnappliedUpdatePath::Unsupported("*".into())),
+            (
+                "storage_class",
+                UnappliedUpdatePath::Refused(STORAGE_CLASS_PATH),
+            ),
+            ("kms_key", UnappliedUpdatePath::Refused(KMS_KEY_PATH)),
             (
                 "retention.mode",
                 UnappliedUpdatePath::Unsupported("retention.mode".into()),
@@ -423,6 +411,39 @@ mod tests {
         };
         let update = from_proto(&listed, &["*".into()]).unwrap();
         assert_eq!(update.acl.entries().map(<[_]>::len), Some(1));
+    }
+
+    /// `*` beside another path is a replacement, and the other paths are not read: a path that
+    /// alone is refused, or that names no field, changes nothing beside it. Not recorded;
+    /// inferred from the recorded `*` beside `content_language` (case
+    /// grpc-probe-inferred-object-masks), whose answer reading the paths would not change.
+    #[test]
+    fn a_wildcard_beside_another_path_does_not_read_that_path() {
+        let object = pb::Object {
+            content_type: "text/plain".into(),
+            storage_class: "NEARLINE".into(),
+            kms_key: "projects/p/locations/l/keyRings/r/cryptoKeys/missing".into(),
+            ..Default::default()
+        };
+        for other in ["storage_class", "kms_key", "no_such_field", "labels.x"] {
+            let update = from_proto(&object, &["*".into(), other.into()])
+                .unwrap_or_else(|error| panic!("{other}: {error}"));
+            assert_eq!(update.write, WriteMode::Replace, "{other}");
+            assert_eq!(
+                update.content_type,
+                Patch::Set("text/plain".into()),
+                "{other}"
+            );
+            assert_eq!(update.storage_class, None, "{other}");
+        }
+        // Alone, each of those paths is refused.
+        for path in ["storage_class", "kms_key", "no_such_field"] {
+            assert_eq!(
+                from_proto(&object, &[path.into()]).unwrap_err().code(),
+                tonic::Code::InvalidArgument,
+                "{path}"
+            );
+        }
     }
 
     #[test]

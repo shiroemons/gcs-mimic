@@ -22,14 +22,7 @@ fn require_caller(caller: Option<Caller<'_>>) -> Result<(), Status> {
 }
 
 fn project_name(resource: &str) -> Result<&str, Status> {
-    let project = resource
-        .strip_prefix("projects/")
-        .filter(|id| !id.contains('/'))
-        .ok_or_else(|| {
-            Status::invalid_argument(format!(
-                "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
-            ))
-        })?;
+    let project = names::project_id(resource)?;
     crate::auth::validate_project_id(project)?;
     // Project numbers are positive and a derived one is never zero, so `projects/0` names no
     // project (recorded 2026-11-17). Earlier releases rendered every project ID as `projects/0`;
@@ -314,18 +307,12 @@ impl Storage {
             .access(caller, name, crate::auth::BUCKETS_DELETE)
             .await?;
         let conditions = BucketConditions::from(&request);
-        match self
-            .state
+        self.state
             .catalog
             .delete_bucket(name, conditions, &access)
             .await
-        {
-            Ok(()) => Ok(Response::new(())),
-            // Cloud Storage words a not-match that alone fails as a resource that has not been
-            // modified (recorded 2026-11-18).
-            Err(CatalogError::NotModified) => Err(super::status::not_modified()),
-            Err(error) => Err(access_status(error, caller)),
-        }
+            .map_err(|error| access_status(error, caller))?;
+        Ok(Response::new(()))
     }
     pub(super) async fn get_bucket(
         &self,
@@ -343,17 +330,9 @@ impl Storage {
             .await
             .map_err(|error| access_status(error, caller))?
             .ok_or_else(|| access_status(CatalogError::NotFound, caller))?;
-        // A not-match that alone fails is worded as a resource that has not been modified
-        // (recorded 2026-11-19 on GetBucket, case grpc-probe-inferred-bucket-masks).
         BucketConditions::from(&request)
             .check(record.metageneration)
-            .map_err(|error| {
-                if matches!(error, CatalogError::NotModified) {
-                    super::status::not_modified()
-                } else {
-                    access_status(error, caller)
-                }
-            })?;
+            .map_err(|error| access_status(error, caller))?;
         let mut bucket = convert::bucket(&record, mask.lifecycle())?;
         if mask.includes_acl(AclDefault::Include) {
             self.add_bucket_acl(caller, &mut bucket).await?;

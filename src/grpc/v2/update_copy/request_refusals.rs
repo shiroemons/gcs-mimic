@@ -3,7 +3,7 @@
 //! hold answer FAILED_PRECONDITION, and fields naming semantics gcs-mimic does not model answer
 //! UNIMPLEMENTED with ErrorInfo. Each refusal leaves the stored objects as they were.
 
-use super::super::test_support::{RESOURCE, setup, stored_object, upload};
+use super::super::test_support::{RESOURCE, setup, stored_object, undispatched, upload};
 use super::*;
 use crate::grpc::test_support::{
     self as fixtures, assert_bad_request, assert_code, assert_unsupported,
@@ -303,7 +303,7 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
 {
     let (s, _dir) = setup().await;
     let source = upload(&s, "source", 4).await;
-    let rewrite_with = async |request| s.rewrite_object(Request::new(request), None).await;
+    let rewrite_with = async |request| s.rewrite_object(undispatched(request), None).await;
     let options = "source_generation must be positive or omitted; max_bytes_rewritten_per_call must be a multiple of 1048576";
 
     assert_invalid(
@@ -420,6 +420,32 @@ async fn rewrite_object_refuses_malformed_and_unmodeled_requests_without_creatin
         "You must specify an object name.",
     );
     assert!(stored_object(&s, "rewritten").await.is_none());
+    s.state.catalog.close().await.unwrap();
+}
+
+/// A negative not-match is compared like any other and holds against an existing source, so the
+/// rewrite goes ahead. Recorded: a generation not-match of -1 held on an existing object for
+/// GetObject, UpdateObject and DeleteObject (case grpc-probe-inferred-conditions). Not
+/// recorded; inferred from those: a rewrite's source, and a metageneration not-match of -1.
+#[tokio::test]
+async fn rewrite_object_holds_a_negative_source_not_match_on_an_existing_source() {
+    let (s, _dir) = setup().await;
+    let source = upload(&s, "source", 4).await;
+    let rewritten = s
+        .rewrite_object(
+            undispatched(pb::RewriteObjectRequest {
+                if_source_generation_not_match: Some(-1),
+                if_source_metageneration_not_match: Some(-1),
+                ..rewrite()
+            }),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(rewritten.done);
+    let stored = stored_object(&s, "rewritten").await.unwrap();
+    assert_eq!(stored.size, source.size);
     s.state.catalog.close().await.unwrap();
 }
 
