@@ -53,24 +53,25 @@ fn check_object_mask(mask: ReadMask<'_>) -> Result<(), Status> {
 }
 
 /// A ReadObject read mask, checked with the request before the caller is authorized or the
-/// object opened. Its `metadata.` paths select fields of the object (`metadata` alone selects
-/// all of it); the response's own fields are kept only when named.
-struct FirstResponseMask<'a> {
-    /// The mask's paths, or `None` when it keeps every field.
-    paths: Option<&'a [String]>,
-    /// The object fields the `metadata.` paths name, or `None` when `metadata` alone keeps all
-    /// of them.
-    object: Option<Vec<String>>,
+/// object opened.
+enum FirstResponseMask<'a> {
+    /// An absent or empty mask, or `*`: the first response keeps every field.
+    Everything,
+    /// The mask's paths. Its `metadata.` paths select fields of the object (`metadata` alone
+    /// selects all of it); the response's own fields are kept only when named.
+    Selected {
+        paths: &'a [String],
+        /// The object fields the `metadata.` paths name, or `None` when `metadata` alone keeps
+        /// all of them.
+        object: Option<Vec<String>>,
+    },
 }
 
 impl<'a> FirstResponseMask<'a> {
     fn parse(mask: ReadMask<'a>, caller: Option<Caller<'_>>) -> Result<Self, Status> {
         require_content_in_read_mask(mask)?;
         let Some(paths) = mask.selective_paths() else {
-            return Ok(Self {
-                paths: None,
-                object: None,
-            });
+            return Ok(Self::Everything);
         };
         let mut object = Vec::new();
         let mut metadata = false;
@@ -95,17 +96,14 @@ impl<'a> FirstResponseMask<'a> {
         if let Some(object) = &object {
             check_object_mask(ReadMask::from(object.as_slice()))?;
         }
-        Ok(Self {
-            paths: Some(paths),
-            object,
-        })
+        Ok(Self::Selected { paths, object })
     }
 
     fn apply(&self, first: &mut pb::ReadObjectResponse) -> Result<(), Status> {
-        let Some(paths) = self.paths else {
+        let Self::Selected { paths, object } = self else {
             return Ok(());
         };
-        if let Some(object) = &self.object {
+        if let Some(object) = object {
             let object_mask = ReadMask::from(object.as_slice());
             first.metadata = match object_mask {
                 ReadMask::Default => None,
