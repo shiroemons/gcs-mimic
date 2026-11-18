@@ -23320,7 +23320,7 @@
           ]
         },
         {
-          "text": "A stale or foreign bucket.etag answers FAILED_PRECONDITION with the shared precondition message, the answer of a failed metageneration condition. The proto requires the update to happen only when the ETag matches (storage.proto lines 2581-2584) but names no status for a mismatch, and nothing was recorded.",
+          "text": "A stale or foreign bucket.etag answers FAILED_PRECONDITION with the shared precondition message, the answer of a failed metageneration condition. The proto requires the update to happen only when the ETag matches (storage.proto lines 2581-2584) but names no status for a mismatch, Google's general design guidance AIP-154 names ABORTED without the proto citing it, and nothing was recorded.",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
             "grpc_bucket_update_requires_a_matching_etag"
