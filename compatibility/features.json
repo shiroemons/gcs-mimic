@@ -38460,9 +38460,26 @@
         },
         {
           "id": "grpc_routing_sdk_lanes",
-          "description": "Run the pinned Go and Rust gRPC SDK lanes against the routing checks (CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust), as SPEC-GRPC-ROUTING-NAMES requires; this row records no SDK run after the 2026-11-04 routing change, and the Node SDK harness has no gRPC lane.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The pinned SDK lanes that send routing metadata pass against the routing checks, as SPEC-GRPC-ROUTING-NAMES requires (CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust, 2026-11-18). The official Go client, cloud.google.com/go/storage v1.71.0 on grpc-go v1.85.0, sends x-goog-request-params on every call from its generated Storage v2 client; its gRPC lanes pass on the permissive and strict servers, over h2c and over TLS. The official Rust client, google-cloud-storage 1.22.0, routes project on CreateBucket and bucket on ListObjects, DeleteObject and DeleteBucket; its official scenario and the Arrow scenario pass with every gRPC call answered. The Node, Python, Java, .NET, PHP and Ruby harnesses use HTTP only and send no routing metadata.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIODeletePolicies",
+            "TestGRPCBidiRead",
+            "TestGRPCBidiReadManyRanges",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict",
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter",
+            "TestGRPCTLS",
+            "TestGRPCTLSStrict",
+            "TestCrossProtocolObjects",
+            "rust-sdk-final-wire",
+            "arrow-object-store-local"
+          ]
         },
         {
           "id": "grpc_request_deadline",
@@ -38497,9 +38514,47 @@
         "grpc_timeout_never_ends_a_call_on_the_server",
         "grpc_compressed_requests_are_refused_before_the_call",
         "grpc_compressed_flag_without_an_encoding_is_a_protocol_error",
-        "grpc_responses_stay_uncompressed_whatever_the_client_accepts"
+        "grpc_responses_stay_uncompressed_whatever_the_client_accepts",
+        "TestGRPCObjectIO",
+        "TestGRPCObjectIOStrict",
+        "TestGRPCObjectIODeletePolicies",
+        "TestGRPCBidiRead",
+        "TestGRPCBidiReadManyRanges",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict",
+        "TestGRPCAppendable",
+        "TestGRPCAppendableSingleWriter",
+        "TestGRPCTLS",
+        "TestGRPCTLSStrict",
+        "TestCrossProtocolObjects",
+        "rust-sdk-final-wire",
+        "arrow-object-store-local"
       ],
       "verification": [
+        {
+          "command": "CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-foundation.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIODeletePolicies",
+            "TestGRPCBidiRead",
+            "TestGRPCBidiReadManyRanges",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict",
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter",
+            "TestGRPCTLS",
+            "TestGRPCTLSStrict",
+            "TestCrossProtocolObjects",
+            "rust-sdk-final-wire",
+            "arrow-object-store-local"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -38573,10 +38628,52 @@
             "TestGRPCBuckets",
             "TestGRPCBucketsStrict"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.4",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.71.0",
+          "transport": "gRPC over h2c and TLS with grpc-go v1.85.0; routing metadata from the generated Storage v2 client; permissive and strict servers",
+          "command": "CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-foundation.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIODeletePolicies",
+            "TestGRPCBidiRead",
+            "TestGRPCBidiReadManyRanges",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict",
+            "TestGRPCAppendable",
+            "TestGRPCAppendableSingleWriter",
+            "TestGRPCTLS",
+            "TestGRPCTLSStrict",
+            "TestCrossProtocolObjects"
+          ]
+        },
+        {
+          "language": "Rust",
+          "toolchain": "1.100.0",
+          "sdk": "google-cloud-storage",
+          "version": "1.22.0",
+          "transport": "gRPC control calls with routing metadata (CreateBucket, ListObjects, DeleteObject, DeleteBucket) through the checked local frontdoor; HTTP data calls; permissive server",
+          "command": "CARGO_BUILD_JOBS=4 env -u GCSM_GO_TEST_RUN GCSM_SDK_SCHEME=http bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-rust",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-foundation.md",
+          "test_ids": [
+            "rust-sdk-final-wire",
+            "arrow-object-store-local"
+          ]
         }
       ],
       "known_deviations": [
-        "No SDK lane run is recorded for the routing checks since the 2026-11-04 routing change."
+        "Every acceptance case passes and every remaining difference is scoped as of 2026-11-18; moving the row to IMPLEMENTED with acceptance_status COMPLETE awaits the ledger review."
       ],
       "scoped_differences": [
         {
@@ -38614,7 +38711,7 @@
         }
       ],
       "implemented_in": "3e8d13d",
-      "last_verified": "2026-10-28"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "BEHAVIOR-RPC-002",

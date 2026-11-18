@@ -752,7 +752,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-RPC-001 | gRPCのリソース名とルーティング | PARTIAL | P6 | EXACT | EXACT | 1 |
+| BEHAVIOR-RPC-001 | gRPCのリソース名とルーティング | PARTIAL | P6 | EXACT | EXACT | 3 |
 | BEHAVIOR-RPC-002 | gRPCの読み取り・更新マスク | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-003 | gRPCストリームのチェックサムとoffset | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-004 | gRPC双方向の範囲読み取り | PARTIAL | P6 | EXACT | EXACT | 1 |

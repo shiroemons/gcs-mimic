@@ -119,6 +119,21 @@ GCSM_GRPC_ENDPOINT for the Rust harness. Keep the Go filter unset so the
 additional Rust suite runs. This is a required SDK gate, separate from Rust's
 workspace tests; a documentation update alone does not establish SDK results.
 
+On 2026-11-18 this gate ran against the routing checks on the sources that
+introduced `StorageRouter` and passed (macOS ARM64). The Go suite
+(`cloud.google.com/go/storage` v1.71.0, grpc-go v1.85.0, Go 1.27.4) passed 95
+top-level tests and skipped `TestV2RSASignedTransfers`, which needs the HTTPS
+profile. Its generated Storage v2 client sends `x-goog-request-params` on every
+call, so every SDK gRPC lane exercised the routing checks: buckets, object I/O,
+bidi reads, update/copy, appendable writes and cross-protocol objects, on the
+permissive and strict servers, over h2c and over TLS. The Rust official scenario
+(`google-cloud-storage` 1.22.0) passed with five HTTP and four gRPC requests and
+the Arrow scenario with six HTTP and five gRPC requests, none blocked; their
+gRPC control calls route `project` on CreateBucket and `bucket` on ListObjects,
+DeleteObject and DeleteBucket. The Node, Python, Java, .NET, PHP and Ruby
+harnesses use HTTP only and send no routing metadata. BEHAVIOR-RPC-001 records
+this run as its `grpc_routing_sdk_lanes` case.
+
 Acceptance was recorded before implementation. On the unchanged listener-less baseline, the new Go test observed Bucket.Attrs and bidi multi-range exhausting five-second deadlines after UNAVAILABLE retries; Writer returned UNAVAILABLE, also failing the required assertion. Multi-range requires `storage.WithGRPCBidiReads()` in the pinned SDK; other calls use ordinary `storage.NewGRPCClient(ctx)` and the emulator environment alone.
 
 On 2026-10-27:

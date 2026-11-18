@@ -752,7 +752,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-RPC-001 | gRPC resource names and routing metadata | PARTIAL | P6 | EXACT | EXACT | 1 |
+| BEHAVIOR-RPC-001 | gRPC resource names and routing metadata | PARTIAL | P6 | EXACT | EXACT | 3 |
 | BEHAVIOR-RPC-002 | gRPC read/update field masks | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-003 | gRPC streaming checksums and offsets | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-004 | gRPC bidirectional ranged reads | PARTIAL | P6 | EXACT | EXACT | 1 |
