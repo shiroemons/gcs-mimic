@@ -190,7 +190,7 @@ impl ResourceField for BucketField {
             | F::Owner => FieldSetting::OutputOnly,
             // UpdateBucket accepted each of these four in its update mask and changed nothing,
             // even with the request's etag or with the values the bucket already has (recorded
-            // 2026-11-19, case grpc-probe-inferred-bucket-masks).
+            // 2026-11-18, case grpc-probe-inferred-bucket-masks).
             F::Name => FieldSetting::Identifier,
             F::Project | F::Location => FieldSetting::Immutable,
             F::Etag => FieldSetting::ServiceKept,
@@ -326,7 +326,9 @@ pub(super) enum UnappliedUpdatePath {
     /// Recorded for output-only fields: Cloud Storage accepted `create_time` and `update_time` on
     /// UpdateBucket and UpdateObject and applied nothing from them (2026-11-18; UpdateObject still
     /// advanced the metageneration), and UpdateObject took every other `OUTPUT_ONLY` field the
-    /// same way (case grpc-probe-inferred-object-masks); that UpdateBucket does is inferred.
+    /// same way (case grpc-probe-inferred-object-masks), as UpdateBucket took `bucket_id`,
+    /// `metageneration` and `owner` (case grpc-probe-inferred-bucket-masks; its `location_type`
+    /// answer is the declared difference of that case).
     /// Recorded for the others: UpdateObject took `etag`, `generation`, `retention_expire_time`,
     /// `name` and `bucket` (the same case), and UpdateBucket took `name`, `etag`, `project` and
     /// `location` (case grpc-probe-inferred-bucket-masks).

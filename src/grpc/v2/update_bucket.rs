@@ -260,7 +260,7 @@ mod tests {
             Code::FailedPrecondition
         );
         // A member that versioning and iam_config do not have names no field (recorded
-        // 2026-11-19, case grpc-probe-inferred-bucket-masks).
+        // 2026-11-18, case grpc-probe-inferred-bucket-masks).
         for path in ["versioning.unknown", "iam_config.unknown"] {
             let error = bucket_patch(&pb::Bucket::default(), &[path.into()]).unwrap_err();
             assert_eq!(error.code(), Code::InvalidArgument, "{path}");

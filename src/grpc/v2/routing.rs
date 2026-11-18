@@ -107,14 +107,14 @@ pub(super) enum Route<'a> {
     /// routed by a project alone, case grpc-probe-routing).
     Bucket(Option<&'a str>),
     /// The destination bucket of a rewrite, compared like [`Route::Bucket`] but answered in
-    /// the rewrite's own words (recorded 2026-11-19, case grpc-probe-inferred-routing).
+    /// the rewrite's own words (recorded 2026-11-18, case grpc-probe-inferred-routing).
     DestinationBucket(Option<&'a str>),
     /// Compared with the routed source bucket; metadata that routes none is compared as
-    /// routing the empty name (recorded 2026-11-19, case grpc-probe-inferred-routing, step
+    /// routing the empty name (recorded 2026-11-18, case grpc-probe-inferred-routing, step
     /// rewrite-routing-bucket-only).
     SourceBucket(Option<&'a str>),
     /// A project resource name `projects/<id>`, whose ID is compared with the routed project's
-    /// (recorded 2026-11-19 on ListBuckets, case grpc-probe-inferred-routing). A malformed name,
+    /// (recorded 2026-11-18 on ListBuckets, case grpc-probe-inferred-routing). A malformed name,
     /// proto3's empty string included, is compared as written, and its handler refuses it.
     ///
     /// Unlike a bucket, a project is compared only when the metadata routes one. Metadata that
@@ -136,15 +136,15 @@ pub(super) enum Route<'a> {
 /// GetObject, a malformed `bucket` beside the right `project` on ListBuckets (which routes no
 /// bucket) and a `bucket` pair without a value, and served an unknown key, a `routing_token`
 /// no redirect issued, a malformed unknown pair, a trailing `&` and a percent-encoded key
-/// (recorded 2026-11-18 and 2026-11-19, cases grpc-probe-routing and
+/// (recorded 2026-11-18, cases grpc-probe-routing and
 /// grpc-probe-inferred-routing). A malformed `source_bucket` or `appendable`, and a duplicated
 /// key other than `bucket`, were not recorded; they follow `bucket` by inference. A malformed
 /// `project` is refused as [`RoutedProject`] states.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Routes<'a> {
     /// The metadata is required, and each listed field must name the same resource. Cloud
-    /// Storage was recorded refusing every RPC asked sent without it (2026-11-18 and
-    /// 2026-11-19, cases grpc-probe-routing and grpc-probe-inferred-routing). Metadata with no
+    /// Storage was recorded refusing every RPC asked sent without it (2026-11-18, cases
+    /// grpc-probe-routing and grpc-probe-inferred-routing). Metadata with no
     /// non-empty value counts as none (step get-routing-empty-value).
     Request(&'a [Route<'a>]),
     /// The metadata is required, but the handler learns its resources later (a stream's first
@@ -184,7 +184,7 @@ fn other_bucket(requested: &str, routed: &str) -> Status {
 }
 
 /// Cloud Storage's answer to a routed source bucket other than the rewrite's (recorded
-/// 2026-11-19, case grpc-probe-inferred-routing).
+/// 2026-11-18, case grpc-probe-inferred-routing).
 fn other_source_bucket(requested: &str, routed: &str) -> Status {
     status::invalid_with_reason(
         format!(
@@ -195,7 +195,7 @@ fn other_source_bucket(requested: &str, routed: &str) -> Status {
 }
 
 /// Cloud Storage's answer to a routed bucket other than the rewrite's destination (recorded
-/// 2026-11-19, case grpc-probe-inferred-routing).
+/// 2026-11-18, case grpc-probe-inferred-routing).
 fn other_destination_bucket(requested: &str, routed: &str) -> Status {
     status::invalid_with_reason(
         format!(
@@ -205,7 +205,7 @@ fn other_destination_bucket(requested: &str, routed: &str) -> Status {
     )
 }
 
-/// Cloud Storage's answer to a routed project other than the request's (recorded 2026-11-19 on
+/// Cloud Storage's answer to a routed project other than the request's (recorded 2026-11-18 on
 /// ListBuckets, case grpc-probe-inferred-routing); both are project IDs, without `projects/`.
 fn other_project(requested: &str, routed: &str) -> Status {
     status::invalid_with_reason(
@@ -218,7 +218,7 @@ fn other_project(requested: &str, routed: &str) -> Status {
 
 /// Cloud Storage's answer to a routed bucket that is no resource name, or a `bucket` pair with
 /// no value (recorded 2026-11-18 on GetObject and GetBucket routed by a bare bucket ID, and
-/// 2026-11-19 on GetObject routed by `bucket` alone and on ListBuckets, cases grpc-probe-routing
+/// 2026-11-18 on GetObject routed by `bucket` alone and on ListBuckets, cases grpc-probe-routing
 /// and grpc-probe-inferred-routing). The message quotes the whole `x-goog-request-params` value.
 fn invalid_bucket_format(header: &str) -> Status {
     status::invalid_with_reason(
@@ -230,7 +230,7 @@ fn invalid_bucket_format(header: &str) -> Status {
 }
 
 /// Cloud Storage's answer to a key routed more than once, even with the same value (recorded
-/// 2026-11-19 on GetObject's `bucket`, case grpc-probe-inferred-routing).
+/// 2026-11-18 on GetObject's `bucket`, case grpc-probe-inferred-routing).
 fn duplicate_entry(key: RoutingKey) -> Status {
     status::invalid_with_reason(
         format!(
@@ -324,7 +324,7 @@ pub(super) struct Routing {
 impl Routing {
     /// Reads every `x-goog-request-params` value; `None` when the request carries no non-empty
     /// one. An empty value routes nothing, so it is the same as no metadata (recorded
-    /// 2026-11-19, case grpc-probe-inferred-routing, step get-routing-empty-value).
+    /// 2026-11-18, case grpc-probe-inferred-routing, step get-routing-empty-value).
     ///
     /// A pair under a routed key is parsed whether or not the call routes that key (see
     /// [`Routes`]); a pair without `=` routes an empty value.
@@ -646,7 +646,7 @@ mod tests {
                 Route::Bucket(Some("projects/_/buckets/b")),
             ])
             .unwrap();
-        // Recorded 2026-11-19 (case grpc-probe-inferred-routing): the source is compared before
+        // Recorded 2026-11-18 (case grpc-probe-inferred-routing): the source is compared before
         // the destination, each answered in its own words.
         let error = rewrite
             .compare(&[
@@ -752,7 +752,7 @@ mod tests {
         ));
     }
 
-    /// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-resumable-sessions and
+    /// Recorded 2026-11-18 (cases grpc-probe-resumable-sessions and
     /// grpc-probe-inferred-routing): an upload ID RPC reaches its handler without the metadata,
     /// which answers a malformed ID first; for a readable ID the metadata is then required and
     /// its bucket must be the one the ID names.
@@ -846,7 +846,7 @@ mod tests {
         let unreadable = FirstMessage::UploadId("other/not-hex".into());
         write(&bucket, Some(&unreadable)).unwrap();
 
-        // Recorded 2026-11-19 on ListBuckets (case grpc-probe-inferred-routing).
+        // Recorded 2026-11-18 on ListBuckets (case grpc-probe-inferred-routing).
         let error = admit(
             &routed("project=projects%2Fother"),
             Routes::Request(&[Route::Project("projects/p")]),
@@ -903,7 +903,7 @@ mod tests {
         list_buckets("bucket=projects%2F_%2Fbuckets%2Fb", "projects/p").unwrap();
     }
 
-    /// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-routing and
+    /// Recorded 2026-11-18 (cases grpc-probe-routing and
     /// grpc-probe-inferred-routing): an unknown key, a `routing_token`, a malformed unknown pair,
     /// a trailing `&` and a percent-encoded key beside the request's bucket are served, and a
     /// key the RPC does not route is not compared.
@@ -954,7 +954,7 @@ mod tests {
             .message(),
             other_bucket_message("b", "other")
         );
-        // An empty value routes nothing, so it is no metadata (recorded 2026-11-19).
+        // An empty value routes nothing, so it is no metadata (recorded 2026-11-18).
         for routes in [Routes::Request(&[Route::Bucket(None)]), Routes::Deferred] {
             let error = admit(&routed(""), routes).unwrap_err();
             assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS");
@@ -962,7 +962,7 @@ mod tests {
     }
 
     /// Every call validates a routed `bucket`, even on an RPC that routes none (recorded
-    /// 2026-11-19 on ListBuckets beside the right project, and on GetObject for a pair without a
+    /// 2026-11-18 on ListBuckets beside the right project, and on GetObject for a pair without a
     /// value, case grpc-probe-inferred-routing). The message quotes the whole metadata value.
     /// A malformed source bucket or flag is inferred from it.
     #[test]
@@ -1028,7 +1028,7 @@ mod tests {
     }
 
     /// A key sent more than once is refused before any comparison, even with the same value and
-    /// across several metadata values (recorded 2026-11-19 on GetObject's `bucket`, case
+    /// across several metadata values (recorded 2026-11-18 on GetObject's `bucket`, case
     /// grpc-probe-inferred-routing); other keys follow `bucket` by inference.
     #[test]
     fn routing_refuses_a_duplicated_key() {

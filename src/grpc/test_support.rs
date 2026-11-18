@@ -192,7 +192,7 @@ pub(super) async fn rpc<M: prost::Message, R: prost::Message + Default>(
 /// The `x-goog-request-params` value a client sends for a call on `bucket`. The emulator
 /// refuses a call without the metadata on every Storage v2 RPC, and Cloud Storage was recorded
 /// refusing every RPC asked, including QueryWriteStatus and CancelResumableWrite with a
-/// readable upload ID (2026-11-18 and 2026-11-19, cases grpc-probe-routing and
+/// readable upload ID (2026-11-18, cases grpc-probe-routing and
 /// grpc-probe-inferred-routing).
 pub(super) fn bucket_routing(bucket: &str) -> String {
     format!("bucket=projects%2F_%2Fbuckets%2F{bucket}")

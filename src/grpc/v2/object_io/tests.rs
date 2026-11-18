@@ -2298,7 +2298,7 @@ async fn grpc_io_strict_cancel_requires_create_permission() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-resumable-sessions and
+/// Recorded 2026-11-18 (cases grpc-probe-resumable-sessions and
 /// grpc-probe-inferred-routing): QueryWriteStatus and CancelResumableWrite answer a malformed
 /// upload ID without the routing metadata, and for a readable ID require the metadata and a
 /// routed bucket equal to the bucket the ID names. That a refused call leaves the session as it

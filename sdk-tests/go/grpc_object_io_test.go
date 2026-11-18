@@ -249,7 +249,7 @@ func TestGRPCObjectIODeletePolicies(t *testing.T) {
 
 // grpcRouted adds the x-goog-request-params metadata the SDK sends for a call on bucket.
 // Cloud Storage was recorded refusing every Storage v2 RPC asked without it, QueryWriteStatus
-// and CancelResumableWrite with a readable upload ID included (2026-11-18 and 2026-11-19,
+// and CancelResumableWrite with a readable upload ID included (2026-11-18,
 // cases grpc-probe-routing and grpc-probe-inferred-routing), and the emulator does the same.
 // Raw calls that need it carry it too.
 func grpcRouted(ctx context.Context, bucket string) context.Context {
@@ -328,7 +328,7 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 		}
 		return grpcIOField(response, "upload_id").String()
 	}
-	// Recorded 2026-11-18 and 2026-11-19 (cases grpc-probe-resumable-sessions and
+	// Recorded 2026-11-18 (cases grpc-probe-resumable-sessions and
 	// grpc-probe-inferred-routing): Cloud Storage answered a malformed upload ID from the ID
 	// alone, and a readable one only with x-goog-request-params routing its bucket.
 	cancelIn := func(callCtx context.Context, id string) error {
@@ -387,7 +387,7 @@ func TestGRPCCancelResumableWrite(t *testing.T) {
 	if attrs, err := bucket.Object("finalized").Attrs(ctx); err != nil || attrs.Size != 4 {
 		t.Fatalf("finalized object changed: %v %v", attrs, err)
 	}
-	// Recorded 2026-11-19 (case grpc-probe-inferred-routing): a readable upload ID needs the
+	// Recorded 2026-11-18 (case grpc-probe-inferred-routing): a readable upload ID needs the
 	// routing metadata, and a routed bucket other than the ID's bucket is INVALID_ARGUMENT.
 	// That the refused cancels leave the session open, which the calls after them check, is the
 	// emulator's behavior: the recorded case checks nothing after its refusals.

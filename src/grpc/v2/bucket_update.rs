@@ -71,7 +71,7 @@ impl AutoclassPath {
 }
 
 /// Cloud Storage's refusal of `labels.` in an update mask, an invalid label with an empty key,
-/// whatever the request carries (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+/// whatever the request carries (recorded 2026-11-18, case grpc-probe-inferred-bucket-masks).
 const EMPTY_LABEL_KEY: &str =
     "Invalid user label:  with value . Reason: Invalid field \"user_labels_list\"; key is empty.";
 
@@ -117,7 +117,7 @@ impl std::str::FromStr for UpdatePath {
 
 /// Whether `path` names a member that a message field of the bucket does not have, as
 /// `versioning.no_such_field` does. Cloud Storage refused that path and
-/// `iam_config.no_such_field` as naming no field (recorded 2026-11-19, case
+/// `iam_config.no_such_field` as naming no field (recorded 2026-11-18, case
 /// grpc-probe-inferred-bucket-masks); the other message fields' members were not asked, so
 /// their unlisted members stay refused as unsupported.
 fn names_no_member(path: &str) -> bool {
@@ -632,7 +632,7 @@ mod tests {
             from_proto(&dotted, &["labels.a.b".into()]).unwrap().labels,
             MapPatch::Merge([("a.b".into(), Some("c".into()))].into())
         );
-        // Recorded 2026-11-19 (case grpc-probe-inferred-bucket-masks): an empty label key is an
+        // Recorded 2026-11-18 (case grpc-probe-inferred-bucket-masks): an empty label key is an
         // invalid label, answered with a BadRequest whose violation repeats the message, and the
         // first failing path in mask order names the error.
         crate::grpc::test_support::assert_bad_request(
@@ -685,8 +685,8 @@ mod tests {
             );
         }
         // The fields the service alone sets are accepted and change nothing (recorded
-        // 2026-11-18 for create_time and update_time, 2026-11-19 for the rest), and so are the
-        // identifier, the etag and the settings fixed at creation (recorded 2026-11-19, case
+        // 2026-11-18 for create_time and update_time, 2026-11-18 for the rest), and so are the
+        // identifier, the etag and the settings fixed at creation (recorded 2026-11-18, case
         // grpc-probe-inferred-bucket-masks), which leave the update untouched.
         for path in [
             "bucket_id",
@@ -705,7 +705,7 @@ mod tests {
             assert!(!update.touched, "{path}");
         }
         // A message field's member it does not have names no field, as a top-level path does
-        // (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+        // (recorded 2026-11-18, case grpc-probe-inferred-bucket-masks).
         for path in ["versioning.no_such_field", "iam_config.no_such_field"] {
             let error = from_proto(&bucket, &[path.into()]).unwrap_err();
             assert_eq!(error.code(), tonic::Code::InvalidArgument, "{path}");

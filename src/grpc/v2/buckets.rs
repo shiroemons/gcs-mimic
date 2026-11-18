@@ -1054,7 +1054,7 @@ mod tests {
             } else {
                 let status = assert_code(result, Code::FailedPrecondition);
                 // A not-match that alone fails is worded as a resource that has not been
-                // modified (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+                // modified (recorded 2026-11-18, case grpc-probe-inferred-bucket-masks).
                 let expected = if (matching, not_matching) == (Some(1), Some(1)) {
                     "The resource you requested has not been modified according to the condition you specified."
                 } else {
@@ -1141,7 +1141,7 @@ mod tests {
         };
         // UpdateBucket compares the conditions like the reads do (recorded 2026-11-18).
         // A not-match that alone fails is worded as a resource that has not been modified
-        // (recorded 2026-11-19, case grpc-probe-inferred-bucket-masks).
+        // (recorded 2026-11-18, case grpc-probe-inferred-bucket-masks).
         for (matching, not_matching, message) in [
             (Some(0), None, precondition.message()),
             (Some(-1), None, precondition.message()),

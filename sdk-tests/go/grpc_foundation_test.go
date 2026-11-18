@@ -135,7 +135,7 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 	// the INTERNAL that Cloud Storage answered an upload_id naming no session (recorded, case
 	// grpc-probe-inferred-upload-ids).
 	request := grpcIOMessage(t, "CancelResumableWriteRequest", map[string]any{"upload_id": "grpc-foundation-absent/" + strings.Repeat("0", 64)})
-	// A readable upload_id needs the routing metadata naming its bucket (recorded 2026-11-19,
+	// A readable upload_id needs the routing metadata naming its bucket (recorded 2026-11-18,
 	// case grpc-probe-inferred-routing). The emulator authenticates and authorizes the caller
 	// before it compares that routing, a local choice no recording covers: a caller without
 	// credentials is refused for them even when it routes another bucket, and only the admin
