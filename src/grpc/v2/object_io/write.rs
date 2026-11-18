@@ -1,3 +1,4 @@
+use super::step::AdmittedStep;
 use super::*;
 use crate::csek::{CsekError, CustomerKey};
 use crate::grpc::v2::routing;
@@ -124,7 +125,9 @@ impl Storage {
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
-    /// Validates `spec` for `caller`; `checksums` are the ones the request declared beside it.
+    /// Validates `spec` for `caller`; `checksums` are the ones `StartResumableWrite` declared
+    /// beside it. A write message's own object checksums are read with its data instead
+    /// ([`WriteStep::admit`]).
     pub(in crate::grpc::v2) async fn write_spec(
         &self,
         mut spec: pb::WriteObjectSpec,
@@ -163,6 +166,8 @@ impl Storage {
         resource.temporary_hold = false;
         resource.name.clear();
         resource.bucket.clear();
+        // Not recorded: the spec's own checksums answer with the spec, before a first message's
+        // data, as every other spec field does.
         let expected = merge_hashes(
             DeclaredChecksums::from(resource.checksums.take()).expected()?,
             checksums.expected()?,
@@ -257,26 +262,35 @@ impl Storage {
         write: SingleWrite<'_>,
     ) -> Result<pb::BidiWriteObjectResponse, Status> {
         let SingleWrite { spec, caller, rpc } = write;
+        // The first message's object checksums are read with its data, as every later
+        // message's are (`SingleBody::admit`), not with the spec.
         let WriteSpec {
             bucket,
             name,
             options,
             total,
         } = self
-            .keyed_write_spec(spec, first.params.as_ref(), &first.checksums, caller)
+            .keyed_write_spec(
+                spec,
+                first.params.as_ref(),
+                &DeclaredChecksums::default(),
+                caller,
+            )
             .await?;
         let mut body = SingleBody {
             intake: Intake::new(
-                options.expected,
+                ExpectedHashes::default(),
                 self.max_object_bytes,
                 total,
                 Resend::DiscardOverlap,
             ),
+            declared: options.expected,
             key: options.metadata.customer_key_sha256,
         };
         // Cloud Storage answers the first message's data checksum before the write's conditions,
         // and its offset and size before the data checksum (recorded 2026-11-18), so the
-        // message is admitted before the catalog is asked.
+        // message is admitted before the catalog is asked. Not recorded: its object checksums,
+        // which answer after its data (`WriteStep::admit`) and so before the conditions too.
         let opening = body.admit(first, MessagePosition::First)?;
         #[expect(
             clippy::wildcard_enum_match_arm,
@@ -427,30 +441,30 @@ fn nothing_persisted() -> Result<pb::BidiWriteObjectResponse, Status> {
     persisted_answer(0, Some(0))
 }
 
-/// The bytes a message adds to a non-resumable write and how the message ends.
-struct Admitted {
-    added: bytes::Bytes,
-    end: StepEnd,
-}
-
 /// The body of a non-resumable write as its messages arrive: offsets, sizes and checksums are
 /// checked against what was received, and the body ends only after the whole object checks
 /// out.
 struct SingleBody {
+    /// Counts and digests the bytes received.
     intake: Intake,
+    /// The object checksums the spec and the messages declared, which the intake checks the
+    /// complete object against once the body ends.
+    declared: ExpectedHashes,
     /// The key the first message chose, which later messages cannot change.
     key: Option<[u8; 32]>,
 }
 
 impl SingleBody {
-    /// Checks one message and returns what it adds. The first message's key and checksums were
-    /// read with its spec.
-    fn admit(&mut self, step: WriteStep, position: MessagePosition) -> Result<Admitted, Status> {
+    /// Checks one message and returns the bytes it adds: a later message's key, the offset rules
+    /// of a non-resumable write, then the rules it shares with a resumable one
+    /// ([`WriteStep::admit`]). The first message's key was read with its spec.
+    fn admit(
+        &mut self,
+        step: WriteStep,
+        position: MessagePosition,
+    ) -> Result<AdmittedStep<bytes::Bytes>, Status> {
         if position == MessagePosition::Later {
             check_later_key(self.key, step.params.as_ref())?;
-            self.intake
-                .checksums(step.checksums.expected()?)
-                .map_err(intake_status)?;
         }
         let offset = step.offset.position().map_err(|NegativeOffset| {
             Status::out_of_range("write_offset must be nonnegative; use 0 for the first message")
@@ -465,14 +479,9 @@ impl SingleBody {
                 "GRPC_UPLOAD_INVALID_START_OFFSET_NEW_UPLOAD",
             ));
         }
-        let added = self
-            .intake
-            .admit(&step.data.into_piece(offset, step.end))
-            .map_err(intake_status)?;
-        Ok(Admitted {
-            added,
-            end: step.end,
-        })
+        let admitted = step.admit(offset, self.declared, |piece| self.intake.admit(piece))?;
+        self.declared = admitted.declared;
+        Ok(admitted)
     }
 
     /// Streams the write's messages to the upload consumer, starting with the admitted
@@ -482,13 +491,13 @@ impl SingleBody {
     async fn produce<S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin>(
         mut self,
         stream: &mut S,
-        opening: Admitted,
+        opening: AdmittedStep<bytes::Bytes>,
         tx: mpsc::Sender<Result<UploadChunk, std::io::Error>>,
         rpc: WriteRpc<'_>,
     ) -> Result<(), Status> {
         let mut message = opening;
         loop {
-            upload::stage(&tx, &message.added)
+            upload::stage(&tx, &message.bytes)
                 .await
                 .map_err(intake_status)?;
             if message.end.finishes() {
@@ -509,6 +518,10 @@ impl SingleBody {
                 })?;
             message = self.admit(WriteStep::from(next), MessagePosition::Later)?;
         }
+        // The intake starts with nothing declared, so the declared checksums cannot conflict.
+        self.intake
+            .checksums(self.declared)
+            .map_err(intake_status)?;
         self.intake
             .finish(&tx, EndMarker::Plain)
             .await

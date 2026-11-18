@@ -1,5 +1,5 @@
 use crate::{
-    hashing::Hasher,
+    hashing::{Hasher, Hashes},
     object::{
         ChecksumConflict, ExpectedHashes, HashMismatch, ObjectError, ObjectRecord, UploadChunk,
     },
@@ -117,9 +117,7 @@ impl Intake {
     }
 
     pub(super) async fn finish(self, sender: &Sender, end: EndMarker) -> Result<(), IntakeError> {
-        self.expected
-            .verify(&self.hasher.finish())
-            .map_err(IntakeError::ObjectChecksum)?;
+        verify_object(&self.expected, &self.hasher.finish())?;
         let end = match end {
             EndMarker::Plain => UploadChunk::End,
             EndMarker::WithHashes => UploadChunk::EndWithHashes(self.expected),
@@ -149,6 +147,12 @@ impl From<CrcMismatch> for IntakeError {
 /// messages applies these rules through this one function, in this order:
 ///
 /// 1. The piece may repeat received bytes, which are dropped, but may not start past them.
+///    Recorded (case grpc-probe-inferred-granules): a resumed stream's first message at 0 or
+///    inside the persisted bytes is accepted and leaves the persisted size as it was; the bytes
+///    it repeated matched the persisted ones. Not recorded; the emulator's choice: the
+///    repeated bytes are not compared with the received ones. They count only in the data's
+///    CRC32C (rule 5), so a piece that repeats different bytes is accepted and the received
+///    bytes win, on a resumable and on a non-resumable write alike.
 /// 2. The new size must fit a signed 64-bit offset, as every size on the wire does.
 /// 3. The size may not pass `max` (`--max-object-bytes`). The limit is the emulator's own, so
 ///    Cloud Storage has no answer to record; checking it before the declared size and the data
@@ -185,6 +189,17 @@ pub(super) fn admit_bytes(
     }
     verify_crc32c(&piece.content, piece.crc32c)?;
     Ok((added, written))
+}
+
+/// Checks the `computed` digests of a complete object against the checksums its client declared
+/// for it (`expected`).
+pub(super) fn verify_object(
+    expected: &ExpectedHashes,
+    computed: &Hashes,
+) -> Result<(), IntakeError> {
+    expected
+        .verify(computed)
+        .map_err(IntakeError::ObjectChecksum)
 }
 
 pub(super) fn verify_crc32c(content: &[u8], client: Option<u32>) -> Result<(), CrcMismatch> {

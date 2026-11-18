@@ -48,7 +48,7 @@ impl ChunkEnd {
         }
     }
 
-    pub(crate) fn finalizes(self) -> bool {
+    fn finalizes(self) -> bool {
         match self {
             Self::Exact { finalize, .. } => finalize,
             Self::Open => true,
@@ -110,13 +110,7 @@ async fn receive_chunk(
     #[cfg(test)]
     let data_dir = &catalog.0.data_dir;
     let durable = lease.session.offset;
-    let mut running_hash = lease
-        .session
-        .running_hash
-        .as_ref()
-        .map(|state| Hasher::resume(state, durable))
-        .transpose()
-        .map_err(object_unavailable)?;
+    let mut running_hash = lease.running_hasher()?;
     let mut file = Output::open_readable(catalog, &lease.session.blob_id, durable).await?;
     let closing = catalog.0.admin_shutdown.notified();
     tokio::pin!(closing);
