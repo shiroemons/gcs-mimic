@@ -38,15 +38,15 @@ impl Catalog {
                 // past every upload named `after_name`; names are never empty, so `''` starts it.
                 let upload=sql::row(&transaction, "SELECT u.id,u.bucket,u.name,u.incarnation,u.options,u.created,u.created_sub_milli_micros FROM xml_multipart_uploads u JOIN bucket_incarnations b ON b.bucket=u.bucket AND b.incarnation=u.incarnation WHERE u.bucket=?1 AND u.deadline>?2 AND (u.name>?3 OR (u.name=?3 AND u.id>?4)) ORDER BY u.name,u.id LIMIT 1", params![query.bucket,now,after_name,after_id],read_upload).optional()?;
                 let Some(upload)=upload else {break};
-                after_name=upload.target.name.clone();after_id=Some(upload.target.id.clone());
+                after_name.clone_from(&upload.target.name);after_id=Some(upload.target.id.clone());
                 if !after_name.starts_with(&query.prefix) {continue;}
                 if group.as_ref().is_some_and(|prefix|after_name.starts_with(prefix)) {continue;}
                 let prefix=group_prefix(&after_name,&query.prefix,&query.delimiter);
                 if page.uploads.len()+page.prefixes.len()>=query.limit.clamp(1,1000) {page.more=true;break;}
                 if let Some(prefix)=prefix {
-                    group=Some(prefix.clone());page.next_key=prefix.clone();page.next_upload=String::new();page.prefixes.push(prefix);
+                    group=Some(prefix.clone());page.next_key.clone_from(&prefix);page.next_upload=String::new();page.prefixes.push(prefix);
                 } else {
-                    page.next_key=after_name.clone();page.next_upload=upload.target.id.clone();page.uploads.push(upload);
+                    page.next_key.clone_from(&after_name);page.next_upload.clone_from(&upload.target.id);page.uploads.push(upload);
                 }
             }
             Ok(page)

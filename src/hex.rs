@@ -1,7 +1,7 @@
 //! Hexadecimal codecs shared by protocol-specific validators.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-pub(crate) fn byte([high, low]: &[u8; 2]) -> Option<u8> {
+pub(crate) fn byte([high, low]: [u8; 2]) -> Option<u8> {
     fn digit(byte: u8) -> Option<u8> {
         match byte {
             b'0'..=b'9' => Some(byte - b'0'),
@@ -10,7 +10,7 @@ pub(crate) fn byte([high, low]: &[u8; 2]) -> Option<u8> {
             _ => None,
         }
     }
-    Some(digit(*high)? << 4 | digit(*low)?)
+    Some(digit(high)? << 4 | digit(low)?)
 }
 
 pub(crate) fn decode<const N: usize>(raw: &str) -> Option<[u8; N]> {
@@ -20,7 +20,7 @@ pub(crate) fn decode<const N: usize>(raw: &str) -> Option<[u8; N]> {
     }
     let mut output = [0; N];
     for (output, pair) in output.iter_mut().zip(pairs) {
-        *output = byte(pair)?;
+        *output = byte(*pair)?;
     }
     Some(output)
 }

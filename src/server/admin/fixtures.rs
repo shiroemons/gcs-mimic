@@ -333,18 +333,17 @@ fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, JsonError> {
 }
 
 fn timestamp(value: Option<&Value>, default: SystemTime) -> Result<SystemTime, JsonError> {
-    let micros = match value {
-        Some(value) => crate::import::codec::parse_timestamp(value.as_str().ok_or_else(|| {
+    let micros = if let Some(value) = value {
+        crate::import::codec::parse_timestamp(value.as_str().ok_or_else(|| {
             JsonError::invalid_argument("Fixture timestamps must be RFC3339 strings")
         })?)
-        .map_err(JsonError::invalid_argument)?,
-        None => {
-            let elapsed = default
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| JsonError::invalid_argument("Fixture clock precedes Unix epoch"))?;
-            i64::try_from(elapsed.as_micros())
-                .map_err(|_| JsonError::invalid_argument("Fixture clock is out of range"))?
-        }
+        .map_err(JsonError::invalid_argument)?
+    } else {
+        let elapsed = default
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| JsonError::invalid_argument("Fixture clock precedes Unix epoch"))?;
+        i64::try_from(elapsed.as_micros())
+            .map_err(|_| JsonError::invalid_argument("Fixture clock is out of range"))?
     };
     let duration = Duration::from_micros(micros.unsigned_abs());
     if micros < 0 {

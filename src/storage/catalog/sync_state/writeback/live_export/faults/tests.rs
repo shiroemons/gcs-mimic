@@ -196,7 +196,7 @@ impl Fixture {
             .open_object(&bucket, &name, Some(generation))
             .await
             .unwrap();
-        let source = reader.into_file().await.unwrap();
+        let source = reader.into_file().unwrap();
         let fence = self.catalog.current_fence().await.unwrap();
         self.writeback
             .begin_live_export(
@@ -253,12 +253,7 @@ async fn unchanged_api(catalog: &Catalog, record: &ObjectRecord) {
         .await
         .unwrap();
     let mut bytes = Vec::new();
-    reader
-        .into_file()
-        .await
-        .unwrap()
-        .read_to_end(&mut bytes)
-        .unwrap();
+    reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
     assert_eq!(bytes, BODY);
 }
 

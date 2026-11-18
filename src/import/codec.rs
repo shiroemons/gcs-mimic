@@ -248,7 +248,7 @@ pub(crate) fn path_unescape(name: &str) -> Result<String, CodecError> {
             let byte = bytes
                 .next()
                 .zip(bytes.next())
-                .and_then(|(high, low)| crate::hex::byte(&[high, low]))
+                .and_then(|(high, low)| crate::hex::byte([high, low]))
                 .ok_or(CodecError(Kind::Escape))?;
             result.push(byte);
         } else {

@@ -33,7 +33,7 @@ impl UploadFingerprint<'_> {
             if_metageneration_match,
             if_metageneration_not_match,
         ] {
-            encoded.optional(condition, |encoded, value| encoded.i64(value));
+            encoded.optional(condition, Canonical::i64);
         }
         encoded.u64(self.size);
         encoded.bytes(&self.sha256);

@@ -122,7 +122,7 @@ impl Fixture {
                 Generation::new(self.record.generation).unwrap(),
                 None,
                 self.catalog.current_fence().await.unwrap(),
-                LiveSource::ApiCopy(reader.into_file().await.unwrap()),
+                LiveSource::ApiCopy(reader.into_file().unwrap()),
             )
             .await
             .unwrap()
@@ -190,12 +190,7 @@ async fn assert_api(catalog: &Catalog, expected: &crate::object::ObjectRecord) {
         .await
         .unwrap();
     let mut bytes = Vec::new();
-    reader
-        .into_file()
-        .await
-        .unwrap()
-        .read_to_end(&mut bytes)
-        .unwrap();
+    reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
     assert_eq!(bytes, API);
 }
 

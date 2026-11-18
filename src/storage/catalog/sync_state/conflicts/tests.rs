@@ -135,12 +135,7 @@ impl Fixture {
             .await
             .unwrap();
         let mut bytes = Vec::new();
-        reader
-            .into_file()
-            .await
-            .unwrap()
-            .read_to_end(&mut bytes)
-            .unwrap();
+        reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
         bytes
     }
     async fn close(self) {
@@ -297,7 +292,6 @@ async fn conflict_restore_uses_shared_publication_and_replays_one_generation() {
     let mut old_bytes = Vec::new();
     old_reader
         .into_file()
-        .await
         .unwrap()
         .read_to_end(&mut old_bytes)
         .unwrap();

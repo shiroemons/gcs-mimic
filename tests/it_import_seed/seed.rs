@@ -293,7 +293,7 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
         assert!(
             server.json("/storage/v1/b/empty-bucket/o")["items"]
                 .as_array()
-                .is_none_or(|items| items.is_empty())
+                .is_none_or(Vec::is_empty)
         );
         let metadata = server.json("/storage/v1/b/local-bucket/o/dir%2Fhello.txt");
         assert_eq!(

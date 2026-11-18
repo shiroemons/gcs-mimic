@@ -1266,7 +1266,7 @@ async fn failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fi
     for _ in 0..2 {
         let failure = Catalog::open(&dir.0).await.err().unwrap();
         assert!(matches!(failure, CatalogError::Io(_)), "{failure:?}");
-        assert!(crate::error::causes(&failure).any(|cause| cause.is::<io::Error>()));
+        assert!(crate::error::causes(&failure).any(<dyn std::error::Error>::is::<io::Error>));
         let error = failure.to_string();
         assert!(
             error.contains(&format!("deletion journal blob {id}:")),

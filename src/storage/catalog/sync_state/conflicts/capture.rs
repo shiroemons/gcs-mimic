@@ -75,7 +75,7 @@ fn copy(
     super::super::super::fault::dir_synced(&data.join("sync-conflicts"));
     let retained = Observation::new(fsutil::stat_identity(&target)?, Some(hashes));
     let mut original = before.clone();
-    original.hashes = retained.hashes.clone();
+    original.hashes.clone_from(&retained.hashes);
     Ok((original, retained))
 }
 

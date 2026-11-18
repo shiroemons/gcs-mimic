@@ -181,9 +181,8 @@ impl Watch {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         loop {
             let mut ready = self.ready.readable().await?;
-            match ready.try_io(|fd| fd.get_ref().drain()) {
-                Ok(result) => return result,
-                Err(_) => continue,
+            if let Ok(result) = ready.try_io(|fd| fd.get_ref().drain()) {
+                return result;
             }
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]

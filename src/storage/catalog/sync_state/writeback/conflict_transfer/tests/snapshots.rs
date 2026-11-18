@@ -40,11 +40,11 @@ fn translated(original: &[u8], file: &std::path::Path) -> Vec<u8> {
     hash.update(&body);
     let hash = hash.finish();
     assert_eq!(value["size"], serde_json::json!(identity.size));
-    if !value["hashes"].is_null() {
+    if value["hashes"].is_null() {
+        assert_eq!(body, BODY);
+    } else {
         assert_eq!(value["hashes"]["md5"], serde_json::json!(hash.md5));
         assert_eq!(value["hashes"]["crc32c"], serde_json::json!(hash.crc32c));
-    } else {
-        assert_eq!(body, BODY);
     }
     value["device"] = serde_json::json!(identity.device);
     value["inode"] = serde_json::json!(identity.inode);

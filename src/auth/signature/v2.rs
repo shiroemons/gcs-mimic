@@ -178,7 +178,7 @@ fn string_to_sign(
     );
     let mut names: Vec<_> = headers
         .keys()
-        .map(|name| name.as_str())
+        .map(hyper::header::HeaderName::as_str)
         .filter(|name| {
             name.starts_with(profile.prefix())
                 && !(profile == Profile::GoogleQuery

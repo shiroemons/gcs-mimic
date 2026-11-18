@@ -266,12 +266,11 @@ fn ask(
         text,
         saved,
     } = prompts::ask(format, auth_mode, file).map_err(unanswered)?;
-    let file = match saved {
-        Some(path) => Some(path),
-        None => {
-            write(&text, output.as_deref())?;
-            output
-        }
+    let file = if let Some(path) = saved {
+        Some(path)
+    } else {
+        write(&text, output.as_deref())?;
+        output
     };
     Ok(Written {
         document,

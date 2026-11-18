@@ -138,10 +138,7 @@ impl PublicOrigin {
         let port = authority
             .port_u16()
             .filter(|port| !matches!((scheme, port), ("http", 80) | ("https", 443)));
-        let authority_text = format!(
-            "{host_text}{}",
-            port.map(|p| format!(":{p}")).unwrap_or_default()
-        );
+        let authority_text = format!("{host_text}{}", port.map_or_default(|p| format!(":{p}")));
         Ok(Self {
             base: format!("{scheme}://{authority_text}"),
             authority: authority_text
@@ -297,8 +294,7 @@ pub fn virtual_host_object_url(
         uri.scheme_str().ok_or(UrlError::MissingScheme)?,
         authority
             .port_u16()
-            .map(|port| format!(":{port}"))
-            .unwrap_or_default(),
+            .map_or_default(|port| format!(":{port}")),
         encode_object_name(object)
     ))
 }
@@ -474,7 +470,7 @@ mod tests {
                 format!(
                     "{}://{host}{}{}",
                     if https { "https" } else { "http" },
-                    port.map(|port| format!(":{port}")).unwrap_or_default(),
+                    port.map_or_default(|port| format!(":{port}")),
                     "/".repeat(slashes)
                 )
             })
@@ -499,7 +495,7 @@ mod tests {
             headers.insert("host", origin.authority().as_str().parse().unwrap());
             let config = crate::config::Config {
                 compat_profile: crate::config::CompatProfile::FakeGcsServer,
-                xml_virtual_host_domains: origin.dns_name().map(|name| crate::config::VirtualHostDomains::of(&[name])).unwrap_or_default(),
+                xml_virtual_host_domains: origin.dns_name().map_or_default(|name| crate::config::VirtualHostDomains::of(&[name])),
                 public_base_url: Some(origin), ..Default::default()
             };
             let selected = crate::xml::select_object(&url.parse().unwrap(), &headers, &config).unwrap().unwrap();

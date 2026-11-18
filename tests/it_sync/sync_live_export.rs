@@ -579,12 +579,7 @@ async fn live_export_sigterm_during_api_writes_restarts_to_the_committed_live_bo
         .await
         .unwrap();
     let mut body = Vec::new();
-    reader
-        .into_file()
-        .await
-        .unwrap()
-        .read_to_end(&mut body)
-        .unwrap();
+    reader.into_file().unwrap().read_to_end(&mut body).unwrap();
     catalog.close().await.unwrap();
     let mut restarted = SyncServer::start(&data.0, &tree.0);
     wait_body(&tree.0.join("test-bucket/body"), Some(&body)).await;

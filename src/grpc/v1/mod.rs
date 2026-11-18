@@ -718,8 +718,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map(json::encode_object_page_token)
-            .unwrap_or_default();
+            .map_or_default(json::encode_object_page_token);
         Ok(Response::new(pb::ListObjectsResponse {
             items: page
                 .items
@@ -768,8 +767,7 @@ impl Storage {
                 let preconditions = conditions(
                     s.object_preconditions
                         .as_ref()
-                        .map(ObjectConditions::from)
-                        .unwrap_or_default(),
+                        .map_or_default(ObjectConditions::from),
                 )?;
                 Ok(crate::object::ComposeSource {
                     name: s.name,

@@ -123,7 +123,7 @@ fn date_text(date: &crate::grpc::generated::google::r#type::Date) -> String {
     format!("{:04}-{:02}-{:02}", date.year, date.month, date.day)
 }
 
-fn proto_date(date: &LifecycleDate) -> crate::grpc::generated::google::r#type::Date {
+fn proto_date(date: LifecycleDate) -> crate::grpc::generated::google::r#type::Date {
     crate::grpc::generated::google::r#type::Date {
         year: date.year(),
         month: date.month(),
@@ -178,8 +178,8 @@ fn proto_rule(value: &LifecycleRule) -> Result<pb::bucket::lifecycle::Rule, Obje
         }),
         condition: Some(pb::bucket::lifecycle::rule::Condition {
             age_days: condition.age.map(i32::from),
-            created_before: condition.created_before.as_ref().map(proto_date),
-            custom_time_before: condition.custom_time_before.as_ref().map(proto_date),
+            created_before: condition.created_before.map(proto_date),
+            custom_time_before: condition.custom_time_before.map(proto_date),
             days_since_custom_time: condition.days_since_custom_time.map(i32::from),
             days_since_noncurrent_time: condition.days_since_noncurrent_time.map(i32::from),
             is_live: condition.is_live,
@@ -190,7 +190,7 @@ fn proto_rule(value: &LifecycleRule) -> Result<pb::bucket::lifecycle::Rule, Obje
                 .map(|class| class.as_str().into())
                 .collect(),
             matches_suffix: condition.matches_suffix.clone(),
-            noncurrent_time_before: condition.noncurrent_time_before.as_ref().map(proto_date),
+            noncurrent_time_before: condition.noncurrent_time_before.map(proto_date),
             num_newer_versions: condition.num_newer_versions.map(i32::from),
         }),
     })
@@ -204,8 +204,7 @@ fn entity_alt(entity: &Entity, project: &str) -> String {
     entity
         .team()
         .filter(|&(_, named)| ProjectNumber::of(named) == ProjectNumber::of(project))
-        .map(|(team, _)| format!("project-{}-{project}", team.as_str()))
-        .unwrap_or_default()
+        .map_or_default(|(team, _)| format!("project-{}-{project}", team.as_str()))
 }
 
 macro_rules! access_control {
@@ -459,10 +458,10 @@ pub(crate) fn object(
         checksums: (record.customer_key_sha256.is_none() || hashes == StoredHashes::Revealed).then(
             || pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
-                md5_hash: if !record.has_md5() {
-                    Vec::new()
-                } else {
+                md5_hash: if record.has_md5() {
                     record.md5.to_vec()
+                } else {
+                    Vec::new()
                 },
             },
         ),

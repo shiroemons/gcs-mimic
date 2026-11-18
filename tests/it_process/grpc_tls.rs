@@ -322,9 +322,7 @@ async fn h2c(address: &str) -> tokio::net::TcpStream {
 fn json_status(server: &Server, path: &str, token: Option<&str>) -> u16 {
     let mut stream = TcpStream::connect(&server.http).unwrap();
     stream.set_read_timeout(Some(GUARD)).unwrap();
-    let authorization = token
-        .map(|token| format!("Authorization: Bearer {token}\r\n"))
-        .unwrap_or_default();
+    let authorization = token.map_or_default(|token| format!("Authorization: Bearer {token}\r\n"));
     write!(
         stream,
         "GET {path} HTTP/1.1\r\nHost: localhost\r\n{authorization}Connection: close\r\n\r\n"

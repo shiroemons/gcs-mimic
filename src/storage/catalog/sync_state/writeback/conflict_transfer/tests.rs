@@ -139,7 +139,7 @@ impl Fixture {
             .await
             .unwrap();
         assert_eq!(record, self.record);
-        let mut file = reader.into_file().await.unwrap();
+        let mut file = reader.into_file().unwrap();
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"api winner");
@@ -211,7 +211,7 @@ impl Fixture {
                 None,
                 self.catalog.current_fence().await.unwrap(),
                 LiveSource::Preserved {
-                    source: Some(reader.into_file().await.unwrap()),
+                    source: Some(reader.into_file().unwrap()),
                     conflict: Box::new(captured),
                 },
             )
@@ -384,7 +384,7 @@ async fn preserved_export_uses_exact_byte_and_entry_budget_once() {
             None,
             fixture.catalog.current_fence().await.unwrap(),
             LiveSource::Preserved {
-                source: Some(reader.into_file().await.unwrap()),
+                source: Some(reader.into_file().unwrap()),
                 conflict: Box::new(captured),
             },
         )

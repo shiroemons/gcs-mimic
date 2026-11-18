@@ -28,11 +28,11 @@ impl Writeback {
                     Phase::Prepared => self.cancel_recovered(item).await?,
                     Phase::Armed | Phase::Durable => {
                         let inspected = self.inspect_inner(item.token).await?;
-                        if inspected.phase != Phase::Protected {
-                            self.cancel_recovered(inspected).await?;
-                        } else {
+                        if inspected.phase == Phase::Protected {
                             #[cfg(test)]
                             self.recovery_protected_boundary().await?;
+                        } else {
+                            self.cancel_recovered(inspected).await?;
                         }
                     }
                     Phase::Protected => {

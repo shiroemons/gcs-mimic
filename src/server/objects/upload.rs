@@ -125,7 +125,7 @@ pub(super) async fn insert(
     };
     let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await
-        .map_err(|error| error.into_error::<JsonError>())?;
+        .map_err(crate::server::upload_drive::DriveError::into_error::<JsonError>)?;
     Written::keyed(&record, ctx, params.projection, key, acl)
 }
 
@@ -264,5 +264,5 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     };
     drive_upload(CatalogWait::Upload(ctx), upload, &sender, streaming)
         .await
-        .map_err(|error| error.into_error::<JsonError>())
+        .map_err(crate::server::upload_drive::DriveError::into_error::<JsonError>)
 }

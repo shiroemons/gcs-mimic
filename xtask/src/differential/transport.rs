@@ -284,15 +284,17 @@ pub(crate) fn grpcurl_version() -> String {
         .arg("-version")
         .stdin(Stdio::null())
         .output()
-        .map(|out| {
-            let text = format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            text.trim().to_owned()
-        })
-        .unwrap_or_else(|_| "grpcurl (not installed)".into())
+        .map_or_else(
+            |_| "grpcurl (not installed)".into(),
+            |out| {
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                text.trim().to_owned()
+            },
+        )
 }
 
 /// Unary and streaming Storage v2 calls through the external `grpcurl` command.

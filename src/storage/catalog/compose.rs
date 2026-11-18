@@ -92,7 +92,7 @@ fn combine_sources(
         );
         count = count
             .saturating_add(source.object.component_count.unwrap_or(1))
-            .min(i32::MAX as i64);
+            .min(i64::from(i32::MAX));
         keys.insert((source.object.name.clone(), source.object.generation));
     }
     Ok(Combined {
@@ -251,7 +251,7 @@ impl Catalog {
         let keys = combined.keys;
         let transfer = self
             .begin_derived_ephemeral(
-                sources.into_iter().map(|source| source.whole()).collect(),
+                sources.into_iter().map(DerivedSource::whole).collect(),
                 max_bytes,
             )
             .await?;
@@ -435,7 +435,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(result.component_count, Some(i32::MAX as i64));
+        assert_eq!(result.component_count, Some(i64::from(i32::MAX)));
         assert_eq!(result.size, 12);
         assert_eq!(result.crc32c, crc32c::crc32c(b"sourcesource"));
         assert_eq!(

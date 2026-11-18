@@ -38,7 +38,7 @@ impl TreeLimits {
     /// `MAX_TREE_DEPTH` can name an object, so stopping there bounds those descriptors without
     /// refusing anything that could have synchronized.
     pub(crate) fn deepest_directory(self) -> usize {
-        self.depth.map_or(MAX_TREE_DEPTH, |depth| depth.get())
+        self.depth.map_or(MAX_TREE_DEPTH, std::num::NonZero::get)
     }
 
     pub(crate) fn too_many_entries(self) -> AdminError {
@@ -241,11 +241,10 @@ impl TreeScan {
                         entry.identity = Some(fsutil::stat_identity(&file)?)
                     }
                     Ok(fsutil::RegularChild::Missing) => continue,
-                    Ok(fsutil::RegularChild::Alias) => {}
                     Err(error) if !structural_entry_error(&error) => {
                         entry.error = Some(error.kind())
                     }
-                    Err(_) => {}
+                    Ok(fsutil::RegularChild::Alias) | Err(_) => {}
                 },
             }
             entries.push(entry);

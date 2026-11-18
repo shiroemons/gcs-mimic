@@ -258,7 +258,7 @@ fn floor_micros(time: SystemTime) -> SystemTime {
 /// only the changed attributes, and the local PUT contract already preserves omitted fields.
 pub(crate) fn apply(
     current: Option<&Autoclass>,
-    update: &AutoclassUpdate,
+    update: AutoclassUpdate,
     now: SystemTime,
 ) -> Result<Option<Autoclass>, CatalogError> {
     let now = floor_micros(now);
@@ -412,13 +412,13 @@ mod tests {
 
     #[test]
     fn autoclass_enable_sets_server_times_and_default_terminal_class() {
-        let config = apply(None, &enable(None), at(0)).unwrap().unwrap();
+        let config = apply(None, enable(None), at(0)).unwrap().unwrap();
         assert_eq!(config.toggle_time, at(0));
         assert_eq!(config.state, enabled(TerminalStorageClass::Nearline, at(0)));
 
         let patched = apply(
             Some(&config),
-            &enable(Some(TerminalStorageClass::Archive)),
+            enable(Some(TerminalStorageClass::Archive)),
             at(5),
         )
         .unwrap()
@@ -432,13 +432,13 @@ mod tests {
 
         let same = apply(
             Some(&patched),
-            &enable(Some(TerminalStorageClass::Archive)),
+            enable(Some(TerminalStorageClass::Archive)),
             at(9),
         )
         .unwrap();
         assert_eq!(same, Some(patched), "unchanged class keeps update time");
         for omitted in [AutoclassUpdate::default(), enable(None)] {
-            let kept = apply(Some(&patched), &omitted, at(9)).unwrap();
+            let kept = apply(Some(&patched), omitted, at(9)).unwrap();
             assert_eq!(kept, Some(patched), "omitted subfields are kept");
         }
     }
@@ -450,12 +450,12 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            apply(None, &disable, at(0)).unwrap(),
+            apply(None, disable, at(0)).unwrap(),
             None,
             "disabling an unconfigured bucket stays unconfigured"
         );
-        let config = apply(None, &enable(Some(TerminalStorageClass::Archive)), at(0)).unwrap();
-        let disabled = apply(config.as_ref(), &disable, at(10)).unwrap().unwrap();
+        let config = apply(None, enable(Some(TerminalStorageClass::Archive)), at(0)).unwrap();
+        let disabled = apply(config.as_ref(), disable, at(10)).unwrap().unwrap();
         assert_eq!(
             disabled,
             Autoclass {
@@ -463,15 +463,15 @@ mod tests {
                 state: AutoclassState::Disabled
             }
         );
-        let still = apply(Some(&disabled), &disable, at(20)).unwrap();
+        let still = apply(Some(&disabled), disable, at(20)).unwrap();
         assert_eq!(still, Some(disabled), "repeat disable keeps toggleTime");
 
         let just_before = at(10 + 86_399);
         assert!(matches!(
-            apply(Some(&disabled), &enable(None), just_before),
+            apply(Some(&disabled), enable(None), just_before),
             Err(CatalogError::InvalidMetadata(_))
         ));
-        let reenabled = apply(Some(&disabled), &enable(None), at(10 + 86_400))
+        let reenabled = apply(Some(&disabled), enable(None), at(10 + 86_400))
             .unwrap()
             .unwrap();
         assert_eq!(reenabled.toggle_time, at(10 + 86_400));
@@ -483,7 +483,7 @@ mod tests {
         assert!(matches!(
             apply(
                 Some(&disabled),
-                &AutoclassUpdate {
+                AutoclassUpdate {
                     enabled: None,
                     terminal_storage_class: Some(TerminalStorageClass::Archive)
                 },
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn autoclass_bucket_restrictions() {
-        let config = apply(None, &enable(None), at(0)).unwrap();
+        let config = apply(None, enable(None), at(0)).unwrap();
         let config = config.as_ref();
         validate_bucket(
             config,

@@ -411,9 +411,7 @@ fn retain(
 }
 
 fn diagnostic_bytes(record: &Diagnostic) -> usize {
-    serde_json::to_vec(record)
-        .map(|bytes| bytes.len())
-        .unwrap_or(usize::MAX)
+    serde_json::to_vec(record).map_or(usize::MAX, |bytes| bytes.len())
 }
 
 fn group_digest(key: &str) -> [u8; 32] {
@@ -1017,7 +1015,6 @@ fn check_values(
         let key = path(parent, name);
         let parsed = value(raw)?;
         match name.as_str() {
-            "project" => {}
             "versioning" | "iamConfiguration" => {
                 if let Some(nested) = members(raw) {
                     for (child, raw) in &nested.0 {
@@ -1097,6 +1094,7 @@ fn check_values(
                 native(name, &parsed, &key, now, diagnostics)
             }
             "iamPolicy" => policy::check_values(raw, &key, diagnostics)?,
+            // `project` and keys without a native value rule need no further check.
             _ => {}
         }
     }

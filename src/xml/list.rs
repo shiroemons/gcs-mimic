@@ -110,7 +110,6 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
     // record, and ignoring them returns more data instead of dropping any. Zero and values
     // beyond uint32 are digits-only and stay rejected; the record does not cover them.
     let max_keys = match values.remove("max-keys") {
-        None => None,
         Some(value) if crate::decimal::Grammar::Digits.admits(&value) => Some(
             value
                 .parse::<u32>()
@@ -119,7 +118,7 @@ pub(super) fn parse(bucket: String, raw: &str, headers: &HeaderMap) -> Result<Pa
                 .ok_or_else(|| Error::invalid("max-keys must be a positive uint32"))?
                 as usize,
         ),
-        Some(_) => None,
+        None | Some(_) => None,
     };
     let encoding = match values.remove("encoding-type").as_deref() {
         None => NameEncoding::Plain,
@@ -359,9 +358,7 @@ fn render_header_v1(
     let (marker_tag, generation_tag) = marker_tags(params);
     encoding.element(w, marker_tag, marker);
     if params.query.versions {
-        let generation = generation
-            .map(|generation| generation.to_string())
-            .unwrap_or_default();
+        let generation = generation.map_or_default(|generation| generation.to_string());
         w.element(generation_tag, &generation);
     }
     if !params.query.delimiter.is_empty() {

@@ -191,10 +191,9 @@ pub(crate) fn step_variables(step: &Step) -> Result<Vec<String>> {
         all.extend(variables(value)?);
     }
     match &step.body {
-        Body::None => {}
+        Body::None | Body::Bytes(_) => {}
         Body::Json(value) => all.extend(json_variables(value)?),
         Body::Text(text) => all.extend(variables(text)?),
-        Body::Bytes(_) => {}
     }
     Ok(all)
 }
@@ -367,8 +366,7 @@ fn parse_target(map: &Map<String, Value>, context: &str) -> Result<(Protocol, St
 /// client-streaming call; there is no text body.
 fn check_grpc_step(body: &Body, context: &str) -> Result<()> {
     match body {
-        Body::None => Ok(()),
-        Body::Json(Value::Object(_)) => Ok(()),
+        Body::None | Body::Json(Value::Object(_)) => Ok(()),
         Body::Json(Value::Array(items)) if items.iter().all(Value::is_object) => Ok(()),
         Body::Json(_) => Err(format!(
             "{context}.body: expected a message object or an array of message objects"
@@ -483,9 +481,8 @@ fn parse_step(value: &Value, defaults: &CompareOpts, context: &str) -> Result<St
         ),
     };
     let compare = match map.get("compare") {
-        None => Some(defaults.clone()),
         Some(Value::Bool(false)) => None,
-        Some(Value::Bool(true)) => Some(defaults.clone()),
+        None | Some(Value::Bool(true)) => Some(defaults.clone()),
         Some(other) => Some(parse_compare(
             other,
             defaults,

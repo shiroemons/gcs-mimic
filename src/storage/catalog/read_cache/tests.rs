@@ -195,7 +195,7 @@ async fn a_ranged_ram_hit_leaves_the_cached_body_at_its_start() {
     put(&catalog, "object", &b"contents"[..]).await;
     download(&catalog, "object").await.unwrap();
     let (_, mut reader) = open(&catalog, "object", ReadAhead::None).await.unwrap();
-    reader.set_range(3, 2).await.unwrap();
+    reader.set_range(3, 2).unwrap();
     assert_eq!(reader.next_chunk().await.unwrap().unwrap(), &b"te"[..]);
     let (_, bytes) = download(&catalog, "object").await.unwrap();
     assert_eq!(bytes, b"contents");
@@ -520,7 +520,7 @@ async fn a_hit_serves_ranges_and_bounded_chunks() {
     }
     assert_eq!(streamed, contents);
     let (_, mut reader) = open(&catalog, "object", ReadAhead::None).await.unwrap();
-    reader.set_range(70_000, 100_000).await.unwrap();
+    reader.set_range(70_000, 100_000).unwrap();
     assert_eq!(
         reader.peek_prefix(4).await.unwrap(),
         contents[70_000..70_004]
@@ -531,7 +531,7 @@ async fn a_hit_serves_ranges_and_bounded_chunks() {
     }
     assert_eq!(ranged, contents[70_000..170_000]);
     let (_, mut reader) = open(&catalog, "object", ReadAhead::None).await.unwrap();
-    reader.set_range(199_000, 2_000).await.unwrap();
+    reader.set_range(199_000, 2_000).unwrap();
     assert_eq!(reader.next_chunk().await.unwrap().unwrap().len(), 1_000);
     assert_eq!(
         reader.next_chunk().await.unwrap_err().kind(),

@@ -23,9 +23,8 @@ impl Server {
         path: &str,
         body: &str,
     ) -> Reply {
-        let authorization = token
-            .map(|token| format!("Authorization: Bearer {token}\r\n"))
-            .unwrap_or_default();
+        let authorization =
+            token.map_or_default(|token| format!("Authorization: Bearer {token}\r\n"));
         Client {
             address: &self.address,
             host: "local.invalid",

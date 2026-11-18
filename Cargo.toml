@@ -39,10 +39,28 @@ iter_filter_is_some = "deny"
 manual_is_variant_and = "deny"
 manual_ok_or = "deny"
 explicit_into_iter_loop = "deny"
+explicit_iter_loop = "deny"
+redundant_closure_for_method_calls = "deny"
+map_unwrap_or = "deny"
+assigning_clones = "deny"
+implicit_clone = "deny"
 # Keep the success path flat: an `else` after a diverging branch, or a `match` on a bool,
 # nests what an early return or an `if` states directly.
 redundant_else = "deny"
 match_bool = "deny"
+single_match_else = "deny"
+if_not_else = "deny"
+needless_continue = "deny"
+# Match exhaustively: arms that mean the same thing merge, and a wildcard that stands for one
+# variant names it, so a new variant is decided where it is added.
+match_same_arms = "deny"
+match_wildcard_for_single_variants = "deny"
+# Name what the code uses: no `async` without an `.await`, no `self` that is never read, and
+# no integer conversion spelled as a cast or an `if`.
+unused_async = "deny"
+unused_self = "deny"
+bool_to_int_with_if = "deny"
+cast_lossless = "deny"
 # Encode invariants in types: a checked conversion is `try_from`, not a hand-written range
 # test, and a `&mut &mut` or a `ref` binding to a reference hides which value is borrowed.
 checked_conversions = "deny"

@@ -361,8 +361,7 @@ pub(crate) fn database_dir(connection: &rusqlite::Connection) -> PathBuf {
     connection
         .path()
         .and_then(|path| Path::new(path).parent())
-        .map(Path::to_owned)
-        .unwrap_or_default()
+        .map_or_default(Path::to_owned)
 }
 
 /// Returns the armed failure unclassified, so each call site maps it with the same

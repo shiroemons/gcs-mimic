@@ -59,7 +59,7 @@ async fn cancel_wire(catalog: &Catalog, id: &str, body: &[u8]) -> u16 {
                         }
                         Err(error) => error.into_response(),
                     };
-                    Ok::<_, Infallible>(response.map(|body| body.boxed_unsync()))
+                    Ok::<_, Infallible>(response.map(BodyExt::boxed_unsync))
                 }
             }),
         );

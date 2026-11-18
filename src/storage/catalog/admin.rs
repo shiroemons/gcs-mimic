@@ -759,8 +759,7 @@ impl Admin {
             .await?;
         let conditions = request
             .condition
-            .map(GenerationCondition::conditions)
-            .unwrap_or_default();
+            .map_or_default(GenerationCondition::conditions);
         let access = self.grant.access();
         self.check_upload_until(bucket, name, request.condition, deadline)
             .await?;
@@ -811,9 +810,7 @@ impl Admin {
                 let previous = objects::lookup(&transaction, &bucket, &name)?;
                 objects::check_publication(
                     previous.as_ref(),
-                    condition
-                        .map(GenerationCondition::conditions)
-                        .unwrap_or_default(),
+                    condition.map_or_default(GenerationCondition::conditions),
                     objects::DeletePermission::Granted,
                     clock.now(),
                 )

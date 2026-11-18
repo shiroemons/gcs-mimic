@@ -268,8 +268,7 @@ fn apart(advice: String, destination: Destination<'_>) -> String {
     match destination {
         Destination::Terminal => advice
             .strip_prefix('\n')
-            .map(str::to_owned)
-            .unwrap_or_else(|| panic!("no blank line before {advice:?}")),
+            .map_or_else(|| panic!("no blank line before {advice:?}"), str::to_owned),
         Destination::File(_) | Destination::Redirected => {
             assert!(!advice.starts_with('\n'), "{advice:?}");
             advice

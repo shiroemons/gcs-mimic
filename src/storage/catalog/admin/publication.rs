@@ -1108,8 +1108,7 @@ fn publish_checked_entry(
         entry
             .request
             .condition
-            .map(GenerationCondition::conditions)
-            .unwrap_or_default(),
+            .map_or_default(GenerationCondition::conditions),
         delete_permission,
         now,
     )?;
@@ -1151,7 +1150,7 @@ fn publish_checked_entry(
             blob_id: staged.blob_id(),
             assignment: staged
                 .import_identity()
-                .and_then(|identity| identity.generation())
+                .and_then(ImportedIdentity::generation)
                 .map_or(objects::GenerationAssignment::Automatic, |generation| {
                     objects::GenerationAssignment::Imported(generation)
                 }),

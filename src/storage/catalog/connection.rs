@@ -174,6 +174,13 @@ impl Inner {
 
     /// rusqlite rolls a `Transaction` back when it drops, including during a
     /// panic, but a raw `BEGIN` or a failed drop-time rollback can leave one open.
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::unused_self,
+            reason = "only the test build injects a rollback failure through the connection's state"
+        )
+    )]
     fn end_abandoned_transaction(&self, connection: &Connection) -> Result<(), RollbackError> {
         #[cfg(test)]
         if self

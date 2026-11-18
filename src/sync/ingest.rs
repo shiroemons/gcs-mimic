@@ -125,9 +125,8 @@ async fn forget_missing_directories(
                         selected.as_str().as_ref(),
                         fsutil::DirectoryOpen::Existing,
                     ) {
-                        Ok(_) => Ok(false),
                         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
-                        Err(_) => Ok(false),
+                        Ok(_) | Err(_) => Ok(false),
                     }
                 })
                 .await?;

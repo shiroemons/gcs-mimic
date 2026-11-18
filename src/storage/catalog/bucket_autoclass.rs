@@ -57,7 +57,7 @@ pub(super) fn update(
     } else {
         record.lifecycle.rules()?
     };
-    if let Some(requested) = &update.autoclass {
+    if let Some(requested) = update.autoclass {
         let was_enabled = record.autoclass.is_some_and(|config| config.is_enabled());
         let config = autoclass::apply(record.autoclass.as_ref(), requested, now)?;
         if !was_enabled && config.is_some_and(|config| config.is_enabled()) {

@@ -866,7 +866,7 @@ mod tests {
             assert_eq!(
                 update
                     .soft_delete_retention
-                    .map(|retention| retention.seconds()),
+                    .map(crate::bucket::SoftDeleteRetention::seconds),
                 u64::try_from(seconds).ok()
             );
         }

@@ -280,7 +280,7 @@ impl Catalog {
         self.0
             .maintenance_error
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .map(|cause| cause.message().to_owned())
     }

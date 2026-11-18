@@ -249,7 +249,7 @@ mod json_tests {
         ));
         let error = super::super::unavailable(error);
         assert!(matches!(error, CatalogError::Corrupt(_)), "{error:?}");
-        assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+        assert!(crate::error::causes(&error).any(<dyn std::error::Error>::is::<serde_json::Error>));
 
         // JSON objects need string keys, so this map cannot be encoded.
         let unencodable = BTreeMap::from([(vec![1_u8], 1_u8)]);
@@ -257,7 +257,7 @@ mod json_tests {
         assert!(matches!(error, rusqlite::Error::ToSqlConversionFailure(_)));
         let error = super::super::unavailable(error);
         assert!(matches!(error, CatalogError::Unavailable(_)), "{error:?}");
-        assert!(crate::error::causes(&error).any(|cause| cause.is::<serde_json::Error>()));
+        assert!(crate::error::causes(&error).any(<dyn std::error::Error>::is::<serde_json::Error>));
     }
 
     /// A JSON column reports its own index: malformed text as a conversion failure and NULL or a

@@ -70,6 +70,7 @@ pub(super) fn open<T: DeserializeOwned>(token: &str, max_bytes: usize) -> Option
         .as_chunks::<2>()
         .0
         .iter()
+        .copied()
         .map(crate::hex::byte)
         .collect::<Option<Vec<u8>>>()?;
     // `from_str_radix` also takes uppercase digits and a leading `+`, as tokens always have.

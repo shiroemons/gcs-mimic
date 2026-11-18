@@ -72,6 +72,10 @@ async fn checkpoint_at(progress: &DerivedTransfer) -> Result<(), ObjectError> {
 }
 
 #[cfg(not(test))]
+#[expect(
+    clippy::unused_async,
+    reason = "the test build's checkpoint awaits a control, and the call site awaits both builds' versions"
+)]
 async fn checkpoint_at(_: &DerivedTransfer) -> Result<(), ObjectError> {
     Ok(())
 }

@@ -23,8 +23,9 @@ pub(crate) fn evaluate_read(
     let modified = validators
         .last_modified
         .duration_since(UNIX_EPOCH)
-        .map(|duration| UNIX_EPOCH + Duration::from_secs(duration.as_secs()))
-        .unwrap_or(validators.last_modified);
+        .map_or(validators.last_modified, |duration| {
+            UNIX_EPOCH + Duration::from_secs(duration.as_secs())
+        });
     match matches_field(headers, "if-match", validators.etag, Comparison::Strong)? {
         Some(false) => return Ok(ReadCondition::PreconditionFailed),
         None if date_field(headers, "if-unmodified-since").is_some_and(|date| modified > date) => {

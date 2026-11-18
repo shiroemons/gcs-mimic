@@ -252,6 +252,10 @@ impl BucketRequest {
     }
 
     /// How the request's entity-tag condition headers are treated.
+    #[expect(
+        clippy::match_same_arms,
+        reason = "bucket updates and listings ignore the entity-tag headers for different recorded reasons, each kept beside its comment"
+    )]
     pub(crate) fn etag_conditions(&self) -> EtagConditions {
         match self {
             Self::Get { .. } | Self::GetIam { .. } => EtagConditions::Supported,
@@ -965,7 +969,7 @@ pub(crate) fn decode(raw: &str, decoding: Decoding) -> Result<String, JsonError>
     let mut input = raw.bytes();
     while let Some(byte) = input.next() {
         bytes.push(match byte {
-            b'%' => crate::hex::byte(&[
+            b'%' => crate::hex::byte([
                 input.next().ok_or_else(invalid)?,
                 input.next().ok_or_else(invalid)?,
             ])

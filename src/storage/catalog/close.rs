@@ -22,7 +22,7 @@ impl Catalog {
         self.0
             .uploads
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .closed = true;
         self.0.admission.close();
         self.0.writer_released.notify_waiters();
@@ -44,7 +44,7 @@ impl Catalog {
                 .0
                 .uploads
                 .lock()
-                .unwrap_or_else(|error| error.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .active
                 == 0
             {
@@ -69,7 +69,7 @@ impl Catalog {
                 let mut resources = inner
                     .resources
                     .lock()
-                    .unwrap_or_else(|error| error.into_inner());
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if let Some(Resources { connection, lock }) = resources.take() {
                     connection
                         .close()

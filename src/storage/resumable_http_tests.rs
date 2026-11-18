@@ -252,9 +252,7 @@ impl Harness {
         let dir = TestDir::new();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
-        let base = base
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("http://{address}"));
+        let base = base.map_or_else(|| format!("http://{address}"), str::to_owned);
         let clock = Arc::new(ManualClock::new(SystemTime::now()));
         let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
             .await

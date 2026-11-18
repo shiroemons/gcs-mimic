@@ -39,9 +39,9 @@ impl ObjectBody {
         }
     }
 
-    fn data_frame(&self, bytes: Bytes) -> Option<io::Result<Frame<Bytes>>> {
+    fn data_frame(&self, bytes: Bytes) -> Frame<Bytes> {
         record_progress(&self.activity);
-        Some(Ok(Frame::data(bytes)))
+        Frame::data(bytes)
     }
 }
 
@@ -75,7 +75,7 @@ impl Body for ObjectBody {
                 }
                 if let Some(bytes) = reader.next_frame_at_hand() {
                     this.state = State::Idle(reader);
-                    return Poll::Ready(this.data_frame(bytes));
+                    return Poll::Ready(Some(Ok(this.data_frame(bytes))));
                 }
                 Box::pin(async move {
                     let result = reader.next_frame().await;
@@ -90,7 +90,7 @@ impl Body for ObjectBody {
             }
             Poll::Ready((reader, Ok(Some(bytes)))) => {
                 this.state = State::Idle(reader);
-                Poll::Ready(this.data_frame(bytes))
+                Poll::Ready(Some(Ok(this.data_frame(bytes))))
             }
             Poll::Ready((_, Ok(None))) => Poll::Ready(None),
             Poll::Ready((_, Err(error))) => {

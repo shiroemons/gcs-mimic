@@ -1471,23 +1471,20 @@ impl ConnectionService {
             reads,
         };
         let sent_body = has_body(request.headers());
-        let endpoints = match config
+        let endpoints = if let Ok(endpoints) = config
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
         {
-            Ok(endpoints) => {
-                endpoints.for_request(listening.scheme, request.uri(), request.headers())
-            }
-            Err(_) => {
-                let mut response = boxed(
-                    JsonError::service_unavailable(
-                        "Runtime endpoint state is unavailable; restart the emulator",
-                    )
-                    .into_response(),
-                );
-                listening.mark_response(response.headers_mut());
-                return Ok(response.map(|body| finished.track(body)));
-            }
+            endpoints.for_request(listening.scheme, request.uri(), request.headers())
+        } else {
+            let mut response = boxed(
+                JsonError::service_unavailable(
+                    "Runtime endpoint state is unavailable; restart the emulator",
+                )
+                .into_response(),
+            );
+            listening.mark_response(response.headers_mut());
+            return Ok(response.map(|body| finished.track(body)));
         };
         let mut request = request;
         let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
@@ -1510,9 +1507,10 @@ impl ConnectionService {
         );
         // Dropping the handler cancels its work exactly as closing the
         // connection did, so an unfinished upload is still never published.
-        let mut response = match admitted {
-            Err(error) => boxed(error.into_response()),
-            Ok(()) => tokio::select! {
+        let mut response = if let Err(error) = admitted {
+            boxed(error.into_response())
+        } else {
+            tokio::select! {
                 biased;
                 response = json::with_format(
                     format,
@@ -1523,7 +1521,7 @@ impl ConnectionService {
                     ),
                 ) => response,
                 expiry = expiry_claimed(&activity) => timeout_reply.response(expiry),
-            },
+            }
         };
         // Handlers stop reading a body early only to reject it, and hyper then
         // closes the connection. Announcing the close keeps a pooled client from
@@ -1680,7 +1678,7 @@ impl ConnectionWatch {
                             phase = ConnectionPhase::TimeoutReply;
                         }
                         // A catalog wait that started after this branch was chosen pauses the deadline.
-                        ExpiryClaim::Refused => continue,
+                        ExpiryClaim::Refused => {}
                         ExpiryClaim::ResponseStarted => break UnreadInput::MayRemain,
                     }
                 },
@@ -1694,7 +1692,7 @@ impl ConnectionWatch {
                         ConnectionPhase::TimeoutReply => break UnreadInput::MayRemain,
                         // The connection polled just above can have moved the request on, which
                         // decides first and renews this deadline.
-                        _ if matches!(progress.has_changed(), Ok(true)) => continue,
+                        _ if matches!(progress.has_changed(), Ok(true)) => {}
                         // A request head that stalls after it started, or never arrives, is a client fault.
                         ConnectionPhase::FirstHead | ConnectionPhase::NextHead => {
                             warn_connection_timeout("request headers were not received before header_read_timeout_ms");
@@ -1708,7 +1706,7 @@ impl ConnectionWatch {
                                 deadline.as_mut().reset(tokio::time::Instant::now() + CLOSE_BUDGET);
                                 phase = ConnectionPhase::TimeoutReply;
                             }
-                            ExpiryClaim::Refused => continue,
+                            ExpiryClaim::Refused => {}
                             ExpiryClaim::ResponseStarted => {
                                 warn_connection_timeout(current.step().timeout_message());
                                 break UnreadInput::MayRemain;
@@ -1903,8 +1901,7 @@ async fn validate_bodyless_post(
     if !accepted {
         let example = expected
             .first_key_value()
-            .map(|(key, value)| format!("{key}={value}"))
-            .unwrap_or_default();
+            .map_or_default(|(key, value)| format!("{key}={value}"));
         let allowed = match empty_json {
             EmptyJsonBody::Accepted => "an empty body, an empty JSON object,",
             EmptyJsonBody::Refused => "an empty body,",

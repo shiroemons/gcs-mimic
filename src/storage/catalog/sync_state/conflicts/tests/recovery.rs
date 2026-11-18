@@ -369,12 +369,7 @@ async fn recovery_paired_tree_and_catalog_snapshots_replay_only_the_accepted_dis
                 .await
                 .unwrap();
             let mut bytes = Vec::new();
-            reader
-                .into_file()
-                .await
-                .unwrap()
-                .read_to_end(&mut bytes)
-                .unwrap();
+            reader.into_file().unwrap().read_to_end(&mut bytes).unwrap();
             assert_eq!(bytes, b"api winner");
             assert_eq!(
                 catalog

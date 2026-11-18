@@ -649,13 +649,7 @@ fn read_selected_config(inputs: &mut Inputs) -> BTreeSet<Setting> {
                 && i.kind == InputKind::Native
                 && i.source != DiagnosticSource::Config
         })
-        .max_by_key(|i| {
-            if i.source == DiagnosticSource::Cli {
-                1
-            } else {
-                0
-            }
-        })
+        .max_by_key(|i| i32::from(i.source == DiagnosticSource::Cli))
         .cloned();
     let Some(selector) = selector.filter(|input| input.invalid.is_none()) else {
         return invalid_file_fields;

@@ -94,15 +94,15 @@ impl Storage {
                 "IAM conditions or audit configs; supply unconditional bindings",
             ));
         }
-        let etag = if !p.etag.is_empty() {
+        let etag = if p.etag.is_empty() {
+            None
+        } else {
             let bytes: [u8; 8] = p.etag.try_into().map_err(|_| {
                 Status::failed_precondition(
                     "Policy etag does not match; read the current policy before updating",
                 )
             })?;
             Some(json::policy_etag(i64::from_be_bytes(bytes)))
-        } else {
-            None
         };
         let p = auth::policy_input::PolicyInput {
             version: p.version,

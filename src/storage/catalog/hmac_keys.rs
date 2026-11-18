@@ -490,7 +490,7 @@ mod tests {
         let error = HmacKeyError::from(CatalogError::Io(
             std::io::Error::new(std::io::ErrorKind::PermissionDenied, "key catalog denied").into(),
         ));
-        assert!(crate::error::causes(&error).any(|cause| cause.is::<std::io::Error>()));
+        assert!(crate::error::causes(&error).any(<dyn std::error::Error>::is::<std::io::Error>));
         assert!(
             crate::error::causes(&error)
                 .any(|cause| cause.to_string().contains("key catalog denied"))

@@ -758,7 +758,7 @@ async fn stream_chunk(
         producer,
     )
     .await
-    .map_err(|error| error.into_error::<JsonError>())
+    .map_err(crate::server::upload_drive::DriveError::into_error::<JsonError>)
 }
 
 pub(super) async fn await_session_upload<T, E: From<ObjectError>>(

@@ -63,16 +63,15 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx = connection.transaction()?;
             lease.control_scope().authorize(&tx)?;
-            let incarnation = match bucket_incarnation(&tx, &name).optional()? {
-                Some(incarnation) => incarnation,
-                None => {
+            let incarnation = if let Some(incarnation) = bucket_incarnation(&tx, &name).optional()? {
+                incarnation
+            } else {
                     let known: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_buckets WHERE root_id=?1 AND bucket=?2)", params![root,name])?;
                     if known { return Ok(false); }
                     let MissingBucket::Create(mut record) = missing else { return Ok(false) };
                     // A bucket mirroring a working tree keeps no deletion history on disk.
                     create_bucket_in_transaction(&tx, &mut record, BucketCreation::default_policy(Origin::SyncIngest, None))?;
                     bucket_incarnation(&tx, &name)?
-                }
             };
             sql::exec(&tx, "INSERT INTO sync_buckets(root_id,bucket,incarnation) VALUES(?1,?2,?3) ON CONFLICT(root_id,bucket) DO UPDATE SET incarnation=excluded.incarnation", params![root,name,incarnation])?;
             tx.commit()?;

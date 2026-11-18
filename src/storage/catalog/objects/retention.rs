@@ -25,6 +25,10 @@ struct StoredRetention {
     retain_until_sub_micro_nanos: u32,
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if calls the predicate with a reference to the field"
+)]
 fn is_zero(value: &u32) -> bool {
     *value == 0
 }

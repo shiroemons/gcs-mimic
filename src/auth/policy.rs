@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn members_order_by_their_text() {
         let members: Vec<Member> = member_samples().into_iter().map(Member::from).collect();
-        let mut by_text: Vec<String> = members.iter().map(|member| member.to_string()).collect();
+        let mut by_text: Vec<String> = members.iter().map(ToString::to_string).collect();
         by_text.sort_unstable();
         let mut sorted = members;
         sorted.sort();

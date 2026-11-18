@@ -1058,7 +1058,9 @@ impl fmt::Display for ObjectError {
                 formatter.write_str("checksum mismatch")
             }
             Self::TooLarge => formatter.write_str("object too large"),
-            Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),
+            Self::InvalidFixedMetadata(reason) | Self::InvalidDerivedArgument(reason) => {
+                formatter.write_str(reason)
+            }
             Self::UniformAccessPredefinedAcl => {
                 formatter.write_str(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
             }
@@ -1066,7 +1068,6 @@ impl fmt::Display for ObjectError {
                 formatter.write_str(crate::acl::UNIFORM_ACCESS_UPDATE_ACL)
             }
             Self::Metadata(error) => error.fmt(formatter),
-            Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
             // Cloud Storage's wording (recorded 2026-11-13 for a named class and 2026-11-17 for
             // mixed components); the separator between several classes is not recorded.
             Self::ComposeClassMismatch {

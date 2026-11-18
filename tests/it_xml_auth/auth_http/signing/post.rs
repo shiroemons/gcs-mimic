@@ -370,21 +370,18 @@ fn v4_policy_content_length_range_bounds_are_inclusive_and_leave_no_object() {
             &[json!(["content-length-range", 3, 5])],
         );
         let reply = post(&server, "/iam-bucket", &fields, file);
-        match code {
-            Some(code) => {
-                error(&reply, status, code);
-                missing(&server, key);
-            }
-            None => {
-                assert_eq!(reply.status, status);
-                assert_eq!(
-                    server
-                        .get(ADMIN, &format!("/iam-bucket/{key}"))
-                        .success()
-                        .body,
-                    file
-                );
-            }
+        if let Some(code) = code {
+            error(&reply, status, code);
+            missing(&server, key);
+        } else {
+            assert_eq!(reply.status, status);
+            assert_eq!(
+                server
+                    .get(ADMIN, &format!("/iam-bucket/{key}"))
+                    .success()
+                    .body,
+                file
+            );
         }
     }
 }

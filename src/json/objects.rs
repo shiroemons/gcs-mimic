@@ -1253,14 +1253,14 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
         ("x-goog-metageneration", object.metageneration.to_string()),
         (
             "x-goog-hash",
-            if !object.has_md5() {
-                format!("crc32c={}", base64(&object.crc32c.to_be_bytes()))
-            } else {
+            if object.has_md5() {
                 format!(
                     "crc32c={},md5={}",
                     base64(&object.crc32c.to_be_bytes()),
                     base64(&object.md5)
                 )
+            } else {
+                format!("crc32c={}", base64(&object.crc32c.to_be_bytes()))
             },
         ),
         ("x-goog-stored-content-length", object.size.to_string()),

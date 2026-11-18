@@ -22,7 +22,7 @@ impl CorsWarnings {
         let mut warned = self
             .0
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         warned.len() < WARNED_BUCKET_LIMIT && warned.insert(bucket.to_owned())
     }
 }

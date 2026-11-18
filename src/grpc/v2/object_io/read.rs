@@ -345,7 +345,6 @@ impl Storage {
         let range = read_range(record.size, r.read_offset, r.read_limit)?;
         reader
             .set_range(range.start, range.len)
-            .await
             .map_err(read_failure)?;
         let object = self
             .first_read_metadata(caller, &record, finality, mask)
@@ -444,8 +443,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map(json::encode_object_page_token)
-            .unwrap_or_default();
+            .map_or_default(json::encode_object_page_token);
         let mut objects = page
             .items
             .iter()

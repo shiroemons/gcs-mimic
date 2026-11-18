@@ -564,20 +564,19 @@ pub(super) fn retire_previous(
             )?;
             Ok(Retired::Nothing)
         }
-        Retirement::Removed => match bucket.soft_delete_deadline(micros)? {
-            Some(deadline) => {
+        Retirement::Removed => {
+            if let Some(deadline) = bucket.soft_delete_deadline(micros)? {
                 sql::exec(
                     connection,
                     "UPDATE objects SET time_deleted = COALESCE(time_deleted, ?2), soft_delete_time = ?2, hard_delete_time = ?3 WHERE blob_id = ?1",
                     params![id, micros, deadline],
                 )?;
                 Ok(Retired::SoftDeleted)
-            }
-            None => {
+            } else {
                 sql::exec(connection, "DELETE FROM objects WHERE blob_id = ?1", [id])?;
                 journal_new_deletion(connection, id)?;
                 Ok(Retired::Journaled)
             }
-        },
+        }
     }
 }

@@ -151,7 +151,7 @@ impl Fixture {
                 Generation::new(record.generation).unwrap(),
                 None,
                 fence,
-                LiveSource::ApiCopy(reader.into_file().await.unwrap()),
+                LiveSource::ApiCopy(reader.into_file().unwrap()),
             )
             .await
             .unwrap()
@@ -710,7 +710,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
             Generation::new(record.generation).unwrap(),
             None,
             fixture.catalog.current_fence().await.unwrap(),
-            LiveSource::ApiCopy(reader.into_file().await.unwrap()),
+            LiveSource::ApiCopy(reader.into_file().unwrap()),
         )
         .await
         .unwrap();
