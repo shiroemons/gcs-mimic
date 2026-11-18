@@ -520,9 +520,108 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
         query(&storage, &upload, None).await.unwrap(),
         pb::query_write_status_response::WriteStatus::PersistedSize(GRANULE)
     );
+    assert!(missing(&storage, "disconnected").await);
     write(&storage, vec![resume(&upload, GRANULE, b"def", true)])
         .await
         .unwrap();
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A single-shot write hands its body to the catalog through a channel and sends the end
+/// marker only after `finish_write`. A request stream that fails after a message, or that ends
+/// without `finish_write`, closes that channel without the marker, so nothing is published and
+/// nothing stays staged.
+#[tokio::test]
+async fn grpc_io_single_shot_stream_cut_short_publishes_nothing() {
+    let (dir, storage) = setup(false).await;
+    let opening = |name| {
+        let mut opening = message(name, b"abc");
+        opening.finish_write = false;
+        opening
+    };
+    let failed = vec![
+        Ok(opening("failed-stream")),
+        Err(Status::cancelled("client disconnected")),
+    ];
+    let unfinished = vec![Ok(opening("unfinished-stream"))];
+    for (name, messages, code) in [
+        ("failed-stream", failed, tonic::Code::Cancelled),
+        (
+            "unfinished-stream",
+            unfinished,
+            tonic::Code::InvalidArgument,
+        ),
+    ] {
+        assert_code(
+            storage
+                .receive_write(
+                    &mut tonic::codegen::tokio_stream::iter(messages),
+                    None,
+                    WriteRpc::WriteObject,
+                )
+                .await,
+            code,
+        );
+        assert!(missing(&storage, name).await, "{name}");
+        assert_eq!(
+            std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
+            0,
+            "{name}"
+        );
+    }
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A single-shot write's first message is admitted, and the catalog's advisory check of its
+/// conditions passes, before the body streams. The transaction that publishes the object
+/// checks the conditions again: a create-only write that another write overtakes meanwhile
+/// fails FAILED_PRECONDITION, publishes nothing and leaves nothing staged.
+#[tokio::test]
+async fn grpc_io_single_shot_conditions_are_rechecked_at_publication() {
+    let (dir, storage) = setup(false).await;
+    let mut opening = message("overtaken", b"abc");
+    opening.finish_write = false;
+    opening.flush = true;
+    let Some(pb::bidi_write_object_request::FirstMessage::WriteObjectSpec(spec)) =
+        opening.first_message.as_mut()
+    else {
+        unreachable!()
+    };
+    spec.if_generation_match = Some(0);
+    let (requests, incoming) = mpsc::channel(1);
+    requests.send(Ok(opening)).await.unwrap();
+    let (responses, mut answered) = mpsc::channel::<Result<pb::BidiWriteObjectResponse, Status>>(1);
+    let overtake = async {
+        // The flush is answered once the opening message was admitted and staged, after the
+        // advisory check.
+        answered.recv().await.unwrap().unwrap();
+        write(&storage, vec![message("overtaken", b"winner")])
+            .await
+            .unwrap();
+        let mut last = message("ignored", b"def");
+        last.first_message = None;
+        last.write_offset = 3;
+        requests.send(Ok(last)).await.unwrap();
+        drop(requests);
+    };
+    let mut stream = ReceiverStream::new(incoming);
+    let (result, ()) = tokio::join!(
+        storage.receive_write(&mut stream, None, WriteRpc::Bidi(&responses)),
+        overtake
+    );
+    let refused = assert_code(result, tonic::Code::FailedPrecondition);
+    assert_eq!(
+        refused.message(),
+        "At least one of the pre-conditions you specified did not hold."
+    );
+    let record = storage
+        .state
+        .catalog
+        .get_object(live("grpc-io", "overtaken"), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    assert_eq!(record.size, 6, "the overtaking write stays live");
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
     storage.state.catalog.close().await.unwrap();
 }

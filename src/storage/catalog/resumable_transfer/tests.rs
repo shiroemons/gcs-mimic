@@ -271,3 +271,75 @@ async fn a_session_staged_before_running_digests_reports_none_and_still_complete
     assert_eq!(resource, serde_json::to_value(digest(b"parttail")).unwrap());
     catalog.close().await.unwrap();
 }
+
+/// A finishing chunk whose body channel closes before its end marker, as a producer that stops
+/// early leaves it, publishes nothing: the session keeps its persisted offset and staged bytes,
+/// and the same chunk sent whole then completes the upload.
+#[tokio::test]
+async fn a_finishing_chunk_cut_short_of_its_end_marker_publishes_nothing() {
+    use crate::storage::test_fixtures::{PERMISSIVE, live};
+    let dir = crate::test_support::TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    crate::storage::test_fixtures::seed_bucket(&catalog).await;
+    let session = catalog
+        .create_resumable_session(
+            "bucket",
+            "object",
+            ResumableOptions::new(BucketAccess::Permissive),
+            Some(8),
+        )
+        .await
+        .unwrap();
+    let id = session.id.to_string();
+    let Written::Open(_) = append(&catalog, &id, 0, b"part").await else {
+        panic!("a partial chunk leaves the upload open");
+    };
+    let lease = catalog.lock_resumable_session(&id, "bucket").await.unwrap();
+    let chunk = ResumableChunk {
+        start: 4,
+        length: 4,
+        end: ChunkEnd::Exact {
+            total: Some(8),
+            finalize: true,
+        },
+        options: lease.session.options.clone(),
+        catalog_wait: watch::channel(ChunkWait::Transfer).0,
+    };
+    let (sender, body) = mpsc::channel(2);
+    sender
+        .send(Ok(UploadChunk::Data(bytes::Bytes::from_static(b"tail"))))
+        .await
+        .unwrap();
+    drop(sender);
+    let error = catalog
+        .write_resumable_session(
+            lease,
+            chunk,
+            body,
+            catalog.admit_object_upload().unwrap(),
+            |record| serde_json::to_value(record.hashes()).map_err(ObjectError::backend),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, ResumableError::Object(ObjectError::BodyAborted(_))),
+        "{error:?}"
+    );
+    assert_eq!(
+        catalog
+            .get_object(live("bucket", "object"), Default::default(), PERMISSIVE)
+            .await,
+        Err(ObjectError::ObjectNotFound)
+    );
+    let kept = catalog.resumable_session(&id, "bucket").await.unwrap();
+    assert_eq!((kept.state, kept.offset), (SessionState::Active, 4));
+    assert_eq!(
+        std::fs::read(session.blob_id.staging_path(&dir.0)).unwrap(),
+        b"part"
+    );
+    let Written::Complete(resource) = append(&catalog, &id, 4, b"tail").await else {
+        panic!("the whole chunk completes the upload");
+    };
+    assert_eq!(resource, serde_json::to_value(digest(b"parttail")).unwrap());
+    catalog.close().await.unwrap();
+}
