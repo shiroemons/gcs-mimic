@@ -10,6 +10,7 @@ contracts; CancelResumableWrite is now part of the object I/O contract and
 appendable objects are described in the [Rapid append contract](grpc-v2-rapid-append.md).
 Unsupported fields remain UNIMPLEMENTED; the legacy Storage v1 migration profile is described in [its contract](grpc-v1-legacy.md).
 The all-RPC rejection statements below describe the original foundation snapshot.
+So do the statements that the listener is plaintext h2c only: the same `grpc_listen` now also serves gRPC over TLS under the default `grpc_scheme=auto`, a silent connection there is closed when its wait for a first byte ends, and hyper's stream tasks are supervised; see [gRPC over TLS](grpc-tls.md).
 
 Scope: BEHAVIOR-RPC-005 and the unsupported gRPC portion of DESIGN-082. RPC-STORAGE-001–024 retain their existing status: this slice supplies an entry point, not their implementation. At delivery, Storage v1, Rapid append, CancelResumableWrite and every operation's business logic remained unsupported. The strict-authentication and wire-status Go checks that originally used CancelResumableWrite as the unsupported probe now follow its object I/O behavior; see [object I/O](grpc-v2-object-io.md).
 

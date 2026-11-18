@@ -299,7 +299,7 @@ docker run -d --name gcs-mimic --user "$(id -u):$(id -g)" \
 | `GCS_MIMIC_SIGNED_URLS` | `ignore`（permissiveの既定）は署名付きURLを検査せずに受け付ける。`verify`は署名と期限を検査する。[署名の検証（英語）](../en/signed-urls.md#verifying-signed-requests-in-permissive-mode) |
 | `GCS_MIMIC_CORS_FALLBACK` | CORSルールのないバケットの公開URL・XML URLのCORS。`allow-all`（permissiveの既定）はどのオリジンのページからも読める。`none`（strictの既定）はCORSヘッダーを返さない |
 | `GCS_MIMIC_API_BASE_URL` | エミュレーターが返すリンクのアドレスを固定する。未指定なら各リクエストの接続先を使う。`Host`を書き換えるリバースプロキシの後ろに置くときだけ指定する |
-| `GCS_MIMIC_GRPC_LISTEN` | 任意のgRPC待受。例: `0.0.0.0:4444` |
+| `GCS_MIMIC_GRPC_LISTEN` | 任意のgRPC待受。例: `0.0.0.0:4444`。`GCS_MIMIC_GRPC_SCHEME`（`auto`・`h2c`・`tls`、既定は`auto`）に従い、h2cとgRPC over TLSを受け付けます。[gRPC over TLS（英語）](../en/slices/grpc-tls.md)を参照してください |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`・`info`（既定）・`warn`・`error` |
 
 `GCS_MIMIC_BUCKETS`・`GCS_MIMIC_IDENTITIES`・`GCS_MIMIC_TRUSTED_LISTEN`・`GCS_MIMIC_TEST_SIGNER`・`GCS_MIMIC_SIGNED_URLS`には、0.14.0以降が必要です。

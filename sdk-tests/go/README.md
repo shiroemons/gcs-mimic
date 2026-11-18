@@ -5,8 +5,9 @@
 an appendable Writer that would replace a live object, through Close, and
 unknown service/method ErrorInfo. Strict
 authentication checks call CancelResumableWrite with an absent upload_id.
-`scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
-and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
+`scripts/sdk-go.sh` starts separate gRPC listeners for permissive and strict
+profiles under the default `grpc_scheme=auto`, so each serves h2c and gRPC over
+TLS on one port; HTTP/HTTPS ports remain separate. Wire tests directly pin
 grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Storage v2
 supports scoped bucket CRUD/updates/IAM/retention locking, object metadata/media/
 listing/deletion/restore, streaming and resumable writes, rewrite/compose/move and
@@ -16,6 +17,21 @@ single-writer handoff; see the
 [Rapid append contract](../../docs/en/slices/grpc-v2-rapid-append.md).
 Unsupported fields retain UNIMPLEMENTED; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
+
+`grpc_tls_test.go` reaches the same listeners over TLS the way an application
+reaches Cloud Storage: `storage.NewGRPCClient` with `option.WithEndpoint`,
+`grpc.WithTransportCredentials(credentials.NewTLS(...))` trusting
+`GCSM_GRPC_CA_CERT`, and `GOOGLE_CLOUD_DISABLE_DIRECT_PATH=true`, without
+`STORAGE_EMULATOR_HOST_GRPC`, which the SDK turns into a plaintext channel that
+drops credentials. It writes, reads, lists, runs a bidi read and an appendable
+write; strict mode authenticates through a static token source, which shows that
+official call credentials flow over TLS, and an anonymous client gets
+UNAUTHENTICATED; trusting an unrelated CA fails the handshake.
+`scripts/sdk-go.sh` sets `GCSM_GRPC_TLS_ENDPOINT`,
+`GCSM_STRICT_GRPC_TLS_ENDPOINT` and `GCSM_GRPC_CA_CERT`: the supplied CA when
+the HTTPS profile names custom certificate files, otherwise the exported
+development CA. Without them the tests skip. See
+[gRPC over TLS](../../docs/en/slices/grpc-tls.md).
 
 `grpc_v1_test.go` uses the already pinned
 `google.golang.org/genproto/googleapis/storage/v1` raw client against the same

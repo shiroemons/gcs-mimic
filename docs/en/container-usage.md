@@ -332,7 +332,7 @@ verified subset, recovery behavior and pending work.
 | `GCS_MIMIC_SIGNED_URLS` | `ignore` (the permissive default) accepts signed URLs without checking them; `verify` checks their signatures and expiry ([verification](signed-urls.md#verifying-signed-requests-in-permissive-mode)) |
 | `GCS_MIMIC_CORS_FALLBACK` | CORS for public and XML URLs of buckets without CORS rules: `allow-all` (the permissive default) lets pages on any origin read them, `none` (the strict default) sends no CORS headers |
 | `GCS_MIMIC_API_BASE_URL` | Fixes the address in links that the emulator returns; unset, links use the address of each request. Set it only for a reverse proxy that rewrites `Host` |
-| `GCS_MIMIC_GRPC_LISTEN` | Optional gRPC listener, for example `0.0.0.0:4444` |
+| `GCS_MIMIC_GRPC_LISTEN` | Optional gRPC listener, for example `0.0.0.0:4444`; it serves h2c and gRPC over TLS as `GCS_MIMIC_GRPC_SCHEME` selects (`auto`, `h2c` or `tls`; default `auto`), see [gRPC over TLS](slices/grpc-tls.md) |
 | `GCS_MIMIC_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 
 `GCS_MIMIC_BUCKETS`, `GCS_MIMIC_IDENTITIES`, `GCS_MIMIC_TRUSTED_LISTEN`,

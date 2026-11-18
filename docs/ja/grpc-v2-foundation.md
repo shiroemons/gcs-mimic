@@ -8,6 +8,8 @@
 [双方向範囲読み取り](grpc-v2-bidi-read.md)の契約を参照してください。
 CancelResumableWriteはオブジェクト入出力の契約に含まれます。appendableオブジェクトは[Rapid appendの契約](grpc-v2-rapid-append.md)を参照してください。未対応フィールドはUNIMPLEMENTEDのままです。
 Storage v1の移行プロファイルは[その契約](grpc-v1-legacy.md)を参照してください。
+土台の時点の待受は平文のh2cだけでした。現在は同じ`grpc_listen`が既定の`grpc_scheme=auto`でgRPC over TLSも受け付けます。
+[gRPC over TLS（英語）](../en/slices/grpc-tls.md)を参照してください。
 
 [英語の契約と検証](../en/slices/grpc-v2-foundation.md)が正本です。
 

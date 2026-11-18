@@ -73,7 +73,7 @@ fake-gcs-serverのプロファイルは省略項目を保持します。
 | 鍵の生成・登録なしで使え、エミュレーターが署名を検証する組み込みの署名者 | ✅ 鍵を公開済みの`test-signer@gcs-mimic.invalid`。`gcs-mimic test-signer credentials`がサービスアカウントの鍵ファイルを出力し、`url sign`は既定でこの署名者を使う。strictでは`test_signer=enabled`か、IDに宣言したときに有効。0.14.0以降が必要 | ❌ 署名を検証しないため署名者も不要 | ❌ 署名を検証しないため署名者も不要 |
 | ブラウザーは匿名のまま、アプリのサーバーは認証情報なしで使う | 🚧 strictの信頼済みリスナー。公開しないポートで、認証情報のないリクエストを`trusted_principal`（既定は`roles/storage.admin`を持つ組み込みの`trusted-app@gcs-mimic.invalid`）として同じIAM・ACL・公開アクセス防止の判定にかける。ブラウザーからのリクエストと想定外のHostは拒否。構成の公開メインリスナーに対するChromiumの実行は済んでいるが、既知の差分が残るためDESIGN-101は`PARTIAL`。0.14.0以降が必要 | ❌ アクセス制御なし。すべて受け付ける | ❌ アクセス制御なし。すべて受け付ける |
 | TLSで待ち受ける | ✅ | ✅ | ❌ |
-| gRPC Storage v2を公式Goクライアントで使う（平文h2c。バケットCRUD・更新・IAM、オブジェクトの読み書き・一覧・更新・削除・復元、resumableの開始・照会・取消、範囲・双方向読み取り、rewrite・compose・move、Writer.Append・takeover・確定によるappendableオブジェクト。ゾーンのRapidバケットは扱わない） | ✅ JSON・XMLと状態・strict認可を共有 | ❌ Storage v1のみ | ❌ |
+| gRPC Storage v2を公式Goクライアントで使う（h2cまたはTLS。バケットCRUD・更新・IAM、オブジェクトの読み書き・一覧・更新・削除・復元、resumableの開始・照会・取消、範囲・双方向読み取り、rewrite・compose・move、Writer.Append・takeover・確定によるappendableオブジェクト。ゾーンのRapidバケットは扱わない） | ✅ JSON・XMLと状態・strict認可を共有 | ❌ Storage v1のみ | ❌ |
 | 旧Storage v1 gRPC（比較対象の12 RPC。複数メッセージのInsertObject、プロジェクト省略のListBucketsを含む） | ✅ 記載したフィールド範囲 | ◐ InsertObjectは最初のメッセージのデータだけ | ❌ |
 | ACL操作 | 🚧 バケット・既定オブジェクト・オブジェクトACLのCRUD、PATCH・PUTでの置換、既定ACLの継承。strictではオブジェクトACLをIAMと合わせて判定（[ACLの効果（英語）](../en/slices/acl-permission-effects.md)） | 🚧 メタデータ操作のみ。強制なし | 🚧 メタデータ・一覧のみ。強制なし |
 | プロジェクトのHMACキー | 🚧 キーの管理と1回だけ表示するsecret | ❌ | ❌ |
