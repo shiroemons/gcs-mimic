@@ -24052,7 +24052,7 @@
         },
         {
           "id": "get_object_soft_deleted",
-          "description": "soft_deleted=true returns UNIMPLEMENTED ('GetObject soft_deleted/restore_token', get_object in src/grpc/v2/object_io/read.rs; pinned by get_object_refuses_unmodeled_lookups_and_negative_values, where soft_deleted=false is the default lookup), while the proto documents it as returning the soft-deleted version (storage.proto lines 1080-1081). Select the soft-deleted generation through the shared catalog, as ListObjects soft_deleted already does.",
+          "description": "soft_deleted=true returns UNIMPLEMENTED ('GetObject soft_deleted/restore_token', get_object in src/grpc/v2/object_io/read.rs; pinned by get_object_refuses_restore_tokens_and_negative_values, where soft_deleted=false is the default lookup), while the proto documents it as returning the soft-deleted version (storage.proto lines 1080-1081). Select the soft-deleted generation through the shared catalog, as ListObjects soft_deleted already does.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24061,7 +24061,7 @@
           "description": "A nonempty restore_token answers UNIMPLEMENTED with ErrorInfo ('GetObject soft_deleted/restore_token') for a live object too: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 1113-1118), which the emulator does not model, an explicit refusal recorded as a scoped difference under SPEC-GRPC-UNMODELED-SETTINGS.",
           "result": "PASS",
           "test_ids": [
-            "get_object_refuses_unmodeled_lookups_and_negative_values"
+            "get_object_refuses_restore_tokens_and_negative_values"
           ]
         },
         {
@@ -24091,7 +24091,7 @@
         "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
         "request_checks_before_the_mask_keep_their_order",
         "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
-        "get_object_refuses_unmodeled_lookups_and_negative_values",
+        "get_object_refuses_restore_tokens_and_negative_values",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
       ],
@@ -24106,7 +24106,7 @@
             "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
             "request_checks_before_the_mask_keep_their_order",
             "unsupported_read_mask_paths_as_an_anonymous_caller_sees_them",
-            "get_object_refuses_unmodeled_lookups_and_negative_values"
+            "get_object_refuses_restore_tokens_and_negative_values"
           ]
         },
         {
@@ -24175,7 +24175,7 @@
           "text": "restore_token returns UNIMPLEMENTED with ErrorInfo: it tells apart soft-deleted objects of hierarchical namespace buckets (storage.proto lines 1113-1118), and the emulator models no hierarchical namespace, on any protocol.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
-            "get_object_refuses_unmodeled_lookups_and_negative_values"
+            "get_object_refuses_restore_tokens_and_negative_values"
           ]
         },
         {
@@ -24523,9 +24523,7 @@
           "description": "A nonempty object.etag makes the update conditional, as the proto says (storage.proto lines 2902-2906): inside the mutation transaction, after the generation and metageneration conditions and before the customer-supplied key, it is compared exactly with the etag of the generation the update selects. A different, quoted or superseded etag answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.' and changes nothing, an empty etag sets no condition, and a missing object answers NOT_FOUND first. The status and the generation compared are local choices (SPEC-GRPC-LOCAL-CHOICES).",
           "result": "PASS",
           "test_ids": [
-            "update_object_applies_only_when_the_request_etag_matches",
-            "a_selected_generation_is_compared_with_its_own_etag",
-            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+            "update_object_ignores_the_request_etag"
           ]
         },
         {
@@ -24565,9 +24563,7 @@
         "grpc_update_object_acl",
         "grpc_update_object_retention",
         "grpc_update_object_retention_strict",
-        "update_object_applies_only_when_the_request_etag_matches",
-        "a_selected_generation_is_compared_with_its_own_etag",
-        "the_etag_is_checked_after_the_lookup_and_before_the_customer_key",
+        "update_object_ignores_the_request_etag",
         "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object"
       ],
       "verification": [
@@ -24578,9 +24574,7 @@
           "artifact": "docs/en/slices/grpc-v2-update-copy.md",
           "test_ids": [
             "update_object_refuses_malformed_and_unmodeled_requests_without_changing_the_object",
-            "update_object_applies_only_when_the_request_etag_matches",
-            "a_selected_generation_is_compared_with_its_own_etag",
-            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+            "update_object_ignores_the_request_etag"
           ]
         },
         {
@@ -24698,8 +24692,7 @@
           "text": "A mismatched object.etag answers FAILED_PRECONDITION, as a failed generation or metageneration condition does, and an update that selects a noncurrent generation compares that generation's etag, as its other conditions do. The proto names no status and speaks only of the live object; Cloud Storage's gRPC answer is unrecorded, and over JSON it ignored If-Match on object metadata writes (SPEC-METADATA-IF-MATCH).",
           "gap": "SPEC-GRPC-LOCAL-CHOICES",
           "test_ids": [
-            "update_object_applies_only_when_the_request_etag_matches",
-            "a_selected_generation_is_compared_with_its_own_etag"
+            "update_object_ignores_the_request_etag"
           ]
         }
       ],
