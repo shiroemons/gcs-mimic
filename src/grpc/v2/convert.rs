@@ -459,10 +459,10 @@ pub(crate) fn object(
         checksums: (record.customer_key_sha256.is_none() || hashes == StoredHashes::Revealed).then(
             || pb::ObjectChecksums {
                 crc32c: Some(record.crc32c),
-                md5_hash: if !record.has_md5() {
-                    Vec::new()
-                } else {
+                md5_hash: if record.has_md5() {
                     record.md5.to_vec()
+                } else {
+                    Vec::new()
                 },
             },
         ),

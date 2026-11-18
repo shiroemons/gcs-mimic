@@ -203,10 +203,10 @@ impl Baseline {
                 }
                 if expected != bytes {
                     return Err(ImportFailure::SourceChanged {
-                        fields: if expected[..32] != bytes[..32] {
-                            vec![super::ChangedField::Metadata]
-                        } else {
+                        fields: if expected[..32] == bytes[..32] {
                             vec![super::ChangedField::Inode, super::ChangedField::Ctime]
+                        } else {
+                            vec![super::ChangedField::Metadata]
                         },
                     });
                 }

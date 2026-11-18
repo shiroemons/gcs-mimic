@@ -110,12 +110,12 @@ pub(crate) fn parse_member(member: &str) -> Result<Member, PolicyInputError> {
     };
     let (kind, id) = member.split_once(':').ok_or_else(unknown_type)?;
     if let Some(team) = ProjectTeam::from_member_kind(kind) {
-        return if !super::valid_project_id(id) {
+        return if super::valid_project_id(id) {
+            Ok(Member::from(MemberRef::Project { team, project: id }))
+        } else {
             Err(PolicyInputError::InvalidInput(
                 "Invalid convenience project".into(),
             ))
-        } else {
-            Ok(Member::from(MemberRef::Project { team, project: id }))
         };
     }
     if id.is_empty() || !id.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
