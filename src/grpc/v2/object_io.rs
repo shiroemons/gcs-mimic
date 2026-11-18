@@ -168,10 +168,8 @@ fn intake_status(error: IntakeError) -> Status {
         IntakeError::Offset => Status::out_of_range(
             "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
         ),
-        IntakeError::ChunkCrc { computed, client } => {
-            MessageError::ChunkCrc { computed, client }.into()
-        }
-        IntakeError::Overflow => Status::out_of_range("Object size overflow"),
+        IntakeError::ChunkCrc(mismatch) => MessageError::from(mismatch).into(),
+        IntakeError::Overflow => Status::out_of_range("write_offset plus content length overflows"),
         IntakeError::TooLarge => Status::resource_exhausted(
             "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
         ),

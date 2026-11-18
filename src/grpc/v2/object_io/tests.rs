@@ -707,10 +707,10 @@ fn grpc_io_range_and_masks() {
     .unwrap_err();
     assert_eq!(
         mismatch,
-        MessageError::ChunkCrc {
+        MessageError::ChunkCrc(upload::CrcMismatch {
             computed: 0x9a71_bb4c,
             client: 1
-        }
+        })
     );
     let mismatch = Status::from(mismatch);
     assert_eq!(mismatch.code(), tonic::Code::InvalidArgument);

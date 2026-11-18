@@ -44,10 +44,7 @@ pub(super) struct IntakePiece {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum IntakeError {
     Offset,
-    ChunkCrc {
-        computed: u32,
-        client: u32,
-    },
+    ChunkCrc(CrcMismatch),
     Overflow,
     TooLarge,
     /// `written` bytes cannot make an object of the declared `total`.
@@ -95,32 +92,13 @@ impl Intake {
         Ok(())
     }
 
-    /// Checks `piece` against the bytes received so far and returns the bytes it adds, for the
-    /// caller to stage. Cloud Storage answers a wrong size before a wrong data checksum
-    /// (recorded 2026-11-18), so the checksum is verified last.
+    /// Checks `piece` against the bytes received so far with [`admit_bytes`] and returns the
+    /// bytes it adds, for the caller to stage.
     pub(super) fn admit(&mut self, piece: &IntakePiece) -> Result<Bytes, IntakeError> {
-        if piece.offset > self.offset
-            || (matches!(self.resend, Resend::Reject) && piece.offset != self.offset)
-        {
+        if matches!(self.resend, Resend::Reject) && piece.offset != self.offset {
             return Err(IntakeError::Offset);
         }
-        let discard = usize::try_from(self.offset - piece.offset)
-            .unwrap_or(usize::MAX)
-            .min(piece.content.len());
-        let added = piece.content.slice(discard..);
-        let written = u64::try_from(added.len())
-            .ok()
-            .and_then(|length| self.offset.checked_add(length))
-            .ok_or(IntakeError::Overflow)?;
-        if written > self.max_bytes {
-            return Err(IntakeError::TooLarge);
-        }
-        if let Some(total) = self.total
-            && (written > total || (piece.finish && written != total))
-        {
-            return Err(IntakeError::SizeMismatch { written, total });
-        }
-        verify_crc32c(&piece.content, piece.crc32c)?;
+        let (added, written) = admit_bytes(self.offset, piece, self.max_bytes, self.total)?;
         self.offset = written;
         self.hasher.update(&added);
         Ok(added)
@@ -158,9 +136,52 @@ pub(super) struct CrcMismatch {
 }
 
 impl From<CrcMismatch> for IntakeError {
-    fn from(CrcMismatch { computed, client }: CrcMismatch) -> Self {
-        Self::ChunkCrc { computed, client }
+    fn from(mismatch: CrcMismatch) -> Self {
+        Self::ChunkCrc(mismatch)
     }
+}
+
+/// Checks `piece` against the `received` bytes of an upload and returns the bytes it adds, with
+/// the received size once they are added. Every write path that receives checksummed data in
+/// messages applies these rules through this one function, in this order:
+///
+/// 1. The piece may repeat received bytes, which are dropped, but may not start past them.
+/// 2. The new size must fit a signed 64-bit offset, as every size on the wire does.
+/// 3. The size may not pass `max` (`--max-object-bytes`). The limit is the emulator's own, so
+///    Cloud Storage has no answer to record; checking it before the declared size and the data
+///    checksum is the emulator's choice.
+/// 4. With a declared `total` (`object_size`), the bytes may not pass it, and a finishing piece
+///    must reach it exactly.
+/// 5. The data's declared CRC32C. Cloud Storage answered a wrong `object_size` before a wrong
+///    data checksum (recorded 2026-11-18), so the checksum is verified last.
+pub(super) fn admit_bytes(
+    received: u64,
+    piece: &IntakePiece,
+    max: u64,
+    total: Option<u64>,
+) -> Result<(Bytes, u64), IntakeError> {
+    if piece.offset > received {
+        return Err(IntakeError::Offset);
+    }
+    let repeated = usize::try_from(received - piece.offset)
+        .unwrap_or(usize::MAX)
+        .min(piece.content.len());
+    let added = piece.content.slice(repeated..);
+    let written = u64::try_from(added.len())
+        .ok()
+        .and_then(|length| received.checked_add(length))
+        .filter(|written| i64::try_from(*written).is_ok())
+        .ok_or(IntakeError::Overflow)?;
+    if written > max {
+        return Err(IntakeError::TooLarge);
+    }
+    if let Some(total) = total
+        && (written > total || (piece.finish && written != total))
+    {
+        return Err(IntakeError::SizeMismatch { written, total });
+    }
+    verify_crc32c(&piece.content, piece.crc32c)?;
+    Ok((added, written))
 }
 
 pub(super) fn verify_crc32c(content: &[u8], client: Option<u32>) -> Result<(), CrcMismatch> {

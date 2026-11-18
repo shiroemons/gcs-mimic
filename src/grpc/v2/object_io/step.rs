@@ -65,7 +65,7 @@ pub(in crate::grpc::v2) enum MessageError {
     /// `object_checksums.md5_hash` is not 16 bytes long.
     Md5Length,
     /// The data's CRC32C differs from the one its message declared.
-    ChunkCrc { computed: u32, client: u32 },
+    ChunkCrc(CrcMismatch),
 }
 
 impl std::fmt::Display for MessageError {
@@ -73,7 +73,7 @@ impl std::fmt::Display for MessageError {
         match self {
             Self::Md5Length => f.write_str("md5_hash must contain exactly 16 bytes"),
             // Cloud Storage's wording and hexadecimal form over gRPC.
-            Self::ChunkCrc { computed, client } => write!(
+            Self::ChunkCrc(CrcMismatch { computed, client }) => write!(
                 f,
                 "Checksummed data message crc32c mismatch: server computed: '{computed:08x}', client provided '{client:08x}'."
             ),
@@ -84,8 +84,8 @@ impl std::fmt::Display for MessageError {
 impl std::error::Error for MessageError {}
 
 impl From<CrcMismatch> for MessageError {
-    fn from(CrcMismatch { computed, client }: CrcMismatch) -> Self {
-        Self::ChunkCrc { computed, client }
+    fn from(mismatch: CrcMismatch) -> Self {
+        Self::ChunkCrc(mismatch)
     }
 }
 
@@ -118,10 +118,6 @@ pub(in crate::grpc::v2) struct DeclaredChunk {
 }
 
 impl DeclaredChunk {
-    pub(in crate::grpc::v2) fn len(&self) -> usize {
-        self.content.len()
-    }
-
     pub(in crate::grpc::v2) fn verify(self) -> Result<VerifiedChunk, MessageError> {
         upload::verify_crc32c(&self.content, self.crc32c)?;
         Ok(VerifiedChunk(self.content))

@@ -366,8 +366,8 @@ impl Default for Call {
 
 impl Call {
     /// Checks `step` against what its session `persisted` and returns what the session
-    /// persists for it. The order is Cloud Storage's on a non-resumable write, the only one
-    /// recorded (2026-11-18): the offset, then the size, then the data checksum.
+    /// persists for it: the offset a stream starts at here, then the rules every write path
+    /// shares ([`upload::admit_bytes`]).
     pub(super) fn admit(
         &mut self,
         step: WriteStep,
@@ -383,50 +383,22 @@ impl Call {
                 "write_offset must be nonnegative; query the persisted offset",
             ))
         })?;
-        let overflow = || {
-            Refusal::Message(Status::out_of_range(
-                "write_offset plus content length overflows",
-            ))
-        };
+        let overflow = || Refusal::Message(intake_status(IntakeError::Overflow));
         self.drop_persisted_tail(persisted);
         let received = u64::try_from(self.tail.len())
             .ok()
             .and_then(|tail| persisted.checked_add(tail))
             .ok_or_else(overflow)?;
-        self.check_offset(offset, received)?;
-        // Bytes a later message repeats were received already and are not written twice.
-        let repeated = usize::try_from(received - offset)
-            .unwrap_or(usize::MAX)
-            .min(step.data.len());
-        let end = u64::try_from(step.data.len() - repeated)
-            .ok()
-            .and_then(|added| received.checked_add(added))
-            .filter(|end| i64::try_from(*end).is_ok())
-            .ok_or_else(overflow)?;
-        if end > max_object_bytes {
-            return Err(Refusal::Message(Status::resource_exhausted(
-                "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
-            )));
-        }
-        let finish = step.end.finishes();
-        if let Some(total) = total {
-            if finish && end != total {
-                return Err(Refusal::Session(size_mismatch(end, total)));
-            }
-            if end > total {
-                return Err(Refusal::Message(size_mismatch(end, total)));
-            }
-        }
-        let content = step
-            .data
-            .verify()
-            .map_err(|error| Refusal::Message(error.into()))?
-            .into_bytes();
+        self.check_first_offset(offset, received)?;
+        let end = step.end;
+        let piece = step.data.into_piece(offset, end);
+        let (added, written) = upload::admit_bytes(received, &piece, max_object_bytes, total)
+            .map_err(|error| refusal(error, end))?;
         self.uploaded = self
             .uploaded
-            .saturating_add(u64::try_from(content.len()).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(piece.content.len()).unwrap_or(u64::MAX));
         self.position = MessagePosition::Later;
-        let parts = self.take_whole_granules(&content.slice(repeated..), step.end);
+        let parts = self.take_whole_granules(&added, end);
         let length = parts
             .iter()
             .try_fold(0_u64, |length, part| {
@@ -434,11 +406,12 @@ impl Call {
             })
             .ok_or_else(overflow)?;
         self.tail_start = persisted.checked_add(length).ok_or_else(overflow)?;
+        let finish = end.finishes();
         Ok(Piece {
             parts,
             length,
             end: ChunkEnd::Exact {
-                total: total.or(finish.then_some(end)),
+                total: total.or(finish.then_some(written)),
                 finalize: finish,
             },
         })
@@ -454,28 +427,24 @@ impl Call {
         self.tail_start = persisted;
     }
 
-    /// A stream's first message must start exactly at the persisted size; a later one may
-    /// repeat received bytes but not skip ahead.
-    fn check_offset(&self, offset: u64, received: u64) -> Result<(), Refusal> {
-        let mismatch = || {
-            Status::out_of_range(
-                "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
-            )
-        };
-        let refusal = match self.position {
-            // Recorded 2026-11-18.
-            MessagePosition::First if offset > received => with_reason(
-                Code::OutOfRange,
-                format!(
-                    "Upload request started at offset '{offset}', which is past expected offset '{received}'."
-                ),
-                "GRPC_UPLOAD_INVALID_START_OFFSET",
-            ),
-            MessagePosition::First if offset < received => mismatch(),
-            MessagePosition::Later if offset > received => mismatch(),
-            MessagePosition::First | MessagePosition::Later => return Ok(()),
-        };
-        Err(Refusal::Message(refusal))
+    /// A stream's first message must start exactly at the persisted size. A later one is held to
+    /// the shared rules: it may repeat received bytes but not skip past them.
+    fn check_first_offset(&self, offset: u64, received: u64) -> Result<(), Refusal> {
+        match self.position {
+            MessagePosition::Later => Ok(()),
+            MessagePosition::First => match offset.cmp(&received) {
+                std::cmp::Ordering::Equal => Ok(()),
+                // Recorded 2026-11-18.
+                std::cmp::Ordering::Greater => Err(Refusal::Message(with_reason(
+                    Code::OutOfRange,
+                    format!(
+                        "Upload request started at offset '{offset}', which is past expected offset '{received}'."
+                    ),
+                    "GRPC_UPLOAD_INVALID_START_OFFSET",
+                ))),
+                std::cmp::Ordering::Less => Err(Refusal::Message(resume_offset_mismatch())),
+            },
+        }
     }
 
     /// Adds `added` to the unpersisted tail and takes the bytes to persist now: everything on
@@ -509,4 +478,31 @@ impl Call {
             self.uploaded
         )))
     }
+}
+
+/// How a resumable message that [`upload::admit_bytes`] refuses leaves its session. Only a
+/// finishing message whose size misses `object_size` ends it. A message that skips past the
+/// received bytes is told to resume where the session stands, the remedy that fits a resumable
+/// write; every other refusal keeps the wording all write paths share.
+fn refusal(error: IntakeError, end: StepEnd) -> Refusal {
+    match error {
+        IntakeError::SizeMismatch { .. } if end.finishes() => {
+            Refusal::Session(intake_status(error))
+        }
+        IntakeError::Offset => Refusal::Message(resume_offset_mismatch()),
+        IntakeError::ChunkCrc(_)
+        | IntakeError::Overflow
+        | IntakeError::TooLarge
+        | IntakeError::SizeMismatch { .. }
+        | IntakeError::ObjectChecksum
+        | IntakeError::ConflictingChecksums
+        | IntakeError::ConsumerStopped => Refusal::Message(intake_status(error)),
+    }
+}
+
+/// The refusal of a resumable message that does not continue where its session stands.
+fn resume_offset_mismatch() -> Status {
+    Status::out_of_range(
+        "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
+    )
 }

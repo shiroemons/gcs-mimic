@@ -185,7 +185,7 @@ fn intake_status(error: IntakeError) -> Status {
         IntakeError::Offset => {
             Status::invalid_argument("write_offset must equal bytes already sent")
         }
-        IntakeError::ChunkCrc { .. } => {
+        IntakeError::ChunkCrc(_) => {
             Status::invalid_argument("Chunk CRC32C mismatch; recompute checksummed_data.crc32c")
         }
         IntakeError::Overflow | IntakeError::TooLarge => {
