@@ -1,9 +1,13 @@
 //! MoveObject and RestoreObject.
 
-use super::{Storage, convert, names, pb, status::unsupported};
+use super::{
+    Storage, convert, names,
+    object_io::conditions,
+    pb,
+    status::{invalid_field, unsupported},
+};
 use crate::{
     auth::{self, Caller},
-    grpc::validate::strict_conditions,
     object::{
         ObjectConditions, ObjectTarget,
         generation::{Generation, InvalidGeneration},
@@ -11,6 +15,23 @@ use crate::{
     storage::{MoveAccess, MoveConditions, MoveNames, RestoreAccess},
 };
 use tonic::{Request, Response, Status};
+
+/// One side's conditions of a MoveObject. Unlike the other object RPCs, which compare a match
+/// beside a not-match, Cloud Storage refuses the pair here, for the destination and the source,
+/// while a metageneration match of 0 is compared and fails (recorded 2026-11-18).
+fn move_conditions(requested: ObjectConditions) -> Result<ObjectConditions, Status> {
+    let requested = conditions(requested)?;
+    let generation_pair =
+        requested.if_generation_match.is_some() && requested.if_generation_not_match.is_some();
+    let metageneration_pair = requested.if_metageneration_match.is_some()
+        && requested.if_metageneration_not_match.is_some();
+    if generation_pair || metageneration_pair {
+        return Err(invalid_field(
+            "Found conflicting object preconditions. Mutually exclusive fields cannot be set simultaneously.",
+        ));
+    }
+    Ok(requested)
+}
 
 impl Storage {
     pub(super) async fn move_object(
@@ -24,8 +45,8 @@ impl Storage {
         let read = self.access(caller, bucket, auth::OBJECTS_GET).await?;
         let delete = self.access(caller, bucket, auth::OBJECTS_DELETE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
-        let sc = strict_conditions(r.source_conditions())?;
-        let dc = strict_conditions(ObjectConditions::from(&r))?;
+        let sc = move_conditions(r.source_conditions())?;
+        let dc = move_conditions(ObjectConditions::from(&r))?;
         let object_names = MoveNames {
             bucket: bucket.into(),
             source: source.into(),
@@ -75,7 +96,10 @@ impl Storage {
         let (bucket, name) = self.object_name(&r.bucket, &r.object)?;
         let restore = self.access(caller, bucket, auth::OBJECTS_RESTORE).await?;
         let create = self.access(caller, bucket, auth::OBJECTS_CREATE).await?;
-        let c = strict_conditions(ObjectConditions::from(&r))?;
+        // The bucket's soft delete policy is checked before the conditions, which the catalog
+        // then compares (recorded 2026-11-18 without a policy; with one, comparing is inferred
+        // from the other object RPCs).
+        let c = conditions(ObjectConditions::from(&r))?;
         let target = ObjectTarget::new(bucket, name, generation.get());
         let access = RestoreAccess {
             restore: &restore,
@@ -92,3 +116,6 @@ impl Storage {
         ))
     }
 }
+
+#[cfg(test)]
+mod conditions;

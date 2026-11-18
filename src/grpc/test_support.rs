@@ -97,6 +97,19 @@ pub(super) fn assert_unsupported<T>(result: Result<T, Status>, option: &str) {
     assert!(!status.details().is_empty(), "{option}");
 }
 
+/// A refused request answers INVALID_ARGUMENT with one `BadRequest` violation that repeats
+/// `message`, as Cloud Storage does.
+#[track_caller]
+pub(super) fn assert_bad_request<T>(result: Result<T, Status>, message: &str) {
+    use super::generated::google::rpc::{BadRequest, Status as RpcStatus};
+    use prost::Message;
+    let status = assert_code(result, Code::InvalidArgument);
+    assert_eq!(status.message(), message);
+    let details = RpcStatus::decode(status.details()).unwrap();
+    let violations = BadRequest::decode(details.details[0].value.as_slice()).unwrap();
+    assert_eq!(violations.field_violations[0].description, message);
+}
+
 /// Storage v2 request parameters carrying `key` as raw bytes, as the SDKs send it.
 pub(super) fn key_params(
     key: &[u8; 32],

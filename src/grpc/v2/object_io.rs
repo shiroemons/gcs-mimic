@@ -21,12 +21,14 @@ use tokio::sync::{mpsc, watch};
 use tonic::codegen::tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status, Streaming};
 
+mod object_mask;
 mod read;
 mod resource;
 mod resumable;
 mod upload_id;
 mod write;
 
+pub(super) use object_mask::starts_with_object_field;
 pub(super) use upload_id::UploadId;
 pub(super) use write::{Responses, WriteSpec, send};
 
@@ -47,15 +49,19 @@ pub(super) fn object_status(error: ObjectError) -> Status {
 }
 
 /// Maps the error of an RPC that names one object with Cloud Storage's `<bucket>/<object>`
-/// not-found wording; an unsupported setting keeps JSON's description.
+/// not-found wording; an unsupported setting keeps JSON's description. Every other failure
+/// keeps the shared conversion, with the details the JSON error has no place for.
 pub(super) fn naming_object<'a>(
     bucket: &'a str,
     name: &'a str,
 ) -> impl Fn(ObjectError) -> Status + 'a {
     move |error| {
-        json::JsonError::from(error)
-            .naming_object(bucket, name)
-            .into()
+        if matches!(error, ObjectError::ObjectNotFound) {
+            return Status::not_found(crate::storage::failure::wording::missing_named_object(
+                bucket, name,
+            ));
+        }
+        error.into()
     }
 }
 

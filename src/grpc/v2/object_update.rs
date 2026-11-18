@@ -1,6 +1,9 @@
-use super::{bucket_update::acl_entries, pb, status::unsupported};
+use super::{
+    bucket_update::acl_entries, mask::unknown_field, object_io::starts_with_object_field, pb,
+    status::unsupported,
+};
 use crate::{
-    acl::{AclKind, PredefinedObjectAcl},
+    acl::{AclKind, AclRequest, PredefinedObjectAcl},
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     metadata_error::MetadataError,
     object::{
@@ -12,10 +15,97 @@ use crate::{
 use std::collections::HashMap;
 use tonic::Status;
 
+/// An UpdateObject `update_mask` path, parsed once before it is applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UpdatePath {
+    /// `metadata`: merges the request's entries, or clears the map when it has none.
+    Metadata,
+    /// `metadata.<key>`: sets one entry, or removes it when the request does not carry the
+    /// key. `metadata.` names the empty key, which Cloud Storage updated (recorded 2026-11-17,
+    /// case obj-gaps-empty-metadata-key); the pinned Go SDK sends it for that key.
+    MetadataKey(String),
+    ContentType,
+    ContentEncoding,
+    ContentDisposition,
+    ContentLanguage,
+    CacheControl,
+    CustomTime,
+    TemporaryHold,
+    EventBasedHold,
+    Acl,
+    Retention,
+}
+
+impl std::str::FromStr for UpdatePath {
+    type Err = UnappliedUpdatePath;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        Ok(match path {
+            "metadata" => Self::Metadata,
+            "content_type" => Self::ContentType,
+            "content_encoding" => Self::ContentEncoding,
+            "content_disposition" => Self::ContentDisposition,
+            "content_language" => Self::ContentLanguage,
+            "cache_control" => Self::CacheControl,
+            "custom_time" => Self::CustomTime,
+            "temporary_hold" => Self::TemporaryHold,
+            "event_based_hold" => Self::EventBasedHold,
+            "acl" => Self::Acl,
+            "retention" => Self::Retention,
+            path => match path.strip_prefix("metadata.") {
+                Some(key) => Self::MetadataKey(key.into()),
+                None => return Err(UnappliedUpdatePath::from(path)),
+            },
+        })
+    }
+}
+
+/// An `update_mask` path UpdateObject does not apply.
+#[derive(Debug, PartialEq, Eq)]
+enum UnappliedUpdatePath {
+    /// A field the service alone sets. Cloud Storage accepts the path and changes nothing but
+    /// the metageneration (recorded 2026-11-18 for `create_time` and `update_time`); the other
+    /// fields the proto marks `OUTPUT_ONLY` are taken the same way. The pinned Go SDK names
+    /// `create_time` in an ordinary empty update.
+    OutputOnly,
+    /// An `Object` field, or a path under one, that gcs-mimic does not update, and `*` beside
+    /// other paths.
+    Unsupported(String),
+    /// A path whose first segment names no `Object` field.
+    Unknown(String),
+}
+
+impl From<&str> for UnappliedUpdatePath {
+    fn from(path: &str) -> Self {
+        match path {
+            "restore_token"
+            | "metageneration"
+            | "size"
+            | "delete_time"
+            | "finalize_time"
+            | "create_time"
+            | "component_count"
+            | "checksums"
+            | "update_time"
+            | "update_storage_class_time"
+            | "owner"
+            | "soft_delete_time"
+            | "hard_delete_time" => Self::OutputOnly,
+            path if path == "*" || starts_with_object_field(path) => Self::Unsupported(path.into()),
+            path => Self::Unknown(path.into()),
+        }
+    }
+}
+
 pub(super) fn from_proto(
     object: &pb::Object,
     paths: &[String],
 ) -> Result<ObjectMetadataUpdate, Status> {
+    if let [only] = paths
+        && only == "*"
+    {
+        return replacement(object);
+    }
     if paths.iter().any(|path| path == "metadata")
         && paths.iter().any(|path| path.starts_with("metadata."))
     {
@@ -24,53 +114,84 @@ pub(super) fn from_proto(
         ));
     }
     let mut update = ObjectMetadataUpdate::default();
+    // Each path is parsed and applied before the next one is read, so the first failing path in
+    // mask order names the error, whether it is refused or its value is invalid.
     for path in paths {
-        match path.as_str() {
-            "metadata" => update.metadata = masked_metadata(&object.metadata),
-            // `metadata.` names the empty key, which Cloud Storage updated (recorded 2026-11-17,
-            // case obj-gaps-empty-metadata-key); the pinned Go SDK sends it for that key.
-            path if let Some(key) = path.strip_prefix("metadata.") => {
-                update
-                    .metadata
-                    .merge_entry(key.into(), object.metadata.get(key).cloned());
-            }
-            "content_type" => update.content_type = Patch::Set(object.content_type.clone()),
-            // A proto3 string cannot tell empty from unset: an empty masked field clears it.
-            "content_encoding" => {
-                update.content_encoding = Patch::nullable(set(&object.content_encoding))
-            }
-            "content_disposition" => {
-                update.content_disposition = Patch::nullable(set(&object.content_disposition))
-            }
-            "content_language" => {
-                update.content_language = Patch::nullable(set(&object.content_language))
-            }
-            "cache_control" => update.cache_control = Patch::nullable(set(&object.cache_control)),
-            "custom_time" => {
-                update.custom_time =
-                    Patch::nullable(object.custom_time.map(|time| time.to_string()))
-            }
-            "temporary_hold" => update.temporary_hold = Some(object.temporary_hold),
-            "event_based_hold" => {
-                update.event_based_hold = Some(object.event_based_hold.unwrap_or(false))
-            }
-            "acl" => {
-                update.acl = crate::acl::AclRequest::Entries(acl_entries(
-                    AclKind::Object,
-                    object.acl.iter().map(|entry| (&entry.entity, &entry.role)),
-                )?)
-            }
-            "retention" => {
-                update.retention = Patch::nullable(retention(object.retention.as_ref())?)
-            }
-            // The pinned Go SDK includes this output-only path in an ordinary empty update.
-            "create_time" => {}
-            _ => {
+        match path.parse() {
+            Ok(path) => apply_path(&mut update, object, path)?,
+            Err(UnappliedUpdatePath::OutputOnly) => {}
+            Err(UnappliedUpdatePath::Unsupported(path)) => {
                 return Err(unsupported(&format!(
                     "UpdateObject update_mask {path}; use metadata or content_type"
                 )));
             }
+            Err(UnappliedUpdatePath::Unknown(path)) => return Err(unknown_field(&path)),
         }
+    }
+    validate(&update)?;
+    Ok(update)
+}
+
+fn apply_path(
+    update: &mut ObjectMetadataUpdate,
+    object: &pb::Object,
+    path: UpdatePath,
+) -> Result<(), Status> {
+    match path {
+        UpdatePath::Metadata => update.metadata = masked_metadata(&object.metadata),
+        UpdatePath::MetadataKey(key) => {
+            let value = object.metadata.get(&key).cloned();
+            update.metadata.merge_entry(key, value);
+        }
+        UpdatePath::ContentType => update.content_type = Patch::Set(object.content_type.clone()),
+        // A proto3 string cannot tell empty from unset: an empty masked field clears it.
+        UpdatePath::ContentEncoding => {
+            update.content_encoding = Patch::nullable(set(&object.content_encoding));
+        }
+        UpdatePath::ContentDisposition => {
+            update.content_disposition = Patch::nullable(set(&object.content_disposition));
+        }
+        UpdatePath::ContentLanguage => {
+            update.content_language = Patch::nullable(set(&object.content_language));
+        }
+        UpdatePath::CacheControl => {
+            update.cache_control = Patch::nullable(set(&object.cache_control));
+        }
+        UpdatePath::CustomTime => {
+            update.custom_time = Patch::nullable(object.custom_time.map(|time| time.to_string()));
+        }
+        UpdatePath::TemporaryHold => update.temporary_hold = Some(object.temporary_hold),
+        UpdatePath::EventBasedHold => {
+            update.event_based_hold = Some(object.event_based_hold.unwrap_or(false));
+        }
+        UpdatePath::Acl => update.acl = acl_request(object)?,
+        UpdatePath::Retention => {
+            update.retention = Patch::nullable(retention(object.retention.as_ref())?);
+        }
+    }
+    Ok(())
+}
+
+/// The ACL an `Object` in a request lists, as a JSON resource's `acl` array is taken.
+fn acl_request(object: &pb::Object) -> Result<AclRequest, Status> {
+    Ok(AclRequest::Entries(acl_entries(
+        AclKind::Object,
+        object.acl.iter().map(|entry| (&entry.entity, &entry.role)),
+    )?))
+}
+
+/// The change a `*` mask makes: the request's object replaces the editable metadata, as a JSON
+/// PUT does. Cloud Storage cleared the content language, the cache control and the custom
+/// metadata of an object for a `*` update that carried only a content type, and left its ACL
+/// (recorded 2026-11-18). An ACL or a retention the request does carry is applied as its own
+/// path applies it; one it leaves out is kept, which for the retention is not recorded.
+fn replacement(object: &pb::Object) -> Result<ObjectMetadataUpdate, Status> {
+    let mut update = for_write(object);
+    if !object.acl.is_empty() {
+        update.acl = acl_request(object)?;
+    }
+    if let Some(retention) = retention(object.retention.as_ref())? {
+        update.retention = Patch::Set(retention);
     }
     validate(&update)?;
     Ok(update)
@@ -211,6 +332,74 @@ mod tests {
     }
     use super::*;
     use prost::Message;
+
+    #[test]
+    fn update_paths_separate_output_only_unsupported_and_unknown_paths() {
+        assert_eq!("metadata".parse(), Ok(UpdatePath::Metadata));
+        assert_eq!(
+            "metadata.a.b".parse(),
+            Ok(UpdatePath::MetadataKey("a.b".into()))
+        );
+        assert_eq!("metadata.".parse(), Ok(UpdatePath::MetadataKey("".into())));
+        for (path, unapplied) in [
+            // Recorded 2026-11-18 for these two; the rest follow the proto's OUTPUT_ONLY.
+            ("create_time", UnappliedUpdatePath::OutputOnly),
+            ("update_time", UnappliedUpdatePath::OutputOnly),
+            ("owner", UnappliedUpdatePath::OutputOnly),
+            ("checksums", UnappliedUpdatePath::OutputOnly),
+            ("*", UnappliedUpdatePath::Unsupported("*".into())),
+            ("name", UnappliedUpdatePath::Unsupported("name".into())),
+            (
+                "storage_class",
+                UnappliedUpdatePath::Unsupported("storage_class".into()),
+            ),
+            (
+                "retention.mode",
+                UnappliedUpdatePath::Unsupported("retention.mode".into()),
+            ),
+            (
+                "owner.entity",
+                UnappliedUpdatePath::Unsupported("owner.entity".into()),
+            ),
+            // Recorded 2026-11-18.
+            (
+                "no_such_field",
+                UnappliedUpdatePath::Unknown("no_such_field".into()),
+            ),
+            (
+                "no_such_field.entity",
+                UnappliedUpdatePath::Unknown("no_such_field.entity".into()),
+            ),
+            ("", UnappliedUpdatePath::Unknown(String::new())),
+        ] {
+            assert_eq!(path.parse::<UpdatePath>(), Err(unapplied), "{path}");
+        }
+    }
+
+    /// Recorded 2026-11-18: `*` with only a content type cleared the other content fields and
+    /// the custom metadata.
+    #[test]
+    fn a_wildcard_mask_replaces_the_editable_metadata() {
+        let object = pb::Object {
+            content_type: "text/x-wildcard".into(),
+            ..Default::default()
+        };
+        let update = from_proto(&object, &["*".into()]).unwrap();
+        assert_eq!(update.write, WriteMode::Replace);
+        assert_eq!(update.content_type, Patch::Set("text/x-wildcard".into()));
+        assert_eq!(update.acl, AclRequest::Omitted);
+        assert_eq!(update.retention, Patch::Keep);
+        let listed = pb::Object {
+            acl: vec![pb::ObjectAccessControl {
+                entity: "allUsers".into(),
+                role: "READER".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let update = from_proto(&listed, &["*".into()]).unwrap();
+        assert_eq!(update.acl.entries().map(<[_]>::len), Some(1));
+    }
 
     #[test]
     fn object_updates_preserve_map_modes_and_explicit_resets() {

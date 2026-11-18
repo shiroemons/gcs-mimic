@@ -346,16 +346,14 @@ fn object_cases() -> Vec<Case<ObjectError>> {
                 "Soft delete policy is required to list soft-deleted versions",
             ),
         ),
+        // Recorded 2026-11-18 on GetObject and RestoreObject.
         case(
             ObjectError::SoftDeletePolicyRequired(SoftDeletedRequest::Get),
-            plain(
-                Code::InvalidArgument,
-                "Soft delete policy is required to request a soft-deleted version.",
-            ),
+            field_violation("Soft delete policy is required to request a soft-deleted version."),
         ),
         case(
             ObjectError::SoftDeletePolicyRequired(SoftDeletedRequest::Restore),
-            plain(Code::InvalidArgument, "bucket soft delete policy must be set."),
+            field_violation("bucket soft delete policy must be set."),
         ),
         case(
             ObjectError::Denied(denied()),
@@ -372,9 +370,13 @@ fn object_cases() -> Vec<Case<ObjectError>> {
                 "The resource you requested has not been modified according to the condition you specified.",
             ),
         ),
+        // Recorded 2026-11-18 on DeleteObject, UpdateObject, WriteObject and RewriteObject.
         case(
             ObjectError::WriteNotModified,
-            plain(Code::FailedPrecondition, PRECONDITION),
+            plain(
+                Code::FailedPrecondition,
+                "The resource you requested has not been modified according to the condition you specified.",
+            ),
         ),
         case(
             ObjectError::ChecksumMismatch,
@@ -454,8 +456,8 @@ fn object_cases() -> Vec<Case<ObjectError>> {
                 destination: StorageClass::Standard,
                 sources: vec![StorageClass::Nearline, StorageClass::Coldline],
             },
-            plain(
-                Code::InvalidArgument,
+            // The BadRequest was recorded 2026-11-18 with one differing class.
+            field_violation(
                 "Cannot compose object with destination storage class STANDARD from source components that have different storage classes (NEARLINE, COLDLINE).",
             ),
         ),
@@ -762,14 +764,19 @@ fn every_object_error_has_its_storage_v2_status() {
     }
 }
 
-/// Handlers that name the object they act on still convert through the JSON error to reword a
-/// missing object, so that path must report every other failure as the direct conversion does.
+/// Handlers that name the object they act on reword a missing object and must report every
+/// other failure, with its details, as the direct conversion does.
 #[test]
-fn the_json_error_path_reports_object_errors_alike() {
+fn the_object_naming_path_reports_object_errors_alike() {
+    let named = crate::grpc::v2::object_io::naming_object("bucket", "object");
     for Case { error, reply, .. } in object_cases() {
         let label = format!("{error:?}");
-        let status = Status::from(crate::json::JsonError::from(error));
-        assert_eq!(Reply::of(&status), reply, "{label}");
+        let expected = if error == ObjectError::ObjectNotFound {
+            plain(Code::NotFound, "No such object: bucket/object")
+        } else {
+            reply
+        };
+        assert_eq!(Reply::of(&named(error)), expected, "{label}");
     }
 }
 
