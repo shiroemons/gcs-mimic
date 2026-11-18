@@ -64,7 +64,7 @@ async fn update_object_refuses_malformed_and_unmodeled_requests_without_changing
             ..relabel()
         })
         .await,
-        "update_mask is required; use paths such as content_type or versioning.enabled",
+        "Invalid update_mask. Requests should specify at least one update field.",
     );
     assert_invalid(
         update(pb::UpdateObjectRequest {
