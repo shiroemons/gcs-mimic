@@ -111,7 +111,7 @@ pub(super) async fn respond(
             .ok_or(CatalogError::NotFound)?;
         json::reject_predefined_acl(
             request.uri().query(),
-            json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+            crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
             json::PredefinedAclTarget::DerivedObject,
             &destination_access,
         )?;

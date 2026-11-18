@@ -252,6 +252,27 @@ impl From<bool> for UniformAccessRequest {
     }
 }
 
+/// Whether uniform bucket-level access governs the bucket a request targets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum UniformAccess {
+    Enabled,
+    Disabled,
+}
+
+impl UniformAccess {
+    /// Enabled once the bucket records a lock time, or when the request itself enables it.
+    pub(crate) fn of(
+        locked_time: Option<SystemTime>,
+        requested: Option<UniformAccessRequest>,
+    ) -> Self {
+        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
+            Self::Enabled
+        } else {
+            Self::Disabled
+        }
+    }
+}
+
 /// What a bucket write does to the retention policy.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum RetentionPolicyUpdate {

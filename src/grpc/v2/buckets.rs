@@ -272,7 +272,7 @@ impl Storage {
     }
 
     fn apply_bucket_acl(&self, bucket: &mut pb::Bucket, acl: &crate::storage::AclProjection) {
-        use crate::json::acl::AclOwner;
+        use crate::acl::AclOwner;
         // Cloud Storage answers a uniform-access bucket without its owner as well as its ACLs
         // (recorded 2026-11-13), as JSON does.
         if acl.uniform_access {

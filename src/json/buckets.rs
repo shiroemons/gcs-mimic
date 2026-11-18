@@ -2,8 +2,9 @@ use super::{JsonError, Projection, WriteMode, query::validate_project};
 use crate::bucket::{
     BucketMetadataUpdate, BucketRecord, CorsRule, Location, LocationKind, PublicAccessPrevention,
     RETENTION_RANGE_MESSAGE, RetentionPeriod, RetentionPolicyUpdate, SOFT_DELETE_RANGE_MESSAGE,
-    SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccessRequest, Versioning,
-    VersioningUpdate, cors_from_value, cors_value, valid_label, validate_storage_class,
+    SoftDeletedBucket, StorageClass, UNIFORM_ACCESS_LOCK_PERIOD, UniformAccess,
+    UniformAccessRequest, Versioning, VersioningUpdate, cors_from_value, cors_value, valid_label,
+    validate_storage_class,
 };
 use crate::bucket::{autoclass::AutoclassState, lifecycle::LifecycleRules};
 use crate::config::CompatProfile;
@@ -791,27 +792,6 @@ fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, JsonError>
             Ok(rules)
         })
         .transpose()
-}
-
-/// Whether uniform bucket-level access governs the bucket a request targets.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum UniformAccess {
-    Enabled,
-    Disabled,
-}
-
-impl UniformAccess {
-    /// Enabled once the bucket records a lock time, or when the request itself enables it.
-    pub(crate) fn of(
-        locked_time: Option<SystemTime>,
-        requested: Option<UniformAccessRequest>,
-    ) -> Self {
-        if locked_time.is_some() || requested.is_some_and(|request| request.enabled(locked_time)) {
-            Self::Enabled
-        } else {
-            Self::Disabled
-        }
-    }
 }
 
 /// The resource a predefined ACL query parameter would apply to.

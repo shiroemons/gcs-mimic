@@ -68,6 +68,75 @@ impl<G> AclTarget<G> {
     }
 }
 
+/// The resource that owns rendered entries, at the version their etags carry. The JSON API
+/// and Storage v2 gRPC render the same IDs and etags for an entry.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum AclOwner<'a> {
+    Bucket {
+        bucket: &'a str,
+        metageneration: i64,
+    },
+    /// Default object ACL entries describe future objects, so they name no resource.
+    DefaultObject { metageneration: i64 },
+    Object {
+        bucket: &'a str,
+        name: &'a str,
+        generation: i64,
+        metageneration: i64,
+    },
+}
+
+impl<'a> AclOwner<'a> {
+    /// The owner of the entries a read or change of `target` returned at `metageneration`.
+    pub(crate) fn of(target: &'a AclTarget<i64>, metageneration: i64) -> Self {
+        match target {
+            AclTarget::Bucket(bucket) => Self::Bucket {
+                bucket,
+                metageneration,
+            },
+            AclTarget::DefaultObject(_) => Self::DefaultObject { metageneration },
+            AclTarget::Object {
+                bucket,
+                name,
+                generation,
+            } => Self::Object {
+                bucket,
+                name,
+                generation: *generation,
+                metageneration,
+            },
+        }
+    }
+
+    /// The resource ID of an entry; `None` for default object ACL entries, which describe
+    /// future objects.
+    pub(crate) fn entry_id(self, entity: &Entity) -> Option<String> {
+        match self {
+            Self::Bucket { bucket, .. } => Some(format!("{bucket}/{entity}")),
+            Self::DefaultObject { .. } => None,
+            Self::Object {
+                bucket,
+                name,
+                generation,
+                ..
+            } => Some(format!("{bucket}/{name}/{generation}/{entity}")),
+        }
+    }
+
+    pub(crate) fn etag(self) -> String {
+        match self {
+            Self::Bucket { metageneration, .. } | Self::DefaultObject { metageneration, .. } => {
+                crate::etag::revision_etag(None, metageneration)
+            }
+            Self::Object {
+                generation,
+                metageneration,
+                ..
+            } => crate::etag::revision_etag(Some(generation), metageneration),
+        }
+    }
+}
+
 /// One ACL grant. Stored rows decode the entity's form; the size cap and the role per kind are
 /// the write policy that [`validate_entries`] applies.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -8,11 +8,11 @@ use super::{
     query::{common, finish_for_profile},
     validate_object_name,
 };
-use crate::etag::revision_etag;
 use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     acl::{
-        AclEntry, AclKind, AclRole, AclTarget, Entity, ProjectTeam, parse_entity, validate_role,
+        AclEntry, AclKind, AclOwner, AclRole, AclTarget, Entity, ProjectTeam, parse_entity,
+        validate_role,
     },
     bucket::BucketConditions,
     config::CompatProfile,
@@ -345,73 +345,8 @@ fn entity_fields(resource: &mut Map<String, Value>, entity: &Entity) {
     }
 }
 
-/// The resource that owns rendered entries, at the version their etags carry.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum AclOwner<'a> {
-    Bucket {
-        bucket: &'a str,
-        metageneration: i64,
-    },
-    /// Default object ACL entries describe future objects, so they name no resource.
-    DefaultObject { metageneration: i64 },
-    Object {
-        bucket: &'a str,
-        name: &'a str,
-        generation: i64,
-        metageneration: i64,
-    },
-}
-
-impl<'a> AclOwner<'a> {
-    /// The owner of the entries a read or change of `target` returned at `metageneration`.
-    pub(crate) fn of(target: &'a AclTarget<i64>, metageneration: i64) -> Self {
-        match target {
-            AclTarget::Bucket(bucket) => Self::Bucket {
-                bucket,
-                metageneration,
-            },
-            AclTarget::DefaultObject(_) => Self::DefaultObject { metageneration },
-            AclTarget::Object {
-                bucket,
-                name,
-                generation,
-            } => Self::Object {
-                bucket,
-                name,
-                generation: *generation,
-                metageneration,
-            },
-        }
-    }
-
-    /// The resource ID of an entry; `None` for default object ACL entries, which describe
-    /// future objects.
-    pub(crate) fn entry_id(self, entity: &Entity) -> Option<String> {
-        match self {
-            Self::Bucket { bucket, .. } => Some(format!("{bucket}/{entity}")),
-            Self::DefaultObject { .. } => None,
-            Self::Object {
-                bucket,
-                name,
-                generation,
-                ..
-            } => Some(format!("{bucket}/{name}/{generation}/{entity}")),
-        }
-    }
-
-    pub(crate) fn etag(self) -> String {
-        match self {
-            Self::Bucket { metageneration, .. } | Self::DefaultObject { metageneration, .. } => {
-                revision_etag(None, metageneration)
-            }
-            Self::Object {
-                generation,
-                metageneration,
-                ..
-            } => revision_etag(Some(generation), metageneration),
-        }
-    }
-
+/// The JSON resource kinds of the entries an owner holds.
+impl AclOwner<'_> {
     fn resource_kind(self) -> &'static str {
         match self {
             Self::Bucket { .. } => "storage#bucketAccessControl",

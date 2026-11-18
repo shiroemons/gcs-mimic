@@ -1,6 +1,6 @@
 use super::{iam, pb};
 use crate::{
-    acl::{AclEntry, Entity},
+    acl::{AclEntry, AclOwner, Entity},
     auth,
     bucket::{
         BucketRecord, CatalogError, CorsRule,
@@ -10,7 +10,6 @@ use crate::{
         },
     },
     csek::StoredHashes,
-    json::acl::AclOwner,
     object::{ObjectError, ObjectRecord, retention::RetentionMode, unix_nanos::UnixNanos},
     project::ProjectNumber,
 };

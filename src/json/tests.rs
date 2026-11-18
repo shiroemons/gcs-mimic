@@ -1,6 +1,6 @@
 use super::*;
 use crate::bounded_body::read_body;
-use crate::bucket::{BucketRecord, CatalogError, Rpo};
+use crate::bucket::{BucketRecord, CatalogError, Rpo, UniformAccess};
 use crate::config::CompatProfile;
 use crate::page_token::{decode_page_token, encode_page_token};
 use crate::time_format::{http_date, timestamp, timestamp_micros};

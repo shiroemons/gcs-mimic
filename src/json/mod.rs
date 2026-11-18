@@ -40,8 +40,7 @@ pub(crate) mod rewrite;
 pub(crate) use crate::object::WriteMode;
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
-    BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_predefined_acls,
-    reject_predefined_acl,
+    BucketAclWrite, PredefinedAclTarget, bucket_predefined_acls, reject_predefined_acl,
 };
 #[cfg(test)]
 pub(crate) use buckets::{BucketPredefinedAcls, bucket_resource};

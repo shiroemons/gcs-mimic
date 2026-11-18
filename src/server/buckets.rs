@@ -358,7 +358,7 @@ async fn write(
         .ok_or(CatalogError::NotFound)?;
     let predefined = json::bucket_predefined_acls(
         acl_query.as_deref(),
-        json::UniformAccess::of(
+        crate::bucket::UniformAccess::of(
             record.uniform_bucket_level_access_locked_time,
             update.uniform_bucket_level_access_enabled,
         ),
@@ -514,7 +514,7 @@ async fn insert(
     let name = record.name.clone();
     json::bucket_predefined_acls(
         acl_query.as_deref(),
-        json::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
+        crate::bucket::UniformAccess::of(record.uniform_bucket_level_access_locked_time, None),
         json::BucketAclWrite::Insert,
         profile,
     )?;

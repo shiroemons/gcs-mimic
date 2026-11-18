@@ -6,12 +6,12 @@ use super::{
     json_response_selected, read_metadata_response, require_empty_body,
 };
 use crate::{
-    acl::{AclEntry, AclKind, AclTarget},
+    acl::{AclEntry, AclKind, AclOwner, AclTarget},
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord},
     json::{
         self, JsonError,
-        acl::{AclAccess, AclOperation, AclOwner, AclRequest},
+        acl::{AclAccess, AclOperation, AclRequest},
     },
     object::{ObjectRecord, owner::ObjectOwner},
     storage::{AclChange, AclError, AclProjection, AclState, ObjectAcl},
