@@ -876,6 +876,37 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
+    /// The ETag fixes the metageneration the update applies to, so when another update lands
+    /// between the lifecycle check and the write, the update fails at once with
+    /// FAILED_PRECONDITION and changes nothing, instead of retrying and answering ABORTED as an
+    /// update without an ETag or a metageneration match does
+    /// (grpc_lifecycle_precheck_stops_after_three_conflicts).
+    #[tokio::test]
+    async fn grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes() {
+        let (s, _dir) = setup().await;
+        let before = stored_bucket(&s).await;
+        let mut request = lifecycle_label_update(BucketConditions::default());
+        request.bucket.as_mut().unwrap().etag = convert::bucket(&before, convert::Lifecycle::Omit)
+            .unwrap()
+            .etag;
+        let writes = RefCell::new(VecDeque::from([json!({"defaultEventBasedHold":true})]));
+        let status = assert_code(
+            BUCKET_PRECHECK_UPDATES
+                .scope(writes, s.update_bucket(Request::new(request), None))
+                .await,
+            Code::FailedPrecondition,
+        );
+        assert_eq!(
+            status.message(),
+            Status::from(CatalogError::PreconditionFailed).message()
+        );
+        let after = stored_bucket(&s).await;
+        assert_eq!(after.metageneration, before.metageneration + 1);
+        assert_eq!(after.labels, before.labels);
+        assert!(after.default_event_based_hold);
+        s.state.catalog.close().await.unwrap();
+    }
+
     /// Strict LockBucketRetentionPolicy needs storage.buckets.update on the bucket, checked
     /// before the bucket is looked up; a refused lock leaves the policy unlocked.
     #[tokio::test]
