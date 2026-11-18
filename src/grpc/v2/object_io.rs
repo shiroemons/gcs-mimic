@@ -8,7 +8,6 @@ use crate::{
         upload::{self, EndMarker, Intake, IntakeError, Resend},
         validate::{self, NegativeGeneration},
     },
-    json,
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget, UploadChunk,
         generation::Generation,

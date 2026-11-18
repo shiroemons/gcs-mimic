@@ -212,7 +212,7 @@ fn parse_v2(
 fn continuation_cursor(token: &str, query: &ObjectListQuery) -> Result<ObjectListCursor, Error> {
     token
         .strip_prefix(CONTINUATION_PREFIX)
-        .and_then(|payload| json::decode_object_page_token(payload, query).ok())
+        .and_then(|payload| crate::page_token::decode_object_page_token(payload, query).ok())
         .ok_or_else(Error::invalid_page_token)
 }
 
@@ -404,7 +404,7 @@ fn render_header_v2(
             "NextContinuationToken",
             &format!(
                 "{CONTINUATION_PREFIX}{}",
-                json::encode_object_page_token(cursor)
+                crate::page_token::encode_object_page_token(cursor)
             ),
         );
     }

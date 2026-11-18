@@ -453,7 +453,7 @@ impl Storage {
         let start = if request.page_token.is_empty() {
             None
         } else {
-            Some(json::decode_page_token(
+            Some(crate::page_token::decode_page_token(
                 &request.page_token,
                 project,
                 &request.prefix,
@@ -468,7 +468,7 @@ impl Storage {
         // A continuation page is never empty, so its last bucket always names the next start.
         let next_page_token = match page.items.last() {
             Some(last) if page.has_more => {
-                json::encode_page_token(project, &request.prefix, &last.name)?
+                crate::page_token::encode_page_token(project, &request.prefix, &last.name)?
             }
             _ => String::new(),
         };

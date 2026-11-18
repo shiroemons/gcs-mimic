@@ -205,7 +205,7 @@ async fn grpc_list_soft_deleted_objects_strict() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     catalog
             .insert_bucket(
-                json::parse_insert(
+                crate::json::parse_insert(
                     br#"{"name":"update-copy-bucket","softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
                     "p",
                     std::time::SystemTime::now(),

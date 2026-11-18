@@ -1,7 +1,7 @@
 use super::{
-    EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, decode_page_token,
-    integer::take_int64,
+    EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, integer::take_int64,
 };
+use crate::page_token::decode_page_token;
 use crate::{
     bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
     config::CompatProfile,
@@ -406,7 +406,7 @@ fn soft_deleted_list(
     let start_after = query
         .remove("pageToken")
         .filter(|token| !token.is_empty())
-        .map(|token| super::decode_soft_deleted_page_token(&token, &project, &prefix))
+        .map(|token| crate::page_token::decode_soft_deleted_page_token(&token, &project, &prefix))
         .transpose()?;
     finish(query)?;
     Ok(BucketRequest::ListSoftDeleted(SoftDeletedListParams {

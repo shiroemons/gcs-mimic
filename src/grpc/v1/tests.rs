@@ -550,7 +550,7 @@ async fn list_buckets_without_project_spans_projects_with_paging() {
         .into_inner();
     assert_eq!(names(&rest), ["list-c"]);
     assert!(rest.next_page_token.is_empty());
-    let project_token = json::encode_page_token("p1", "list-", "list-a").unwrap();
+    let project_token = crate::page_token::encode_page_token("p1", "list-", "list-a").unwrap();
     assert_code(
         Legacy::list_buckets(&storage, list("", None, 2, &project_token)).await,
         tonic::Code::InvalidArgument,

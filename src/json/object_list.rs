@@ -76,7 +76,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         FoldersAsPrefixes::Omitted
     })?;
     if let Some(token) = params.remove("pageToken").filter(|token| !token.is_empty()) {
-        query.cursor = Some(super::page_token::decode_object_page_token(&token, &query)?);
+        query.cursor = Some(crate::page_token::decode_object_page_token(&token, &query)?);
     }
     // objects.list ignores a query parameter it does not declare, such as the autoPaginate
     // option @google-cloud/storage 9.0.0 Bucket#getFiles sends: Cloud Storage listed the objects
@@ -117,7 +117,7 @@ pub(crate) fn object_list(
     if let Some(cursor) = &page.next {
         value.insert(
             "nextPageToken".into(),
-            super::page_token::encode_object_page_token(cursor).into(),
+            crate::page_token::encode_object_page_token(cursor).into(),
         );
     }
     if !page.prefixes.is_empty() {
@@ -160,7 +160,7 @@ mod tests {
         assert!(value.get("prefixes").is_none());
         assert_eq!(
             value["nextPageToken"],
-            super::super::page_token::encode_object_page_token(&cursor)
+            crate::page_token::encode_object_page_token(&cursor)
         );
     }
 }

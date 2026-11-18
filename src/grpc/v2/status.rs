@@ -217,6 +217,12 @@ fn metadata(error: &MetadataError, unsupported: fn(&str) -> String) -> Status {
     }
 }
 
+impl From<crate::page_token::PageTokenError> for Status {
+    fn from(error: crate::page_token::PageTokenError) -> Self {
+        Status::invalid_argument(error.to_string())
+    }
+}
+
 impl From<crate::auth::InvalidProjectId> for Status {
     fn from(error: crate::auth::InvalidProjectId) -> Self {
         Status::invalid_argument(error.to_string())

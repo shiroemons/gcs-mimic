@@ -594,7 +594,9 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, 
         .items
         .last()
         .filter(|_| page.has_more)
-        .map(|last| json::encode_page_token(&params.project, &params.prefix, &last.name))
+        .map(|last| {
+            crate::page_token::encode_page_token(&params.project, &params.prefix, &last.name)
+        })
         .transpose()?;
     let value = json::bucket_list_with_profile(
         &page.items,
@@ -628,7 +630,7 @@ async fn list_soft_deleted(
         .last()
         .filter(|_| page.has_more)
         .map(|last| {
-            json::encode_soft_deleted_page_token(
+            crate::page_token::encode_soft_deleted_page_token(
                 &params.project,
                 &params.prefix,
                 &last.record.name,

@@ -31,7 +31,6 @@ mod object_move;
 mod object_restore;
 mod object_retention;
 mod objects;
-mod page_token;
 mod projects;
 mod query;
 pub(crate) mod resumable;
@@ -105,11 +104,6 @@ pub(crate) use objects::{
     object_resource, range_request, rebase_object_links, route_object_with_profile,
     unsupported_upload_type, upload_content_type, validate_keyed_object_headers,
     validate_object_get_headers, validate_object_name,
-};
-pub(crate) use page_token::{
-    decode_all_projects_page_token, decode_object_page_token, decode_page_token,
-    decode_soft_deleted_page_token, encode_all_projects_page_token, encode_object_page_token,
-    encode_page_token, encode_soft_deleted_page_token,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,

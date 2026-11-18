@@ -4,11 +4,11 @@
 //! project and performs catalog operations. The supported subset is recorded in
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::{encode_segment, timestamp};
-use super::page_token::{self, CursorTag};
 use super::query::{common, finish_for_profile};
 use super::{Fields, JsonError, Schema};
 use crate::auth::ProjectId;
 use crate::config::CompatProfile;
+use crate::page_token::{self, CursorTag};
 use crate::percent::{Decoding, decode, parse_query};
 use crate::storage::Page;
 use crate::storage::hmac_keys::{HmacKeyError, HmacKeyRecord, HmacKeyState};

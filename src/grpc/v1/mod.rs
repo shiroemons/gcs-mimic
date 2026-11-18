@@ -32,6 +32,7 @@ use crate::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch,
         WriteMode, generation::Generation,
     },
+    page_token::{self, PageTokenError},
     server::State,
 };
 use std::sync::Arc;
@@ -211,17 +212,17 @@ impl<'a> ProjectScope<'a> {
         }
     }
 
-    fn decode_token(self, token: &str, prefix: &str) -> Result<String, json::JsonError> {
+    fn decode_token(self, token: &str, prefix: &str) -> Result<String, PageTokenError> {
         match self {
-            Self::All => json::decode_all_projects_page_token(token, prefix),
-            Self::One(project) => json::decode_page_token(token, project, prefix),
+            Self::All => page_token::decode_all_projects_page_token(token, prefix),
+            Self::One(project) => page_token::decode_page_token(token, project, prefix),
         }
     }
 
-    fn encode_token(self, prefix: &str, last: &str) -> Result<String, json::JsonError> {
+    fn encode_token(self, prefix: &str, last: &str) -> Result<String, PageTokenError> {
         match self {
-            Self::All => json::encode_all_projects_page_token(prefix, last),
-            Self::One(project) => json::encode_page_token(project, prefix, last),
+            Self::All => page_token::encode_all_projects_page_token(prefix, last),
+            Self::One(project) => page_token::encode_page_token(project, prefix, last),
         }
     }
 }
@@ -701,7 +702,7 @@ impl Storage {
             ..Default::default()
         };
         if !r.page_token.is_empty() {
-            query.cursor = Some(json::decode_object_page_token(
+            query.cursor = Some(page_token::decode_object_page_token(
                 &r.page_token, &query,
             ).map_err(|_| Status::invalid_argument(
                 "Invalid object listing or page token; use the token with its original query",
@@ -715,7 +716,7 @@ impl Storage {
         let next_page_token = page
             .next
             .as_ref()
-            .map(json::encode_object_page_token)
+            .map(page_token::encode_object_page_token)
             .unwrap_or_default();
         Ok(Response::new(pb::ListObjectsResponse {
             items: page

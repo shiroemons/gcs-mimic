@@ -1,6 +1,7 @@
 use super::*;
 use crate::bucket::{BucketRecord, CatalogError, Rpo};
 use crate::config::CompatProfile;
+use crate::page_token::{decode_page_token, encode_page_token};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
     Method, StatusCode, Uri,
@@ -1786,7 +1787,7 @@ fn bkt_lst_002_token_tampering_and_invalid_shapes() {
         "a".repeat(4097),
     ] {
         assert_eq!(
-            decode_page_token(&invalid, "p", "").unwrap_err().reason,
+            JsonError::from(decode_page_token(&invalid, "p", "").unwrap_err()).reason,
             "invalidParameter"
         );
     }

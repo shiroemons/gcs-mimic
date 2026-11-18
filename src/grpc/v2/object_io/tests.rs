@@ -8,7 +8,7 @@ use super::{
 use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported, registry};
 use crate::grpc::{v2::mask::ReadMask, validate::ByteRange};
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::{auth::Auth, storage::Catalog, test_support::TestDir};
+use crate::{auth::Auth, json, storage::Catalog, test_support::TestDir};
 use prost::Message;
 use serde_json::json;
 use std::sync::Arc;
@@ -915,7 +915,7 @@ async fn grpc_listing_uses_proto_errors_and_preserves_page_tokens() {
     for name in ["a&=1", "b&=2"] {
         write(&storage, vec![message(name, b"x")]).await.unwrap();
     }
-    let token = json::encode_object_page_token(&crate::storage::ObjectListCursor {
+    let token = crate::page_token::encode_object_page_token(&crate::storage::ObjectListCursor {
         name: "a&=1".into(),
         is_prefix: false,
         generation: None,

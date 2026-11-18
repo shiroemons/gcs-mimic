@@ -89,7 +89,7 @@ fn v2_listing_with_tokens_and_start_after() {
         }),
         bucket_metageneration: None,
     };
-    let token = json::encode_object_page_token(&ObjectListCursor {
+    let token = crate::page_token::encode_object_page_token(&ObjectListCursor {
         name: "p/a".into(),
         is_prefix: false,
         generation: None,
@@ -171,7 +171,7 @@ fn v2_listing_url_encodes_names_form_style() {
 /// token and a corrupted XML token are refused the same way.
 #[tokio::test]
 async fn v2_listing_refuses_a_token_it_did_not_issue() {
-    let json_token = json::encode_object_page_token(&ObjectListCursor {
+    let json_token = crate::page_token::encode_object_page_token(&ObjectListCursor {
         name: "a".into(),
         is_prefix: false,
         generation: None,

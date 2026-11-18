@@ -751,6 +751,20 @@ impl From<crate::bucket::name::ProfileNameError> for JsonError {
     }
 }
 
+/// A refused bucket token is a malformed parameter and a refused object token an invalid value,
+/// as Cloud Storage reported them.
+impl From<crate::page_token::PageTokenError> for JsonError {
+    fn from(error: crate::page_token::PageTokenError) -> Self {
+        use crate::page_token::PageTokenError;
+        match error {
+            PageTokenError::BucketCursor => Self::invalid_parameter(error.to_string()),
+            PageTokenError::ObjectCursor(_) => Self::invalid(error.to_string()),
+            PageTokenError::Project(error) => error.into(),
+            PageTokenError::BucketName(error) => error.into(),
+        }
+    }
+}
+
 /// A project path segment outside the identifier rules is a malformed parameter.
 impl From<crate::auth::InvalidProjectId> for JsonError {
     fn from(error: crate::auth::InvalidProjectId) -> Self {
