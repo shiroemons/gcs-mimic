@@ -58,6 +58,17 @@ Storage v2 bucket/object updates construct shared `BucketMetadataUpdate` and
 `ObjectMetadataUpdate` values directly from protobuf fields. JSON adapters parse
 their own wire inputs and delegate domain validation to the same shared layer;
 lifecycle uses one typed rule representation for gRPC conversion and validation.
+Logic that more than one adapter needs lives outside the JSON adapter: percent-decoding
+(`percent`), listing page tokens (`page_token`), stored-time rendering (`time_format`),
+entity tags (`etag`), bounded request bodies (`bounded_body`), bucket names and CORS
+(`bucket::name`, `bucket::cors`), testable IAM permissions (`auth::testable`) and digest
+decoding (`hashing::decode_hash`). The XML adapter maps domain errors to its own answers
+(`src/xml/error_mapping.rs`) but still converts the JSON error in its server helpers,
+upload header checks and form parser; the gRPC adapter maps catalog, object and authentication
+failures to statuses directly, with a few references to the JSON error left in
+`src/grpc/v2/status.rs`, the bucket handlers and the legacy v1 service. `cargo xtask lint` keeps `src/grpc` and `src/xml` from
+gaining references to the `json` module, and the references that remain are a per-file
+ratchet (`xtask/lint-baseline.txt`).
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -90,7 +101,7 @@ every timeout disabled. A socket with unacknowledged data falls under the kernel
 limit instead.
 Connections stay open between requests
 for `keep_alive_timeout_ms` (see below). Every JSON document shares one limit of 16 MiB
-(`json::RESOURCE_BODY_LIMIT`): request bodies, gzip bodies once expanded, multipart metadata
+(`bounded_body::RESOURCE_BODY_LIMIT`): request bodies, gzip bodies once expanded, multipart metadata
 parts, XML bucket metadata, initialization entries and import metadata. Cloud Storage documents
 no size for these, so it is a memory guard that real data does not reach, not a contract. Probes
 and bodiless bucket methods reject bodies.
