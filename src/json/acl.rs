@@ -5,10 +5,10 @@ use super::{
     Fields, JsonError, Schema,
     buckets::encode_segment,
     integer::take_int64,
-    objects::revision_etag,
     query::{common, finish_for_profile},
     validate_object_name,
 };
+use crate::etag::revision_etag;
 use crate::percent::{Decoding, decode, parse_query};
 use crate::{
     acl::{

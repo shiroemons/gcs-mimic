@@ -226,10 +226,6 @@ pub(crate) fn policy_resource(policy: &Policy, bucket: &str) -> Value {
         "version": 1, "etag": policy.etag, "bindings": policy.bindings_json()})
 }
 
-pub(crate) fn policy_etag(sequence: i64) -> String {
-    base64(&sequence.to_be_bytes())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

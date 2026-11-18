@@ -64,7 +64,7 @@ pub(crate) struct HmacKeyRecord {
 
 impl HmacKeyRecord {
     pub(crate) fn etag(&self) -> String {
-        crate::json::policy_etag(self.revision)
+        crate::etag::policy_etag(self.revision)
     }
 }
 

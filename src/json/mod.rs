@@ -41,7 +41,7 @@ pub(crate) use crate::object::WriteMode;
 pub(crate) use body::{RESOURCE_BODY_LIMIT, RESOURCE_BODY_LIMIT_TEXT, read_body};
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
-    BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_etag, bucket_predefined_acls,
+    BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_predefined_acls,
     reject_predefined_acl,
 };
 #[cfg(test)]
@@ -71,7 +71,6 @@ pub(crate) use error::{
 };
 pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};
-pub(crate) use iam::policy_etag;
 pub(crate) use iam::{
     check_testable_permission, parse_policy, policy_resource, test_permissions_query,
 };
@@ -91,12 +90,10 @@ pub(crate) use object_metadata::{
 pub(crate) use object_metadata::{declare_content_encoding, validate_fixed_metadata};
 pub(crate) use object_move::ObjectMoveParams;
 #[cfg(test)]
-pub(crate) use objects::revision_etag;
-#[cfg(test)]
 pub(crate) use objects::route_object;
 pub(crate) use objects::{
-    EtagConditions, Gunzip, Transcoding, base64, object_double_compressed, object_etag,
-    object_media_negotiable, object_media_transcoding, validate_read_condition_headers,
+    EtagConditions, Gunzip, Transcoding, base64, object_double_compressed, object_media_negotiable,
+    object_media_transcoding, validate_read_condition_headers,
 };
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,

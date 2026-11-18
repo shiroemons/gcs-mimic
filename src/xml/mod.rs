@@ -1104,7 +1104,7 @@ pub(crate) fn object_etag(record: &ObjectRecord) -> String {
     // the JSON validator, because XML entity tags are always quoted; Cloud Storage's XML ETag for
     // composite and encrypted objects has not been recorded.
     if !record.has_md5() || record.customer_key_sha256.is_some() {
-        format!("\"{}\"", json::object_etag(record))
+        format!("\"{}\"", crate::etag::object_etag(record))
     } else {
         format!("\"{}\"", crate::hashing::encode_lower(&record.md5))
     }

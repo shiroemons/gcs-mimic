@@ -2115,7 +2115,7 @@ mod tests {
         let condition = rules[0].condition.as_ref().unwrap();
         assert_eq!(condition.age_days, Some(30));
         assert_eq!(condition.matches_prefix, ["logs/"]);
-        assert_eq!(fetched.etag, json::bucket_etag(&record));
+        assert_eq!(fetched.etag, crate::etag::bucket_etag(&record));
         assert_eq!(
             fetched.object_retention,
             Some(pb::bucket::ObjectRetention { enabled: true })

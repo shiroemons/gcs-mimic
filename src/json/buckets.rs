@@ -7,6 +7,7 @@ use crate::bucket::{
 };
 use crate::bucket::{autoclass::AutoclassState, lifecycle::LifecycleRules};
 use crate::config::CompatProfile;
+use crate::etag::bucket_etag;
 use crate::object::{MapPatch, Patch};
 use crate::time_format::timestamp;
 use serde_json::{Map, Value, json};
@@ -1255,12 +1256,6 @@ fn add_optional_bucket_fields(
         );
     }
     Ok(())
-}
-
-/// Cloud Storage encodes only the metageneration, so by inference from the encoding a recreated
-/// bucket repeats its etag; that repetition itself has not been observed.
-pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
-    super::objects::revision_etag(None, bucket.metageneration)
 }
 
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.

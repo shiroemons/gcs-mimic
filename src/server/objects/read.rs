@@ -102,7 +102,7 @@ async fn media(
     let transcode = json::object_media_transcoding(request.headers(), &record)?;
     let etag_outcome = crate::http_conditions::etag_not_modified_first(
         request.headers(),
-        &json::object_etag(&record),
+        &crate::etag::object_etag(&record),
     );
     let conditional = match etag_outcome {
         Err(crate::http_conditions::EtagError::PreconditionFailed) => {
@@ -428,7 +428,7 @@ async fn metadata(
     };
     Ok(boxed(read_metadata_response(
         request.headers(),
-        &json::object_etag(&record),
+        &crate::etag::object_etag(&record),
         resource.value,
         fields,
         query,

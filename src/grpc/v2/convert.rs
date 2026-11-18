@@ -285,7 +285,7 @@ pub(crate) fn bucket(
     Ok(pb::Bucket {
         name: format!("projects/_/buckets/{}", record.name),
         bucket_id: record.name.clone(),
-        etag: crate::json::bucket_etag(record),
+        etag: crate::etag::bucket_etag(record),
         lifecycle: match lifecycle {
             Lifecycle::Include => self::lifecycle(&record.lifecycle)?,
             Lifecycle::Omit => None,
@@ -429,7 +429,7 @@ pub(crate) fn object(
         name: record.name.clone(),
         bucket: format!("projects/_/buckets/{}", record.bucket),
         // The same validator as the JSON resource, so either API's value names one version.
-        etag: crate::json::object_etag(record),
+        etag: crate::etag::object_etag(record),
         generation: record.generation,
         metageneration: record.metageneration,
         size: crate::grpc::convert::signed(record.size, "size")?,

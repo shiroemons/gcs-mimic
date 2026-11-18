@@ -100,7 +100,7 @@ impl Storage {
                     "Policy etag does not match; read the current policy before updating",
                 )
             })?;
-            Some(json::policy_etag(i64::from_be_bytes(bytes)))
+            Some(crate::etag::policy_etag(i64::from_be_bytes(bytes)))
         } else {
             None
         };

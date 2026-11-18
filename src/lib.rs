@@ -11,6 +11,7 @@ mod csek;
 mod decimal;
 pub mod diagnostics;
 mod error;
+mod etag;
 pub mod fd_limit;
 // The descriptor and xattr FFI calls carry their `unsafe_code` expectations on the individual
 // wrapper functions in this module, so new unsafe code elsewhere in it still fails the lint.

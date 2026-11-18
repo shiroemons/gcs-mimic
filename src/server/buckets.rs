@@ -569,7 +569,7 @@ async fn get(
     }
     read_metadata_response(
         request.headers(),
-        &json::bucket_etag(&record),
+        &crate::etag::bucket_etag(&record),
         resource.value,
         fields,
         query,
