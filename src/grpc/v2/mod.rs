@@ -182,11 +182,13 @@ macro_rules! storage_methods {
             $(
                 async fn $method(
                     &self,
-                    request: Request<$request>,
+                    mut request: Request<$request>,
                 ) -> Result<Response<$response>, Status> {
                     let caller = self.authenticate(&request).await?;
                     let $r = request.get_ref();
-                    routing::admit(request.metadata(), $routes)?;
+                    let admitted = routing::admit(request.metadata(), $routes)?;
+                    // A handler that learns its resources later compares what was admitted.
+                    request.extensions_mut().insert(admitted);
                     self.$method(request, caller)
                         .await
                         .map_err(|status| status::anonymous(status, caller))

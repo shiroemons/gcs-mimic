@@ -1,9 +1,5 @@
 use super::{
-    ResponseStream, Storage,
-    mask::ReadMask,
-    object_io::naming_object,
-    pb,
-    routing::{Route, Routes},
+    ResponseStream, Storage, mask::ReadMask, object_io::naming_object, pb, routing::Route,
     status::unsupported,
 };
 use crate::{
@@ -271,7 +267,7 @@ impl Storage {
         caller: Option<Caller<'_>>,
     ) -> Result<Response<ResponseStream<pb::BidiReadObjectResponse>>, Status> {
         let header_fields = header_fields(request.metadata())?;
-        let (metadata, _, mut input) = request.into_parts();
+        let (_, extensions, mut input) = request.into_parts();
         let first = input.message().await?.ok_or_else(|| {
             Status::invalid_argument(
                 "First message must contain read_object_spec; specify bucket and object",
@@ -290,8 +286,8 @@ impl Storage {
         // read must repeat its key because a handle never stores one.
         let key = super::customer_key::key(spec.common_object_request_params.as_ref())?;
         super::routing::check(
-            &metadata,
-            Routes::Request(&[Route::Bucket(Some(spec.bucket.as_str()))]),
+            extensions.get(),
+            &[Route::Bucket(Some(spec.bucket.as_str()))],
         )?;
         let (bucket, object) = self.object_name(&spec.bucket, &spec.object)?;
         let access = self.access(caller, bucket, auth::OBJECTS_GET).await?;

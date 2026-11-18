@@ -113,7 +113,8 @@ pub(super) enum Routes<'a> {
     Optional,
     /// The metadata is required, but the handler learns its resources later (a stream's first
     /// message, a rewrite token): the values of these keys are read and validated now, and the
-    /// handler compares them through [`check`]. Of these RPCs only WriteObject was recorded
+    /// handler compares the [`Routing`] that [`admit`] returns through [`check`], which compares
+    /// only these keys' values. Of these RPCs only WriteObject was recorded
     /// without the metadata (case grpc-probe-routing); BidiWriteObject and RewriteObject follow
     /// it by inference, and BidiReadObject, which Cloud Storage refused for the test project,
     /// could not be recorded at all.
@@ -338,24 +339,32 @@ impl Routing {
 /// call's routes are `Optional`, and must agree with the request. The refusal of a call
 /// without the metadata was recorded only on GetObject, GetBucket, ListBuckets and WriteObject;
 /// refusing it on every other RPC but the `Optional` ones is a generalization from those four.
-pub(super) fn admit(metadata: &MetadataMap, routes: Routes<'_>) -> Result<(), Status> {
+///
+/// The metadata is read only here. A `Deferred` call's handler compares the returned routing
+/// through [`check`] once it learns its resources; the dispatch hands it over in the request's
+/// extensions.
+pub(super) fn admit(metadata: &MetadataMap, routes: Routes<'_>) -> Result<Routing, Status> {
     match (routes, Routing::parse(metadata, routes)?) {
-        (Routes::Optional, _) | (Routes::Deferred(_), Some(_)) => Ok(()),
+        // Nothing was read, so nothing is left to compare.
+        (Routes::Optional, _) => Ok(Routing::default()),
         (Routes::Request(_) | Routes::Deferred(_), None) => Err(missing_metadata()),
-        (Routes::Request(compared), Some(routing)) => routing.compare(compared),
+        (Routes::Request(compared), Some(routing)) => {
+            routing.compare(compared)?;
+            Ok(routing)
+        }
+        (Routes::Deferred(_), Some(routing)) => Ok(routing),
     }
 }
 
-/// Compares the metadata a request carries with its resources. A handler that learns its
-/// resources after `admit` calls this again; a request without the metadata passes here.
-pub(super) fn check(metadata: &MetadataMap, routes: Routes<'_>) -> Result<(), Status> {
-    let Some(routing) = Routing::parse(metadata, routes)? else {
+/// Compares the routing [`admit`] read for a `Deferred` call with resources its handler learned
+/// afterwards. `admitted` is the routing the dispatch stored in the request's extensions; it is
+/// `None` only for a handler called without the dispatch, as tests do to pass their own caller,
+/// which admitted nothing to compare.
+pub(super) fn check(admitted: Option<&Routing>, routes: &[Route<'_>]) -> Result<(), Status> {
+    let Some(routing) = admitted else {
         return Ok(());
     };
-    match routes {
-        Routes::Request(compared) => routing.compare(compared),
-        Routes::Optional | Routes::Deferred(_) => Ok(()),
-    }
+    routing.compare(routes)
 }
 
 pub(super) fn iam_bucket(resource: &str) -> &str {
@@ -376,24 +385,28 @@ pub(super) fn write_bucket(first: Option<&FirstMessage>) -> Option<&str> {
     }
 }
 
-/// Compares the routing of a write stream with its first message.
-pub(super) fn write(metadata: &MetadataMap, first: Option<&FirstMessage>) -> Result<(), Status> {
+/// Compares the routing a write stream was admitted with (see [`check`]) with its first
+/// message.
+pub(super) fn write(
+    admitted: Option<&Routing>,
+    first: Option<&FirstMessage>,
+) -> Result<(), Status> {
     let appendable = match first {
         Some(FirstMessage::WriteObjectSpec(spec)) => spec.appendable == Some(true),
         Some(FirstMessage::AppendObjectSpec(_)) => true,
         // The handler authorizes a resumed write with the bucket its upload ID names, so no
         // bucket is compared.
         Some(FirstMessage::UploadId(_)) => {
-            return check(metadata, Routes::Request(&[Route::Appendable(false)]));
+            return check(admitted, &[Route::Appendable(false)]);
         }
         None => false,
     };
     check(
-        metadata,
-        Routes::Request(&[
+        admitted,
+        &[
             Route::Bucket(write_bucket(first)),
             Route::Appendable(appendable),
-        ]),
+        ],
     )
 }
 
@@ -439,6 +452,11 @@ mod tests {
         )
     }
 
+    /// The routing a write stream routed by `params` is admitted with.
+    fn write_stream(params: &str) -> Routing {
+        admit(&routed(params), Routes::WRITE_OBJECT).unwrap()
+    }
+
     /// A resumed write's upload ID names its bucket in a form no client routes, so its routed
     /// bucket is not compared with the ID's: the handler authorizes with the ID's bucket. No
     /// resumed write was recorded under another routed bucket; comparing nothing is the local
@@ -446,15 +464,65 @@ mod tests {
     #[test]
     fn routing_compares_only_the_appendable_flag_of_a_resumed_write() {
         let resumed = |bucket: &str| FirstMessage::UploadId(format!("{bucket}/{}", "a".repeat(64)));
-        let metadata = routed("bucket=projects%2F_%2Fbuckets%2Ftest-bucket&appendable=false");
-        write(&metadata, Some(&resumed("test-bucket"))).unwrap();
-        write(&metadata, Some(&resumed("other-bucket"))).unwrap();
-        write(&routed("appendable=false"), Some(&resumed("test-bucket"))).unwrap();
+        let routing = write_stream("bucket=projects%2F_%2Fbuckets%2Ftest-bucket&appendable=false");
+        write(Some(&routing), Some(&resumed("test-bucket"))).unwrap();
+        write(Some(&routing), Some(&resumed("other-bucket"))).unwrap();
+        let unrouted = write_stream("appendable=false");
+        write(Some(&unrouted), Some(&resumed("test-bucket"))).unwrap();
         // A resumable session is never appendable.
+        let appendable = write_stream("appendable=true");
         assert_eq!(
-            write(&routed("appendable=true"), Some(&resumed("test-bucket")))
+            write(Some(&appendable), Some(&resumed("test-bucket")))
                 .unwrap_err()
                 .message(),
+            CONFLICT
+        );
+    }
+
+    /// A deferred call's handler compares the routing `admit` read, without reading the
+    /// metadata again.
+    #[test]
+    fn deferred_routing_is_compared_with_what_admit_read() {
+        let routing = admit(
+            &routed("bucket=projects%2F_%2Fbuckets%2Fb&unknown=1"),
+            Routes::BIDI_READ_OBJECT,
+        )
+        .unwrap();
+        check(
+            Some(&routing),
+            &[Route::Bucket(Some("projects/_/buckets/b"))],
+        )
+        .unwrap();
+        assert_eq!(
+            check(
+                Some(&routing),
+                &[Route::Bucket(Some("projects/_/buckets/other"))]
+            )
+            .unwrap_err()
+            .message(),
+            other_bucket_message("other", "b")
+        );
+        // A rewrite token may resolve a bare source bucket ID.
+        let rewrite = admit(
+            &routed("source_bucket=projects%2F_%2Fbuckets%2Fa&bucket=projects%2F_%2Fbuckets%2Fb"),
+            Routes::REWRITE_OBJECT,
+        )
+        .unwrap();
+        check(
+            Some(&rewrite),
+            &[
+                Route::SourceBucket(Some("a")),
+                Route::Bucket(Some("projects/_/buckets/b")),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            check(
+                Some(&rewrite),
+                &[Route::SourceBucket(Some("b")), Route::Bucket(Some("b"))]
+            )
+            .unwrap_err()
+            .message(),
             CONFLICT
         );
     }
@@ -478,10 +546,10 @@ mod tests {
                 "An x-goog-request-params request metadata property must be provided for this request."
             );
             assert_eq!(reason(&error), "GRPC_INVALID_X_GOOG_REQUEST_PARAMS");
-            // A handler's second look has nothing to compare.
-            check(&none, routes).unwrap();
         }
-        write(&none, None).unwrap();
+        // A handler called without the dispatch admitted nothing to compare.
+        check(None, &[Route::Bucket(Some("projects/_/buckets/b"))]).unwrap();
+        write(None, None).unwrap();
         // Recorded 2026-11-18 (case grpc-probe-resumable-sessions): an upload ID RPC reaches its
         // handler, which answers the upload ID, without the metadata and with a routed bucket.
         admit(&none, Routes::Optional).unwrap();
@@ -531,11 +599,11 @@ mod tests {
                 ..Default::default()
             })
         };
-        let appendable = routed("bucket=projects%2F_%2Fbuckets%2Fb&appendable=true");
-        write(&appendable, Some(&spec(Some(true)))).unwrap();
+        let appendable = write_stream("bucket=projects%2F_%2Fbuckets%2Fb&appendable=true");
+        write(Some(&appendable), Some(&spec(Some(true)))).unwrap();
         for other in [None, Some(false)] {
             assert_eq!(
-                write(&appendable, Some(&spec(other)))
+                write(Some(&appendable), Some(&spec(other)))
                     .unwrap_err()
                     .message(),
                 CONFLICT
@@ -543,39 +611,19 @@ mod tests {
         }
 
         // A bucket the request does not name matches no routed bucket.
-        let bucket = routed("bucket=projects%2F_%2Fbuckets%2Fb");
+        let bucket = write_stream("bucket=projects%2F_%2Fbuckets%2Fb");
         assert_eq!(
-            write(&bucket, None).unwrap_err().message(),
+            write(Some(&bucket), None).unwrap_err().message(),
             other_bucket_message("", "b")
         );
         // A resumed write compares no bucket; the handler answers an upload ID it cannot read.
         let unreadable = FirstMessage::UploadId("other/not-hex".into());
-        write(&bucket, Some(&unreadable)).unwrap();
+        write(Some(&bucket), Some(&unreadable)).unwrap();
 
         assert_eq!(
             admit(
                 &routed("project=projects%2Fother"),
                 Routes::Request(&[Route::Project("projects/p")])
-            )
-            .unwrap_err()
-            .message(),
-            CONFLICT
-        );
-        // A rewrite token may resolve a bare source bucket ID.
-        let rewrite =
-            routed("source_bucket=projects%2F_%2Fbuckets%2Fa&bucket=projects%2F_%2Fbuckets%2Fb");
-        admit(
-            &rewrite,
-            Routes::Request(&[
-                Route::SourceBucket(Some("a")),
-                Route::Bucket(Some("projects/_/buckets/b")),
-            ]),
-        )
-        .unwrap();
-        assert_eq!(
-            admit(
-                &rewrite,
-                Routes::Request(&[Route::SourceBucket(Some("b")), Route::Bucket(Some("b"))]),
             )
             .unwrap_err()
             .message(),

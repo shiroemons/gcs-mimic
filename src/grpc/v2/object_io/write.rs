@@ -64,13 +64,14 @@ impl Storage {
         request: Request<Streaming<pb::WriteObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::WriteObjectResponse>, Status> {
-        let (metadata, _, input) = request.into_parts();
+        let (_, extensions, input) = request.into_parts();
+        let admitted = extensions.get();
         let mut position = MessagePosition::First;
         let mut stream = input.map(|result| {
             result.and_then(|r| {
                 let message = pb::BidiWriteObjectRequest::from(r);
                 if position == MessagePosition::First {
-                    super::super::routing::write(&metadata, message.first_message.as_ref())?;
+                    super::super::routing::write(admitted, message.first_message.as_ref())?;
                     position = MessagePosition::Later;
                 }
                 Ok(message)
@@ -89,11 +90,11 @@ impl Storage {
         request: Request<Streaming<pb::BidiWriteObjectRequest>>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<ResponseStream<pb::BidiWriteObjectResponse>>, Status> {
-        let (metadata, _, mut stream) = request.into_parts();
+        let (_, extensions, mut stream) = request.into_parts();
         let first = stream.message().await?.ok_or_else(|| {
             Status::invalid_argument("First message must contain write_object_spec or upload_id")
         })?;
-        super::super::routing::write(&metadata, first.first_message.as_ref())?;
+        super::super::routing::write(extensions.get(), first.first_message.as_ref())?;
         let append = super::super::append::is_append(&first);
         let caller = caller.map(TaskCaller::from);
         let storage = self.clone();

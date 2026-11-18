@@ -3,7 +3,7 @@ use super::{
     object_io::{ObjectField, conditions},
     object_update::canned_acl,
     pb,
-    routing::{Route, Routes},
+    routing::Route,
     status::{invalid_field, unsupported},
 };
 use crate::{
@@ -374,7 +374,7 @@ impl Storage {
         request: Request<pb::RewriteObjectRequest>,
         caller: Option<Caller<'_>>,
     ) -> Result<Response<pb::RewriteResponse>, Status> {
-        let (metadata, _, r) = request.into_parts();
+        let (_, extensions, r) = request.into_parts();
         let options = check_rewrite_request(&r)?;
         let sc = conditions(r.source_conditions())?;
         let dc = conditions(ObjectConditions::from(&r))?;
@@ -405,11 +405,11 @@ impl Storage {
         let binding = session.as_ref().map(|s| &s.binding);
         let target = RewriteTarget::resolve(&r, binding, self.compat_profile)?;
         super::routing::check(
-            &metadata,
-            Routes::Request(&[
+            extensions.get(),
+            &[
                 Route::SourceBucket(Some(target.source_bucket)),
                 Route::Bucket(Some(target.destination_bucket)),
-            ]),
+            ],
         )?;
         let destination_bucket = target.destination_bucket;
         let read = self
