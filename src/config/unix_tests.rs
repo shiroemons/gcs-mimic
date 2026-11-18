@@ -67,6 +67,8 @@ fn a_unix_socket_serves_plain_http_under_the_default_scheme() {
         ("--scheme", "both", "scheme=auto or http"),
         ("--tls-cert", "certificate.pem", "plain HTTP only"),
         ("--tls-handshake-timeout-ms", "100", "plain HTTP only"),
+        // The socket excludes the gRPC listener, which the scheme would configure.
+        ("--grpc-scheme", "tls", "requires grpc_listen"),
     ] {
         let mut supplied = socket.to_vec();
         supplied.extend([key.into(), value.into()]);

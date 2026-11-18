@@ -316,9 +316,9 @@ fn serve(rest: &[String]) -> Result<(), CliError> {
     let mut report = Config::preflight_os(rest, std::env::vars_os());
     gcs_mimic::diagnostics::set_log_level(report.config.log_level);
     // Validate supplied TLS material before touching the catalog, seed or listener.
-    let mut security = tls::ListenerSecurity::Plain;
+    let mut security = tls::ServerSecurity::plain();
     if report.tls_settings_valid() {
-        match tls::load_server(&report.config) {
+        match tls::ServerSecurity::load(&report.config) {
             Ok(value) => security = value,
             Err(error) => report.diagnostics.errors.push(error.diagnostic()),
         }

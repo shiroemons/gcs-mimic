@@ -37,7 +37,8 @@ fake-gcs-server flags preserve working requests or fail before startup:
   --host, --port, --port-http, --scheme and --log-level are native options.
 
 HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
-With scheme=auto each connection's first byte selects TLS or plain HTTP on the same port.
+With scheme=auto each connection's first byte selects TLS or plain HTTP on the same port;
+grpc_scheme=auto selects TLS or h2c the same way on --grpc-listen, with the same certificate.
 HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
 Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
 Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
@@ -165,7 +166,11 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
         ),
         Setting::GrpcListen => (
             "IP:PORT",
-            "none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)",
+            "none (optional separate gRPC listener, h2c or TLS as --grpc-scheme selects; e.g. 127.0.0.1:4444)",
+        ),
+        Setting::GrpcScheme => (
+            "MODE",
+            "auto (auto|h2c|tls; auto serves h2c and gRPC over TLS on --grpc-listen, with the HTTPS certificate and ALPN h2; requires --grpc-listen)",
         ),
         Setting::TrustedListen => (
             "IP:PORT",
@@ -191,7 +196,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
             "PATH",
             "embedded public test key (custom PEM private key; at most 1 MiB)",
         ),
-        Setting::TlsHandshakeTimeoutMs => ("N", "5000 (0 disables; HTTPS listener)"),
+        Setting::TlsHandshakeTimeoutMs => ("N", "5000 (0 disables; HTTPS and gRPC TLS handshakes)"),
         Setting::DataDir => ("PATH", "data (exclusive persistent catalog)"),
         Setting::MemoryMaxBytes => (
             "N",
@@ -515,7 +520,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "f6d66ef2a34c7eb461b575a56fa1b181428fa1c7970ee23b9813b657bf4669fb"
+            "a8f3176f3c058a51c6cd24e5be322df571f0ad91be7d6430b78c4bd4e94dbfd1"
         );
     }
 }

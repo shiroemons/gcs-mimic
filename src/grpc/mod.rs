@@ -30,7 +30,7 @@ pub mod generated {
 pub(crate) const LIST_PAGE_BYTES: usize = 2 * 1024 * 1024;
 
 use crate::{
-    config::Config,
+    config::{Config, GrpcScheme},
     server::{CountingIo, IdleTurn, ReadActivity, SlotReclaim, State},
     task::SupervisedExecutor,
     time_limit::TimeLimit,
@@ -46,7 +46,11 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::{net::TcpStream, sync::watch, time::Instant};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::watch,
+    time::Instant,
+};
 use tonic::codegen::Service;
 
 /// The length of the fixed client preface that opens every HTTP/2 connection (RFC 9113 3.4).
@@ -62,8 +66,17 @@ const DRAIN_GRACE: Duration = Duration::from_secs(5);
 /// The name hyper's per-stream tasks report a panic under.
 const STREAM_TASK: &str = "grpc-stream";
 
+/// A byte stream a gRPC connection runs on: plaintext TCP, or the decrypted side of a TLS
+/// session, so that only HTTP/2 bytes count toward the preface.
+pub(crate) trait Transport: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> Transport for S {}
+
+/// Serves Storage v1 and v2 on one gRPC connection. Its HTTP/2 preface deadline counts from
+/// `since`: accept for plaintext, the end of the TLS handshake otherwise.
 pub(crate) async fn serve_connection(
-    stream: TcpStream,
+    stream: impl Transport,
+    since: Instant,
     config: &Config,
     state: Arc<State>,
     stopping: watch::Receiver<bool>,
@@ -75,7 +88,7 @@ pub(crate) async fn serve_connection(
         config.compat_profile,
     );
     let service = v2::service(state, config.max_object_bytes, config.compat_profile);
-    serve_with_service(stream, config, stopping, slots, move |request| {
+    serve_with_service(stream, since, config, stopping, slots, move |request| {
         let service = service.clone();
         let mut legacy = legacy.clone();
         async move {
@@ -214,6 +227,22 @@ fn shutdown_grace(peer_wait: Duration, shutdown: TimeLimit) -> Duration {
         .map_or(peer_wait, |budget| peer_wait.min(budget / 2))
 }
 
+/// How a client should connect, for the diagnostics of a connection that failed or never sent
+/// its preface: the listener's configured scheme decides what it accepts.
+fn client_advice(scheme: GrpcScheme) -> &'static str {
+    match scheme {
+        GrpcScheme::Auto => {
+            "connect an h2c gRPC client, or a TLS gRPC client that trusts the server's CA and offers ALPN h2, to grpc_listen, for example 127.0.0.1:4444"
+        }
+        GrpcScheme::H2c => {
+            "connect a plaintext h2c gRPC client to grpc_listen, for example 127.0.0.1:4444, or set grpc_scheme=auto or tls for TLS clients"
+        }
+        GrpcScheme::Tls => {
+            "connect a TLS gRPC client that trusts the server's CA and offers ALPN h2 to grpc_listen, or set grpc_scheme=auto or h2c for plaintext clients"
+        }
+    }
+}
+
 fn http2_builder(config: &Config) -> http2::Builder<SupervisedExecutor> {
     // Each stream runs in a task of its own; a panic in a handler is reported and ends only that
     // stream, which hyper resets.
@@ -278,8 +307,11 @@ where
     }
 }
 
+/// Serves `service` on one HTTP/2 connection whose preface deadline counts from `since`, which
+/// the caller passes so that waiting for the first byte or a TLS handshake never extends it.
 async fn serve_with_service<S, F>(
-    stream: TcpStream,
+    stream: impl Transport,
+    since: Instant,
     config: &Config,
     mut stopping: watch::Receiver<bool>,
     slots: &SlotReclaim,
@@ -307,8 +339,10 @@ async fn serve_with_service<S, F>(
     );
     tokio::pin!(connection);
     // The handshake gets the header deadline. Once the client preface has arrived, a connection
-    // without streams is idle and gets the keep-alive deadline.
-    let idle = tokio::time::sleep_until(header_read.deadline());
+    // without streams is idle and gets the keep-alive deadline. Only bytes read through
+    // `CountingIo` count toward the preface, and under TLS those are decrypted bytes, so a
+    // ClientHello never passes for one.
+    let idle = tokio::time::sleep_until(header_read.deadline_from(since));
     tokio::pin!(idle);
     let mut phase = ConnectionPhase::Handshake;
     loop {
@@ -317,9 +351,9 @@ async fn serve_with_service<S, F>(
             result = &mut connection => {
                 if let Err(error) = result {
                     let (event, message) = if error.is_timeout() {
-                        ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000")
+                        ("grpc_keepalive_timeout", "gRPC peer did not acknowledge an HTTP/2 keepalive ping; check the client connection or raise header_read_timeout_ms, for example 60000".to_owned())
                     } else {
-                        ("grpc_connection_failed", "gRPC connection failed; use a plaintext h2c client and grpc_listen, for example 127.0.0.1:4444")
+                        ("grpc_connection_failed", format!("gRPC connection failed; {}", client_advice(config.grpc_scheme)))
                     };
                     crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, event, serde_json::json!({"message":message,"cause":error.to_string()}));
                 }
@@ -384,7 +418,7 @@ async fn serve_with_service<S, F>(
                         break;
                     }
                     (ConnectionPhase::Handshake, _) => {
-                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":"gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; use a plaintext h2c client or raise header_read_timeout_ms, for example 60000"}));
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Info, "grpc_handshake_timeout", serde_json::json!({"message":format!("gRPC client sent no HTTP/2 preface before header_read_timeout_ms; sending GOAWAY; {}, or raise header_read_timeout_ms, for example 60000", client_advice(config.grpc_scheme))}));
                         (ConnectionPhase::Draining, peer_wait)
                     }
                     (ConnectionPhase::Idle { .. } | ConnectionPhase::Streaming, 0) => {

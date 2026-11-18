@@ -21,6 +21,7 @@ super::string_enum! {
         Listen => "listen",
         ListenHttp => "listen_http",
         GrpcListen => "grpc_listen",
+        GrpcScheme => "grpc_scheme",
         TrustedListen => "trusted_listen",
         TrustedPrincipal => "trusted_principal",
         TrustedAllowedHosts => "trusted_allowed_hosts",
@@ -131,6 +132,7 @@ impl Setting {
             | Self::Listen
             | Self::ListenHttp
             | Self::GrpcListen
+            | Self::GrpcScheme
             | Self::TrustedListen
             | Self::UnixSocket
             | Self::Scheme

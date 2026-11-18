@@ -1,6 +1,71 @@
-//! The supervised tasks of a connection's streams.
+//! The connection driver on a decrypted TLS stream, and the supervised tasks of its streams.
 
 use super::*;
+use crate::tls::{Alpn, ServerIdentity};
+use tokio_rustls::{TlsConnector, client::TlsStream, rustls::pki_types::ServerName};
+
+/// Accepts one TLS connection the way the gRPC listener does: the handshake first, then HTTP/2
+/// on the decrypted stream, whose preface deadline counts from the end of the handshake.
+async fn start_tls(config: Config) -> (TlsStream<TcpStream>, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let acceptor = ServerIdentity::load(&Config::default())
+        .unwrap()
+        .acceptor(Alpn::H2)
+        .unwrap();
+    let task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let stream = acceptor.accept(stream).await.unwrap();
+        let (_stop, stopping) = watch::channel(false);
+        serve_accepted(
+            stream,
+            &config,
+            stopping,
+            &SlotReclaim::default(),
+            pending_stream,
+        )
+        .await;
+    });
+    let mut client = (*crate::tls::development_client_config().unwrap()).clone();
+    client.alpn_protocols = vec![b"h2".to_vec()];
+    let socket = TcpStream::connect(address).await.unwrap();
+    let client = TlsConnector::from(Arc::new(client))
+        .connect(ServerName::try_from("localhost").unwrap(), socket)
+        .await
+        .unwrap();
+    (client, task)
+}
+
+fn tls_config() -> Config {
+    Config {
+        keep_alive_timeout: TimeLimit::from_millis(60_000),
+        ..config()
+    }
+}
+
+/// The handshake reads far more than the 24 bytes of the HTTP/2 preface from the socket, yet
+/// only decrypted bytes count, so a client that sends no preface over TLS is closed at the
+/// preface deadline instead of idling under the keep-alive limit.
+#[tokio::test]
+async fn grpc_tls_handshake_bytes_never_pass_for_the_preface() {
+    let (_client, task) = start_tls(tls_config()).await;
+    timeout(DEADLINE * 5, task).await.unwrap().unwrap();
+}
+
+/// A preface sent over TLS counts, so the connection outlives the preface deadline and stays
+/// idle under keep-alive while pings check the peer.
+#[tokio::test]
+async fn grpc_tls_preface_counts_decrypted_bytes() {
+    let (mut client, task) = start_tls(tls_config()).await;
+    handshake(&mut client).await;
+    let kinds = frames_for(&mut client, DEADLINE * 4).await;
+    assert!(
+        !kinds.contains(&7),
+        "idle TLS connection got GOAWAY: {kinds:?}"
+    );
+    assert!(kinds.contains(&6), "no keepalive ping: {kinds:?}");
+    assert!(!task.is_finished());
+}
 
 /// Opens stream `stream` for `path` with a complete request.
 async fn request_path(client: &mut TcpStream, stream: u32, path: &[u8]) {
@@ -61,7 +126,7 @@ async fn grpc_panicking_handler_is_reported_and_spares_other_streams_and_connect
                     }
                     Ok(hyper::Response::new(tonic::body::Body::empty()))
                 };
-                serve_with_service(stream, &config, stopping, &slots, service).await;
+                serve_accepted(stream, &config, stopping, &slots, service).await;
             });
         }
     });

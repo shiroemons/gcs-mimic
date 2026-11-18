@@ -79,7 +79,7 @@ async fn exhausted_accepts_pause_and_keep_serving() {
         scheme: Scheme::Http,
         ..Config::default()
     };
-    let security = crate::tls::load_server(&config).unwrap();
+    let security = crate::tls::ServerSecurity::load(&config).unwrap().primary;
     let server = tokio::spawn(ACCEPT_FAULTS.scope(
         faults,
         serve(
