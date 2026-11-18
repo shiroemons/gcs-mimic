@@ -294,7 +294,7 @@ impl ObjectAclSnapshot {
             generation: record.generation,
             entries,
             owner: record.owner.clone(),
-            incarnation: incarnation.to_owned(),
+            incarnation,
         }
     }
 }

@@ -92,7 +92,7 @@ fn combine_sources(
         );
         count = count
             .saturating_add(source.object.component_count.unwrap_or(1))
-            .min(i32::MAX as i64);
+            .min(i64::from(i32::MAX));
         keys.insert((source.object.name.clone(), source.object.generation));
     }
     Ok(Combined {
