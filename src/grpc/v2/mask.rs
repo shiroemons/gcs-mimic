@@ -206,6 +206,16 @@ impl BucketMask {
     }
 }
 
+pub(super) fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
+    mask.filter(|m| !m.paths.is_empty())
+        .map(|m| m.paths.as_slice())
+        .ok_or_else(|| {
+            Status::invalid_argument(
+                "update_mask is required; use paths such as content_type or versioning.enabled",
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

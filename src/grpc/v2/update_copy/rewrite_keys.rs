@@ -2,7 +2,7 @@
 //! destination key in `common_object_request_params`. The rules for a single call follow Cloud
 //! Storage's recorded answers (2026-11-15); continuations follow the JSON API.
 
-use super::tests::{RESOURCE, setup, stored_object};
+use super::super::test_support::{RESOURCE, setup, stored_object};
 use super::*;
 use crate::auth::Auth;
 use crate::csek::{CsekError, key_sha256};

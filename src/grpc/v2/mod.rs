@@ -1,11 +1,13 @@
 mod append;
 mod bidi_read;
 pub use bidi_read::ReadHandles;
+mod bucket_iam;
 mod bucket_update;
 mod buckets;
 pub(crate) mod convert;
 mod customer_key;
 mod mask;
+mod move_restore;
 pub(crate) mod names;
 mod object_io;
 mod object_update;
@@ -13,8 +15,12 @@ mod routing;
 pub(crate) mod status;
 mod stored;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
+mod update_bucket;
 mod update_copy;
+mod update_object;
 
 use crate::grpc::generated::google::{iam::v1 as iam, storage::v2 as pb};
 use crate::{

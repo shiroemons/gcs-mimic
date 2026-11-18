@@ -1,6 +1,6 @@
 use super::{bucket_update::acl_entries, pb, status::unsupported};
 use crate::{
-    acl::AclKind,
+    acl::{AclKind, PredefinedObjectAcl},
     clock::{RFC3339_MAX_MICROS, YEAR_ONE_MICROS},
     metadata_error::MetadataError,
     object::{
@@ -174,6 +174,18 @@ pub(super) fn inherited(source: &ObjectRecord) -> ObjectMetadataUpdate {
         storage_class: Some(source.storage_class),
         ..ObjectMetadataUpdate::inheriting(source)
     }
+}
+
+/// A canned ACL field of a Storage v2 request, in the JSON API's spelling; empty is absent.
+pub(super) fn canned_acl(field: &str, value: &str) -> Result<Option<PredefinedObjectAcl>, Status> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value.parse().map(Some).map_err(|_| {
+        Status::invalid_argument(format!(
+            "{field} {value:?} must be authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead"
+        ))
+    })
 }
 
 fn set(value: &str) -> Option<String> {

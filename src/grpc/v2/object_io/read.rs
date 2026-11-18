@@ -316,4 +316,6 @@ impl Storage {
 }
 
 #[cfg(test)]
+mod list_tests;
+#[cfg(test)]
 mod tests;
