@@ -4,7 +4,7 @@
 //! the RPC service as a client sends it. The pinned proto names a status only for an object_size
 //! mismatch (OUT_OF_RANGE), so the other codes and the precedence are the emulator's.
 
-use super::super::tests::{setup, spec};
+use super::super::tests::{HeldOpen, Hold, setup, spec};
 use super::*;
 use crate::grpc::test_support::{key_params, rpc_status};
 use bytes::Bytes;
@@ -1224,6 +1224,147 @@ async fn grpc_resumable_write_error_precedence() {
         ),
     ];
     run_on_sessions(&storage, cases).await;
+    storage.state.catalog.close().await.unwrap();
+}
+
+/// A WriteObject call that sends `messages` as `token`, with `routing` as its routing metadata,
+/// and keeps its request stream open until the returned hold releases it.
+fn held_open_write_object(
+    storage: &Storage,
+    token: &str,
+    routing: Option<&str>,
+    messages: &[pb::BidiWriteObjectRequest],
+) -> (
+    impl Future<Output = hyper::Response<tonic::body::Body>> + use<>,
+    Hold,
+) {
+    use prost::Message as _;
+    let frames = messages.iter().map(|message| {
+        let encoded = write_object_request(message).encode_to_vec();
+        let mut frame = vec![0];
+        frame.extend_from_slice(&u32::try_from(encoded.len()).unwrap().to_be_bytes());
+        frame.extend_from_slice(&encoded);
+        Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(Bytes::from(frame)))
+    });
+    let (body, hold) = HeldOpen::new(frames);
+    let mut request = hyper::Request::builder()
+        .method("POST")
+        .uri("/google.storage.v2.Storage/WriteObject")
+        .header("content-type", "application/grpc")
+        .header("te", "trailers")
+        .header("authorization", format!("Bearer {token}"));
+    if let Some(routing) = routing {
+        request = request.header("x-goog-request-params", routing);
+    }
+    let request = request
+        .body(tonic::body::Body::new(http_body_util::StreamBody::new(
+            body,
+        )))
+        .unwrap();
+    let service = crate::grpc::v2::service(storage.state.clone(), MAX, storage.compat_profile);
+    let response = async move { crate::grpc::v2::dispatch(service, request).await.unwrap() };
+    (response, hold)
+}
+
+/// The status a WriteObject response ends with.
+async fn final_status(response: hyper::Response<tonic::body::Body>) -> Status {
+    use http_body_util::BodyExt;
+    if let Some(status) = Status::from_header_map(response.headers()) {
+        return status;
+    }
+    let body = response.into_body().collect().await.unwrap();
+    body.trailers()
+        .and_then(Status::from_header_map)
+        .expect("terminal grpc-status")
+}
+
+/// A resumed WriteObject stream refused before the session lookup: who sends it, its routing
+/// metadata, its messages and the status it gets.
+struct EarlyRefusal {
+    label: &'static str,
+    token: &'static str,
+    routing: Option<&'static str>,
+    messages: Messages,
+    code: Code,
+    message: &'static str,
+}
+
+/// WriteObject reads past a resumed stream's finish_write only after the checks that need no
+/// upload session, so a refusal by one of them is answered at once while the client keeps its
+/// stream open: conflicting routing metadata, a malformed upload_id, a caller without
+/// storage.objects.create under the strict profile, and an upload_id on a later message. A
+/// refusal that needs the session is answered only once the stream ends
+/// (`grpc_io_write_object_answers_a_finishing_message_after_the_stream_end`).
+#[tokio::test]
+async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
+    use Code::{InvalidArgument, NotFound, PermissionDenied};
+    let (_dir, storage) = setup(true).await;
+    let cases = [
+        EarlyRefusal {
+            label: "routing",
+            token: "admin",
+            routing: Some("bucket=projects%2F_%2Fbuckets%2Fanother-bucket"),
+            messages: |u| vec![resume(u, 0, b"abc").finish()],
+            code: InvalidArgument,
+            message: "Routing metadata conflicts with the request; use the same resource in x-goog-request-params and the request",
+        },
+        EarlyRefusal {
+            label: "malformed-upload-id",
+            token: "admin",
+            routing: None,
+            messages: |_| vec![resume("grpc-io/not-hex", 0, b"abc").finish()],
+            code: NotFound,
+            message: UNKNOWN_UPLOAD_ID,
+        },
+        EarlyRefusal {
+            label: "permission",
+            token: "reader",
+            routing: None,
+            messages: |u| vec![resume(u, 0, b"abc").finish()],
+            code: PermissionDenied,
+            message: "reader@example.invalid does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+        },
+        EarlyRefusal {
+            label: "later-upload-id",
+            token: "admin",
+            routing: None,
+            messages: |u| {
+                vec![
+                    resume(u, 0, b"abc"),
+                    chunk(3, b"d")
+                        .finish()
+                        .first(FirstMessage::UploadId(u.into())),
+                ]
+            },
+            code: InvalidArgument,
+            message: LATER_UPLOAD_ID,
+        },
+    ];
+    for EarlyRefusal {
+        label,
+        token,
+        routing,
+        messages,
+        code,
+        message,
+    } in cases
+    {
+        let upload = open_session(&storage, label, PLAIN).await;
+        let (response, Hold { waited, release }) =
+            held_open_write_object(&storage, token, routing, &messages(&upload));
+        tokio::pin!(response);
+        let response = tokio::select! {
+            response = response.as_mut() => response,
+            Ok(()) = waited => panic!("{label} waited for the stream to end"),
+        };
+        let status = final_status(response).await;
+        assert_eq!(
+            (status.code(), status.message()),
+            (code, message),
+            "{label}"
+        );
+        drop(release);
+    }
     storage.state.catalog.close().await.unwrap();
 }
 

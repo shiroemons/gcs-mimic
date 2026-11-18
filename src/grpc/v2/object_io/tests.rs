@@ -364,23 +364,44 @@ async fn grpc_io_disconnected_resumable_stream_releases_its_lease() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// A request stream that yields `message`, then stays open, as a client that never half-closes
-/// does, until `release` fires. `waiting` fires once the handler asks for the next message.
-struct HeldOpen {
-    message: Option<pb::BidiWriteObjectRequest>,
+/// A request stream that yields `items`, then stays open, as a client that never half-closes
+/// does, until its [`Hold`] releases it.
+pub(super) struct HeldOpen<T> {
+    items: std::collections::VecDeque<T>,
     waiting: Option<tokio::sync::oneshot::Sender<()>>,
     release: tokio::sync::oneshot::Receiver<()>,
 }
 
-impl Stream for HeldOpen {
-    type Item = Result<pb::BidiWriteObjectRequest, Status>;
+/// The test's end of a [`HeldOpen`] stream.
+pub(super) struct Hold {
+    /// Fires once a reader asks for more than the stream's items.
+    pub(super) waited: tokio::sync::oneshot::Receiver<()>,
+    /// Ends the stream.
+    pub(super) release: tokio::sync::oneshot::Sender<()>,
+}
+
+impl<T> HeldOpen<T> {
+    pub(super) fn new(items: impl IntoIterator<Item = T>) -> (Self, Hold) {
+        let (waiting, waited) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let stream = Self {
+            items: items.into_iter().collect(),
+            waiting: Some(waiting),
+            release: released,
+        };
+        (stream, Hold { waited, release })
+    }
+}
+
+impl<T: Unpin> Stream for HeldOpen<T> {
+    type Item = T;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        if let Some(message) = self.message.take() {
-            return std::task::Poll::Ready(Some(Ok(message)));
+        if let Some(item) = self.items.pop_front() {
+            return std::task::Poll::Ready(Some(item));
         }
         if let Some(waiting) = self.waiting.take() {
             let _ = waiting.send(());
@@ -396,13 +417,8 @@ async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session(
     let (_dir, storage) = setup(false).await;
     let upload = start(&storage, "held-open", None).await;
     let id = upload.parse::<UploadId>().unwrap();
-    let (waiting, waited) = tokio::sync::oneshot::channel();
-    let (release, released) = tokio::sync::oneshot::channel();
-    let mut stream = HeldOpen {
-        message: Some(resume(&upload, 0, b"abc", true)),
-        waiting: Some(waiting),
-        release: released,
-    };
+    let (mut stream, Hold { waited, release }) =
+        HeldOpen::new([Ok(resume(&upload, 0, b"abc", true))]);
     let other = async {
         waited.await.unwrap();
         let lease = storage
@@ -432,9 +448,11 @@ async fn grpc_io_write_object_awaits_the_stream_end_without_holding_the_session(
     storage.state.catalog.close().await.unwrap();
 }
 
-/// WriteObject reads past a resumed stream's finish_write before it leases the session, so it
-/// answers only once the stream ends, also when the finishing message is refused or replays a
-/// finalized upload.
+/// WriteObject reads past a resumed stream's finish_write before it looks up the session, so it
+/// answers only once the stream ends when a check that needs the session refuses the finishing
+/// message (the session itself, the offset, the chunk CRC32C) or the message replays a finalized
+/// upload. A refusal before the session lookup is answered at once
+/// (`grpc_io_write_object_refuses_before_the_session_lookup_at_once`).
 #[tokio::test]
 async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end() {
     let (_dir, storage) = setup(false).await;
@@ -452,9 +470,26 @@ async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end()
         "Checksummed data message crc32c mismatch: server computed: '{:08x}', client provided '00000001'.",
         crc32c::crc32c(b"abc")
     );
+    let unknown = format!("grpc-io/{}", "0".repeat(64));
     for (label, message, expected) in [
         (
-            "refused",
+            "unknown-session",
+            resume(&unknown, 0, b"abc", true),
+            (
+                tonic::Code::NotFound,
+                "Upload session not found; start a new resumable write",
+            ),
+        ),
+        (
+            "offset",
+            resume(&refused, 5, b"abc", true),
+            (
+                tonic::Code::OutOfRange,
+                "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size",
+            ),
+        ),
+        (
+            "crc",
             bad_crc,
             (tonic::Code::InvalidArgument, crc_mismatch.as_str()),
         ),
@@ -464,13 +499,7 @@ async fn grpc_io_write_object_answers_a_finishing_message_after_the_stream_end()
             (tonic::Code::Ok, ""),
         ),
     ] {
-        let (waiting, waited) = tokio::sync::oneshot::channel();
-        let (release, released) = tokio::sync::oneshot::channel();
-        let mut stream = HeldOpen {
-            message: Some(message),
-            waiting: Some(waiting),
-            release: released,
-        };
+        let (mut stream, Hold { waited, release }) = HeldOpen::new([Ok(message)]);
         let answer = storage.receive_write(&mut stream, None, WriteRpc::WriteObject);
         tokio::pin!(answer);
         tokio::select! {
