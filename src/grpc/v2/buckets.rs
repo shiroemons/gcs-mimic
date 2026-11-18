@@ -739,6 +739,45 @@ mod tests {
                 .await,
             Code::NotFound,
         );
+        // Durations outside the canonical form, whose nanos have the other sign than the seconds
+        // or reach a whole second: the stored period, or `None` for INVALID_ARGUMENT.
+        for (name, seconds, nanos, period) in [
+            ("negative-nanos-hour", 3600, -1, Some(3600)),
+            ("negative-nanos-second", 1, -1, Some(1)),
+            ("excess-nanos", 0, 1_500_000_000, None),
+        ] {
+            let result = storage
+                .create_bucket(Request::new(retention(name, seconds, nanos)), None)
+                .await;
+            let stored = storage
+                .state
+                .catalog
+                .get_bucket(name, PERMISSIVE)
+                .await
+                .unwrap();
+            let Some(period) = period else {
+                assert_code(result, Code::InvalidArgument);
+                assert!(stored.is_none(), "{name}");
+                continue;
+            };
+            assert_eq!(
+                result
+                    .unwrap()
+                    .into_inner()
+                    .retention_policy
+                    .unwrap()
+                    .retention_duration,
+                Some(prost_types::Duration {
+                    seconds: period,
+                    nanos: 0
+                }),
+                "{name}"
+            );
+            assert_eq!(
+                stored.unwrap().retention_policy.unwrap().retention_period,
+                u64::try_from(period).unwrap()
+            );
+        }
         storage.state.catalog.close().await.unwrap();
     }
 
