@@ -311,6 +311,254 @@ mod tests {
         }
     }
 
+    /// The names of the settings an update changes, read by destructuring so that a new
+    /// setting must be listed here.
+    fn changed(update: &BucketMetadataUpdate) -> Vec<&'static str> {
+        let BucketMetadataUpdate {
+            acl,
+            default_object_acl,
+            cors,
+            lifecycle,
+            retention_policy,
+            soft_delete_retention,
+            object_retention_enabled,
+            labels,
+            storage_class,
+            autoclass,
+            versioning,
+            default_event_based_hold,
+            public_access_prevention,
+            uniform_bucket_level_access_enabled,
+            rpo,
+            touched: _,
+        } = update;
+        [
+            ("acl", acl.is_some()),
+            ("default_object_acl", default_object_acl.is_some()),
+            ("cors", cors.is_some()),
+            ("lifecycle", lifecycle.is_some()),
+            (
+                "retention_policy",
+                *retention_policy != RetentionPolicyUpdate::default(),
+            ),
+            ("soft_delete_retention", soft_delete_retention.is_some()),
+            (
+                "object_retention_enabled",
+                object_retention_enabled.is_some(),
+            ),
+            ("labels", *labels != MapPatch::default()),
+            ("storage_class", storage_class.is_some()),
+            ("autoclass", autoclass.is_some()),
+            ("versioning", versioning.is_some()),
+            (
+                "default_event_based_hold",
+                default_event_based_hold.is_some(),
+            ),
+            (
+                "public_access_prevention",
+                public_access_prevention.is_some(),
+            ),
+            (
+                "uniform_bucket_level_access_enabled",
+                uniform_bucket_level_access_enabled.is_some(),
+            ),
+            ("rpo", rpo.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, set)| set.then_some(name))
+        .collect()
+    }
+
+    /// A bucket every accepted path can apply.
+    fn configured_bucket() -> pb::Bucket {
+        pb::Bucket {
+            labels: [("team".into(), "dev".into())].into(),
+            storage_class: "NEARLINE".into(),
+            autoclass: Some(pb::bucket::Autoclass {
+                enabled: true,
+                terminal_storage_class: Some("ARCHIVE".into()),
+                ..Default::default()
+            }),
+            versioning: Some(pb::bucket::Versioning { enabled: true }),
+            default_event_based_hold: true,
+            retention_policy: Some(pb::bucket::RetentionPolicy {
+                retention_duration: Some(prost_types::Duration {
+                    seconds: 3600,
+                    nanos: 0,
+                }),
+                ..Default::default()
+            }),
+            soft_delete_policy: Some(pb::bucket::SoftDeletePolicy {
+                retention_duration: Some(prost_types::Duration {
+                    seconds: 604_800,
+                    nanos: 0,
+                }),
+                ..Default::default()
+            }),
+            iam_config: Some(pb::bucket::IamConfig {
+                public_access_prevention: "enforced".into(),
+                uniform_bucket_level_access: Some(
+                    pb::bucket::iam_config::UniformBucketLevelAccess {
+                        enabled: true,
+                        ..Default::default()
+                    },
+                ),
+            }),
+            acl: vec![pb::BucketAccessControl {
+                entity: "allAuthenticatedUsers".into(),
+                role: "READER".into(),
+                ..Default::default()
+            }],
+            default_object_acl: vec![pb::ObjectAccessControl {
+                entity: "allAuthenticatedUsers".into(),
+                role: "READER".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// Each accepted update_mask path, the settings it changes, and the paths that are its
+    /// aliases; every other path is refused with UNIMPLEMENTED naming it, in mask order.
+    #[test]
+    fn update_mask_paths_select_their_settings_and_refuse_the_rest() {
+        let bucket = configured_bucket();
+        let accepted: [(&[&str], &[&str]); 15] = [
+            (&["labels", "labels.team", "labels.absent"], &["labels"]),
+            (&["storage_class"], &["storage_class"]),
+            (
+                &[
+                    "autoclass",
+                    "autoclass.enabled",
+                    "autoclass.terminal_storage_class",
+                ],
+                &["autoclass"],
+            ),
+            (&["versioning", "versioning.enabled"], &["versioning"]),
+            (&["default_event_based_hold"], &["default_event_based_hold"]),
+            (&["cors"], &["cors"]),
+            (&["lifecycle", "lifecycle.rule"], &["lifecycle"]),
+            (
+                &["retention_policy", "retention_policy.retention_duration"],
+                &["retention_policy"],
+            ),
+            (
+                &[
+                    "soft_delete_policy",
+                    "soft_delete_policy.retention_duration",
+                ],
+                &["soft_delete_retention"],
+            ),
+            (
+                &["iam_config"],
+                &[
+                    "public_access_prevention",
+                    "uniform_bucket_level_access_enabled",
+                ],
+            ),
+            (
+                &["iam_config.public_access_prevention"],
+                &["public_access_prevention"],
+            ),
+            (
+                &[
+                    "iam_config.uniform_bucket_level_access",
+                    "iam_config.uniform_bucket_level_access.enabled",
+                ],
+                &["uniform_bucket_level_access_enabled"],
+            ),
+            (&["acl"], &["acl"]),
+            (&["default_object_acl"], &["default_object_acl"]),
+            // A key path may name any label key, dots included.
+            (&["labels.a.b"], &["labels"]),
+        ];
+        for (paths, settings) in accepted {
+            for path in paths {
+                let update = from_proto(&bucket, &[(*path).into()]).unwrap();
+                assert_eq!(changed(&update), settings, "{path}");
+                assert!(update.touched, "{path}");
+            }
+        }
+        // Aliases build the same update; the autoclass subpaths are tested by value elsewhere.
+        for (short, long) in [
+            ("versioning", "versioning.enabled"),
+            ("lifecycle", "lifecycle.rule"),
+            ("retention_policy", "retention_policy.retention_duration"),
+            (
+                "soft_delete_policy",
+                "soft_delete_policy.retention_duration",
+            ),
+            (
+                "iam_config.uniform_bucket_level_access",
+                "iam_config.uniform_bucket_level_access.enabled",
+            ),
+        ] {
+            assert_eq!(
+                format!("{:?}", from_proto(&bucket, &[short.into()]).unwrap()),
+                format!("{:?}", from_proto(&bucket, &[long.into()]).unwrap()),
+                "{short}"
+            );
+        }
+        let error = from_proto(&bucket, &["labels.".into()]).unwrap_err();
+        assert_eq!(error.code(), tonic::Code::Unimplemented);
+        assert_eq!(
+            error.message(),
+            "gcs-mimic does not support gRPC UpdateBucket update_mask labels.; use labels, versioning, lifecycle or iam_config; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
+        );
+        for path in [
+            "",
+            " labels",
+            "Labels",
+            "labels ",
+            "storage_class.name",
+            "autoclass.toggle_time",
+            "autoclass.terminal_storage_class_update_time",
+            "versioning.enabled.value",
+            "lifecycle.rule.action",
+            "retention_policy.is_locked",
+            "retention_policy.effective_time",
+            "soft_delete_policy.effective_time",
+            "iam_config.uniform_bucket_level_access.lock_time",
+            "acl.role",
+            "default_object_acl.role",
+            "name",
+            "bucket_id",
+            "etag",
+            "project",
+            "metageneration",
+            "location",
+            "location_type",
+            "create_time",
+            "update_time",
+            "object_retention",
+            "object_retention.enabled",
+        ] {
+            let error = from_proto(&bucket, &[path.into()]).unwrap_err();
+            assert_eq!(error.code(), tonic::Code::Unimplemented, "{path}");
+            assert_eq!(
+                error.message(),
+                unsupported(&format!(
+                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
+                ))
+                .message(),
+                "{path}"
+            );
+            assert!(!error.details().is_empty(), "{path}");
+        }
+        // Paths apply in mask order, so the first failing path names the error.
+        let invalid_class = pb::Bucket {
+            storage_class: "RAPID".into(),
+            ..Default::default()
+        };
+        let first =
+            from_proto(&invalid_class, &["storage_class".into(), "name".into()]).unwrap_err();
+        assert!(first.message().contains("storage_class"), "{first}");
+        assert!(!first.message().contains("update_mask"), "{first}");
+        let first =
+            from_proto(&invalid_class, &["name".into(), "storage_class".into()]).unwrap_err();
+        assert!(first.message().contains("update_mask name"), "{first}");
+    }
+
     #[test]
     fn invalid_storage_classes_keep_client_values_verbatim() {
         for value in [
