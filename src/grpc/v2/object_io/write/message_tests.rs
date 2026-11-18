@@ -651,6 +651,17 @@ async fn grpc_single_shot_write_error_precedence() {
             || failed(InvalidArgument, MD5_LENGTH, Left::Nothing),
         ),
         both(
+            "conflicting-checksums-over-offset",
+            |n| {
+                let whole = crc32c::crc32c(b"abcd");
+                vec![
+                    opening(n, b"abc").crc(whole),
+                    chunk(-1, b"d").finish().crc(1),
+                ]
+            },
+            || failed(InvalidArgument, CONFLICTING, Left::Nothing),
+        ),
+        both(
             "negative-offset-over-crc",
             |n| {
                 vec![
@@ -708,11 +719,7 @@ async fn grpc_single_shot_write_error_precedence() {
                         .first(FirstMessage::WriteObjectSpec(spec)),
                 ]
             },
-            failed(
-                FailedPrecondition,
-                "At least one of the pre-conditions you specified did not hold.",
-                Left::Nothing,
-            ),
+            failed(FailedPrecondition, PRECONDITION, Left::Nothing),
         ),
         // WriteObject reads past finish_write before it checks the complete object.
         split(
@@ -727,13 +734,15 @@ async fn grpc_single_shot_write_error_precedence() {
 }
 
 /// How a case's resumable session starts: its declared size and checksum, the bytes persisted
-/// before the case, and whether a stream already finalized it with them.
+/// before the case, whether a stream already finalized it with them, and whether another write
+/// created the object after a session that may only create it started.
 #[derive(Clone, Copy, Default)]
 struct Session {
     size: Option<i64>,
     crc32c: Option<u32>,
     prefix: &'static [u8],
     finalized: bool,
+    preempted: bool,
 }
 
 const PLAIN: Session = Session {
@@ -741,6 +750,7 @@ const PLAIN: Session = Session {
     crc32c: None,
     prefix: b"",
     finalized: false,
+    preempted: false,
 };
 
 const PREFIXED: Session = Session {
@@ -748,9 +758,21 @@ const PREFIXED: Session = Session {
     ..PLAIN
 };
 
+/// A create-only session whose object another write created, so its publication conditions
+/// no longer hold.
+const PREEMPTED: Session = Session {
+    preempted: true,
+    ..PLAIN
+};
+
+const PRECONDITION: &str = "At least one of the pre-conditions you specified did not hold.";
+
 async fn open_session(storage: &Storage, name: &str, session: Session) -> String {
     let mut spec = spec(name);
     spec.object_size = session.size;
+    if session.preempted {
+        spec.if_generation_match = Some(0);
+    }
     let upload = storage
         .start_resumable_write(
             Request::new(pb::StartResumableWriteRequest {
@@ -771,6 +793,10 @@ async fn open_session(storage: &Storage, name: &str, session: Session) -> String
         let mut prefix = resume(&upload, 0, session.prefix);
         prefix.finish_write = session.finalized;
         let (status, _) = call(storage, Rpc::WriteObject, &[prefix]).await;
+        assert_eq!(status.code(), Code::Ok, "{name}: {status}");
+    }
+    if session.preempted {
+        let (status, _) = call(storage, Rpc::WriteObject, &[opening(name, b"x").finish()]).await;
         assert_eq!(status.code(), Code::Ok, "{name}: {status}");
     }
     upload
@@ -1068,7 +1094,7 @@ async fn grpc_resumable_write_message_errors() {
 /// When one resumable message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_resumable_write_error_precedence() {
-    use Code::{InvalidArgument, NotFound, OutOfRange, Unimplemented};
+    use Code::{FailedPrecondition, InvalidArgument, NotFound, OutOfRange, Unimplemented};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         on(
@@ -1126,6 +1152,22 @@ async fn grpc_resumable_write_error_precedence() {
                 "key-over-offset",
                 |u| vec![resume(u, 5, b"abc").finish().keyed()],
                 || failed(InvalidArgument, key_after_keyless(), Left::Persisted(0)),
+            ),
+        ),
+        on(
+            PREEMPTED,
+            both(
+                "key-over-conditions",
+                |u| vec![resume(u, 0, b"abc").finish().keyed()],
+                || failed(InvalidArgument, key_after_keyless(), Left::Persisted(0)),
+            ),
+        ),
+        on(
+            PREEMPTED,
+            both(
+                "conditions-over-checksums",
+                |u| vec![resume(u, 0, b"abc").finish().md5(3)],
+                || failed(FailedPrecondition, PRECONDITION, Left::Persisted(0)),
             ),
         ),
         on(
