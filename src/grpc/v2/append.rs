@@ -3,9 +3,7 @@
 
 use super::{
     Storage, convert,
-    object_io::{
-        Responses, WriteSpec, conditions, hashes, object_status, send, take_data, verify_crc32c,
-    },
+    object_io::{Responses, WriteSpec, conditions, hashes, object_status, send, take_data},
     pb,
     status::unsupported_for,
 };
@@ -23,6 +21,7 @@ use tonic::{
     Status,
     codegen::tokio_stream::{Stream, StreamExt},
 };
+use verified::VerifiedChunk;
 
 pub(super) fn is_append(first: &pb::BidiWriteObjectRequest) -> bool {
     use pb::bidi_write_object_request::FirstMessage;
@@ -59,21 +58,6 @@ enum StepEnd {
     Continue { flush: Flush, lookup: Lookup },
     /// The message finalizes the object, whose CRC32C must match the one declared, if any.
     Finish { expected_crc32c: Option<u32> },
-}
-
-/// Content whose CRC32C matched the one its message declared, if any. Only
-/// [`VerifiedChunk::verify`] makes one, so no unchecked byte reaches the writer.
-struct VerifiedChunk(bytes::Bytes);
-
-impl VerifiedChunk {
-    fn verify(data: pb::ChecksummedData) -> Result<Self, Status> {
-        verify_crc32c(&data)?;
-        Ok(Self(data.content))
-    }
-
-    fn into_bytes(self) -> bytes::Bytes {
-        self.0
-    }
 }
 
 /// Bytes a message appends at `offset`.
@@ -115,7 +99,7 @@ impl WriteStep {
                 "Appendable objects have no MD5 hash; send only crc32c in object_checksums",
             ));
         }
-        let chunk = if content.0.is_empty() {
+        let chunk = if content.is_empty() {
             None
         } else {
             let offset = u64::try_from(message.write_offset).map_err(|_| {
@@ -436,6 +420,8 @@ impl Storage {
             .await
     }
 }
+
+mod verified;
 
 #[cfg(test)]
 mod tests;
