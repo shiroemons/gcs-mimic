@@ -38803,7 +38803,7 @@
           "test_ids": [
             "grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets",
             "grpc_names_follow_the_configured_bucket_profile",
-            "routing_validates_all_values_and_resumed_upload_buckets",
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write",
             "grpc_buckets_pagination_and_routing",
             "grpc_buckets_strict_shared_authorization",
             "TestGRPCBuckets",
@@ -38816,8 +38816,8 @@
           "result": "PASS",
           "test_ids": [
             "routing_compares_each_field_with_its_own_rule",
-            "deferred_routing_checks_only_presence_and_form",
-            "routing_validates_all_values_and_resumed_upload_buckets"
+            "routing_validates_only_the_keys_the_rpc_routes",
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write"
           ]
         },
         {
@@ -38826,8 +38826,8 @@
           "result": "PASS",
           "test_ids": [
             "routing_ignores_keys_the_rpc_does_not_route",
-            "routing_validates_all_values_and_resumed_upload_buckets",
-            "deferred_routing_checks_only_presence_and_form"
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write",
+            "routing_validates_only_the_keys_the_rpc_routes"
           ]
         },
         {
@@ -38875,13 +38875,13 @@
       "test_ids": [
         "grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets",
         "grpc_names_follow_the_configured_bucket_profile",
-        "routing_validates_all_values_and_resumed_upload_buckets",
+        "routing_compares_only_the_appendable_flag_of_a_resumed_write",
         "grpc_buckets_pagination_and_routing",
         "grpc_buckets_strict_shared_authorization",
         "TestGRPCBuckets",
         "TestGRPCBucketsStrict",
         "routing_compares_each_field_with_its_own_rule",
-        "deferred_routing_checks_only_presence_and_form",
+        "routing_validates_only_the_keys_the_rpc_routes",
         "routing_ignores_keys_the_rpc_does_not_route",
         "grpc_timeout_never_ends_a_call_on_the_server",
         "grpc_compressed_requests_are_refused_before_the_call",
@@ -38946,9 +38946,9 @@
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
           "test_ids": [
             "routing_compares_each_field_with_its_own_rule",
-            "deferred_routing_checks_only_presence_and_form",
+            "routing_validates_only_the_keys_the_rpc_routes",
             "routing_ignores_keys_the_rpc_does_not_route",
-            "routing_validates_all_values_and_resumed_upload_buckets"
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write"
           ]
         },
         {
@@ -38956,7 +38956,7 @@
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/grpc-v2-buckets.md",
-          "test_ids": ["grpc_names_follow_the_configured_bucket_profile", "routing_validates_all_values_and_resumed_upload_buckets"]
+          "test_ids": ["grpc_names_follow_the_configured_bucket_profile", "routing_compares_only_the_appendable_flag_of_a_resumed_write"]
         },
         {
           "command": "cargo test --locked --offline --workspace --no-fail-fast",
@@ -38966,7 +38966,7 @@
           "test_ids": [
             "grpc_object_routing_ignores_billing_and_rejects_conflicting_buckets",
             "grpc_names_follow_the_configured_bucket_profile",
-            "routing_validates_all_values_and_resumed_upload_buckets"
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write"
           ]
         },
         {
@@ -39052,7 +39052,7 @@
           "text": "A malformed routed bucket returns INVALID_ARGUMENT with the GRPC_INVALID_X_GOOG_REQUEST_PARAMS_INVALID_BUCKET_FORMAT reason, and a routed value that conflicts with the request returns INVALID_ARGUMENT; bucket IDs follow the configured native or fake-gcs-server naming profile. Google documents no status for these and none was recorded.",
           "gap": "SPEC-GRPC-ROUTING-NAMES",
           "test_ids": [
-            "routing_validates_all_values_and_resumed_upload_buckets",
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write",
             "grpc_names_follow_the_configured_bucket_profile"
           ]
         },
@@ -39060,8 +39060,8 @@
           "text": "An x-goog-request-params key that the RPC does not route returns UNIMPLEMENTED with ErrorInfo, and so does a key no Storage v2 RPC routes, a redirect routing_token included, whether the request names its resources or they arrive later: the emulator never redirects, so it never issues a routing token to repeat. Pinned for project on RPCs that do not route it, for routing_token alone and beside a matching bucket, and for an unknown key.",
           "gap": "SPEC-GRPC-UNMODELED-SETTINGS",
           "test_ids": [
-            "routing_validates_all_values_and_resumed_upload_buckets",
-            "deferred_routing_checks_only_presence_and_form",
+            "routing_compares_only_the_appendable_flag_of_a_resumed_write",
+            "routing_validates_only_the_keys_the_rpc_routes",
             "routing_ignores_keys_the_rpc_does_not_route"
           ]
         },
