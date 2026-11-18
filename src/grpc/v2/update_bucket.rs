@@ -58,37 +58,6 @@ impl Storage {
         Ok(record.metageneration)
     }
 
-    /// `conditions` with the ETag an UpdateBucket request carries in its bucket: the update
-    /// applies only while the bucket has that ETag (storage.proto lines 2581-2584). A bucket's
-    /// ETag encodes only its metageneration, so the ETag holds exactly while the metageneration
-    /// read here does, and the catalog compares that metageneration atomically with the write.
-    async fn with_etag_condition(
-        &self,
-        bucket: &str,
-        etag: &str,
-        conditions: BucketConditions,
-        access: &BucketAccess,
-    ) -> Result<BucketConditions, Status> {
-        if etag.is_empty() {
-            return Ok(conditions);
-        }
-        let record = self
-            .state
-            .catalog
-            .get_bucket(bucket, access)
-            .await?
-            .ok_or_else(|| Status::from(CatalogError::NotFound))?;
-        if convert::bucket(&record, convert::Lifecycle::Omit)?.etag != etag
-            || !conditions.hold(record.metageneration)
-        {
-            return Err(CatalogError::PreconditionFailed.into());
-        }
-        Ok(BucketConditions {
-            if_metageneration_match: Some(record.metageneration),
-            ..conditions
-        })
-    }
-
     async fn patch_bucket_with_lifecycle_response(
         &self,
         bucket: &str,
@@ -140,13 +109,13 @@ impl Storage {
         if !r.predefined_acl.is_empty() || !r.predefined_default_object_acl.is_empty() {
             return Err(unsupported("predefined bucket ACLs; omit predefined_acl"));
         }
-        let conditions = strict_bucket_conditions(BucketConditions::from(&r))?;
+        // Cloud Storage compares whatever conditions arrive, as GetBucket and DeleteBucket do:
+        // a zero or negative match never holds, a zero or negative not-match always does, and
+        // both may come together. It ignores the ETag in `bucket` (recorded 2026-11-18).
+        let conditions = BucketConditions::from(&r);
         let paths = mask(r.update_mask.as_ref())?;
         let update = super::bucket_update::from_proto(&b, paths)?;
         let access = self.access(caller, bucket, auth::BUCKETS_UPDATE).await?;
-        let conditions = self
-            .with_etag_condition(bucket, &b.etag, conditions, &access)
-            .await?;
         let record = self
             .patch_bucket_with_lifecycle_response(bucket, &update, conditions, &access)
             .await?;
@@ -294,7 +263,6 @@ mod tests {
         for path in [
             "*",
             "acl.entity",
-            "owner",
             "versioning.unknown",
             "iam_config.unknown",
             "rpo",
@@ -814,132 +782,33 @@ mod tests {
         s.state.catalog.close().await.unwrap();
     }
 
-    /// A `bucket.etag` makes the update conditional on the bucket's current ETag
-    /// (storage.proto lines 2581-2584). A stale or foreign ETag fails like a metageneration
-    /// condition and changes nothing; it combines with the request's conditions, and a missing
-    /// bucket is reported first.
+    /// Cloud Storage ignores the ETag an UpdateBucket request carries in its bucket: an update
+    /// naming a superseded ETag applied (recorded 2026-11-18), so only the request's
+    /// metageneration conditions make an update conditional.
     #[tokio::test]
-    async fn grpc_bucket_update_requires_a_matching_etag() {
+    async fn grpc_bucket_update_ignores_the_bucket_etag() {
         let (s, _dir) = setup().await;
         let first = stored_bucket(&s).await;
         let first_etag = convert::bucket(&first, convert::Lifecycle::Omit)
             .unwrap()
             .etag;
-        let update = |etag: &str, paths: &[&str], conditions: BucketConditions| {
-            let mut request = lifecycle_label_update(conditions);
-            let bucket = request.bucket.as_mut().unwrap();
-            bucket.etag = etag.into();
-            request.update_mask = fixtures::mask(paths);
+        let update = |etag: &str| {
+            let mut request = lifecycle_label_update(BucketConditions::default());
+            request.bucket.as_mut().unwrap().etag = etag.into();
+            request.update_mask = fixtures::mask(&["labels"]);
             request
         };
-        let current = s
-            .update_bucket(
-                Request::new(update(
-                    &first_etag,
-                    &["labels"],
-                    BucketConditions::default(),
-                )),
-                None,
-            )
-            .await
-            .unwrap()
-            .into_inner();
-        assert_eq!(current.metageneration, first.metageneration + 1);
-        assert_ne!(current.etag, first_etag);
-        let precondition = Status::from(CatalogError::PreconditionFailed);
-        let failing = [
-            // The ETag of the previous metageneration, with and without a lifecycle change,
-            // which skips the lifecycle precheck.
-            (first_etag.as_str(), "labels", BucketConditions::default()),
-            (
-                first_etag.as_str(),
-                "lifecycle",
-                BucketConditions::default(),
-            ),
-            ("not-an-etag", "labels", BucketConditions::default()),
-            // The ETag holds, but a metageneration condition beside it does not.
-            (
-                current.etag.as_str(),
-                "labels",
-                BucketConditions {
-                    if_metageneration_match: Some(first.metageneration),
-                    ..Default::default()
-                },
-            ),
-            (
-                current.etag.as_str(),
-                "labels",
-                BucketConditions {
-                    if_metageneration_not_match: Some(current.metageneration),
-                    ..Default::default()
-                },
-            ),
-        ];
-        for (etag, path, conditions) in failing {
-            let status = assert_code(
-                s.update_bucket(Request::new(update(etag, &[path], conditions)), None)
-                    .await,
-                Code::FailedPrecondition,
-            );
-            assert_eq!(status.message(), precondition.message(), "{etag} {path}");
-            assert_eq!(
-                stored_bucket(&s).await.metageneration,
-                current.metageneration
-            );
+        let mut metageneration = first.metageneration;
+        // The current ETag, the one it superseded, and a value that is no ETag.
+        for etag in [first_etag.as_str(), first_etag.as_str(), "not-an-etag"] {
+            let updated = s
+                .update_bucket(Request::new(update(etag)), None)
+                .await
+                .unwrap()
+                .into_inner();
+            metageneration += 1;
+            assert_eq!(updated.metageneration, metageneration, "{etag}");
         }
-        let mut missing = update(&current.etag, &["labels"], BucketConditions::default());
-        missing.bucket.as_mut().unwrap().name = "projects/_/buckets/missing-bucket".into();
-        assert_code(
-            s.update_bucket(Request::new(missing), None).await,
-            Code::NotFound,
-        );
-        let matched = s
-            .update_bucket(
-                Request::new(update(
-                    &current.etag,
-                    &["lifecycle"],
-                    BucketConditions {
-                        if_metageneration_match: Some(current.metageneration),
-                        ..Default::default()
-                    },
-                )),
-                None,
-            )
-            .await
-            .unwrap()
-            .into_inner();
-        assert_eq!(matched.metageneration, current.metageneration + 1);
-        s.state.catalog.close().await.unwrap();
-    }
-
-    /// The ETag fixes the metageneration the update applies to, so when another update lands
-    /// between the lifecycle check and the write, the update fails at once with
-    /// FAILED_PRECONDITION and changes nothing, instead of retrying and answering ABORTED as an
-    /// update without an ETag or a metageneration match does
-    /// (grpc_lifecycle_precheck_stops_after_three_conflicts).
-    #[tokio::test]
-    async fn grpc_bucket_update_with_an_etag_fails_at_once_when_another_update_intervenes() {
-        let (s, _dir) = setup().await;
-        let before = stored_bucket(&s).await;
-        let mut request = lifecycle_label_update(BucketConditions::default());
-        request.bucket.as_mut().unwrap().etag = convert::bucket(&before, convert::Lifecycle::Omit)
-            .unwrap()
-            .etag;
-        let writes = RefCell::new(VecDeque::from([json!({"defaultEventBasedHold":true})]));
-        let status = assert_code(
-            BUCKET_PRECHECK_UPDATES
-                .scope(writes, s.update_bucket(Request::new(request), None))
-                .await,
-            Code::FailedPrecondition,
-        );
-        assert_eq!(
-            status.message(),
-            Status::from(CatalogError::PreconditionFailed).message()
-        );
-        let after = stored_bucket(&s).await;
-        assert_eq!(after.metageneration, before.metageneration + 1);
-        assert_eq!(after.labels, before.labels);
-        assert!(after.default_event_based_hold);
         s.state.catalog.close().await.unwrap();
     }
 

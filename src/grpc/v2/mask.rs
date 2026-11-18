@@ -128,6 +128,13 @@ impl std::fmt::Display for UnselectableBucketPath {
 
 impl std::error::Error for UnselectableBucketPath {}
 
+/// Whether the first segment of `path` names a `Bucket` field: one a mask selects, or
+/// `satisfies_pzs`, which no mask selects because the emulator has no value to answer with.
+pub(super) fn starts_with_bucket_field(path: &str) -> bool {
+    let field = path.split_once('.').map_or(path, |(field, _)| field);
+    field == "satisfies_pzs" || field.parse::<BucketField>().is_ok()
+}
+
 /// Whether a read without a mask includes the ACL fields: GetBucket defaults to all fields,
 /// ListBuckets to all fields except `acl`, `default_object_acl` and `owner`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,7 +168,14 @@ impl BucketMask {
                 .iter()
                 .map(|path| {
                     path.parse().map_err(|UnselectableBucketPath| {
-                        status::unsupported(&format!("bucket read_mask {path}"))
+                        // A path under a `Bucket` field is not selected yet, whether or not
+                        // the field has that member; only an unknown first segment is known
+                        // to name nothing.
+                        if starts_with_bucket_field(path) {
+                            status::unsupported(&format!("bucket read_mask {path}"))
+                        } else {
+                            unknown_field(path)
+                        }
                     })
                 })
                 .collect::<Result<_, _>>()
@@ -206,14 +220,25 @@ impl BucketMask {
     }
 }
 
+/// The paths of an update mask. Cloud Storage refuses an absent mask and one without paths
+/// alike (recorded 2026-11-18 on UpdateBucket and UpdateObject).
 pub(super) fn mask(mask: Option<&prost_types::FieldMask>) -> Result<&[String], Status> {
     mask.filter(|m| !m.paths.is_empty())
         .map(|m| m.paths.as_slice())
         .ok_or_else(|| {
-            Status::invalid_argument(
-                "update_mask is required; use paths such as content_type or versioning.enabled",
+            status::invalid_with_reason(
+                "Invalid update_mask. Requests should specify at least one update field.",
+                "GRPC_MISSING_UPDATE_MASK_FIELDS",
             )
         })
+}
+
+/// Cloud Storage's answer to a mask path that names no field of the resource (recorded
+/// 2026-11-18 on GetBucket, ListBuckets, GetObject, UpdateBucket and UpdateObject).
+pub(super) fn unknown_field(path: &str) -> Status {
+    Status::invalid_argument(format!(
+        "There is no field for this resource named '{path}'."
+    ))
 }
 
 #[cfg(test)]

@@ -148,7 +148,7 @@ async fn nonempty_bucket_deletion_uses_the_shared_grpc_status() {
     );
     assert_eq!(
         legacy.message(),
-        "Bucket is not empty; delete its objects and versions before deleting the bucket"
+        "The bucket you tried to delete is not empty."
     );
     let modern = fixtures::storage_with(storage.state.clone(), 1024);
     let modern = assert_code(
@@ -164,7 +164,7 @@ async fn nonempty_bucket_deletion_uses_the_shared_grpc_status() {
     );
     assert_eq!(
         modern.message(),
-        "Bucket is not empty; delete its objects and versions before deleting the bucket"
+        "The bucket you tried to delete is not empty."
     );
     storage.state.catalog.close().await.unwrap();
 }

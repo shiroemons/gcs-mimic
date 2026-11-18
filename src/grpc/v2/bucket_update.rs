@@ -1,4 +1,9 @@
-use super::{convert, pb, status::unsupported};
+use super::{
+    convert,
+    mask::{starts_with_bucket_field, unknown_field},
+    pb,
+    status::unsupported,
+};
 use crate::{
     acl::{AclEntry, AclEntryInput, AclKind},
     bucket::{
@@ -65,7 +70,7 @@ impl AutoclassPath {
 }
 
 impl std::str::FromStr for UpdatePath {
-    type Err = UnsupportedUpdatePath;
+    type Err = UnappliedUpdatePath;
 
     fn from_str(path: &str) -> Result<Self, Self::Err> {
         Ok(match path {
@@ -92,31 +97,33 @@ impl std::str::FromStr for UpdatePath {
             "default_object_acl" => Self::DefaultObjectAcl,
             path => match path.strip_prefix("labels.") {
                 Some(key) if !key.is_empty() => Self::Label(key.into()),
-                _ => return Err(UnsupportedUpdatePath(path.into())),
+                _ => return Err(UnappliedUpdatePath::from(path)),
             },
         })
     }
 }
 
-/// An `update_mask` path UpdateBucket does not apply; it names the path the client sent.
-#[derive(Debug)]
-struct UnsupportedUpdatePath(String);
-
-impl std::fmt::Display for UnsupportedUpdatePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "UpdateBucket update_mask {}; use labels, versioning, lifecycle or iam_config",
-            self.0
-        )
-    }
+/// An `update_mask` path UpdateBucket does not apply.
+#[derive(Debug, PartialEq, Eq)]
+enum UnappliedUpdatePath {
+    /// A field the service alone sets. Cloud Storage accepts the path and changes nothing
+    /// (recorded 2026-11-18 for `create_time` and `update_time`); the other fields the proto
+    /// marks `OUTPUT_ONLY` are taken the same way.
+    OutputOnly,
+    /// A `Bucket` field, or a path under one, that gcs-mimic does not update.
+    Unsupported(String),
+    /// A path whose first segment names no `Bucket` field.
+    Unknown(String),
 }
 
-impl std::error::Error for UnsupportedUpdatePath {}
-
-impl From<UnsupportedUpdatePath> for Status {
-    fn from(error: UnsupportedUpdatePath) -> Self {
-        unsupported(&error.to_string())
+impl From<&str> for UnappliedUpdatePath {
+    fn from(path: &str) -> Self {
+        match path {
+            "bucket_id" | "metageneration" | "location_type" | "create_time" | "update_time"
+            | "owner" => Self::OutputOnly,
+            path if path == "*" || starts_with_bucket_field(path) => Self::Unsupported(path.into()),
+            path => Self::Unknown(path.into()),
+        }
     }
 }
 
@@ -124,14 +131,23 @@ pub(super) fn from_proto(
     bucket: &pb::Bucket,
     paths: &[String],
 ) -> Result<BucketMetadataUpdate, Status> {
-    let mut update = BucketMetadataUpdate {
-        touched: !paths.is_empty(),
-        ..Default::default()
-    };
+    let mut update = BucketMetadataUpdate::default();
     // Each path is parsed and applied before the next one is read, so the first failing path in
     // mask order names the error, whether it is refused or its value is invalid.
     for path in paths {
-        apply_path(&mut update, bucket, path.parse()?)?;
+        match path.parse() {
+            Ok(path) => {
+                update.touched = true;
+                apply_path(&mut update, bucket, path)?;
+            }
+            Err(UnappliedUpdatePath::OutputOnly) => {}
+            Err(UnappliedUpdatePath::Unsupported(path)) => {
+                return Err(unsupported(&format!(
+                    "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
+                )));
+            }
+            Err(UnappliedUpdatePath::Unknown(path)) => return Err(unknown_field(&path)),
+        }
     }
     Ok(update)
 }
@@ -324,13 +340,11 @@ pub(super) fn retention_seconds(duration: &prost_types::Duration) -> i64 {
 }
 
 /// The whole seconds of a soft delete duration, shared with CreateBucket. Unlike a retention
-/// duration, the proto states no rounding for it, so a fractional one is refused rather than
-/// silently shortened.
+/// duration, a fractional one is refused: Cloud Storage answers UpdateBucket with this status
+/// and a `BadRequest` that repeats it (recorded 2026-11-18).
 pub(super) fn soft_delete_seconds(duration: &prost_types::Duration) -> Result<i64, Status> {
     if duration.nanos != 0 {
-        return Err(unsupported(
-            "fractional soft delete duration; use whole seconds",
-        ));
+        return Err(super::status::invalid_field("Invalid argument."));
     }
     Ok(duration.seconds)
 }
@@ -636,10 +650,6 @@ mod tests {
             "gcs-mimic does not support gRPC UpdateBucket update_mask labels.; use labels, versioning, lifecycle or iam_config; use the JSON API instead. Set STORAGE_EMULATOR_HOST to the server's api_base_url reported in its ready event."
         );
         for path in [
-            "",
-            " labels",
-            "Labels",
-            "labels ",
             "storage_class.name",
             "autoclass.toggle_time",
             "autoclass.terminal_storage_class_update_time",
@@ -652,14 +662,9 @@ mod tests {
             "acl.role",
             "default_object_acl.role",
             "name",
-            "bucket_id",
             "etag",
             "project",
-            "metageneration",
             "location",
-            "location_type",
-            "create_time",
-            "update_time",
             "object_retention",
             "object_retention.enabled",
         ] {
@@ -674,6 +679,29 @@ mod tests {
                 "{path}"
             );
             assert!(!error.details().is_empty(), "{path}");
+        }
+        // A path whose first segment is no bucket field names nothing, exact spelling included.
+        for path in ["", " labels", "Labels", "labels ", "no_such_field"] {
+            let error = from_proto(&bucket, &[path.into()]).unwrap_err();
+            assert_eq!(error.code(), tonic::Code::InvalidArgument, "{path}");
+            assert_eq!(
+                error.message(),
+                format!("There is no field for this resource named '{path}'."),
+            );
+        }
+        // The fields the service alone sets are accepted and change nothing.
+        for path in [
+            "bucket_id",
+            "metageneration",
+            "location_type",
+            "create_time",
+            "update_time",
+            "owner",
+        ] {
+            assert!(
+                from_proto(&bucket, &[path.into()]).unwrap().is_empty(),
+                "{path}"
+            );
         }
         // Paths apply in mask order, so the first failing path names the error.
         let invalid_class = pb::Bucket {
@@ -707,11 +735,51 @@ mod tests {
         ] {
             assert_eq!(path.parse::<UpdatePath>().unwrap(), parsed, "{path}");
         }
-        let error = "labels.".parse::<UpdatePath>().unwrap_err();
+        for (path, unapplied) in [
+            (
+                "labels.",
+                UnappliedUpdatePath::Unsupported("labels.".into()),
+            ),
+            (
+                "website",
+                UnappliedUpdatePath::Unsupported("website".into()),
+            ),
+            ("*", UnappliedUpdatePath::Unsupported("*".into())),
+            (
+                "versioning.no_such_field",
+                UnappliedUpdatePath::Unsupported("versioning.no_such_field".into()),
+            ),
+            ("create_time", UnappliedUpdatePath::OutputOnly),
+            ("owner", UnappliedUpdatePath::OutputOnly),
+            (
+                "no_such_field",
+                UnappliedUpdatePath::Unknown("no_such_field".into()),
+            ),
+            (
+                "no_such_field.enabled",
+                UnappliedUpdatePath::Unknown("no_such_field.enabled".into()),
+            ),
+        ] {
+            assert_eq!(path.parse::<UpdatePath>().unwrap_err(), unapplied, "{path}");
+        }
+    }
+
+    /// Cloud Storage accepts an output-only path and changes nothing, and refuses a path that
+    /// names no bucket field (recorded 2026-11-18).
+    #[test]
+    fn output_only_paths_change_nothing_and_unknown_paths_are_invalid() {
+        let bucket = pb::Bucket::default();
+        let update = from_proto(&bucket, &["create_time".into(), "update_time".into()]).unwrap();
+        assert!(update.is_empty());
+        let update = from_proto(&bucket, &["create_time".into(), "labels".into()]).unwrap();
+        assert!(update.touched);
+        let unknown = from_proto(&bucket, &["no_such_field".into()]).unwrap_err();
+        assert_eq!(unknown.code(), tonic::Code::InvalidArgument);
         assert_eq!(
-            error.to_string(),
-            "UpdateBucket update_mask labels.; use labels, versioning, lifecycle or iam_config"
+            unknown.message(),
+            "There is no field for this resource named 'no_such_field'."
         );
+        assert!(unknown.details().is_empty());
     }
 
     #[test]
@@ -833,13 +901,15 @@ mod tests {
             }),
             ..Default::default()
         };
+        // Cloud Storage's answer, with a BadRequest that repeats it (recorded 2026-11-18).
+        let fractional = from_proto(&config, &["soft_delete_policy".into()]).unwrap_err();
         assert_eq!(
-            from_proto(&config, &["soft_delete_policy".into()])
-                .unwrap_err()
-                .code(),
-            tonic::Code::Unimplemented,
+            fractional.code(),
+            tonic::Code::InvalidArgument,
             "a fractional duration must not round to a different retention"
         );
+        assert_eq!(fractional.message(), "Invalid argument.");
+        assert!(!fractional.details().is_empty());
         let config = pb::Bucket {
             cors: vec![pb::bucket::Cors {
                 origin: vec!["invalid origin".into()],

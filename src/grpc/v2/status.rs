@@ -12,9 +12,13 @@ use tonic::{Code, Status};
 const NOT_MODIFIED: &str =
     "The resource you requested has not been modified according to the condition you specified.";
 
-/// The Storage v2 refusal to delete a bucket that still holds objects, which names the remedy.
-const BUCKET_NOT_EMPTY: &str =
-    "Bucket is not empty; delete its objects and versions before deleting the bucket";
+/// The failed precondition of a request whose not-match condition named the current value.
+pub(super) fn not_modified() -> Status {
+    Status::failed_precondition(NOT_MODIFIED)
+}
+
+/// Cloud Storage's refusal to delete a bucket that still holds objects (recorded 2026-11-18).
+const BUCKET_NOT_EMPTY: &str = "The bucket you tried to delete is not empty.";
 
 /// Reader failures keep the storage classification and record the underlying I/O cause.
 pub(super) fn read_failure(error: std::io::Error) -> Status {

@@ -313,12 +313,48 @@ impl Storage {
         let access = self
             .access(caller, name, crate::auth::BUCKETS_DELETE)
             .await?;
+        let conditions = BucketConditions::from(&request);
+        match self
+            .state
+            .catalog
+            .delete_bucket(name, conditions, &access)
+            .await
+        {
+            Ok(()) => Ok(Response::new(())),
+            Err(CatalogError::PreconditionFailed)
+                if self.not_match_alone_failed(name, conditions, &access).await =>
+            {
+                Err(super::status::not_modified())
+            }
+            Err(error) => Err(access_status(error, caller)),
+        }
+    }
+
+    /// Whether `conditions` fail on the bucket only because `if_metageneration_not_match` names
+    /// its metageneration. Cloud Storage words that DeleteBucket refusal as a not-modified
+    /// resource (recorded 2026-11-18). The bucket is read again after the refused deletion, so
+    /// an intervening change can only pick the other wording of the same status.
+    async fn not_match_alone_failed(
+        &self,
+        name: &str,
+        conditions: BucketConditions,
+        access: &crate::bucket::BucketAccess,
+    ) -> bool {
+        let Some(not_match) = conditions.if_metageneration_not_match else {
+            return false;
+        };
         self.state
             .catalog
-            .delete_bucket(name, BucketConditions::from(&request), &access)
+            .get_bucket(name, access)
             .await
-            .map_err(|error| access_status(error, caller))?;
-        Ok(Response::new(()))
+            .ok()
+            .flatten()
+            .is_some_and(|record| {
+                record.metageneration == not_match
+                    && conditions
+                        .if_metageneration_match
+                        .is_none_or(|value| value == record.metageneration)
+            })
     }
     pub(super) async fn get_bucket(
         &self,
@@ -432,7 +468,13 @@ impl Storage {
                 "Use a nonnegative page_size and a prefix of at most 222 bytes, for example page_size=100",
             )
         };
-        let limit = crate::grpc::validate::page_size(request.page_size).ok_or_else(invalid_list)?;
+        // Cloud Storage's answer to a negative page size (recorded 2026-11-18).
+        let limit = crate::grpc::validate::page_size(request.page_size).ok_or_else(|| {
+            super::status::invalid_with_reason(
+                "The requested page_size must be positive.",
+                "GRPC_PAGE_SIZE_MUST_BE_POSITIVE",
+            )
+        })?;
         if request.prefix.len() > MAX_BUCKET_NAME_BYTES {
             return Err(invalid_list());
         }
@@ -579,7 +621,7 @@ mod tests {
                     .get_or_insert_default()
                     .lock_time = Some(Default::default())
             }),
-            ("fractional soft delete duration; use whole seconds", |b| {
+            ("Invalid argument.", |b| {
                 b.soft_delete_policy
                     .get_or_insert_default()
                     .retention_duration = Some(FRACTIONAL)
@@ -604,7 +646,13 @@ mod tests {
             // Each higher-priority rejection must supersede the invalid fields already set.
             invalidate(&mut bucket);
             let status = create_body(bucket.clone(), "test-bucket").unwrap_err();
-            assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
+            // Only the fractional soft delete duration has Cloud Storage's recorded answer.
+            let code = if reason == "Invalid argument." {
+                tonic::Code::InvalidArgument
+            } else {
+                tonic::Code::Unimplemented
+            };
+            assert_eq!(status.code(), code, "{reason}");
             assert!(status.message().contains(reason), "{reason}: {status}");
         }
         // Creation and update refuse a fractional soft delete duration alike.
@@ -1009,11 +1057,11 @@ mod tests {
         storage.state.catalog.close().await.unwrap();
     }
 
-    /// The proto states no validation rule for bucket metageneration conditions, so each RPC
-    /// keeps its own: GetBucket and DeleteBucket compare whatever values arrive, UpdateBucket
-    /// refuses 0, negative values and both conditions together, and LockBucketRetentionPolicy,
-    /// whose request has only a required match, refuses 0 and negative values. The refusals
-    /// come before the bucket is looked up.
+    /// Cloud Storage compares whatever bucket metageneration conditions arrive on GetBucket,
+    /// UpdateBucket and DeleteBucket (recorded 2026-11-18): a zero or negative match never
+    /// holds, a zero or negative not-match always does, and both are evaluated together.
+    /// LockBucketRetentionPolicy, whose request has only a required match, refuses 0 and
+    /// negative values before the bucket is looked up.
     #[tokio::test]
     async fn bucket_rpcs_keep_their_own_metageneration_condition_rules() {
         const STRICT: &str = "Invalid generation conditions; use one match or not-match per generation, for example if_generation_match=0";
@@ -1064,7 +1112,15 @@ mod tests {
             if_metageneration_match: matching,
             if_metageneration_not_match: not_matching,
         };
-        for (matching, not_matching) in [(Some(-1), None), (Some(0), None), (Some(1), Some(1))] {
+        // A not-match that alone fails is worded as a resource that has not been modified.
+        const NOT_MODIFIED: &str = "The resource you requested has not been modified according to the condition you specified.";
+        for (matching, not_matching, message) in [
+            (Some(-1), None, precondition.message()),
+            (Some(0), None, precondition.message()),
+            (Some(2), Some(1), precondition.message()),
+            (Some(1), Some(1), NOT_MODIFIED),
+            (None, Some(1), NOT_MODIFIED),
+        ] {
             let status = assert_code(
                 storage
                     .delete_bucket(
@@ -1074,7 +1130,7 @@ mod tests {
                     .await,
                 Code::FailedPrecondition,
             );
-            assert_eq!(status.message(), precondition.message());
+            assert_eq!(status.message(), message);
         }
         for (name, matching, not_matching) in [
             ("neg-not-match", None, Some(-1)),
@@ -1101,22 +1157,49 @@ mod tests {
             update_mask: fixtures::mask(&["labels"]),
             ..Default::default()
         };
+        // UpdateBucket compares the conditions like the reads do (recorded 2026-11-18).
+        for (matching, not_matching) in [(Some(0), None), (Some(-1), None), (Some(1), Some(1))] {
+            let status = assert_code(
+                storage
+                    .update_bucket(
+                        Request::new(update("conditions", matching, not_matching)),
+                        None,
+                    )
+                    .await,
+                Code::FailedPrecondition,
+            );
+            assert_eq!(status.message(), precondition.message());
+        }
+        let unchanged = storage
+            .get_bucket(Request::new(get("conditions")), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(unchanged.metageneration, 1);
+        assert!(unchanged.labels.is_empty());
+        for (metageneration, (matching, not_matching)) in
+            (2..).zip([(None, Some(0)), (None, Some(-1)), (Some(3), Some(2))])
+        {
+            let updated = storage
+                .update_bucket(
+                    Request::new(update("conditions", matching, not_matching)),
+                    None,
+                )
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(updated.metageneration, metageneration);
+        }
+        // A missing bucket is reported before any condition is compared.
+        assert_code(
+            storage
+                .update_bucket(Request::new(update("missing-bucket", Some(0), None)), None)
+                .await,
+            Code::NotFound,
+        );
+        // LockBucketRetentionPolicy has no recording (the harness never locks a real bucket),
+        // so it keeps refusing a match that names no metageneration before the lookup.
         for name in ["conditions", "missing-bucket"] {
-            for (matching, not_matching) in [
-                (Some(0), None),
-                (None, Some(0)),
-                (Some(-1), None),
-                (None, Some(-1)),
-                (Some(1), Some(2)),
-            ] {
-                let status = assert_code(
-                    storage
-                        .update_bucket(Request::new(update(name, matching, not_matching)), None)
-                        .await,
-                    Code::InvalidArgument,
-                );
-                assert_eq!(status.message(), STRICT, "{name}");
-            }
             for metageneration in [0, -1] {
                 let lock = pb::LockBucketRetentionPolicyRequest {
                     bucket: get(name).name,
@@ -1131,13 +1214,6 @@ mod tests {
                 assert_eq!(status.message(), STRICT, "{name}");
             }
         }
-        let unchanged = storage
-            .get_bucket(Request::new(get("conditions")), None)
-            .await
-            .unwrap()
-            .into_inner();
-        assert_eq!(unchanged.metageneration, 1);
-        assert!(unchanged.labels.is_empty());
         storage.state.catalog.close().await.unwrap();
     }
 
@@ -1161,8 +1237,7 @@ mod tests {
             ..Default::default()
         };
         const DENIED: &str = "reader@example.invalid does not have storage.buckets.delete access to the Google Cloud Storage bucket. Permission 'storage.buckets.delete' denied on resource (or it may not exist).";
-        const NOT_EMPTY: &str =
-            "Bucket is not empty; delete its objects and versions before deleting the bucket";
+        const NOT_EMPTY: &str = "The bucket you tried to delete is not empty.";
         let precondition = Status::from(CatalogError::PreconditionFailed);
         let missing = Status::from(CatalogError::NotFound);
         // A failing condition rides along on every request but the last, so each answer shows
@@ -1320,7 +1395,7 @@ mod tests {
         );
         assert_eq!(
             status.message(),
-            "Bucket is not empty; delete its objects and versions before deleting the bucket"
+            "The bucket you tried to delete is not empty."
         );
         assert!(
             catalog
@@ -1366,8 +1441,9 @@ mod tests {
         storage.state.catalog.close().await.unwrap();
     }
 
-    /// A bucket read mask is refused with UNIMPLEMENTED naming the path when it selects
-    /// satisfies_pzs or names no bucket field. GetBucket validates the mask right after the
+    /// A bucket read mask is refused when it selects satisfies_pzs or a path under a field
+    /// (UNIMPLEMENTED naming the path) or names no bucket field (Cloud Storage's
+    /// INVALID_ARGUMENT, recorded 2026-11-18). GetBucket validates the mask right after the
     /// bucket name, before authorization and lookup; ListBuckets validates it after the caller,
     /// the project permission, page_size and prefix, and before the page token.
     #[tokio::test]
@@ -1386,7 +1462,24 @@ mod tests {
             "Name",
             "versioning.enabled",
         ] {
-            let message = format!("bucket read_mask {path}");
+            let refused = |status: Status| {
+                // Field names are case sensitive, so `Name` names nothing either.
+                if ["no_such_field", "Name"].contains(&path) {
+                    assert_eq!(status.code(), Code::InvalidArgument, "{path}");
+                    assert_eq!(
+                        status.message(),
+                        format!("There is no field for this resource named '{path}'.")
+                    );
+                } else {
+                    assert_eq!(status.code(), Code::Unimplemented, "{path}");
+                    assert!(
+                        status
+                            .message()
+                            .contains(&format!("bucket read_mask {path}")),
+                        "{status}"
+                    );
+                }
+            };
             let read = |name: &str| pb::GetBucketRequest {
                 read_mask: fixtures::mask(&[path]),
                 ..get(name)
@@ -1398,9 +1491,11 @@ mod tests {
                 ("missing-bucket", reader),
                 ("missing-bucket", admin),
             ] {
-                assert_unsupported(
-                    storage.get_bucket(Request::new(read(name)), who).await,
-                    &message,
+                refused(
+                    storage
+                        .get_bucket(Request::new(read(name)), who)
+                        .await
+                        .unwrap_err(),
                 );
             }
             // A malformed bucket name is reported before the mask.
@@ -1434,9 +1529,11 @@ mod tests {
                 );
             }
             for request in [list(0, "", ""), list(1, "", "not-a-token")] {
-                assert_unsupported(
-                    storage.list_buckets(Request::new(request), admin).await,
-                    &message,
+                refused(
+                    storage
+                        .list_buckets(Request::new(request), admin)
+                        .await
+                        .unwrap_err(),
                 );
             }
         }

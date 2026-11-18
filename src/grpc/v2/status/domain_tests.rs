@@ -624,7 +624,7 @@ fn catalog_cases() -> Vec<Case<CatalogError>> {
             CatalogError::NotEmpty,
             plain(
                 Code::FailedPrecondition,
-                "Bucket is not empty; delete its objects and versions before deleting the bucket",
+                "The bucket you tried to delete is not empty.",
             ),
         ),
         case(
