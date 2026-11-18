@@ -79,11 +79,11 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
     assert_unsupported(
         get(
             &storage,
-            get_request("missing", &["create_time.seconds"]),
+            get_request("missing", &["retention.retain_until_time.seconds"]),
             None,
         )
         .await,
-        "read_mask path create_time.seconds",
+        "read_mask path retention.retain_until_time.seconds",
     );
     assert_unknown_field(
         read_as(
@@ -98,12 +98,15 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
             &storage,
             read_request(
                 "missing",
-                &["checksummed_data", "metadata.create_time.seconds"],
+                &[
+                    "checksummed_data",
+                    "metadata.retention.retain_until_time.seconds",
+                ],
             ),
             None,
         )
         .await,
-        "read_mask path create_time.seconds",
+        "read_mask path retention.retain_until_time.seconds",
     );
     assert_unsupported(
         read_as(
@@ -229,6 +232,15 @@ async fn a_read_mask_keeps_only_the_response_fields_it_names() {
         assert_eq!(data.content.as_ref(), b"ata", "{paths:?}");
         assert_eq!(data.crc32c.is_some(), crc32c, "{paths:?}");
     }
+    // A digest of the object checksums is kept alone (case grpc-probe-inferred-object-masks
+    // recorded the CRC32C; the MD5 hash is selected the same way by inference).
+    let crc32c_only = first(&["checksummed_data.content", "object_checksums.crc32c"]).await;
+    let checksums = crc32c_only.object_checksums.unwrap();
+    assert!(checksums.crc32c.is_some() && checksums.md5_hash.is_empty());
+    assert_eq!(crc32c_only.checksummed_data.unwrap().crc32c, None);
+    let md5_only = first(&["checksummed_data.content", "object_checksums.md5_hash"]).await;
+    let checksums = md5_only.object_checksums.unwrap();
+    assert!(checksums.crc32c.is_none() && !checksums.md5_hash.is_empty());
     let named = first(&["checksummed_data.content", "metadata.name"]).await;
     assert_eq!(
         named.metadata,
@@ -248,11 +260,11 @@ async fn an_invalid_read_mask_is_reported_for_an_empty_listing() {
     assert_unsupported(
         list(
             &storage,
-            list_request(&["name", "create_time.seconds"]),
+            list_request(&["name", "retention.retain_until_time.seconds"]),
             None,
         )
         .await,
-        "read_mask path create_time.seconds",
+        "read_mask path retention.retain_until_time.seconds",
     );
     let empty = list(&storage, list_request(&["name"]), None).await.unwrap();
     assert!(empty.objects.is_empty());
@@ -342,11 +354,11 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
         .await
         .unwrap();
     let anonymous = Some(Caller::Anonymous);
-    let nested = "read_mask path create_time.seconds";
+    let nested = "read_mask path retention.retain_until_time.seconds";
     assert_unsupported(
         get(
             &storage,
-            get_request("object", &["create_time.seconds"]),
+            get_request("object", &["retention.retain_until_time.seconds"]),
             anonymous,
         )
         .await,
@@ -357,7 +369,10 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
             &storage,
             read_request(
                 "object",
-                &["checksummed_data", "metadata.create_time.seconds"],
+                &[
+                    "checksummed_data",
+                    "metadata.retention.retain_until_time.seconds",
+                ],
             ),
             anonymous,
         )
@@ -367,7 +382,7 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     assert_unsupported(
         list(
             &storage,
-            list_request(&["name", "create_time.seconds"]),
+            list_request(&["name", "retention.retain_until_time.seconds"]),
             anonymous,
         )
         .await,
@@ -377,7 +392,7 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     for path in [
         "read_handle",
         "content_range.start",
-        "object_checksums.crc32c",
+        "object_checksums.sha256",
     ] {
         let unselected = || read_request("object", &["checksummed_data", path]);
         let status = assert_code(

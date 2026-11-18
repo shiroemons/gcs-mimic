@@ -124,6 +124,30 @@ object_members!(
     customer_encryption.key_sha256_bytes => CustomerEncryptionKeySha256Bytes,
     retention.mode => RetentionMode,
     retention.retain_until_time => RetentionRetainUntilTime,
+    // A part of a timestamp is selected as a message member: `create_time.seconds` answered a
+    // timestamp of whole seconds (recorded in case grpc-probe-inferred-object-masks). `nanos`
+    // and the other timestamp fields follow by inference.
+    delete_time.seconds => DeleteTimeSeconds,
+    delete_time.nanos => DeleteTimeNanos,
+    finalize_time.seconds => FinalizeTimeSeconds,
+    finalize_time.nanos => FinalizeTimeNanos,
+    create_time.seconds => CreateTimeSeconds,
+    create_time.nanos => CreateTimeNanos,
+    update_time.seconds => UpdateTimeSeconds,
+    update_time.nanos => UpdateTimeNanos,
+    update_storage_class_time.seconds => UpdateStorageClassTimeSeconds,
+    update_storage_class_time.nanos => UpdateStorageClassTimeNanos,
+    retention_expire_time.seconds => RetentionExpireTimeSeconds,
+    retention_expire_time.nanos => RetentionExpireTimeNanos,
+    custom_time.seconds => CustomTimeSeconds,
+    custom_time.nanos => CustomTimeNanos,
+    soft_delete_time.seconds => SoftDeleteTimeSeconds,
+    soft_delete_time.nanos => SoftDeleteTimeNanos,
+    hard_delete_time.seconds => HardDeleteTimeSeconds,
+    hard_delete_time.nanos => HardDeleteTimeNanos,
+    // No object holds contexts, since every write path refuses them, so the map is empty, as
+    // Cloud Storage answered for an object without contexts (recorded in the same case).
+    contexts.custom => ContextsCustom,
 );
 
 impl ResourceField for ObjectField {
@@ -168,52 +192,19 @@ impl ResourceField for ObjectField {
 }
 
 /// Whether `member` is a real member of `field` that gcs-mimic does not select on its own: the
-/// parts of a timestamp and the context map. Cloud Storage's answer to them is not recorded.
+/// parts of the retention's timestamp. Cloud Storage's answer to them is not recorded.
+///
+/// Every other path that is not a listed member names no field: a scalar has no members, and
+/// under a repeated field, a map or a member Cloud Storage named no field for `acl.role`
+/// (recorded 2026-11-18) and for `metadata.somekey`, `name.x`, `owner.entity.x`, an empty path,
+/// a trailing dot and a leading dot (recorded in case grpc-probe-inferred-object-masks), all on
+/// GetObject.
 fn unprojected_member(field: ObjectField, member: &str) -> bool {
-    use ObjectField as F;
-    match field {
-        F::DeleteTime
-        | F::FinalizeTime
-        | F::CreateTime
-        | F::UpdateTime
-        | F::UpdateStorageClassTime
-        | F::RetentionExpireTime
-        | F::CustomTime
-        | F::SoftDeleteTime
-        | F::HardDeleteTime => matches!(member, "seconds" | "nanos"),
-        F::Retention => matches!(
+    field == ObjectField::Retention
+        && matches!(
             member,
             "retain_until_time.seconds" | "retain_until_time.nanos"
-        ),
-        F::Contexts => member == "custom" || member.starts_with("custom."),
-        // A scalar has no members. Under a repeated field Cloud Storage named no field for
-        // `acl.role` (recorded 2026-11-18 on GetObject). That an object's map key, such as
-        // `metadata.k`, names no field either is inferred from the bucket's `labels.<key>`
-        // (recorded the same day on GetBucket); no object map key was recorded. The listed
-        // members of the remaining messages are selected.
-        F::Name
-        | F::Bucket
-        | F::Etag
-        | F::Generation
-        | F::RestoreToken
-        | F::Metageneration
-        | F::StorageClass
-        | F::Size
-        | F::ContentEncoding
-        | F::ContentDisposition
-        | F::CacheControl
-        | F::Acl
-        | F::ContentLanguage
-        | F::ContentType
-        | F::ComponentCount
-        | F::Checksums
-        | F::KmsKey
-        | F::TemporaryHold
-        | F::Metadata
-        | F::EventBasedHold
-        | F::Owner
-        | F::CustomerEncryption => false,
-    }
+        )
 }
 
 /// One path of a read mask.
@@ -229,7 +220,8 @@ pub(super) enum UnselectablePath {
     /// The path names no field of the resource: an unknown name, a member its message does not
     /// have, or anything under a scalar, a repeated field or a map. On GetObject Cloud Storage
     /// answered so for `no_such_field`, `owner.no_such_field` and `acl.role` (recorded
-    /// 2026-11-18); the other shapes follow from those by inference.
+    /// 2026-11-18) and for a map key, a path under a scalar or a member, and an empty, trailing
+    /// or leading dot path (recorded in case grpc-probe-inferred-object-masks).
     Unknown(String),
     /// A member that exists but that gcs-mimic does not select apart from its field.
     Unsupported(String),
@@ -421,15 +413,19 @@ mod tests {
             "no_such_field",
             "owner.no_such_field",
             "acl.role",
-            // Not recorded: inferred for a path under an unknown name, a member, a scalar or a
-            // map, and for an empty segment.
-            "no_such_field.entity",
+            // Recorded in case grpc-probe-inferred-object-masks: a map key, a path under a
+            // member or a scalar, and an empty segment.
             "owner.entity.x",
             "name.x",
-            "metadata.k",
+            "metadata.somekey",
             "checksums.",
             "",
             ".name",
+            // Not recorded: inferred for a path under an unknown name, a map of contexts or a
+            // part of a timestamp.
+            "no_such_field.entity",
+            "contexts.custom.key",
+            "create_time.seconds.x",
         ] {
             assert_eq!(
                 parse(&["name", path]),
@@ -439,14 +435,39 @@ mod tests {
         }
     }
 
+    /// `create_time.seconds` answered a timestamp of whole seconds, and `contexts.custom` an
+    /// empty message, in case grpc-probe-inferred-object-masks.
+    #[test]
+    fn a_part_of_a_timestamp_and_the_context_map_are_selected_as_members() {
+        let mut stamped = object();
+        stamped.create_time = Some(prost_types::Timestamp {
+            seconds: 5,
+            nanos: 6,
+        });
+        let selected = parse(&[
+            "create_time.seconds",
+            "custom_time.nanos",
+            "contexts.custom",
+        ])
+        .unwrap()
+        .apply(stamped);
+        assert_eq!(
+            selected,
+            pb::Object {
+                create_time: Some(prost_types::Timestamp {
+                    seconds: 5,
+                    nanos: 0,
+                }),
+                ..Default::default()
+            }
+        );
+    }
+
     #[test]
     fn real_members_that_are_not_selected_alone_are_unsupported() {
         for path in [
-            "create_time.seconds",
-            "custom_time.nanos",
             "retention.retain_until_time.seconds",
-            "contexts.custom",
-            "contexts.custom.key",
+            "retention.retain_until_time.nanos",
         ] {
             assert_eq!(
                 parse(&[path]),
