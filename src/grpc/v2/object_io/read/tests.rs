@@ -2,6 +2,7 @@
 //! answers recorded over gRPC on 2026-11-15.
 
 use super::super::tests::setup;
+use super::test_support::{body, read};
 use super::*;
 use crate::csek::CsekError;
 use crate::grpc::test_support::{assert_customer_encryption, key_params, mask, put_keyed};
@@ -33,22 +34,6 @@ async fn get(
         .map(Response::into_inner)
 }
 
-/// The messages of a ReadObject, whether it fails when opened or while streaming.
-pub(super) async fn read(
-    storage: &Storage,
-    request: pb::ReadObjectRequest,
-) -> Result<Vec<pb::ReadObjectResponse>, Status> {
-    let mut stream = storage
-        .read_object(Request::new(request), None)
-        .await?
-        .into_inner();
-    let mut messages = Vec::new();
-    while let Some(message) = stream.next().await {
-        messages.push(message?);
-    }
-    Ok(messages)
-}
-
 fn read_request(object: &str, key: Option<&[u8; 32]>) -> pb::ReadObjectRequest {
     pb::ReadObjectRequest {
         bucket: BUCKET.into(),
@@ -56,14 +41,6 @@ fn read_request(object: &str, key: Option<&[u8; 32]>) -> pb::ReadObjectRequest {
         common_object_request_params: key.and_then(key_params),
         ..Default::default()
     }
-}
-
-pub(super) fn body(messages: &[pb::ReadObjectResponse]) -> Vec<u8> {
-    messages
-        .iter()
-        .filter_map(|message| message.checksummed_data.as_ref())
-        .flat_map(|data| data.content.iter().copied())
-        .collect()
 }
 
 fn fingerprint(key: &[u8; 32]) -> Option<pb::CustomerEncryption> {

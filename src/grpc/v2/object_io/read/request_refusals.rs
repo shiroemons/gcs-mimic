@@ -4,19 +4,14 @@
 //! UNIMPLEMENTED with ErrorInfo.
 
 use super::super::tests::{message, setup, write};
+use super::test_support::assert_status;
 use super::*;
-use crate::grpc::test_support::{assert_code, assert_unsupported};
+use crate::grpc::test_support::assert_unsupported;
 
 const BUCKET: &str = "projects/_/buckets/grpc-io";
 const CONDITIONS: &str =
     "Preconditions must be nonnegative; use if_generation_match=0 to create only";
 const GENERATION: &str = "generation must be positive, or 0 to select the live object";
-
-#[track_caller]
-fn assert_status<T>(result: Result<T, Status>, code: tonic::Code, message: &str) {
-    let status = assert_code(result, code);
-    assert_eq!(status.message(), message);
-}
 
 fn get_request() -> pb::GetObjectRequest {
     pb::GetObjectRequest {

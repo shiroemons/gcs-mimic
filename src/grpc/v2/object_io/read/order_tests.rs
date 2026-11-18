@@ -7,6 +7,7 @@
 //! then are the read offset and the read limit checked against the object.
 
 use super::super::tests::{message, setup, write};
+use super::test_support::assert_status;
 use super::*;
 use crate::grpc::test_support::{assert_code, assert_customer_encryption};
 
@@ -35,12 +36,6 @@ async fn open(
         .read_object(Request::new(request), caller)
         .await
         .map(drop)
-}
-
-#[track_caller]
-fn assert_status<T>(result: Result<T, Status>, code: tonic::Code, message: &str) {
-    let status = assert_code(result, code);
-    assert_eq!(status.message(), message);
 }
 
 #[tokio::test]

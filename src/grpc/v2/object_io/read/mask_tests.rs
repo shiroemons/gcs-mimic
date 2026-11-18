@@ -3,6 +3,7 @@
 //! is authorized or anything is looked up, as GetBucket checks its mask.
 
 use super::super::tests::{message, setup, write};
+use super::test_support::read_as;
 use super::*;
 use crate::grpc::test_support::{assert_code, assert_unsupported, mask};
 
@@ -47,23 +48,6 @@ async fn get(
         .map(Response::into_inner)
 }
 
-/// The messages of a ReadObject, whether it fails when opened or while streaming.
-async fn read(
-    storage: &Storage,
-    request: pb::ReadObjectRequest,
-    caller: Option<Caller<'_>>,
-) -> Result<Vec<pb::ReadObjectResponse>, Status> {
-    let mut stream = storage
-        .read_object(Request::new(request), caller)
-        .await?
-        .into_inner();
-    let mut messages = Vec::new();
-    while let Some(message) = stream.next().await {
-        messages.push(message?);
-    }
-    Ok(messages)
-}
-
 async fn list(
     storage: &Storage,
     request: pb::ListObjectsRequest,
@@ -90,7 +74,7 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
         "read_mask path owner.entity",
     );
     assert_unknown_field(
-        read(
+        read_as(
             &storage,
             read_request("missing", &["checksummed_data", "metadata.noSuchField"]),
             None,
@@ -98,7 +82,7 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
         .await,
     );
     assert_unsupported(
-        read(
+        read_as(
             &storage,
             read_request("missing", &["checksummed_data", "metadata.owner.entity"]),
             None,
@@ -107,7 +91,7 @@ async fn an_invalid_read_mask_is_reported_for_a_missing_object() {
         "read_mask path owner.entity",
     );
     assert_unsupported(
-        read(
+        read_as(
             &storage,
             read_request("missing", &["checksummed_data", "read_handle"]),
             None,
@@ -145,7 +129,7 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
     let anonymous = Some(Caller::Anonymous);
     assert_unknown_field(get(&storage, get_request("object", &["noSuchField"]), anonymous).await);
     assert_unknown_field(
-        read(
+        read_as(
             &storage,
             read_request("object", &["checksummed_data", "metadata.noSuchField"]),
             anonymous,
@@ -160,7 +144,7 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
         tonic::Code::PermissionDenied,
     );
     assert_code(
-        read(
+        read_as(
             &storage,
             read_request("object", &["checksummed_data"]),
             anonymous,
@@ -191,7 +175,7 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
         request
     };
     assert_unknown_field(
-        read(
+        read_as(
             &storage,
             past_end(&["checksummed_data", "metadata.noSuchField"]),
             admin,
@@ -199,7 +183,7 @@ async fn an_invalid_read_mask_precedes_authorization_and_the_other_checks() {
         .await,
     );
     assert_code(
-        read(&storage, past_end(&["checksummed_data"]), admin).await,
+        read_as(&storage, past_end(&["checksummed_data"]), admin).await,
         tonic::Code::OutOfRange,
     );
     storage.state.catalog.close().await.unwrap();
@@ -227,7 +211,7 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
         nested,
     );
     assert_unsupported(
-        read(
+        read_as(
             &storage,
             read_request("object", &["checksummed_data", "metadata.owner.entity"]),
             anonymous,
@@ -241,7 +225,7 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     );
     let handle = || read_request("object", &["checksummed_data", "read_handle"]);
     let status = assert_code(
-        read(&storage, handle(), anonymous).await,
+        read_as(&storage, handle(), anonymous).await,
         tonic::Code::Unauthenticated,
     );
     assert!(
@@ -252,7 +236,7 @@ async fn unsupported_read_mask_paths_as_an_anonymous_caller_sees_them() {
     );
     let admin = crate::grpc::test_support::caller(&storage, "admin").await;
     assert_unsupported(
-        read(&storage, handle(), admin).await,
+        read_as(&storage, handle(), admin).await,
         "ReadObject read_mask read_handle",
     );
     storage.state.catalog.close().await.unwrap();
@@ -287,7 +271,8 @@ async fn request_checks_before_the_mask_keep_their_order() {
         !unnamed.message().contains("noSuchField"),
         "the name is checked first: {unnamed}"
     );
-    let missing_content = read(&storage, read_request("missing", &["metadata.name"]), None).await;
+    let missing_content =
+        read_as(&storage, read_request("missing", &["metadata.name"]), None).await;
     let status = assert_code(missing_content, tonic::Code::InvalidArgument);
     assert_eq!(
         status.message(),

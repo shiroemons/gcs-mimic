@@ -4,7 +4,7 @@
 //! the JSON and XML reads are BEHAVIOR-OBJECT-017.
 
 use super::super::tests::{message, setup, write};
-use super::tests::{body, read};
+use super::test_support::{body, read};
 use super::*;
 
 fn gzip(data: &[u8]) -> Vec<u8> {
