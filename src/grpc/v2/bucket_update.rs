@@ -11,6 +11,115 @@ use crate::{
 };
 use tonic::Status;
 
+/// An UpdateBucket `update_mask` path, parsed once before it is applied. A subpath such as
+/// `versioning.enabled` names the same setting as its parent, except the Autoclass and IAM
+/// configuration subpaths, which change only part of their message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum UpdatePath {
+    /// `labels`: replaces the whole map.
+    Labels,
+    /// `labels.<key>`: sets one label, or removes it when the request does not carry the key.
+    Label(String),
+    StorageClass,
+    Autoclass(AutoclassPath),
+    Versioning,
+    DefaultEventBasedHold,
+    Cors,
+    Lifecycle,
+    RetentionPolicy,
+    SoftDeletePolicy,
+    /// `iam_config`: replaces public access prevention, and uniform bucket-level access when its
+    /// message is present.
+    IamConfig,
+    PublicAccessPrevention,
+    UniformBucketLevelAccess,
+    Acl,
+    DefaultObjectAcl,
+}
+
+/// The Autoclass settings an `autoclass` path changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AutoclassPath {
+    /// `autoclass`: both settings.
+    All,
+    /// `autoclass.enabled`.
+    Enabled,
+    /// `autoclass.terminal_storage_class`.
+    TerminalStorageClass,
+}
+
+impl AutoclassPath {
+    fn sets_enabled(self) -> bool {
+        match self {
+            Self::All | Self::Enabled => true,
+            Self::TerminalStorageClass => false,
+        }
+    }
+
+    fn sets_terminal_storage_class(self) -> bool {
+        match self {
+            Self::All | Self::TerminalStorageClass => true,
+            Self::Enabled => false,
+        }
+    }
+}
+
+impl std::str::FromStr for UpdatePath {
+    type Err = UnsupportedUpdatePath;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        Ok(match path {
+            "labels" => Self::Labels,
+            "storage_class" => Self::StorageClass,
+            "autoclass" => Self::Autoclass(AutoclassPath::All),
+            "autoclass.enabled" => Self::Autoclass(AutoclassPath::Enabled),
+            "autoclass.terminal_storage_class" => {
+                Self::Autoclass(AutoclassPath::TerminalStorageClass)
+            }
+            "versioning" | "versioning.enabled" => Self::Versioning,
+            "default_event_based_hold" => Self::DefaultEventBasedHold,
+            "cors" => Self::Cors,
+            "lifecycle" | "lifecycle.rule" => Self::Lifecycle,
+            "retention_policy" | "retention_policy.retention_duration" => Self::RetentionPolicy,
+            "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
+                Self::SoftDeletePolicy
+            }
+            "iam_config" => Self::IamConfig,
+            "iam_config.public_access_prevention" => Self::PublicAccessPrevention,
+            "iam_config.uniform_bucket_level_access"
+            | "iam_config.uniform_bucket_level_access.enabled" => Self::UniformBucketLevelAccess,
+            "acl" => Self::Acl,
+            "default_object_acl" => Self::DefaultObjectAcl,
+            path => match path.strip_prefix("labels.") {
+                Some(key) if !key.is_empty() => Self::Label(key.into()),
+                _ => return Err(UnsupportedUpdatePath(path.into())),
+            },
+        })
+    }
+}
+
+/// An `update_mask` path UpdateBucket does not apply; it names the path the client sent.
+#[derive(Debug)]
+pub(super) struct UnsupportedUpdatePath(String);
+
+impl std::fmt::Display for UnsupportedUpdatePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "UpdateBucket update_mask {}; use labels, versioning, lifecycle or iam_config",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedUpdatePath {}
+
+impl From<UnsupportedUpdatePath> for Status {
+    fn from(error: UnsupportedUpdatePath) -> Self {
+        unsupported(&error.to_string())
+    }
+}
+
 pub(super) fn from_proto(
     bucket: &pb::Bucket,
     paths: &[String],
@@ -19,8 +128,10 @@ pub(super) fn from_proto(
         touched: !paths.is_empty(),
         ..Default::default()
     };
+    // Each path is parsed and applied before the next one is read, so the first failing path in
+    // mask order names the error, whether it is refused or its value is invalid.
     for path in paths {
-        apply_path(&mut update, bucket, path)?;
+        apply_path(&mut update, bucket, path.parse()?)?;
     }
     Ok(update)
 }
@@ -85,9 +196,13 @@ pub(super) fn proto_field(field: &str) -> &str {
     }
 }
 
-fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> Result<(), Status> {
+fn apply_path(
+    update: &mut BucketMetadataUpdate,
+    b: &pb::Bucket,
+    path: UpdatePath,
+) -> Result<(), Status> {
     match path {
-        "labels" => {
+        UpdatePath::Labels => {
             update.labels = MapPatch::Replace(
                 b.labels
                     .iter()
@@ -95,10 +210,8 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                     .collect(),
             );
         }
-        p if let Some(key) = p.strip_prefix("labels.")
-            && !key.is_empty() =>
-        {
-            let value = b.labels.get(key).cloned();
+        UpdatePath::Label(key) => {
+            let value = b.labels.get(&key).cloned();
             // A `labels` path replaces the map, which cannot carry the removal of a key missing
             // from it. The answer is the catalog's for an invalid label, given before
             // authorization like the other update-mask errors.
@@ -107,30 +220,30 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                     "Invalid bucket label".into(),
                 )));
             }
-            update.labels.merge_entry(key.into(), value);
+            update.labels.merge_entry(key, value);
         }
-        "storage_class" => {
+        UpdatePath::StorageClass => {
             update.storage_class =
                 Some(bucket::validate_update_storage_class(&b.storage_class).map_err(input_error)?)
         }
-        "autoclass" | "autoclass.enabled" | "autoclass.terminal_storage_class" => {
+        UpdatePath::Autoclass(path) => {
             apply_autoclass(update, b.autoclass.as_ref(), path)?;
         }
-        "versioning" | "versioning.enabled" => {
+        UpdatePath::Versioning => {
             update.versioning = Some(bucket::VersioningUpdate::Set(bucket::Versioning::from(
                 Some(b.versioning.as_ref().is_some_and(|v| v.enabled)),
             )));
         }
-        "default_event_based_hold" => {
+        UpdatePath::DefaultEventBasedHold => {
             update.default_event_based_hold = Some(b.default_event_based_hold)
         }
-        "cors" => {
+        UpdatePath::Cors => {
             update.cors = Some(cors_rules(&b.cors)?);
         }
-        "lifecycle" | "lifecycle.rule" => {
+        UpdatePath::Lifecycle => {
             update.lifecycle = Some(convert::lifecycle_rules(b.lifecycle.as_ref())?)
         }
-        "retention_policy" | "retention_policy.retention_duration" => {
+        UpdatePath::RetentionPolicy => {
             if b.retention_policy
                 .as_ref()
                 .is_some_and(|policy| policy.is_locked)
@@ -153,7 +266,7 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                 None => RetentionPolicyUpdate::Remove,
             };
         }
-        "soft_delete_policy" | "soft_delete_policy.retention_duration" => {
+        UpdatePath::SoftDeletePolicy => {
             let duration = b
                 .soft_delete_policy
                 .as_ref()
@@ -171,7 +284,7 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
         // 2026-11-13): public access prevention is replaced, so an `iam_config` that leaves it
         // out (empty, or uniform access alone, as the Go client sends) resets it to `inherited`,
         // while uniform access changes only when its message is present.
-        "iam_config" => {
+        UpdatePath::IamConfig => {
             apply_public_access_prevention(update, b.iam_config.as_ref())?;
             if b.iam_config
                 .as_ref()
@@ -180,31 +293,25 @@ fn apply_path(update: &mut BucketMetadataUpdate, b: &pb::Bucket, path: &str) -> 
                 apply_uniform_access(update, b.iam_config.as_ref());
             }
         }
-        "iam_config.public_access_prevention" => {
+        UpdatePath::PublicAccessPrevention => {
             apply_public_access_prevention(update, b.iam_config.as_ref())?;
         }
-        "iam_config.uniform_bucket_level_access"
-        | "iam_config.uniform_bucket_level_access.enabled" => {
+        UpdatePath::UniformBucketLevelAccess => {
             apply_uniform_access(update, b.iam_config.as_ref());
         }
-        "acl" => {
+        UpdatePath::Acl => {
             update.acl = Some(acl_entries(
                 AclKind::Bucket,
                 b.acl.iter().map(|entry| (&entry.entity, &entry.role)),
             )?)
         }
-        "default_object_acl" => {
+        UpdatePath::DefaultObjectAcl => {
             update.default_object_acl = Some(acl_entries(
                 AclKind::DefaultObject,
                 b.default_object_acl
                     .iter()
                     .map(|entry| (&entry.entity, &entry.role)),
             )?)
-        }
-        _ => {
-            return Err(unsupported(&format!(
-                "UpdateBucket update_mask {path}; use labels, versioning, lifecycle or iam_config"
-            )));
         }
     }
     Ok(())
@@ -221,15 +328,15 @@ pub(super) fn retention_seconds(duration: &prost_types::Duration) -> i64 {
 fn apply_autoclass(
     update: &mut BucketMetadataUpdate,
     config: Option<&pb::bucket::Autoclass>,
-    path: &str,
+    path: AutoclassPath,
 ) -> Result<(), Status> {
     let next = update
         .autoclass
         .get_or_insert_with(AutoclassUpdate::default);
-    if path != "autoclass.terminal_storage_class" {
+    if path.sets_enabled() {
         next.enabled = Some(config.is_some_and(|config| config.enabled));
     }
-    if path != "autoclass.enabled"
+    if path.sets_terminal_storage_class()
         && let Some(class) = config.and_then(|config| config.terminal_storage_class.as_ref())
     {
         next.terminal_storage_class = Some(class.parse().map_err(|_| {
@@ -557,6 +664,31 @@ mod tests {
         let first =
             from_proto(&invalid_class, &["name".into(), "storage_class".into()]).unwrap_err();
         assert!(first.message().contains("update_mask name"), "{first}");
+    }
+
+    #[test]
+    fn update_paths_parse_once_into_the_setting_they_name() {
+        for (path, parsed) in [
+            ("labels", UpdatePath::Labels),
+            ("labels.team", UpdatePath::Label("team".into())),
+            ("labels.a.b", UpdatePath::Label("a.b".into())),
+            ("versioning.enabled", UpdatePath::Versioning),
+            (
+                "autoclass.terminal_storage_class",
+                UpdatePath::Autoclass(AutoclassPath::TerminalStorageClass),
+            ),
+            (
+                "iam_config.uniform_bucket_level_access.enabled",
+                UpdatePath::UniformBucketLevelAccess,
+            ),
+        ] {
+            assert_eq!(path.parse::<UpdatePath>().unwrap(), parsed, "{path}");
+        }
+        let error = "labels.".parse::<UpdatePath>().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "UpdateBucket update_mask labels.; use labels, versioning, lifecycle or iam_config"
+        );
     }
 
     #[test]
