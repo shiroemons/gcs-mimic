@@ -1,11 +1,11 @@
 use super::{
     ResponseStream, Storage, access_status, convert, pb,
-    status::{read_failure, unsupported_for},
+    status::{internal_error, read_failure, unsupported_for, with_reason},
 };
 use crate::{
     auth::{Caller, OBJECTS_CREATE, OBJECTS_DELETE, OBJECTS_GET, OBJECTS_LIST},
     grpc::{
-        upload::{self, EndMarker, Intake, IntakeError, IntakePiece, Resend},
+        upload::{self, EndMarker, Intake, IntakeError, Resend},
         validate::{self, NegativeGeneration},
     },
     json,
@@ -19,26 +19,23 @@ use crate::{
 };
 use tokio::sync::{mpsc, watch};
 use tonic::codegen::tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Code, Request, Response, Status, Streaming};
 
 mod object_mask;
 mod read;
 mod resource;
 mod resumable;
+mod step;
 mod upload_id;
 mod write;
 
 pub(super) use object_mask::starts_with_object_field;
+pub(super) use step::{
+    DeclaredChecksums, FirstMessage, Flush, Lookup, MessageError, NegativeOffset, StepEnd,
+    VerifiedChunk, WriteStep, next_step,
+};
 pub(super) use upload_id::UploadId;
 pub(super) use write::{Responses, WriteSpec, send};
-
-/// Takes a write message's data; a message without data carries none.
-pub(super) fn take_data(message: &mut pb::BidiWriteObjectRequest) -> pb::ChecksummedData {
-    match message.data.take() {
-        Some(pb::bidi_write_object_request::Data::ChecksummedData(data)) => data,
-        None => pb::ChecksummedData::default(),
-    }
-}
 
 /// `?` would use JSON's unsupported-setting description instead of the v2 metadata wording.
 pub(super) fn object_status(error: ObjectError) -> Status {
@@ -80,16 +77,46 @@ pub(super) fn named_object_status<'a>(
     }
 }
 
+const UPLOAD_CANCELLED: &str = "Upload has already been cancelled.";
+const UPLOAD_TERMINATED: &str = "Upload has already been terminated.";
+
+/// The answer to a write that names a session it cannot continue (recorded 2026-11-18).
+///
+/// Cloud Storage failed internally on every upload ID it could not read, so an ID that names no
+/// session answers the same. A write to a cancelled session was INVALID_ARGUMENT; a session the
+/// service ended itself is worded like it.
 fn session_status(error: ResumableError) -> Status {
     match error {
-        ResumableError::NotFound | ResumableError::Gone | ResumableError::Cancelled => {
-            Status::not_found("Upload session not found; start a new resumable write")
-        }
+        ResumableError::NotFound => internal_error(),
+        ResumableError::Cancelled => Status::invalid_argument(UPLOAD_CANCELLED),
+        ResumableError::Gone => Status::invalid_argument(UPLOAD_TERMINATED),
         ResumableError::Invalid(message) => Status::invalid_argument(message),
         ResumableError::InvalidContentRange | ResumableError::Overrun(_) => {
             Status::invalid_argument(error.to_string())
         }
         ResumableError::Object(error) => object_status(error),
+    }
+}
+
+/// [`session_status`] for QueryWriteStatus and CancelResumableWrite, which answer a session
+/// that already ended with FAILED_PRECONDITION and its reason (recorded 2026-11-18).
+fn ended_session_status(error: ResumableError) -> Status {
+    match error {
+        ResumableError::Cancelled => with_reason(
+            Code::FailedPrecondition,
+            UPLOAD_CANCELLED,
+            "GRPC_UPLOAD_ALREADY_CANCELLED",
+        ),
+        ResumableError::Gone => with_reason(
+            Code::FailedPrecondition,
+            UPLOAD_TERMINATED,
+            "GRPC_UPLOAD_ALREADY_TERMINATED",
+        ),
+        error @ (ResumableError::NotFound
+        | ResumableError::Invalid(_)
+        | ResumableError::InvalidContentRange
+        | ResumableError::Overrun(_)
+        | ResumableError::Object(_)) => session_status(error),
     }
 }
 
@@ -106,32 +133,26 @@ fn generation(value: i64) -> Result<Option<Generation>, Status> {
     })
 }
 
-pub(super) fn hashes(value: Option<&pb::ObjectChecksums>) -> Result<ExpectedHashes, Status> {
-    let Some(value) = value else {
-        return Ok(ExpectedHashes::default());
-    };
-    Ok(ExpectedHashes {
-        crc32c: value.crc32c,
-        md5: if value.md5_hash.is_empty() {
-            None
-        } else {
-            Some(
-                value.md5_hash.as_slice().try_into().map_err(|_| {
-                    Status::invalid_argument("md5_hash must contain exactly 16 bytes")
-                })?,
-            )
-        },
-    })
-}
-
 fn merge_hashes(first: ExpectedHashes, next: ExpectedHashes) -> Result<ExpectedHashes, Status> {
     upload::merge_hashes(first, next).map_err(intake_status)
 }
 
-/// Rejects a data message whose CRC32C differs from its content, with the wording and hex form
-/// Cloud Storage uses over gRPC.
-pub(super) fn verify_crc32c(data: &pb::ChecksummedData) -> Result<(), Status> {
-    upload::verify_crc32c(&data.content, data.crc32c).map_err(intake_status)
+/// The size of one write granule. Cloud Storage persists an upload in whole granules until
+/// `finish_write`: three bytes sent without it left `persisted_size` at 0 (recorded
+/// 2026-11-18).
+const WRITE_GRANULE: usize = 256 * 1024;
+const WRITE_GRANULE_BYTES: u64 = 256 * 1024;
+
+/// Cloud Storage's refusal of bytes that cannot make an object of the declared `object_size`
+/// (recorded 2026-11-18). It names StartResumableWrite on a non-resumable write as well.
+fn size_mismatch(written: u64, total: u64) -> Status {
+    with_reason(
+        Code::OutOfRange,
+        format!(
+            "Invalid request. The final size of the upload is {written} byte(s). This does not match the expected size of {total} byte(s), which was specified in the StartResumableWrite request."
+        ),
+        "GRPC_MISMATCHED_UPLOAD_SIZE",
+    )
 }
 
 fn intake_status(error: IntakeError) -> Status {
@@ -139,16 +160,14 @@ fn intake_status(error: IntakeError) -> Status {
         IntakeError::Offset => Status::out_of_range(
             "write_offset exceeds received bytes; start at 0 and continue at the received byte count",
         ),
-        IntakeError::ChunkCrc { computed, client } => Status::invalid_argument(format!(
-            "Checksummed data message crc32c mismatch: server computed: '{computed:08x}', client provided '{client:08x}'."
-        )),
+        IntakeError::ChunkCrc { computed, client } => {
+            MessageError::ChunkCrc { computed, client }.into()
+        }
         IntakeError::Overflow => Status::out_of_range("Object size overflow"),
         IntakeError::TooLarge => Status::resource_exhausted(
             "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object",
         ),
-        IntakeError::SizeMismatch => Status::out_of_range(
-            "Written bytes do not match object_size; start a new upload with the correct size",
-        ),
+        IntakeError::SizeMismatch { written, total } => size_mismatch(written, total),
         IntakeError::ObjectChecksum => Status::invalid_argument(
             "object_checksums mismatch; send checksums for the complete object",
         ),

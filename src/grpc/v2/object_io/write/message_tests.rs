@@ -1,8 +1,8 @@
 //! Pins, for WriteObject and BidiWriteObject, the status and message of every per-message error
 //! of single-shot, resumable and appendable writes, which error wins when one message has
 //! several, the replies sent before it, and what the write leaves behind. Each case goes through
-//! the RPC service as a client sends it. The pinned proto names a status only for an object_size
-//! mismatch (OUT_OF_RANGE), so the other codes and the precedence are the emulator's.
+//! the RPC service as a client sends it. Where Cloud Storage's answer was recorded (2026-11-18)
+//! the case says so; the other codes and the precedence are the emulator's.
 
 use super::super::tests::{HeldOpen, Hold, setup, spec};
 use super::*;
@@ -11,19 +11,24 @@ use bytes::Bytes;
 use pb::bidi_write_object_request::{Data, FirstMessage};
 use tonic::Code;
 
-/// The largest object the service under test accepts, small enough to exceed in one message.
-const MAX: u64 = 16;
+/// One write granule: a resumable upload persists whole granules until finish_write (recorded
+/// 2026-11-18).
+const GRANULE: usize = 256 * 1024;
+const GRANULE_SIZE: i64 = 256 * 1024;
+/// A granule of data, the least a resumable stream persists without finish_write.
+static GRANULE_DATA: [u8; GRANULE] = [b'a'; GRANULE];
+/// The largest object the service under test accepts: one granule and a little more, small
+/// enough to exceed in one message.
+const MAX: u64 = 256 * 1024 + 16;
+/// A body one byte longer than `MAX`.
+static OVER_MAX: [u8; GRANULE + 17] = [0; GRANULE + 17];
 const BUCKET: &str = "projects/_/buckets/grpc-io";
 
 const FIRST: &str = "First message must contain write_object_spec or upload_id";
-const NO_FINISH: &str = "Non-resumable write requires finish_write=true on its final message";
-const AFTER_FINISH: &str =
-    "A message followed finish_write; finish_write must be the final message";
-const LATER_SPEC: &str = "Only the first message may contain write_object_spec";
-const LATER_UPLOAD_ID: &str = "Only the first message may contain write_object_spec or upload_id";
+/// Recorded 2026-11-18.
+const NO_FINISH: &str = "Non-resumable write closed without setting finish_write parameter.";
 const LATER_APPEND_SPEC: &str =
     "Only the first message may contain write_object_spec or append_object_spec";
-const LATER_CHECKSUMS: &str = "object_checksums is allowed only in the first or final message";
 const MISMATCH: &str = "object_checksums mismatch; send checksums for the complete object";
 const CONFLICTING: &str = "Conflicting object_checksums; use the same digest in each message";
 const MD5_LENGTH: &str = "md5_hash must contain exactly 16 bytes";
@@ -33,12 +38,40 @@ const APPEND_NEGATIVE: &str = "write_offset must be nonnegative; resume at persi
 const RECEIVED_OFFSET: &str =
     "write_offset exceeds received bytes; start at 0 and continue at the received byte count";
 const RESUME_OFFSET: &str = "write_offset does not match persisted data; call QueryWriteStatus and resume at persisted_size";
-const SIZE: &str =
-    "Written bytes do not match object_size; start a new upload with the correct size";
 const TOO_LARGE: &str =
     "Upload exceeds max_object_bytes; increase --max-object-bytes or write a smaller object";
-const NO_SESSION: &str = "Upload session not found; start a new resumable write";
-const UNKNOWN_UPLOAD_ID: &str = "Unknown upload_id; use the value returned by StartResumableWrite";
+/// Recorded 2026-11-18 for an upload ID Cloud Storage could not read; an ID that names no
+/// session answers the same.
+const INTERNAL: &str = "We encountered an internal error. Please try again.";
+/// Recorded 2026-11-18.
+const TERMINATED: &str = "Upload has already been terminated.";
+
+/// Recorded 2026-11-18: `written` bytes cannot make an object of the declared `total`.
+fn size_mismatch(written: usize, total: i64) -> String {
+    format!(
+        "Invalid request. The final size of the upload is {written} byte(s). This does not match the expected size of {total} byte(s), which was specified in the StartResumableWrite request."
+    )
+}
+
+/// Recorded 2026-11-18: a resumable stream closed with `uploaded` bytes, not a whole number of
+/// granules.
+fn dropped_tail(uploaded: usize) -> String {
+    format!(
+        "Exactly {uploaded} bytes were uploaded in this call, which is not a multiple of the 262144 byte write granularity, but finish_write was not set. Some trailing data was not written. Call 'QueryWriteStatus' to see exactly how much data has been recorded."
+    )
+}
+
+/// Recorded 2026-11-18: a resumable stream's first message starts past the persisted size.
+fn start_past(offset: i64, persisted: i64) -> String {
+    format!(
+        "Upload request started at offset '{offset}', which is past expected offset '{persisted}'."
+    )
+}
+
+/// Recorded 2026-11-18: a non-resumable write's first message starts past 0.
+fn new_upload_offset(offset: i64) -> String {
+    format!("A new upload request must start with write_offset 0, but received '{offset}'.")
+}
 const APPEND_CHECKSUMS: &str =
     "Appendable objects accept object_checksums only with finish_write=true";
 const APPEND_MD5: &str =
@@ -46,9 +79,6 @@ const APPEND_MD5: &str =
 const APPEND_KEY: &str = "gcs-mimic does not support customer-supplied encryption on appendable objects; omit common_object_request_params";
 const OPENING_GAP: &str =
     "write_offset leaves a gap after the 0 bytes received; resume at persisted_size";
-const NON_RESUMABLE_FLUSH: &str =
-    "non-resumable flush/state_lookup; use StartResumableWrite and upload_id";
-const RESUMABLE_CHECKSUMS: &str = "object_checksums before resumable finish; set StartResumableWrite.object_checksums or send them with finish_write=true";
 /// The shared catalog's wording when the complete object `abc` fails a declared CRC32C of 1.
 /// Resumable and appendable writes check the complete object there, single-shot writes in the
 /// adapter.
@@ -95,7 +125,9 @@ enum Left {
     Object(i64),
     Persisted(i64),
     Finalized,
-    SessionGone,
+    /// The emulator ended the session: QueryWriteStatus answers FAILED_PRECONDITION "Upload has
+    /// already been terminated."
+    Terminated,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -370,7 +402,11 @@ async fn session_left(storage: &Storage, upload_id: &str) -> Left {
             Some(WriteStatus::Resource(_)) => Left::Finalized,
             None => panic!("{upload_id}: no write status"),
         },
-        Err(status) if status.code() == Code::NotFound => Left::SessionGone,
+        Err(status)
+            if status.code() == Code::FailedPrecondition && status.message() == TERMINATED =>
+        {
+            Left::Terminated
+        }
         Err(status) => panic!("{upload_id}: {status}"),
     }
 }
@@ -413,15 +449,6 @@ fn bidi(label: &'static str, messages: Messages, answer: Answer) -> Case {
     }
 }
 
-fn split(label: &'static str, messages: Messages, write_object: Answer, bidi: Answer) -> Case {
-    Case {
-        label,
-        messages,
-        write_object: Some(write_object),
-        bidi,
-    }
-}
-
 /// Runs each single-shot or appendable case on an object of its own per RPC.
 async fn run_on_objects(storage: &Storage, cases: Vec<Case>) {
     for case in cases {
@@ -440,9 +467,8 @@ async fn run_on_objects(storage: &Storage, cases: Vec<Case>) {
 
 #[tokio::test]
 async fn grpc_single_shot_write_message_errors() {
-    use Code::{InvalidArgument, OutOfRange, ResourceExhausted, Unimplemented};
+    use Code::{InvalidArgument, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
-    let flush = unsupported(NON_RESUMABLE_FLUSH);
     let cases = vec![
         both(
             "two-messages",
@@ -464,24 +490,49 @@ async fn grpc_single_shot_write_message_errors() {
             |n| vec![opening(n, b"abc")],
             || failed(InvalidArgument, NO_FINISH, Left::Nothing),
         ),
-        // The proto: "Sending any WriteObjectRequests subsequent to one in which finish_write
-        // is true causes an error." BidiWriteObject answers at finish_write and reads no
-        // further, so the later message is never seen.
-        split(
+        // Recorded 2026-11-18: both RPCs answer at finish_write and ignore a message that
+        // follows it, whatever the proto says about WriteObject.
+        both(
             "after-finish",
             |n| vec![opening(n, b"abc").finish(), chunk(3, b"def")],
-            failed(InvalidArgument, AFTER_FINISH, Left::Nothing),
-            ok(vec![Reply::Resource(3)], Left::Object(3)),
+            || ok(vec![Reply::Resource(3)], Left::Object(3)),
         ),
+        // Recorded 2026-11-18: a flush or a state_lookup on a non-resumable stream is answered
+        // with the persisted size, 0 while less than a granule arrived.
         bidi(
             "flush",
             |n| vec![opening(n, b"abc").flush(), chunk(3, b"d").finish()],
-            failed(Unimplemented, flush.clone(), Left::Nothing),
+            ok(
+                vec![Reply::Persisted(0), Reply::Resource(4)],
+                Left::Object(4),
+            ),
         ),
         bidi(
             "state-lookup",
             |n| vec![opening(n, b"abc").lookup(), chunk(3, b"d").finish()],
-            failed(Unimplemented, flush.clone(), Left::Nothing),
+            ok(
+                vec![Reply::Persisted(0), Reply::Resource(4)],
+                Left::Object(4),
+            ),
+        ),
+        // A granule or more was not recorded: its whole granules are reported.
+        bidi(
+            "state-lookup-past-a-granule",
+            |n| {
+                vec![
+                    opening(n, &GRANULE_DATA).lookup(),
+                    chunk(GRANULE_SIZE, b"abc").flush(),
+                    chunk(GRANULE_SIZE + 3, b"d").finish(),
+                ]
+            },
+            ok(
+                vec![
+                    Reply::Persisted(GRANULE_SIZE),
+                    Reply::Persisted(GRANULE_SIZE),
+                    Reply::Resource(GRANULE_SIZE + 4),
+                ],
+                Left::Object(GRANULE_SIZE + 4),
+            ),
         ),
         // The proto ignores flush and state_lookup on a finish_write message.
         bidi(
@@ -495,7 +546,8 @@ async fn grpc_single_shot_write_message_errors() {
                 let spec = FirstMessage::WriteObjectSpec(spec(n));
                 vec![opening(n, b"abc"), chunk(3, b"d").finish().first(spec)]
             },
-            || failed(InvalidArgument, LATER_SPEC, Left::Nothing),
+            // Recorded 2026-11-18: a later write_object_spec is ignored.
+            || ok(vec![Reply::Resource(4)], Left::Object(4)),
         ),
         both(
             "later-upload-id",
@@ -503,10 +555,24 @@ async fn grpc_single_shot_write_message_errors() {
                 let id = FirstMessage::UploadId("grpc-io/upload".into());
                 vec![opening(n, b"abc"), chunk(3, b"d").finish().first(id)]
             },
-            || failed(InvalidArgument, LATER_SPEC, Left::Nothing),
+            || ok(vec![Reply::Resource(4)], Left::Object(4)),
         ),
+        // Recorded 2026-11-18: object_checksums is accepted on a middle message. It declares
+        // the complete object's checksum like any other.
         both(
             "later-checksums",
+            |n| {
+                let whole = crc32c::crc32c(b"abcd");
+                vec![
+                    opening(n, b"abc"),
+                    chunk(3, b"d").crc(whole),
+                    chunk(4, b"").finish(),
+                ]
+            },
+            || ok(vec![Reply::Resource(4)], Left::Object(4)),
+        ),
+        both(
+            "later-checksum-mismatch",
             |n| {
                 vec![
                     opening(n, b"abc"),
@@ -514,7 +580,7 @@ async fn grpc_single_shot_write_message_errors() {
                     chunk(4, b"").finish(),
                 ]
             },
-            || failed(InvalidArgument, LATER_CHECKSUMS, Left::Nothing),
+            || failed(InvalidArgument, MISMATCH, Left::Nothing),
         ),
         both(
             "final-checksums",
@@ -570,7 +636,7 @@ async fn grpc_single_shot_write_message_errors() {
                         .first(FirstMessage::WriteObjectSpec(spec(n))),
                 ]
             },
-            || failed(OutOfRange, RECEIVED_OFFSET, Left::Nothing),
+            || failed(OutOfRange, new_upload_offset(2), Left::Nothing),
         ),
         both(
             "gap",
@@ -591,12 +657,12 @@ async fn grpc_single_shot_write_message_errors() {
         both(
             "object-size-short",
             |n| vec![sized(n, 5, b"abc").finish()],
-            || failed(OutOfRange, SIZE, Left::Nothing),
+            || failed(OutOfRange, size_mismatch(3, 5), Left::Nothing),
         ),
         both(
             "object-size-over",
             |n| vec![sized(n, 2, b"abc")],
-            || failed(OutOfRange, SIZE, Left::Nothing),
+            || failed(OutOfRange, size_mismatch(3, 2), Left::Nothing),
         ),
         both(
             "object-size-negative",
@@ -611,7 +677,7 @@ async fn grpc_single_shot_write_message_errors() {
         ),
         both(
             "object-size-above-max",
-            |n| vec![sized(n, 17, b"").finish()],
+            |n| vec![sized(n, GRANULE_SIZE + 17, b"").finish()],
             || {
                 failed(
                     ResourceExhausted,
@@ -622,7 +688,7 @@ async fn grpc_single_shot_write_message_errors() {
         ),
         both(
             "too-large",
-            |n| vec![opening(n, &[0; 17]).finish()],
+            |n| vec![opening(n, &OVER_MAX).finish()],
             || failed(ResourceExhausted, TOO_LARGE, Left::Nothing),
         ),
         both(
@@ -638,9 +704,8 @@ async fn grpc_single_shot_write_message_errors() {
 /// When one message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_single_shot_write_error_precedence() {
-    use Code::{FailedPrecondition, InvalidArgument, OutOfRange, Unimplemented};
+    use Code::{FailedPrecondition, InvalidArgument, OutOfRange, ResourceExhausted, Unimplemented};
     let (_dir, storage) = setup(false).await;
-    let flush = unsupported(NON_RESUMABLE_FLUSH);
     let cases = vec![
         both(
             "key-over-later-spec",
@@ -653,23 +718,25 @@ async fn grpc_single_shot_write_error_precedence() {
             },
             || failed(InvalidArgument, key_after_keyless(), Left::Nothing),
         ),
+        // A later spec is ignored and the flush beside it answered; the stream then ends
+        // without finish_write.
         bidi(
-            "later-spec-over-flush",
+            "later-spec-with-flush",
             |n| {
                 let spec = FirstMessage::WriteObjectSpec(spec(n));
                 vec![opening(n, b"abc"), chunk(3, b"d").flush().first(spec)]
             },
-            failed(InvalidArgument, LATER_SPEC, Left::Nothing),
+            failed(InvalidArgument, NO_FINISH, Left::Nothing).after(vec![Reply::Persisted(0)]),
         ),
         bidi(
-            "flush-over-later-checksums",
+            "later-checksums-with-flush",
             |n| vec![opening(n, b"abc"), chunk(3, b"d").flush().crc(1)],
-            failed(Unimplemented, flush.clone(), Left::Nothing),
+            failed(InvalidArgument, NO_FINISH, Left::Nothing).after(vec![Reply::Persisted(0)]),
         ),
         both(
-            "later-checksums-over-offset",
+            "offset-beside-later-checksums",
             |n| vec![opening(n, b"abc"), chunk(-1, b"d").crc(1)],
-            || failed(InvalidArgument, LATER_CHECKSUMS, Left::Nothing),
+            || failed(OutOfRange, NEGATIVE, Left::Nothing),
         ),
         both(
             "md5-length-over-offset",
@@ -704,17 +771,47 @@ async fn grpc_single_shot_write_error_precedence() {
             |n| vec![opening(n, b"abc"), chunk(5, b"def").finish().bad_crc()],
             || failed(OutOfRange, RECEIVED_OFFSET, Left::Nothing),
         ),
+        // Recorded 2026-11-18: on the first message a wrong start offset answers before a
+        // wrong object_size, and both before a wrong data checksum.
         both(
-            "crc-over-object-size",
+            "first-offset-over-crc",
+            |n| {
+                vec![
+                    chunk(3, b"abc")
+                        .finish()
+                        .bad_crc()
+                        .first(FirstMessage::WriteObjectSpec(spec(n))),
+                ]
+            },
+            || failed(OutOfRange, new_upload_offset(3), Left::Nothing),
+        ),
+        both(
+            "object-size-over-crc",
             |n| vec![sized(n, 2, b"abc").finish().bad_crc()],
+            || failed(OutOfRange, size_mismatch(3, 2), Left::Nothing),
+        ),
+        both(
+            "max-over-crc",
+            |n| vec![opening(n, &OVER_MAX).finish().bad_crc()],
+            || failed(ResourceExhausted, TOO_LARGE, Left::Nothing),
+        ),
+        // Recorded 2026-11-18: the first message's data checksum answers before the write's
+        // conditions.
+        both(
+            "crc-over-precondition",
+            |n| {
+                let mut spec = spec(n);
+                spec.if_generation_match = Some(5);
+                vec![
+                    chunk(0, b"abc")
+                        .finish()
+                        .bad_crc()
+                        .first(FirstMessage::WriteObjectSpec(spec)),
+                ]
+            },
             || failed(InvalidArgument, crc_mismatch(b"abc"), Left::Nothing),
         ),
-        both(
-            "crc-over-max",
-            |n| vec![opening(n, &[0; 17]).finish().bad_crc()],
-            || failed(InvalidArgument, crc_mismatch(&[0; 17]), Left::Nothing),
-        ),
-        // The spec is checked, and the destination prepared, before the first message's data.
+        // The spec is checked before the first message's data.
         both(
             "spec-over-message",
             |n| {
@@ -747,12 +844,11 @@ async fn grpc_single_shot_write_error_precedence() {
             },
             failed(FailedPrecondition, PRECONDITION, Left::Nothing),
         ),
-        // WriteObject reads past finish_write before it checks the complete object.
-        split(
-            "later-message-over-object-checksums",
+        // Neither RPC reads past finish_write, so the complete object's check decides.
+        both(
+            "object-checksums-before-a-later-message",
             |n| vec![opening(n, b"abc").finish().crc(1), chunk(3, b"d")],
-            failed(InvalidArgument, AFTER_FINISH, Left::Nothing),
-            failed(InvalidArgument, MISMATCH, Left::Nothing),
+            || failed(InvalidArgument, MISMATCH, Left::Nothing),
         ),
     ];
     run_on_objects(&storage, cases).await;
@@ -779,8 +875,9 @@ const PLAIN: Session = Session {
     preempted: false,
 };
 
+/// A session with one granule persisted.
 const PREFIXED: Session = Session {
-    prefix: b"abc",
+    prefix: &GRANULE_DATA,
     ..PLAIN
 };
 
@@ -862,7 +959,7 @@ fn unknown(_: &str) -> String {
 
 #[tokio::test]
 async fn grpc_resumable_write_message_errors() {
-    use Code::{InvalidArgument, NotFound, OutOfRange, ResourceExhausted, Unimplemented};
+    use Code::{Internal, InvalidArgument, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
         on(
@@ -873,25 +970,65 @@ async fn grpc_resumable_write_message_errors() {
                 || ok(vec![Reply::Resource(6)], Left::Finalized),
             ),
         ),
+        // Recorded 2026-11-18: a stream that closes on less than a granule persists nothing
+        // and fails; one that closes on a whole granule reports it.
         on(
             PLAIN,
             both(
                 "half-close",
                 |u| vec![resume(u, 0, b"abc")],
-                || ok(vec![Reply::Persisted(3)], Left::Persisted(3)),
+                || failed(InvalidArgument, dropped_tail(3), Left::Persisted(0)),
             ),
         ),
-        // Each flush or state_lookup is answered, and so is a half-close, as the proto says:
-        // "When the stream is closed, a BidiWriteObjectResponse is always sent to the client,
-        // regardless of the value of state_lookup."
+        on(
+            PLAIN,
+            both(
+                "half-close-on-a-granule",
+                |u| vec![resume(u, 0, &GRANULE_DATA)],
+                || {
+                    ok(
+                        vec![Reply::Persisted(GRANULE_SIZE)],
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
+            ),
+        ),
+        // Bytes that wait for a whole granule are persisted with the message that completes
+        // it; what follows the granule is dropped at the close.
+        on(
+            PLAIN,
+            both(
+                "half-close-past-a-granule",
+                |u| vec![resume(u, 0, b"abc"), chunk(3, &GRANULE_DATA)],
+                || {
+                    failed(
+                        InvalidArgument,
+                        dropped_tail(GRANULE + 3),
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
+            ),
+        ),
+        // Each flush or state_lookup is answered with the persisted size, and so is a clean
+        // half-close, as the proto says: "When the stream is closed, a BidiWriteObjectResponse
+        // is always sent to the client, regardless of the value of state_lookup."
         on(
             PLAIN,
             bidi(
                 "lookup-then-close",
                 |u| vec![resume(u, 0, b"abc").lookup()],
+                failed(InvalidArgument, dropped_tail(3), Left::Persisted(0))
+                    .after(vec![Reply::Persisted(0)]),
+            ),
+        ),
+        on(
+            PLAIN,
+            bidi(
+                "lookup-without-data-then-close",
+                |u| vec![resume(u, 0, b"").lookup()],
                 ok(
-                    vec![Reply::Persisted(3), Reply::Persisted(3)],
-                    Left::Persisted(3),
+                    vec![Reply::Persisted(0), Reply::Persisted(0)],
+                    Left::Persisted(0),
                 ),
             ),
         ),
@@ -900,10 +1037,8 @@ async fn grpc_resumable_write_message_errors() {
             bidi(
                 "flush-then-close",
                 |u| vec![resume(u, 0, b"abc"), chunk(3, b"d").flush()],
-                ok(
-                    vec![Reply::Persisted(4), Reply::Persisted(4)],
-                    Left::Persisted(4),
-                ),
+                failed(InvalidArgument, dropped_tail(4), Left::Persisted(0))
+                    .after(vec![Reply::Persisted(0)]),
             ),
         ),
         on(
@@ -912,18 +1047,33 @@ async fn grpc_resumable_write_message_errors() {
                 "flush-and-lookup",
                 |u| {
                     vec![
-                        resume(u, 0, b"abc").flush(),
-                        chunk(3, b"def").lookup(),
-                        chunk(6, b"g"),
+                        resume(u, 0, &GRANULE_DATA).flush(),
+                        chunk(GRANULE_SIZE, b"abc").lookup(),
+                        chunk(GRANULE_SIZE + 3, b""),
                     ]
                 },
+                failed(
+                    InvalidArgument,
+                    dropped_tail(GRANULE + 3),
+                    Left::Persisted(GRANULE_SIZE),
+                )
+                .after(vec![
+                    Reply::Persisted(GRANULE_SIZE),
+                    Reply::Persisted(GRANULE_SIZE),
+                ]),
+            ),
+        ),
+        on(
+            PLAIN,
+            bidi(
+                "flush-on-a-granule-then-close",
+                |u| vec![resume(u, 0, &GRANULE_DATA).flush()],
                 ok(
                     vec![
-                        Reply::Persisted(3),
-                        Reply::Persisted(6),
-                        Reply::Persisted(7),
+                        Reply::Persisted(GRANULE_SIZE),
+                        Reply::Persisted(GRANULE_SIZE),
                     ],
-                    Left::Persisted(7),
+                    Left::Persisted(GRANULE_SIZE),
                 ),
             ),
         ),
@@ -947,35 +1097,44 @@ async fn grpc_resumable_write_message_errors() {
                             .first(FirstMessage::UploadId(u.into())),
                     ]
                 },
-                || failed(InvalidArgument, LATER_UPLOAD_ID, Left::Persisted(3)),
+                // Recorded 2026-11-18: a later upload_id is read like any other message.
+                || ok(vec![Reply::Resource(4)], Left::Finalized),
             ),
         ),
+        // Recorded 2026-11-18: object_checksums is accepted on a first and on a middle
+        // message. It declares the complete object's checksum, which the finish verifies.
         on(
             PLAIN,
             both(
                 "checksums-before-finish",
-                |u| vec![resume(u, 0, b"abc").crc(1)],
-                || {
-                    failed(
-                        Unimplemented,
-                        unsupported(RESUMABLE_CHECKSUMS),
-                        Left::Persisted(0),
-                    )
+                |u| {
+                    let whole = crc32c::crc32c(b"abc");
+                    vec![resume(u, 0, b"").crc(whole), chunk(0, b"abc").finish()]
                 },
+                || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
         on(
             PLAIN,
             both(
                 "later-checksums-before-finish",
-                |u| vec![resume(u, 0, b"abc"), chunk(3, b"d").crc(1)],
-                || {
-                    failed(
-                        Unimplemented,
-                        unsupported(RESUMABLE_CHECKSUMS),
-                        Left::Persisted(3),
-                    )
+                |u| {
+                    let whole = crc32c::crc32c(b"abc");
+                    vec![
+                        resume(u, 0, b""),
+                        chunk(0, b"").crc(whole),
+                        chunk(0, b"abc").finish(),
+                    ]
                 },
+                || ok(vec![Reply::Resource(3)], Left::Finalized),
+            ),
+        ),
+        on(
+            PLAIN,
+            both(
+                "checksums-before-finish-mismatch",
+                |u| vec![resume(u, 0, b"").crc(1), chunk(0, b"abc").finish()],
+                || failed(InvalidArgument, STORED_MISMATCH, Left::Terminated),
             ),
         ),
         on(
@@ -990,21 +1149,37 @@ async fn grpc_resumable_write_message_errors() {
         // equal to the persisted_size that a call to QueryWriteStatus() would return", while the
         // WriteObject description lets a client start earlier and skips the persisted bytes. The
         // emulator keeps the field rule, an owner decision, so a first message cannot resend
-        // persisted bytes.
+        // persisted bytes. Cloud Storage's answer to a first offset below a persisted size
+        // above 0 was not recorded.
         on(
             PREFIXED,
             both(
                 "first-offset-behind",
                 |u| vec![resume(u, 1, b"bcdef").finish()],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(3)),
+                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
             ),
         ),
+        // Recorded 2026-11-18 on a session with nothing persisted.
         on(
             PREFIXED,
             both(
                 "first-offset-ahead",
+                |u| vec![resume(u, GRANULE_SIZE + 2, b"f").finish()],
+                || {
+                    failed(
+                        OutOfRange,
+                        start_past(GRANULE_SIZE + 2, GRANULE_SIZE),
+                        Left::Persisted(GRANULE_SIZE),
+                    )
+                },
+            ),
+        ),
+        on(
+            PLAIN,
+            both(
+                "first-offset-ahead-of-nothing",
                 |u| vec![resume(u, 5, b"f").finish()],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(3)),
+                || failed(OutOfRange, start_past(5, 0), Left::Persisted(0)),
             ),
         ),
         on(
@@ -1012,7 +1187,7 @@ async fn grpc_resumable_write_message_errors() {
             both(
                 "later-offset-ahead",
                 |u| vec![resume(u, 0, b"abc"), chunk(5, b"f").finish()],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(3)),
+                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1035,10 +1210,12 @@ async fn grpc_resumable_write_message_errors() {
             PLAIN,
             both(
                 "too-large",
-                |u| vec![resume(u, 0, &[0; 17]).finish()],
+                |u| vec![resume(u, 0, &OVER_MAX).finish()],
                 || failed(ResourceExhausted, TOO_LARGE, Left::Persisted(0)),
             ),
         ),
+        // Recorded 2026-11-18: a finishing message whose size differs from the session's
+        // object_size ends the session, below it and above it.
         on(
             Session {
                 size: Some(5),
@@ -1047,9 +1224,22 @@ async fn grpc_resumable_write_message_errors() {
             both(
                 "object-size-short",
                 |u| vec![resume(u, 0, b"abc").finish()],
-                || failed(OutOfRange, SIZE, Left::Persisted(0)),
+                || failed(OutOfRange, size_mismatch(3, 5), Left::Terminated),
             ),
         ),
+        on(
+            Session {
+                size: Some(5),
+                ..PLAIN
+            },
+            both(
+                "object-size-over-at-finish",
+                |u| vec![resume(u, 0, b"abcdefg").finish()],
+                || failed(OutOfRange, size_mismatch(7, 5), Left::Terminated),
+            ),
+        ),
+        // Not recorded: bytes past object_size without finish_write are refused and the
+        // session stays open.
         on(
             Session {
                 size: Some(2),
@@ -1058,7 +1248,7 @@ async fn grpc_resumable_write_message_errors() {
             both(
                 "object-size-over",
                 |u| vec![resume(u, 0, b"abc")],
-                || failed(OutOfRange, SIZE, Left::Persisted(0)),
+                || failed(OutOfRange, size_mismatch(3, 2), Left::Persisted(0)),
             ),
         ),
         on(
@@ -1089,33 +1279,48 @@ async fn grpc_resumable_write_message_errors() {
             both(
                 "final-checksum-mismatch",
                 |u| vec![resume(u, 0, b"abc").finish()],
-                || failed(InvalidArgument, STORED_MISMATCH, Left::SessionGone),
+                || failed(InvalidArgument, STORED_MISMATCH, Left::Terminated),
             ),
         ),
-        // As for single-shot writes, BidiWriteObject does not read past finish_write.
+        // Recorded 2026-11-18: as for single-shot writes, neither RPC reads past finish_write.
         on(
             PLAIN,
-            split(
+            both(
                 "after-finish",
                 |u| vec![resume(u, 0, b"abc").finish(), chunk(3, b"d")],
-                failed(InvalidArgument, AFTER_FINISH, Left::Persisted(0)),
-                ok(vec![Reply::Resource(3)], Left::Finalized),
+                || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
+        // Recorded 2026-11-18: an upload ID Cloud Storage cannot read fails as INTERNAL, and
+        // so does one that names no session; text that is no upload ID is INVALID_ARGUMENT.
         on(
             PLAIN,
             both(
                 "unknown-session",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish()],
-                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
+            ),
+        ),
+        on(
+            PLAIN,
+            both(
+                "unreadable-upload-id",
+                |_| vec![resume("grpc-io/not-hex", 0, b"abc").finish()],
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
             ),
         ),
         on(
             PLAIN,
             both(
                 "malformed-upload-id",
-                |_| vec![resume("grpc-io/not-hex", 0, b"abc").finish()],
-                || failed(NotFound, UNKNOWN_UPLOAD_ID, Left::Persisted(0)),
+                |_| vec![resume("not-an-upload-id", 0, b"abc").finish()],
+                || {
+                    failed(
+                        InvalidArgument,
+                        "Invalid upload ID 'not-an-upload-id'.",
+                        Left::Persisted(0),
+                    )
+                },
             ),
         ),
         on(
@@ -1147,36 +1352,32 @@ async fn grpc_resumable_write_message_errors() {
 /// When one resumable message breaks several rules, the first rule checked decides the answer.
 #[tokio::test]
 async fn grpc_resumable_write_error_precedence() {
-    use Code::{FailedPrecondition, InvalidArgument, NotFound, OutOfRange, Unimplemented};
+    use Code::{FailedPrecondition, Internal, InvalidArgument, OutOfRange, ResourceExhausted};
     let (_dir, storage) = setup(false).await;
     let cases = vec![
+        // A later upload_id is read like any other message, so the checksum beside it counts.
         on(
             PLAIN,
             both(
-                "later-upload-id-over-checksums",
+                "later-upload-id-with-checksums",
                 |u| {
                     vec![
                         resume(u, 0, b"abc"),
-                        chunk(3, b"d")
+                        chunk(3, b"")
                             .crc(1)
+                            .finish()
                             .first(FirstMessage::UploadId(u.into())),
                     ]
                 },
-                || failed(InvalidArgument, LATER_UPLOAD_ID, Left::Persisted(3)),
+                || failed(InvalidArgument, STORED_MISMATCH, Left::Terminated),
             ),
         ),
         on(
             PLAIN,
             both(
-                "checksums-over-session",
-                |u| vec![resume(&unknown(u), 0, b"abc").crc(1)],
-                || {
-                    failed(
-                        Unimplemented,
-                        unsupported(RESUMABLE_CHECKSUMS),
-                        Left::Persisted(0),
-                    )
-                },
+                "session-over-checksums",
+                |u| vec![resume(&unknown(u), 0, b"abc").md5(3)],
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1184,7 +1385,7 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "session-over-crc",
                 |u| vec![resume(&unknown(u), 0, b"abc").finish().bad_crc()],
-                || failed(NotFound, NO_SESSION, Left::Persisted(0)),
+                || failed(Internal, INTERNAL, Left::Persisted(0)),
             ),
         ),
         on(
@@ -1199,8 +1400,7 @@ async fn grpc_resumable_write_error_precedence() {
                 || ok(vec![Reply::Resource(3)], Left::Finalized),
             ),
         ),
-        // A replay answers with the finalized resource, so WriteObject does not report the
-        // message that follows its finish_write.
+        // A replay answers with the finalized resource, whatever follows its finish_write.
         on(
             Session {
                 prefix: b"abc",
@@ -1258,22 +1458,35 @@ async fn grpc_resumable_write_error_precedence() {
             both(
                 "resume-offset-over-crc",
                 |u| vec![resume(u, 1, b"bc").finish().bad_crc()],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(3)),
+                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
             ),
         ),
+        // The size checks come before the data checksum, as recorded 2026-11-18 on a
+        // non-resumable write.
         on(
             PLAIN,
             both(
-                "crc-over-max",
-                |u| vec![resume(u, 0, &[0; 17]).finish().bad_crc()],
-                || failed(InvalidArgument, crc_mismatch(&[0; 17]), Left::Persisted(0)),
+                "max-over-crc",
+                |u| vec![resume(u, 0, &OVER_MAX).finish().bad_crc()],
+                || failed(ResourceExhausted, TOO_LARGE, Left::Persisted(0)),
             ),
         ),
-        // The finishing message's own checks come before WriteObject's check for a later one.
+        on(
+            Session {
+                size: Some(5),
+                ..PLAIN
+            },
+            both(
+                "object-size-over-crc",
+                |u| vec![resume(u, 0, b"abc").finish().bad_crc()],
+                || failed(OutOfRange, size_mismatch(3, 5), Left::Terminated),
+            ),
+        ),
+        // A refused finishing message is answered whatever follows it.
         on(
             PLAIN,
             both(
-                "crc-over-later-message",
+                "crc-before-a-later-message",
                 |u| vec![resume(u, 0, b"abc").finish().bad_crc(), chunk(3, b"d")],
                 || failed(InvalidArgument, crc_mismatch(b"abc"), Left::Persisted(0)),
             ),
@@ -1281,9 +1494,9 @@ async fn grpc_resumable_write_error_precedence() {
         on(
             PREFIXED,
             both(
-                "offset-over-later-message",
+                "offset-before-a-later-message",
                 |u| vec![resume(u, 0, b"abc").finish(), chunk(3, b"d")],
-                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(3)),
+                || failed(OutOfRange, RESUME_OFFSET, Left::Persisted(GRANULE_SIZE)),
             ),
         ),
     ];
@@ -1353,15 +1566,15 @@ struct EarlyRefusal {
     message: &'static str,
 }
 
-/// WriteObject reads past a resumed stream's finish_write only after the checks that need no
-/// upload session, so a refusal by one of them is answered at once while the client keeps its
-/// stream open: conflicting routing metadata, a malformed upload_id, a caller without
-/// storage.objects.create under the strict profile, and an upload_id on a later message. A
-/// refusal that needs the session is answered only once the stream ends
-/// (`grpc_io_write_object_answers_a_finishing_message_after_the_stream_end`).
+/// WriteObject reads nothing past a resumed stream's finish_write (recorded 2026-11-18), so a
+/// refusal is answered at once while the client keeps its stream open: conflicting routing
+/// metadata, an upload_id that is unreadable or no upload ID at all, a caller without
+/// storage.objects.create under the strict profile, and an offset the session refuses
+/// (`grpc_io_write_object_answers_a_refused_finishing_message_at_once` covers the refusals
+/// that need the session).
 #[tokio::test]
 async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
-    use Code::{InvalidArgument, NotFound, PermissionDenied};
+    use Code::{Internal, InvalidArgument, OutOfRange, PermissionDenied};
     let (_dir, storage) = setup(true).await;
     let cases = [
         EarlyRefusal {
@@ -1374,12 +1587,20 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
             message: "The x-goog-request-params must specify the same bucket as the resource in the request. Request bucket was 'grpc-io' but x-goog-request-params specified 'another-bucket'",
         },
         EarlyRefusal {
-            label: "malformed-upload-id",
+            label: "unreadable-upload-id",
             token: "admin",
             routing: Some("bucket=projects%2F_%2Fbuckets%2Fgrpc-io"),
             messages: |_| vec![resume("grpc-io/not-hex", 0, b"abc").finish()],
-            code: NotFound,
-            message: UNKNOWN_UPLOAD_ID,
+            code: Internal,
+            message: INTERNAL,
+        },
+        EarlyRefusal {
+            label: "malformed-upload-id",
+            token: "admin",
+            routing: Some("bucket=projects%2F_%2Fbuckets%2Fgrpc-io"),
+            messages: |_| vec![resume("not-an-upload-id", 0, b"abc").finish()],
+            code: InvalidArgument,
+            message: "Invalid upload ID 'not-an-upload-id'.",
         },
         EarlyRefusal {
             label: "permission",
@@ -1390,19 +1611,12 @@ async fn grpc_io_write_object_refuses_before_the_session_lookup_at_once() {
             message: "reader@example.invalid does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
         },
         EarlyRefusal {
-            label: "later-upload-id",
+            label: "start-offset",
             token: "admin",
             routing: Some("bucket=projects%2F_%2Fbuckets%2Fgrpc-io"),
-            messages: |u| {
-                vec![
-                    resume(u, 0, b"abc"),
-                    chunk(3, b"d")
-                        .finish()
-                        .first(FirstMessage::UploadId(u.into())),
-                ]
-            },
-            code: InvalidArgument,
-            message: LATER_UPLOAD_ID,
+            messages: |u| vec![resume(u, 5, b"abc").finish()],
+            code: OutOfRange,
+            message: "Upload request started at offset '5', which is past expected offset '0'.",
         },
     ];
     for EarlyRefusal {
@@ -1564,7 +1778,7 @@ async fn grpc_appendable_write_message_errors() {
         // checked before the object is created, and a refused opening creates nothing.
         bidi(
             "too-large",
-            |n| vec![appendable(n, &[0; 17])],
+            |n| vec![appendable(n, &OVER_MAX)],
             failed(
                 ResourceExhausted,
                 "Object exceeds the upload size limit",
@@ -1687,7 +1901,7 @@ async fn grpc_appendable_write_error_precedence() {
         ),
         bidi(
             "opening-gap-over-max",
-            |n| vec![appendable(n, &[0; 17]).at(2)],
+            |n| vec![appendable(n, &OVER_MAX).at(2)],
             failed(OutOfRange, OPENING_GAP, Left::Nothing),
         ),
         // The bucket is found only when the object is created, after the opening message.
@@ -1729,7 +1943,7 @@ async fn grpc_resumable_write_waits_for_a_leased_session() {
     as_server(&storage, 60_000);
     for (rpc, upload) in leasable_uploads(&storage, "waiting").await {
         let held = lease(&storage, &upload).await;
-        let messages = [resume(&upload, 3, b"def").finish()];
+        let messages = [resume(&upload, GRANULE_SIZE, b"def").finish()];
         let write = call(&storage, rpc, &messages);
         tokio::pin!(write);
         let early = tokio::time::timeout(std::time::Duration::from_millis(200), write.as_mut());
@@ -1745,9 +1959,9 @@ async fn grpc_resumable_write_waits_for_a_leased_session() {
             (queried.write_status, queried.persisted_data_checksums),
             (
                 Some(pb::query_write_status_response::WriteStatus::PersistedSize(
-                    3
+                    GRANULE_SIZE
                 )),
-                persisted_checksums(b"abc")
+                persisted_checksums(&GRANULE_DATA)
             ),
             "{rpc:?}"
         );
@@ -1755,7 +1969,7 @@ async fn grpc_resumable_write_waits_for_a_leased_session() {
         let (status, replies) = write.await;
         assert_eq!(
             answer(&status, replies, session_left(&storage, &upload).await),
-            ok(vec![Reply::Resource(6)], Left::Finalized),
+            ok(vec![Reply::Resource(GRANULE_SIZE + 3)], Left::Finalized),
             "{rpc:?}"
         );
     }
@@ -1786,7 +2000,7 @@ async fn grpc_resumable_write_to_a_leased_session_fails_without_waiting() {
     storage.state.catalog.close().await.unwrap();
 }
 
-/// A session per RPC, with `abc` persisted, for the lease tests.
+/// A session per RPC, with one granule persisted, for the lease tests.
 async fn leasable_uploads(storage: &Storage, prefix: &str) -> Vec<(Rpc, String)> {
     let mut uploads = Vec::new();
     for rpc in [Rpc::WriteObject, Rpc::Bidi] {
@@ -1813,18 +2027,18 @@ async fn lease(storage: &Storage, upload: &str) -> crate::storage::SessionLease 
 async fn refuse_while_leased(storage: &Storage, uploads: Vec<(Rpc, String)>) {
     for (rpc, upload) in uploads {
         let held = lease(storage, &upload).await;
-        let messages = [resume(&upload, 3, b"def").finish()];
+        let messages = [resume(&upload, GRANULE_SIZE, b"def").finish()];
         let (status, replies) = call(storage, rpc, &messages).await;
         assert_eq!(
             answer(&status, replies, session_left(storage, &upload).await),
-            failed(Code::Unavailable, BUSY, Left::Persisted(3)),
+            failed(Code::Unavailable, BUSY, Left::Persisted(GRANULE_SIZE)),
             "{rpc:?}"
         );
         drop(held);
         let (status, replies) = call(storage, rpc, &messages).await;
         assert_eq!(
             answer(&status, replies, session_left(storage, &upload).await),
-            ok(vec![Reply::Resource(6)], Left::Finalized),
+            ok(vec![Reply::Resource(GRANULE_SIZE + 3)], Left::Finalized),
             "{rpc:?}"
         );
     }
@@ -1839,17 +2053,30 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
     let upload = open_session(&storage, "shared", PLAIN).await;
     let (requests, incoming) = mpsc::channel(1);
     let (responses, mut replies) = mpsc::channel::<Result<pb::BidiWriteObjectResponse, Status>>(4);
+    // Each stream sends whole granules, which is what a stream persists without finish_write.
+    let other_granule = vec![b'X'; GRANULE];
+    let repeated = vec![b'd'; GRANULE];
     requests
-        .send(Ok(resume(&upload, 0, b"abc").flush()))
+        .send(Ok(resume(&upload, 0, &GRANULE_DATA).flush()))
         .await
         .unwrap();
     let other = async {
         let mut seen = vec![replies.recv().await.unwrap().unwrap()];
-        let (status, _) = call(&storage, Rpc::WriteObject, &[resume(&upload, 3, b"XYZ")]).await;
-        assert_eq!(status.code(), Code::Ok, "{status}");
-        requests.send(Ok(chunk(3, b"def").flush())).await.unwrap();
+        let mut theirs =
+            tonic::codegen::tokio_stream::iter([Ok(resume(&upload, GRANULE_SIZE, &other_granule))]);
+        storage
+            .receive_write(&mut theirs, None, WriteRpc::WriteObject)
+            .await
+            .unwrap();
+        requests
+            .send(Ok(chunk(GRANULE_SIZE, &repeated).flush()))
+            .await
+            .unwrap();
         seen.push(replies.recv().await.unwrap().unwrap());
-        requests.send(Ok(chunk(6, b"g").finish())).await.unwrap();
+        requests
+            .send(Ok(chunk(2 * GRANULE_SIZE, b"g").finish()))
+            .await
+            .unwrap();
         drop(requests);
         seen
     };
@@ -1863,16 +2090,24 @@ async fn grpc_resumable_streams_sharing_an_upload_keep_the_bytes_persisted_first
         .filter_map(|response: pb::BidiWriteObjectResponse| response.write_status)
         .map(reply)
         .collect();
-    assert_eq!(seen, [Reply::Persisted(3), Reply::Persisted(6)]);
+    assert_eq!(
+        seen,
+        [
+            Reply::Persisted(GRANULE_SIZE),
+            Reply::Persisted(2 * GRANULE_SIZE)
+        ]
+    );
     let Some(pb::bidi_write_object_response::WriteStatus::Resource(object)) =
         result.unwrap().write_status
     else {
         panic!("not finalized")
     };
-    assert_eq!(object.size, 7);
+    assert_eq!(object.size, 2 * GRANULE_SIZE + 1);
     assert_eq!(
         object.checksums.unwrap().crc32c,
-        Some(crc32c::crc32c(b"abcXYZg"))
+        Some(crc32c::crc32c(
+            &[GRANULE_DATA.as_slice(), &other_granule, b"g"].concat()
+        ))
     );
     storage.state.catalog.close().await.unwrap();
 }
@@ -1890,7 +2125,8 @@ fn persisted_checksums(persisted: &[u8]) -> Option<pb::ObjectChecksums> {
 
 /// The proto's WriteObjectResponse, BidiWriteObjectResponse and QueryWriteStatusResponse each
 /// say: "If persisted_size is set, contains checksums of persisted data." A resource carries
-/// its own checksums instead.
+/// its own checksums instead. Recorded 2026-11-18: BidiWriteObject reports the CRC32C alone
+/// where QueryWriteStatus reports the MD5 as well.
 #[tokio::test]
 async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     use pb::query_write_status_response::WriteStatus as Queried;
@@ -1909,7 +2145,7 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
         .await
         .unwrap()
     };
-    let requests = [write_object_request(&resume(&upload, 0, b"abc"))];
+    let requests = [write_object_request(&resume(&upload, 0, &GRANULE_DATA))];
     let (status, responses): (_, Vec<pb::WriteObjectResponse>) = routed_rpc_status(
         "/google.storage.v2.Storage/WriteObject",
         None,
@@ -1924,14 +2160,16 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     };
     assert_eq!(
         written.write_status,
-        Some(pb::write_object_response::WriteStatus::PersistedSize(3))
+        Some(pb::write_object_response::WriteStatus::PersistedSize(
+            GRANULE_SIZE
+        ))
     );
     assert_eq!(
         written.persisted_data_checksums,
-        persisted_checksums(b"abc")
+        persisted_checksums(&GRANULE_DATA)
     );
 
-    let messages = [chunk(3, b"def")
+    let messages = [chunk(GRANULE_SIZE, b"")
         .flush()
         .first(FirstMessage::UploadId(upload.clone()))];
     let (status, responses): (_, Vec<pb::BidiWriteObjectResponse>) = routed_rpc_status(
@@ -1950,25 +2188,32 @@ async fn grpc_resumable_persisted_sizes_carry_the_persisted_checksums() {
     assert_eq!(
         flushed.write_status,
         Some(pb::bidi_write_object_response::WriteStatus::PersistedSize(
-            6
+            GRANULE_SIZE
         ))
     );
     assert_eq!(
         flushed.persisted_data_checksums,
-        persisted_checksums(b"abcdef")
+        Some(pb::ObjectChecksums {
+            crc32c: Some(crc32c::crc32c(&GRANULE_DATA)),
+            md5_hash: Vec::new(),
+        })
     );
     assert_eq!(closed, flushed);
     let queried = query().await;
-    assert_eq!(queried.write_status, Some(Queried::PersistedSize(6)));
+    assert_eq!(
+        queried.write_status,
+        Some(Queried::PersistedSize(GRANULE_SIZE))
+    );
     assert_eq!(
         queried.persisted_data_checksums,
-        persisted_checksums(b"abcdef")
+        persisted_checksums(&GRANULE_DATA)
     );
 
-    let (status, replies) = call(&storage, Rpc::Bidi, &[resume(&upload, 6, b"").finish()]).await;
+    let finish = [resume(&upload, GRANULE_SIZE, b"").finish()];
+    let (status, replies) = call(&storage, Rpc::Bidi, &finish).await;
     assert_eq!(
         (status.code(), replies),
-        (Code::Ok, vec![Reply::Resource(6)])
+        (Code::Ok, vec![Reply::Resource(GRANULE_SIZE)])
     );
     let finished = query().await;
     assert!(matches!(finished.write_status, Some(Queried::Resource(_))));

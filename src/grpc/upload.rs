@@ -44,10 +44,17 @@ pub(super) struct IntakePiece {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum IntakeError {
     Offset,
-    ChunkCrc { computed: u32, client: u32 },
+    ChunkCrc {
+        computed: u32,
+        client: u32,
+    },
     Overflow,
     TooLarge,
-    SizeMismatch,
+    /// `written` bytes cannot make an object of the declared `total`.
+    SizeMismatch {
+        written: u64,
+        total: u64,
+    },
     ObjectChecksum,
     ConflictingChecksums,
     ConsumerStopped,
@@ -88,35 +95,43 @@ impl Intake {
         Ok(())
     }
 
-    pub(super) async fn accept(
-        &mut self,
-        piece: IntakePiece,
-        sender: &Sender,
-    ) -> Result<(), IntakeError> {
+    /// Checks `piece` against the bytes received so far and returns the bytes it adds, for the
+    /// caller to stage. Cloud Storage answers a wrong size before a wrong data checksum
+    /// (recorded 2026-11-18), so the checksum is verified last.
+    pub(super) fn admit(&mut self, piece: &IntakePiece) -> Result<Bytes, IntakeError> {
         if piece.offset > self.offset
             || (matches!(self.resend, Resend::Reject) && piece.offset != self.offset)
         {
             return Err(IntakeError::Offset);
         }
-        verify_crc32c(&piece.content, piece.crc32c)?;
         let discard = usize::try_from(self.offset - piece.offset)
             .unwrap_or(usize::MAX)
             .min(piece.content.len());
         let added = piece.content.slice(discard..);
-        self.offset = u64::try_from(added.len())
+        let written = u64::try_from(added.len())
             .ok()
             .and_then(|length| self.offset.checked_add(length))
             .ok_or(IntakeError::Overflow)?;
-        if self.offset > self.max_bytes {
+        if written > self.max_bytes {
             return Err(IntakeError::TooLarge);
         }
-        if self
-            .total
-            .is_some_and(|total| self.offset > total || (piece.finish && self.offset != total))
+        if let Some(total) = self.total
+            && (written > total || (piece.finish && written != total))
         {
-            return Err(IntakeError::SizeMismatch);
+            return Err(IntakeError::SizeMismatch { written, total });
         }
+        verify_crc32c(&piece.content, piece.crc32c)?;
+        self.offset = written;
         self.hasher.update(&added);
+        Ok(added)
+    }
+
+    pub(super) async fn accept(
+        &mut self,
+        piece: IntakePiece,
+        sender: &Sender,
+    ) -> Result<(), IntakeError> {
+        let added = self.admit(&piece)?;
         stage(sender, &added).await
     }
 
@@ -135,11 +150,24 @@ impl Intake {
     }
 }
 
-pub(super) fn verify_crc32c(content: &[u8], client: Option<u32>) -> Result<(), IntakeError> {
+/// Content whose CRC32C (`computed`) differs from the one the client declared for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct CrcMismatch {
+    pub computed: u32,
+    pub client: u32,
+}
+
+impl From<CrcMismatch> for IntakeError {
+    fn from(CrcMismatch { computed, client }: CrcMismatch) -> Self {
+        Self::ChunkCrc { computed, client }
+    }
+}
+
+pub(super) fn verify_crc32c(content: &[u8], client: Option<u32>) -> Result<(), CrcMismatch> {
     if let Some(client) = client {
         let computed = crc32c::crc32c(content);
         if computed != client {
-            return Err(IntakeError::ChunkCrc { computed, client });
+            return Err(CrcMismatch { computed, client });
         }
     }
     Ok(())

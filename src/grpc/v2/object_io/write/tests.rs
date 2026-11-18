@@ -17,6 +17,15 @@ use std::sync::Arc;
 const FIRST: [u8; 32] = [1; 32];
 const SECOND: [u8; 32] = [2; 32];
 
+/// The size of one write granule: a resumable stream persists whole granules until
+/// finish_write (recorded 2026-11-18).
+const GRANULE: i64 = 256 * 1024;
+
+/// One granule of data, the least a resumable stream persists without finish_write.
+fn granule() -> Vec<u8> {
+    vec![b's'; 256 * 1024]
+}
+
 /// The first message of a one-shot write of `data`, carrying `key`.
 fn first(
     name: &str,
@@ -247,32 +256,36 @@ async fn grpc_resumable_key_binds_at_start_and_status_ignores_keys() {
 
     let upload = start(&storage, "resumed", Some(&FIRST)).await.unwrap();
     // upload_id messages need no key; one with another key is ignored, as Cloud Storage does.
-    write(&storage, vec![resume(&upload, 0, b"sec", false, None)])
+    write(&storage, vec![resume(&upload, 0, &granule(), false, None)])
         .await
         .unwrap();
     write(
         &storage,
-        vec![resume(&upload, 3, b"r", false, Some(&SECOND))],
+        vec![resume(&upload, GRANULE, &granule(), false, Some(&SECOND))],
     )
     .await
     .unwrap();
     // QueryWriteStatus answers even with a wrong key, on an open and on a finished session.
     assert_eq!(
         query(&storage, &upload, Some(&SECOND)).await,
-        QueriedStatus::PersistedSize(4)
+        QueriedStatus::PersistedSize(2 * GRANULE)
     );
     let object = resource(
-        write(&storage, vec![resume(&upload, 4, b"et", true, None)])
-            .await
-            .unwrap(),
+        write(
+            &storage,
+            vec![resume(&upload, 2 * GRANULE, b"et", true, None)],
+        )
+        .await
+        .unwrap(),
     );
-    assert_encrypted(&object, &FIRST, b"secret");
+    let secret = [granule(), granule(), b"et".to_vec()].concat();
+    assert_encrypted(&object, &FIRST, &secret);
     assert_readable_only_with(catalog, "resumed", &FIRST).await;
     for key in [None, Some(&SECOND)] {
         let QueriedStatus::Resource(finished) = query(&storage, &upload, key).await else {
             panic!("session not finished")
         };
-        assert_encrypted(&finished, &FIRST, b"secret");
+        assert_encrypted(&finished, &FIRST, &secret);
     }
     catalog.close().await.unwrap();
 }
@@ -282,22 +295,22 @@ async fn grpc_keyless_session_refuses_a_key_on_one_message_and_stays_usable() {
     let (_dir, storage) = setup(false).await;
     let catalog = &storage.state.catalog;
     let upload = start(&storage, "keyless", None).await.unwrap();
-    write(&storage, vec![resume(&upload, 0, b"pla", false, None)])
+    write(&storage, vec![resume(&upload, 0, &granule(), false, None)])
         .await
         .unwrap();
     // A local decision: Cloud Storage answered INTERNAL for this message.
     assert_customer_encryption(
         write(
             &storage,
-            vec![resume(&upload, 3, b"in", true, Some(&FIRST))],
+            vec![resume(&upload, GRANULE, b"in", true, Some(&FIRST))],
         )
         .await,
         CsekError::ResourceNotEncrypted,
     );
     // The same refusal on a later message of a stream keeps what earlier messages persisted.
     let messages = vec![
-        resume(&upload, 3, b"i", false, None),
-        later(4, b"n", true, Some(&FIRST)),
+        resume(&upload, GRANULE, &granule(), false, None),
+        later(2 * GRANULE, b"n", true, Some(&FIRST)),
     ];
     assert_customer_encryption(
         write(&storage, messages).await,
@@ -305,13 +318,16 @@ async fn grpc_keyless_session_refuses_a_key_on_one_message_and_stays_usable() {
     );
     assert_eq!(
         query(&storage, &upload, None).await,
-        QueriedStatus::PersistedSize(4)
+        QueriedStatus::PersistedSize(2 * GRANULE)
     );
     assert!(missing(catalog, "keyless").await);
     let object = resource(
-        write(&storage, vec![resume(&upload, 4, b"n", true, None)])
-            .await
-            .unwrap(),
+        write(
+            &storage,
+            vec![resume(&upload, 2 * GRANULE, b"n", true, None)],
+        )
+        .await
+        .unwrap(),
     );
     assert_eq!(object.customer_encryption, None);
     assert!(read_with(catalog, "keyless", None).await.is_ok());
@@ -324,7 +340,7 @@ async fn grpc_resumable_key_survives_a_restart() {
     let upload = start(&storage, "restarted", Some(&FIRST)).await.unwrap();
     write(
         &storage,
-        vec![resume(&upload, 0, b"sec", false, Some(&FIRST))],
+        vec![resume(&upload, 0, &granule(), false, Some(&FIRST))],
     )
     .await
     .unwrap();
@@ -333,15 +349,16 @@ async fn grpc_resumable_key_survives_a_restart() {
     let state = Arc::get_mut(&mut storage.state).expect("no other state handle");
     state.catalog = Catalog::open(&dir.0).await.unwrap();
     let object = resource(
-        write(&storage, vec![resume(&upload, 3, b"ret", true, None)])
+        write(&storage, vec![resume(&upload, GRANULE, b"ret", true, None)])
             .await
             .unwrap(),
     );
-    assert_encrypted(&object, &FIRST, b"secret");
+    let secret = [granule(), b"ret".to_vec()].concat();
+    assert_encrypted(&object, &FIRST, &secret);
     assert_readable_only_with(&storage.state.catalog, "restarted", &FIRST).await;
     let QueriedStatus::Resource(finished) = query(&storage, &upload, None).await else {
         panic!("session not finished")
     };
-    assert_encrypted(&finished, &FIRST, b"secret");
+    assert_encrypted(&finished, &FIRST, &secret);
     storage.state.catalog.close().await.unwrap();
 }

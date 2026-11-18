@@ -145,13 +145,17 @@ func TestGRPCDeadlineAndCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		upload := grpcIOField(started, "upload_id").String()
+		// Recorded 2026-11-18: a resumable stream persists whole 256 KiB granules until
+		// finish_write, so the acknowledged prefix is one granule.
+		content := append(bytes.Repeat([]byte("a"), 256*1024), "def"...)
+		prefix := int64(len(content) - 3)
 		callCtx, stop := context.WithCancel(ctx)
 		stream := open(callCtx, "BidiWriteObject", grpc.StreamDesc{ClientStreams: true, ServerStreams: true})
-		if err := stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "checksummed_data": data([]byte("abc")), "state_lookup": true})); err != nil {
+		if err := stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "checksummed_data": data(content[:prefix]), "state_lookup": true})); err != nil {
 			t.Fatal(err)
 		}
 		persisted := msg("BidiWriteObjectResponse", nil)
-		if err := stream.RecvMsg(persisted); err != nil || grpcIOField(persisted, "persisted_size").Int() != 3 {
+		if err := stream.RecvMsg(persisted); err != nil || grpcIOField(persisted, "persisted_size").Int() != prefix {
 			t.Fatalf("persisted=%v error=%v", persisted, err)
 		}
 		// Cancel only after the acknowledgement. Bytes sent without one may still commit after a
@@ -167,12 +171,11 @@ func TestGRPCDeadlineAndCancellation(t *testing.T) {
 		if err := conn.Invoke(grpcRouted(ctx, bucket.BucketName()), "/google.storage.v2.Storage/QueryWriteStatus", msg("QueryWriteStatusRequest", map[string]any{"upload_id": upload}), queried); err != nil {
 			t.Fatalf("query after cancellation: %v", err)
 		}
-		if offset := grpcIOField(queried, "persisted_size").Int(); offset != 3 {
+		if offset := grpcIOField(queried, "persisted_size").Int(); offset != prefix {
 			t.Fatalf("persisted after cancellation=%d", offset)
 		}
-		content := []byte("abcdef")
 		stream = open(ctx, "BidiWriteObject", grpc.StreamDesc{ClientStreams: true, ServerStreams: true})
-		stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": int64(3), "checksummed_data": data(content[3:]), "finish_write": true}))
+		stream.SendMsg(msg("BidiWriteObjectRequest", map[string]any{"upload_id": upload, "write_offset": prefix, "checksummed_data": data(content[prefix:]), "finish_write": true}))
 		stream.CloseSend()
 		if err := stream.RecvMsg(msg("BidiWriteObjectResponse", nil)); err != nil {
 			t.Fatalf("resume after cancellation: %v", err)

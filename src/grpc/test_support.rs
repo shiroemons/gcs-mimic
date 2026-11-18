@@ -88,6 +88,24 @@ pub(super) fn assert_code<T>(result: Result<T, Status>, code: Code) -> Status {
     }
 }
 
+/// Asserts that `status` carries exactly one `google.rpc.ErrorInfo`, naming `reason` in Cloud
+/// Storage's domain.
+#[track_caller]
+pub(super) fn assert_reason(status: &Status, reason: &str) {
+    use super::generated::google::rpc::{ErrorInfo, Status as RpcStatus};
+    use prost::Message;
+    let details = RpcStatus::decode(status.details()).unwrap();
+    let [detail] = details.details.as_slice() else {
+        panic!("{reason}: {:?}", details.details)
+    };
+    assert_eq!(detail.type_url, "type.googleapis.com/google.rpc.ErrorInfo");
+    let info = ErrorInfo::decode(detail.value.as_slice()).unwrap();
+    assert_eq!(
+        (info.reason.as_str(), info.domain.as_str()),
+        (reason, "storage.googleapis.com")
+    );
+}
+
 /// An unsupported option fails fast with ErrorInfo naming it, so an SDK neither
 /// retries nor mistakes the rejection for a missing resource.
 #[track_caller]

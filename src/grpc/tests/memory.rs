@@ -394,8 +394,17 @@ async fn ram_grpc_v2_framing_shares_io_permissions_history_and_derived_publicati
 
 #[tokio::test]
 async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged_offset() {
-    let state = state(2048).await;
-    let mut service = v2::service(state.clone(), 8192, crate::config::CompatProfile::Native);
+    // A resumable stream persists whole 256 KiB granules until finish_write (recorded
+    // 2026-11-18), so the budget holds one granule and little more.
+    const GRANULE: usize = 256 * 1024;
+    let granule = vec![b'a'; GRANULE];
+    let persisted = i64::try_from(GRANULE).unwrap();
+    let state = state(u64::try_from(GRANULE).unwrap() + 2048).await;
+    let mut service = v2::service(
+        state.clone(),
+        4 * 1024 * 1024,
+        crate::config::CompatProfile::Native,
+    );
     let (code, _): (_, Vec<pb::WriteObjectResponse>) = call(
         &mut service,
         "WriteObject",
@@ -416,7 +425,7 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
     .await;
     assert_eq!(code, Code::Ok);
     let upload = started[0].upload_id.clone();
-    let mut first = write("ignored", b"abc");
+    let mut first = write("ignored", &granule);
     first.first_message = Some(pb::write_object_request::FirstMessage::UploadId(
         upload.clone(),
     ));
@@ -424,9 +433,10 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
     let (code, _): (_, Vec<pb::WriteObjectResponse>) =
         call(&mut service, "WriteObject", Some("admin"), &[first.clone()]).await;
     assert_eq!(code, Code::Ok);
-    let mut exhausted = write("ignored", &vec![5; 4096]);
+    let mut exhausted = write("ignored", &vec![5; GRANULE]);
     exhausted.first_message = first.first_message.clone();
-    exhausted.write_offset = 3;
+    exhausted.write_offset = persisted;
+    exhausted.finish_write = false;
     let (code, _): (_, Vec<pb::WriteObjectResponse>) =
         call(&mut service, "WriteObject", Some("admin"), &[exhausted]).await;
     assert_eq!(code, Code::Unavailable);
@@ -444,18 +454,19 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
     assert_eq!(
         status[0].write_status,
         Some(pb::query_write_status_response::WriteStatus::PersistedSize(
-            3
+            persisted
         ))
     );
     assert_eq!(read(&mut service, "old").await, b"kept");
     let (code, _): (_, Vec<pb::WriteObjectResponse>) =
         call(&mut service, "WriteObject", Some("admin"), &[first.clone()]).await;
     assert_eq!(code, Code::OutOfRange);
+    let whole = [granule.as_slice(), b"def"].concat();
     let final_message = pb::BidiWriteObjectRequest {
         first_message: Some(pb::bidi_write_object_request::FirstMessage::UploadId(
             upload,
         )),
-        write_offset: 3,
+        write_offset: persisted,
         finish_write: true,
         data: Some(pb::bidi_write_object_request::Data::ChecksummedData(
             pb::ChecksummedData {
@@ -464,7 +475,7 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
             },
         )),
         object_checksums: Some(pb::ObjectChecksums {
-            crc32c: Some(crc32c::crc32c(b"abcdef")),
+            crc32c: Some(crc32c::crc32c(&whole)),
             ..Default::default()
         }),
         ..Default::default()
@@ -477,7 +488,7 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
     )
     .await;
     assert_eq!(code, Code::Ok);
-    assert_eq!(read(&mut service, "session").await, b"abcdef");
+    assert!(read(&mut service, "session").await == whole);
     let (code, started): (_, Vec<pb::StartResumableWriteResponse>) = call(
         &mut service,
         "StartResumableWrite",
@@ -495,9 +506,11 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
         cancelled.clone(),
     ));
     partial.finish_write = false;
+    // The budget has no room for another granule, and a stream that closes on less than one
+    // persists nothing (recorded 2026-11-18).
     let (code, _): (_, Vec<pb::WriteObjectResponse>) =
         call(&mut service, "WriteObject", Some("admin"), &[partial]).await;
-    assert_eq!(code, Code::Ok);
+    assert_eq!(code, Code::InvalidArgument);
     let (code, _): (_, Vec<pb::CancelResumableWriteResponse>) = call(
         &mut service,
         "CancelResumableWrite",
@@ -528,7 +541,8 @@ async fn ram_grpc_resumable_capacity_hash_reconnect_and_cancel_keep_acknowledged
         }],
     )
     .await;
-    assert_eq!(code, Code::NotFound);
+    // Recorded 2026-11-18: "Upload has already been cancelled."
+    assert_eq!(code, Code::FailedPrecondition);
     state.catalog.close().await.unwrap();
 }
 
