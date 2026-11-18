@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Probes the official `com.google.cloud:google-cloud-storage` 2.78.0 against an
+Probes the official `com.google.cloud:google-cloud-storage` 2.79.0 against an
 emulator. It emits one JSONL line per case: the 56 shared bucket, object and
 signed cases (same IDs and order as the Python probe), 10 cases in the `grpc`
 area (IDs start with `grpc.`; eight are shared with the other SDKs that have
@@ -36,7 +36,7 @@ SCORECARD_ENDPOINT=https://127.0.0.1:PORT SCORECARD_GRPC_ENDPOINT=127.0.0.1:GRPC
 
 ## Unsupported cases
 
-`bucket.soft_delete_restore`: google-cloud-storage 2.78.0 has no public API for
+`bucket.soft_delete_restore`: google-cloud-storage 2.79.0 has no public API for
 restoring a soft-deleted bucket (`Storage.restore` takes only a `BlobId`). Every
 other shared case is expressible with the public Java API.
 

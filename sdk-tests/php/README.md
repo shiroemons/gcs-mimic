@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This suite drives gcs-mimic through the official PHP client,
-`google/cloud-storage` 2.6.1, over HTTP and HTTPS. It mirrors the
+`google/cloud-storage` 2.7.0, over HTTP and HTTPS. It mirrors the
 [Ruby suite](../ruby/README.md) journeys where the PHP SDK exposes them and
 records where it cannot. It covers the basic API milestone and local transport,
 not full PHP compatibility; the broader ledger rows stay `PARTIAL`.
@@ -12,7 +12,7 @@ not full PHP compatibility; the broader ledger rows stay `PARTIAL`.
 
 | Input | Pin |
 | --- | --- |
-| PHP SDK | `google/cloud-storage` 2.6.1 (source `cf14f967fa45113e2a239fe9103bada8d7b92021`), exact pin in `composer.json` |
+| PHP SDK | `google/cloud-storage` 2.7.0 (source `2ad43074f03edcb8b867b1627e57edcce06b2095`), exact pin in `composer.json` |
 | Dependency graph | `composer.lock`, the same 26-package graph as `sdk-scorecard/php/composer.lock` (only the content hash differs) |
 | Runtime | Official `composer:2.11.2` image (PHP 8.5.12), pinned by manifest index digest `sha256:0c8e663f14c94d07b3c45b175c51f5a14718508f21fe4dd7e54f09488dd0ed71` in `run.sh` |
 
@@ -20,8 +20,8 @@ PHP is not required on the host: Composer and PHP run only in that container.
 The pin is identical to the one in `sdk-scorecard/run.sh`, whose digest the
 daily dependency check already tracks.
 
-Verified on 2026-10-30 from official metadata: Packagist lists 2.6.1
-(2026-10-16) as the newest stable release, Apache-2.0, requiring PHP `^8.2`.
+Verified on 2026-11-18 from official metadata: Packagist lists 2.7.0
+(2026-11-17) as the newest stable release, Apache-2.0, requiring PHP `^8.2`.
 The package is Google-maintained and published from the active
 `googleapis/google-cloud-php` monorepo through the
 `googleapis/google-cloud-php-storage` split (not archived). The locked graph is
@@ -159,7 +159,7 @@ signer; signing never requests a token, and no bearer header is attached.
 - The V2 signer always emits `https://`. Against an HTTP endpoint the suite
   asserts that URL and does not send it (the case says so); V2 requests run
   only in the HTTPS profile. URLs are never rewritten after signing.
-- `Bucket::object()` documents a `softDeleted` option but 2.6.1 drops it; the
+- `Bucket::object()` documents a `softDeleted` option but 2.7.0 drops it; the
   suite passes `softDeleted` to `StorageObject::info()` instead.
 - `Lifecycle::clearRules()` leaves an empty PHP array that the SDK sends as
   `"lifecycle": []`. The native profile accepts it and leaves the rules

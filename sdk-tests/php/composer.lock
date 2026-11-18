@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "534b9271d8e66ab86a588acf480b52bd",
+    "content-hash": "71a2cf78c0a2ec38f67eed0f1d70b08b",
     "packages": [
         {
             "name": "brick/math",
@@ -279,16 +279,16 @@
         },
         {
             "name": "google/cloud-storage",
-            "version": "v2.6.1",
+            "version": "v2.7.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/googleapis/google-cloud-php-storage.git",
-                "reference": "cf14f967fa45113e2a239fe9103bada8d7b92021"
+                "reference": "2ad43074f03edcb8b867b1627e57edcce06b2095"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/googleapis/google-cloud-php-storage/zipball/cf14f967fa45113e2a239fe9103bada8d7b92021",
-                "reference": "cf14f967fa45113e2a239fe9103bada8d7b92021",
+                "url": "https://api.github.com/repos/googleapis/google-cloud-php-storage/zipball/2ad43074f03edcb8b867b1627e57edcce06b2095",
+                "reference": "2ad43074f03edcb8b867b1627e57edcce06b2095",
                 "shasum": ""
             },
             "require": {
@@ -331,9 +331,10 @@
             ],
             "description": "Cloud Storage Client for PHP",
             "support": {
-                "source": "https://github.com/googleapis/google-cloud-php-storage/tree/v2.6.1"
+                "source": "https://github.com/googleapis/google-cloud-php-storage/tree/v2.7.0"
             },
-            "time": "2026-10-16T21:30:20+00:00"
+            "time": "2026-11-17T00:25:19+00:00",
+            "published-time": "2026-11-17T19:18:02+00:00"
         },
         {
             "name": "google/common-protos",
@@ -1791,5 +1792,5 @@
         "php": "^8.5"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.11.0"
 }

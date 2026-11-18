@@ -32,12 +32,12 @@ import java.util.stream.Stream;
 
 /** Emulator-neutral official Java SDK probes; stdout is JSONL evidence. */
 public final class Probe {
-  static final String SDK_VERSION = "google-cloud-storage 2.78.0";
+  static final String SDK_VERSION = "google-cloud-storage 2.79.0";
 
   /**
    * Cases this SDK version cannot express through its public API. Decided statically so a
    * runtime failure can never be reclassified as "unsupported". Each value completes the sentence
-   * "google-cloud-storage 2.78.0 has no public API for ...".
+   * "google-cloud-storage 2.79.0 has no public API for ...".
    */
   static final Map<String, String> UNSUPPORTED = Map.of("bucket.soft_delete_restore",
       "restoring a soft-deleted bucket (Storage.restore takes only a BlobId)");

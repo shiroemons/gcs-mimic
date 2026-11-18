@@ -114,7 +114,7 @@ client = storage.Client(
 
 ## PHP
 
-`google/cloud-storage` 2.6.1（[テスト（英語）](../../sdk-tests/php/README.md)）:
+`google/cloud-storage` 2.7.0（[テスト（英語）](../../sdk-tests/php/README.md)）:
 
 ```php
 use Google\Cloud\Core\AnonymousCredentials;

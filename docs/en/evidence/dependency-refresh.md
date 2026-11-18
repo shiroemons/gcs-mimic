@@ -1344,3 +1344,63 @@ The full check also reported four development-only updates, which are not adopte
 | `cargo check --locked` | Passed |
 
 Both checks ran with `GITHUB_TOKEN` set. The complete gates for the release source are recorded with the 0.26.0 release.
+
+## Refresh: 2026-11-18, after 0.26.0
+
+After the 0.26.0 release, the full check still reported the four development-only updates the release did not adopt, and no other update. All four are adopted.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| google.golang.org/api | v0.315.0 | v0.316.0 (published to the Go proxy 2026-11-17T21:10:46Z, revision `35ecdc15145627852c05bf9d5f4ee6161f356bc7`, Go 1.26.0, 52,792,091-byte module zip) | `go`, `sdk-scorecard/go`, `sdk-tests/go` |
+| bytes | 1.12.1 | 1.12.2 (79,024-byte crate, SHA-256 `776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c`) | `sdk-tests/rust`, `sdk-scorecard/rust` |
+| com.google.cloud:google-cloud-storage | 2.78.0 | 2.79.0 (published to Maven Central 2026-11-17T16:46:11Z; 1,568,401-byte jar, SHA-256 `4cfbe2cc321d2bdd5d6aa02bd602cb57f1479ddaa9e85cced53f1563d6505c4f`) | `sdk-tests/java`, `sdk-scorecard/java` |
+| google/cloud-storage (Composer) | 2.6.1 | 2.7.0 (tagged 2026-11-17T00:25:19Z, published on Packagist 2026-11-17T19:18:02Z, revision `2ad43074f03edcb8b867b1627e57edcce06b2095`) | `sdk-tests/php`, `sdk-scorecard/php` |
+
+[API v0.316.0](https://github.com/googleapis/google-api-go-client/releases/tag/v0.316.0) lists regenerated Discovery clients only. In `storage/v1` the Discovery revision moves from 20261107 to 20261111 and adds the output-only `Object.zonalAvailabilityInfo`, the zones that hold a Rapid Cache Ultra copy of the object. gcs-mimic does not return that field, and its pinned Discovery revision stays 20261013. The module's go.mod and BSD-3-Clause LICENSE are byte-identical to v0.315.0, and `go mod tidy` changes no other requirement in the three modules.
+
+The Rust SDK suite and scorecard pin bytes exactly and move to the 1.12.2 that the application adopted [before 0.26.0](#refresh-2026-11-18-before-0260). `cargo update -p bytes` changes no other package in either lockfile.
+
+The [Maven Central metadata](https://repo1.maven.org/maven2/com/google/cloud/google-cloud-storage/maven-metadata.xml) names 2.79.0 as both the latest and the release version, and its POM declares Apache-2.0. It is the Storage library of [google-cloud-java v1.97.0](https://github.com/googleapis/google-cloud-java/releases/tag/v1.97.0), whose Storage changes add operation metrics (an error type mapper, a metrics context, and metrics wired into retries and `StorageOptions`) and Rapid Cache samples; gax 2.91.0 in the same release implements resumable upload session resumption. `javap` shows the same public `Storage` interface as in 2.78.0, so `Storage.restore` still takes only a `BlobId`. The probe's unsupported reason for `bucket.soft_delete_restore`, the shared case catalog and the documents that name the current version now give 2.79.0; earlier records that name the version a run used keep it.
+
+Both lockfiles change only versions; no package is added or removed and no scope changes:
+
+| Package | Previous | Adopted |
+| --- | --- | --- |
+| google-cloud-core, google-cloud-core-http, google-cloud-core-grpc | 2.80.0 | 2.81.0 |
+| gax, gax-grpc, gax-httpjson | 2.90.0 | 2.91.0 |
+| api-common | 2.73.0 | 2.74.0 |
+| proto-google-iam-v1 | 1.76.0 | 1.77.0 |
+| proto-google-common-protos | 2.81.0 | 2.82.0 |
+| proto-, grpc- and gapic-google-cloud-storage-v2 | 2.78.0 | 2.79.0 |
+| google-auth-library-credentials | 1.57.0 | 1.58.0 |
+| google-auth-library-oauth2-http, `sdk-tests/java` only | 1.57.0 | 1.58.0 |
+| gRPC Java (17 `io.grpc` artifacts) | 1.83.0 | 1.85.1 |
+| OpenTelemetry Java (9 `io.opentelemetry` artifacts) | 1.62.0 | 1.67.0 |
+| Guava | 33.6.0-jre | 33.7.2-jre |
+| conscrypt-openjdk-uber | 2.6.2 | 2.8.0 |
+| CEL runtime, common and protobuf | 0.13.0 | 0.13.1 |
+| jspecify | 1.0.0 | 1.0.1 |
+
+The SDK now resolves google-auth-library-oauth2-http 1.58.0, the version the scorecard already pins for offline signing, so that pin stays. `examples/java` is not tracked by the freshness check and stays on 2.76.0.
+
+The check first reported 2.79.0 before Maven Central served every artifact its POM requires ([see above](#refresh-2026-11-18-before-0260)). A local Maven repository that tried to resolve it then keeps those artifacts cached as not found: `dependency:tree` writes a tree from the incomplete POMs, in which grpc-netty-shaded appears as a runtime dependency, and compilation cannot resolve the jars. Running `dependency:tree` and `dependency:resolve` with `mvn -U` checks the repository again; the committed trees come from complete POMs.
+
+[google/cloud-storage 2.7.0](https://github.com/googleapis/google-cloud-php-storage/releases/tag/v2.7.0) adds a `stat_permission_check` stream context option that lets `StreamWrapper` skip the bucket permission check when it reports file modes. Its only other source change is the version constant, so `Bucket::object()` still drops its documented `softDeleted` option and the suite keeps passing it to `StorageObject::info()`. The release keeps Apache-2.0 and the same requirements (PHP `^8.2`, google/cloud-core `^1.72.0`, ramsey/uuid `^4.2.3`). `composer update google/cloud-storage` in the digest-pinned composer:2.11.2 image changes only that package; the lockfiles also gain the `published-time` field and plugin API version 2.11.0 that Composer 2.11.2 writes. The two lockfiles still hold the same 26-package graph and differ only in their content hash. `examples/php` is not tracked by the freshness check and stays on 2.6.1.
+
+The application's `bytes` entry in the dependency snapshot now links the 1.12.2 registry metadata, and the development guide names bytes 1.12.2, Storage v1.71.0 and API v0.316.0; earlier refreshes had left those references at older versions.
+
+### Validation performed on 2026-11-18, after 0.26.0
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-18T02:19:39Z` | Exit 0 with 144 `CURRENT` lines; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo xtask dependencies check --scope release` at `2026-11-18T02:20:34Z` | Exit 0 with 42 `CURRENT` lines |
+| `cargo test --locked -p xtask` | 290 passed, 0 failed |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-php --with-java --with-rust` | Go suite: 92 passed, the HTTPS-only V2 signing test skipped. PHP suite: every permissive and strict HTTP case passed with 2.7.0. The Java suite then stopped on the stale Maven cache described above, before the Rust suite ran |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-clients`, after `mvn -U` | Go suite as above; the `go/` module's race and integration tests and its `go vet` and tests on Go 1.26.0 passed. The Java HTTP scenario passed, the .NET suite passed on net10.0 and net11.0, and the official Rust SDK and Arrow `object_store` scenarios passed |
+| `bash sdk-scorecard/test-score.sh` | Passed |
+| `bash sdk-scorecard/run.sh --out <dir> gcs-mimic` | Every SDK passed every case it supports, for a score of 100 and a core score of 100: Go 66/66, Ruby 57/57, Node.js 59/59, PHP 60/60, Python 63/63, Java 79/79, .NET 72/72, Rust 54/54 and C++ 61/61. The n/a cases are the catalog's unsupported cases, and the Java one reports the 2.79.0 reason. The run covered gcs-mimic only, so no results directory is added |
+| `bash scripts/check-docs.sh` | Passed |
+| `markdownlint-cli2` on the changed Markdown files | 0 issues in 11 files |
+
+Both freshness checks ran with `GITHUB_TOKEN` set.

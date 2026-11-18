@@ -9,7 +9,7 @@ publish = false
 [workspace]
 
 [dependencies]
-bytes = "=1.12.1"
+bytes = "=1.12.2"
 google-cloud-storage = "=1.22.0"
 google-cloud-auth = "=1.19.0"
 # The following crates are already in google-cloud-storage's graph; naming them exposes

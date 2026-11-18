@@ -443,7 +443,7 @@ $runner->run('php-soft-delete-restore', function () use ($storage) {
         check(!$soft->object('recoverable')->exists(), 'deleted file is live');
         $deleted = iterator_to_array($soft->objects(['softDeleted' => true]), false);
         check(count($deleted) === 1 && $deleted[0]->info()['generation'] === $generation, 'soft deleted listing differs');
-        // Bucket::object() documents softDeleted but drops it in 2.6.1; info() forwards it to objects.get.
+        // Bucket::object() documents softDeleted but drops it in 2.7.0; info() forwards it to objects.get.
         check($soft->object('recoverable', ['generation' => $generation])->info(['softDeleted' => true])['name'] === 'recoverable',
             'soft deleted metadata missing');
         $restored = $soft->restore('recoverable', $generation);
