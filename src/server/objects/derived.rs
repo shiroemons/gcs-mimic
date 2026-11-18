@@ -45,7 +45,7 @@ pub(super) async fn copy(
         .await?;
     let method = request.method().clone();
     let uri = request.uri().clone();
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let request_binding = format!(
         "copy-v1:{method}|{uri}|{}|{:?}|{:?}|{:?}",
         ctx.state.api_base_url,
@@ -218,7 +218,7 @@ pub(super) async fn compose(
             "x-goog-hash",
         ],
     )?;
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut body = json::compose::parse_compose(&bytes, &bucket)?;
     crate::server::retention_access::authorize_upload(
         &ctx.state.catalog,

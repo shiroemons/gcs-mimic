@@ -98,7 +98,8 @@ pub(super) async fn respond(
             json::hmac_key_list(&page, &params, base_url)?
         }
         ProjectRequest::UpdateHmacKey { project, access_id } => {
-            let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+            let bytes =
+                crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
             let update = json::parse_hmac_key_update(&bytes)?;
             let record = state
                 .catalog

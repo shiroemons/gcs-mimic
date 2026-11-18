@@ -1,7 +1,7 @@
 //! Explicit instance reset never follows or modifies an external source/sync tree.
 
 use crate::{
-    json::{self, JsonError},
+    json::JsonError,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
 };
@@ -72,7 +72,7 @@ async fn reset(
             "Stop directory synchronization and restart without sync_dir before resetting; external files are never reset",
         ));
     }
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let confirmation: Confirmation = if matches!(form, Form::SourceAlias) {
         if !bytes.is_empty() {
             return Err(JsonError::invalid_argument(

@@ -52,7 +52,11 @@ pub(super) async fn respond(
     let md5 = super::super::put::single(request.headers(), "content-md5")?
         .map(json::decode_hash::<16>)
         .transpose()?;
-    let bytes = json::read_body(request.into_body(), json::RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(
+        request.into_body(),
+        crate::bounded_body::RESOURCE_BODY_LIMIT,
+    )
+    .await?;
     if super::super::sha256_mismatch(sha, &bytes) {
         return Err(Error::new(
             XmlCode::BadDigest,

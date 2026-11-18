@@ -107,7 +107,7 @@ impl Default for WorkPools {
     }
 }
 
-pub(crate) use crate::json::RESOURCE_BODY_LIMIT;
+pub(crate) use crate::bounded_body::RESOURCE_BODY_LIMIT;
 
 mod batch;
 mod browser;
@@ -1881,7 +1881,7 @@ async fn validate_bodyless_post(
         Some("application/json") => BodylessPostType::Json,
         _ => BodylessPostType::Other,
     };
-    let body = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let body = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let accepted = body.is_empty()
         || match declared {
             BodylessPostType::Form => {

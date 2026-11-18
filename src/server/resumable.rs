@@ -57,7 +57,11 @@ pub(super) async fn initiate(
     location_base
         .parse::<hyper::header::HeaderValue>()
         .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?;
-    let bytes = json::read_body(request.into_body(), json::RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(
+        request.into_body(),
+        crate::bounded_body::RESOURCE_BODY_LIMIT,
+    )
+    .await?;
     if !bytes.is_empty() && !json_type {
         return Err(JsonError::invalid_parameter(
             "Metadata requires application/json",
@@ -620,7 +624,7 @@ pub(crate) async fn transfer(
         return view.respond(ctx, completion).await.map(Transfer::Complete);
     }
     if status_only {
-        json::read_body(request.into_body(), 0).await?;
+        crate::bounded_body::read_body(request.into_body(), 0).await?;
         let progress = session.progress()?;
         state.catalog.prepare_resumable_status(&lease).await?;
         if plan.total != session.total {

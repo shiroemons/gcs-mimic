@@ -42,7 +42,7 @@ mod failure_tests;
 /// All non-file fields together, which bounds the policy document as well. They stay in memory
 /// until the file part starts, so a field's name and map entry count too: nothing else would stop
 /// a form of empty fields from growing, now that the number of fields has no limit of its own.
-const FORM_CAP: usize = json::RESOURCE_BODY_LIMIT;
+const FORM_CAP: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
 /// What one field's map entry takes beside its name and value.
 const FIELD_ENTRY_CHARGE: usize = 64;
 
@@ -180,7 +180,7 @@ async fn read_form<B: Body<Data = Bytes> + Unpin>(
     let too_large = || {
         Error::invalid(format!(
             "Form fields before the file field are limited to {} in total.",
-            json::RESOURCE_BODY_LIMIT_TEXT
+            crate::bounded_body::RESOURCE_BODY_LIMIT_TEXT
         ))
     };
     let mut fields = BTreeMap::new();

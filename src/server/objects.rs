@@ -292,7 +292,7 @@ async fn move_object(
         projection,
     } = params;
     json::validate_object_get_headers(request.headers())?;
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // The Node SDK serializes empty options as {}, without move semantics.
     if !bytes.is_empty()
         && serde_json::from_slice::<Value>(&bytes).ok() != Some(serde_json::json!({}))
@@ -398,7 +398,7 @@ async fn update(
     // requests naming a superseded or bogus entity tag (case obj-gaps-json). Only the query
     // conditions guard a concurrent update.
     // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut update = json::parse_object_metadata_mutation(&bytes, mode)?;
     update.update.acl = std::mem::take(&mut update.update.acl).with_predefined(predefined_acl)?;
     let target = update.select_target(target)?;

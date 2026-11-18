@@ -1,7 +1,7 @@
 //! Replays only the startup-selected read-only fixtures, never a request-supplied path.
 
 use crate::{
-    json::{self, JsonError},
+    json::JsonError,
     seed::SeedError,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
@@ -50,7 +50,7 @@ async fn reseed(
             "Stop synchronization and restart without sync_dir before reseeding; external files are never reset",
         ));
     }
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     if !bytes.is_empty() {
         return Err(JsonError::invalid_argument(
             "Reseed accepts only an empty body; the source is configured at startup",

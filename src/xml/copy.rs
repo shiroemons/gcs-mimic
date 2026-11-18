@@ -190,7 +190,7 @@ pub(super) async fn respond(
             put::storage_error(error, ctx.caller).naming_object(&source_bucket, &source_name)
         })?;
     validate_source_etags(request.headers(), &source.object)?;
-    json::read_body(request.into_body(), 0).await?;
+    crate::bounded_body::read_body(request.into_body(), 0).await?;
     let modified = source.object.updated;
     let destination = destination(operation, &source.object, options, directive, access)?;
     let source_location = if source.object.component_count.is_some() {

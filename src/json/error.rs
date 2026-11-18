@@ -765,6 +765,23 @@ impl From<crate::page_token::PageTokenError> for JsonError {
     }
 }
 
+impl From<crate::bounded_body::BodyError> for JsonError {
+    fn from(error: crate::bounded_body::BodyError) -> Self {
+        use crate::bounded_body::BodyError;
+        match error {
+            BodyError::TooLarge => Self::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "uploadTooLarge",
+                error.to_string(),
+            ),
+            BodyError::OutOfMemory => Self::service_unavailable(error.to_string()),
+            BodyError::Unreadable => {
+                Self::new(StatusCode::BAD_REQUEST, "badRequest", error.to_string())
+            }
+        }
+    }
+}
+
 /// A stored time that cannot be rendered is a backend failure.
 impl From<crate::time_format::TimeOutOfRange> for JsonError {
     fn from(error: crate::time_format::TimeOutOfRange) -> Self {

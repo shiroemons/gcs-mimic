@@ -1,7 +1,8 @@
 //! Pure JSON bucket and object API building blocks; no catalog, authorization or socket access.
 //!
 //! [`route`] parses raw paths and queries into [`BucketRequest`]; other routes return `None`.
-//! [`read_body`] bounds collection before [`parse_insert`] creates a shared bucket record.
+//! [`crate::bounded_body::read_body`] bounds collection before [`parse_insert`] creates a shared
+//! bucket record.
 //! The caller performs catalog operations and atomic condition checks, then renders metadata
 //! with [`bucket_resource_with_profile`] / [`bucket_list_with_profile`] using its advertised endpoint.
 //! [`encode_page_token`] creates project/prefix-bound continuation cursors.
@@ -9,7 +10,6 @@
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
 pub(crate) mod acl;
-mod body;
 mod buckets;
 mod checksum;
 pub mod compose;
@@ -38,7 +38,6 @@ pub(crate) mod resumable_cancel;
 pub(crate) mod rewrite;
 
 pub(crate) use crate::object::WriteMode;
-pub(crate) use body::{RESOURCE_BODY_LIMIT, RESOURCE_BODY_LIMIT_TEXT, read_body};
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
     BucketAclWrite, PredefinedAclTarget, UniformAccess, bucket_predefined_acls,

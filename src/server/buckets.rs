@@ -342,7 +342,7 @@ async fn write(
 ) -> Result<Rendered, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     // Only the native profile checks the body name against the path (recorded 2026-10-31).
     if profile == CompatProfile::Native {
         json::require_matching_bucket_name(&bytes, bucket)?;
@@ -445,7 +445,7 @@ async fn set_iam(
     bucket: &str,
 ) -> Result<Value, JsonError> {
     let if_match = policy_if_match_lines(request.headers());
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let policy = json::parse_policy(&bytes)?;
     let policy =
         ctx.state
@@ -497,7 +497,7 @@ async fn insert(
 ) -> Result<Rendered, JsonError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let mut record = json::parse_insert_with_profile(
         &bytes,
         &params.project,

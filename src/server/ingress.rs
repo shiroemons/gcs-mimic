@@ -252,7 +252,7 @@ fn too_large() -> JsonError {
         "uploadTooLarge",
         format!(
             "Compressed or expanded JSON request body exceeds {}",
-            crate::json::RESOURCE_BODY_LIMIT_TEXT
+            crate::bounded_body::RESOURCE_BODY_LIMIT_TEXT
         ),
     )
 }

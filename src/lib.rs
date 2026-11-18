@@ -1,6 +1,7 @@
 mod acl;
 pub mod auth;
 mod base64;
+mod bounded_body;
 pub mod bounded_file;
 pub mod bucket;
 pub mod bucket_init;

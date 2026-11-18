@@ -131,7 +131,7 @@ pub(crate) async fn start(
         ctx,
     )
     .await?;
-    json::read_body(request.into_body(), 0)
+    crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| Error::invalid("Resumable upload initiation carries no body."))?;
     let id = resumable::create_session(ctx, &object.bucket, &name, options, None)
@@ -204,7 +204,7 @@ async fn cancel(
     ctx: ObjectCtx<'_>,
 ) -> Result<(), json::JsonError> {
     let catalog = &ctx.state.catalog;
-    json::read_body(request.into_body(), 0)
+    crate::bounded_body::read_body(request.into_body(), 0)
         .await
         .map_err(|_| json::JsonError::invalid_parameter("Cancellation requires an empty body"))?;
     let session = ctx

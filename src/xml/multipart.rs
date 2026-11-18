@@ -515,7 +515,7 @@ async fn complete(
     headers: put::Headers,
     ctx: ObjectCtx<'_>,
 ) -> Result<Response<ResponseBody>, Error> {
-    let bytes = json::read_body(request.into_body(), MANIFEST_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), MANIFEST_LIMIT).await?;
     if super::sha256_mismatch(headers.sha256, &bytes) {
         return Err(signed_digest_mismatch());
     }

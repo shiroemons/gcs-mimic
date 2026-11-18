@@ -1,4 +1,5 @@
 use super::*;
+use crate::bounded_body::read_body;
 use crate::bucket::{BucketRecord, CatalogError, Rpo};
 use crate::config::CompatProfile;
 use crate::page_token::{decode_page_token, encode_page_token};
@@ -1900,9 +1901,11 @@ async fn bkt_body_001_empty_exact_cap_multiframe_and_trailers() {
 #[tokio::test]
 async fn bkt_body_001_rejects_oversize_and_read_errors() {
     for cap in [0, 3] {
-        let error = read_body(Full::new(Bytes::from_static(b"1234")), cap)
-            .await
-            .unwrap_err();
+        let error = JsonError::from(
+            read_body(Full::new(Bytes::from_static(b"1234")), cap)
+                .await
+                .unwrap_err(),
+        );
         assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(error.reason, "uploadTooLarge");
     }
@@ -1915,7 +1918,7 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         .into(),
     };
     assert_eq!(
-        read_body(frames, 4).await.unwrap_err().status,
+        JsonError::from(read_body(frames, 4).await.unwrap_err()).status,
         StatusCode::PAYLOAD_TOO_LARGE
     );
     let frames = Frames {
@@ -1925,7 +1928,10 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         ]
         .into(),
     };
-    assert_eq!(read_body(frames, 4).await.unwrap_err().reason, "badRequest");
+    assert_eq!(
+        JsonError::from(read_body(frames, 4).await.unwrap_err()).reason,
+        "badRequest"
+    );
 }
 
 /// Every bucket read answers with this resource, so pin its whole JSON text for both profiles,

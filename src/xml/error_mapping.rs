@@ -4,10 +4,25 @@
 use super::{Error, XmlCode};
 use crate::{
     auth::InvalidProjectId,
+    bounded_body::BodyError,
     bucket::name::ProfileNameError,
     percent::{MalformedEncoding, QueryError},
     time_format::TimeOutOfRange,
 };
+use hyper::StatusCode;
+
+/// A body over its bound keeps the 413 status under the generic code, as other statuses the XML
+/// API has no code for do.
+impl From<BodyError> for Error {
+    fn from(error: BodyError) -> Self {
+        let code = match error {
+            BodyError::TooLarge => XmlCode::forwarded(StatusCode::PAYLOAD_TOO_LARGE),
+            BodyError::OutOfMemory => XmlCode::ServiceUnavailable,
+            BodyError::Unreadable => XmlCode::InvalidArgument,
+        };
+        Self::new(code, error.to_string())
+    }
+}
 
 /// A stored time that cannot be rendered is a backend failure.
 impl From<TimeOutOfRange> for Error {

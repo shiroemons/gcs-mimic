@@ -133,7 +133,7 @@ pub(super) async fn respond(
             "x-upload-content-length",
         ],
     )?;
-    let bytes = json::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
+    let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let body = json::derived_resource(&bytes)?;
     let wait = begin_catalog_wait(activity).await;
     // Once mutation starts, await its durable result instead of timing out a detached commit.

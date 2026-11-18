@@ -60,7 +60,7 @@ pub(crate) fn service(
 /// writes, protobuf takes no more than the JSON they came from, and the rest of a resource is small
 /// beside them. Lists stay far below this by paging on their size. What a client agrees to receive
 /// is its own setting, so one left at a common default of 4 MiB fails such a read on its side.
-const MAX_RESPONSE_BYTES: usize = 2 * crate::json::RESOURCE_BODY_LIMIT + 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 2 * crate::bounded_body::RESOURCE_BODY_LIMIT + 1024 * 1024;
 
 /// The Storage v2 method that serves a Storage Control bucket IAM call.
 ///
