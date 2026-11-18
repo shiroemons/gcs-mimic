@@ -878,6 +878,12 @@ impl Storage {
             validate::selected_generation(o.generation).map_err(|NegativeGeneration| {
                 Status::invalid_argument("generation must be positive or omitted")
             })?;
+        // The proto's `Object.etag`: "If included in the metadata of an update or delete request
+        // message, the operation is only performed if the etag matches that of the live object."
+        // It is compared with the generation the request selects, as the generation and
+        // metageneration conditions are; the proto does not say what a request that selects an
+        // older generation compares.
+        let etag = (!o.etag.is_empty()).then(|| o.etag.clone());
         let paths = mask(r.update_mask.as_ref())?;
         let mut update = super::object_update::from_proto(&o, paths)?;
         update.acl = std::mem::take(&mut update.acl)
@@ -901,8 +907,12 @@ impl Storage {
                 ObjectTarget::new(bucket, name, generation.map(Generation::get)),
                 c,
                 update,
-                // A wrong key fails before the metadata change commits.
+                // The etag is a condition, checked after the others in the same transaction; a
+                // wrong key fails after it, before the metadata change commits.
                 move |record| {
+                    if etag.is_some_and(|etag| etag != json::object_etag(record)) {
+                        return Err(ObjectError::PreconditionFailed);
+                    }
                     crate::csek::check_metadata(record.customer_key_sha256, key)
                         .map(drop)
                         .map_err(ObjectError::CustomerEncryption)
@@ -1096,6 +1106,8 @@ impl Storage {
 
 #[cfg(test)]
 mod event_hold_release;
+#[cfg(test)]
+mod object_etag;
 #[cfg(test)]
 mod object_keys;
 #[cfg(test)]
