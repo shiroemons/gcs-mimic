@@ -309,8 +309,9 @@ impl Storage {
         S: Stream<Item = Result<pb::BidiWriteObjectRequest, Status>> + Unpin,
     {
         let first = message.first_message.take();
-        // The opening message is checked before it creates or takes over the object, so a
-        // refused one changes nothing.
+        // The opening message's own fields are checked before it creates or takes over the
+        // object, so a refusal there changes nothing. Its offset and the size limit depend on
+        // the opened object, so the writer checks them after the open, which stays done.
         let mut step = WriteStep::decode(&mut message)?;
         let OpenedWriter {
             mut writer,

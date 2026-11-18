@@ -1309,6 +1309,8 @@ async fn grpc_appendable_write_message_errors() {
             failed(InvalidArgument, STORED_MISMATCH, Left::Object(3))
                 .after(vec![Reply::Resource(0)]),
         ),
+        // The opening message's offset and the size limit are checked against the object it
+        // created, so a refused one leaves that empty object behind.
         bidi(
             "too-large",
             |n| vec![appendable(n, &[0; 17])],
@@ -1317,6 +1319,24 @@ async fn grpc_appendable_write_message_errors() {
                 "Object exceeds the upload size limit",
                 Left::Object(0),
             ),
+        ),
+        bidi(
+            "opening-gap",
+            |n| {
+                let mut message = appendable(n, b"abc");
+                message.write_offset = 2;
+                vec![message]
+            },
+            failed(
+                OutOfRange,
+                "write_offset leaves a gap after the 0 bytes received; resume at persisted_size",
+                Left::Object(0),
+            ),
+        ),
+        bidi(
+            "opening-checksums-before-finish",
+            |n| vec![appendable(n, b"abc").crc(1)],
+            failed(InvalidArgument, APPEND_CHECKSUMS, Left::Nothing),
         ),
         bidi(
             "object-size",

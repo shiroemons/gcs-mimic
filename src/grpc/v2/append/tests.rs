@@ -443,6 +443,44 @@ async fn append_refuses_an_invalid_opening_message_before_creating_or_taking_ove
     assert_eq!(read(&storage, "held").await.unwrap().1, b"onetwo");
 }
 
+/// An opening message's offset is checked against the object it opened, so a takeover whose
+/// first offset leaves a gap is refused after it superseded the previous writer. The persisted
+/// bytes stay.
+#[tokio::test]
+async fn append_checks_an_opening_offset_after_the_takeover() {
+    let (_dir, storage) = setup(false).await;
+    let mut writer = storage
+        .state
+        .catalog
+        .create_appendable(
+            "grpc-append",
+            "gapped",
+            crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+        )
+        .await
+        .unwrap();
+    writer
+        .append(0, Bytes::from_static(b"one"), 1024)
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let mut gapped = take_over("gapped", writer.record().generation, None);
+    gapped.write_offset = 5;
+    gapped.data = data(b"two");
+    let (result, responses) = append(&storage, vec![Ok(gapped)], None).await;
+    let status = assert_code(result, Code::OutOfRange);
+    assert_eq!(
+        status.message(),
+        "write_offset leaves a gap after the 3 bytes received; resume at persisted_size"
+    );
+    assert!(responses.is_empty());
+    assert_eq!(
+        writer.append(3, Bytes::from_static(b"two"), 1024).await,
+        Err(AppendError::Superseded)
+    );
+    assert_eq!(read(&storage, "gapped").await.unwrap().1, b"one");
+}
+
 #[tokio::test]
 async fn append_hides_unflushed_bytes_and_truncates_them_on_takeover() {
     let (_dir, storage) = setup(false).await;
