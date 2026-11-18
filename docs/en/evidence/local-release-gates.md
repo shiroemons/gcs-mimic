@@ -1,5 +1,41 @@
 # Local release gates on the integrated source
 
+## Published 0.26.0 source
+
+Recorded **2026-11-18** for tag `v0.26.0`, commit `6bce889ef34c50438083953fec5f875e000f9ea0`, tree `8a39083ce2bb7d094916e3c48ed526151495c0c4`. The local gates ran on a working tree that held the changes of its parent `a74fa2637cd719f949c4aa0cc3be6a767d42b1aa` (tree `febf67440ca654caa296b6b25586537bfb489841`) and part of the release notes edit before either was committed; the tagged commit adds only the rest of that edit. The remote gates ran on the tagged commit itself, and their results were read back from GitHub after publication:
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Local `just pre-push` | Exit 0; 3950 Rust tests passed with Rust 1.100.0, and the SDK suites and the container checks on both architectures passed in one invocation | Recorded below |
+| Foundation checks | `success`, including the reference comparison, the differential replay and the container checks on both architectures | [Run 44212964562](https://github.com/shiroemons/gcs-mimic/actions/runs/44212964562) |
+| Documentation checks | `success` | [Run 44212964590](https://github.com/shiroemons/gcs-mimic/actions/runs/44212964590) |
+| Release binaries dry run | `success` on its first attempt; all eight native build and test targets passed, and the publish job checked eight archives and their checksums and selected `--latest=true` | [Run 44212965653](https://github.com/shiroemons/gcs-mimic/actions/runs/44212965653) |
+| Tag publication | `success` on its first attempt; validate, publish, both container architectures, manifest and Docker Hub mirror passed | [Run 44217956583](https://github.com/shiroemons/gcs-mimic/actions/runs/44217956583) |
+| Go module tag | `go/v0.26.0` on `e522fa6e54f64d0ceb660c1c5dbf00336fc4f3dc`, which records the Release's `SHA256SUMS`; the Go module proxy resolves `v0.26.0` and `@latest` to it | Recorded below |
+
+The tag workflow reused the successful dry-run binaries, so its `foundation`, `test` and `build` jobs were skipped rather than rerun. Its `validate` job passed the release-scoped dependency freshness check. The [published Release](https://github.com/shiroemons/gcs-mimic/releases/tag/v0.26.0) is the latest Release and has eight archives, `SHA256SUMS` and `CONTAINER-DIGESTS.json`, whose `source_commit` is the tagged commit. `ghcr.io/shiroemons/gcs-mimic:0.26.0`, `0.26` and `latest`, and `shiroemons/gcs-mimic:0.26.0`, `0.26` and `latest`, resolve to the same index digest `sha256:a4f77830eb9972bb22c2e4b3fc6cabdc2816abfe3d7f8304f702329ea57ada87` for `linux/amd64` and `linux/arm64`; the container workflow checked anonymous pulls. The `aarch64-apple-darwin` archive matches its `SHA256SUMS` entry and its binary reports `gcs-mimic 0.26.0`.
+
+Commit `e522fa6e` copies the Release's `SHA256SUMS` into `go/internal/mimicproc/SHA256SUMS`, and `go test ./...` in `go/` passes. With an empty user cache and no `gcs-mimic` on `PATH`, a test of the module through a local replacement downloaded the `aarch64-apple-darwin` archive, started it and created a bucket; the cached executable reports `gcs-mimic 0.26.0`. The annotated tag `go/v0.26.0` is on that commit, and `go list -m github.com/shiroemons/gcs-mimic/go@latest` reports `v0.26.0`.
+
+### The first v0.26.0 tag
+
+The tag was first created on `7223ae6a455382f8a7254be7bdb0ba08eb881b8b` (tree `287c46bef35a289c2f3cbcc18b96f0afd31be61b`). Its dry run, [run 44137501080](https://github.com/shiroemons/gcs-mimic/actions/runs/44137501080), passed on the second attempt: on the first, GitHub cancelled both `aarch64-apple-darwin` jobs with `The job was not acquired by Runner of type hosted even after multiple attempts`, and rerunning the failed jobs passed. Between that dry run and the tag push, `bytes` 1.12.2 and the `rust:1.100.0-slim-trixie` index rebuilt for linux/riscv64 were published, so the tag run, [run 44205624427](https://github.com/shiroemons/gcs-mimic/actions/runs/44205624427), stopped in `validate` at the release-scoped freshness check. It created no Release, no container tag and no Go module tag, and a tag on that commit could never pass the check again.
+
+After both inputs were adopted ([refresh](dependency-refresh.md#refresh-2026-11-18-before-0260)) and the new commit's dry run passed, the owner approved deleting the unpublished tag and creating it again on `6bce889e`. This is a one-time exception to the rule that release tags never move ([release identity](../release-policy.md#release-identity-and-publication)); nothing had been published under the first tag.
+
+## Local gates on the 0.26.0 source
+
+Recorded **2026-11-18** on macOS (Apple Silicon) with Rust 1.100.0 for the working tree described above (package version 0.26.0). The container stage ran on Docker Desktop, whose daemon reports Docker 29.9.3, with 14 CPUs and about 15.6 GiB.
+
+| Command | Exit | Summary line from the output |
+| --- | --- | --- |
+| `just pre-push` | 0 | `all stages passed in 21m39s`. Rust and shell checks took 12m11s: 3950 tests in the 16 binaries of the Rust test run, 0 failed, 1 ignored, including library tests `2442 passed` and `it_xml_auth` `327 passed`. SDK suites passed in 35s: Go, Ruby, Node.js, PHP, Python, Java, .NET and Rust. Containers took 8m53s: seven `PASS` lines on each of `linux/amd64` and `linux/arm64` |
+| `scripts/check-cross.sh` | 0 | `0 new production Clippy violations; 0 ratcheted findings` for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` |
+| `cargo xtask dependencies check --scope release` | 0 | 42 `CURRENT` lines and no `UPDATE_AVAILABLE` |
+| `cargo xtask dependencies check` | 1 | 135 `CURRENT` lines; `UPDATE_AVAILABLE` only for the development-only google.golang.org/api v0.316.0, `bytes` 1.12.2 in the Rust SDK suite and scorecard, Java `google-cloud-storage` 2.79.0 and PHP `google/cloud-storage` 2.7.0 |
+
+The dependency checks ran on 2026-11-18 at `00:36:06Z` and `00:36:22Z`, and the release-scoped check exited 0 with 42 `CURRENT` lines again before the push and before the tag was created again. The four development-only updates are left for a refresh after the release. A complete `just pre-push` and `scripts/check-cross.sh` had also passed on the source of `7223ae6a`, before the dependency update.
+
 ## Published 0.25.0 source
 
 Recorded **2026-11-16** for tag `v0.25.0`, commit `711bad7edfb4807afb1b191b3841fba7b3f2bc32`, tree `3ea1fb1ba5b47493b1a56d084c28eed014bda449`. The local gates ran on its parent `b48b6acad5f320cdd0b8d7d3c582c6c71a2e24e4` (tree `410b2633ece37571af815286cf3b74831c2efbae`); the tagged commit only adds the verification section to the release notes. The remote gates ran on the tagged commit itself, and their results were read back from GitHub after publication:
