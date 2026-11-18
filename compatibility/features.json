@@ -25158,7 +25158,7 @@
         },
         {
           "id": "start_resumable_key_binding",
-          "description": "The request's customer-supplied key binds the session: a malformed key creates no session, upload_id messages need no key and one with another key is ignored, and the finished object is encrypted with the starting key, as Cloud Storage did (case grpc-csek, recorded 2026-11-15).",
+          "description": "The request's customer-supplied key binds the session: a malformed key is refused with the customer-encryption INVALID_ARGUMENT and returns no upload_id, upload_id messages need no key and one with another key is ignored, and the finished object is encrypted with the starting key, as Cloud Storage did (case grpc-csek, recorded 2026-11-15).",
           "result": "PASS",
           "test_ids": [
             "grpc_resumable_key_binds_at_start_and_status_ignores_keys"
