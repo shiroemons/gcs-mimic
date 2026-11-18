@@ -1818,7 +1818,7 @@ async fn grpc_write_specs_refuse_unhandled_fields() {
                 (Code::Unimplemented, message),
                 "{label}"
             );
-            assert!(!status.details().is_empty(), "{label}");
+            assert_bad_request(&status, label);
         }
         assert_eq!(object_left(&storage, label).await, Left::Nothing, "{label}");
     }
@@ -1840,5 +1840,28 @@ async fn grpc_write_specs_refuse_unhandled_fields() {
         (status.code(), status.message()),
         (Code::Unimplemented, acl_or_appendable.as_str())
     );
+    assert_bad_request(&status, "appendable");
     storage.state.catalog.close().await.unwrap();
+}
+
+/// Asserts that `status` carries one ErrorInfo with the reason and domain of the emulator's
+/// UNIMPLEMENTED refusals.
+#[track_caller]
+fn assert_bad_request(status: &Status, label: &str) {
+    use crate::grpc::generated::google::rpc::{ErrorInfo, Status as RpcStatus};
+    use prost::Message;
+    let details = RpcStatus::decode(status.details()).unwrap();
+    let [detail] = details.details.as_slice() else {
+        panic!("{label}: {:?}", details.details)
+    };
+    assert_eq!(
+        detail.type_url, "type.googleapis.com/google.rpc.ErrorInfo",
+        "{label}"
+    );
+    let info = ErrorInfo::decode(detail.value.as_slice()).unwrap();
+    assert_eq!(
+        (info.reason.as_str(), info.domain.as_str()),
+        ("badRequest", "global"),
+        "{label}"
+    );
 }
