@@ -181,6 +181,32 @@ impl Storage {
         }
         Ok(Response::new(mask_object(object, mask)?))
     }
+    /// The object in the first response of ReadObject and BidiReadObject, read from the opened
+    /// `record`. `mask` selects the ACL and owner as a `metadata`-prefixed read mask does; an
+    /// unfinalized appendable object has neither.
+    pub(in crate::grpc::v2) async fn first_read_metadata(
+        &self,
+        caller: Option<Caller<'_>>,
+        record: &crate::object::ObjectRecord,
+        finality: Finality,
+        mask: ReadMask<'_>,
+    ) -> Result<pb::Object, Status> {
+        // Opening the data verified the key (an encrypted object without one fails), so the
+        // stored bytes' hashes are always the caller's to see.
+        let mut object =
+            super::super::append::object(record, finality, crate::csek::StoredHashes::Revealed)?;
+        if finality == Finality::Finalized {
+            self.add_owner_fields(
+                caller,
+                &record.bucket,
+                std::slice::from_mut(&mut object),
+                OwnerFields::selected(mask, Some("metadata")),
+            )
+            .await?;
+        }
+        Ok(object)
+    }
+
     pub(in crate::grpc::v2) async fn read_object(
         &self,
         request: Request<pb::ReadObjectRequest>,
@@ -209,19 +235,9 @@ impl Storage {
             .set_range(range.start, range.len)
             .await
             .map_err(read_failure)?;
-        // Opening the data verified the key (an encrypted object without one fails), so the
-        // stored bytes' hashes are always the caller's to see.
-        let mut object =
-            super::super::append::object(&record, finality, crate::csek::StoredHashes::Revealed)?;
-        if finality == Finality::Finalized {
-            self.add_owner_fields(
-                caller,
-                bucket,
-                std::slice::from_mut(&mut object),
-                OwnerFields::selected(mask, Some("metadata")),
-            )
+        let object = self
+            .first_read_metadata(caller, &record, finality, mask)
             .await?;
-        }
         let mut first = pb::ReadObjectResponse {
             metadata: Some(object.clone()),
             object_checksums: object.checksums,

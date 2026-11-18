@@ -1,6 +1,6 @@
 //! BidiReadObject requests refused before any data is sent. Malformed input answers
-//! INVALID_ARGUMENT; redirects, nondefault read masks and conditions on a resumed handle, which
-//! gcs-mimic does not model, answer UNIMPLEMENTED with ErrorInfo.
+//! INVALID_ARGUMENT; redirects, read masks other than the default and `*`, and conditions on a
+//! resumed handle, which gcs-mimic does not model, answer UNIMPLEMENTED with ErrorInfo.
 
 use super::*;
 use crate::grpc::test_support::{assert_code, assert_unsupported, mask, rpc_status};
@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 const PATH: &str = "/google.storage.v2.Storage/BidiReadObject";
 
-async fn setup() -> (TestDir, Arc<crate::server::State>) {
+pub(super) async fn setup() -> (TestDir, Arc<crate::server::State>) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     catalog
@@ -21,7 +21,7 @@ async fn setup() -> (TestDir, Arc<crate::server::State>) {
     (dir, state)
 }
 
-fn spec() -> pb::BidiReadObjectSpec {
+pub(super) fn spec() -> pb::BidiReadObjectSpec {
     pb::BidiReadObjectSpec {
         bucket: "projects/_/buckets/bidi-refusals".into(),
         object: "object".into(),
@@ -29,7 +29,7 @@ fn spec() -> pb::BidiReadObjectSpec {
     }
 }
 
-fn opening(spec: pb::BidiReadObjectSpec) -> pb::BidiReadObjectRequest {
+pub(super) fn opening(spec: pb::BidiReadObjectSpec) -> pb::BidiReadObjectRequest {
     pb::BidiReadObjectRequest {
         read_object_spec: Some(spec),
         read_ranges: vec![pb::ReadRange {
@@ -40,7 +40,7 @@ fn opening(spec: pb::BidiReadObjectSpec) -> pb::BidiReadObjectRequest {
 }
 
 /// Runs one stream over the wire, with an optional `x-goog-fieldmask` header.
-async fn stream(
+pub(super) async fn stream(
     state: &Arc<crate::server::State>,
     messages: &[pb::BidiReadObjectRequest],
     fieldmask: Option<&'static str>,
@@ -102,14 +102,23 @@ fn the_spec_refuses_redirects_nondefault_masks_and_conditions_on_a_handle() {
         };
         assert_unsupported(validate_spec(&masked), unsupported);
     }
-    // An empty routing token, an absent or empty mask and `*` keep the default read.
-    for read_mask in [None, mask(&[]), mask(&["*"])] {
-        let default = pb::BidiReadObjectSpec {
+    // An empty routing token is no redirect; an absent or empty mask selects the default
+    // fields and `*` every field.
+    for (read_mask, fields) in [
+        (None, MetadataFields::Default),
+        (mask(&[]), MetadataFields::Default),
+        (mask(&["*"]), MetadataFields::All),
+    ] {
+        let accepted = pb::BidiReadObjectSpec {
             routing_token: Some(String::new()),
             read_mask,
             ..spec()
         };
-        assert_eq!(validate_spec(&default).unwrap(), None);
+        let expected = ReadSpec {
+            generation: None,
+            fields,
+        };
+        assert_eq!(validate_spec(&accepted).unwrap(), expected);
     }
     let handle = Some(pb::BidiReadHandle {
         handle: vec![0; 32],
