@@ -1319,3 +1319,28 @@ The scheduled freshness check on 2026-11-17 reported four development-only updat
 | `GCSM_IMAGE=<image> bash sdk-tests/dotnet/run.sh --container` against Docker Desktop 29.9.3 | Passed on net10.0 and net11.0 with Testcontainers 4.17.0. Another local Docker-compatible runtime let the start-container call Docker.DotNet sends time out after 100 seconds with 4.16.0 and 4.17.0 alike, with and without the Ryuk reaper, so that failure belongs to the runtime |
 
 Both checks ran with `GITHUB_TOKEN` set, as the scheduled workflow does: an earlier unauthenticated run in the same hour reached GitHub's 60-request limit and stopped at HTTP 403.
+
+## Refresh: 2026-11-18, before 0.26.0
+
+The 0.26.0 dry run passed on 2026-11-17, but the `validate` job of the tag run at 2026-11-18T00:10Z stopped in the release-scoped check, because two release inputs had changed since the dry run. The tag run published nothing. Both inputs are adopted.
+
+| Input | Previous | Adopted | Where |
+| --- | --- | --- | --- |
+| bytes | 1.12.1 | 1.12.2 (released 2026-11-17T20:58:59Z; 79,024-byte crate, SHA-256 `776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c`) | `Cargo.toml`, `Cargo.lock` |
+| rust:1.100.0-slim-trixie | index `sha256:e9d95b74296f7126a83ae3d041aeaba1ff4c478f13abc5cc034fcf7c131c3d4a` | index `sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe` | `Dockerfile`, `sdk-scorecard/run.sh`, `sdk-scorecard/test-tls.sh` |
+
+[bytes 1.12.2](https://github.com/tokio-rs/bytes/blob/v1.12.2/CHANGELOG.md) fixes sign extension in `try_get_int` and `try_get_int_le`, releases the shared reference when `Bytes` is truncated to zero length and keeps the buffer order in `Chain::chunks_vectored`; its other changes speed up `BytesMut` writes. It keeps the MIT license and Rust 1.57, the application still enables only its `std` feature, and `cargo update` changed no other package.
+
+The rebuilt index adds a linux/riscv64 image and its attestation. Its linux/amd64 (`sha256:4b68057dc8c103af4fa66b5cd29f21b18afec79fadfcd8fb91e295e939f0690c`) and linux/arm64 (`sha256:11acfd0f07018a7c60d33b5e95618275feb39e465c4fbc9a73b438b1ee1e43ce`) manifests and every other platform manifest are unchanged, so the build stage and the musl and socat snapshot timestamps stay the same.
+
+The full check also reported four development-only updates, which are not adopted before the release: google.golang.org/api v0.316.0 in three Go modules, bytes 1.12.2 in the Rust SDK suite and scorecard, google-cloud-storage 2.79.0 in the Java SDK suite and scorecard, and google/cloud-storage 2.7.0 in the PHP SDK suite and scorecard. When the check first reported google-cloud-storage 2.79.0, at 2026-11-17T16:57:28Z, Maven Central did not yet serve the proto-google-iam-v1 1.77.0, proto-google-common-protos 2.82.0 and proto-google-cloud-storage-v2 2.79.0 artifacts its POM requires, so its graph did not resolve; all three were served by 2026-11-18T00:30Z.
+
+### Validation performed on 2026-11-18, before 0.26.0
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check --scope release` at `2026-11-18T00:36:06Z` | Exit 0 with 42 `CURRENT` lines |
+| `cargo xtask dependencies check` at `2026-11-18T00:36:22Z` | Exit 1 with 135 `CURRENT` lines; only the four development-only updates above remain, and fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo check --locked` | Passed |
+
+Both checks ran with `GITHUB_TOKEN` set. The complete gates for the release source are recorded with the 0.26.0 release.
