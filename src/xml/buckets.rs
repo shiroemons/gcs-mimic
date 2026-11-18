@@ -127,7 +127,7 @@ fn project(headers: &HeaderMap) -> Result<&str, Error> {
             "Specify x-goog-project-id; a default interoperable project is not configured.",
         )
     })?;
-    json::validate_project(project)?;
+    crate::auth::validate_project_id(project)?;
     Ok(project)
 }
 

@@ -30,7 +30,7 @@ fn project_name(resource: &str) -> Result<&str, Status> {
                 "Invalid project name '{resource}'. Project names must take the form 'projects/{{project_number}}'."
             ))
         })?;
-    json::validate_project(project)?;
+    crate::auth::validate_project_id(project)?;
     // Project numbers are positive and a derived one is never zero, so `projects/0` names no
     // project (recorded 2026-11-17). Earlier releases rendered every project ID as `projects/0`;
     // taking that value back would silently address a different project called "0".

@@ -27,6 +27,15 @@ pub(crate) fn valid_project_id(project: &str) -> bool {
             .any(|character| character.is_control() || character.is_whitespace())
 }
 
+/// Checks that `project` names a project by ID or number, without keeping it.
+pub(crate) fn validate_project_id(project: &str) -> Result<(), InvalidProjectId> {
+    if valid_project_id(project) {
+        Ok(())
+    } else {
+        Err(InvalidProjectId)
+    }
+}
+
 impl ProjectId {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
@@ -37,11 +46,8 @@ impl TryFrom<String> for ProjectId {
     type Error = InvalidProjectId;
 
     fn try_from(value: String) -> Result<Self, InvalidProjectId> {
-        if valid_project_id(&value) {
-            Ok(Self(value))
-        } else {
-            Err(InvalidProjectId)
-        }
+        validate_project_id(&value)?;
+        Ok(Self(value))
     }
 }
 

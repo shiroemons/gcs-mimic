@@ -853,12 +853,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
 }
 
 pub(crate) fn validate_project(project: &str) -> Result<(), JsonError> {
-    if !crate::auth::valid_project_id(project) {
-        return Err(JsonError::invalid_parameter(
-            "project must be a nonempty identifier of at most 256 bytes",
-        ));
-    }
-    Ok(())
+    Ok(crate::auth::validate_project_id(project)?)
 }
 
 pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {

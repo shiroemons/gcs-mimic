@@ -19,7 +19,7 @@ mod jwt;
 mod policy;
 pub(crate) mod policy_input;
 mod project;
-pub(crate) use project::{InvalidProjectId, ProjectId, valid_project_id};
+pub(crate) use project::{InvalidProjectId, ProjectId, valid_project_id, validate_project_id};
 pub(crate) mod roles;
 pub mod signature;
 mod signing_keys;

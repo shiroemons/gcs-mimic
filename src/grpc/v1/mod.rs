@@ -337,7 +337,7 @@ impl Storage {
         named: &str,
         permission: crate::auth::Permission,
     ) -> Result<String, Status> {
-        json::validate_project(named)?;
+        crate::auth::validate_project_id(named)?;
         let project = self.state.project_id(named).await?;
         if let Some(caller) = caller {
             caller.authorize(permission, Some(&project))?;
