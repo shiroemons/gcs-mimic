@@ -356,3 +356,5 @@ mod order_tests;
 mod request_refusals;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transcoding_tests;

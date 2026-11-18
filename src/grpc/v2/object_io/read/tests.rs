@@ -34,7 +34,7 @@ async fn get(
 }
 
 /// The messages of a ReadObject, whether it fails when opened or while streaming.
-async fn read(
+pub(super) async fn read(
     storage: &Storage,
     request: pb::ReadObjectRequest,
 ) -> Result<Vec<pb::ReadObjectResponse>, Status> {
@@ -58,7 +58,7 @@ fn read_request(object: &str, key: Option<&[u8; 32]>) -> pb::ReadObjectRequest {
     }
 }
 
-fn body(messages: &[pb::ReadObjectResponse]) -> Vec<u8> {
+pub(super) fn body(messages: &[pb::ReadObjectResponse]) -> Vec<u8> {
     messages
         .iter()
         .filter_map(|message| message.checksummed_data.as_ref())
