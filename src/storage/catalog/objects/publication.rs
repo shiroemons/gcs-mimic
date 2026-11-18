@@ -306,7 +306,11 @@ pub(in crate::storage::catalog) enum RequestKind {
     /// The object the request changes, deletes or replaces: a not-match naming its current
     /// value reports [`ObjectError::WriteNotModified`](crate::object::ObjectError).
     Mutation,
-    /// Any other object a write names, such as a copy or move source: a failed precondition.
+    /// The source a copy or rewrite resolves before it writes: a not-match naming its current
+    /// value reports [`ObjectError::SourceNotModified`](crate::object::ObjectError).
+    CopySource,
+    /// Any other object a write names, such as a move source, a compose component or a copy
+    /// source checked again when its rewrite publishes: a failed precondition.
     Write,
 }
 

@@ -478,6 +478,7 @@ impl StorageCause for ObjectError {
             | Self::Forbidden
             | Self::NotModified
             | Self::WriteNotModified
+            | Self::SourceNotModified
             | Self::ChecksumMismatch
             | Self::HashMismatch(_)
             | Self::TooLarge

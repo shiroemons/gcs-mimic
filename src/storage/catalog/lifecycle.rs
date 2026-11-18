@@ -706,6 +706,7 @@ fn deterministic_read_error(error: &ObjectError) -> bool {
         | ObjectError::Forbidden
         | ObjectError::NotModified
         | ObjectError::WriteNotModified
+        | ObjectError::SourceNotModified
         | ObjectError::ChecksumMismatch
         | ObjectError::HashMismatch(_)
         | ObjectError::TooLarge

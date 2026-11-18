@@ -988,7 +988,10 @@ impl From<ObjectError> for JsonError {
             ObjectError::SoftDeletePolicyRequired(request) => {
                 Self::invalid(request.policy_required_message())
             }
-            ObjectError::PreconditionFailed => Self::precondition_not_held().at_if_match(),
+            // A copy source's not-match is a failed source condition, not a conditional read.
+            ObjectError::PreconditionFailed | ObjectError::SourceNotModified => {
+                Self::precondition_not_held().at_if_match()
+            }
             ObjectError::OverwriteForbidden(denied) | ObjectError::Denied(denied) => denied.into(),
             ObjectError::Forbidden => Self::forbidden(),
             ObjectError::UnlockedRetentionOverrideRequired => Self::new(

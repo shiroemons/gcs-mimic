@@ -410,7 +410,9 @@ impl From<ObjectError> for AdminError {
             ObjectError::Metadata(error) => Self::Invalid(error.to_string()),
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
-            ObjectError::PreconditionFailed | ObjectError::WriteNotModified => Self::Precondition,
+            ObjectError::PreconditionFailed
+            | ObjectError::WriteNotModified
+            | ObjectError::SourceNotModified => Self::Precondition,
             ObjectError::ActiveHold(_) | ObjectError::ObjectRetentionNotMet(_) => Self::Hold,
             ObjectError::BucketNotFound | ObjectError::ObjectNotFound => Self::NotFound,
             ObjectError::ChecksumMismatch | ObjectError::HashMismatch(_) => Self::Checksum,

@@ -495,40 +495,6 @@ impl Storage {
         }))
     }
 
-    /// Whether `conditions` fail on the rewrite source only because a not-match names its
-    /// current generation or metageneration. Cloud Storage words that RewriteObject refusal as
-    /// a not-modified resource (recorded 2026-11-18), where the JSON API answers a copy source
-    /// with 412, so the catalog reports both as a failed precondition. The source is read again
-    /// after the refusal; an intervening change can only pick the other wording of the same
-    /// status.
-    async fn source_not_match_alone_failed(
-        &self,
-        source: ObjectTarget,
-        conditions: ObjectConditions,
-        access: &BucketAccess,
-    ) -> bool {
-        if conditions.if_generation_not_match.is_none()
-            && conditions.if_metageneration_not_match.is_none()
-        {
-            return false;
-        }
-        self.state
-            .catalog
-            .get_object(source, ObjectConditions::default(), access)
-            .await
-            .is_ok_and(|record| {
-                let matches_hold = conditions
-                    .if_generation_match
-                    .is_none_or(|value| value == record.generation)
-                    && conditions
-                        .if_metageneration_match
-                        .is_none_or(|value| value == record.metageneration);
-                matches_hold
-                    && (conditions.if_generation_not_match == Some(record.generation)
-                        || conditions.if_metageneration_not_match == Some(record.metageneration))
-            })
-    }
-
     /// Resolves the source and destination of a rewrite without a token and opens its session.
     async fn begin_rewrite(
         &self,
@@ -553,20 +519,16 @@ impl Storage {
             acl,
         } = new;
         let generation = options.source_generation.map(Generation::get);
-        let selected = ObjectTarget::new(sb, sn, generation);
-        let source = match self
+        let source = self
             .state
             .catalog
-            .resolve_derived_source_keyed(selected.clone(), sc, read, options.keys.source)
-            .await
-        {
-            Err(ObjectError::PreconditionFailed)
-                if self.source_not_match_alone_failed(selected, sc, read).await =>
-            {
-                return Err(super::status::not_modified());
-            }
-            source => source?,
-        };
+            .resolve_derived_source_keyed(
+                ObjectTarget::new(sb, sn, generation),
+                sc,
+                read,
+                options.keys.source,
+            )
+            .await?;
         // A rewrite reproduces the source's bytes, so the declared digests are checked against
         // its hashes before any session starts; a refused rewrite writes nothing. A source with
         // no MD5 to show, such as a composite one, refuses a declared MD5 as a compose does

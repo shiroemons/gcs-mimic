@@ -25,11 +25,24 @@ pub(crate) struct DerivedSegment {
     pub length: u64,
 }
 
-/// Whether a failed source lookup keeps the generic error or names the failing component.
+/// The request a source is resolved for, which decides how a failed lookup is reported.
 #[derive(Clone, Copy)]
-enum SourceFailures {
-    Plain,
-    NameComponent,
+enum SourceRole {
+    /// A copy or rewrite source: a not-match that alone fails reports
+    /// [`ObjectError::SourceNotModified`].
+    Copied,
+    /// A compose component: a missing component or a failed `ifGenerationMatch` names it, and
+    /// a failed not-match is a failed precondition.
+    Component,
+}
+
+impl SourceRole {
+    fn request(self) -> objects::RequestKind {
+        match self {
+            Self::Copied => objects::RequestKind::CopySource,
+            Self::Component => objects::RequestKind::Write,
+        }
+    }
 }
 
 /// Turns a missing source or a failed `ifGenerationMatch` into the compose component error.
@@ -165,7 +178,6 @@ impl Catalog {
         Ok(())
     }
 
-    /// Source NotMatch conditions are mutation conditions (412), not conditional GETs (304).
     /// Every API resolves a source with the request's key; tests use this keyless shorthand.
     #[cfg(test)]
     pub(crate) async fn resolve_derived_source(
@@ -185,7 +197,7 @@ impl Catalog {
         .ok_or_else(|| object_unavailable("missing resolved source"))
     }
 
-    /// A compose request observes one catalog snapshot for all source generations and metadata.
+    /// Keyless [`Self::resolve_derived_sources_keyed`] for tests.
     #[cfg(test)]
     pub(crate) async fn resolve_derived_sources(
         &self,
@@ -194,24 +206,26 @@ impl Catalog {
         self.resolve_derived_sources_keyed(sources, None).await
     }
 
-    /// Every source must be readable with `key` (compose requires one shared key).
+    /// Resolves copy or rewrite sources in one catalog snapshot; every source must be readable
+    /// with `key`. A source not-match that alone fails is [`ObjectError::SourceNotModified`],
+    /// not a conditional read's [`ObjectError::NotModified`].
     pub(crate) async fn resolve_derived_sources_keyed(
         &self,
         sources: Vec<DerivedSourceSpec>,
         key: Option<crate::csek::CustomerKey>,
     ) -> Result<Vec<DerivedSource>, ObjectError> {
-        self.resolve_sources(sources, key, SourceFailures::Plain)
-            .await
+        self.resolve_sources(sources, key, SourceRole::Copied).await
     }
 
-    /// As [`Self::resolve_derived_sources_keyed`], but a missing component or a failed
-    /// generation precondition names the component, as Cloud Storage's compose does.
+    /// Resolves compose components in one catalog snapshot; every component must be readable
+    /// with `key`, the one key compose shares. A missing component or a failed generation
+    /// precondition names the component, as Cloud Storage's compose does.
     pub(crate) async fn resolve_compose_components(
         &self,
         sources: Vec<DerivedSourceSpec>,
         key: Option<crate::csek::CustomerKey>,
     ) -> Result<Vec<DerivedSource>, ObjectError> {
-        self.resolve_sources(sources, key, SourceFailures::NameComponent)
+        self.resolve_sources(sources, key, SourceRole::Component)
             .await
     }
 
@@ -219,7 +233,7 @@ impl Catalog {
         &self,
         sources: Vec<DerivedSourceSpec>,
         key: Option<crate::csek::CustomerKey>,
-        failures: SourceFailures,
+        role: SourceRole,
     ) -> Result<Vec<DerivedSource>, ObjectError> {
         if sources.is_empty() || sources.len() > 32 {
             return Err(ObjectError::InvalidDerivedArgument(
@@ -242,14 +256,12 @@ impl Catalog {
                         &source.target.name,
                         source.target.generation,
                         source.conditions,
-                        super::super::objects::RequestKind::Write,
+                        role.request(),
                         &source.access,
                     )
-                    .map_err(|error| match failures {
-                        SourceFailures::Plain => error,
-                        SourceFailures::NameComponent => {
-                            name_component(&transaction, &source, error)
-                        }
+                    .map_err(|error| match role {
+                        SourceRole::Copied => error,
+                        SourceRole::Component => name_component(&transaction, &source, error),
                     })?;
                     super::super::customer_keys::check(&object, key)?;
                     let id = random_id()?;

@@ -77,9 +77,11 @@ impl From<ObjectError> for Status {
             ObjectError::PreconditionFailed => {
                 Status::failed_precondition(wording::PRECONDITION_NOT_HELD)
             }
-            // The JSON API answers a write's matching not-match condition with 304; gRPC has
-            // one status and one wording for it and for a read's.
-            ObjectError::NotModified | ObjectError::WriteNotModified => not_modified(),
+            // The JSON API answers a write's matching not-match condition with 304 and a copy
+            // source's with 412; gRPC has one status and one wording for them and for a read's.
+            ObjectError::NotModified
+            | ObjectError::WriteNotModified
+            | ObjectError::SourceNotModified => not_modified(),
             ObjectError::PublicAccessPrevention => {
                 Status::failed_precondition(wording::PUBLIC_ACCESS_PREVENTED)
             }
