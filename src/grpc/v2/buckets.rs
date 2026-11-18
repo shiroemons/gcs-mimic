@@ -314,18 +314,12 @@ impl Storage {
             .access(caller, name, crate::auth::BUCKETS_DELETE)
             .await?;
         let conditions = BucketConditions::from(&request);
-        match self
-            .state
+        self.state
             .catalog
             .delete_bucket(name, conditions, &access)
             .await
-        {
-            Ok(()) => Ok(Response::new(())),
-            // Cloud Storage words a not-match that alone fails as a resource that has not been
-            // modified (recorded 2026-11-18).
-            Err(CatalogError::NotModified) => Err(super::status::not_modified()),
-            Err(error) => Err(access_status(error, caller)),
-        }
+            .map_err(|error| access_status(error, caller))?;
+        Ok(Response::new(()))
     }
     pub(super) async fn get_bucket(
         &self,
@@ -343,17 +337,9 @@ impl Storage {
             .await
             .map_err(|error| access_status(error, caller))?
             .ok_or_else(|| access_status(CatalogError::NotFound, caller))?;
-        // A not-match that alone fails is worded as a resource that has not been modified
-        // (recorded 2026-11-19 on GetBucket, case grpc-probe-inferred-bucket-masks).
         BucketConditions::from(&request)
             .check(record.metageneration)
-            .map_err(|error| {
-                if matches!(error, CatalogError::NotModified) {
-                    super::status::not_modified()
-                } else {
-                    access_status(error, caller)
-                }
-            })?;
+            .map_err(|error| access_status(error, caller))?;
         let mut bucket = convert::bucket(&record, mask.lifecycle())?;
         if mask.includes_acl(AclDefault::Include) {
             self.add_bucket_acl(caller, &mut bucket).await?;

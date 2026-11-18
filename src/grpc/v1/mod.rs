@@ -154,6 +154,16 @@ fn bucket_conditions(conditions: BucketConditions) -> Result<BucketConditions, S
     validate::lenient_bucket_conditions(conditions, NEGATIVE_PRECONDITION)
 }
 
+/// The legacy answer to a catalog call that compared the request's metageneration conditions.
+/// The shared conversion words a not-match that alone fails as Storage v2 does; this retired
+/// adapter keeps the failed-condition wording it gave every failed condition.
+fn conditional_bucket_error(error: CatalogError) -> Status {
+    if matches!(error, CatalogError::NotModified) {
+        return Status::from(CatalogError::PreconditionFailed);
+    }
+    error.into()
+}
+
 fn generation(value: i64) -> Result<Option<Generation>, Status> {
     validate::selected_generation(value).map_err(|NegativeGeneration| {
         Status::invalid_argument("generation must be positive or 0 for the live object")
@@ -438,7 +448,8 @@ impl Storage {
         self.state
             .catalog
             .delete_bucket(&r.bucket, requested, &access)
-            .await?;
+            .await
+            .map_err(conditional_bucket_error)?;
         Ok(Response::new(()))
     }
 
@@ -516,7 +527,8 @@ impl Storage {
                 },
                 &access,
             )
-            .await?;
+            .await
+            .map_err(conditional_bucket_error)?;
         Ok(Response::new(convert::bucket(&record)))
     }
 

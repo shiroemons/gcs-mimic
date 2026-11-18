@@ -155,9 +155,6 @@ pub(super) fn input_error(error: CatalogError) -> Status {
     match error {
         // Names no field, so it keeps the shared mapping and its BadRequest.
         error @ CatalogError::Metadata(MetadataError::ClassLocation(_)) => error.into(),
-        // A not-match that alone fails is worded as a resource that has not been modified
-        // (recorded 2026-11-19 on UpdateBucket, case grpc-probe-inferred-bucket-masks).
-        CatalogError::NotModified => super::status::not_modified(),
         CatalogError::Metadata(reason) => {
             let message = reason.message(proto_field);
             if reason.unsupported() {

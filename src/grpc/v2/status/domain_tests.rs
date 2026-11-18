@@ -652,11 +652,14 @@ fn catalog_cases() -> Vec<Case<CatalogError>> {
             CatalogError::PreconditionFailed,
             plain(Code::FailedPrecondition, PRECONDITION),
         ),
-        // Only Storage v2 DeleteBucket words it apart; the shared mapping, which the legacy
-        // DeleteBucket uses, keeps the failed-condition wording.
+        // Storage v2 words a not-match that alone fails apart (recorded on DeleteBucket,
+        // GetBucket and UpdateBucket); the legacy v1 service maps it itself.
         case(
             CatalogError::NotModified,
-            plain(Code::FailedPrecondition, PRECONDITION),
+            plain(
+                Code::FailedPrecondition,
+                "The resource you requested has not been modified according to the condition you specified.",
+            ),
         ),
         case(
             CatalogError::PublicAccessPrevention,
