@@ -115,13 +115,15 @@ fn iam_body(iam: pb::bucket::IamConfig) -> Result<Option<Value>, Status> {
 }
 
 fn autoclass_body(autoclass: pb::bucket::Autoclass) -> Result<Value, Status> {
-    if autoclass.toggle_time.is_some() || autoclass.terminal_storage_class_update_time.is_some() {
-        return Err(super::status::unsupported(
-            "create bucket autoclass output fields",
-        ));
-    }
-    let mut config = Map::from_iter([("enabled".into(), Value::from(autoclass.enabled))]);
-    if let Some(class) = autoclass.terminal_storage_class {
+    let pb::bucket::Autoclass {
+        enabled,
+        terminal_storage_class,
+        // Output only, so ignored as input (see `create_body`).
+        toggle_time: _,
+        terminal_storage_class_update_time: _,
+    } = autoclass;
+    let mut config = Map::from_iter([("enabled".into(), Value::from(enabled))]);
+    if let Some(class) = terminal_storage_class {
         class.parse::<crate::bucket::autoclass::TerminalStorageClass>()?;
         config.insert("terminalStorageClass".into(), Value::from(class));
     }
@@ -130,8 +132,9 @@ fn autoclass_body(autoclass: pb::bucket::Autoclass) -> Result<Value, Status> {
 
 /// The CreateBucket settings as the JSON insert object every protocol's bucket creation
 /// validates ([`json::insert_from_object`]). Destructuring the whole message makes a new proto
-/// field a compile error, so each field is read here or required to be empty, never silently
-/// ignored. Only settings the request carries are added, never update-mask reset defaults.
+/// field a compile error, so each field is read here, ignored because the proto marks it
+/// output only, or required to be empty; a setting is never silently dropped. Only settings the
+/// request carries are added, never update-mask reset defaults.
 pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, Value>, Status> {
     let pb::Bucket {
         // `create_bucket` compared `name` with the bucket ID and cleared it, read `project`,
@@ -139,6 +142,15 @@ pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, 
         name: _,
         project: _,
         object_retention: _,
+        // OUTPUT_ONLY: "including the field in a request does nothing (the server *must* ignore
+        // it and *must not* throw an error as a result of the field's presence)"
+        // (field_behavior.proto). The server sets each of them on the new bucket.
+        bucket_id: _,
+        metageneration: _,
+        location_type: _,
+        create_time: _,
+        update_time: _,
+        owner: _,
         location,
         storage_class,
         labels,
@@ -150,19 +162,13 @@ pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, 
         iam_config,
         autoclass,
         // Accepted only when empty.
-        bucket_id,
         etag,
-        metageneration,
-        location_type,
         rpo,
         acl,
         default_object_acl,
         lifecycle,
-        create_time,
-        update_time,
         website,
         logging,
-        owner,
         encryption,
         billing,
         satisfies_pzs,
@@ -216,17 +222,11 @@ pub(super) fn create_body(bucket: pb::Bucket, name: &str) -> Result<Map<String, 
     if let Some(autoclass) = autoclass {
         body.insert("autoclass".into(), autoclass_body(autoclass)?);
     }
-    if !bucket_id.is_empty()
-        || !etag.is_empty()
-        || metageneration != 0
-        || !location_type.is_empty()
+    if !etag.is_empty()
         || !(rpo.is_empty() || rpo == "DEFAULT")
         || !acl.is_empty()
         || !default_object_acl.is_empty()
-        || create_time.is_some()
-        || update_time.is_some()
         || website.is_some()
-        || owner.is_some()
         || satisfies_pzs
         || is_set(lifecycle.as_ref())
         || is_set(logging.as_ref())
@@ -579,13 +579,10 @@ mod tests {
             nanos: 1,
         };
         // A fractional retention_policy duration is rounded down instead
-        // (create_bucket_rounds_retention_nanos_down), so only the soft delete one is refused.
-        let cases: [InvalidCase; 6] = [
-            ("create bucket autoclass output fields", |b| {
-                b.autoclass
-                    .get_or_insert_default()
-                    .terminal_storage_class_update_time = Some(Default::default())
-            }),
+        // (create_bucket_rounds_retention_nanos_down), so only the soft delete one is refused,
+        // and the output-only Autoclass times are ignored (create_bucket_ignores_output_only_fields).
+        // The policy times, a lock and a uniform access lock_time are not output only.
+        let cases: [InvalidCase; 5] = [
             ("create bucket IAM lock_time", |b| {
                 b.iam_config
                     .get_or_insert_default()
@@ -621,6 +618,72 @@ mod tests {
             assert_eq!(status.code(), tonic::Code::Unimplemented, "{reason}");
             assert!(status.message().contains(reason), "{reason}: {status}");
         }
+    }
+
+    /// Fields the proto marks OUTPUT_ONLY are ignored as input: "the server *must* ignore it and
+    /// *must not* throw an error as a result of the field's presence" (field_behavior.proto).
+    #[tokio::test]
+    async fn create_bucket_ignores_output_only_fields() {
+        let (_dir, storage) = storage(false).await;
+        let past = prost_types::Timestamp {
+            seconds: 1,
+            nanos: 0,
+        };
+        let mut request = create("output-only");
+        let bucket = request.bucket.as_mut().unwrap();
+        bucket.bucket_id = "other-bucket".into();
+        bucket.metageneration = 7;
+        bucket.location_type = "dual-region".into();
+        bucket.create_time = Some(past);
+        bucket.update_time = Some(past);
+        bucket.owner = Some(pb::Owner {
+            entity: "user-someone@example.com".into(),
+            entity_id: "id".into(),
+        });
+        bucket.autoclass = Some(pb::bucket::Autoclass {
+            enabled: true,
+            toggle_time: Some(past),
+            terminal_storage_class_update_time: Some(past),
+            ..Default::default()
+        });
+        let created = storage
+            .create_bucket(Request::new(request), None)
+            .await
+            .unwrap()
+            .into_inner();
+        let plain = {
+            let mut request = create("plain-bucket");
+            request.bucket.as_mut().unwrap().autoclass = Some(pb::bucket::Autoclass {
+                enabled: true,
+                ..Default::default()
+            });
+            storage
+                .create_bucket(Request::new(request), None)
+                .await
+                .unwrap()
+                .into_inner()
+        };
+        assert_eq!(created.name, "projects/_/buckets/output-only");
+        assert_eq!(created.bucket_id, "output-only");
+        assert_eq!(created.metageneration, 1);
+        assert_eq!(created.location_type, plain.location_type);
+        assert_eq!(created.owner, plain.owner);
+        assert_ne!(created.create_time, Some(past));
+        assert_ne!(created.update_time, Some(past));
+        let autoclass = created.autoclass.unwrap();
+        assert!(autoclass.enabled);
+        assert_eq!(autoclass.toggle_time, created.create_time);
+        assert_ne!(autoclass.terminal_storage_class_update_time, Some(past));
+        assert!(
+            storage
+                .state
+                .catalog
+                .get_bucket("other-bucket", PERMISSIVE)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        storage.state.catalog.close().await.unwrap();
     }
 
     /// The proto rounds any `nanos` of a retention duration down to the nearest second
@@ -685,11 +748,9 @@ mod tests {
     async fn create_bucket_rejects_each_field_outside_the_supported_subset() {
         let (_dir, storage) = storage(false).await;
         type FieldCase = (&'static str, fn(&mut pb::Bucket));
-        let cases: [FieldCase; 19] = [
-            ("bucket_id", |b| b.bucket_id = "other".into()),
+        // The output-only fields are ignored instead (create_bucket_ignores_output_only_fields).
+        let cases: [FieldCase; 13] = [
             ("etag", |b| b.etag = "etag".into()),
-            ("metageneration", |b| b.metageneration = 1),
-            ("location_type", |b| b.location_type = "region".into()),
             ("rpo", |b| b.rpo = "ASYNC_TURBO".into()),
             ("acl", |b| b.acl = vec![Default::default()]),
             ("default_object_acl", |b| {
@@ -700,8 +761,6 @@ mod tests {
                     rule: vec![Default::default()],
                 })
             }),
-            ("create_time", |b| b.create_time = Some(Default::default())),
-            ("update_time", |b| b.update_time = Some(Default::default())),
             ("website", |b| {
                 b.website = Some(pb::bucket::Website {
                     main_page_suffix: "index.html".into(),
@@ -711,12 +770,6 @@ mod tests {
             ("logging", |b| {
                 b.logging = Some(pb::bucket::Logging {
                     log_bucket: "logs".into(),
-                    ..Default::default()
-                })
-            }),
-            ("owner", |b| {
-                b.owner = Some(pb::Owner {
-                    entity: "project-owners-p".into(),
                     ..Default::default()
                 })
             }),
@@ -1731,16 +1784,19 @@ mod tests {
                 "{name}"
             );
         }
+        // The output-only toggle time is ignored; the server sets it to the creation time.
         let mut request = create("output-only");
         request.bucket.as_mut().unwrap().autoclass = Some(pb::bucket::Autoclass {
             enabled: true,
             toggle_time: Some(prost_types::Timestamp::default()),
             ..Default::default()
         });
-        assert_code(
-            storage.create_bucket(Request::new(request), None).await,
-            Code::Unimplemented,
-        );
+        let created = storage
+            .create_bucket(Request::new(request), None)
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(created.autoclass.unwrap().toggle_time, created.create_time);
         storage.state.catalog.close().await.unwrap();
     }
 
