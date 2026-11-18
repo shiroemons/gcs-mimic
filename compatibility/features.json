@@ -24239,9 +24239,13 @@
         },
         {
           "id": "grpc_update_object_etag",
-          "description": "object.etag is never read (update_object in src/grpc/v2/update_object.rs), so an update carrying a stale etag still applies, while the proto makes the update conditional on a set etag matching the live object (storage.proto lines 2902-2906). Compare it with the stored object ETag inside the mutation transaction.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "A nonempty object.etag makes the update conditional, as the proto says (storage.proto lines 2902-2906): inside the mutation transaction, after the generation and metageneration conditions and before the customer-supplied key, it is compared exactly with the etag of the generation the update selects. A different, quoted or superseded etag answers FAILED_PRECONDITION 'At least one of the pre-conditions you specified did not hold.' and changes nothing, an empty etag sets no condition, and a missing object answers NOT_FOUND first. The status and the generation compared are local choices (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": [
+            "update_object_applies_only_when_the_request_etag_matches",
+            "a_selected_generation_is_compared_with_its_own_etag",
+            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+          ]
         },
         {
           "id": "grpc_update_object_wildcard_mask",
@@ -24271,9 +24275,23 @@
         "TestGRPCUpdateCopyStrict",
         "grpc_update_object_acl",
         "grpc_update_object_retention",
-        "grpc_update_object_retention_strict"
+        "grpc_update_object_retention_strict",
+        "update_object_applies_only_when_the_request_etag_matches",
+        "a_selected_generation_is_compared_with_its_own_etag",
+        "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "update_object_applies_only_when_the_request_etag_matches",
+            "a_selected_generation_is_compared_with_its_own_etag",
+            "the_etag_is_checked_after_the_lookup_and_before_the_customer_key"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -24366,7 +24384,6 @@
         }
       ],
       "known_deviations": [
-        "A set object.etag is ignored instead of making the update conditional.",
         "An update_mask of * returns UNIMPLEMENTED, although the proto defines it and Cloud Storage serves it.",
         "UpdateObject validates its conditions strictly, while the object read RPCs, DeleteObject and writes evaluate the same conditions."
       ],
@@ -24377,10 +24394,18 @@
           "test_ids": [
             "grpc_masks_reject_unsupported_and_accept_defaults"
           ]
+        },
+        {
+          "text": "A mismatched object.etag answers FAILED_PRECONDITION, as a failed generation or metageneration condition does, and an update that selects a noncurrent generation compares that generation's etag, as its other conditions do. The proto names no status and speaks only of the live object; Cloud Storage's gRPC answer is unrecorded, and over JSON it ignored If-Match on object metadata writes (SPEC-METADATA-IF-MATCH).",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "update_object_applies_only_when_the_request_etag_matches",
+            "a_selected_generation_is_compared_with_its_own_etag"
+          ]
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-17"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-018",
