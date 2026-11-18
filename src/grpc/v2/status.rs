@@ -217,6 +217,22 @@ fn metadata(error: &MetadataError, unsupported: fn(&str) -> String) -> Status {
     }
 }
 
+/// A permission no supported operation checks is unsupported, worded as the JSON API words an
+/// unsupported bucket setting; any other refusal is an invalid argument.
+impl From<crate::auth::testable::UntestablePermission> for Status {
+    fn from(error: crate::auth::testable::UntestablePermission) -> Self {
+        use crate::auth::testable::UntestablePermission;
+        match error {
+            UntestablePermission::Unsupported(_) => {
+                unsupported_message(wording::unsupported_bucket_setting(&error.to_string()))
+            }
+            UntestablePermission::Unknown(_) | UntestablePermission::ProjectScoped => {
+                Status::invalid_argument(error.to_string())
+            }
+        }
+    }
+}
+
 impl From<crate::page_token::PageTokenError> for Status {
     fn from(error: crate::page_token::PageTokenError) -> Self {
         Status::invalid_argument(error.to_string())

@@ -4,7 +4,6 @@ use super::{Storage, iam, names, status::unsupported};
 use crate::{
     auth::{self, Caller},
     bucket::BucketAccess,
-    json,
     server::authorize_bucket,
 };
 use tonic::{Request, Response, Status};
@@ -132,7 +131,7 @@ impl Storage {
         }
         let mut requested = Vec::new();
         for permission in r.permissions {
-            let permission = json::check_testable_permission(&permission)?;
+            let permission = auth::testable::testable_permission(&permission)?;
             if !requested.contains(&permission) {
                 requested.push(permission);
             }
