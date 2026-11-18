@@ -62,6 +62,19 @@ Bucket conversion covers resource name/ID, original owning project identifier, l
 
 The resource parser accepts exactly `projects/_/buckets/NAME`; the object name is a separate string in Storage v2, not a fabricated `/objects/` suffix. It retains slashes and literal percent encodings and validates nonempty names, object UTF-8 byte bounds and control characters. Future operations retain responsibility for semantic bucket validation.
 
+## Call deadlines and message compression
+
+Owner decision 2026-11-18: the server enforces no deadline of its own and accepts no compressed message. The pinned storage.proto and the Cloud Storage RPC reference document neither, so BEHAVIOR-RPC-001 carries both as scoped differences recorded in SPEC-GRPC-CALL-METADATA. The gRPC rules come from [PROTOCOL-HTTP2.md](https://github.com/grpc/grpc/blob/cf61c7d62a1a7f43b9d2ea6488186bc14fc41a8c/doc/PROTOCOL-HTTP2.md) and [compression.md](https://github.com/grpc/grpc/blob/bd335033e29c321669c14a128526a3f727300c59/doc/compression.md) at the linked commits.
+
+| Case | Behavior |
+| --- | --- |
+| grpc_request_deadline | No code reads `grpc-timeout`. Tonic is built with only its codegen feature, so its timeout layer is absent, and neither the connection driver nor any handler looks at the header. A call runs until it completes or the client resets the stream, whether its deadline passed on arrival, passed while it streams or cannot be parsed. A client that enforces its deadline resets the stream; the call then publishes nothing and holds no writer ([deadline evidence](../evidence/grpc-deadlines.md)). |
+| grpc_message_compression | Tonic is built without compression and no service enables it. A `grpc-encoding` other than `identity` answers UNIMPLEMENTED ``Content is compressed with `<encoding>` which isn't supported`` with `grpc-accept-encoding: identity`, as compression.md requires of an encoding a server does not support, on unary and streaming calls alike, and writes nothing. The refusal comes after the unknown-method check and before authentication and the routing check. A compressed flag in a call without `grpc-encoding` answers INTERNAL `protocol error: received message with compressed-flag but no grpc-encoding was specified`. Responses are never compressed and carry no `grpc-encoding`, whatever `grpc-accept-encoding` offers, which compression.md allows. |
+
+`src/grpc/tests/call_metadata.rs` pins both through the connection driver and the Storage router the listener runs: `grpc_timeout_never_ends_a_call_on_the_server`, `grpc_compressed_requests_are_refused_before_the_call`, `grpc_compressed_flag_without_an_encoding_is_a_protocol_error` and `grpc_responses_stay_uncompressed_whatever_the_client_accepts`. No compression dependency is added; accepting gzip messages would be its own slice.
+
+On 2026-11-18, `cargo test --locked --offline --lib grpc::` passed 255 tests, these four included.
+
 ## Sources and generation
 
 Verified 2026-10-27: [Storage v2 proto](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto), googleapis commit `933dd1be8180a22bca2dc473b53d4f4297ee3b0c`, Storage SHA-256 `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf`. Every google/api, google/iam/v1, google/rpc and google/type import is from that same commit. Googleapis does not vendor the well-known google/protobuf files; those use [protobuf v36.2](https://github.com/protocolbuffers/protobuf/tree/2c74169b34066ceb8ddb6b882fcb3fb32d737a55), commit `2c74169b34066ceb8ddb6b882fcb3fb32d737a55`, matching the regeneration compiler `libprotoc 36.2`. All 21 proto digests are in `src/grpc/proto/SHA256SUMS`; upstream licenses are alongside them. `compatibility/upstream/source-manifest.json` connects these pins to the committed generated sources.

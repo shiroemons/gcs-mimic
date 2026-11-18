@@ -38466,15 +38466,21 @@
         },
         {
           "id": "grpc_request_deadline",
-          "description": "The server applies no grpc-timeout of its own: a call ends at its deadline only when the client resets the stream, and an abandoned call publishes nothing and holds no writer (docs/en/evidence/grpc-deadlines.md). Decide whether Storage v2 enforces grpc-timeout on the server and answers DEADLINE_EXCEEDED, as the gRPC HTTP/2 protocol lets a server do, or records the client-side enforcement as a scoped difference with a test.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The server applies no grpc-timeout of its own, a local choice recorded in SPEC-GRPC-CALL-METADATA. Through the connection driver and the Storage router the listener runs, a WriteObject stream whose one-nanosecond deadline passed before its first message completes and publishes the object, and a GetObject whose deadline passed on arrival (1n) or cannot be parsed (soon) is served. Only the client ends a call at its deadline, by resetting the stream; such a call publishes nothing and holds no writer, as BEHAVIOR-RPC-005 records (docs/en/evidence/grpc-deadlines.md).",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_timeout_never_ends_a_call_on_the_server"
+          ]
         },
         {
           "id": "grpc_message_compression",
-          "description": "No message compression is offered: tonic is built with only its codegen feature (Cargo.toml) and no service enables accept_compressed or send_compressed, so tonic refuses a request whose grpc-encoding names gzip before a handler runs, and responses are never compressed. No test pins the refusal. Decide whether to accept and send gzip, or record the refusal as a scoped difference with a test.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Storage v2 accepts no message compression, an explicit refusal recorded in SPEC-GRPC-CALL-METADATA. A unary, client-streaming, bidirectional or server-streaming call whose grpc-encoding names gzip, deflate, zstd or snappy answers UNIMPLEMENTED 'Content is compressed with `<encoding>` which isn't supported' with grpc-accept-encoding: identity and writes nothing; the refusal comes after the unknown-method check and before authentication and the routing check. A compressed flag in a call without grpc-encoding answers INTERNAL 'protocol error: received message with compressed-flag but no grpc-encoding was specified' and writes nothing. Responses are never compressed and carry no grpc-encoding whatever grpc-accept-encoding offers, and grpc-encoding: identity is served.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_compressed_requests_are_refused_before_the_call",
+            "grpc_compressed_flag_without_an_encoding_is_a_protocol_error",
+            "grpc_responses_stay_uncompressed_whatever_the_client_accepts"
+          ]
         }
       ],
       "test_ids": [
@@ -38487,9 +38493,25 @@
         "TestGRPCBucketsStrict",
         "routing_compares_each_field_with_its_own_rule",
         "deferred_routing_checks_only_the_field",
-        "routing_refuses_keys_no_rpc_routes"
+        "routing_refuses_keys_no_rpc_routes",
+        "grpc_timeout_never_ends_a_call_on_the_server",
+        "grpc_compressed_requests_are_refused_before_the_call",
+        "grpc_compressed_flag_without_an_encoding_is_a_protocol_error",
+        "grpc_responses_stay_uncompressed_whatever_the_client_accepts"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-foundation.md",
+          "test_ids": [
+            "grpc_timeout_never_ends_a_call_on_the_server",
+            "grpc_compressed_requests_are_refused_before_the_call",
+            "grpc_compressed_flag_without_an_encoding_is_a_protocol_error",
+            "grpc_responses_stay_uncompressed_whatever_the_client_accepts"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -38554,9 +38576,7 @@
         }
       ],
       "known_deviations": [
-        "No SDK lane run is recorded for the routing checks since the 2026-11-04 routing change.",
-        "The server applies no grpc-timeout of its own; only the client ends a call at its deadline.",
-        "No message compression is offered, and the refusal of a gzip-compressed request is not pinned by a test."
+        "No SDK lane run is recorded for the routing checks since the 2026-11-04 routing change."
       ],
       "scoped_differences": [
         {
@@ -38574,6 +38594,22 @@
             "routing_validates_all_values_and_resumed_upload_buckets",
             "deferred_routing_checks_only_the_field",
             "routing_refuses_keys_no_rpc_routes"
+          ]
+        },
+        {
+          "text": "The server applies no grpc-timeout of its own: a call whose deadline passed on arrival or while it streams, or whose grpc-timeout cannot be parsed, runs until it completes or the client resets the stream. Neither the pinned proto nor the Cloud Storage reference documents a server-side deadline, and the gRPC HTTP/2 protocol does not require one.",
+          "gap": "SPEC-GRPC-CALL-METADATA",
+          "test_ids": [
+            "grpc_timeout_never_ends_a_call_on_the_server"
+          ]
+        },
+        {
+          "text": "Storage v2 accepts no compressed message: a grpc-encoding other than identity answers UNIMPLEMENTED with grpc-accept-encoding: identity before authentication and the routing check, a compressed flag without grpc-encoding answers INTERNAL, and responses are never compressed. These are the answers the gRPC compression specification gives a server without compression support; whether Cloud Storage accepts compressed Storage v2 messages is neither documented nor recorded.",
+          "gap": "SPEC-GRPC-CALL-METADATA",
+          "test_ids": [
+            "grpc_compressed_requests_are_refused_before_the_call",
+            "grpc_compressed_flag_without_an_encoding_is_a_protocol_error",
+            "grpc_responses_stay_uncompressed_whatever_the_client_accepts"
           ]
         }
       ],
@@ -39007,7 +39043,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Opt-in Storage v2 foundation on a separate listener that serves h2c and, under the default grpc_scheme=auto or tls, gRPC over TLS (DESIGN-104): unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests. Messages are received up to 4 MiB and sent up to 33 MiB on Storage v2 and 4 MiB on Storage v1. Object list pages end near 2 MiB with a next page token and always hold one entry. A client left at a receive limit of 4 MiB should fail a larger bucket read on its side and can exclude those fields with read_mask; this has not been checked with a real SDK. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*). Client deadlines and cancellations end calls without publishing partial objects or holding writers (docs/en/evidence/grpc-deadlines.md); the server applies no grpc-timeout limit of its own. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); a write whose not-match condition names the current value reports the failed-precondition message instead of the JSON API's 304, other FAILED_PRECONDITION refusals keep their own messages, and a not-modified read carries the recorded message. The Storage v2 adapter maps every ObjectError and CatalogError variant to its code with an exhaustive match, not through the JSON error's HTTP status, and takes the wording both protocols share from storage::failure::wording; grpc::v2::status::domain_tests pins each variant's code, message, details and backend log line, and checks the JSON error path that handlers naming one object still use. The recorded cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
+      "notes": "Opt-in Storage v2 foundation on a separate listener that serves h2c and, under the default grpc_scheme=auto or tls, gRPC over TLS (DESIGN-104): unsupported RPCs, unsupported fields and unknown services/methods immediately return non-retryable UNIMPLEMENTED with google.rpc.Status/ErrorInfo and JSON API guidance. Strict Bearer handoff uses shared Auth. Resource names and shared record conversion are tested. Idle connections send GOAWAY; Drop-counted active responses survive keep_alive_timeout_ms idle expiry, and body_inactivity_timeout_ms, disabled by default, bounds silence without request/response frames with a GOAWAY and bounded grace. header_read_timeout_ms bounds a missing HTTP/2 preface (logged as grpc_handshake_timeout). PING/PONG does not renew activity; incoming or outgoing frames keep streams alive beyond the bound. HTTP/2 keepalive at header_read_timeout_ms detects dead peers, and TCP keep-alive covers them when that is disabled; SIGTERM grace retains its existing cap. An idle gRPC connection joins the line of idle connections at a full server, and when its turn comes for a waiting client it logs grpc_idle_reclaimed at debug and sends GOAWAY. A new connection joins after its first stream ends or a grace of up to five seconds, a stream that races the GOAWAY keeps running, and a silent peer holds the slot for at most the lesser of header_read_timeout_ms and five seconds. When a stream raced the GOAWAY, the waiting client waits for another connection to end, bounded by that connection's keep-alive, and does not fail. max_grpc_streams (default 100, 1..65536, requires grpc_listen) sets the concurrent streams per connection; RFC 9113 section 6.5.2 recommends no fewer than 100, and each stream can buffer a request message of up to 4 MiB and its encoded response, so one connection can reach 400 MiB of requests. Messages are received up to 4 MiB and sent up to 33 MiB on Storage v2 and 4 MiB on Storage v1. Object list pages end near 2 MiB with a next page token and always hold one entry. A client left at a receive limit of 4 MiB should fail a larger bucket read on its side and can exclude those fields with read_mask; this has not been checked with a real SDK. Operation success statuses and business logic now come from the per-operation rows (RPC-STORAGE-* and RPC-LEGACY-*). Client deadlines and cancellations end calls without publishing partial objects or holding writers (docs/en/evidence/grpc-deadlines.md); the server applies no grpc-timeout limit of its own, a local choice that BEHAVIOR-RPC-001 records as a scoped difference (SPEC-GRPC-CALL-METADATA) pinned by grpc_timeout_never_ends_a_call_on_the_server. Contract: docs/en/slices/grpc-v2-foundation.md; local unsupported semantics remain SPEC-SDK-UNSUPPORTED. Aligned with recorded Cloud Storage responses (2026-11-01, replayed in docs/en/evidence/differential-comparison.md): gRPC errors carry the recorded messages and details (ErrorInfo for malformed resource names, BadRequest for an empty object name); a write whose not-match condition names the current value reports the failed-precondition message instead of the JSON API's 304, other FAILED_PRECONDITION refusals keep their own messages, and a not-modified read carries the recorded message. The Storage v2 adapter maps every ObjectError and CatalogError variant to its code with an exhaustive match, not through the JSON error's HTTP status, and takes the wording both protocols share from storage::failure::wording; grpc::v2::status::domain_tests pins each variant's code, message, details and backend log line, and checks the JSON error path that handlers naming one object still use. The recorded cases beyond the two status unit tests are covered by the differential replay (grpc-errors matches), not by dedicated Rust tests.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
