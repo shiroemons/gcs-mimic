@@ -20,6 +20,7 @@ mod kind;
 pub(crate) use kind::BackendFailure;
 mod source;
 pub(crate) use source::{Link, Source, TypedSource, chain};
+pub(crate) mod wording;
 
 /// The message and optional underlying error of an unavailable or corrupt backend.
 ///

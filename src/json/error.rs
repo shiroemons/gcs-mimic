@@ -2,12 +2,19 @@ use crate::{
     auth::{AuthFailure, Denied},
     bucket::CatalogError,
     object::ObjectError,
-    storage::failure::{BackendCause, BackendFailure, IoCause, MemoryBudget},
+    storage::failure::{
+        BackendCause, BackendFailure,
+        wording::{self, BackendNotice, OBJECT_NOT_FOUND},
+    },
 };
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
 use serde_json::{Map, Value, json};
 use std::fmt;
+
+pub(crate) use crate::storage::failure::wording::{
+    BUCKET_NOT_FOUND, PRECONDITION_NOT_HELD, safe_backend_cause,
+};
 
 /// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
 pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
@@ -15,16 +22,6 @@ pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, 
 /// The `Cache-Control` of a media download that Cloud Storage answers with a plain error; its
 /// `Expires` is the response time.
 pub(crate) const MEDIA_ERROR_CACHE_CONTROL: &str = "private, max-age=0";
-
-/// The missing-object message for operations that do not name one object, such as a copy source.
-const OBJECT_NOT_FOUND: &str = "Object not found";
-/// Cloud Storage's message for a bucket that does not exist, shared by every bucket-scoped route.
-pub(crate) const BUCKET_NOT_FOUND: &str = "The specified bucket does not exist.";
-/// The message of a failed metageneration or entity-tag precondition on a bucket or policy.
-pub(crate) const PRECONDITION_NOT_HELD: &str =
-    "At least one of the pre-conditions you specified did not hold.";
-/// The prefix of Cloud Storage's missing-object message, followed by `<bucket>/<object>`.
-const NO_SUCH_OBJECT: &str = "No such object: ";
 
 /// How long a malformed body an error quotes. A resource body may be far longer, and the quote
 /// appears twice in the response, so past this it would make the answer larger than the request.
@@ -307,43 +304,12 @@ impl ErrorLocation {
 }
 
 impl JsonError {
-    /// Names only the remedy for the storage that ran out: a disk backend never has a RAM budget
-    /// to raise, and a memory backend has no data directory to free.
-    fn storage_capacity(cause: &IoCause) -> Self {
-        Self::service_unavailable(match cause.memory_budget() {
-            None => {
-                "Storage capacity exhausted; free space in the data directory, where data kept by soft delete uses space until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), then retry with generation preconditions"
-            }
-            // Deleting does not free what soft delete retains, which can be what filled RAM.
-            Some(MemoryBudget::Blobs) => {
-                "Storage capacity exhausted; delete objects, though data kept by soft delete keeps its bytes until it expires (set softDeletePolicy.retentionDurationSeconds to 0 on buckets that retain deletions), or restart with a larger memory_max_bytes (a restart loses RAM data)"
-            }
-            Some(MemoryBudget::Catalog) => {
-                "Storage capacity exhausted; restart with a larger memory_catalog_max_bytes (a restart loses RAM data)"
-            }
-        })
-    }
-
     fn backend(backend: &BackendCause) -> Self {
-        match classify(backend) {
-            Some((failure, remedy)) => {
-                Self::service_unavailable(format!("Object storage is unavailable: {remedy}"))
-                    .with_kind(ErrorKind::Backend(failure))
-            }
-            None => Self::service_unavailable(
-                "Object storage is unavailable: internal storage failure (private backend details withheld)",
-            ),
-        }
+        wording::object_backend(backend).into()
     }
 
     fn catalog_backend(backend: &BackendCause) -> Self {
-        match classify(backend) {
-            Some((failure, remedy)) => {
-                Self::service_unavailable(format!("Bucket catalog is unavailable: {remedy}"))
-                    .with_kind(ErrorKind::Backend(failure))
-            }
-            None => Self::service_unavailable("Bucket catalog is unavailable"),
-        }
+        wording::catalog_backend(backend).into()
     }
 
     /// An unclassified protocol error; use a named constructor for a semantic error kind.
@@ -603,7 +569,7 @@ impl JsonError {
 
     /// A refusal that no Cloud Storage permission names keeps the documented example message.
     pub(crate) fn forbidden() -> Self {
-        Self::new(StatusCode::FORBIDDEN, "forbidden", "Forbidden")
+        Self::new(StatusCode::FORBIDDEN, "forbidden", wording::FORBIDDEN)
     }
 
     /// The 401 `required` an anonymous caller receives in place of a 403. A refused
@@ -624,15 +590,11 @@ impl JsonError {
     }
 
     pub fn unsupported(name: &str) -> Self {
-        Self::unsupported_message(format!(
-            "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
-        ))
+        Self::unsupported_message(wording::unsupported_bucket_setting(name))
     }
 
     pub fn unsupported_object(name: &str) -> Self {
-        Self::unsupported_message(format!(
-            "gcs-mimic does not support object API setting {name}; omit this option or header (for example, use projection=noAcl)."
-        ))
+        Self::unsupported_message(wording::unsupported_object_setting(name))
     }
 
     pub(crate) fn value(&self) -> Value {
@@ -666,7 +628,7 @@ impl JsonError {
     pub(crate) fn naming_object(mut self, bucket: &str, name: &str) -> Self {
         // An error that already names its object, such as a copy source, keeps that name.
         if self.kind == ErrorKind::MissingObject {
-            self.message = format!("{NO_SUCH_OBJECT}{bucket}/{name}");
+            self.message = wording::missing_named_object(bucket, name);
             self.kind = ErrorKind::NamedMissingObject;
         }
         self
@@ -846,16 +808,12 @@ impl From<CatalogError> for JsonError {
             CatalogError::AlreadyExists => Self::new(
                 StatusCode::CONFLICT,
                 "conflict",
-                "Your previous request to create the named bucket succeeded and you already own it.",
+                wording::BUCKET_ALREADY_OWNED,
             ),
             CatalogError::NotFound => Self::missing_bucket(),
-            // The wording is a local choice; only the "you already own it" text of a create
-            // conflict was recorded.
-            CatalogError::RestoreConflict => Self::new(
-                StatusCode::CONFLICT,
-                "conflict",
-                "A bucket with this name already exists, so the soft-deleted bucket cannot be restored.",
-            ),
+            CatalogError::RestoreConflict => {
+                Self::new(StatusCode::CONFLICT, "conflict", wording::RESTORE_CONFLICT)
+            }
             CatalogError::NotEmpty => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Bucket is not empty")
             }
@@ -873,13 +831,13 @@ impl From<CatalogError> for JsonError {
             CatalogError::PublicAccessPrevention => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
-                "Public access prevention is enforced",
+                wording::PUBLIC_ACCESS_PREVENTED,
             ),
             CatalogError::InvalidMetadata(reason) => Self::invalid(reason),
             CatalogError::Metadata(error) => Self::metadata(&error, Self::unsupported),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
-                Self::storage_capacity(&cause)
+                Self::service_unavailable(wording::storage_capacity(&cause))
             }
             CatalogError::Unavailable(cause) | CatalogError::Corrupt(cause) => {
                 Self::catalog_backend(&cause)
@@ -949,9 +907,11 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
             ComponentFailureKind::GenerationMismatch { required, actual } => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
-                format!(
-                    "Generation {required} required for component object ({}/{}), but actual generation is {actual}.",
-                    failure.bucket, failure.name
+                wording::component_generation_mismatch(
+                    &failure.bucket,
+                    &failure.name,
+                    required,
+                    actual,
                 ),
             ),
         }
@@ -960,17 +920,10 @@ impl From<Box<crate::object::ComponentFailure>> for JsonError {
 
 impl From<Box<crate::object::HeldObject>> for JsonError {
     fn from(held: Box<crate::object::HeldObject>) -> Self {
-        let kind = match held.kind {
-            crate::object::HoldKind::Temporary => "Temporary",
-            crate::object::HoldKind::EventBased => "Event-Based",
-        };
         Self::new(
             StatusCode::FORBIDDEN,
             "forbidden",
-            format!(
-                "Object '{}/{}' is under active {kind} hold and cannot be deleted, overwritten or archived until hold is removed.",
-                held.bucket, held.name
-            ),
+            wording::held_object(&held),
         )
         .with_kind(ErrorKind::ActiveHold)
     }
@@ -983,14 +936,20 @@ impl From<Box<crate::object::RetainedObject>> for JsonError {
         Self::new(
             StatusCode::FORBIDDEN,
             "retentionPolicyNotMet",
-            format!(
-                "Object '{}/{}' is subject to bucket's retention policy or object retention and cannot be deleted or overwritten until {}",
-                retained.bucket,
-                retained.name,
-                crate::object::retention::pacific_rfc3339(retained.until)
-            ),
+            wording::retained_object(&retained),
         )
         .with_kind(ErrorKind::RetentionNotMet)
+    }
+}
+
+/// An unavailable or corrupt backend, keeping the fixed failure it reports for classification.
+impl From<BackendNotice> for JsonError {
+    fn from(notice: BackendNotice) -> Self {
+        let error = Self::service_unavailable(notice.message);
+        match notice.failure {
+            Some(failure) => error.with_kind(ErrorKind::Backend(failure)),
+            None => error,
+        }
     }
 }
 
@@ -1003,18 +962,18 @@ impl From<ObjectError> for JsonError {
             ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
             ObjectError::ComposeClassMismatch { .. } => Self::invalid(error.to_string()),
             ObjectError::DerivedTransferIncomplete => {
-                Self::invalid_argument("Derived transfer is incomplete")
+                Self::invalid_argument(wording::DERIVED_TRANSFER_INCOMPLETE)
             }
             ObjectError::DerivedTransferNotFound => Self::new(
                 StatusCode::NOT_FOUND,
                 "notFound",
-                "Derived transfer not found",
+                wording::DERIVED_TRANSFER_NOT_FOUND,
             ),
             ObjectError::DerivedTransferExpired => {
-                Self::new(StatusCode::GONE, "gone", "Derived transfer expired")
+                Self::new(StatusCode::GONE, "gone", wording::DERIVED_TRANSFER_EXPIRED)
             }
             ObjectError::DerivedTransferBusy => {
-                Self::service_unavailable("Derived transfer is already in use")
+                Self::service_unavailable(wording::DERIVED_TRANSFER_BUSY)
             }
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::CustomerEncryption(error) => error.into(),
@@ -1044,39 +1003,21 @@ impl From<ObjectError> for JsonError {
             ),
             ObjectError::ActiveHold(held) => held.into(),
             ObjectError::ObjectRetentionNotMet(retained) => retained.into(),
-            ObjectError::HashMismatch(mismatch) => {
-                let (name, expected, computed) = match *mismatch {
-                    crate::object::HashMismatch::Crc32c { expected, computed } => (
-                        "CRC32C",
-                        super::base64(&expected.to_be_bytes()),
-                        super::base64(&computed.to_be_bytes()),
-                    ),
-                    crate::object::HashMismatch::Md5 { expected, computed } => (
-                        "MD5 hash",
-                        super::base64(&expected),
-                        super::base64(&computed),
-                    ),
-                };
-                Self::invalid(format!(
-                    "Provided {name} \"{expected}\" doesn't match calculated {name} \"{computed}\"."
-                ))
-            }
+            ObjectError::HashMismatch(mismatch) => Self::invalid(wording::hash_mismatch(&mismatch)),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",
-                "The supplied checksum does not match the uploaded data",
+                wording::CHECKSUM_MISMATCH,
             ),
             ObjectError::TooLarge => Self::new(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "uploadTooLarge",
-                "Object exceeds the upload size limit",
+                wording::UPLOAD_TOO_LARGE,
             ),
-            ObjectError::BodyAborted(_) => Self::new(
-                StatusCode::BAD_REQUEST,
-                "badRequest",
-                "The upload request body did not complete",
-            )
-            .with_kind(ErrorKind::IncompleteBody),
+            ObjectError::BodyAborted(_) => {
+                Self::new(StatusCode::BAD_REQUEST, "badRequest", wording::BODY_ABORTED)
+                    .with_kind(ErrorKind::IncompleteBody)
+            }
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid(reason),
             ObjectError::UniformAccessPredefinedAcl => {
                 Self::invalid(crate::acl::UNIFORM_ACCESS_UPLOAD_ACL)
@@ -1088,76 +1029,10 @@ impl From<ObjectError> for JsonError {
             }
             ObjectError::PublicAccessPrevention => CatalogError::PublicAccessPrevention.into(),
             ObjectError::Unavailable(cause) => Self::backend(&cause),
-            ObjectError::Io(cause) if cause.kind() == std::io::ErrorKind::StorageFull => {
-                Self::storage_capacity(&cause)
-            }
-            ObjectError::Io(kind) => Self::service_unavailable(format!(
-                "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
-            )),
-            ObjectError::Corrupt(cause) => {
-                let kind = classify(&cause)
-                    .map_or(ErrorKind::Other, |(failure, _)| ErrorKind::Backend(failure));
-                Self::service_unavailable(
-                    "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
-                )
-                .with_kind(kind)
-            }
+            ObjectError::Io(cause) => Self::service_unavailable(wording::object_io(&cause)),
+            ObjectError::Corrupt(cause) => wording::corrupt_object(&cause).into(),
         }
     }
-}
-
-/// A failure with fixed guidance keeps its kind for classification and returns its remedy.
-/// Any other cause is logged with only the allowlisted text and has no remedy to show: arbitrary
-/// backend text can contain paths or secrets, so only fixed diagnostics cross the HTTP boundary.
-fn classify(backend: &BackendCause) -> Option<(BackendFailure, &'static str)> {
-    if let Some(failure) = backend.failure()
-        && let Some(remedy) = failure.remedy()
-    {
-        return Some((failure, remedy));
-    }
-    let cause = backend
-        .message()
-        .strip_prefix("catalog unavailable: ")
-        .unwrap_or(backend.message());
-    crate::diagnostics::emit(
-        crate::diagnostics::LogLevel::Error,
-        "object_backend_failure",
-        json!({"cause": safe_backend_cause(cause)}),
-    );
-    None
-}
-
-pub(crate) fn safe_backend_cause(cause: &str) -> &'static str {
-    // Only known fixed causes are safe; backend strings may embed credentials or SQL values.
-    const SAFE_CAUSES: &[&str] = &[
-        "database is locked",
-        "database is busy",
-        "database or disk is full",
-        "disk I/O error",
-        "attempt to write a readonly database",
-        "Permission denied",
-        "No space left on device",
-        "No such file or directory",
-        "Acknowledged upload prefix is missing",
-        "invalid resumable catalog state",
-        "invalid opaque blob ID",
-        "deletion journal references a live blob",
-        "generation exhausted",
-        "metageneration exhausted",
-        "bucket metageneration exhausted",
-        "derived publication catalog admission timed out",
-        "catalog is closing",
-    ];
-    SAFE_CAUSES
-        .iter()
-        .copied()
-        .find(|safe| {
-            cause == *safe
-                || cause
-                    .strip_prefix(safe)
-                    .is_some_and(|tail| tail.starts_with(": ") || tail.starts_with(" (os error "))
-        })
-        .unwrap_or("unrecognized backend failure (private details withheld)")
 }
 
 impl fmt::Display for JsonError {
@@ -1194,7 +1069,7 @@ mod tests {
     /// each storage that can run out now names only its own remedy.
     #[test]
     fn storage_capacity_names_only_the_remedy_of_the_storage_that_ran_out() {
-        use crate::storage::failure::MemoryExhausted;
+        use crate::storage::failure::{IoCause, MemoryBudget, MemoryExhausted};
         let memory = |budget| IoCause::from(MemoryExhausted::new(budget));
         let disk = || IoCause::from(std::io::ErrorKind::StorageFull);
         for (cause, names, omits) in [
