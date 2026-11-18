@@ -420,40 +420,37 @@ impl Storage {
             .await?;
         // A new session's guard stays armed until its first response is stored and read back;
         // returning early drops it, which cancels the session.
-        let (token, mut owner) = match &session {
-            Some(session) => {
-                let binding = &session.binding;
-                if !target.matches(binding)
-                    || parameters
-                        .iter()
-                        .any(|(k, v)| binding.parameters.get(k) != Some(v))
-                    || body
-                        .as_ref()
-                        .is_some_and(|v| binding.metadata.as_ref() != Some(v))
-                {
-                    return Err(Status::invalid_argument(
-                        "rewrite_token does not match the request; repeat the original parameters",
-                    ));
-                }
-                // Neither the proto nor Cloud Storage's recorded answers say whether a
-                // continuation may omit the keys; this follows the JSON API, which requires both.
-                session.check_customer_keys(options.keys)?;
-                (r.rewrite_token.clone(), None)
+        let (token, mut owner) = if let Some(session) = &session {
+            let binding = &session.binding;
+            if !target.matches(binding)
+                || parameters
+                    .iter()
+                    .any(|(k, v)| binding.parameters.get(k) != Some(v))
+                || body
+                    .as_ref()
+                    .is_some_and(|v| binding.metadata.as_ref() != Some(v))
+            {
+                return Err(Status::invalid_argument(
+                    "rewrite_token does not match the request; repeat the original parameters",
+                ));
             }
-            None => {
-                let new = NewRewrite {
-                    target,
-                    options,
-                    source_conditions: sc,
-                    destination_conditions: dc,
-                    parameters,
-                    metadata: body,
-                    resource: r.destination.as_ref(),
-                    acl: destination_acl(&r.destination_predefined_acl, &create)?,
-                };
-                let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
-                (token, Some(guard))
-            }
+            // Neither the proto nor Cloud Storage's recorded answers say whether a
+            // continuation may omit the keys; this follows the JSON API, which requires both.
+            session.check_customer_keys(options.keys)?;
+            (r.rewrite_token.clone(), None)
+        } else {
+            let new = NewRewrite {
+                target,
+                options,
+                source_conditions: sc,
+                destination_conditions: dc,
+                parameters,
+                metadata: body,
+                resource: r.destination.as_ref(),
+                acl: destination_acl(&r.destination_predefined_acl, &create)?,
+            };
+            let (token, guard) = self.begin_rewrite(new, &read, &create).await?;
+            (token, Some(guard))
         };
         let progress = self
             .state

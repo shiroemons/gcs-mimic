@@ -1471,23 +1471,20 @@ impl ConnectionService {
             reads,
         };
         let sent_body = has_body(request.headers());
-        let endpoints = match config
+        let endpoints = if let Ok(endpoints) = config
             .runtime_endpoints
             .snapshot(&config, &state.api_base_url)
         {
-            Ok(endpoints) => {
-                endpoints.for_request(listening.scheme, request.uri(), request.headers())
-            }
-            Err(_) => {
-                let mut response = boxed(
-                    JsonError::service_unavailable(
-                        "Runtime endpoint state is unavailable; restart the emulator",
-                    )
-                    .into_response(),
-                );
-                listening.mark_response(response.headers_mut());
-                return Ok(response.map(|body| finished.track(body)));
-            }
+            endpoints.for_request(listening.scheme, request.uri(), request.headers())
+        } else {
+            let mut response = boxed(
+                JsonError::service_unavailable(
+                    "Runtime endpoint state is unavailable; restart the emulator",
+                )
+                .into_response(),
+            );
+            listening.mark_response(response.headers_mut());
+            return Ok(response.map(|body| finished.track(body)));
         };
         let mut request = request;
         let target = routing::Target::classify(&mut request, &config, endpoints.snapshot());
@@ -1510,9 +1507,10 @@ impl ConnectionService {
         );
         // Dropping the handler cancels its work exactly as closing the
         // connection did, so an unfinished upload is still never published.
-        let mut response = match admitted {
-            Err(error) => boxed(error.into_response()),
-            Ok(()) => tokio::select! {
+        let mut response = if let Err(error) = admitted {
+            boxed(error.into_response())
+        } else {
+            tokio::select! {
                 biased;
                 response = json::with_format(
                     format,
@@ -1523,7 +1521,7 @@ impl ConnectionService {
                     ),
                 ) => response,
                 expiry = expiry_claimed(&activity) => timeout_reply.response(expiry),
-            },
+            }
         };
         // Handlers stop reading a body early only to reject it, and hyper then
         // closes the connection. Announcing the close keeps a pooled client from

@@ -258,14 +258,13 @@ impl ObjectReader {
     /// The next bytes of an HTTP body if getting them cannot wait for storage, so an async worker
     /// may call this. `None` leaves the reader where it was, for [`Self::next_frame`] to go on.
     pub(crate) fn next_frame_at_hand(&mut self) -> Option<Bytes> {
-        let bytes = match self.head.take() {
-            Some(head) => head,
-            None => {
-                let capacity = self.frame_capacity()?;
-                match &mut self.file {
-                    ReaderData::Disk(file) => read_cached_chunk(file, self.position, capacity)?,
-                    ReaderData::Memory(reader) => reader.next_chunk(capacity)?,
-                }
+        let bytes = if let Some(head) = self.head.take() {
+            head
+        } else {
+            let capacity = self.frame_capacity()?;
+            match &mut self.file {
+                ReaderData::Disk(file) => read_cached_chunk(file, self.position, capacity)?,
+                ReaderData::Memory(reader) => reader.next_chunk(capacity)?,
             }
         };
         Some(self.advance(bytes))
@@ -367,16 +366,15 @@ impl ObjectReader {
                         PageCache::Try => read_cached_chunk(file, offset, capacity),
                         PageCache::Missed => None,
                     };
-                    match cached {
-                        Some(bytes) => bytes,
-                        None => {
-                            let file = file.clone();
-                            crate::task::run_blocking("object-read", move || {
-                                read_chunk(&file, offset, capacity)
-                            })
-                            .await
-                            .map_err(io::Error::other)??
-                        }
+                    if let Some(bytes) = cached {
+                        bytes
+                    } else {
+                        let file = file.clone();
+                        crate::task::run_blocking("object-read", move || {
+                            read_chunk(&file, offset, capacity)
+                        })
+                        .await
+                        .map_err(io::Error::other)??
                     }
                 }
             }

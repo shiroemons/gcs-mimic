@@ -428,13 +428,12 @@ fn entries_grant(
     for entry in entries.iter().filter(|entry| allows(entry.role)) {
         let entity = &entry.entity;
         let access = if entity.is_public() {
-            match cached {
-                Some(access) => access,
-                None => {
-                    let access = public()?;
-                    cached = Some(access);
-                    access
-                }
+            if let Some(access) = cached {
+                access
+            } else {
+                let access = public()?;
+                cached = Some(access);
+                access
             }
         } else {
             crate::auth::PublicAccess::Allowed
@@ -947,14 +946,13 @@ impl Catalog {
                         (None, None) => return Err(AclError::RoleRequired),
                     };
                     let entry = AclEntry { entity: entity.clone(), role };
-                    match existing {
-                        Some(existing) => *existing = entry,
-                        None => {
-                            if state.entries.len() >= MAX_ENTRIES {
-                                return Err(AclError::TooManyEntries);
-                            }
-                            state.entries.push(entry);
+                    if let Some(existing) = existing {
+                        *existing = entry;
+                    } else {
+                        if state.entries.len() >= MAX_ENTRIES {
+                            return Err(AclError::TooManyEntries);
                         }
+                        state.entries.push(entry);
                     }
                     Some(entity)
                 }

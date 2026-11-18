@@ -104,15 +104,12 @@ impl Executor {
         let job: Job = Box::new(move || {
             // The job's captured state is dropped before the reply is sent, so a caller woken by
             // the reply observes released resources, such as the directory lock after close.
-            match crate::task::catch_job("gcs-mimic-catalog", job) {
-                Ok((value, flow)) => {
-                    let _ = reply.send(Ok(value));
-                    flow
-                }
-                Err(_) => {
-                    let _ = reply.send(Err(ExecutorError::Panicked));
-                    Flow::Continue
-                }
+            if let Ok((value, flow)) = crate::task::catch_job("gcs-mimic-catalog", job) {
+                let _ = reply.send(Ok(value));
+                flow
+            } else {
+                let _ = reply.send(Err(ExecutorError::Panicked));
+                Flow::Continue
             }
         });
         self.jobs

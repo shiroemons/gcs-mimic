@@ -393,18 +393,17 @@ impl Storage {
             if let Some(acknowledgement) = report {
                 send(tx, status_response(&writer, acknowledgement)?).await?;
             }
-            match next_step(stream).await? {
-                Some(next) => step = AppendStep::try_from(next)?,
-                None => {
-                    // Closing the stream without finish_write leaves the object appendable; the
-                    // service still reports the persisted size for a clean close.
-                    writer.flush().await.map_err(|e| append_status(e, caller))?;
-                    return send(
-                        tx,
-                        status_response(&writer, Acknowledgement::PersistedSize)?,
-                    )
-                    .await;
-                }
+            if let Some(next) = next_step(stream).await? {
+                step = AppendStep::try_from(next)?;
+            } else {
+                // Closing the stream without finish_write leaves the object appendable; the
+                // service still reports the persisted size for a clean close.
+                writer.flush().await.map_err(|e| append_status(e, caller))?;
+                return send(
+                    tx,
+                    status_response(&writer, Acknowledgement::PersistedSize)?,
+                )
+                .await;
             }
         }
     }
