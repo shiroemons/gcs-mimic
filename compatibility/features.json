@@ -23881,9 +23881,13 @@
         },
         {
           "id": "get_object_mask_validation_order",
-          "description": "The read_mask is checked only after the object is read (mask_object runs on the result), so an invalid path on a missing object answers NOT_FOUND and a caller may learn whether an object exists before the mask error. Validate the mask before authorization and lookup, as GetBucket does with BucketMask::parse.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The read_mask is checked with the request, after the customer key, the soft_deleted and restore_token refusals and the name and before authorization, the generation and condition checks and the lookup, as GetBucket checks its mask (check_object_mask in src/grpc/v2/object_io/read.rs): a path naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' and a nested sub-path UNIMPLEMENTED with ErrorInfo for a missing object or an unauthorized caller too, and a valid mask still reports a missing object as NOT_FOUND. The order around the mask is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
         },
         {
           "id": "get_object_condition_validation",
@@ -23897,10 +23901,24 @@
         "grpc_io_checksums_conditions_and_generation_preserve_data",
         "grpc_io_range_and_masks",
         "grpc_io_full_read_masks_return_acl_and_owner",
+        "an_invalid_read_mask_is_reported_for_a_missing_object",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "request_checks_before_the_mask_keep_their_order",
         "TestGRPCObjectIO",
         "TestGRPCObjectIOStrict"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
         {
           "command": "cargo test --locked --workspace --no-fail-fast; cargo xtask differential run --reference compatibility/differential/reference/gcs.json --fail-on-diff --fail-on-note",
           "result": "PASS",
@@ -23961,11 +23979,21 @@
         "Nested Object read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
         "soft_deleted=true returns UNIMPLEMENTED instead of returning the soft-deleted version.",
         "The restore_token refusal is not pinned by a GetObject test.",
-        "The read_mask is validated after the lookup, so a missing object answers NOT_FOUND before a mask error.",
         "GetObject validates its conditions leniently, while the object mutation RPCs refuse a metageneration condition of 0 and a match together with a not-match."
       ],
+      "scoped_differences": [
+        {
+          "text": "The read mask is checked with the request, after the customer key, the soft_deleted and restore_token refusals and the name and before authorization, the generation and condition checks and the lookup, so an invalid mask is reported for a missing object or an unauthorized caller. Google documents no order, and the recorded mask refusals (cases grpc-read-mask and grpc-composite-checksum-mask) named existing objects.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        }
+      ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-015",
@@ -24861,9 +24889,12 @@
         },
         {
           "id": "list_mask_validation_order",
-          "description": "The read_mask is checked per returned object (mask_object in the response loop of list_objects in src/grpc/v2/object_io/read.rs), so an invalid mask on an empty page or an empty bucket returns OK, and it is checked only after authorization and the catalog query. Validate the mask before authorization and the query.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The read_mask is checked once with the request, before authorization and the catalog query (check_object_mask in list_objects, src/grpc/v2/object_io/read.rs), so a path naming no Object field answers INVALID_ARGUMENT 'There is no field for this resource named ...' and a nested sub-path UNIMPLEMENTED with ErrorInfo on an empty bucket or page and for an unauthenticated caller too, and a valid mask on an empty page lists nothing. Checking the mask before authorization is a local choice (SPEC-GRPC-LOCAL-CHOICES).",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
         }
       ],
       "test_ids": [
@@ -24875,9 +24906,21 @@
         "grpc_listing_uses_proto_errors_and_preserves_page_tokens",
         "grpc_list_folders_as_prefixes_follows_the_json_rule",
         "grpc_object_lists_page_on_their_size_and_reach_every_object",
-        "an_object_page_past_its_budget_still_advances_one_entry_at_a_time"
+        "an_object_page_past_its_budget_still_advances_one_entry_at_a_time",
+        "an_invalid_read_mask_is_reported_for_an_empty_listing",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -24945,8 +24988,7 @@
         }
       ],
       "known_deviations": [
-        "Nested Object read_mask paths other than the two checksum digests return UNIMPLEMENTED.",
-        "The read_mask is validated per returned object, so an invalid mask on an empty page returns OK."
+        "Nested Object read_mask paths other than the two checksum digests return UNIMPLEMENTED."
       ],
       "scoped_differences": [
         {
@@ -24955,10 +24997,18 @@
           "test_ids": [
             "grpc_list_folders_as_prefixes_follows_the_json_rule"
           ]
+        },
+        {
+          "text": "The read mask is checked once with the request, before authorization and the catalog query, so an invalid mask is reported for an empty bucket or page and for an unauthenticated caller. Google documents no order, and the recorded mask refusals named existing objects.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks"
+          ]
         }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "RPC-STORAGE-021",
@@ -38692,7 +38742,18 @@
         },
         {
           "id": "grpc_masks_validation_order",
-          "description": "GetBucket validates its read mask before authorization and lookup and ListBuckets validates it after authorizing the project and checking page_size and prefix, while object read masks are validated after the lookup (GetObject) or per returned object (ListObjects), so an invalid object mask on a missing object or an empty page goes unreported; see RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order.",
+          "description": "Object read masks are checked with the request, before authorization and any lookup, so an invalid mask is reported for a missing object, an empty page or an unauthorized caller too: GetObject after the customer key, its soft_deleted and restore_token refusals and the name; ReadObject after the customer key and the name, together with its checksummed_data.content requirement; ListObjects before authorization and the catalog query (RPC-STORAGE-014 get_object_mask_validation_order and RPC-STORAGE-020 list_mask_validation_order). The order is a local choice (SPEC-GRPC-LOCAL-CHOICES). Bucket read masks are grpc_bucket_masks_validation_order.",
+          "result": "PASS",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
+        {
+          "id": "grpc_bucket_masks_validation_order",
+          "description": "GetBucket checks its read mask after the bucket name and before authorization and the lookup (get_bucket in src/grpc/v2/buckets.rs), while ListBuckets checks it after it authorizes the project and checks page_size and prefix (list_buckets), and the object read RPCs check theirs before authorization. No test pins either bucket position and Google documents none; pin them, then record them under SPEC-GRPC-LOCAL-CHOICES.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -38720,9 +38781,25 @@
         "grpc_iam_config_parent_update_resets_pap_and_keeps_absent_uniform_access",
         "grpc_bucket_options_reject_only_what_is_unsupported",
         "grpc_bucket_reads_accept_the_java_default_mask_and_leave_unstored_settings_unset",
-        "grpc_io_full_read_masks_return_acl_and_owner"
+        "grpc_io_full_read_masks_return_acl_and_owner",
+        "an_invalid_read_mask_is_reported_for_a_missing_object",
+        "an_invalid_read_mask_is_reported_for_an_empty_listing",
+        "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+        "request_checks_before_the_mask_keep_their_order"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::",
+          "result": "PASS",
+          "verified_at": "2026-11-18",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib grpc::",
           "result": "PASS",
@@ -38810,10 +38887,22 @@
         "An update_mask of * returns UNIMPLEMENTED on UpdateBucket and UpdateObject.",
         "An unknown bucket read_mask path returns UNIMPLEMENTED, while an unknown object path returns INVALID_ARGUMENT.",
         "Output-only update paths other than UpdateObject's create_time return UNIMPLEMENTED.",
-        "Object read masks are validated after the lookup or per returned object, the GetBucket read mask before authorization and the ListBuckets read mask after it."
+        "The GetBucket read mask is checked before authorization and the ListBuckets read mask after it, and no test pins either position."
+      ],
+      "scoped_differences": [
+        {
+          "text": "Object read masks are checked with the request, before authorization and any lookup, so an invalid mask is reported for a missing object, an empty page or an unauthorized caller. Google documents no order, and the recorded mask refusals named existing objects.",
+          "gap": "SPEC-GRPC-LOCAL-CHOICES",
+          "test_ids": [
+            "an_invalid_read_mask_is_reported_for_a_missing_object",
+            "an_invalid_read_mask_is_reported_for_an_empty_listing",
+            "an_invalid_read_mask_precedes_authorization_and_the_other_checks",
+            "request_checks_before_the_mask_keep_their_order"
+          ]
+        }
       ],
       "implemented_in": null,
-      "last_verified": "2026-11-13"
+      "last_verified": "2026-11-18"
     },
     {
       "id": "BEHAVIOR-RPC-003",
