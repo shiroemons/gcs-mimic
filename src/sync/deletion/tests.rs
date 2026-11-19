@@ -39,6 +39,18 @@ async fn fixture(count: usize) -> (TestDir, TestDir, Catalog, RootLease, Config)
         .unwrap();
     assert_eq!(scanned.ingested, count as u64);
     root.complete_baseline().await.unwrap();
+    // A started mirror inventories once with every file in place. That first inventory is the
+    // start which a bucket emptied while the server was stopped is told apart from, so the tests
+    // below delete files from a mirror that is already running.
+    let started = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let first = inventory(&root, &config, started.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.candidate_count, 0);
     (data, tree, catalog, root, config)
 }
 

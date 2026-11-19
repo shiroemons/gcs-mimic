@@ -151,22 +151,36 @@ pub(crate) fn guarded(guard: Guard, baseline: u64, candidates: u64) -> bool {
         && u128::from(candidates) * 100 > u128::from(baseline) * 50
 }
 
-/// What an inventory saw gone above its candidates. A bucket's whole directory gone while the
-/// tree tracks files in it needs approval whatever the counts: a mount missing at startup, or a
-/// directory moved away, looks exactly like the user deleting it, and putting it back brings
-/// every file back. Deleting files inside a bucket directory needs approval only by the counts.
+/// What an inventory saw gone above its candidates. Every tracked file of a bucket gone at once
+/// needs approval whatever the counts: a mount missing at startup, one that came up empty, or a
+/// directory moved away looks exactly like the user deleting the files, and putting it back
+/// brings every file back. Deleting files inside a bucket directory needs approval only by the
+/// counts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Removal {
     #[default]
     Files,
-    BucketDirectory,
+    Bucket(BucketGone),
+}
+
+/// How every tracked file of one bucket went at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BucketGone {
+    /// The bucket's directory is missing.
+    Missing,
+    /// The directory is there but holds none of the files the tree tracked in it, and has held
+    /// none since the first inventory of this process, which takes in what changed while the
+    /// server was stopped. A bucket emptied while the mirror runs is a deletion the user made in
+    /// front of it, which only the counts take to approval.
+    Emptied,
 }
 
 impl Removal {
-    /// Whether this removal alone takes the set to approval under `guard`.
+    /// Whether this removal alone takes the set to approval under `guard`: the one decision for
+    /// every way a bucket's files go at once, which the reason does not change.
     fn guarded(self, guard: Guard) -> bool {
         match (guard, self) {
-            (Guard::Enabled, Self::BucketDirectory) => true,
+            (Guard::Enabled, Self::Bucket(BucketGone::Missing | BucketGone::Emptied)) => true,
             (Guard::Enabled, Self::Files) | (Guard::Disabled, _) => false,
         }
     }
@@ -176,7 +190,7 @@ impl Removal {
     pub(crate) fn and(self, other: Self) -> Self {
         match (self, other) {
             (Self::Files, Self::Files) => Self::Files,
-            (Self::BucketDirectory, _) | (_, Self::BucketDirectory) => Self::BucketDirectory,
+            (Self::Bucket(gone), _) | (_, Self::Bucket(gone)) => Self::Bucket(gone),
         }
     }
 }

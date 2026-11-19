@@ -9,6 +9,7 @@
 use super::baseline::exists;
 use super::ingest_durability::Started;
 use super::*;
+use crate::storage::sync_state::deletions::DeletionSet;
 use crate::sync::control::{WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding};
 
@@ -169,4 +170,80 @@ async fn an_api_write_into_a_missing_bucket_directory_waits_for_the_approval() {
     worker.await.unwrap().unwrap();
     drop(root);
     catalog.close().await.unwrap();
+}
+
+/// Inventories `root` again, as a later pass of the same run does, and returns its set.
+async fn inventory_again(started: &Started, data: &Path, tree: &Path) -> DeletionSet {
+    let config = Config {
+        data_dir: data.to_owned(),
+        sync_dir: Some(tree.to_owned()),
+        ..Default::default()
+    };
+    let pass = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    crate::sync::deletion::inventory(&started.root, &config, pass.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+/// Every tracked file of a bucket goes while the server is stopped and its directory stays, as
+/// when a bind mount of the bucket comes up empty. The start takes the files to approval however
+/// few they are, and a later pass of the run keeps them there while the bucket stays empty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bucket_emptied_while_stopped_waits_for_approval() {
+    let (data, tree, bucket) = tracked_pair().await;
+    for name in TRACKED {
+        fs::remove_file(tree.0.join(BUCKET).join(name)).unwrap();
+    }
+    let started = Started::start(&data.0, &tree.0).await;
+    let set = started.root.deletion_set().await.unwrap().unwrap();
+    assert_eq!((set.candidate_count, set.guarded), (2, true));
+    assert_eq!(set.completed_count, 0);
+    let again = inventory_again(&started, &data.0, &tree.0).await;
+    assert_eq!((again.candidate_count, again.guarded), (2, true));
+    for name in TRACKED {
+        assert!(exists(&started.catalog, &bucket, name).await, "{name}");
+    }
+    assert!(tree.0.join(BUCKET).is_dir());
+    started.close().await;
+}
+
+/// A bucket that keeps one of its tracked files is not emptied: the other file, deleted while
+/// the server was stopped, deletes its object at the start without approval, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_file_deleted_while_stopped_still_deletes_its_object() {
+    let (data, tree, bucket) = tracked_pair().await;
+    fs::remove_file(tree.0.join(BUCKET).join("first")).unwrap();
+    let started = Started::start(&data.0, &tree.0).await;
+    assert!(!exists(&started.catalog, &bucket, "first").await);
+    assert!(exists(&started.catalog, &bucket, "second").await);
+    started.close().await;
+}
+
+/// Emptying a bucket while the mirror runs is a deletion the user made in front of it, which the
+/// counts alone take to approval, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bucket_emptied_while_running_needs_no_approval() {
+    let (data, tree, bucket) = tracked_pair().await;
+    let started = Started::start(&data.0, &tree.0).await;
+    for name in TRACKED {
+        fs::remove_file(tree.0.join(BUCKET).join(name)).unwrap();
+    }
+    let set = inventory_again(&started, &data.0, &tree.0).await;
+    assert_eq!((set.candidate_count, set.guarded), (2, false));
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    assert_eq!(
+        crate::sync::deletion::execute(&started.catalog, &started.root, set, &stopping)
+            .await
+            .unwrap(),
+        2
+    );
+    for name in TRACKED {
+        assert!(!exists(&started.catalog, &bucket, name).await, "{name}");
+    }
+    started.close().await;
 }

@@ -4,7 +4,7 @@
 use crate::{
     fsutil,
     storage::sync_state::{
-        deletions::{Candidate, Removal},
+        deletions::{BucketGone, Candidate, Removal},
         root::RootLease,
     },
     sync::{
@@ -211,7 +211,9 @@ fn missing_above(root: &File, path: &Path) -> Presence {
         return Presence::Unobservable(Unobservable::InvalidPath);
     };
     match fsutil::child_directory(root, bucket, fsutil::DirectoryOpen::Existing) {
-        Ok(fsutil::Child::Missing) => Presence::Absent(Absence(Removal::BucketDirectory)),
+        Ok(fsutil::Child::Missing) => {
+            Presence::Absent(Absence(Removal::Bucket(BucketGone::Missing)))
+        }
         Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Absence(Removal::Files)),
         Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),
         Err(error) => lookup_failure(error),

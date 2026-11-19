@@ -11,13 +11,16 @@ use crate::{
         admin::{AdminError, BucketName, GenerationCondition},
         sync_state::{
             OpaqueId, Ordinal, PageLimit, SyncBinding,
-            deletions::{Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard, Removal},
+            deletions::{
+                BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard,
+                Removal,
+            },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
         },
     },
 };
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 mod presence;
 pub(super) use presence::{Missing, Presence, Unobservable, presence};
@@ -162,7 +165,7 @@ async fn count_candidates(
 ) -> Result<Option<Confirmed>, SyncError> {
     let naming = root.naming()?;
     let mut after = String::new();
-    let mut gone_buckets = std::collections::BTreeSet::new();
+    let mut buckets = BTreeMap::<BucketName, BucketTally>::new();
     loop {
         if interrupt.check() != Interrupted::No {
             return Ok(None);
@@ -171,6 +174,7 @@ async fn count_candidates(
             .deletion_inventory_page(inventory.clone(), after.clone())
             .await?;
         if page.is_empty() {
+            take_gone_buckets(root, inventory, &buckets);
             return Ok(Some(Confirmed::Same));
         }
         let baseline = page.len() as u64;
@@ -186,14 +190,12 @@ async fn count_candidates(
                 }
                 Ok(_) | Err(_) => Presence::Unobservable(Unobservable::NameMismatch),
             };
+            let tally = buckets.entry(candidate.bucket.clone()).or_default();
+            tally.tracked += 1;
             match presence {
                 Presence::Absent(absence) => {
                     let missing_file = absence.of(candidate);
-                    if missing_file.removal() == Removal::BucketDirectory
-                        && gone_buckets.insert(missing_file.candidate().bucket.clone())
-                    {
-                        bucket_directory_gone(&missing_file.candidate().bucket);
-                    }
+                    tally.saw_absent(missing_file.removal());
                     missing.push(missing_file);
                 }
                 Presence::Present => {}
@@ -226,18 +228,77 @@ async fn record_missing(
         .await?)
 }
 
-/// Reports a bucket whose whole directory is gone while the tree tracks files in it. The
-/// inventory takes those files to approval whatever their number, and nothing recreates the
-/// directory meanwhile.
-fn bucket_directory_gone(bucket: &BucketName) {
+/// What a complete inventory found of one bucket's tracked files.
+#[derive(Debug, Default)]
+struct BucketTally {
+    tracked: u64,
+    absent: u64,
+    directory_missing: bool,
+}
+
+impl BucketTally {
+    fn saw_absent(&mut self, removal: Removal) {
+        self.absent += 1;
+        match removal {
+            Removal::Bucket(BucketGone::Missing) => self.directory_missing = true,
+            Removal::Bucket(BucketGone::Emptied) | Removal::Files => {}
+        }
+    }
+
+    /// Whether the directory is there but none of the tracked files are.
+    fn emptied(&self) -> bool {
+        !self.directory_missing && self.absent == self.tracked
+    }
+}
+
+/// Takes to approval, whatever the counts, the files of each bucket that `buckets` shows went
+/// all at once, and warns about each such bucket: its directory is missing, or it has held none
+/// of its tracked files since the first complete inventory of this process. Both look exactly
+/// like the user deleting the files when a mount did not come up or came up empty. A bucket
+/// emptied while the mirror runs is left to the counts.
+fn take_gone_buckets(
+    root: &RootLease,
+    inventory: &mut crate::storage::sync_state::deletions::Inventory,
+    buckets: &BTreeMap<BucketName, BucketTally>,
+) {
+    let emptied = buckets
+        .iter()
+        .filter(|(_, tally)| tally.emptied())
+        .map(|(bucket, _)| bucket.clone())
+        .collect();
+    let since_start = root.emptied_since_start(emptied);
+    for (bucket, tally) in buckets {
+        let gone = if tally.directory_missing {
+            BucketGone::Missing
+        } else if since_start.contains(bucket) {
+            BucketGone::Emptied
+        } else {
+            continue;
+        };
+        warn_bucket_gone(bucket, gone);
+        inventory.saw_gone(Removal::Bucket(gone));
+    }
+}
+
+/// Reports a bucket whose tracked files all went at once. The inventory takes them to approval
+/// whatever their number; nothing recreates a missing directory meanwhile.
+fn warn_bucket_gone(bucket: &BucketName, gone: BucketGone) {
+    let (event, reason, remedy) = match gone {
+        BucketGone::Missing => (
+            "sync_bucket_directory_missing",
+            "The directory of a bucket with synchronized files is missing",
+            "Put the directory, or the mount that holds it, back to keep the objects; to delete them, approve the pending deletion set",
+        ),
+        BucketGone::Emptied => (
+            "sync_bucket_directory_emptied",
+            "The directory of a bucket holds none of its synchronized files, which went while the server was stopped",
+            "Put the files, or the mount that holds them, back to keep the objects; to delete them, approve the pending deletion set",
+        ),
+    };
     diagnostics::emit(
         LogLevel::Warn,
-        "sync_bucket_directory_missing",
-        serde_json::json!({
-            "bucket":bucket,"path":bucket,
-            "reason":"The directory of a bucket with synchronized files is missing",
-            "remedy":"Put the directory, or the mount that holds it, back to keep the objects; to delete them, approve the pending deletion set",
-        }),
+        event,
+        serde_json::json!({"bucket":bucket,"path":bucket,"reason":reason,"remedy":remedy}),
     );
 }
 

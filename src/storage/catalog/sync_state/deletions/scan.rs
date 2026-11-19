@@ -31,6 +31,12 @@ impl Inventory {
             Draft::Confirming { .. } => false,
         }
     }
+
+    /// Adds what the inventory saw gone that no single page shows, such as a bucket all of whose
+    /// tracked files went, which the pages count across.
+    pub(crate) fn saw_gone(&mut self, removal: Removal) {
+        self.removal = self.removal.and(removal);
+    }
 }
 
 /// What an inventory writes: a new set, or nothing while it confirms the root's earlier one.
