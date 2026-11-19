@@ -1109,7 +1109,10 @@ CLI `approve --deletion-set ID` and `resolve --conflict ID --revision ID --actio
 restore|discard --expected-generation N --operation-id ID` map exactly to these
 requests. `wait --timeout 10m --require-no-findings true` sends wait requests of
 at most a minute each until its own deadline, as described below. `status --view deletions|findings --revision
-ID --limit N --cursor ID` maps to the GET query; listing accepts the same page
+ID --limit N --cursor ID` maps to the GET query; without `--revision`, the CLI
+reads the summary first and requests the page at the `findings_revision` or
+`pending_deletion_revision` it reports, and a `--cursor` needs the revision of
+the page that returned it. Listing accepts the same page
 limit/cursor flags. Recovery resolve uses the exclusive recovery form and explicit
 confirmation flags above. Omit `--view` for the summary.
 All control JSON is capped at 64 KiB, rejects unknown fields and wrong types;

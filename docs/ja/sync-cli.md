@@ -21,16 +21,19 @@ gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID 
 ```
 
 大文字の値はプレースホルダーです。statusの対応するrevisionをそのまま指定します。
+一覧（`--view`）で`--revision`を省略すると、先にstatusを読み、そのstatusが示すrevision（`findings_revision`か`pending_deletion_revision`）でページを取得します。
+承認待ちの削除集合がなければ`pending_deletion_revision`はなく、コマンドはその旨を示して失敗します。
+ページを取得する前にrevisionが変わった場合は、statusをもう一度だけ読み直します。
 findingsは48文字、削除一覧と承認は32文字の小文字16進数です。
 削除対象の全ページを確認してから、同じrevisionを承認してください。
-`--cursor`は返された値を変更せず渡し、`--limit`には1～256を指定します。
+`--cursor`は返された値を変更せず、そのページの`--revision`と一緒に渡します。`--limit`には1～256を指定します。
 
 コマンドとサーバーは同じリリースのものを使います。0.20.0からは、コマンドが`x-gcs-mimic-version`で自分のバージョンを送り、
 サーバーは同期のルートのすべての応答に自分のバージョンを付けます。
 サーバーは、別のバージョンを送る要求やバージョンのない要求を、認証やカタログ待ちの前に400 `versionMismatch`で拒否します。
 コマンドは、別のバージョンの応答やバージョンのない応答を出力した後で拒否し、使うべきリリースを示します。
 0.20.0より前のサーバーはバージョンを送らないので、コマンドが拒否した時点で要求は処理済みです。変更の操作をやり直す前に状態を確認してください。
-CLIは1ページだけ表示し、古くなったrevisionを自動で取得し直して承認することはありません。
+CLIは1ページだけ表示し、指定されたrevisionが古くなっても取得し直して承認することはありません。
 
 競合一覧の初回はrevisionを省略します。続きは返された32文字の一覧revisionとcursorを使います。
 各項目の対象revisionは、一覧revisionとは別です。resolveは対象・操作・operation IDの明示指定を
@@ -85,7 +88,7 @@ waitは、反映できる変更をすべて反映した時点で成功します�
 失敗したwaitは、理由、一時停止なら記録された`paused_reason`、接続オプションを埋めた対処を`error`の診断で示します。
 例えば一時停止では`gcs-mimic sync rescan --endpoint https://127.0.0.1:4443`、競合では`gcs-mimic sync conflicts`、
 承認待ちの削除では、その削除集合のリビジョンを付けた`gcs-mimic sync status --view deletions --revision`を案内します。
-対処が示すfindingsと削除の一覧には、その応答が読んだリビジョンが入ります。
+対処が示すfindingsと削除の一覧には、その応答が読んだリビジョンが入ります。ログのようにリビジョンが手元にない対処は、`--revision`を省いた一覧を示します。
 対処、ログのイベント、ヘルスチェックが示すコマンドはすべて1つのコマンドの一覧から組み立て、その一覧のコマンドはすべてCLIのテストで解析できることを確かめています。
 
 認可のDB待ちと本文の準備にはcatalogの待機期限を使い、connectionのinactivityとして扱いません。

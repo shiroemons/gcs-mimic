@@ -101,18 +101,12 @@ pub(crate) fn paused_control_remedy() -> String {
 }
 
 /// Where the findings that the advice `at_hand` refers to are listed: the findings view at the
-/// revision at hand, or the status, which reports the revision.
+/// revision at hand, or without one, at the revision the status reports when it runs.
 fn findings_listing(at_hand: AtHand<'_>) -> String {
-    match at_hand.findings_revision {
-        Some(revision) => format!(
-            "the findings view lists them: {}",
-            Advised::Findings(revision)
-        ),
-        None => format!(
-            "the findings view lists them at the findings_revision that status reports: {}",
-            Advised::Status
-        ),
-    }
+    format!(
+        "the findings view lists them: {}",
+        Advised::Findings(at_hand.findings_revision)
+    )
 }
 
 /// What resumes synchronization after a pause for `reason`. The `sync_paused` event, the root-stop
@@ -386,13 +380,13 @@ impl WaitReason {
             Self::DeletionApproval => Some(match at_hand.deletion_revision {
                 Some(revision) => format!(
                     "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it: {}; or restore the files and wait again: {}",
-                    Advised::Deletions(revision),
+                    Advised::Deletions(Some(revision)),
                     Advised::Approve(revision),
                     Advised::Wait
                 ),
                 None => format!(
-                    "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set at the pending_deletion_revision that status reports, and approve it by that revision: {}; or restore the files and wait again: {}",
-                    Advised::Status,
+                    "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set, whose revision the approve subcommand takes as --deletion-set: {}; or restore the files and wait again: {}",
+                    Advised::Deletions(None),
                     Advised::Wait
                 ),
             }),

@@ -116,8 +116,8 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
             "Use the exact lowercase inspected revision: 48 characters for findings, 32 for deletions/approval/conflicts",
         ),
         (
-            vec!["deletions", "--endpoint", endpoint],
-            "Pages require the matching --revision from status",
+            vec!["deletions", "--endpoint", endpoint, "--cursor", "x"],
+            "A --cursor continues the pages of one revision; supply the --revision of the page that returned it",
         ),
         (
             vec!["conflicts", "--endpoint", endpoint, "--limit", "0"],
@@ -240,7 +240,7 @@ fn pages_preserve_opaque_cursors_without_query_injection() {
             .ends_with("&cursor=x%26revision%3Dy%2B%2F&limit=2")
     );
     assert!(options.body.is_none());
-    assert!(parse_cmd(&["deletions"]).is_err());
+    assert!(options.latest.is_none());
     assert!(
         parse(&[
             "status",
@@ -481,9 +481,100 @@ fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, S
     });
     let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
     let result = options
-        .execute(options.body.as_ref(), options.timeout)
+        .execute(&options.path, options.body.as_ref(), options.timeout)
         .map(|reply| (reply.status, reply.body));
     (result, peer.join().unwrap())
+}
+
+/// A server for one test that answers its requests in turn with `answers`, each a status line
+/// and a JSON body from this release, and returns the target of each request.
+fn page_server(answers: Vec<(&'static str, Value)>) -> (String, thread::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let peer = thread::spawn(move || {
+        answers
+            .into_iter()
+            .map(|(status, body)| {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0; 1024];
+                while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let read = stream.read(&mut buffer).unwrap();
+                    assert_ne!(read, 0);
+                    bytes.extend_from_slice(&buffer[..read]);
+                }
+                let json = body.to_string();
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n{}: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+                        handshake::VERSION_HEADER,
+                        gcs_mimic::VERSION,
+                        json.len()
+                    )
+                    .as_bytes(),
+                );
+                let head = String::from_utf8(bytes).unwrap();
+                head.split(' ').nth(1).unwrap().to_owned()
+            })
+            .collect()
+    });
+    (endpoint, peer)
+}
+
+/// A view without --revision reads the status first and lists the page at the revision it
+/// reports, keeping the page size; when that revision changed before the page was read, it reads
+/// the status once more. A deletion view with no set awaiting approval says so, and a cursor,
+/// which belongs to one revision, needs that revision.
+#[test]
+fn a_view_without_a_revision_lists_the_page_at_the_revision_status_reports() {
+    let findings = "0123456789abcdef0123456789abcdef0123456789abcdef";
+    let newer = "0123456789abcdef0123456789abcdef0123456789abcde0";
+    let (endpoint, server) = page_server(vec![
+        ("200 OK", json!({"findings_revision":findings})),
+        ("409 Conflict", json!({"error":{"code":409}})),
+        ("200 OK", json!({"findings_revision":newer})),
+        ("200 OK", json!({"view":"findings","revision":newer})),
+    ]);
+    let options = parse(&[
+        "status",
+        "--endpoint",
+        &endpoint,
+        "--view",
+        "findings",
+        "--limit",
+        "2",
+    ])
+    .unwrap();
+    assert_eq!(options.path, "/_internal/sync");
+    let page = options.latest.as_ref().unwrap();
+    let reply = options.latest_page(page).unwrap();
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.body["revision"], newer);
+    assert_eq!(
+        server.join().unwrap(),
+        [
+            "/_internal/sync".to_owned(),
+            format!("/_internal/sync?view=findings&revision={findings}&limit=2"),
+            "/_internal/sync".to_owned(),
+            format!("/_internal/sync?view=findings&revision={newer}&limit=2"),
+        ]
+    );
+
+    let (endpoint, server) =
+        page_server(vec![("200 OK", json!({"pending_deletion_revision":null}))]);
+    let options = parse(&["deletions", "--endpoint", &endpoint]).unwrap();
+    let Err(CliError::Diagnostics(refused)) = options.latest_page(options.latest.as_ref().unwrap())
+    else {
+        panic!("a deletion view without a pending set must be refused with a diagnostic");
+    };
+    assert_eq!(
+        refused.errors[0].fix,
+        "No deletion set awaits approval: status reports no pending_deletion_revision"
+    );
+    assert_eq!(server.join().unwrap(), ["/_internal/sync"]);
 }
 
 /// The status and reason a test server answers one wait request with, at once.

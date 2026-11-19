@@ -16,17 +16,18 @@ use std::fmt;
 pub const ENDPOINT: &str = "--endpoint URL";
 
 /// A `gcs-mimic sync` command, complete but for [`ENDPOINT`]. A revision it names comes from
-/// what the advice has at hand; advice without one names [`Advised::Status`], which reports it.
+/// what the advice has at hand. A view without one reads the revision that the status reports
+/// when the command runs; an approval always names the revision of the set it approves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Advised<'a> {
     Status,
     Rescan,
     Wait,
     Conflicts,
-    /// The findings view at this findings revision.
-    Findings(&'a str),
-    /// The deletion view of the deletion set at this revision.
-    Deletions(&'a str),
+    /// The findings view at this findings revision, or at the current one.
+    Findings(Option<&'a str>),
+    /// The deletion view of the deletion set at this revision, or of the one awaiting approval.
+    Deletions(Option<&'a str>),
     /// The approval of the deletion set at this revision.
     Approve(&'a str),
 }
@@ -34,24 +35,32 @@ pub enum Advised<'a> {
 impl fmt::Display for Advised<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("gcs-mimic sync ")?;
+        let view = |f: &mut fmt::Formatter<'_>, view, revision: Option<&str>| {
+            write!(f, "status --view {view}")?;
+            revision.map_or(Ok(()), |revision| write!(f, " --revision {revision}"))
+        };
         match self {
             Self::Status => f.write_str("status")?,
             Self::Rescan => f.write_str("rescan")?,
             Self::Wait => f.write_str("wait")?,
             Self::Conflicts => f.write_str("conflicts")?,
-            Self::Findings(revision) => write!(f, "status --view findings --revision {revision}")?,
-            Self::Deletions(revision) => {
-                write!(f, "status --view deletions --revision {revision}")?;
-            }
+            Self::Findings(revision) => view(f, "findings", *revision)?,
+            Self::Deletions(revision) => view(f, "deletions", *revision)?,
             Self::Approve(revision) => write!(f, "approve --deletion-set {revision}")?,
         }
         write!(f, " {ENDPOINT}")
     }
 }
 
-/// `advice` with [`ENDPOINT`] replaced by `connection`, the options that reached the server.
+/// `advice` with [`ENDPOINT`] replaced by `connection`, the options that reached the server. An
+/// empty `connection`, from a command that found the server without options, drops the
+/// placeholder with the space before it, since the command finds the server again.
 pub fn with_connection(advice: &str, connection: &str) -> String {
-    advice.replace(ENDPOINT, connection)
+    if connection.is_empty() {
+        advice.replace(&format!(" {ENDPOINT}"), "")
+    } else {
+        advice.replace(ENDPOINT, connection)
+    }
 }
 
 /// The revisions an answer has at hand, which the advice it gives fills in.
@@ -78,8 +87,10 @@ pub fn commands() -> Vec<String> {
         Advised::Rescan,
         Advised::Wait,
         Advised::Conflicts,
-        Advised::Findings(SAMPLE_FINDINGS_REVISION),
-        Advised::Deletions(SAMPLE_DELETION_REVISION),
+        Advised::Findings(Some(SAMPLE_FINDINGS_REVISION)),
+        Advised::Findings(None),
+        Advised::Deletions(Some(SAMPLE_DELETION_REVISION)),
+        Advised::Deletions(None),
         Advised::Approve(SAMPLE_DELETION_REVISION),
     ];
     // Naming every variant makes a new one fail to compile here, beside the list it must join.

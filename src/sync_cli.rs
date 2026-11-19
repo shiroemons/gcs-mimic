@@ -26,8 +26,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait --endpoint http(s)://HOST:PORT [OPTIONS]
-       gcs-mimic sync status --endpoint URL --view deletions|findings --revision REVISION [--cursor CURSOR] [--limit N]
-       gcs-mimic sync deletions|findings --endpoint URL --revision REVISION [--cursor CURSOR] [--limit N] (the same pages)
+       gcs-mimic sync status --endpoint URL --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
+       gcs-mimic sync deletions|findings --endpoint URL [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
        gcs-mimic sync approve --endpoint URL --deletion-set REVISION [OPTIONS]
        gcs-mimic sync conflicts --endpoint URL [--revision REVISION] [--cursor CURSOR] [--limit N]
        gcs-mimic sync resolve --endpoint URL --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
@@ -50,8 +50,10 @@ Use HTTPS outside loopback to protect the token. HTTPS verifies
 the embedded development CA or the supplied CA and the endpoint hostname.
 The token file contains one local bearer token (at most 8192 bytes), overriding
 the CLI-only GCSM_SYNC_TOKEN environment variable when set.
-Status and deletions print one bounded JSON page. Copy next_cursor unchanged;
-approval requires the exact inspected revision, and stale revisions fail.
+Status and deletions print one bounded JSON page. Without --revision, a view
+reads the status first and lists the page at the revision it reports. Copy
+next_cursor unchanged with the revision of its page; approval requires the
+exact inspected revision, and stale revisions fail.
 No data directory, server config, ambient proxy or Google credentials are opened.
 Rescan and approval are not retried; a timeout may leave accepted work running.
 Inspect status before retrying. Recovery discard requires exactly one matching
@@ -218,7 +220,85 @@ impl View {
             Self::Findings => "findings",
         }
     }
+
+    /// The revision of this view's pages that the status `answer` reports.
+    fn revision_in(self, answer: &Value) -> Result<&str, Diagnostics> {
+        let field = match self {
+            Self::Deletions => "pending_deletion_revision",
+            Self::Findings => "findings_revision",
+        };
+        let len = revision_len(Some(Command::List(Listing::View(self))));
+        match (self, answer.get(field).and_then(Value::as_str)) {
+            (_, Some(revision)) if lower_hex(revision, len) => Ok(revision),
+            (Self::Deletions, None) => Err(fail(
+                "No deletion set awaits approval: status reports no pending_deletion_revision",
+            )),
+            (Self::Deletions | Self::Findings, _) => Err(fail(format!(
+                "Status reported no {field} this command can read; inspect its JSON response"
+            ))),
+        }
+    }
 }
+
+/// A view page read at the revision that the status reports when the command runs.
+#[derive(Debug, PartialEq, Eq)]
+struct LatestPage {
+    view: View,
+    paging: Paging,
+}
+
+/// The paging options of a listing: where its page starts and how many items it holds.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Paging {
+    /// The cursor as returned, encoded once for the query.
+    cursor: Option<String>,
+    limit: Option<usize>,
+}
+
+impl Paging {
+    fn read(flags: &mut Flags<'_>) -> Result<Self, Diagnostics> {
+        let cursor = flags
+            .take(Flag::Cursor)
+            .map(gcs_mimic::auth::signature::encode_query_component);
+        let limit = flags
+            .take(Flag::Limit)
+            .map(|limit| {
+                limit
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| (1..=256).contains(n))
+                    .ok_or_else(|| fail("--limit must be 1 through 256"))
+            })
+            .transpose()?;
+        Ok(Self { cursor, limit })
+    }
+
+    /// The path of the page of `listing` at `revision`.
+    fn path(&self, listing: Listing, revision: Option<&str>) -> String {
+        let (path, view) = match listing {
+            Listing::Conflicts => ("/_internal/sync/conflicts", None),
+            Listing::View(view) => (STATUS_PATH, Some(format!("view={}", view.as_str()))),
+        };
+        let query: Vec<String> = view
+            .into_iter()
+            .chain(revision.map(|revision| format!("revision={revision}")))
+            .chain(
+                self.cursor
+                    .as_ref()
+                    .map(|cursor| format!("cursor={cursor}")),
+            )
+            .chain(self.limit.map(|limit| format!("limit={limit}")))
+            .collect();
+        if query.is_empty() {
+            path.to_owned()
+        } else {
+            format!("{path}?{}", query.join("&"))
+        }
+    }
+}
+
+/// The status control, which also lists the views.
+const STATUS_PATH: &str = "/_internal/sync";
 
 impl Command {
     /// `None` names no operation. That is reported where the operation is chosen, after the
@@ -354,8 +434,10 @@ impl Endpoint {
 
 struct Options {
     endpoint: Endpoint,
+    /// The first request; for a page at the latest revision, the status that reports it.
     path: String,
     body: Option<Value>,
+    latest: Option<LatestPage>,
     token: Option<hyper::header::HeaderValue>,
     /// The token file named on the command line, which a suggested command names again.
     token_file: Option<PathBuf>,
@@ -386,12 +468,13 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
             })
             .transpose()?;
     }
-    let reply = match options.wait {
-        Some(unmapped) => {
+    let reply = match (options.wait, &options.latest) {
+        (Some(unmapped), _) => {
             let started = std::time::Instant::now();
             options.wait_until_settled(unmapped, || started.elapsed())?
         }
-        None => options.execute(options.body.as_ref(), options.timeout)?,
+        (None, Some(page)) => options.latest_page(page)?,
+        (None, None) => options.execute(&options.path, options.body.as_ref(), options.timeout)?,
     };
     // The JSON document is printed whatever the outcome, as the command always has.
     let bytes = serde_json::to_vec(&reply.body).map_err(io::Error::other)?;
@@ -471,7 +554,7 @@ impl<'a> WaitOutcome<'a> {
                     format!(
                         "{count} {objects} in the API cannot be written to the sync directory because of {names} and {stay} reachable only through the API; list {them} with {}",
                         advice::with_connection(
-                            &advice::Advised::Findings(revision).to_string(),
+                            &advice::Advised::Findings(Some(revision)).to_string(),
                             connection
                         )
                     ),
@@ -586,36 +669,13 @@ impl Options {
             )
             .into());
         }
-        let (path, body) = match (command, revision) {
-            (Some(Command::Status), None) => ("/_internal/sync".to_owned(), None),
-            (Some(Command::Rescan), None) => ("/_internal/sync/rescan".to_owned(), Some(json!({}))),
-            // Each request of a wait carries its own body, with the time left at that request.
-            (Some(Command::Wait), None) => ("/_internal/sync/wait".to_owned(), None),
-            (Some(Command::Resolve), revision) => (
-                "/_internal/sync/resolve".to_owned(),
-                Some(resolve_body(revision, &mut flags)?),
-            ),
-            (Some(Command::Approve), revision) => (
-                "/_internal/sync/approve".to_owned(),
-                Some(
-                    json!({"deletion_set":revision.ok_or_else(|| fail("Approval requires --deletion-set REVISION from an inspected deletion set"))?}),
-                ),
-            ),
-            (Some(Command::List(listing)), revision) => {
-                (page_path(listing, revision, &mut flags)?, None)
-            }
-            (Some(Command::Status | Command::Rescan | Command::Wait), Some(_)) | (None, _) => {
-                return Err(fail(
-                    "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
-                )
-                .into());
-            }
-        };
+        let ControlRequest { path, body, latest } = request(command, revision, &mut flags)?;
         flags.finish()?;
         Ok(Self {
             endpoint,
             path,
             body,
+            latest,
             token,
             token_file: token_file.map(PathBuf::from),
             timeout: Duration::from_millis(timeout),
@@ -649,7 +709,11 @@ impl Options {
                 .saturating_sub(elapsed())
                 .clamp(Duration::from_millis(1), SERVER_WAIT);
             let millis = u64::try_from(slice.as_millis()).unwrap_or(u64::MAX);
-            let reply = self.execute(Some(&unmapped.body(millis)), slice + WAIT_MARGIN)?;
+            let reply = self.execute(
+                &self.path,
+                Some(&unmapped.body(millis)),
+                slice + WAIT_MARGIN,
+            )?;
             let Some(reason) = WaitOutcome::read(&reply.body)
                 .reason
                 .filter(|reason| reason.is_in_progress())
@@ -676,7 +740,36 @@ impl Options {
         }
     }
 
-    fn execute(&self, body: Option<&Value>, timeout: Duration) -> Result<Reply, CliError> {
+    /// Reads `page` at the revision that the status reports, and once more if that revision
+    /// changed before the page was read, at the one the status then reports.
+    fn latest_page(&self, page: &LatestPage) -> Result<Reply, CliError> {
+        let reply = self.page_at_reported_revision(page)?;
+        if reply.status == StatusCode::CONFLICT {
+            return self.page_at_reported_revision(page);
+        }
+        Ok(reply)
+    }
+
+    fn page_at_reported_revision(&self, page: &LatestPage) -> Result<Reply, CliError> {
+        let status = self.execute(STATUS_PATH, None, self.timeout)?;
+        // A status the command cannot read a revision from is the answer: it is printed, and a
+        // server of another release is reported as such.
+        if !status.status.is_success()
+            || handshake::check(&status.headers, handshake::Peer::Server).is_err()
+        {
+            return Ok(status);
+        }
+        let revision = page.view.revision_in(&status.body)?;
+        let path = page.paging.path(Listing::View(page.view), Some(revision));
+        self.execute(&path, None, self.timeout)
+    }
+
+    fn execute(
+        &self,
+        path: &str,
+        body: Option<&Value>,
+        timeout: Duration,
+    ) -> Result<Reply, CliError> {
         let client = match &self.endpoint.transport {
             Transport::Https {
                 ca_cert: Some(path),
@@ -718,9 +811,9 @@ impl Options {
                     let stream = tokio_rustls::TlsConnector::from(client)
                         .connect(name, stream)
                         .await?;
-                    self.exchange(stream, body).await
+                    self.exchange(stream, path, body).await
                 } else {
-                    self.exchange(stream, body).await
+                    self.exchange(stream, path, body).await
                 }
             })
             .await
@@ -739,6 +832,7 @@ impl Options {
     async fn exchange(
         &self,
         stream: impl AsyncRead + AsyncWrite + Unpin,
+        path: &str,
         body: Option<&Value>,
     ) -> Result<Reply, CliError> {
         let (mut sender, connection) = http1::Builder::new()
@@ -749,7 +843,7 @@ impl Options {
             .map_err(io::Error::other)?;
         let mut request = Request::builder()
             .method(if body.is_some() { "POST" } else { "GET" })
-            .uri(&self.path)
+            .uri(path)
             .header("Host", self.endpoint.authority.as_str())
             .header("Connection", "close")
             .header("Accept", "application/json")
@@ -827,43 +921,69 @@ fn response_json(status: StatusCode, bytes: &[u8]) -> Result<Value, NonJsonRespo
     serde_json::from_slice(bytes).map_err(|cause| NonJsonResponse { status, cause })
 }
 
-fn page_path(
-    listing: Listing,
+/// What a command asks first, and for a view page at the latest revision, the page it then reads.
+struct ControlRequest {
+    path: String,
+    body: Option<Value>,
+    latest: Option<LatestPage>,
+}
+
+impl ControlRequest {
+    fn once(path: &str, body: Option<Value>) -> Self {
+        Self {
+            path: path.to_owned(),
+            body,
+            latest: None,
+        }
+    }
+}
+
+/// The request of `command` with `revision`, taking the options it reads from `flags`.
+fn request(
+    command: Option<Command>,
     revision: Option<&str>,
     flags: &mut Flags<'_>,
-) -> Result<String, Diagnostics> {
-    let mut query = Vec::new();
-    let path = match listing {
-        Listing::Conflicts => "/_internal/sync/conflicts",
-        Listing::View(view) => {
-            query.push(format!("view={}", view.as_str()));
-            if revision.is_none() {
-                return Err(fail("Pages require the matching --revision from status"));
-            }
-            "/_internal/sync"
+) -> Result<ControlRequest, Diagnostics> {
+    Ok(match (command, revision) {
+        (Some(Command::Status), None) => ControlRequest::once(STATUS_PATH, None),
+        (Some(Command::Rescan), None) => {
+            ControlRequest::once("/_internal/sync/rescan", Some(json!({})))
         }
-    };
-    if let Some(revision) = revision {
-        query.push(format!("revision={revision}"));
-    }
-    if let Some(cursor) = flags.take(Flag::Cursor) {
-        query.push(format!(
-            "cursor={}",
-            gcs_mimic::auth::signature::encode_query_component(cursor)
-        ));
-    }
-    if let Some(limit) = flags.take(Flag::Limit) {
-        let limit = limit
-            .parse::<usize>()
-            .ok()
-            .filter(|n| (1..=256).contains(n))
-            .ok_or_else(|| fail("--limit must be 1 through 256"))?;
-        query.push(format!("limit={limit}"));
-    }
-    Ok(if query.is_empty() {
-        path.to_owned()
-    } else {
-        format!("{path}?{}", query.join("&"))
+        // Each request of a wait carries its own body, with the time left at that request.
+        (Some(Command::Wait), None) => ControlRequest::once("/_internal/sync/wait", None),
+        (Some(Command::Resolve), revision) => ControlRequest::once(
+            "/_internal/sync/resolve",
+            Some(resolve_body(revision, flags)?),
+        ),
+        (Some(Command::Approve), revision) => ControlRequest::once(
+            "/_internal/sync/approve",
+            Some(
+                json!({"deletion_set":revision.ok_or_else(|| fail("Approval requires --deletion-set REVISION from an inspected deletion set"))?}),
+            ),
+        ),
+        (Some(Command::List(Listing::View(view))), None) => {
+            let paging = Paging::read(flags)?;
+            // A cursor belongs to the revision of the page that returned it, which the status
+            // may no longer report.
+            if paging.cursor.is_some() {
+                return Err(fail(
+                    "A --cursor continues the pages of one revision; supply the --revision of the page that returned it",
+                ));
+            }
+            ControlRequest {
+                path: STATUS_PATH.to_owned(),
+                body: None,
+                latest: Some(LatestPage { view, paging }),
+            }
+        }
+        (Some(Command::List(listing)), revision) => {
+            ControlRequest::once(&Paging::read(flags)?.path(listing, revision), None)
+        }
+        (Some(Command::Status | Command::Rescan | Command::Wait), Some(_)) | (None, _) => {
+            return Err(fail(
+                "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+            ));
+        }
     })
 }
 

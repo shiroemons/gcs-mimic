@@ -23,12 +23,17 @@ gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID 
 ```
 
 The uppercase values above are placeholders: copy the matching exact revision
-from status. Findings revisions contain 48 lowercase hex characters and bind
+from status. A view given without `--revision` reads the status first and lists
+the page at the revision it reports, `findings_revision` or
+`pending_deletion_revision`; the latter is absent while no deletion set awaits
+approval, which the command reports. When that revision changes before the page
+is read, it reads the status once more. Findings revisions contain 48 lowercase hex characters and bind
 the current observation/session; deletion revisions contain 32. Inspect every
-fixed deletion page before approval. Supply `--cursor` exactly as returned and
+fixed deletion page before approval. Supply `--cursor` exactly as returned, with
+the `--revision` of the page that returned it, and
 `--limit 1..256`; the client encodes the cursor once and prints only one page.
 A changed revision or stale approval fails; the CLI never substitutes a fresh
-revision or automatically retries a mutation.
+revision for one given or automatically retries a mutation.
 
 The command and the server must come from the same release. Since 0.20.0 the
 command sends its version in `x-gcs-mimic-version` and the server answers every
@@ -144,7 +149,8 @@ filled in, such as `gcs-mimic sync rescan --endpoint https://127.0.0.1:4443` for
 a pause, `gcs-mimic sync conflicts` for conflicts and
 `gcs-mimic sync status --view deletions --revision` with the revision of the
 deletion set awaiting approval. A remedy names the findings view and the deletion
-view with the revision its answer read; every command a remedy, a log event or the
+view with the revision its answer read, and without one, such as in a log, the
+view without `--revision`; every command a remedy, a log event or the
 healthcheck names is rendered from one list of commands, each of which this
 command's tests parse.
 
