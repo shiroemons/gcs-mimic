@@ -486,6 +486,11 @@ for platform in "$@"; do
   compose_wait() {
     sync_wait docker compose -p "$project" exec -T gcs
   }
+  compose_object() {
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+      "http://$address/storage/v1/b/compose-bucket/o/$1?alt=media" >"$work/compose-actual"
+    cmp "$2" "$work/compose-actual"
+  }
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -H 'Content-Type: application/json' --data '{"name":"compose-bucket"}' \
     "http://$address/storage/v1/b?project=local-project" >/dev/null
@@ -503,16 +508,54 @@ for platform in "$@"; do
   printf 'from host' >"$GCSM_SYNC_DIR/compose-bucket/host.txt"
   printf 'from host' >"$GCSM_SYNC_DIR/compose-bucket/a:b.txt"
   compose_wait
-  for name in host.txt a%3Ab.txt; do
-    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
-      "http://$address/storage/v1/b/compose-bucket/o/$name?alt=media" >"$work/compose-actual"
-    cmp "$work/compose-host" "$work/compose-actual"
-  done
+  compose_object host.txt "$work/compose-host"
+  compose_object a%3Ab.txt "$work/compose-host"
+  # Without a restart, a host edit changes the object, a host deletion removes it (one object, far
+  # below the deletion guard's 100), and an API overwrite replaces the host file.
+  printf 'edited on host' >"$work/compose-edited"
+  cp "$work/compose-edited" "$GCSM_SYNC_DIR/compose-bucket/host.txt"
+  rm "$GCSM_SYNC_DIR/compose-bucket/a:b.txt"
+  printf 'overwritten through the api' >"$work/compose-overwritten"
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/compose-overwritten" \
+    "http://$address/upload/storage/v1/b/compose-bucket/o?uploadType=media&name=docs%2Fapi.txt" >/dev/null
+  compose_wait
+  compose_object host.txt "$work/compose-edited"
+  expect_status GET /storage/v1/b/compose-bucket/o/a%3Ab.txt 404
+  cmp "$work/compose-overwritten" "$GCSM_SYNC_DIR/compose-bucket/docs/api.txt"
+  # A restart keeps what the mirror tracks. A host edit and a host deletion made while the server is
+  # stopped reach the API as an update and a deletion; a first merge would instead keep the object
+  # with the edit as a conflict, which fails the wait, and export the deleted file again. Startup
+  # switches no directory, so the bind-mounted root keeps its identity across the restart.
+  docker compose -p "$project" stop --timeout 15
+  printf 'edited while stopped' >"$work/compose-stopped"
+  cp "$work/compose-stopped" "$GCSM_SYNC_DIR/compose-bucket/host.txt"
+  rm "$GCSM_SYNC_DIR/compose-bucket/docs/api.txt"
+  docker compose -p "$project" up --detach --no-build --no-recreate --wait --wait-timeout 60
+  [[ $(docker compose -p "$project" ps --quiet gcs) == "$service" ]] || exit 1
+  address=$(docker compose -p "$project" port gcs 4443)
+  compose_wait
+  compose_object host.txt "$work/compose-stopped"
+  expect_status GET /storage/v1/b/compose-bucket/o/docs%2Fapi.txt 404
+  [[ ! -e $GCSM_SYNC_DIR/compose-bucket/docs/api.txt ]] || {
+    echo 'A file deleted while the server was stopped was exported again' >&2
+    exit 1
+  }
+  docker compose -p "$project" exec -T gcs gcs-mimic sync status | jq -e '.root_change == null' >/dev/null || {
+    echo 'sync status reports a change of the synchronized directory after a restart' >&2
+    exit 1
+  }
+  docker compose -p "$project" logs --no-color --no-log-prefix gcs >"$work/compose-log"
+  jq -Rse '[split("\n")[] | fromjson? | .event?]
+    | (map(select(. == "ready")) | length) == 2 and all(. != "sync_root_switched")' \
+    "$work/compose-log" >/dev/null || {
+    echo 'Expected two starts and no sync_root_switched event' >&2
+    exit 1
+  }
   docker compose -p "$project" down --volumes
   project=
   unset GCSM_SYNC_DIR GCSM_UID GCSM_DATA_DIR
   export COMPOSE_FILE=compose.yaml:compose.http.yaml
-  echo "PASS: $platform compose.sync.yaml as written: up --wait returns healthy with sync.state running, API writes (colon name included) are files after sync wait, host-created files (colon name included) are objects after sync wait"
+  echo "PASS: $platform compose.sync.yaml as written: up --wait returns healthy with sync.state running, API writes (colon name included) are files after sync wait, host-created files (colon name included) are objects after sync wait; on the bind mount without a restart a host edit updates and a host deletion removes the object and an API overwrite replaces the file; across a restart an edit and a deletion made while stopped are applied, with no first merge and no sync_root_switched"
 
   # The strict local recipe must work as written: application servers on the unpublished trusted
   # listener, the host and browsers on the published main listener, URLs signed by the test signer.
