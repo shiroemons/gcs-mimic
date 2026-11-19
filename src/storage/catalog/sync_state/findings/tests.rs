@@ -687,6 +687,75 @@ async fn name_findings_keep_an_export_conflict_of_the_same_incarnation() {
     catalog.close().await.unwrap();
 }
 
+/// Recording what a finding already says only reads, so the mirror can observe every finding
+/// again on each pass without contending with API writes: it succeeds while another connection
+/// holds the catalog's write lock, for a name finding and for an export conflict that a name
+/// finding leaves in place. A finding that changes still writes once the lock is free.
+#[tokio::test]
+async fn recording_an_unchanged_finding_takes_no_write_lock() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let named = ObjectName::new("named").unwrap();
+    let conflicted = ObjectName::new("conflicted").unwrap();
+    let named_generation = publish(&catalog, &data, &bucket, named.as_str()).await;
+    let conflicted_generation = publish(&catalog, &data, &bucket, conflicted.as_str()).await;
+    lease
+        .record_finding(
+            binding.clone(),
+            named.clone(),
+            named_generation,
+            Reason::Collision,
+        )
+        .await
+        .unwrap();
+    lease
+        .record_export_conflict(binding.clone(), conflicted.clone(), conflicted_generation)
+        .await
+        .unwrap();
+    let recorded = revisions(&lease).await;
+
+    let writer = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    for (name, generation) in [
+        (&named, named_generation),
+        (&conflicted, conflicted_generation),
+    ] {
+        lease
+            .record_finding(binding.clone(), name.clone(), generation, Reason::Collision)
+            .await
+            .unwrap();
+    }
+    writer.execute_batch("ROLLBACK").unwrap();
+    drop(writer);
+    assert_eq!(revisions(&lease).await, recorded);
+
+    lease
+        .record_finding(
+            binding.clone(),
+            named.clone(),
+            named_generation,
+            Reason::UnsafeEntry,
+        )
+        .await
+        .unwrap();
+    assert_eq!(revisions(&lease).await.0, recorded.0 + 1);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 /// A collision carried over from schema 57 gives way to whichever finding observes the object
 /// again on the same generation. Once an export conflict is recorded, in either order, a name
 /// finding no longer replaces it.

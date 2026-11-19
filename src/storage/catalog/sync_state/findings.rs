@@ -13,7 +13,7 @@ use crate::{
     storage::admin::{AdminError, Generation, ObjectName},
     sync::mapping::Reason,
 };
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_findings (
     ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,6 +215,71 @@ pub(crate) enum FindingEffect {
     Silent,
 }
 
+/// What a finding row says about its object: the incarnation and generation it describes, why
+/// the object stays out of the tree, and the bucket project that owns the row.
+#[derive(PartialEq, Eq)]
+struct FindingRow {
+    incarnation: Incarnation,
+    generation: Generation,
+    kind: FindingKind,
+    owner: Option<String>,
+}
+
+/// A finding row as it stands before a name finding is recorded over it.
+struct StoredFinding {
+    row: FindingRow,
+    /// Whether `sync_finding_owners` holds the row's owner for the row's incarnation.
+    owner_recorded: bool,
+}
+
+impl StoredFinding {
+    /// The current row of one object, and whether its owner is recorded for its incarnation.
+    const SELECT: &str = "SELECT f.incarnation,f.generation,f.reason,f.owner_project,EXISTS(SELECT 1 FROM sync_finding_owners o WHERE o.ordinal=f.ordinal AND o.incarnation=f.incarnation AND o.owner_project IS f.owner_project) FROM sync_findings f WHERE f.root_id=?1 AND f.bucket=?2 AND f.name=?3";
+
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            row: FindingRow {
+                incarnation: row.get(0)?,
+                generation: row.get(1)?,
+                kind: row.get(2)?,
+                owner: row.get(3)?,
+            },
+            owner_recorded: row.get(4)?,
+        })
+    }
+}
+
+/// What recording a name finding writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FindingWrite {
+    /// The row and its owner already say what the finding would: the transaction only reads,
+    /// so it neither moves the findings revision nor waits for the write lock.
+    Nothing,
+    /// The row stays, but its owner is missing for its incarnation.
+    Owner,
+    /// The row is missing or says something else.
+    Row,
+}
+
+impl FindingWrite {
+    /// The one decision of what recording `observed` writes over `stored`. An export conflict on
+    /// the same incarnation keeps its row, whatever the generation or reason observed: the edit
+    /// it holds is in neither the API nor the tree's record, and a name finding only reports.
+    fn of(stored: Option<&StoredFinding>, observed: &FindingRow) -> Self {
+        let Some(stored) = stored else {
+            return Self::Row;
+        };
+        let kept = stored.row == *observed
+            || stored.row.kind == FindingKind::ExportConflict
+                && stored.row.incarnation == observed.incarnation;
+        match (kept, stored.owner_recorded) {
+            (false, _) => Self::Row,
+            (true, true) => Self::Nothing,
+            (true, false) => Self::Owner,
+        }
+    }
+}
+
 fn remember_owner(
     transaction: &rusqlite::Transaction<'_>,
     root: RootId,
@@ -267,8 +332,9 @@ impl RootLease {
     /// conflict removes the findings of its incarnation, and a newer incarnation replaces it.
     /// An unclassified collision carried over from schema 57 is replaced, because the name
     /// reason classifies it; an edited file behind it is recorded as an export conflict again by
-    /// the next ingestion. Recording the same finding again writes nothing, so findings keep
-    /// their revision.
+    /// the next ingestion. Recording what the row already says only reads, so the findings keep
+    /// their revision and the mirror can observe every finding again on each pass without
+    /// contending with API writes for the write lock.
     pub(crate) async fn record_finding(
         &self,
         binding: SyncBinding,
@@ -288,11 +354,23 @@ impl RootLease {
             if record.generation != generation.get() {
                 return Err(AdminError::Precondition);
             }
-            sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
-                ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
-                WHERE (incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project)
-                AND NOT (reason=?7 AND incarnation=excluded.incarnation)", params![root,binding.bucket,name,binding.incarnation,generation,FindingKind::Unmapped(reason),FindingKind::ExportConflict]).map_err(unavailable)?;
-            remember_owner(&tx,root,binding.bucket.as_str(),name.as_str())?;
+            let observed = FindingRow {
+                incarnation: binding.incarnation,
+                generation,
+                kind: FindingKind::Unmapped(reason),
+                owner: sql::optional_scalar(&tx, "SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?1 AND i.incarnation=?2", params![binding.bucket, binding.incarnation]).map_err(unavailable)?,
+            };
+            let stored = sql::row(&tx, StoredFinding::SELECT, params![root, binding.bucket, name], StoredFinding::read).optional().map_err(unavailable)?;
+            match FindingWrite::of(stored.as_ref(), &observed) {
+                FindingWrite::Nothing => {}
+                FindingWrite::Owner => remember_owner(&tx, root, binding.bucket.as_str(), name.as_str())?,
+                FindingWrite::Row => {
+                    sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,?7)
+                        ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project",
+                        params![root, binding.bucket, name, observed.incarnation, observed.generation, observed.kind, observed.owner]).map_err(unavailable)?;
+                    remember_owner(&tx, root, binding.bucket.as_str(), name.as_str())?;
+                }
+            }
             tx.commit().map_err(unavailable)?;
             Ok::<_, AdminError>(())
         }).await?;
