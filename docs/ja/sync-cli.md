@@ -5,10 +5,11 @@
 [English](../en/slices/sync-cli.md) · [機能表](feature-matrix.md)
 
 0.8.0で追加した`sync`コマンドは、稼働中サーバーの管理APIへ接続します。
-別プロセスからdata_dirを開かず、サーバーの設定や権限を変更しません。
+別プロセスからdata_dirやサーバーの設定ファイルを開かず、サーバーの設定や権限を変更しません。
 DESIGN-072・DESIGN-074全体はPARTIALです。0.7.0以前にはこのCLIはありません。
 
 ```sh
+gcs-mimic sync wait   # GCS_MIMIC_LISTEN と GCS_MIMIC_SCHEME が指すサーバー
 gcs-mimic sync status --endpoint https://127.0.0.1:4443
 gcs-mimic sync status --view findings --endpoint https://127.0.0.1:4443 --revision FINDINGS_REVISION
 gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
@@ -50,6 +51,11 @@ CLIでは競合に`--conflict ID --revision REV --action restore|discard --expec
 確認IDはrecovery IDと一致する必要があります。対象の混在、generationや確認の不足、不一致は送信前に拒否します。
 discardの前に必要なbackupを保持してください。同じoperation_idで異なる入力を再送すると失敗します。
 応答が途切れても、受け付け済みの操作が取り消されたとは限りません。
+
+`--endpoint`を省略すると、`gcs-mimic healthcheck`と同じ方法で、環境変数が指すサーバーを操作します。
+`GCS_MIMIC_LISTEN`と`GCS_MIMIC_SCHEME`（`both`では`GCS_MIMIC_LISTEN_HTTP`も）から求め、HTTPを受け付けるlistenerがあればHTTPを使い、ワイルドカードのlistenアドレスはloopbackで接続します。
+`GCS_MIMIC_CONFIG`が選ぶ設定ファイルは開きません。この変数があるとき、環境のサーバー設定に誤りがあるとき、接続できないoriginになるときは、`--endpoint`の指定を求めて失敗します。
+明示した`--endpoint`が常に優先します。省略したときにCLIが示すコマンドも`--endpoint`を省きます。サーバーのログと応答の対処文は`--endpoint URL`のプレースホルダーのままです。
 
 `--endpoint`はポート付きのHTTP(S) originです。パス・query・認証情報を含めません。
 名前解決した全アドレスがloopback、RFC1918 IPv4、IPv6 unique-localのいずれかである必要があります。

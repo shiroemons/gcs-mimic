@@ -526,13 +526,19 @@ impl Config {
     }
 
     pub fn healthcheck_url(&self) -> String {
+        format!("{}{}", self.local_origin(), Self::HEALTHCHECK_PATH)
+    }
+
+    /// The origin through which a client on this host reaches the server: the healthcheck
+    /// probes it, and `gcs-mimic sync` controls the server there when no endpoint is given.
+    pub fn local_origin(&self) -> String {
         let listen = loopback_if_unspecified(self.effective_listen_http().unwrap_or(self.listen));
-        // Plain HTTP wherever a listener accepts it, so the probe needs no CA.
+        // Plain HTTP wherever a listener accepts it, so the client needs no CA.
         let scheme = match self.scheme {
             Scheme::Auto | Scheme::Http | Scheme::Both => "http",
             Scheme::Https => "https",
         };
-        format!("{scheme}://{listen}{}", Self::HEALTHCHECK_PATH)
+        format!("{scheme}://{listen}")
     }
 
     pub fn effective_listen_http(&self) -> Option<SocketAddr> {

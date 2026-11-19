@@ -3,6 +3,7 @@
 use super::CliError;
 use gcs_mimic::{
     bounded_file,
+    config::Config,
     config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
@@ -17,6 +18,7 @@ use hyper_util::rt::TokioIo;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, btree_map},
+    ffi::OsString,
     io,
     io::Write,
     path::{Path, PathBuf},
@@ -25,14 +27,19 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite};
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
-const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait --endpoint http(s)://HOST:PORT [OPTIONS]
-       gcs-mimic sync status --endpoint URL --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
-       gcs-mimic sync deletions|findings --endpoint URL [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
-       gcs-mimic sync approve --endpoint URL --deletion-set REVISION [OPTIONS]
-       gcs-mimic sync conflicts --endpoint URL [--revision REVISION] [--cursor CURSOR] [--limit N]
-       gcs-mimic sync resolve --endpoint URL --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
-       gcs-mimic sync resolve --endpoint URL --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
+const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait [--endpoint http(s)://HOST:PORT] [OPTIONS]
+       gcs-mimic sync status [--endpoint URL] --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
+       gcs-mimic sync deletions|findings [--endpoint URL] [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
+       gcs-mimic sync approve [--endpoint URL] --deletion-set REVISION [OPTIONS]
+       gcs-mimic sync conflicts [--endpoint URL] [--revision REVISION] [--cursor CURSOR] [--limit N]
+       gcs-mimic sync resolve [--endpoint URL] --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
+       gcs-mimic sync resolve [--endpoint URL] --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
 
+Without --endpoint, the command controls the server that the environment
+configures, as the healthcheck finds it: GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME,
+with a wildcard listen address reached on loopback. It does not open the config
+file GCS_MIMIC_CONFIG selects and asks for --endpoint while that is set. The
+commands it advises then leave --endpoint out as well.
 Options: --ca-cert PATH, --token-file PATH, --timeout Nms|Ns|Nm (1ms..60s),
 or the numeric --timeout-ms N. Rescan defaults to 30s; other controls default
 to 10s. Explicit timeout values replace these defaults.
@@ -54,7 +61,7 @@ Status and deletions print one bounded JSON page. Without --revision, a view
 reads the status first and lists the page at the revision it reports. Copy
 next_cursor unchanged with the revision of its page; approval requires the
 exact inspected revision, and stale revisions fail.
-No data directory, server config, ambient proxy or Google credentials are opened.
+No data directory, server config file, ambient proxy or Google credentials are opened.
 Rescan and approval are not retried; a timeout may leave accepted work running.
 Inspect status before retrying. Recovery discard requires exactly one matching
 --confirm-backup-verified ID or --confirm-discard-without-backup ID.
@@ -408,6 +415,7 @@ struct Endpoint {
     /// The host for TLS name verification, without IPv6 brackets.
     host: String,
     transport: Transport,
+    source: EndpointSource,
 }
 
 enum Transport {
@@ -415,21 +423,87 @@ enum Transport {
     Https { ca_cert: Option<PathBuf> },
 }
 
-impl Endpoint {
-    /// The options that reach this endpoint again, as a suggested command spells them.
-    fn options(&self) -> String {
-        match &self.transport {
-            Transport::Http => format!("--endpoint http://{}", self.authority),
-            Transport::Https { ca_cert: None } => format!("--endpoint https://{}", self.authority),
-            Transport::Https {
-                ca_cert: Some(path),
-            } => format!(
-                "--endpoint https://{} --ca-cert {}",
-                self.authority,
-                path.display()
-            ),
+impl Transport {
+    const fn scheme(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https { .. } => "https",
         }
     }
+}
+
+/// Where the command found its endpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EndpointSource {
+    /// `--endpoint`, which a suggested command names again.
+    Given,
+    /// The server configuration in the environment, where a suggested command finds it again.
+    Environment,
+}
+
+impl Endpoint {
+    /// The options that reach this endpoint again, as a suggested command spells them.
+    fn options(&self) -> Vec<String> {
+        let endpoint = match self.source {
+            EndpointSource::Given => Some(format!(
+                "--endpoint {}://{}",
+                self.transport.scheme(),
+                self.authority
+            )),
+            EndpointSource::Environment => None,
+        };
+        let ca_cert = match &self.transport {
+            Transport::Https {
+                ca_cert: Some(path),
+            } => Some(format!("--ca-cert {}", path.display())),
+            Transport::Https { ca_cert: None } | Transport::Http => None,
+        };
+        endpoint.into_iter().chain(ca_cert).collect()
+    }
+}
+
+/// The environment variable that selects a server config file, which this command never opens.
+const CONFIG_VARIABLE: &str = "GCS_MIMIC_CONFIG";
+
+/// The endpoint of the server that `environment` configures, found the way the healthcheck finds
+/// its server, through [`Config::local_origin`]. A config file could move the server, so an
+/// environment that selects one, which this command never opens, gives no endpoint.
+fn configured_endpoint(
+    environment: Vec<(OsString, OsString)>,
+    ca_cert: Option<&str>,
+) -> Result<Endpoint, Diagnostics> {
+    const SUPPLY: &str = "supply --endpoint http(s)://HOST:PORT";
+    if environment.iter().any(|(name, _)| name == CONFIG_VARIABLE) {
+        return Err(fail(format!(
+            "{CONFIG_VARIABLE} selects a config file, which sync does not open to find the server; {SUPPLY}"
+        )));
+    }
+    let report = Config::preflight_os(&[], environment);
+    let origin = report.config.local_origin();
+    if report.diagnostics.is_err() {
+        let mut errors = report.diagnostics.errors;
+        errors.push(Diagnostic::new(
+            DiagnosticSource::Cli,
+            "sync",
+            format!(
+                "The server configuration in the environment has errors, so sync cannot rely on the endpoint it gives ({origin}); correct them or {SUPPLY}"
+            ),
+        ));
+        return Err(Diagnostics {
+            errors,
+            ..Diagnostics::default()
+        });
+    }
+    endpoint(&origin, ca_cert, EndpointSource::Environment).map_err(|refusal| {
+        fail(match refusal {
+            EndpointRefusal::CaCertOverHttp => format!(
+                "--ca-cert requires an HTTPS endpoint, and the environment gives {origin}; set GCS_MIMIC_SCHEME as the server has it or {SUPPLY}"
+            ),
+            EndpointRefusal::Unparsable | EndpointRefusal::NotBare => format!(
+                "The environment gives the endpoint {origin}, which sync cannot reach; set GCS_MIMIC_LISTEN as the server has it or {SUPPLY}"
+            ),
+        })
+    })
 }
 
 struct Options {
@@ -456,7 +530,7 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
         println!("{HELP}");
         return Ok(());
     }
-    let mut options = Options::parse(args)?;
+    let mut options = Options::parse(args, std::env::vars_os().collect())?;
     if options.token.is_none() {
         let name = variable.name();
         options.token = std::env::var_os(&name)
@@ -601,7 +675,8 @@ fn fail(fix: impl std::fmt::Display) -> Diagnostics {
 }
 
 impl Options {
-    fn parse(args: &[String]) -> Result<Self, CliError> {
+    /// The options of `args`, finding the server in `environment` when no endpoint is given.
+    fn parse(args: &[String], environment: Vec<(OsString, OsString)>) -> Result<Self, CliError> {
         let (name, args) = args.split_first().ok_or_else(|| fail(HELP))?;
         let mut flags = Flags::read(args)?;
         let command = match Command::from_name(name) {
@@ -619,12 +694,11 @@ impl Options {
         if command == Some(Command::Approve) && flags.contains(Flag::Revision) {
             return Err(fail("sync approve takes --deletion-set REVISION, not --revision").into());
         }
-        let endpoint = endpoint(
-            flags
-                .take(Flag::Endpoint)
-                .ok_or_else(|| fail("Supply --endpoint http(s)://HOST:PORT"))?,
-            flags.take(Flag::CaCert),
-        )?;
+        let ca_cert = flags.take(Flag::CaCert);
+        let endpoint = match flags.take(Flag::Endpoint) {
+            Some(value) => endpoint(value, ca_cert, EndpointSource::Given).map_err(fail)?,
+            None => configured_endpoint(environment, ca_cert)?,
+        };
         let duration = flags.take(Flag::Timeout);
         if duration.is_some() && flags.contains(Flag::TimeoutMs) {
             return Err(fail("Supply only one timeout option").into());
@@ -683,13 +757,16 @@ impl Options {
         })
     }
 
-    /// The options that reach this server again, as a suggested command spells them.
+    /// The options that reach this server again, as a suggested command spells them: none when
+    /// the command found the server in the environment and needs no CA or token file.
     fn connection(&self) -> String {
-        let endpoint = self.endpoint.options();
-        match &self.token_file {
-            Some(path) => format!("{endpoint} --token-file {}", path.display()),
-            None => endpoint,
-        }
+        let token_file = self
+            .token_file
+            .as_ref()
+            .map(|path| format!("--token-file {}", path.display()));
+        let mut options = self.endpoint.options();
+        options.extend(token_file);
+        options.join(" ")
     }
 
     /// Asks the server to wait, at most a minute at a time, until the wait succeeds, ends for a
@@ -1058,24 +1135,43 @@ fn lower_hex(value: &str, len: usize) -> bool {
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// Why an endpoint cannot be used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EndpointRefusal {
+    Unparsable,
+    NotBare,
+    CaCertOverHttp,
+}
+
+impl std::fmt::Display for EndpointRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unparsable => "Invalid HTTP(S) endpoint origin",
+            Self::NotBare => "Supply a bare HTTP(S) origin with an explicit nonzero port",
+            Self::CaCertOverHttp => "--ca-cert requires an HTTPS endpoint",
+        })
+    }
+}
+
 /// The control endpoint: a bare HTTP(S) origin with an explicit nonzero port. A CA certificate
 /// needs the HTTPS scheme, which is checked after the origin itself.
-fn endpoint(value: &str, ca_cert: Option<&str>) -> Result<Endpoint, Diagnostics> {
+fn endpoint(
+    value: &str,
+    ca_cert: Option<&str>,
+    source: EndpointSource,
+) -> Result<Endpoint, EndpointRefusal> {
     enum Scheme {
         Http,
         Https,
     }
-    let uri: Uri = value
-        .parse()
-        .map_err(|_| fail("Invalid HTTP(S) endpoint origin"))?;
-    let not_bare = || fail("Supply a bare HTTP(S) origin with an explicit nonzero port");
+    let uri: Uri = value.parse().map_err(|_| EndpointRefusal::Unparsable)?;
     let scheme = match uri.scheme_str() {
         Some("http") => Scheme::Http,
         Some("https") => Scheme::Https,
-        _ => return Err(not_bare()),
+        _ => return Err(EndpointRefusal::NotBare),
     };
     let (Some(authority), Some(host)) = (uri.authority(), uri.host()) else {
-        return Err(not_bare());
+        return Err(EndpointRefusal::NotBare);
     };
     if uri.port_u16().is_none_or(|port| port == 0)
         || authority.as_str().contains('@')
@@ -1083,11 +1179,11 @@ fn endpoint(value: &str, ca_cert: Option<&str>) -> Result<Endpoint, Diagnostics>
         || uri.query().is_some()
         || value.contains('#')
     {
-        return Err(not_bare());
+        return Err(EndpointRefusal::NotBare);
     }
     let transport = match (scheme, ca_cert) {
         (Scheme::Http, None) => Transport::Http,
-        (Scheme::Http, Some(_)) => return Err(fail("--ca-cert requires an HTTPS endpoint")),
+        (Scheme::Http, Some(_)) => return Err(EndpointRefusal::CaCertOverHttp),
         (Scheme::Https, ca_cert) => Transport::Https {
             ca_cert: ca_cert.map(PathBuf::from),
         },
@@ -1096,6 +1192,7 @@ fn endpoint(value: &str, ca_cert: Option<&str>) -> Result<Endpoint, Diagnostics>
         authority: authority.clone(),
         host: host.trim_matches(['[', ']']).to_owned(),
         transport,
+        source,
     })
 }
 

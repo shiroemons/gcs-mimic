@@ -3,14 +3,15 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Since 0.8.0, this CLI extends the control subset of DESIGN-072 and
-DESIGN-074. It connects to the running server and never opens `data_dir`, reads
-server configuration, repairs a stopped catalog or grants administrative power.
+DESIGN-074. It connects to the running server and never opens `data_dir` or a server config
+file, repairs a stopped catalog or grants administrative power.
 The server's [current control contract](external-deletion-controls.md) owns
 authorization, fixed revisions and mutation semantics. Parent statuses remain
 PARTIAL; the native CLI/server operator journeys below pass, while exhaustive
 fault, platform and parent-feature acceptance remain separate gates.
 
 ```sh
+gcs-mimic sync wait   # the server that GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME configure
 gcs-mimic sync status --endpoint https://127.0.0.1:4443
 gcs-mimic sync status --view findings --endpoint https://127.0.0.1:4443 --revision FINDINGS_REVISION
 gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
@@ -66,6 +67,17 @@ restore|discard --expected-generation N --operation-id ID`. Recovery uses
 Mixed targets, missing generations, ambiguous confirmations and mismatched IDs
 fail before a request. Reusing an operation ID with changed input fails; a missing response
 does not prove that an accepted operation rolled back.
+
+Without `--endpoint`, the command controls the server that the environment
+configures, found the way `gcs-mimic healthcheck` finds it: `GCS_MIMIC_LISTEN`
+and `GCS_MIMIC_SCHEME` (with `GCS_MIMIC_LISTEN_HTTP` under `both`), plain HTTP
+wherever a listener accepts it, and a wildcard listen address reached on
+loopback. It does not open the config file that `GCS_MIMIC_CONFIG` selects, so
+it asks for `--endpoint` while that variable is set, and also while the
+environment's server configuration has errors or gives an origin it cannot
+reach. An explicit `--endpoint` always wins. The commands its own advice names
+then leave `--endpoint` out, since they find the server the same way; the
+server's log events and answers keep the `--endpoint URL` placeholder.
 
 `--endpoint` requires a bare HTTP(S) origin with an explicit nonzero port.
 All resolved addresses must be loopback, RFC1918 IPv4 or IPv6 unique-local;

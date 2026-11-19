@@ -6,7 +6,10 @@ use std::{
 };
 
 fn parse(args: &[&str]) -> Result<Options, CliError> {
-    Options::parse(&args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
+    Options::parse(
+        &args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+        Vec::new(),
+    )
 }
 
 fn parse_cmd(args: &[&str]) -> Result<Options, CliError> {
@@ -58,8 +61,16 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
             vec!["approve", "--revision", revision],
             "sync approve takes --deletion-set REVISION, not --revision",
         ),
-        // An unknown operation is reported only after the shared options are read.
-        (vec!["stop"], "Supply --endpoint http(s)://HOST:PORT"),
+        // An unknown operation is reported only after the shared options are read, and an
+        // endpoint found in the environment.
+        (
+            vec!["stop", "--ca-cert", "ca"],
+            "--ca-cert requires an HTTPS endpoint, and the environment gives http://127.0.0.1:4443; set GCS_MIMIC_SCHEME as the server has it or supply --endpoint http(s)://HOST:PORT",
+        ),
+        (
+            vec!["stop"],
+            "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+        ),
         (
             vec!["stop", "--endpoint", "http://127.0.0.1:1"],
             "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
@@ -454,11 +465,97 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
         "http://localhost:80/#x",
         "ftp://localhost:80",
     ] {
-        assert!(endpoint(value, None).is_err(), "{value}");
+        assert!(
+            endpoint(value, None, EndpointSource::Given).is_err(),
+            "{value}"
+        );
     }
     // Which resolved addresses count as local is tested with the shared check in `gcs_mimic::net`.
     assert!(parse_cmd(&["status", "--ca-cert", "unused"]).is_err());
     assert!(parse_cmd(&["status", "--timeout-ms", "60001"]).is_err());
+}
+
+/// Without --endpoint, the command controls the server that the environment configures, as the
+/// healthcheck finds it, and the commands it advises leave the endpoint out. An explicit endpoint
+/// wins. A config file, which the command does not open, a configuration with errors and an
+/// origin the command cannot reach each say what to supply instead.
+#[test]
+fn without_an_endpoint_the_command_controls_the_server_the_environment_configures() {
+    let parse_in = |args: &[&str], environment: &[(&str, &str)]| {
+        Options::parse(
+            &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+            environment
+                .iter()
+                .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+                .collect(),
+        )
+    };
+    let options = parse_in(&["status"], &[]).unwrap();
+    assert_eq!(options.endpoint.authority.as_str(), "127.0.0.1:4443");
+    assert!(matches!(options.endpoint.transport, Transport::Http));
+    assert_eq!(options.connection(), "");
+    let paused = json!({"reason":"Paused","paused_reason":"IoFailure",
+        "remedy":"Restore access; then resume synchronization: gcs-mimic sync rescan --endpoint URL"});
+    let advice = WaitOutcome::read(&paused).advice(&options.connection());
+    assert!(
+        advice.errors[0]
+            .fix
+            .ends_with("resume synchronization: gcs-mimic sync rescan"),
+        "{advice:?}"
+    );
+
+    let https = [
+        ("GCS_MIMIC_LISTEN", "0.0.0.0:9000"),
+        ("GCS_MIMIC_SCHEME", "https"),
+    ];
+    let options = parse_in(&["wait", "--ca-cert", "ca.pem"], &https).unwrap();
+    assert_eq!(options.endpoint.authority.as_str(), "127.0.0.1:9000");
+    assert!(matches!(
+        options.endpoint.transport,
+        Transport::Https { ca_cert: Some(_) }
+    ));
+    assert_eq!(options.connection(), "--ca-cert ca.pem");
+    let config = [("GCS_MIMIC_CONFIG", "server.json")];
+    let options = parse_in(&["status", "--endpoint", "http://127.0.0.1:4000"], &config).unwrap();
+    assert_eq!(options.connection(), "--endpoint http://127.0.0.1:4000");
+
+    let supply = "supply --endpoint http(s)://HOST:PORT";
+    for (environment, fix) in [
+        (
+            config.as_slice(),
+            format!(
+                "GCS_MIMIC_CONFIG selects a config file, which sync does not open to find the server; {supply}"
+            ),
+        ),
+        (
+            &[("GCS_MIMIC_LISTEN", "127.0.0.1:0")],
+            format!(
+                "The environment gives the endpoint http://127.0.0.1:0, which sync cannot reach; set GCS_MIMIC_LISTEN as the server has it or {supply}"
+            ),
+        ),
+    ] {
+        let Err(CliError::Diagnostics(refused)) = parse_in(&["status"], environment) else {
+            panic!("{environment:?}: refused without a diagnostic");
+        };
+        assert_eq!(refused.errors.len(), 1, "{refused:?}");
+        assert_eq!(refused.errors[0].fix, fix);
+    }
+    let Err(CliError::Diagnostics(refused)) =
+        parse_in(&["status"], &[("GCS_MIMIC_LISTEN", "garbage")])
+    else {
+        panic!("a listen address that does not parse was accepted");
+    };
+    let [setting, endpoint] = refused.errors.as_slice() else {
+        panic!("the setting and the endpoint expected: {refused:?}");
+    };
+    assert_eq!(setting.key, "GCS_MIMIC_LISTEN");
+    assert!(
+        endpoint
+            .fix
+            .starts_with("The server configuration in the environment has errors"),
+        "{endpoint:?}"
+    );
+    assert!(endpoint.fix.ends_with(supply), "{endpoint:?}");
 }
 
 fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, String) {
@@ -801,6 +898,8 @@ fn every_advised_command_parses_as_this_command_line() {
             "--endpoint https://127.0.0.1:4443 --token-file {}",
             token.display()
         ),
+        // A command that found the server in the environment advises commands that find it there.
+        String::new(),
     ];
     let commands = advice::commands();
     for command in &commands {
@@ -808,7 +907,7 @@ fn every_advised_command_parses_as_this_command_line() {
             let line = advice::with_connection(command, connection);
             let args = line.strip_prefix("gcs-mimic sync ").unwrap();
             let args: Vec<String> = args.split(' ').map(str::to_owned).collect();
-            if let Err(error) = Options::parse(&args) {
+            if let Err(error) = Options::parse(&args, Vec::new()) {
                 panic!("{line}: {error:?}");
             }
         }
@@ -840,13 +939,14 @@ fn every_advised_command_parses_as_this_command_line() {
                 .map(|error| (error.fix, connection.clone())),
         );
     }
-    let connection = &connections[1];
-    for remedy in &catalog {
-        let answer = json!({"reason":"FindingsPending","remedy":remedy,
-            "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}});
-        let diagnostics = WaitOutcome::read(&answer).advice(connection);
-        let given = diagnostics.warnings.into_iter().chain(diagnostics.errors);
-        advised.extend(given.map(|diagnostic| (diagnostic.fix, connection.clone())));
+    for connection in [&connections[1], &connections[3]] {
+        for remedy in &catalog {
+            let answer = json!({"reason":"FindingsPending","remedy":remedy,
+                "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}});
+            let diagnostics = WaitOutcome::read(&answer).advice(connection);
+            let given = diagnostics.warnings.into_iter().chain(diagnostics.errors);
+            advised.extend(given.map(|diagnostic| (diagnostic.fix, connection.clone())));
+        }
     }
 
     for (advice, connection) in &advised {
