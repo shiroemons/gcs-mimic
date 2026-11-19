@@ -57,6 +57,10 @@ pub(crate) fn create_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+pub(crate) fn sole_regular_link(_: &File) -> io::Result<bool> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 pub(crate) fn directory_at(_: &File, _: &OsStr, _: DirectoryOpen) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }

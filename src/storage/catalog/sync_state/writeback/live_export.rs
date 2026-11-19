@@ -686,8 +686,9 @@ impl Writeback {
                 failure(selected.token.root, "copy")?;
                 // Only this unarmed operation can own this private, possibly partial API copy. A
                 // retry refills it in place rather than removing and creating the name again;
-                // `fsutil::clone_or_copy_into` says why.
-                let partial = writable_entry(workspace, selected.token.id)?;
+                // `fsutil::clone_or_copy_into` says why, and `refillable_entry` names the one
+                // macOS copy that cannot be refilled.
+                let partial = refillable_entry(workspace, selected.token.id)?;
                 if let Some(file) = &partial {
                     file.set_len(0)?;
                     #[cfg(test)]

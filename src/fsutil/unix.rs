@@ -163,6 +163,14 @@ pub(crate) fn create_regular_at(directory: &File, name: &OsStr) -> io::Result<Fi
     open_at(directory, &component(name)?, FileOpen::CreateNew)
 }
 
+/// Whether `file` is a regular file that no other name links, so changing its bytes changes
+/// what no other path shows.
+pub(crate) fn sole_regular_link(file: &File) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata()?;
+    Ok(metadata.is_file() && metadata.nlink() == 1)
+}
+
 /// Opens a single directory component, creating it only when explicitly requested.
 #[expect(
     unsafe_code,

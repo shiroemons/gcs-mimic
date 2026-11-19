@@ -24,7 +24,13 @@ deletion or recreation.
    A retry empties the copy a failed attempt left and refills it in place, and a
    filesystem that cannot clone receives the copy in the entry created for the
    clone. Neither removes the entry and creates its name again: Docker Desktop
-   shared folders can report a new inode number for a recreated name.
+   shared folders can report a new inode number for a recreated name. A copy
+   that another name also links is never emptied; that retry stops as Protected.
+   A macOS clone keeps its source's mode, so the copy of a read-only blob cannot
+   be opened for writing again. Only that retry removes the copy and clones the
+   blob again, which keeps the mode the installed file gets. Docker Desktop's
+   renumbering is what Linux containers see of host folders, not what a process
+   on the macOS host sees. Linux creates each copy itself with mode 0o600.
 3. Installation commits Armed before changing the namespace. It compares the
    private copy's complete stat identity with the staged one. When only the inode
    number differs, the same handle rehashes the copy, and matching hashes record
@@ -121,8 +127,12 @@ is retried and installs it instead of stopping the root, while the original
 target moved into the private entry is still reported as displaced. A copy
 whose bytes changed stays Protected at both checks,
 alone or together with other stat changes. A retry after a failed sync and a
-failed write keeps the private copy's inode, and crash and power-loss snapshots
+failed write keeps the private copy's inode, and so does a sync that fails after
+a refill. Crash and power-loss snapshots
 taken while it refills the copy keep only synced bytes and recover to Ready.
+A retry stops as Protected without emptying a copy that another name links. A
+copy of a read-only blob is cloned again on macOS and refilled in place on
+Linux, and the installed file keeps the mode a first copy gets.
 With cloning disabled, the copy uses the entry created for the clone, and no
 unlink runs.
 

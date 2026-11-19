@@ -612,12 +612,30 @@ fn target(root: &File, path: &str) -> Result<Option<File>, Error> {
 fn entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
     present(fsutil::open_regular_at(workspace, id.to_hex().as_ref()))
 }
-/// Like [`entry`], but open for writing.
-fn writable_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
-    present(fsutil::open_regular_writable_at(
-        workspace,
-        id.to_hex().as_ref(),
-    ))
+/// Like [`entry`], but open for writing, so that a retried copy can empty and refill the private
+/// copy a failed attempt left. A private copy that another name also links is `Protected`:
+/// emptying it would empty that name too.
+fn refillable_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
+    let name = id.to_hex();
+    let file = match fsutil::open_regular_writable_at(workspace, name.as_ref()) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        // A macOS clone keeps its source's mode, so a copy cloned from a read-only blob, such as
+        // one that publication cloned from a read-only seed or ingested file, cannot be opened
+        // for writing. Only that copy is removed for a new clone, which keeps the mode the
+        // installed file would have had. Linux creates every private copy itself with mode 0o600
+        // and fills it through the descriptor, so it never removes one here.
+        #[cfg(target_os = "macos")]
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            fsutil::unlink_file_at(workspace, name.as_ref())?;
+            return Ok(None);
+        }
+        Err(e) => return Err(e.into()),
+    };
+    if !fsutil::sole_regular_link(&file)? {
+        return Err(Error::Protected);
+    }
+    Ok(Some(file))
 }
 /// A missing workspace entry is `None`; any other failure to open it is an error.
 fn present(opened: io::Result<File>) -> Result<Option<File>, Error> {
