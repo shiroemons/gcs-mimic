@@ -1152,7 +1152,7 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
 }
 
 #[tokio::test]
-async fn ingest_unreadable_file_is_deferred_while_other_files_progress() {
+async fn ingest_counts_an_unreadable_file_as_unreadable_while_other_files_progress() {
     use std::os::unix::fs::PermissionsExt;
     let (_data, tree, catalog, root, config) = fixture().await;
     fs::create_dir(tree.0.join("test-bucket")).unwrap();

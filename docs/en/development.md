@@ -88,8 +88,9 @@ docker run --rm -v "$PWD":/w -v gcs-target:/t -v gcs-cargo:/usr/local/cargo/regi
   -e CARGO_TARGET_DIR=/t -w /w "$RUST_IMAGE" sh /linux-lib-tests.sh
 ```
 
-Do not run the tests as root: three permission-denied sync tests
-(`ingest_unreadable_file_is_deferred_while_other_files_progress` and the two
+Do not run the tests as root: the sync tests that take away a file's read
+permission (`ingest_counts_an_unreadable_file_as_unreadable_while_other_files_progress`,
+`wait_and_status_stop_at_once_for_a_file_without_read_permission` and the other
 `sync::mirror` permission tests) fail there, and CI does not run as root. Windows
 tests cannot run locally; keep timestamp tests to values every platform holds exactly.
 
