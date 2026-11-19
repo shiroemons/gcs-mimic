@@ -219,12 +219,7 @@ impl RootLease {
             .run_admin(move |connection| {
                 let transaction = connection.transaction()?;
                 scope.authorize(&transaction)?;
-                let complete: bool = sql::scalar(
-                    &transaction,
-                    "SELECT complete FROM sync_roots WHERE root_id=?1",
-                    [root],
-                )?;
-                if !complete {
+                if Baseline::read(&transaction, root)? != Baseline::Complete {
                     return Err(CatalogError::PreconditionFailed);
                 }
                 if rejected_remaining(&transaction, root)? > 0 {

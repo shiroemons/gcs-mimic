@@ -4,7 +4,7 @@
 use super::super::unavailable;
 use super::{
     OpaqueId, Ordinal, PageLimit, SyncBinding,
-    root::{RootError, RootId, RootLease},
+    root::{Baseline, RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
@@ -426,23 +426,12 @@ impl RootLease {
 
     /// The root's baseline as the catalog holds it now. The lease's status keeps what it was when
     /// the lease was activated, which a baseline completed since then does not change.
-    pub(crate) async fn current_baseline(&self) -> Result<super::root::Baseline, RootError> {
+    pub(crate) async fn current_baseline(&self) -> Result<Baseline, RootError> {
         let root = self.status().root_id;
-        let complete: bool = self
+        Ok(self
             .catalog()
-            .run_admin(move |connection| {
-                Ok(sql::scalar(
-                    connection,
-                    "SELECT complete FROM sync_roots WHERE root_id=?1",
-                    [root],
-                )?)
-            })
-            .await?;
-        Ok(if complete {
-            super::root::Baseline::Complete
-        } else {
-            super::root::Baseline::Activating
-        })
+            .run_admin(move |connection| Ok(Baseline::read(connection, root)?))
+            .await?)
     }
 
     pub(crate) async fn deletion_set(&self) -> Result<Option<DeletionSet>, RootError> {

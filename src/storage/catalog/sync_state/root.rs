@@ -66,6 +66,31 @@ pub enum Baseline {
     Complete,
 }
 
+impl Baseline {
+    /// The baseline a `complete` flag stands for, as `sync_roots.complete` and a pass record it.
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "converts the flag the catalog column and a pass's report store as a boolean"
+    )]
+    pub(crate) const fn from_complete(complete: bool) -> Self {
+        if complete {
+            Self::Complete
+        } else {
+            Self::Activating
+        }
+    }
+
+    /// The baseline the catalog holds for `root` now, read through `connection`.
+    pub(super) fn read(connection: &Connection, root: RootId) -> rusqlite::Result<Self> {
+        sql::scalar(
+            connection,
+            "SELECT complete FROM sync_roots WHERE root_id=?1",
+            [root],
+        )
+        .map(Self::from_complete)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RootStatus {
     pub catalog_id: CatalogId,
@@ -488,14 +513,7 @@ fn reserve(
     };
     let (root_id, baseline, change) =
         match decide(&registered, location, node, mark, catalog, activation)? {
-            Decision::Open { root, complete } => {
-                let baseline = if complete {
-                    Baseline::Complete
-                } else {
-                    Baseline::Activating
-                };
-                (root, baseline, None)
-            }
+            Decision::Open { root, complete } => (root, Baseline::from_complete(complete), None),
             Decision::Reinitialize(root) => {
                 sql::exec(
                     &transaction,

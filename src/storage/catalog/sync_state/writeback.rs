@@ -9,7 +9,7 @@ use super::super::{
 use super::{
     CatalogId, OpaqueId, Ordinal, PageLimit, SyncBinding, SyncFingerprint, SyncPath, SyncUpdate,
     durable::{self, Durable, NotDurable, SyncedDirectories},
-    root::{RootError, RootId, RootLease},
+    root::{Baseline, RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
@@ -582,10 +582,7 @@ fn original_with_protection(
             }
         }
         Kind::Remove => {
-            let complete: bool = connection
-                .prepare_cached("SELECT complete FROM sync_roots WHERE root_id=?1")?
-                .query_row([item.token.root], |r| r.get(0))?;
-            if !complete
+            if Baseline::read(connection, item.token.root)? != Baseline::Complete
                 || objects::lookup(connection, item.bucket.as_str(), item.name.as_str())?.is_some()
             {
                 return Err(stale());

@@ -383,11 +383,7 @@ impl Reconciliation {
     /// The tree side of this pass, for the decisions that must not see unmapped objects.
     pub(in crate::sync) fn gate(&self) -> PassGate {
         PassGate {
-            baseline: if self.baseline_complete {
-                Baseline::Complete
-            } else {
-                Baseline::Activating
-            },
+            baseline: Baseline::from_complete(self.baseline_complete),
             interrupted: self.interrupted,
             deferred: self.still_changing(),
             conflicting: self.conflicting,
