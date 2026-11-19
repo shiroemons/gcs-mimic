@@ -14,6 +14,7 @@ use crate::{
 };
 use std::fs;
 mod migration;
+mod removal;
 
 pub(crate) async fn pending(operation: &LiveExport) -> Pending {
     operation.0.lock().await.item.clone()

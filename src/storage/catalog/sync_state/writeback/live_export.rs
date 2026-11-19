@@ -465,6 +465,28 @@ fn observe_target(root: &File, naming: RootNaming, item: &Pending) -> Result<boo
     }
 }
 
+/// The directory that holds `item`'s target. A publication creates the directories its target
+/// needs. A removal only opens them: when one is missing, so is the target, and creating it would
+/// put back a directory that someone removed. `None` is a removal's missing directory.
+fn target_directory(
+    root: &File,
+    naming: RootNaming,
+    item: &Pending,
+) -> Result<Option<File>, Error> {
+    match item.kind {
+        Kind::Publish => {
+            let parents = item.path.rsplit_once('/').ok_or_else(stale)?.0;
+            Ok(Some(crate::sync::tree::parent(
+                root,
+                naming,
+                std::path::Path::new(parents),
+                crate::sync::tree::ParentOpen::Create,
+            )?))
+        }
+        Kind::Remove => parent(root, naming, &item.path, ParentSync::Skip),
+    }
+}
+
 /// Installs the staged copy at the target path (or moves a removed file into the workspace)
 /// unless an earlier attempt already did; `Ok(false)` reports an external change.
 fn install_target(root: &File, workspace: &File, install: &mut Install) -> Result<bool, Error> {
@@ -473,13 +495,7 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
     let staged = install.staged;
     let source_device = install.purpose.source_device();
     let current = target(root, install.naming, &selected.path)?;
-    let parents = selected.path.rsplit_once('/').ok_or_else(stale)?.0;
-    let directory = crate::sync::tree::parent(
-        root,
-        install.naming,
-        std::path::Path::new(parents),
-        crate::sync::tree::ParentOpen::Create,
-    )?;
+    let directory = target_directory(root, install.naming, selected)?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
     let retained = entry(workspace, selected.token.id)?;
     let already_installed = match staged {
@@ -515,17 +531,18 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
         let outcome = if selected.kind == Kind::Remove && current.is_none() {
             fsutil::ReplaceOutcome::Created
         } else {
+            let directory = directory.as_ref().ok_or_else(stale)?;
             let outcome = if selected.kind == Kind::Publish {
                 fsutil::durable_replace_between(
                     workspace,
                     selected.token.id.to_hex().as_ref(),
-                    &directory,
+                    directory,
                     name.as_ref(),
                     identity.as_ref(),
                 )?
             } else {
                 fsutil::durable_replace_between(
-                    &directory,
+                    directory,
                     name.as_ref(),
                     workspace,
                     selected.token.id.to_hex().as_ref(),
@@ -560,9 +577,11 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
     }
     #[cfg(test)]
     failure(selected.token.root, "displaced-parent-sync")?;
-    directory.sync_all()?;
-    #[cfg(test)]
-    install.faults.target_dir_synced(selected);
+    if let Some(directory) = &directory {
+        directory.sync_all()?;
+        #[cfg(test)]
+        install.faults.target_dir_synced(selected);
+    }
     workspace.sync_all()?;
     #[cfg(test)]
     install.faults.workspace_synced();
