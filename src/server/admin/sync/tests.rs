@@ -2309,6 +2309,7 @@ async fn rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_
     assert_eq!(accepted.status(), StatusCode::ACCEPTED);
     let accepted = body(accepted).await;
     assert_eq!(accepted["operation_id"], revision.as_str());
+    assert_eq!(accepted["decision"], "reject");
     assert_eq!(accepted["candidate_count"], 2);
     for route in ["/_internal/sync/reject", "/_internal/sync/approve"] {
         assert_eq!(

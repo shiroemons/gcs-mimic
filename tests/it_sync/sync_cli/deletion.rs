@@ -79,8 +79,11 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
         server.cli("approve", &["--deletion-set", &"0".repeat(32)], false)["error"]["code"],
         409
     );
-    let approved = server.cli("approve", &["--deletion-set", revision], true);
-    assert!(approved["operation_id"].is_string());
+    let approved = server.cli_run("approve", &["--deletion-set", revision]);
+    assert!(approved.success, "{:?}", approved.stderr);
+    assert!(approved.answer["operation_id"].is_string());
+    assert_eq!(approved.answer["decision"], "approve");
+    assert!(approved.stderr.is_empty(), "{:?}", approved.stderr);
     assert_eq!(
         server.cli("wait", &["--timeout", "10s"], true)["completed"],
         true
@@ -167,8 +170,17 @@ fn live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set
         assert!(message.contains(&part), "{message}");
     }
     assert!(!message.contains("gcs-mimic sync approve"), "{message}");
-    let accepted = server.cli("reject", &["--deletion-set", new], true);
-    assert_eq!(accepted["operation_id"], new);
+    let accepted = server.cli_run("reject", &["--deletion-set", new]);
+    assert!(accepted.success, "{:?}", accepted.stderr);
+    assert_eq!(accepted.answer["operation_id"], new);
+    assert_eq!(accepted.answer["decision"], "reject");
+    assert_eq!(
+        accepted.diagnostics("sync-reject"),
+        [format!(
+            "The server writes 1 file of the rejected deletion set back from the objects; gcs-mimic sync wait --endpoint {} answers once the write-back is done",
+            server.endpoint
+        )]
+    );
     assert_eq!(
         server.cli("wait", &["--timeout", "10s"], true)["completed"],
         true

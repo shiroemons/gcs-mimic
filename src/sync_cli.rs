@@ -852,6 +852,8 @@ fn configured_endpoint(
 struct Options {
     endpoint: Endpoint,
     plan: Plan,
+    /// The decision the command takes on a deletion set, which an accepted answer reports on.
+    decision: Option<Decision>,
     token: Option<hyper::header::HeaderValue>,
     /// The token file named on the command line, which a suggested command names again.
     token_file: Option<PathBuf>,
@@ -913,11 +915,41 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     let connection = options.connection(&endpoint);
     match options.plan {
         Plan::Wait(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
-        Plan::Once { .. } | Plan::Latest(_) if reply.status.is_success() => Ok(()),
+        Plan::Once { .. } | Plan::Latest(_) if reply.status.is_success() => {
+            if let Some(decision) = options.decision {
+                decided(decision, &reply.body, &connection).write(io::stderr().lock())?;
+            }
+            Ok(())
+        }
         Plan::Once { .. } | Plan::Latest(_) => {
             Err(http_failure(reply.status, error_message(&reply.body), &connection).into())
         }
     }
+}
+
+/// What the command says once the server accepted `decision` with `answer`. A rejection goes on
+/// writing the set's files back after the answer, so the command counts them and names the wait
+/// that answers once they are back; an approval's answer says all there is.
+fn decided(decision: Decision, answer: &Value, connection: &str) -> Diagnostics {
+    let mut accepted = Diagnostics::default();
+    match decision {
+        Decision::Approve => {}
+        Decision::Reject => {
+            let files = match answer.get("candidate_count").and_then(Value::as_u64) {
+                Some(1) => "1 file".to_owned(),
+                Some(count) => format!("{count} files"),
+                None => "the files".to_owned(),
+            };
+            let wait = advice::with_connection(&advice::Advised::Wait.to_string(), connection);
+            accepted.info.push(diagnostic(
+                "sync-reject",
+                format!(
+                    "The server writes {files} of the rejected deletion set back from the objects; {wait} answers once the write-back is done"
+                ),
+            ));
+        }
+    }
+    accepted
 }
 
 /// The message of a failed request's JSON error envelope, `{"error":{"message":..}}`.
@@ -1213,6 +1245,7 @@ impl Options {
         Ok(Self {
             endpoint,
             plan,
+            decision,
             token,
             token_file: token_file.map(PathBuf::from),
             timeout: Duration::from_millis(timeout),

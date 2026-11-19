@@ -433,6 +433,10 @@ impl Decision {
     }
 }
 
+// An accepted decision names itself by its command, so a reader of the answer alone can tell an
+// approval, whose objects go, from a rejection, whose files come back.
+crate::serde_util::serialize_as_str!(Decision);
+
 /// The refusal of `decision` on the deletion set `revision`, which `refusal` says what became
 /// of, and what to do instead: a decided set names the status or the wait that follows its
 /// decision, a replaced one the new set and the same decision on it, and one an API write

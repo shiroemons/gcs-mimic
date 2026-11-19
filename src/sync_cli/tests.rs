@@ -944,6 +944,41 @@ fn a_wait_keeps_asking_until_its_own_timeout() {
     assert_eq!(requests(&endpoint, server), [60_000, 60_000, 30_000]);
 }
 
+/// An accepted rejection says how many files the server writes back and names the wait that
+/// answers once they are back, with the options that reached the server; an accepted approval
+/// adds nothing to its answer.
+#[test]
+fn an_accepted_rejection_counts_the_files_it_writes_back_and_names_the_wait() {
+    let connection = "--endpoint http://127.0.0.1:4443";
+    let lines = |decision, count: Value| {
+        let accepted = decided(decision, &json!({"candidate_count":count}), connection);
+        assert!(accepted.warnings.is_empty() && accepted.errors.is_empty());
+        accepted
+            .info
+            .into_iter()
+            .map(|line| (line.key, line.fix))
+            .collect::<Vec<_>>()
+    };
+    let wait =
+        "gcs-mimic sync wait --endpoint http://127.0.0.1:4443 answers once the write-back is done";
+    for (count, files) in [
+        (json!(2), "2 files"),
+        (json!(1), "1 file"),
+        (Value::Null, "the files"),
+    ] {
+        assert_eq!(
+            lines(Decision::Reject, count),
+            [(
+                "sync-reject".to_owned(),
+                format!(
+                    "The server writes {files} of the rejected deletion set back from the objects; {wait}"
+                )
+            )]
+        );
+    }
+    assert_eq!(lines(Decision::Approve, json!(2)), []);
+}
+
 /// A wait that ended on source entries no object can take names the first of them, with how
 /// many there were, before its remedy.
 #[test]

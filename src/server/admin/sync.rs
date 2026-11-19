@@ -400,10 +400,12 @@ async fn wait(
     Ok(response)
 }
 
-/// The answer to an accepted approval or rejection of a deletion set.
+/// The answer to an accepted approval or rejection of a deletion set, which names the decision:
+/// the set's objects go after an approval, and its files come back after a rejection.
 #[derive(Serialize)]
 struct DecisionAccepted {
     operation_id: OpaqueId,
+    decision: Decision,
     candidate_count: u64,
 }
 
@@ -466,6 +468,7 @@ async fn decide(
         .map_err(|error| control_error(&error))?;
     super::encode(&DecisionAccepted {
         operation_id: set.revision,
+        decision,
         candidate_count: set.candidate_count,
     })
 }
