@@ -38,13 +38,20 @@ The image supplies `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`; override these environment values to
 change the bind port or persistent location. Environment values take precedence
 over a JSON file, as they do in native startup.
-The catalog keeps SQLite's temporary storage in memory, so a read-only root needs
-no writable temporary directory for it, wherever the data directory is mounted.
 For example, `-e GCS_MIMIC_LISTEN=0.0.0.0:8080 -p 127.0.0.1:8080:8080`
 changes the listener and published port. Use
 `-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data` to change
 the persistent location; setting only `listen` or `data_dir` in JSON does not
 override the image environment.
+The catalog keeps SQLite's temporary storage in memory, so a read-only root needs
+no writable temporary directory for it, wherever the data directory is mounted.
+When a request still fails with a storage error such as 503 `disk I/O error`, the
+`object_backend_failure` and `upload_batch_retried` log events carry
+`sqlite_extended_code`, SQLite's extended result code, and SQLite's
+[result code list](https://www.sqlite.org/rescode.html) names each number:
+`6410`, for instance, is `SQLITE_IOERR_GETTEMPPATH`, meaning SQLite found no
+directory for a temporary file. That caused the 503 before the catalog kept its
+temporary storage in memory.
 Stop with `docker stop gcs-mimic` and resume with `docker start gcs-mimic`.
 The named volume keeps data when a stopped container is removed.
 

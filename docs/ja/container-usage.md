@@ -37,12 +37,18 @@ HTTPSでは組み込みの開発用CAを信頼します。独自CAは`--ca-cert 
 `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`を環境変数で設定します。
 ポートや保存先を変える場合は、この環境変数を上書きしてください。
 nativeと同じく、環境変数はJSON設定より優先します。
-カタログはSQLiteの一時領域をメモリに置きます。そのため、ルートが読み取り専用でも、
-データディレクトリをどこに置いても、SQLite用に書き込める一時ディレクトリは不要です。
 例えば`-e GCS_MIMIC_LISTEN=0.0.0.0:8080 -p 127.0.0.1:8080:8080`で
 待受と公開ポートを変えます。
 保存先は`-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data`で変えます。
 JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書きできません。
+カタログはSQLiteの一時領域をメモリに置きます。そのため、ルートが読み取り専用でも、
+データディレクトリをどこに置いても、SQLite用に書き込める一時ディレクトリは不要です。
+それでもリクエストが503 `disk I/O error`などのストレージ障害になる場合は、ログイベント
+`object_backend_failure`と`upload_batch_retried`の`sqlite_extended_code`を確認してください。
+これはSQLiteの拡張結果コードで、番号の名前はSQLiteの
+[結果コード一覧](https://www.sqlite.org/rescode.html)で引けます。例えば`6410`は
+`SQLITE_IOERR_GETTEMPPATH`で、SQLiteが一時ファイルを置くディレクトリを見つけられなかったことを
+表します。カタログが一時領域をメモリに置く前は、これがその503の原因でした。
 
 移行時のバケット一覧では、`fake-gcs-server`はprojectを省略すると
 `seed_project`を使います。nativeは400を返し、`?project=local-project`の例を示します。
