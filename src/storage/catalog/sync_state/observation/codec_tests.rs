@@ -161,13 +161,13 @@ fn conflict_states_and_deletion_authorizations_keep_their_stored_integers() {
             format!("\"{spelling}\"").as_bytes()
         );
     }
-    // No release writes the third value the column check allows.
     integer_values(
         &[
             (DeletionAuthorization::Withheld, 0),
             (DeletionAuthorization::Granted, 1),
+            (DeletionAuthorization::Rejected, 2),
         ],
-        &[-1, 2],
+        &[-1, 3],
     );
 }
 

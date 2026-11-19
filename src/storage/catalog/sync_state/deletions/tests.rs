@@ -108,6 +108,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
     let mut inventory = root
         .begin_deletion_inventory(Guard::Disabled)
         .await
+        .unwrap()
         .unwrap();
     let mut page = root
         .deletion_inventory_page(inventory.clone(), String::new())

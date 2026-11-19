@@ -32,12 +32,15 @@ mod recovery;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::faults::retrack_restored;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) use live_export::inject_failure as inject_live_export_failure;
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::tests::{
     armed_observation, observation as begin_observation, pending as live_pending,
 };
 pub(crate) use live_export::{LiveExport, LiveResult, LiveSource};
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) use live_export::{
+    inject_failure as inject_live_export_failure,
+    inject_failure_after as inject_live_export_failure_after,
+};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_writeback_roots (
     root_id BLOB PRIMARY KEY REFERENCES sync_roots(root_id),

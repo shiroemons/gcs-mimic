@@ -76,8 +76,9 @@ pub(crate) enum Confirmed {
 
 /// Reads the root's set when an inventory at `current` may confirm it instead of replacing it:
 /// complete, taken in the same journal epoch at or before `current`, never executed from, under
-/// the same guard setting, and not approved. An approved revision is never handed out again, so
-/// approval stays one-shot, and a restart starts a new epoch. A journal that moved since does not
+/// the same guard setting, and neither approved nor rejected. A decided revision is never
+/// handed out again, so a decision stays one-shot, and a restart starts a new epoch. A journal
+/// that moved since does not
 /// rule the set out: the inventory compares every member, generation and incarnation included,
 /// so a write that changed none of them, such as one to an unrelated object, keeps the revision
 /// someone may be about to approve or reject.
@@ -131,21 +132,23 @@ fn same_members(
 
 impl RootLease {
     /// Starts an inventory. When the root's earlier set may be confirmed, nothing is written
-    /// until the inventory ends; otherwise the earlier set is replaced by a new draft.
+    /// until the inventory ends; otherwise the earlier set is replaced by a new draft. `None`
+    /// while the root's rejected set has files left to write back, which no inventory may
+    /// take for deleted ones.
     pub(crate) async fn begin_deletion_inventory(
         &self,
         guard: Guard,
-    ) -> Result<Inventory, RootError> {
+    ) -> Result<Option<Inventory>, RootError> {
         self.start_deletion_inventory(guard, Start::ConfirmEarlier)
             .await
     }
 
     /// Starts an inventory that replaces the root's earlier set, after one that tried to
-    /// confirm it found other members.
+    /// confirm it found other members; `None` as for [`Self::begin_deletion_inventory`].
     pub(crate) async fn begin_new_deletion_inventory(
         &self,
         guard: Guard,
-    ) -> Result<Inventory, RootError> {
+    ) -> Result<Option<Inventory>, RootError> {
         self.start_deletion_inventory(guard, Start::New).await
     }
 
@@ -185,7 +188,7 @@ impl RootLease {
         &self,
         guard: Guard,
         start: Start,
-    ) -> Result<Inventory, RootError> {
+    ) -> Result<Option<Inventory>, RootError> {
         self.revalidate().await?;
         let root = self.status().root_id;
         let scope = self.control_scope();
@@ -202,11 +205,14 @@ impl RootLease {
                 if !complete {
                     return Err(CatalogError::PreconditionFailed);
                 }
+                if rejection_pending(&transaction, root)? {
+                    return Ok(None);
+                }
                 let current = fence(&transaction)?;
                 if start == Start::ConfirmEarlier
                     && let Some(revision) = reusable(&transaction, root, &current, guard)?
                 {
-                    return Ok(Inventory::confirming(revision, root, current));
+                    return Ok(Some(Inventory::confirming(revision, root, current)));
                 }
                 let revision = OpaqueId::generate().map_err(unavailable)?;
                 let scan_revision = OpaqueId::generate().map_err(unavailable)?;
@@ -228,13 +234,13 @@ impl RootLease {
                     ],
                 )?;
                 transaction.commit()?;
-                Ok(Inventory {
+                Ok(Some(Inventory {
                     revision,
                     root,
                     fence: current,
                     draft: Draft::New,
                     removal: Removal::Files,
-                })
+                }))
             })
             .await?)
     }

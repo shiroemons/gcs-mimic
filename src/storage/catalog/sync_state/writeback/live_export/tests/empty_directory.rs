@@ -533,7 +533,7 @@ async fn a_directory_replaced_after_the_proof_is_proved_again() {
 /// A directory someone removes after the proof read it counts as removed, and the export
 /// installs the object in its place. A file put at the name after the removal found it gone
 /// stays, with its bytes: installation never replaces an entry at a name it found free, so that
-/// attempt fails instead.
+/// export ends as a conflict, as its next attempt would once it found the file.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_directory_removed_before_the_removal_counts_as_gone() {
     let fixture = Fixture::new().await;
@@ -568,7 +568,7 @@ async fn a_directory_removed_before_the_removal_counts_as_gone() {
         },
     )
     .await;
-    assert!(result.is_err(), "{result:?}");
+    assert!(matches!(result, Ok(LiveResult::Conflict)), "{result:?}");
     assert_eq!(fs::read(fixture.tree.0.join(DIRECTORY)).unwrap(), b"user");
     drop(operation);
     fixture.close().await;

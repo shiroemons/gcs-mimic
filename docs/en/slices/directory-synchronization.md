@@ -897,16 +897,19 @@ root identity, completed scan revision, journal fence, thresholds, candidate
 names, bucket incarnations and live generations. Persist/page large sets;
 never materialize the complete set in RAM. `approve` takes that revision,
 not a boolean or wildcard, and grants one execution of that exact set only.
-Any observed tree change, root/marker change, relevant API change or restart
-invalidates unused approval and requires rescan and fresh approval. Replays and
+For a set that does not wait for approval, any observed tree change, and for
+every set a root/marker change, relevant API change or restart, invalidates
+unused approval and requires rescan and fresh approval. Replays and
 foreign/stale revisions return 409 without broadening the set. A later inventory
-that finds exactly the members of an unapproved set again confirms it under the
+that finds exactly the members of an undecided set again confirms it under the
 same revision instead of replacing it, also after an API write moved the journal;
-an approved set or one from before a restart is never confirmed again. An
-observed tree change leaves a set that waits for approval in place, and
+an approved or rejected set, or one from before a restart, is never confirmed
+again. An observed tree change leaves a set that waits for approval in place, and
 approving or rejecting it first inventories the tree again, so the decision
 applies to the members the tree shows then and a late notification about another
-path does not make the named revision stale.
+path does not make the named revision stale. A rejection is durable: the
+write-back of the rejected files resumes at the next start, retry or rescan,
+and no inventory runs until it has finished.
 
 Inspect candidates with `GET /_internal/sync?view=deletions&revision=REVISION`,
 following its cursors to completion. Every page belongs to that exact frozen set,

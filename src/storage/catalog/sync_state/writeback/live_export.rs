@@ -12,16 +12,37 @@ pub(crate) mod tests;
 use crate::storage::catalog::fault::Step;
 pub(super) use owned::OwnedBody;
 
+/// One armed failure: the root and phase it fires at, the hits it lets pass first, and how many
+/// hits after those it fails.
 #[cfg(test)]
-static FAILURE: std::sync::Mutex<Vec<(RootId, &'static str, usize)>> =
-    std::sync::Mutex::new(Vec::new());
+struct Armed {
+    root: RootId,
+    phase: &'static str,
+    skip: usize,
+    count: usize,
+}
+
+#[cfg(test)]
+static FAILURE: std::sync::Mutex<Vec<Armed>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn inject_failure(root: RootId, phase: &'static str, count: usize) {
+    inject_failure_after(root, phase, 0, count);
+}
+
+/// Fails `count` hits of `phase` for `root` after letting the next `skip` pass, so that a test
+/// can fail a later object's export while an earlier one completes.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) fn inject_failure_after(root: RootId, phase: &'static str, skip: usize, count: usize) {
     FAILURE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push((root, phase, count));
+        .push(Armed {
+            root,
+            phase,
+            skip,
+            count,
+        });
 }
 
 /// Makes the next `count` staged copies of `root` record an inode number that no later
@@ -35,19 +56,24 @@ pub(crate) fn inject_renumbered_copy(root: RootId, count: usize) {
 #[cfg(test)]
 const RENUMBERED_COPY: &str = "renumbered-copy";
 
-/// Whether a test armed `phase` for `root`; each armed count fires once.
+/// Whether a test armed `phase` for `root`; each armed count fires once, after the hits it
+/// skips.
 #[cfg(test)]
 fn armed(root: RootId, phase: &str) -> Result<bool, Error> {
     let mut failure = FAILURE
         .lock()
         .map_err(|_| AdminError::Backend("live-export failure injection poisoned".into()))?;
-    let Some((_, _, count)) = failure
+    let Some(armed) = failure
         .iter_mut()
-        .find(|(selected, step, count)| *selected == root && *step == phase && *count > 0)
+        .find(|armed| armed.root == root && armed.phase == phase && armed.count > 0)
     else {
         return Ok(false);
     };
-    *count -= 1;
+    if armed.skip > 0 {
+        armed.skip -= 1;
+        return Ok(false);
+    }
+    armed.count -= 1;
     Ok(true)
 }
 
@@ -578,8 +604,11 @@ fn install_target(
                     ControlFlow::Continue(identity) => identity,
                     ControlFlow::Break(ended) => return Ok(ended),
                 };
-                if file.is_some() || install.item.kind == Kind::Publish {
-                    rename(workspace, install, directory.as_ref(), identity.as_ref())?;
+                if (file.is_some() || install.item.kind == Kind::Publish)
+                    && let ControlFlow::Break(ended) =
+                        rename(workspace, install, directory.as_ref(), identity.as_ref())?
+                {
+                    return Ok(ended);
                 }
             }
             directory
@@ -594,7 +623,9 @@ fn install_target(
                 Ok(parent) => parent,
                 Err(kept) => return Ok(Installed::Kept(kept)),
             };
-            rename(workspace, install, Some(&parent), None)?;
+            if let ControlFlow::Break(ended) = rename(workspace, install, Some(&parent), None)? {
+                return Ok(ended);
+            }
             Some(parent)
         }
     };
@@ -654,24 +685,35 @@ fn expected_target(
 }
 
 /// Moves the staged copy into the target in `directory` (or a removed file out of it), exchanging
-/// it with the tracked body of `identity` when there is one.
+/// it with the tracked body of `identity` when there is one. A copy for an empty target ends
+/// as [`Installed::Changed`] when something took the target after every check of it: the
+/// rename does not replace it, and the next attempt would find it changed all the same.
 fn rename(
     workspace: &File,
     install: &Install,
     directory: Option<&File>,
     identity: Option<&fsutil::FileIdentity>,
-) -> Result<(), Error> {
+) -> Result<ControlFlow<Installed>, Error> {
     let selected = &install.item;
     let target = directory.ok_or_else(stale)?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
+    #[cfg(test)]
+    install.faults.hit(Step::SyncCopyRename)?;
     let outcome = match selected.kind {
-        Kind::Publish => fsutil::durable_replace_between(
+        Kind::Publish => match fsutil::durable_replace_between(
             workspace,
             selected.token.id.to_hex().as_ref(),
             target,
             name.as_ref(),
             identity,
-        )?,
+        ) {
+            Err(fsutil::FsError::Io(error))
+                if identity.is_none() && error.kind() == std::io::ErrorKind::AlreadyExists =>
+            {
+                return Ok(ControlFlow::Break(Installed::Changed));
+            }
+            outcome => outcome?,
+        },
         Kind::Remove => fsutil::durable_replace_between(
             target,
             name.as_ref(),
@@ -685,7 +727,7 @@ fn rename(
     if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
         return Err(Error::Protected);
     }
-    Ok(())
+    Ok(ControlFlow::Continue(()))
 }
 
 /// Unlinks the tracked body that installation moved out of the target, if any, then syncs what

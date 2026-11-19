@@ -45,7 +45,7 @@ tokio::task_local! { static EXPORT_HOOK: std::sync::Arc<Hook>; }
 #[cfg(test)]
 tokio::task_local! { static LIVE_EXPORTS: std::sync::Arc<std::sync::atomic::AtomicUsize>; }
 #[cfg(test)]
-async fn export_checkpoint(phase: &str) {
+pub(super) async fn export_checkpoint(phase: &str) {
     if let Ok(hook) = EXPORT_HOOK.try_with(std::sync::Arc::clone)
         && hook.phase.split(',').any(|selected| selected == phase)
     {
@@ -845,6 +845,9 @@ async fn initialize_live(
     let watcher = DirectoryWatch::new(root).await?;
     let mut writeback = recover_writeback(operation_root).await?;
     super::naming::activate(&writeback).await?;
+    // Before the inventory, which would take the files a rejection has not written back yet,
+    // after a stop, a failure or a power loss, for files the user deleted.
+    super::deletion::write_back_rejected(catalog, operation_root, Interrupt::new(stopping)).await?;
     root.invalidate_deletions().await?;
     let ingested = super::ingest::rescan_with(
         catalog,
@@ -940,6 +943,8 @@ async fn ingest_external_with(
         ..
     } = scope;
     let _publication = root.begin_observation_publication().await?;
+    // A rejection the run could not finish waits in the catalog; see `initialize_live`.
+    super::deletion::write_back_rejected(catalog, root, interrupt).await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
     report_entries(entries, &summary);
@@ -1276,13 +1281,13 @@ impl LiveControl<'_> {
                 .map_err(ControlError::from),
             Err(error) => Err(error),
         };
-        let set = rejected.as_ref().ok().cloned();
+        let accepted = rejected.is_ok();
         let _ = reply.send(rejected);
-        let Some(set) = set else {
+        if !accepted {
             return Ok(());
-        };
+        }
         let interrupt = Interrupt::new(self.scope.stopping);
-        super::deletion::write_back_rejected(self.scope.catalog, self.scope.root, &set, interrupt)
+        super::deletion::write_back_rejected(self.scope.catalog, self.scope.root, interrupt)
             .await?;
         // The members held back the exports into their bucket's missing directory, which the
         // write-back brought back.
@@ -1428,15 +1433,28 @@ impl SkippedExports {
     }
 }
 
+/// What a restore from the catalog left at the object's path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Restored {
+    /// The object's file, written back from the object.
+    Written,
+    /// What was put at the path meanwhile: a file, which is taken in as any file is, or an
+    /// entry that keeps the object out of the tree as a finding.
+    Kept,
+    /// Nothing was written: the object, its bucket or its tracked file changed or went
+    /// meanwhile, and the export of that change takes over.
+    Skipped,
+}
+
 pub(super) async fn restore_from_catalog(
     catalog: &Catalog,
     root: &RootLease,
     bucket: &BucketName,
     name: &ObjectName,
-) -> Result<(), SyncError> {
+) -> Result<Restored, SyncError> {
     let fence = catalog.current_fence().await?;
     let writeback = root.default_writeback().await?;
-    // Restoring a protected deletion reports no counts.
+    // A restore reports no counts of its own.
     let mut uncounted = Reconciliation::default();
     let mut object = LiveObject {
         catalog,
@@ -1447,10 +1465,10 @@ pub(super) async fn restore_from_catalog(
         missing: MissingFile::Restore,
     };
     let Some(plan) = object.plan().await? else {
-        return Ok(());
+        return Ok(Restored::Skipped);
     };
     let Some(source) = plan.source else {
-        return Ok(());
+        return Ok(Restored::Skipped);
     };
     let operation = match writeback
         .begin_live_export(
@@ -1464,16 +1482,15 @@ pub(super) async fn restore_from_catalog(
         .await
     {
         Ok(operation) => operation,
-        Err(error) if concurrent_change(&error) => return Ok(()),
+        Err(error) if concurrent_change(&error) => return Ok(Restored::Skipped),
         Err(error) => return Err(error.into()),
     };
     loop {
         match advance_with_retry(&writeback, operation.clone()).await? {
             LiveResult::Pending => {}
-            LiveResult::Complete
-            | LiveResult::Conflict
-            | LiveResult::Obsolete
-            | LiveResult::Collision(_) => return Ok(()),
+            LiveResult::Complete => return Ok(Restored::Written),
+            LiveResult::Conflict | LiveResult::Collision(_) => return Ok(Restored::Kept),
+            LiveResult::Obsolete => return Ok(Restored::Skipped),
         }
     }
 }

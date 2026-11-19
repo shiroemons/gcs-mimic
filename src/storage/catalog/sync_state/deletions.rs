@@ -77,7 +77,6 @@ pub(crate) struct DeletionSet {
 }
 
 /// Whether a completed deletion set may run, as stored in `sync_deletion_sets.authorization`.
-/// No release writes the third value the column check allows, so reading it fails as corrupt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeletionAuthorization {
     /// Not yet approved (a guarded set), or withdrawn when the catalog reopened. Invalidating a
@@ -85,8 +84,22 @@ pub(crate) enum DeletionAuthorization {
     Withheld,
     /// Approved by an operator, or never guarded.
     Granted,
+    /// Rejected by an operator. The set is invalid and never runs; its members are files to
+    /// write back from their objects, each marked done once its write-back ended. The value
+    /// survives a restart, and no inventory replaces the set while a member is not done: one
+    /// that ran in between would take the files not yet written back for files the user
+    /// deleted.
+    Rejected,
 }
-sql::integer_enum!(DeletionAuthorization, { Withheld => 0, Granted => 1 });
+sql::integer_enum!(DeletionAuthorization, { Withheld => 0, Granted => 1, Rejected => 2 });
+
+/// What the write-back of a rejected set has left: its revision, and how many of its members
+/// are not written back yet.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PendingRejection {
+    pub revision: OpaqueId,
+    pub remaining: u64,
+}
 
 impl DeletionAuthorization {
     /// A guarded set waits for approval; an unguarded one is authorized when it completes.
@@ -217,6 +230,15 @@ fn matching(connection: &Connection, root: RootId, revision: OpaqueId) -> Result
     } else {
         Err(CatalogError::PreconditionFailed)
     }
+}
+
+/// Whether the root's set is rejected and has a member not written back yet.
+fn rejection_pending(connection: &Connection, root: RootId) -> Result<bool, CatalogError> {
+    Ok(sql::scalar(
+        connection,
+        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND d.authorization=2 AND m.done=0)",
+        [root],
+    )?)
 }
 
 pub(super) fn read_set(
@@ -366,9 +388,10 @@ impl RootLease {
     }
 
     /// Rejects the set `revision` that waits for approval, and returns it as it was. Once this
-    /// commits nothing approves or runs the set, and [`Self::rejected_page`] reads its members
-    /// for the write-back that follows. A stale revision, or one already approved or rejected,
-    /// fails as a failed precondition, as an approval does.
+    /// commits nothing approves or runs the set, and its members wait in the catalog for the
+    /// write-back that follows ([`Self::rejected_page`]), across a stop or a restart. A stale
+    /// revision, or one already approved or rejected, fails as a failed precondition, as an
+    /// approval does.
     pub(crate) async fn reject_deletions(
         &self,
         revision: OpaqueId,
@@ -381,19 +404,29 @@ impl RootLease {
             scope.authorize(&transaction)?;
             matching(&transaction,root,revision)?;
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
-            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
+            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=0,authorization=2 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
             transaction.commit()?;
             Ok(snapshot)
         }).await?)
     }
 
-    /// The members after `after` of the set `revision` that [`Self::reject_deletions`] rejected.
-    /// The set is no longer valid, so neither its journal fence nor its validity is checked;
-    /// only that it is still the root's set and was never approved.
+    /// The write-back the root's rejected set has left, if any of its members is not done.
+    pub(crate) async fn pending_rejection(&self) -> Result<Option<PendingRejection>, RootError> {
+        let root = self.status().root_id;
+        let authority = self.authority();
+        Ok(self.catalog().run_admin(move |connection| {
+            let tx=connection.transaction()?;
+            authority.authorize(&tx,root)?;
+            sql::row(&tx, "SELECT d.revision,count(*) FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND d.authorization=2 AND m.done=0 GROUP BY d.revision", [root], |row| Ok(PendingRejection{revision:row.get(0)?,remaining:row.get(1)?}))
+                .optional().map_err(unavailable)
+        }).await?)
+    }
+
+    /// The members after `after` of the root's rejected set that are not written back yet. The
+    /// set is no longer valid, so neither its journal fence nor its validity is checked.
     pub(crate) async fn rejected_page(
         &self,
-        revision: OpaqueId,
         after: Ordinal,
         limit: PageLimit<256>,
     ) -> Result<Vec<Candidate>, RootError> {
@@ -402,9 +435,26 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
-            tx.prepare_cached("SELECT m.bucket,m.name,m.owner_project,m.incarnation,m.generation,m.path,m.ordinal FROM sync_deletion_members m JOIN sync_deletion_sets d ON d.root_id=m.root_id WHERE m.root_id=?1 AND d.revision=?2 AND d.authorization=0 AND m.ordinal>?3 ORDER BY m.ordinal LIMIT ?4")
-                .and_then(|mut statement|statement.query_map(params![root,revision,after,limit],read_candidate)?.collect()).map_err(unavailable)
+            tx.prepare_cached("SELECT m.bucket,m.name,m.owner_project,m.incarnation,m.generation,m.path,m.ordinal FROM sync_deletion_members m JOIN sync_deletion_sets d ON d.root_id=m.root_id WHERE m.root_id=?1 AND d.authorization=2 AND m.done=0 AND m.ordinal>?2 ORDER BY m.ordinal LIMIT ?3")
+                .and_then(|mut statement|statement.query_map(params![root,after,limit],read_candidate)?.collect()).map_err(unavailable)
         }).await?)
+    }
+
+    /// Marks the member `ordinal` of the root's rejected set done: its file is written back, a
+    /// file or entry put at its path meanwhile stays instead, or its object changed and the
+    /// export of the change takes over.
+    pub(crate) async fn settle_rejected_member(&self, ordinal: Ordinal) -> Result<(), RootError> {
+        let root = self.status().root_id;
+        let scope = self.control_scope();
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                scope.authorize(&tx)?;
+                sql::exec(&tx, "UPDATE sync_deletion_members SET done=1 WHERE root_id=?1 AND ordinal=?2 AND done=0 AND EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.authorization=2)", params![root, ordinal])?;
+                tx.commit().map_err(unavailable)
+            })
+            .await?;
+        Ok(())
     }
 
     pub(crate) fn deletion_binding(

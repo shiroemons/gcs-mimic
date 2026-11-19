@@ -114,10 +114,19 @@ writes each member's file back from its object through the ordinary
 write-back, the way a protected deletion is restored: into a path that is still
 empty, recreating a missing bucket directory first, and then runs the exports
 that waited for that directory. A file put at a member's path meanwhile is not
-overwritten, and is ingested as any file is. Once the write-back finished, the
-next inventory finds nothing to delete. A rejection logs
-`sync_deletions_rejected`, and a stale, approved or already rejected revision
-returns 409, as approval does.
+overwritten, also when it appears just before the rename that would install
+the copy, and is ingested as any file is. The rejection is stored with the set
+and each member is marked done once its write-back ended, so a stop, a failure
+or a power loss part way leaves the remaining members in the catalog, and the
+next start, retry or rescan writes them back before anything else. No inventory
+runs while a member is left: one that ran in between would see one file back
+and another still missing, a deletion below every threshold. A rejected
+revision is never confirmed, approved or rejected again. The write-back logs
+`sync_deletions_rejected` with how many files it restored, how many paths it
+kept because something was put there meanwhile, and how many it skipped because
+the object changed or went; a write-back that stopped or failed part way logs
+it as a warning with the number of files remaining. A stale, approved or
+already rejected revision returns 409, as approval does.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,
 with its revision, its counts and the commands that inspect, approve and reject

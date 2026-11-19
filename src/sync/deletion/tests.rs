@@ -180,7 +180,11 @@ async fn an_inventory_names_the_first_unobservable_paths_and_counts_the_rest() {
         fs::create_dir(&path).unwrap();
     }
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let mut inventory = root.begin_deletion_inventory(Guard::Enabled).await.unwrap();
+    let mut inventory = root
+        .begin_deletion_inventory(Guard::Enabled)
+        .await
+        .unwrap()
+        .unwrap();
     let mut unobserved = Unobserved::default();
     let counted = count_candidates(
         &root,

@@ -149,6 +149,9 @@ pub(crate) enum Step {
     SyncEmptyDirectoryRemove,
     /// After that directory is removed, before its parent is synced.
     SyncEmptyDirectoryRemoved,
+    /// After every check of the target, just before installation renames, exchanges or moves
+    /// it. A test that blocks here can change the target behind those checks.
+    SyncCopyRename,
     /// After installation renamed, exchanged or moved the target and the parent syncs inside
     /// that call ran, before installation's own directory syncs.
     SyncCopyRenamed,

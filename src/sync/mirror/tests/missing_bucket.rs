@@ -14,14 +14,14 @@ use crate::storage::sync_state::deletions::DeletionSet;
 use crate::sync::control::{WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding};
 
-const BODY: &[u8] = b"tracked bytes";
-const BUCKET: &str = "test-bucket";
-const TRACKED: [&str; 2] = ["first", "second"];
+pub(super) const BODY: &[u8] = b"tracked bytes";
+pub(super) const BUCKET: &str = "test-bucket";
+pub(super) const TRACKED: [&str; 2] = ["first", "second"];
 const ALL: [&str; 3] = ["first", "second", "third"];
 
 /// A root whose bucket directory holds `first` and `second`, which a start tracked and whose
 /// baseline it completed.
-async fn tracked_pair() -> (TestDir, TestDir, BucketName) {
+pub(super) async fn tracked_pair() -> (TestDir, TestDir, BucketName) {
     let (data, tree, catalog, bucket, root) = live_fixture().await;
     drop(root);
     catalog.close().await.unwrap();
@@ -73,7 +73,7 @@ async fn an_object_written_while_stopped_waits_with_its_missing_bucket_directory
     started.close().await;
 }
 
-async fn wait_control(commands: &tokio::sync::mpsc::Sender<Command>) -> WaitResult {
+pub(super) async fn wait_control(commands: &tokio::sync::mpsc::Sender<Command>) -> WaitResult {
     let (reply, result) = tokio::sync::oneshot::channel();
     commands
         .send(Command::Wait {
@@ -110,7 +110,7 @@ async fn approve_control(commands: &tokio::sync::mpsc::Sender<Command>, root: &R
 }
 
 /// Rejects the root's pending set, and returns the set the rejection answered with.
-async fn reject_control(
+pub(super) async fn reject_control(
     commands: &tokio::sync::mpsc::Sender<Command>,
     root: &RootLease,
 ) -> DeletionSet {
@@ -135,21 +135,25 @@ async fn reject_control(
 
 /// A mirror that runs over the tree and answers the controls sent to `commands`, as the server's
 /// control routes hand them on.
-struct Live {
-    catalog: Catalog,
-    root: RootLease,
-    commands: tokio::sync::mpsc::Sender<Command>,
-    stop: tokio::sync::watch::Sender<bool>,
+pub(super) struct Live {
+    pub(super) catalog: Catalog,
+    pub(super) root: RootLease,
+    pub(super) commands: tokio::sync::mpsc::Sender<Command>,
+    pub(super) stop: tokio::sync::watch::Sender<bool>,
     worker: tokio::task::JoinHandle<Result<(), SyncError>>,
 }
 
 impl Live {
-    async fn start(data: &Path, tree: &Path) -> Self {
+    pub(super) async fn start(data: &Path, tree: &Path) -> Self {
         Self::start_with(data, tree, None).await
     }
 
     /// Starts the mirror, stopped by `hook`, when there is one, at each checkpoint it names.
-    async fn start_with(data: &Path, tree: &Path, hook: Option<std::sync::Arc<Hook>>) -> Self {
+    pub(super) async fn start_with(
+        data: &Path,
+        tree: &Path,
+        hook: Option<std::sync::Arc<Hook>>,
+    ) -> Self {
         let catalog = Catalog::open(data).await.unwrap();
         let config = Config {
             data_dir: data.to_owned(),
@@ -180,7 +184,7 @@ impl Live {
         }
     }
 
-    async fn stop(self) {
+    pub(super) async fn stop(self) {
         self.stop.send_replace(true);
         self.worker.await.unwrap().unwrap();
         drop(self.root);
@@ -452,7 +456,7 @@ enum Unrelated {
 }
 
 /// Runs `work` while letting the mirror past every checkpoint `hook` stops it at.
-async fn released<F: std::future::Future>(hook: &Hook, work: F) -> F::Output {
+pub(super) async fn released<F: std::future::Future>(hook: &Hook, work: F) -> F::Output {
     tokio::pin!(work);
     loop {
         tokio::select! {

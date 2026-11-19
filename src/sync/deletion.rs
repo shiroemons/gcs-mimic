@@ -15,7 +15,7 @@ use crate::{
             OpaqueId, Ordinal, PageLimit, SyncBinding,
             deletions::{
                 BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet,
-                EmptiedAtStart, Guard, Inventory, Removal,
+                EmptiedAtStart, Guard, Inventory, PendingRejection, Removal,
             },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
@@ -68,7 +68,11 @@ pub(super) async fn inventory_with(
         return Ok(None);
     }
     let guard = Guard::from(config.sync_delete_guard);
-    let inventory = root.begin_deletion_inventory(guard).await?;
+    // A rejection whose files are not all written back leaves nothing to inventory until the
+    // write-back that starts each pass finishes them.
+    let Some(inventory) = root.begin_deletion_inventory(guard).await? else {
+        return Ok(None);
+    };
     take_inventory(root, guard, inventory, interrupt).await
 }
 
@@ -98,7 +102,8 @@ pub(super) async fn recheck(
 }
 
 /// Counts `inventory` to its end and returns its set, starting a new one whenever the earlier set
-/// it confirms turns out to differ. `None` means the pass was interrupted.
+/// it confirms turns out to differ. `None` means the pass was interrupted, or a rejection left
+/// files to write back, which only a decision between two inventories can, so never here.
 async fn take_inventory(
     root: &RootLease,
     guard: Guard,
@@ -125,7 +130,10 @@ async fn take_inventory(
             return Ok(Some(set));
         }
         // The root's earlier set differs from what the tree shows now, so a new one replaces it.
-        inventory = root.begin_new_deletion_inventory(guard).await?;
+        let Some(next) = root.begin_new_deletion_inventory(guard).await? else {
+            return Ok(None);
+        };
+        inventory = next;
     }
 }
 
@@ -133,7 +141,7 @@ async fn take_inventory(
 /// which a wait gives too. Nothing else reports a guarded set until someone asks for the status.
 fn warn_awaiting_approval(set: &DeletionSet) {
     match set.authorization {
-        DeletionAuthorization::Granted => {}
+        DeletionAuthorization::Granted | DeletionAuthorization::Rejected => {}
         DeletionAuthorization::Withheld => {
             let revision = set.revision.to_hex();
             let at_hand = AtHand {
@@ -578,47 +586,118 @@ pub(super) async fn execute_with(
     Ok(applied)
 }
 
-/// Writes the files of the rejected `set` back from their objects, the way the restore after a
-/// protected deletion does: through the ordinary write-back, and only into a path that is still
-/// empty, so a file put there meanwhile stays as it is and is ingested as any file is. A bucket
-/// directory that went with the files is created again first.
+/// Writes the files of the root's rejected set back from their objects, the way the restore
+/// after a protected deletion does: through the ordinary write-back, and only into a path that
+/// is still empty, so a file put there meanwhile stays as it is and is ingested as any file is.
+/// A bucket directory that went with the files is created again first. Each member is marked
+/// done once its write-back ended, and the others stay in the catalog: a stop or a failure
+/// leaves them to the next start, retry or rescan, which resume here before any inventory.
+/// Nothing is left to do for a root without a rejected set.
 pub(super) async fn write_back_rejected(
     catalog: &Catalog,
     root: &RootLease,
-    set: &DeletionSet,
     interrupt: Interrupt<'_>,
 ) -> Result<(), SyncError> {
+    let Some(pending) = root.pending_rejection().await? else {
+        return Ok(());
+    };
+    let mut ended = WriteBack::default();
+    let finished = write_back_members(catalog, root, interrupt, &mut ended).await;
+    ended.report(&pending, &finished);
+    finished.map(drop)
+}
+
+/// Writes back the members not done yet, in order, counting how each ended in `ended`, and
+/// says whether `interrupt` stopped it first. The first failure ends it: the member it failed
+/// at and those after it stay for the next pass.
+async fn write_back_members(
+    catalog: &Catalog,
+    root: &RootLease,
+    interrupt: Interrupt<'_>,
+    ended: &mut WriteBack,
+) -> Result<Interrupted, SyncError> {
     let mut after = Ordinal::START;
     let mut buckets = BTreeSet::new();
     loop {
-        let page = root
-            .rejected_page(set.revision, after, PageLimit::LARGEST)
-            .await?;
+        let page = root.rejected_page(after, PageLimit::LARGEST).await?;
         let Some(last) = page.last() else {
-            break;
+            return Ok(Interrupted::No);
         };
         after = last.ordinal;
         for candidate in page {
-            if interrupt.check() != Interrupted::No {
-                return Ok(());
+            #[cfg(test)]
+            super::mirror::export_checkpoint("rejected-member").await;
+            let interrupted = interrupt.check();
+            if interrupted != Interrupted::No {
+                return Ok(interrupted);
             }
-            if buckets.insert(candidate.bucket.clone()) {
+            if !buckets.contains(&candidate.bucket) {
                 super::mirror::create_directory(
                     root,
                     std::path::PathBuf::from(candidate.bucket.as_str()),
                 )
                 .await?;
+                buckets.insert(candidate.bucket.clone());
             }
-            super::mirror::restore_from_catalog(catalog, root, &candidate.bucket, &candidate.name)
-                .await?;
+            ended.record(
+                super::mirror::restore_from_catalog(
+                    catalog,
+                    root,
+                    &candidate.bucket,
+                    &candidate.name,
+                )
+                .await?,
+            );
+            root.settle_rejected_member(candidate.ordinal).await?;
         }
     }
-    diagnostics::emit(
-        LogLevel::Info,
-        "sync_deletions_rejected",
-        serde_json::json!({"revision":set.revision.to_hex(),"candidates":set.candidate_count}),
-    );
-    Ok(())
+}
+
+/// How the members a write-back reached ended, which its log line counts.
+#[derive(Debug, Default)]
+struct WriteBack {
+    restored: u64,
+    kept: u64,
+    skipped: u64,
+}
+
+impl WriteBack {
+    fn record(&mut self, restored: super::mirror::Restored) {
+        use super::mirror::Restored;
+        match restored {
+            Restored::Written => self.restored += 1,
+            Restored::Kept => self.kept += 1,
+            Restored::Skipped => self.skipped += 1,
+        }
+    }
+
+    /// Logs what this write-back of `pending` did, which ended as `finished`; a warning when it
+    /// stopped or failed with members left, which the next start, retry or rescan writes back
+    /// before it looks for deleted files.
+    fn report(&self, pending: &PendingRejection, finished: &Result<Interrupted, SyncError>) {
+        let revision = pending.revision.to_hex();
+        if matches!(finished, Ok(Interrupted::No)) {
+            diagnostics::emit(
+                LogLevel::Info,
+                "sync_deletions_rejected",
+                serde_json::json!({
+                    "revision":revision,"restored":self.restored,"kept":self.kept,
+                    "skipped":self.skipped,
+                }),
+            );
+            return;
+        }
+        let ended = self.restored + self.kept + self.skipped;
+        diagnostics::emit(
+            LogLevel::Warn,
+            "sync_deletions_rejected",
+            serde_json::json!({
+                "revision":revision,"restored":self.restored,"kept":self.kept,
+                "skipped":self.skipped,"remaining":pending.remaining.saturating_sub(ended),
+                "remedy":"The next start, retry or rescan writes the remaining files back before it looks for deleted files",
+            }),
+        );
+    }
 }
 
 /// Deletes the object of a member whose path was just seen empty.
