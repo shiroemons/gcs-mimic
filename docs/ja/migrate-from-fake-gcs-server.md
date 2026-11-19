@@ -170,7 +170,8 @@ fake-gcs-serverとの違いは次のとおりです。
   追跡中のファイルのうち100件以上で、かつ全体の半数を超える数が一度に消えるときだけ、サーバーは承認を待ちます。
   バケットが複数あると、1つのバケットのディレクトリを消しても、たいてい半数に届かずにそのまま反映されます。
   ガードが削除を止めたときも、APIは使えたままです。`pending_deletion_revision`のrevisionを取り出し、
-  一覧を確認してから承認します（`DELETION_REVISION`は自分の値に置き換えます）。
+  一覧を確認してから決めます。誤って消えた場合は、同じオプションの`gcs-mimic sync reject`でオブジェクトを残してファイルを書き戻します。
+  意図して消した場合は承認します（`DELETION_REVISION`は自分の値に置き換えます）。
 
   ```sh
   docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443

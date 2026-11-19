@@ -195,8 +195,10 @@ What differs from fake-gcs-server:
   approval. With several buckets, deleting one bucket's directory usually stays
   under that half and is applied at once. When the guard does stop a deletion,
   the API keeps answering. Take the revision from `pending_deletion_revision`,
-  look at the list, then approve it (use your own value for
-  `DELETION_REVISION`):
+  look at the list, then decide. If the files went by mistake,
+  `gcs-mimic sync reject` with the same options keeps the objects and writes
+  the files back; if you deleted them on purpose, approve the set (use your own
+  value for `DELETION_REVISION`):
 
   ```sh
   docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443

@@ -290,11 +290,12 @@ Files created or edited outside the server are imported as new object
 generations, with hashes, shortly after the change; no restart is needed.
 Deleting a file deletes its live object, subject to holds and retention. When at
 least 100 objects would go and they are more than half of the tree, the deletion
-guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
-set is approved with `gcs-mimic sync approve`; the log names such a set once,
-as `sync_deletion_approval_required`, with its revision and the commands that
-inspect, approve and reject it; rejecting it with `gcs-mimic sync reject`
-writes the files back from the objects. Deletions that run are logged as
+guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until someone
+decides on the exact set: `gcs-mimic sync reject` keeps the objects and writes
+the files back from them, and `gcs-mimic sync approve` deletes the objects. The
+log names such a set once, as `sync_deletion_approval_required`, with its
+revision, how many of the tracked files are missing, and the commands that
+inspect, reject and approve it. Deletions that run are logged as
 `sync_deletions_applied` with their count and first ten paths, as a warning
 when the first pass after a start or a retry runs them and at the info level
 otherwise. Recent automatic deletions also
@@ -302,13 +303,34 @@ count toward this threshold across split scans. Deleting a whole bucket
 directory waits for that approval however few files it held, because a mount
 that did not come up looks the same; the server does not recreate the
 directory meanwhile, not even for an object written into the bucket through the
-API, which waits with it, and the bucket stays after the approved deletion. A
+API, which waits with it, and the bucket stays after the approved deletion; a
+rejection recreates the directory and writes the files back into it. A
 bucket directory that the server finds at startup holding none of its tracked
 files, as a bind mount of the bucket that came up empty does, waits for the
 approval too, logged as `sync_bucket_directory_emptied`, also after an object
 written through the API meanwhile is exported into it; emptying a bucket while
 the server runs is left to the counts. Deleting
 a bucket through the API keeps its directory.
+
+When a deletion set waits for a decision, inspect it with
+`gcs-mimic sync status --view deletions`, then choose:
+
+- If a mount failed, fix the mount and restart the server before anything else.
+  The files come back and the set stops waiting; a rejection before the mount
+  returns writes the files under the mount point, where the mount then hides
+  them.
+- If the files went by mistake, reject the set with
+  `gcs-mimic sync reject --deletion-set REVISION`. The objects stay, and the
+  files are written back from them; `gcs-mimic sync wait` answers once they are
+  back.
+- If you put the files back yourself, wait again with `gcs-mimic sync wait`.
+- If you deleted the files on purpose, approve the set with
+  `gcs-mimic sync approve --deletion-set REVISION` to delete their objects.
+
+In CI, `gcs-mimic sync wait` exits 2 with `DeletionApproval` while a set waits,
+and its error names these commands with the set's revision, so a run stops there
+instead of going on with files missing.
+
 A file deleted while the server was stopped, or before it crashed, deletes its
 object at the next startup instead of being written back; only the guard above
 stops such deletions. Restoring the directory from an older backup likewise

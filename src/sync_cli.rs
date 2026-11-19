@@ -31,7 +31,7 @@ const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait [--endpoint http(s)
        gcs-mimic sync wait [--endpoint URL] [--timeout DURATION] [--require-no-findings]
        gcs-mimic sync status [--endpoint URL] --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
        gcs-mimic sync deletions|findings [--endpoint URL] [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
-       gcs-mimic sync approve|reject [--endpoint URL] --deletion-set REVISION [OPTIONS]
+       gcs-mimic sync reject|approve [--endpoint URL] --deletion-set REVISION [OPTIONS]
        gcs-mimic sync conflicts [--endpoint URL] [--revision REVISION] [--cursor CURSOR] [--limit N]
        gcs-mimic sync resolve [--endpoint URL] --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
        gcs-mimic sync resolve [--endpoint URL] --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
@@ -72,11 +72,15 @@ The token file contains one local bearer token (at most 8192 bytes), overriding
 the CLI-only GCSM_SYNC_TOKEN environment variable when set.
 Status and deletions print one bounded JSON page. Without --revision, a view
 reads the status first and lists the page at the revision it reports. Copy
-next_cursor unchanged with the revision of its page; approval requires the
-exact inspected revision, and stale revisions fail.
+next_cursor unchanged with the revision of its page; reject and approve require
+the exact inspected revision, and stale revisions fail.
+Reject keeps the deletion set's objects and writes their files back, recreating
+a missing bucket directory; wait answers once they are back. Approve deletes the
+objects. After a failed mount, fix the mount and restart the server first.
 No data directory, ambient proxy or Google credentials are opened; the server
 config file is read only to find the server when --endpoint is not given.
-Rescan and approval are not retried; a timeout may leave accepted work running.
+Rescan, reject and approve are not retried; a timeout may leave accepted work
+running.
 Inspect status before retrying. Recovery discard requires exactly one matching
 --confirm-backup-verified ID or --confirm-discard-without-backup ID.
 Unsupported server operations fail visibly.";

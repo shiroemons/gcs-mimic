@@ -212,6 +212,7 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
     );
     assert!(HELP.contains("Wait takes up to 60m and defaults to 2m"));
     assert!(HELP.contains("--require-no-findings, which takes no\nvalue"));
+    assert!(HELP.contains("Reject keeps the deletion set's objects and writes their files back"));
 }
 
 /// Each decision goes to its own route, spelled out here rather than taken from the code under
