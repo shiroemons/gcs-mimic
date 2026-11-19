@@ -1014,61 +1014,61 @@ fn a_wait_stops_at_once_for_what_waiting_cannot_change() {
 /// or an answer without a reason, like any other failed command.
 #[test]
 fn a_wait_exits_with_the_status_of_how_it_ended() {
-    use WaitExit::{ActionNeeded, Failed, Ready, TimedOut};
-    for (name, exit) in [
-        ("Ready", Ready),
-        ("Timeout", TimedOut),
-        ("Stopped", Failed),
-        ("Paused", ActionNeeded),
-        ("JournalChanged", TimedOut),
-        ("SourceChanging", TimedOut),
-        ("SourceUnrepresentable", ActionNeeded),
-        ("DeletionApproval", ActionNeeded),
-        ("FindingsPending", ActionNeeded),
+    use WaitFailure::{ActionNeeded, Failed, TimedOut};
+    for (name, failure) in [
+        ("Ready", None),
+        ("Timeout", Some(TimedOut)),
+        ("Stopped", Some(Failed)),
+        ("Paused", Some(ActionNeeded)),
+        ("JournalChanged", Some(TimedOut)),
+        ("SourceChanging", Some(TimedOut)),
+        ("SourceUnrepresentable", Some(ActionNeeded)),
+        ("DeletionApproval", Some(ActionNeeded)),
+        ("FindingsPending", Some(ActionNeeded)),
     ] {
         let reason: WaitReason = name.parse().unwrap();
-        assert_eq!(WaitExit::of(Some(reason)), exit, "{name}");
-        assert_eq!(reason.is_in_progress(), exit == TimedOut, "{name}");
+        assert_eq!(WaitFailure::of(Some(reason)), failure, "{name}");
+        assert_eq!(reason.is_in_progress(), failure == Some(TimedOut), "{name}");
     }
-    assert_eq!(WaitExit::of(None), Failed);
+    assert_eq!(WaitFailure::of(None), Some(Failed));
     assert_eq!(
-        [Ready, Failed, ActionNeeded, TimedOut].map(WaitExit::code),
-        [0, 1, 2, 3]
+        [Failed, ActionNeeded, TimedOut].map(WaitFailure::code),
+        [1, 2, 3]
     );
     let ended = |answer: Value, status| match WaitOutcome::read(&answer)
         .conclude(status, "--endpoint http://127.0.0.1:4443")
     {
-        Ok(()) => (Ready, Vec::new()),
-        Err(CliError::Wait(diagnostics, exit)) => (exit, diagnostics.errors),
-        Err(CliError::Diagnostics(diagnostics)) => (Failed, diagnostics.errors),
+        Ok(()) => (None, Vec::new()),
+        Err(CliError::Wait(diagnostics, failure)) => (Some(failure), diagnostics.errors),
+        Err(CliError::Diagnostics(diagnostics)) => (Some(Failed), diagnostics.errors),
         Err(error) => panic!("{error:?}"),
     };
-    assert_eq!(ended(json!({"reason":"Ready"}), StatusCode::OK).0, Ready);
+    assert_eq!(ended(json!({"reason":"Ready"}), StatusCode::OK).0, None);
     // A wait that the objects it refuses failed exits as one that needs action, with its remedy.
-    let (exit, errors) = ended(
+    let (failure, errors) = ended(
         json!({"reason":"FindingsPending","findings":{"unmapped":1,"revision":"r"},
             "remedy":"Rename it: gcs-mimic sync wait --endpoint URL"}),
         StatusCode::CONFLICT,
     );
-    assert_eq!(exit, ActionNeeded);
+    assert_eq!(failure, Some(ActionNeeded));
     assert_eq!(
         errors[0].fix,
         "sync wait ended with FindingsPending: Rename it: gcs-mimic sync wait --endpoint http://127.0.0.1:4443"
     );
     assert_eq!(
         ended(json!({"reason":"Timeout"}), StatusCode::REQUEST_TIMEOUT).0,
-        TimedOut
+        Some(TimedOut)
     );
-    let (exit, errors) = ended(json!({"reason":"Stopped"}), StatusCode::CONFLICT);
+    let (failure, errors) = ended(json!({"reason":"Stopped"}), StatusCode::CONFLICT);
     assert_eq!(
-        (exit, errors[0].fix.as_str()),
-        (Failed, "sync wait ended with Stopped")
+        (failure, errors[0].fix.as_str()),
+        (Some(Failed), "sync wait ended with Stopped")
     );
-    let (exit, errors) = ended(
+    let (failure, errors) = ended(
         json!({"error":{"code":503}}),
         StatusCode::SERVICE_UNAVAILABLE,
     );
-    assert_eq!(exit, Failed);
+    assert_eq!(failure, Some(Failed));
     assert!(errors[0].fix.contains("HTTP 503"), "{errors:?}");
     assert_eq!(
         crate::CliError::Wait(Diagnostics::default(), TimedOut).exit_code(),

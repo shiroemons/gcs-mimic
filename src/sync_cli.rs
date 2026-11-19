@@ -419,13 +419,11 @@ const WAIT_MARGIN: Duration = Duration::from_secs(1);
 /// the server answers at once.
 const JOURNAL_PAUSE: Duration = Duration::from_secs(1);
 
-/// How `sync wait` exits, so that a script tells what ended it without reading the answer.
-/// Other commands exit 0 on success and 1 on failure.
+/// How a `sync wait` that did not end ready exits, so that a script tells what ended it without
+/// reading the answer. A ready wait exits 0, and other commands exit 0 on success and 1 on
+/// failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum WaitExit {
-    /// Every change the wait can reflect is reflected, even while objects it only reports
-    /// remain.
-    Ready,
+pub(super) enum WaitFailure {
     /// No answer names how the wait ended, as for an unreachable server or a refused request,
     /// or the server stopped: like any other failed command.
     Failed,
@@ -435,30 +433,30 @@ pub(super) enum WaitExit {
     TimedOut,
 }
 
-impl WaitExit {
-    /// How a wait whose last answer gave `reason`, if any, exits.
-    const fn of(reason: Option<WaitReason>) -> Self {
+impl WaitFailure {
+    /// How a wait whose last answer gave `reason`, if any, fails; nothing for one that ended
+    /// ready, even while objects it only reports remain.
+    const fn of(reason: Option<WaitReason>) -> Option<Self> {
         match reason {
-            Some(WaitReason::Ready) => Self::Ready,
+            Some(WaitReason::Ready) => None,
             Some(
                 WaitReason::Paused
                 | WaitReason::SourceUnrepresentable
                 | WaitReason::DeletionApproval
                 | WaitReason::FindingsPending,
-            ) => Self::ActionNeeded,
+            ) => Some(Self::ActionNeeded),
             // The command asks again while one of these holds, so a wait that ends with one ran
             // out of time.
             Some(WaitReason::Timeout | WaitReason::SourceChanging | WaitReason::JournalChanged) => {
-                Self::TimedOut
+                Some(Self::TimedOut)
             }
-            Some(WaitReason::Stopped) | None => Self::Failed,
+            Some(WaitReason::Stopped) | None => Some(Self::Failed),
         }
     }
 
     /// The process exit status.
     pub(super) const fn code(self) -> u8 {
         match self {
-            Self::Ready => 0,
             Self::Failed => 1,
             Self::ActionNeeded => 2,
             Self::TimedOut => 3,
@@ -919,21 +917,21 @@ impl<'a> WaitOutcome<'a> {
     }
 
     /// Ends the command for a wait whose last answer came with `status`: a ready wait writes its
-    /// advice and succeeds, and any other fails with its advice and the [`WaitExit`] of its
+    /// advice and succeeds, and any other fails with its advice and the [`WaitFailure`] of its
     /// reason. An answer that names no reason the command knows fails like any other request.
     fn conclude(&self, status: StatusCode, connection: &str) -> Result<(), CliError> {
         let advice = self.advice(connection);
-        match WaitExit::of(self.reason) {
-            WaitExit::Ready => {
+        match WaitFailure::of(self.reason) {
+            None => {
                 advice.write(io::stderr().lock())?;
                 Ok(())
             }
-            WaitExit::Failed if !advice.is_err() => {
+            Some(WaitFailure::Failed) if !advice.is_err() => {
                 Err(http_failure(status, self.message, connection).into())
             }
-            exit @ (WaitExit::Failed | WaitExit::ActionNeeded | WaitExit::TimedOut) => {
-                Err(CliError::Wait(advice, exit))
-            }
+            Some(
+                failure @ (WaitFailure::Failed | WaitFailure::ActionNeeded | WaitFailure::TimedOut),
+            ) => Err(CliError::Wait(advice, failure)),
         }
     }
 

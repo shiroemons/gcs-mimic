@@ -118,7 +118,7 @@ enum CliError {
     Diagnostics(Diagnostics),
     /// A `sync wait` that did not end ready: its diagnostics, and the exit status that tells
     /// how it ended.
-    Wait(Diagnostics, sync_cli::WaitExit),
+    Wait(Diagnostics, sync_cli::WaitFailure),
     /// A request to the synchronization server that got no answer the command can read: advice
     /// that names where the command looked and what to check, and the failure as the cause.
     Unreachable(Diagnostics, sync_cli::ExchangeFailure),
@@ -147,7 +147,7 @@ impl CliError {
     /// The status the process exits with: a wait's own, and 1 for any other failure.
     fn exit_code(&self) -> ExitCode {
         match self {
-            Self::Wait(_, exit) => ExitCode::from(exit.code()),
+            Self::Wait(_, failure) => ExitCode::from(failure.code()),
             Self::Diagnostics(_)
             | Self::Unreachable(..)
             | Self::Authentication(_)
