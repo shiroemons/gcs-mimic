@@ -232,27 +232,21 @@ source directory.
 
 ## Mirror objects to a host directory
 
-`GCS_MIMIC_SYNC_DIR` (`--sync-dir`, JSON `sync_dir`) writes every bucket and live
-object to `BUCKET/OBJECT` files under an existing writable directory. The
-repository's [`compose.sync.yaml`](../../compose.sync.yaml) turns it on and
-mounts `./sync`. To add it to your own service instead, keep its other
-environment variables and persistent volume and add these entries:
-
-```yaml
-    environment:
-      GCS_MIMIC_SYNC_DIR: /sync
-    volumes:
-      - ./sync:/sync
-```
-
-Then use the API as usual. Coming from fake-gcs-server's filesystem backend?
+`GCS_MIMIC_SYNC_DIR` (`--sync-dir`, JSON `sync_dir`) keeps every bucket and live
+object in step with `BUCKET/OBJECT` files under an existing writable directory,
+in both directions: API writes become files, files you add or edit become
+objects, and deleting a file deletes the object. The repository's
+[`compose.sync.yaml`](../../compose.sync.yaml) turns it on and mounts `./sync`;
 [Keep objects as files](migrate-from-fake-gcs-server.md#keep-objects-as-files)
-walks through the same steps with what differs.
+shows the entries for your own service, the Linux ownership step, and what
+differs from fake-gcs-server. Create the directory before the first start. With
+a checkout and a published image:
 
 ```sh
 mkdir -p sync
+export GCSM_IMAGE=ghcr.io/shiroemons/gcs-mimic:0.27.0
 export COMPOSE_FILE=compose.yaml:compose.sync.yaml
-docker compose up --wait
+docker compose up --wait --no-build
 curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --fail --data-binary 'hello' \
@@ -265,8 +259,9 @@ After readiness, the server exports existing buckets and objects, including empt
 buckets. API create, overwrite, copy, compose and delete then update the files
 shortly after each response, so wait with `gcs-mimic sync wait` before reading
 a file instead of expecting it at response time.
-The SQLite catalog and internal blobs remain the stored state, so the directory
-is a mirror. Data persistence still requires the `/var/lib/gcs-mimic` volume.
+The SQLite catalog and internal blobs remain the stored state, and a file can be
+rewritten from it when the API's version wins a conflict. Data persistence still
+requires the `/var/lib/gcs-mimic` volume.
 
 Since 0.8.0 the server also watches the directory
 ([continuous observation](slices/continuous-directory-observation.md)), applies
@@ -358,9 +353,9 @@ Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
 on macOS hosts. On a Linux host, the image's UID `10001` would own them; run the
 container as your user and keep the data directory on a bind mount owned by the
-same user. With `compose.sync.yaml` on Linux, `sudo chown 10001:10001 sync`
-lets the default user write to the directory, but the files stay readable only
-by UID `10001`, so read them with `sudo` or use this recipe:
+same user. With `compose.sync.yaml`, `export GCSM_UID=$(id -u) GCSM_DATA_DIR=./data`
+does that ([steps](migrate-from-fake-gcs-server.md#keep-objects-as-files)). With
+`docker run`, use this recipe:
 
 ```sh
 mkdir -p data sync

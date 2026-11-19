@@ -215,24 +215,18 @@ CORSやバージョニングの設定付きでバケットを作るには[バケ
 ## オブジェクトをホストのディレクトリへ書き出す
 
 `GCS_MIMIC_SYNC_DIR`（`--sync-dir`、JSONでは`sync_dir`）を指定すると、既存の書き込み可能な
-ディレクトリへ、すべてのバケットと現行オブジェクトを`BUCKET/OBJECT`のファイルとして書き出します。
+ディレクトリの`BUCKET/OBJECT`ファイルと、すべてのバケットおよび現行オブジェクトを、双方向で揃えます。
+APIでの書き込みはファイルになり、置いたり編集したりしたファイルはオブジェクトになり、ファイルを消すとオブジェクトも消えます。
 リポジトリの[`compose.sync.yaml`](../../compose.sync.yaml)を使うと、同期を有効にして`./sync`をマウントできます。
-自分のサービスに加える場合は、既存の環境変数と永続ボリュームを残したまま、次の項目を追加します。
-
-```yaml
-    environment:
-      GCS_MIMIC_SYNC_DIR: /sync
-    volumes:
-      - ./sync:/sync
-```
-
-あとは通常どおりAPIを使います。fake-gcs-serverのfilesystemバックエンドから移る場合は、
-同じ手順と違いを[オブジェクトをファイルとして使い続ける](migrate-from-fake-gcs-server.md#オブジェクトをファイルとして使い続ける)にまとめています。
+自分のサービスに加える項目、Linuxでの所有者の手順、fake-gcs-serverとの違いは
+[オブジェクトをファイルとして使い続ける](migrate-from-fake-gcs-server.md#オブジェクトをファイルとして使い続ける)にあります。
+ディレクトリは最初の起動の前に作ってください。cloneと公開イメージを使う場合は次のとおりです。
 
 ```sh
 mkdir -p sync
+export GCSM_IMAGE=ghcr.io/shiroemons/gcs-mimic:0.27.0
 export COMPOSE_FILE=compose.yaml:compose.sync.yaml
-docker compose up --wait
+docker compose up --wait --no-build
 curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --fail --data-binary 'hello' \
@@ -244,7 +238,7 @@ cat sync/demo-bucket/docs/hello.txt
 readinessの成功後、既存のバケット（空のバケットを含む）とオブジェクトを書き出します。
 以後はAPIでの作成・上書き・コピー・compose・削除が、応答の少し後にファイルへ反映されます。
 応答した時点でファイルがあるとは限らないため、ファイルを読む前に`gcs-mimic sync wait`で待ってください。
-保存状態の本体はSQLiteのカタログと内部ファイルで、このディレクトリは写しです。
+保存状態の本体はSQLiteのカタログと内部ファイルで、APIの版が競合に勝つときは、ファイルをそこから書き直します。
 データの永続化には、引き続き`/var/lib/gcs-mimic`のボリュームが必要です。
 
 サーバーの外で作成・編集したファイルは、新しい世代としてhash付きで取り込みます。
@@ -313,8 +307,8 @@ Composeの`healthcheck:`で`start_period`を短く上書きすると、大きな
 Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。
 Linuxのホストでは、イメージのUID `10001`の所有になります。コンテナを自分のユーザーで実行し、
 データディレクトリも同じユーザーが所有するbind mountにしてください。
-Linuxで`compose.sync.yaml`を使う場合は、`sudo chown 10001:10001 sync`で既定のユーザーが書き込めるようになりますが、
-ファイルはUID `10001`だけが読めるままです。読むには`sudo`を使うか、次の手順にします。
+`compose.sync.yaml`では、`export GCSM_UID=$(id -u) GCSM_DATA_DIR=./data`がこれに当たります
+（[手順](migrate-from-fake-gcs-server.md#オブジェクトをファイルとして使い続ける)）。`docker run`の場合は次の手順にします。
 
 ```sh
 mkdir -p data sync
