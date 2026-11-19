@@ -154,7 +154,9 @@ lists them, for example:
 ```
 
 It prints nothing more when the count is zero. `--require-no-findings true`
-fails such a wait as `FindingsPending` instead; `false`, the default, keeps the
+fails such a wait as `FindingsPending` instead, with one `error` diagnostic that
+says how many objects remain and names the findings view that lists them, and
+no warning line; `false`, the default, keeps the
 success. A wait that fails prints an `error` diagnostic with its reason, the
 recorded `paused_reason` for a pause and the remedy with the connection options
 filled in, such as `gcs-mimic sync rescan --endpoint https://127.0.0.1:4443` for

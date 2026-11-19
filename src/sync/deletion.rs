@@ -1,7 +1,9 @@
 //! Missing tracked files become candidates only after an error-free complete scan.
 
 use super::interrupt::{Interrupt, Interrupted};
-use super::{SyncError, advice::AtHand, control::WaitReason, mapping, mirror::PassGate};
+use super::{
+    SyncError, advice::AtHand, control::deletion_approval_remedy, mapping, mirror::PassGate,
+};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
@@ -106,7 +108,7 @@ fn warn_awaiting_approval(set: &DeletionSet) {
                 "sync_deletion_approval_required",
                 serde_json::json!({
                     "revision":revision,"candidates":set.candidate_count,"baseline":set.baseline_count,
-                    "remedy":WaitReason::DeletionApproval.remedy(None, at_hand),
+                    "remedy":deletion_approval_remedy(at_hand),
                 }),
             );
         }

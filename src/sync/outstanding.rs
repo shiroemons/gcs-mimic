@@ -5,6 +5,13 @@
 //! exports it replayed and the reconciliation it ran, so they can differ for the length of a
 //! pass.
 
+use super::{
+    advice::AtHand,
+    control::{
+        deletion_approval_remedy, findings_remedy, pause_remedy, unmapped_objects_remedy,
+        unrepresentable_remedy, unsettled_remedy,
+    },
+};
 use crate::storage::sync_state::{
     deletions::{DeletionAuthorization, DeletionSet},
     observation::{PauseReason, ScanStop, Summary},
@@ -83,7 +90,64 @@ pub(crate) enum Holdup {
     Observing,
     DeletionApproval,
     FindingsPending,
+    /// Objects whose names the tree cannot hold remain, and the wait was asked to refuse them.
+    UnmappedObjects {
+        count: u64,
+    },
     Ready,
+}
+
+/// What a wait does about objects whose names the tree cannot hold. They stay reachable through
+/// the API, so they hold nothing else back; only the answer of a wait that is otherwise ready
+/// differs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UnmappedObjects {
+    /// Succeed, and count them in the answer.
+    #[default]
+    Report,
+    /// Fail while any remain, for a caller that needs every object in the tree.
+    Refuse,
+}
+
+impl UnmappedObjects {
+    /// The policy of a wait request whose `require_no_findings` is `required`.
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "forwards the wire boolean require_no_findings, which the request body and the command's flag carry"
+    )]
+    pub const fn from_require_no_findings(required: bool) -> Self {
+        if required { Self::Refuse } else { Self::Report }
+    }
+}
+
+impl Holdup {
+    /// The holdup of a wait that treats objects whose names the tree cannot hold by `unmapped`,
+    /// of which `objects` remain, once the mirror judged it `self` without them. They never
+    /// hold back a wait the mirror keeps waiting for, so only a ready wait changes: one that
+    /// refuses them is held back by those that remain.
+    pub(crate) const fn with_unmapped(self, unmapped: UnmappedObjects, objects: u64) -> Self {
+        match (self, unmapped) {
+            (Self::Ready, UnmappedObjects::Refuse) if objects > 0 => {
+                Self::UnmappedObjects { count: objects }
+            }
+            (holdup, UnmappedObjects::Report | UnmappedObjects::Refuse) => holdup,
+        }
+    }
+
+    /// What lets synchronization go past this holdup, naming the commands to run with the
+    /// revisions `at_hand`; nothing for `Ready`. Work still under way gets the advice of
+    /// [`unsettled_remedy`] without a pass to name what remained, which a wait's answer adds.
+    pub(crate) fn remedy(self, at_hand: AtHand<'_>) -> Option<String> {
+        Some(match self {
+            Self::Paused(reason) => pause_remedy(reason, at_hand),
+            Self::Writeback(_) | Self::FindingsPending => findings_remedy(at_hand),
+            Self::SourceChanging | Self::Observing => unsettled_remedy(Some(self), None),
+            Self::SourceUnrepresentable | Self::SourceUnreadable => unrepresentable_remedy(),
+            Self::DeletionApproval => deletion_approval_remedy(at_hand),
+            Self::UnmappedObjects { count } => unmapped_objects_remedy(count, at_hand),
+            Self::Ready => return None,
+        })
+    }
 }
 
 impl Outstanding {

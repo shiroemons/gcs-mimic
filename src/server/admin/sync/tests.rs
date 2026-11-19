@@ -1551,8 +1551,8 @@ async fn controls_reject_invalid_input_and_unsupported_routes() {
 
 /// A name the tree cannot hold does not stop a wait: the wait succeeds, counts the object, and
 /// returns the findings revision whose view lists it, and status stays Ready. Only a wait that
-/// requires no findings fails, as FindingsPending with the remedy that lists them; the mirror
-/// decided both the same way.
+/// requires no findings fails, as FindingsPending with the remedy of the objects it refuses,
+/// which lists them; the mirror decided both the same way.
 #[tokio::test]
 async fn a_wait_reports_names_the_tree_cannot_hold_and_fails_only_when_asked_to() {
     let fixture = Fixture::new(Tree::Empty).await;
@@ -1600,7 +1600,9 @@ async fn a_wait_reports_names_the_tree_cannot_hold_and_fails_only_when_asked_to(
     };
     assert_eq!(
         strict["remedy"],
-        WaitReason::FindingsPending.remedy(None, at_hand).unwrap()
+        crate::sync::outstanding::Holdup::UnmappedObjects { count: 1 }
+            .remedy(at_hand)
+            .unwrap()
     );
     let (code, relaxed) = fixture.wait(br#"{"require_no_findings":false}"#).await;
     assert_eq!(code, StatusCode::OK, "{relaxed}");

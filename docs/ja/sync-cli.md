@@ -90,7 +90,8 @@ waitの既定値は10分で、60分（`--timeout-ms`では3600000）まで指定
 waitは、反映できる変更をすべて反映した時点で成功します。
 ディレクトリに書き出せない名前のオブジェクトはAPIから使えるため、waitを失敗させません。
 応答の`findings.unmapped`に件数を返し、CLIは終了コード0で、一覧を表示するコマンドを標準エラーへ`warning`の診断として1行出します。
-件数が0なら、何も追加しません。`--require-no-findings true`を付けると、こうしたwaitを`FindingsPending`で失敗させます。既定の`false`では成功のままです。
+件数が0なら、何も追加しません。`--require-no-findings true`を付けると、こうしたwaitを`FindingsPending`で失敗させます。
+このときは残っているオブジェクトの件数と、それを一覧するfindingsの一覧を示す`error`の診断を1つだけ出し、`warning`の行は出しません。既定の`false`では成功のままです。
 失敗したwaitは、理由、一時停止なら記録された`paused_reason`、接続オプションを埋めた対処を`error`の診断で示します。
 例えば一時停止では`gcs-mimic sync rescan --endpoint https://127.0.0.1:4443`、競合では`gcs-mimic sync conflicts`、
 承認待ちの削除では、その削除集合のリビジョンを付けた`gcs-mimic sync status --view deletions --revision`を案内します。

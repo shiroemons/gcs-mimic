@@ -175,7 +175,8 @@ impl CliRun {
 
 /// An object whose name the directory cannot hold does not fail `sync wait`: it exits 0 and
 /// prints one line naming the ready-to-run command that lists it, and nothing while none
-/// remain. `--require-no-findings true` fails it as FindingsPending and says what to run next.
+/// remain. `--require-no-findings true` fails it as FindingsPending with one error that names
+/// the objects and what to run next, and no hint besides.
 #[test]
 fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists_it() {
     let data = TestDir::new();
@@ -225,21 +226,24 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
     assert!(!strict.success);
     assert_eq!(strict.answer["reason"], "FindingsPending");
     let [error] = strict.diagnostics("sync").try_into().unwrap();
-    // The remedy names the findings view at the revision this wait read its findings at.
+    // The remedy names the objects and the findings view at the revision this wait read its
+    // findings at.
     assert!(
-        error.starts_with("sync wait ended with FindingsPending: "),
+        error.starts_with(
+            "sync wait ended with FindingsPending: 1 object in the API cannot be written to the sync directory because of its name"
+        ),
         "{error}"
     );
     assert!(
-        error.contains(&format!(
-            "the findings view lists them: gcs-mimic sync status --view findings --revision {} --endpoint {};",
+        error.ends_with(&format!(
+            "the findings view lists it: gcs-mimic sync status --view findings --revision {} --endpoint {}",
             strict.answer["findings"]["revision"].as_str().unwrap(),
             server.endpoint
         )),
         "{error}"
     );
     assert!(!error.contains("--endpoint URL"), "{error}");
-    assert_eq!(strict.diagnostics("sync-findings").len(), 1);
+    assert!(strict.diagnostics("sync-findings").is_empty());
     server.stop();
 }
 

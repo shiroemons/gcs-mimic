@@ -3,7 +3,7 @@
 use super::{
     Reconciliation, SyncError,
     advice::{Advised, AtHand},
-    outstanding::Holdup,
+    outstanding::{Holdup, UnmappedObjects},
 };
 use crate::{
     auth::Identity,
@@ -136,6 +136,54 @@ pub(crate) fn pause_remedy(reason: PauseReason, at_hand: AtHand<'_>) -> String {
             "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names. A changed server setting, such as max_sync_entries, needs a restart instead; anything else, a rescan: {rescan}"
         ),
     }
+}
+
+/// What resolves findings, path stops, retained conflicts and unfinished write-back, which stop
+/// synchronization of their paths only.
+pub(crate) fn findings_remedy(at_hand: AtHand<'_>) -> String {
+    format!(
+        "Findings or retained conflicts stop synchronization of some paths, and other paths continue. Follow the remedy of each; {}; the conflicts listing names the retained conflicts: {}",
+        findings_listing(at_hand),
+        Advised::Conflicts
+    )
+}
+
+/// What lets synchronization take in entries that no object can take or that a pass could not
+/// read.
+pub(crate) fn unrepresentable_remedy() -> String {
+    pause_remedy(PauseReason::SourceUnrepresentable, AtHand::default())
+}
+
+/// What lets external deletions go on: an approval of the deletion set at the revision at
+/// hand, or files put back.
+pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
+    match at_hand.deletion_revision {
+        Some(revision) => format!(
+            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it: {}; or restore the files and wait again: {}",
+            Advised::Deletions(Some(revision)),
+            Advised::Approve(revision),
+            Advised::Wait
+        ),
+        None => format!(
+            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set, whose revision the approve subcommand takes as --deletion-set: {}; or restore the files and wait again: {}",
+            Advised::Deletions(None),
+            Advised::Wait
+        ),
+    }
+}
+
+/// What lets a wait that refuses objects whose names the tree cannot hold succeed while `count`
+/// of them remain.
+pub(crate) fn unmapped_objects_remedy(count: u64, at_hand: AtHand<'_>) -> String {
+    let (objects, names, them) = if count == 1 {
+        ("object", "its name", "it")
+    } else {
+        ("objects", "their names", "them")
+    };
+    format!(
+        "{count} {objects} in the API cannot be written to the sync directory because of {names}, and this wait requires that none remain. Rename or delete {them} through the API, or wait without --require-no-findings true, which reports {them} instead; the findings view lists {them}: {}",
+        Advised::Findings(at_hand.findings_revision)
+    )
 }
 
 /// What a wait that ended while work was still under way leaves, and what to run: the same for
@@ -303,9 +351,9 @@ pub enum WaitReason {
 }
 
 /// How a wait answers the first condition that holds after its pass. Every write-back stop is
-/// work an operator must finish, as the findings that stop a wait are. A baseline still open
-/// after the wait's own pass is work in progress, which the wait asks about again until its
-/// deadline, like a tree still changing.
+/// work an operator must finish, as the findings that stop a wait are, and the objects a wait
+/// refuses are findings too. A baseline still open after the wait's own pass is work in
+/// progress, which the wait asks about again until its deadline, like a tree still changing.
 impl From<Holdup> for WaitReason {
     fn from(holdup: Holdup) -> Self {
         match holdup {
@@ -313,7 +361,9 @@ impl From<Holdup> for WaitReason {
             Holdup::SourceChanging | Holdup::Observing => Self::SourceChanging,
             Holdup::SourceUnrepresentable | Holdup::SourceUnreadable => Self::SourceUnrepresentable,
             Holdup::DeletionApproval => Self::DeletionApproval,
-            Holdup::Writeback(_) | Holdup::FindingsPending => Self::FindingsPending,
+            Holdup::Writeback(_) | Holdup::FindingsPending | Holdup::UnmappedObjects { .. } => {
+                Self::FindingsPending
+            }
             Holdup::Ready => Self::Ready,
         }
     }
@@ -358,43 +408,6 @@ impl WaitReason {
             | Self::SourceUnrepresentable
             | Self::DeletionApproval
             | Self::FindingsPending => false,
-        }
-    }
-
-    /// What lets a later wait succeed after this one ended for this reason, naming the commands
-    /// to run with the revisions `at_hand`; `paused` is the reason a paused root recorded. A
-    /// reason that needs nothing but a restart has none. The pause reasons reuse the advice of
-    /// the pause itself, and work still under way the advice of [`unsettled_remedy`], which a
-    /// wait's answer gives with what its last pass found.
-    pub(crate) fn remedy(self, paused: Option<PauseReason>, at_hand: AtHand<'_>) -> Option<String> {
-        match self {
-            Self::Ready | Self::Stopped | Self::JournalChanged => None,
-            Self::Paused => Some(pause_remedy(
-                paused.unwrap_or(PauseReason::ObserverFailure),
-                at_hand,
-            )),
-            Self::Timeout | Self::SourceChanging => Some(unsettled_remedy(None, None)),
-            Self::SourceUnrepresentable => {
-                Some(pause_remedy(PauseReason::SourceUnrepresentable, at_hand))
-            }
-            Self::DeletionApproval => Some(match at_hand.deletion_revision {
-                Some(revision) => format!(
-                    "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it: {}; or restore the files and wait again: {}",
-                    Advised::Deletions(Some(revision)),
-                    Advised::Approve(revision),
-                    Advised::Wait
-                ),
-                None => format!(
-                    "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set, whose revision the approve subcommand takes as --deletion-set: {}; or restore the files and wait again: {}",
-                    Advised::Deletions(None),
-                    Advised::Wait
-                ),
-            }),
-            Self::FindingsPending => Some(format!(
-                "Findings or retained conflicts stop synchronization of some paths, and other paths continue. Follow the remedy of each; {}; the conflicts listing names the retained conflicts: {}",
-                findings_listing(at_hand),
-                Advised::Conflicts
-            )),
         }
     }
 }
@@ -487,31 +500,48 @@ impl WaitResult {
                 | Holdup::Observing
                 | Holdup::DeletionApproval
                 | Holdup::FindingsPending
+                | Holdup::UnmappedObjects { .. }
                 | Holdup::Ready,
             )
             | None => None,
         }
     }
 
-    /// What lets a later wait succeed, with the revisions `at_hand`. A wait that ended while
-    /// work was under way names what its last pass was still waiting for.
+    /// What lets a later wait succeed, with the revisions `at_hand`: the remedy of the holdup
+    /// the wait ended on. A wait that ended while work was under way names what its last pass
+    /// was still waiting for; a success, a shutdown and a rebuilt journal need nothing.
     pub(crate) fn remedy(&self, at_hand: AtHand<'_>) -> Option<String> {
         match self.reason {
             WaitReason::Timeout | WaitReason::SourceChanging => {
                 Some(unsettled_remedy(self.holdup, self.reconciliation.as_ref()))
             }
-            WaitReason::Ready
-            | WaitReason::Stopped
-            | WaitReason::Paused
-            | WaitReason::JournalChanged
+            WaitReason::Ready | WaitReason::Stopped | WaitReason::JournalChanged => None,
+            WaitReason::Paused
             | WaitReason::SourceUnrepresentable
             | WaitReason::DeletionApproval
-            | WaitReason::FindingsPending => self.reason.remedy(self.paused_reason(), at_hand),
+            | WaitReason::FindingsPending => self.holdup.and_then(|holdup| holdup.remedy(at_hand)),
         }
     }
 
-    /// The same wait ending for `reason` instead, as a control that applies a stricter
-    /// condition than the mirror decides it.
+    /// This wait under `unmapped`, its request's policy for objects whose names the tree cannot
+    /// hold. Only a ready wait changes: one that refuses them ends as the holdup of those that
+    /// remain, with that holdup's reason and remedy.
+    pub(crate) fn with_unmapped(self, unmapped: UnmappedObjects) -> Self {
+        let objects = self.findings.map_or(0, |findings| findings.unmapped);
+        let held = self
+            .holdup
+            .map(|holdup| holdup.with_unmapped(unmapped, objects));
+        match held {
+            Some(holdup) if held != self.holdup => Self {
+                holdup: held,
+                ..self.with_reason(WaitReason::from(holdup))
+            },
+            Some(_) | None => self,
+        }
+    }
+
+    /// The same wait ending for `reason` instead: its deadline passed, or the server began to
+    /// stop, before another pass, or its holdup changed its reason.
     pub(crate) fn with_reason(self, reason: WaitReason) -> Self {
         Self {
             completed: reason == WaitReason::Ready,
@@ -540,11 +570,13 @@ mod tests {
     }
 
     /// Only the reasons a wait meets while work is still under way are worth waiting again
-    /// for; each reason but a success, a shutdown and a rebuilt journal has a remedy that names
-    /// what to run, with the endpoint to fill in. One that ran out of time and one the server
-    /// answered after its minute read alike.
+    /// for. A wait that ended on any holdup but `Ready` has the remedy of that holdup, which
+    /// names what to run with the endpoint to fill in; a success, a shutdown and a rebuilt
+    /// journal need none. One that ran out of time and one the server answered after its minute
+    /// read alike.
     #[test]
     fn only_work_in_progress_is_waited_for_again_and_the_rest_name_a_remedy() {
+        use crate::storage::sync_state::writeback::Stop;
         use WaitReason::{JournalChanged, Ready, SourceChanging, Stopped, Timeout};
         for reason in WaitReason::ALL {
             assert_eq!(
@@ -552,36 +584,103 @@ mod tests {
                 matches!(reason, Timeout | SourceChanging | JournalChanged),
                 "{reason}"
             );
-            let remedy = reason.remedy(None, AtHand::default());
-            if matches!(reason, Ready | Stopped | JournalChanged) {
-                assert!(remedy.is_none(), "{reason}");
-            } else {
-                assert!(
-                    remedy.is_some_and(|remedy| remedy.contains("--endpoint URL")),
-                    "{reason}"
-                );
-            }
         }
+        for holdup in [
+            Holdup::Paused(PauseReason::IoFailure),
+            Holdup::Writeback(Stop::ProtectedBody),
+            Holdup::SourceChanging,
+            Holdup::SourceUnrepresentable,
+            Holdup::SourceUnreadable,
+            Holdup::Observing,
+            Holdup::DeletionApproval,
+            Holdup::FindingsPending,
+            Holdup::UnmappedObjects { count: 2 },
+        ] {
+            let remedy = holdup.remedy(AtHand::default());
+            assert!(
+                remedy
+                    .as_ref()
+                    .is_some_and(|remedy| remedy.contains("--endpoint URL")),
+                "{holdup:?}"
+            );
+            let ended =
+                WaitResult::result(WaitReason::from(holdup), None, None).with_holdup(holdup);
+            assert_eq!(ended.remedy(AtHand::default()), remedy, "{holdup:?}");
+        }
+        assert_eq!(Holdup::Ready.remedy(AtHand::default()), None);
+        for reason in [Ready, Stopped, JournalChanged] {
+            let ended = WaitResult::result(reason, None, None);
+            assert_eq!(ended.remedy(AtHand::default()), None, "{reason}");
+        }
+        let timed_out = WaitResult::timeout().remedy(AtHand::default());
         assert_eq!(
-            WaitReason::Paused.remedy(Some(PauseReason::IoFailure), AtHand::default()),
-            Some(pause_remedy(PauseReason::IoFailure, AtHand::default()))
-        );
-        assert_eq!(
-            WaitReason::Paused.remedy(None, AtHand::default()),
-            Some(pause_remedy(
-                PauseReason::ObserverFailure,
-                AtHand::default()
-            ))
-        );
-        assert_eq!(
-            Timeout.remedy(None, AtHand::default()),
-            SourceChanging.remedy(None, AtHand::default())
+            timed_out,
+            WaitResult::result(SourceChanging, None, None).remedy(AtHand::default())
         );
         assert!(
-            SourceChanging
-                .remedy(None, AtHand::default())
+            timed_out
                 .is_some_and(|remedy| remedy.ends_with(": gcs-mimic sync wait --endpoint URL"))
         );
+    }
+
+    /// A wait that refuses objects whose names the tree cannot hold ends on them only when it
+    /// is otherwise ready and some remain, as FindingsPending with a remedy of their own that
+    /// lists them and names nothing else; any other end stays as the mirror decided it.
+    #[test]
+    fn a_wait_that_refuses_unmapped_objects_ends_on_them_alone() {
+        let ended = |reason, holdup, unmapped| {
+            WaitResult::result(reason, None, None)
+                .with_holdup(holdup)
+                .with_findings(Some(WaitFindings {
+                    unmapped,
+                    observation_revision: 1,
+                }))
+        };
+        let refused =
+            ended(WaitReason::Ready, Holdup::Ready, 2).with_unmapped(UnmappedObjects::Refuse);
+        assert_eq!(refused.reason, WaitReason::FindingsPending);
+        assert!(!refused.completed);
+        assert_eq!(refused.holdup, Some(Holdup::UnmappedObjects { count: 2 }));
+        let at_hand = AtHand {
+            findings_revision: Some(super::super::advice::SAMPLE_FINDINGS_REVISION),
+            deletion_revision: None,
+        };
+        let remedy = refused.remedy(at_hand).unwrap();
+        assert!(
+            remedy.starts_with("2 objects in the API cannot be written to the sync directory because of their names"),
+            "{remedy}"
+        );
+        assert!(
+            remedy.ends_with(&format!(
+                "the findings view lists them: {}",
+                Advised::Findings(at_hand.findings_revision)
+            )),
+            "{remedy}"
+        );
+        assert!(!remedy.contains("conflicts"), "{remedy}");
+        for (reason, holdup, unmapped, policy) in [
+            (WaitReason::Ready, Holdup::Ready, 2, UnmappedObjects::Report),
+            (WaitReason::Ready, Holdup::Ready, 0, UnmappedObjects::Refuse),
+            (
+                WaitReason::FindingsPending,
+                Holdup::FindingsPending,
+                2,
+                UnmappedObjects::Refuse,
+            ),
+            (
+                WaitReason::Timeout,
+                Holdup::SourceChanging,
+                2,
+                UnmappedObjects::Refuse,
+            ),
+        ] {
+            let kept = ended(reason, holdup, unmapped).with_unmapped(policy);
+            assert_eq!(
+                (kept.reason, kept.holdup),
+                (reason, Some(holdup)),
+                "{policy:?}"
+            );
+        }
     }
 
     /// A wait that ran out of time names what its last pass was still waiting for: how many

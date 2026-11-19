@@ -113,7 +113,9 @@ impl ControlState {
             Holdup::SourceUnrepresentable | Holdup::SourceUnreadable => Self::SourceUnrepresentable,
             Holdup::Observing => Self::Observing,
             Holdup::DeletionApproval => Self::DeletionApproval,
-            Holdup::FindingsPending => Self::FindingsPending,
+            // The status reports objects whose names the tree cannot hold, so only a wait that
+            // refuses them is held back by them; it ends as FindingsPending too.
+            Holdup::FindingsPending | Holdup::UnmappedObjects { .. } => Self::FindingsPending,
             Holdup::Ready => Self::Ready,
         }
     }

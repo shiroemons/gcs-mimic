@@ -7,7 +7,7 @@ use gcs_mimic::{
     config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
-    sync::{WaitReason, advice, handshake},
+    sync::{UnmappedObjects, WaitReason, advice, handshake},
     tls,
 };
 use http_body_util::{BodyExt, Full};
@@ -373,30 +373,21 @@ const WAIT_MARGIN: Duration = Duration::from_secs(1);
 /// the server answers at once.
 const JOURNAL_PAUSE: Duration = Duration::from_secs(1);
 
-/// What `sync wait` does about objects whose names the sync directory cannot hold.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Unmapped {
-    /// Succeed, and name the command that lists them.
-    Report,
-    /// Fail as `FindingsPending` while any remain: `--require-no-findings true`.
-    Refuse,
+/// What `--require-no-findings` asks of `sync wait`: to refuse objects whose names the sync
+/// directory cannot hold, or to report them and name the command that lists them.
+fn unmapped_objects(value: &str) -> Result<UnmappedObjects, Diagnostics> {
+    value
+        .parse::<bool>()
+        .map(UnmappedObjects::from_require_no_findings)
+        .map_err(|_| fail("--require-no-findings must be true or false"))
 }
 
-impl Unmapped {
-    fn parse(value: &str) -> Result<Self, Diagnostics> {
-        match value.parse::<bool>() {
-            Ok(true) => Ok(Self::Refuse),
-            Ok(false) => Ok(Self::Report),
-            Err(_) => Err(fail("--require-no-findings must be true or false")),
-        }
-    }
-
-    /// The body of one wait request that asks the server to observe for `millis`.
-    fn body(self, millis: u64) -> Value {
-        match self {
-            Self::Report => json!({"timeout_ms":millis}),
-            Self::Refuse => json!({"timeout_ms":millis,"require_no_findings":true}),
-        }
+/// The body of one wait request that asks the server to observe for `millis`, with
+/// `require_no_findings` only for a wait that refuses the objects.
+fn wait_body(unmapped: UnmappedObjects, millis: u64) -> Value {
+    match unmapped {
+        UnmappedObjects::Report => json!({"timeout_ms":millis}),
+        UnmappedObjects::Refuse => json!({"timeout_ms":millis,"require_no_findings":true}),
     }
 }
 
@@ -518,7 +509,7 @@ struct Options {
     /// One request's deadline, or for a wait, the deadline of the whole wait.
     timeout: Duration,
     /// `Some` for `sync wait`, which repeats requests until `timeout`.
-    wait: Option<Unmapped>,
+    wait: Option<UnmappedObjects>,
 }
 
 pub(super) fn run(args: &[String]) -> Result<(), CliError> {
@@ -609,13 +600,14 @@ impl<'a> WaitOutcome<'a> {
         }
     }
 
-    /// One line naming the command that lists the objects the tree cannot hold, if any remain,
-    /// and for a wait that failed, an error naming its reason and what to run next, with the
-    /// options that reached this server filled in.
+    /// For a wait that succeeded, one line naming the command that lists the objects the tree
+    /// cannot hold, if any remain; for one that failed, an error naming its reason and what to
+    /// run next, which names those objects itself when they failed it. The options that reached
+    /// this server are filled in.
     fn advice(&self, connection: &str) -> Diagnostics {
         let warnings = self
             .unmapped
-            .filter(|(count, _)| *count > 0)
+            .filter(|(count, _)| *count > 0 && self.reason == Some(WaitReason::Ready))
             .map(|(count, revision)| {
                 let (objects, names, stay, them) = if count == 1 {
                     ("object", "its name", "stays", "it")
@@ -719,7 +711,7 @@ impl Options {
             Some(Command::Wait) => Some(
                 flags
                     .take(Flag::RequireNoFindings)
-                    .map_or(Ok(Unmapped::Report), Unmapped::parse)?,
+                    .map_or(Ok(UnmappedObjects::Report), unmapped_objects)?,
             ),
             Some(
                 Command::Status
@@ -775,7 +767,7 @@ impl Options {
     /// so standard output keeps one JSON answer.
     fn wait_until_settled(
         &self,
-        unmapped: Unmapped,
+        unmapped: UnmappedObjects,
         mut elapsed: impl FnMut() -> Duration,
     ) -> Result<Reply, CliError> {
         loop {
@@ -788,7 +780,7 @@ impl Options {
             let millis = u64::try_from(slice.as_millis()).unwrap_or(u64::MAX);
             let reply = self.execute(
                 &self.path,
-                Some(&unmapped.body(millis)),
+                Some(&wait_body(unmapped, millis)),
                 slice + WAIT_MARGIN,
             )?;
             let Some(reason) = WaitOutcome::read(&reply.body)

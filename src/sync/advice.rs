@@ -3,10 +3,13 @@
 //! check every piece of advice in [`catalog`], so advice cannot name a command, an option or a
 //! value the command would refuse.
 
-use super::control::{
-    WaitReason, occupied_directory_remedy, pause_remedy, paused_control_remedy, resume_retry_remedy,
+use super::{
+    control::{
+        occupied_directory_remedy, paused_control_remedy, resume_retry_remedy, unsettled_remedy,
+    },
+    outstanding::Holdup,
 };
-use crate::storage::sync_state::observation::PauseReason;
+use crate::storage::sync_state::{observation::PauseReason, writeback::Stop};
 use std::fmt;
 
 /// The endpoint option every advised command ends with: the one placeholder advice keeps, since
@@ -107,10 +110,10 @@ pub fn commands() -> Vec<String> {
 }
 
 /// Every piece of advice the server gives that names a command, with [`ENDPOINT`] left in: the
-/// remedy of every pause, which the `sync_paused` event, the root-stop finding and a failed
-/// rescan give; of every wait reason with and without the revisions at hand; of a failed resume,
-/// which the `sync_resume_failed` event also gives; of a control a pause refuses; and of a
-/// directory that holds an object's file name.
+/// remedy of every holdup with and without the revisions at hand, which a wait's answer gives,
+/// and for a pause also the `sync_paused` event, the root-stop finding and a failed rescan; of
+/// a wait that ran out of time; of a failed resume, which the `sync_resume_failed` event also
+/// gives; of a control a pause refuses; and of a directory that holds an object's file name.
 #[doc(hidden)]
 pub fn catalog() -> Vec<String> {
     let at_hand = [
@@ -120,20 +123,40 @@ pub fn catalog() -> Vec<String> {
             deletion_revision: Some(SAMPLE_DELETION_REVISION),
         },
     ];
-    let waits = WaitReason::ALL.into_iter().flat_map(|reason| {
-        at_hand
-            .into_iter()
-            .filter_map(move |at_hand| reason.remedy(None, at_hand))
-    });
-    PauseReason::ALL
-        .into_iter()
-        .flat_map(|reason| {
+    let holdups = PauseReason::ALL.into_iter().map(Holdup::Paused).chain([
+        Holdup::Writeback(Stop::RecoveryRequired),
+        Holdup::SourceChanging,
+        Holdup::SourceUnrepresentable,
+        Holdup::SourceUnreadable,
+        Holdup::Observing,
+        Holdup::DeletionApproval,
+        Holdup::FindingsPending,
+        Holdup::UnmappedObjects { count: 1 },
+        Holdup::UnmappedObjects { count: 2 },
+        Holdup::Ready,
+    ]);
+    // Naming every variant makes a new one fail to compile here, beside the list it must join.
+    let listed = |holdup: Holdup| match holdup {
+        Holdup::Paused(_)
+        | Holdup::Writeback(_)
+        | Holdup::SourceChanging
+        | Holdup::SourceUnrepresentable
+        | Holdup::SourceUnreadable
+        | Holdup::Observing
+        | Holdup::DeletionApproval
+        | Holdup::FindingsPending
+        | Holdup::UnmappedObjects { .. }
+        | Holdup::Ready => holdup,
+    };
+    holdups
+        .map(listed)
+        .flat_map(|holdup| {
             at_hand
                 .into_iter()
-                .map(move |at_hand| pause_remedy(reason, at_hand))
+                .filter_map(move |at_hand| holdup.remedy(at_hand))
         })
-        .chain(waits)
         .chain([
+            unsettled_remedy(None, None),
             resume_retry_remedy(),
             paused_control_remedy(),
             occupied_directory_remedy(),

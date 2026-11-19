@@ -1195,9 +1195,11 @@ replayed, so it stops counting. An export conflict stays through the deletion,
 and a name finding of a later generation in the same bucket incarnation does not
 replace it, since the external edit it holds is still unresolved. With
 `require_no_findings: true`, a `Ready` wait that counts any becomes
-`FindingsPending`; the decision is the control's, and the mirror's barrier is the
-same either way. Every answer other than `Ready`, `Stopped` and
-`JournalChanged` carries the `remedy` for its reason, with `--endpoint URL` for
+`FindingsPending`, with a remedy of its own that names how many remain and the
+findings view that lists them, and nothing about conflicts; the control decides
+it from the holdup the mirror's barrier ended on, which is the same either way.
+Every answer other than `Ready`, `Stopped` and
+`JournalChanged` carries the `remedy` for the holdup it ended on, with `--endpoint URL` for
 the client to fill in and the findings revision or the deletion set revision the
 answer read filled in already; a `Timeout` or `SourceChanging` remedy names what
 the wait's last finished pass was still waiting for. A writer that never

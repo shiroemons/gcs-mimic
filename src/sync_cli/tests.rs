@@ -323,23 +323,26 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
     let options = parse_cmd(&["wait", "--timeout", "10s"]).unwrap();
     assert_eq!(options.path, "/_internal/sync/wait");
     assert_eq!(options.timeout, Duration::from_secs(10));
-    assert_eq!(options.wait, Some(Unmapped::Report));
-    assert_eq!(Unmapped::Report.body(10_000), json!({"timeout_ms":10000}));
+    assert_eq!(options.wait, Some(UnmappedObjects::Report));
+    assert_eq!(
+        wait_body(UnmappedObjects::Report, 10_000),
+        json!({"timeout_ms":10000})
+    );
     for value in ["0ms", "61m", "1.5s", "18446744073709551615s"] {
         assert!(parse_cmd(&["wait", "--timeout", value]).is_err(), "{value}");
     }
     assert!(parse_cmd(&["wait", "--timeout", "1s", "--timeout-ms", "1000"]).is_err());
     let strict = parse_cmd(&["wait", "--require-no-findings", "true"]).unwrap();
-    assert_eq!(strict.wait, Some(Unmapped::Refuse));
+    assert_eq!(strict.wait, Some(UnmappedObjects::Refuse));
     assert_eq!(
-        Unmapped::Refuse.body(25),
+        wait_body(UnmappedObjects::Refuse, 25),
         json!({"timeout_ms":25,"require_no_findings":true})
     );
     assert_eq!(
         parse_cmd(&["wait", "--require-no-findings", "false"])
             .unwrap()
             .wait,
-        Some(Unmapped::Report)
+        Some(UnmappedObjects::Report)
     );
     assert_eq!(
         refusal(&[
@@ -860,6 +863,12 @@ fn wait_advice_names_the_command_to_run_next() {
         )
     );
     assert!(advice.warnings.is_empty());
+    // A wait that the objects failed names them in its one error, without the success's hint.
+    let refused = json!({"reason":"FindingsPending","findings":{"unmapped":2,"revision":revision},
+        "remedy":"2 objects remain; the findings view lists them: gcs-mimic sync status --endpoint URL"});
+    let advice = WaitOutcome::read(&refused).advice(connection);
+    assert!(advice.warnings.is_empty(), "{advice:?}");
+    assert_eq!(advice.errors.len(), 1, "{advice:?}");
     let inputs = crate::test_support::TestDir::new();
     let token = inputs.0.join("token");
     std::fs::write(&token, b"secret\n").unwrap();
@@ -940,9 +949,13 @@ fn every_advised_command_parses_as_this_command_line() {
         );
     }
     for connection in [&connections[1], &connections[3]] {
-        for remedy in &catalog {
-            let answer = json!({"reason":"FindingsPending","remedy":remedy,
-                "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}});
+        let ready = json!({"reason":"Ready",
+            "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}});
+        let answers = catalog.iter().map(|remedy| {
+            json!({"reason":"FindingsPending","remedy":remedy,
+                "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}})
+        });
+        for answer in answers.chain([ready]) {
             let diagnostics = WaitOutcome::read(&answer).advice(connection);
             let given = diagnostics.warnings.into_iter().chain(diagnostics.errors);
             advised.extend(given.map(|diagnostic| (diagnostic.fix, connection.clone())));

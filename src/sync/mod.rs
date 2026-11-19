@@ -14,6 +14,7 @@ pub mod mapping;
 mod mirror;
 pub(crate) mod naming;
 pub(crate) mod outstanding;
+pub use outstanding::UnmappedObjects;
 mod status;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) mod test_support;

@@ -15,7 +15,7 @@ use crate::{
         root::{RootError, RootLease, RootStatus},
     },
     sync::{
-        Cause, MirrorState, Reconciliation,
+        Cause, MirrorState, Reconciliation, UnmappedObjects,
         advice::AtHand,
         control::{Command, ControlError, PauseChange, Registration, WaitReason, WaitResult},
         handshake,
@@ -146,36 +146,6 @@ struct Rescan {}
 struct Wait {
     timeout_ms: Option<u64>,
     require_no_findings: Option<bool>,
-}
-
-/// What a wait that is otherwise ready does about objects whose names the tree cannot hold.
-/// The mirror decides the wait the same way for both; only this answer differs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum UnmappedObjects {
-    /// Succeed and report how many remain: they stay reachable through the API.
-    Report,
-    /// Fail as `FindingsPending` while any remain, for a caller that needs every object in the
-    /// tree.
-    Refuse,
-}
-
-impl From<bool> for UnmappedObjects {
-    /// `require_no_findings`, which the request carries as a boolean.
-    fn from(required: bool) -> Self {
-        if required { Self::Refuse } else { Self::Report }
-    }
-}
-
-impl UnmappedObjects {
-    fn decide(self, result: WaitResult) -> WaitResult {
-        let unmapped = result.findings.map_or(0, |findings| findings.unmapped);
-        match self {
-            Self::Refuse if result.reason == WaitReason::Ready && unmapped > 0 => {
-                result.with_reason(WaitReason::FindingsPending)
-            }
-            Self::Refuse | Self::Report => result,
-        }
-    }
 }
 
 /// The answer to `POST /_internal/sync/wait`: the mirror's result, the findings it leaves behind
@@ -345,7 +315,8 @@ async fn wait(
             "timeout_ms must be 1 through 60000",
         ));
     }
-    let unmapped = UnmappedObjects::from(value.require_no_findings.unwrap_or(false));
+    let unmapped =
+        UnmappedObjects::from_require_no_findings(value.require_no_findings.unwrap_or(false));
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout);
     // The bounded handler deadline replaces the request deadline while the server observes work.
     crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
@@ -360,13 +331,14 @@ async fn wait(
     };
     // Time spent in line counts: the caller asked for an answer within this timeout.
     let observed = tokio::time::timeout_at(deadline, submit(registration, command, receive)).await;
-    let result = unmapped.decide(match observed {
+    let result = match observed {
         Ok(result) => result?.map_err(|error| control_error(&error))?,
         Err(_) if settling.load(std::sync::atomic::Ordering::Acquire) => {
             WaitResult::result(WaitReason::SourceChanging, None, None)
         }
         Err(_) => WaitResult::timeout(),
-    });
+    }
+    .with_unmapped(unmapped);
     // The mirror answers a paused wait with the reason it paused for, which the catalog may not
     // have recorded, and a wait for approval without the deletion set its remedy names.
     let paused_reason = result.paused_reason();
