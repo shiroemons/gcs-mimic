@@ -214,7 +214,7 @@ Tested SDK versions: Go storage v1.70.0, Ruby google-cloud-storage 1.62.2, Node.
 - Location and storage class are metadata. Nothing is physically placed.
 - Customer-supplied keys are required to read an object, but the data is not encrypted on disk.
 - The RAM backend (`GCS_MIMIC_BACKEND: memory`) holds about half of the memory in object bytes by default, from 64 MiB to 1 GiB, and 1 GiB on every system but Linux, where the memory cannot be read. Data is lost at exit.
-- A sync directory mirrors objects as files. Its conflict and recovery handling is partial.
+- A sync directory keeps objects and files in step both ways: API writes become files, and files you add, edit or delete change the objects. Its conflict and recovery handling is partial.
 - Soft delete is off unless a bucket policy or `GCS_MIMIC_DEFAULT_SOFT_DELETE_RETENTION_SECONDS` turns it on, unlike Cloud Storage.
 - V2 signed URLs are a subset. Unsupported gRPC fields and methods return `UNIMPLEMENTED`.
 
