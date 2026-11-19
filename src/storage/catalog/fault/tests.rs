@@ -191,6 +191,69 @@ fn undoing_a_move_onto_a_taken_name_fails_the_snapshot() {
     let _ = hit(&data.0, Step::BeforeCommit);
 }
 
+/// A directory removal stays volatile until its parent is synced. A power loss before then brings
+/// the empty directory back, and one that also undoes a later move into its name takes the file
+/// back out first, newest first.
+#[test]
+fn a_directory_removal_needs_its_parent_sync() {
+    let data = TestDir::new();
+    let snapshots = TestDir::new();
+    let parent = data.0.join("parent");
+    let workspace = data.0.join("workspace");
+    fs::create_dir_all(parent.join("removed")).unwrap();
+    fs::create_dir(&workspace).unwrap();
+    fs::write(workspace.join("copy"), b"installed").unwrap();
+    let unsynced = snapshots.0.join("unsynced");
+    let synced = snapshots.0.join("synced");
+    for (step, snapshot) in [
+        (Step::BeforeCommit, &unsynced),
+        (Step::AfterCommit, &synced),
+    ] {
+        arm(&data.0, step, 0, Fault::PowerLoss(snapshot.clone()));
+    }
+    fs::remove_dir(parent.join("removed")).unwrap();
+    dir_removed(&parent.join("removed"));
+    crate::fsutil::rename_noreplace(&workspace.join("copy"), &parent.join("removed")).unwrap();
+    moved(&workspace.join("copy"), &parent.join("removed"));
+    hit(&data.0, Step::BeforeCommit).unwrap();
+    dir_synced(&parent);
+    dir_synced(&workspace);
+    hit(&data.0, Step::AfterCommit).unwrap();
+    assert_eq!(pending(&data.0), 0);
+    let restored = unsynced.join("parent/removed");
+    assert!(restored.is_dir());
+    assert_eq!(fs::read_dir(&restored).unwrap().count(), 0);
+    assert_eq!(
+        fs::read(unsynced.join("workspace/copy")).unwrap(),
+        b"installed"
+    );
+    assert_eq!(
+        fs::read(synced.join("parent/removed")).unwrap(),
+        b"installed"
+    );
+    assert!(!synced.join("workspace/copy").exists());
+}
+
+/// A volatile directory removal whose name was taken again cannot be undone without replacing
+/// that entry; the snapshot fails instead of keeping a state no power loss leaves.
+#[test]
+#[should_panic(expected = "cannot undo the volatile removal of directory")]
+fn undoing_a_directory_removal_onto_a_taken_name_fails_the_snapshot() {
+    let data = TestDir::new();
+    let snapshot = TestDir::new();
+    fs::create_dir(data.0.join("removed")).unwrap();
+    arm(
+        &data.0,
+        Step::BeforeCommit,
+        0,
+        Fault::PowerLoss(snapshot.0.join("power-loss")),
+    );
+    fs::remove_dir(data.0.join("removed")).unwrap();
+    dir_removed(&data.0.join("removed"));
+    fs::write(data.0.join("removed"), b"later").unwrap();
+    let _ = hit(&data.0, Step::BeforeCommit);
+}
+
 #[test]
 #[should_panic(expected = "BeforeCommit holds no transaction to roll back")]
 fn a_rollback_armed_where_no_transaction_is_open_panics() {

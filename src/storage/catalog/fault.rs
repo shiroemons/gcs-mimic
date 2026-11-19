@@ -22,11 +22,15 @@
 //!   [`truncated`] lowers the durable length when a seamed path cuts a file back, so bytes
 //!   written again past the cut stay volatile until the next recorded sync. Whether the cut
 //!   itself survives is not modeled: the snapshot cannot bring back bytes already gone.
-//! - Directory entries: [`dir_created`], [`file_created`], [`unlinked`] and [`renamed`] record entries that stay volatile
-//!   until [`dir_synced`] syncs their parent. The snapshot undoes them, newest first: a
-//!   volatile rename moves the file back to its old name, a volatile new entry vanishes,
-//!   and a volatile unlink restores bytes from its retained test descriptor. Entries made
-//!   by paths outside these seams are not modeled; they survive as they are on disk.
+//! - Directory entries: [`dir_created`], [`file_created`], [`unlinked`], [`dir_removed`] and
+//!   [`renamed`] record entries that stay volatile until [`dir_synced`] syncs their parent. The
+//!   snapshot undoes them, newest first: a volatile rename moves the file back to its old name, a
+//!   volatile new entry vanishes, a volatile unlink restores bytes from its retained test
+//!   descriptor, and a volatile directory removal creates the empty directory again. Only an
+//!   empty directory can be removed, so nothing inside it needs restoring; the snapshot fails if
+//!   the directory's name is taken again, because skipping that undo would invent a state no
+//!   power loss leaves. Entries made by paths outside these seams are not modeled; they survive
+//!   as they are on disk.
 //! - Renames that change two directory entries: [`exchanged`] records two names that swapped
 //!   their files, and [`moved`] a file that moved to a new name in another directory. Either
 //!   stays volatile until both directories are synced: no single directory sync is specified to
@@ -497,6 +501,7 @@ enum Entry {
     Created(PathBuf),
     CreatedFile(PathBuf),
     Unlinked { path: PathBuf, file: fs::File },
+    RemovedDirectory(PathBuf),
     Renamed { from: PathBuf, to: PathBuf },
     Exchanged { left: PathBuf, right: PathBuf },
     Moved { from: PathBuf, to: PathBuf },
@@ -510,6 +515,7 @@ impl Entry {
             Self::Created(path)
             | Self::CreatedFile(path)
             | Self::Unlinked { path, .. }
+            | Self::RemovedDirectory(path)
             | Self::Renamed { to: path, .. } => vec![path],
             Self::Exchanged {
                 left: first,
@@ -708,6 +714,16 @@ pub(crate) fn unlinked(path: &Path, file: &fs::File) -> io::Result<()> {
     Ok(())
 }
 
+/// Records that the empty directory at `path` was removed, durable only once its parent is synced.
+#[cfg(unix)]
+pub(crate) fn dir_removed(path: &Path) {
+    record(path, |ledger, path| {
+        ledger
+            .volatile
+            .push(Volatile::new(Entry::RemovedDirectory(path)));
+    });
+}
+
 /// Records a rename, durable only once the destination's directory is synced.
 #[cfg(unix)]
 pub(crate) fn renamed(from: &Path, to: &Path) {
@@ -817,6 +833,16 @@ impl Ledger {
                 if !path.exists() {
                     self.restore_unlinked(&path, file)?;
                 }
+            }
+            Entry::RemovedDirectory(path) => {
+                let path = relocate(path)?;
+                if present(&path)? {
+                    return Err(io::Error::other(format!(
+                        "cannot undo the volatile removal of directory {}: its name is taken",
+                        path.display()
+                    )));
+                }
+                fs::create_dir(path)?;
             }
             Entry::Renamed { from, to } => {
                 let to = relocate(to)?;
