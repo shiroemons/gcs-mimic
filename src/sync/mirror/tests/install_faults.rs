@@ -73,12 +73,12 @@ impl Change {
 /// workspace directories stay, because the catalog binds their identities.
 fn restore_tree(snapshot: &Path, tree: &Path) {
     let workspace = tree.join(mapping::WORKSPACE);
-    for entry in fs::read_dir(&workspace).unwrap() {
-        fs::remove_file(entry.unwrap().path()).unwrap();
+    for entry in operation_entries(&workspace) {
+        fs::remove_file(entry).unwrap();
     }
-    for entry in fs::read_dir(snapshot.join(mapping::WORKSPACE)).unwrap() {
-        let entry = entry.unwrap();
-        fs::copy(entry.path(), workspace.join(entry.file_name())).unwrap();
+    for entry in operation_entries(&snapshot.join(mapping::WORKSPACE)) {
+        let name = entry.file_name().unwrap();
+        fs::copy(&entry, workspace.join(name)).unwrap();
     }
     let target = tree.join(TARGET);
     if target.exists() {
@@ -91,9 +91,20 @@ fn restore_tree(snapshot: &Path, tree: &Path) {
 
 /// The bytes of each private workspace entry.
 fn workspace_bodies(tree: &Path) -> Vec<Vec<u8>> {
-    fs::read_dir(tree.join(mapping::WORKSPACE))
+    operation_entries(&tree.join(mapping::WORKSPACE))
+        .into_iter()
+        .map(|entry| fs::read(entry).unwrap())
+        .collect()
+}
+
+/// The entries of `workspace` that write-back operations own, without the directory the root's
+/// naming probe keeps there.
+fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
+    fs::read_dir(workspace)
         .unwrap()
-        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name() != crate::sync::naming::PROBE_DIRECTORY)
+        .map(|entry| entry.path())
         .collect()
 }
 
@@ -135,14 +146,14 @@ impl Started {
             .unwrap()
             .unwrap();
         let (stop, stopping) = tokio::sync::watch::channel(false);
-        let status = MirrorStatus::default();
+        let status = MirrorStatusSender::default();
         let live = initialize_live(
             LiveRun {
                 catalog: &catalog,
                 root: &root,
                 config: &config,
                 status: &status,
-                resume: None,
+                resume: &mut None,
             },
             &stopping,
         )
@@ -356,12 +367,10 @@ async fn a_private_entry_one_byte_off_stays_protected_through_restart() {
     ] {
         let case = format!("{change:?} {crash:?}");
         let crashed = Crashed::at(change, Step::SyncCopyRenamed, crash).await;
-        let entry = fs::read_dir(crashed.tree.0.join(mapping::WORKSPACE))
-            .unwrap()
+        let entry = operation_entries(&crashed.tree.0.join(mapping::WORKSPACE))
+            .into_iter()
             .next()
-            .unwrap()
-            .unwrap()
-            .path();
+            .unwrap();
         let mut edited = fs::read(&entry).unwrap();
         *edited.last_mut().unwrap() ^= 1;
         fs::write(&entry, &edited).unwrap();
