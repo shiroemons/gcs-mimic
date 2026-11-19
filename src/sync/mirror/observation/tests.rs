@@ -377,7 +377,7 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
             catalog: &catalog,
             root: &root,
             config: &config,
-            health: &crate::task::TaskHealth::default(),
+            status: &MirrorStatus::default(),
             resume: Some(resume),
         },
         &stopping,

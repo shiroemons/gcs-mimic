@@ -87,7 +87,8 @@ sync` command instead. Since 0.20.0 each side sends its version in the
 `x-gcs-mimic-version` header and refuses a peer of another release, naming both
 versions. Directory synchronization is not complete, so the options
 and the output of `gcs-mimic sync` are not covered either; only its exit status
-is.
+is. For the same reason, the `sync` object that a ready answer carries while
+synchronization is enabled is not covered.
 
 `--host`, `--port`, `--port-http`, `--scheme` and `--log-level` are native
 options and are covered like every other documented option. The other flags in

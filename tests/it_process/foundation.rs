@@ -550,6 +550,7 @@ async fn start(
         api_base_url: config.effective_api_base_url(address),
         default_location: config.default_location.clone(),
         auth: Default::default(),
+        sync: None,
     });
     let (stop, shutdown) = oneshot::channel();
     let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
@@ -1114,6 +1115,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
         api_base_url: config.effective_api_base_url(address),
         default_location: config.default_location.clone(),
         auth: Default::default(),
+        sync: None,
     });
     let (stop, shutdown) = oneshot::channel();
     let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
@@ -1181,6 +1183,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         api_base_url: config.effective_api_base_url(listener.local_addr().unwrap()),
         default_location: config.default_location.clone(),
         auth: Default::default(),
+        sync: None,
     });
     let security = gcs_mimic::tls::ServerSecurity::load(&config).unwrap();
     let listeners = server::TcpListeners::public(listener, security.primary);

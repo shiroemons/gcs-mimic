@@ -790,7 +790,7 @@ body. Unexpected size can exceed the fixed quota: report actual usage and
 over-limit state rather than clipping, deleting bytes or granting more intake.
 Pause root-wide ingestion and destructive write-back on `ConflictCapacity` or
 `IoFailure` before another such operation can accumulate stranded bodies. Status
-and authorized recovery controls remain available. API service may continue;
+and authorized recovery controls remain available. The Storage API stays ready;
 mirror progress cannot be acknowledged while this recovery is incomplete.
 
 Restart must rediscover and protect these entries before workspace cleanup or
@@ -1039,32 +1039,58 @@ locks. CLI users can write a file, wait, then read through the API.
 
 ## Stops, findings and remedies
 
-`SyncStop` is exhaustive for state/CLI/diagnostics. Distinguish a whole-root
-pause, a blocked path and a nonblocking finding. Emit structured stderr events
-on transitions, not on every repeated observation. Every diagnostic names the
-logical target/key, scope and remedy; paginate details and aggregate counts.
+Each kind of stop has its own exhaustive type; no single type covers them all:
+
+- `PauseReason` pauses the whole root and is stored with the observation:
+  `ConflictCapacity`, `IoFailure`, `RecoveryRequired`, `SourceChanging`,
+  `SourceUnrepresentable` and `observer-failure`, the last for any failure that
+  names no other reason. The `sync_paused` event reports it as `paused_reason`
+  and a root-stop finding as its `reason`, except that the finding shows
+  `observer-failure` as `Paused`. Status `state` names the first three and shows
+  the others as `Paused`.
+- `writeback::Stop` is the write-back state in status: `Ready`,
+  `RecoveryRequired`, `ProtectedBody`, `ConflictCapacity` or `IoFailure`.
+- `WaitReason` says why `sync wait` ended: `Ready`, `Timeout`, `Stopped`,
+  `Paused`, `JournalChanged`, `SourceChanging`, `SourceUnrepresentable`,
+  `DeletionApproval` or `FindingsPending`.
+- A path finding's `reason` is `Conflict`, `Unrepresentable`,
+  `ProtectedDeletion`, `SourceChanging`, `IoFailure` or `RecoveryRequired`.
+
+Distinguish a whole-root pause, a blocked path and a nonblocking finding. Emit
+structured stderr events on transitions, not on every repeated observation.
+Every diagnostic names the logical target/key, scope and remedy; paginate
+details and aggregate counts.
 
 | Reason | Scope and discovery | Complete recovery path |
 | --- | --- | --- |
-| `DeletionApproval` | External deletions paused; status/ready summary/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
+| `DeletionApproval` | External deletions paused; status/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
 | `Conflict` | Path finding after successful preservation; `conflicts`, status/event | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. Other paths continue. |
-| `ConflictCapacity` | Root ingestion and destructive write-back paused; status/ready/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
+| `ConflictCapacity` | Root ingestion and destructive write-back paused; status/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
 | `Unrepresentable` | Path finding; paged status findings/event | Rename/copy-delete through API into a representable name, remove the collision/unsafe external entry without following it and rescan, or retain API-only access. Never silently normalize. |
 | `ProtectedDeletion` | Path restored and blocked; paged status findings/event | Release hold/retention through a supported API, then delete the file again. If protection cannot be released, retain the restored file/API object. |
 | `SourceChanging` | Path deferred until quiet deadline; status | Finish/stop the writer then rescan/wait. Continuously changing input times out wait without publishing partial bytes. |
-| `IoFailure` | Affected path; whole-root pause for unavailable root, incomplete scan or failed displaced-body preservation; status/ready/event and paged recovery findings | Restore mount/permissions/free space, preserve source/conflicts and any displaced workspace body, then rescan under the displaced-body recovery rules; typed disk-full is not swallowed or tight-looped. |
-| `Closed` | Shutdown; status while available, waiting requests wake | Restart after fixing the reported shutdown/storage error; reopen only after old jobs release ownership. |
+| `IoFailure` | Affected path; whole-root pause for unavailable root, incomplete scan or failed displaced-body preservation; status/event and paged recovery findings | Restore mount/permissions/free space, preserve source/conflicts and any displaced workspace body, then rescan under the displaced-body recovery rules; typed disk-full is not swallowed or tight-looped. |
+| `Paused` | Root paused by `observer-failure`, `SourceChanging` or `SourceUnrepresentable`; status, `sync_paused` event and a root-stop finding | Inspect server diagnostics, correct the reported condition without removing pending data and request an explicit rescan. |
+| `Stopped` | Shutdown; status while available, waiting requests wake and end with it | Restart after fixing the reported shutdown/storage error; reopen only after old jobs release ownership. |
 
 A marker mismatch is a startup failure, reported through the root error before
 bind; it has no stop reason of its own. A journal gap
 or notification overflow is not a stop: the mirror recovers with a bounded full
-rescan. Catalog corruption surfaces as the catalog's own open or I/O failure.
+rescan, and a wait it interrupts ends with `JournalChanged`. Catalog corruption
+surfaces as the catalog's own open or I/O failure.
 
-`/_internal/ready` keeps its existing API-readiness HTTP status. Its optional
-`sync` summary contains only enabled/state, aggregate pending/conflict/stop counts
-and applied sequence, with no paths, names, catalog/root IDs or tokens. Detailed
-strict diagnostics require management authorization. A synchronization stop
-alone does not make the API unready; catalog health failures still can.
+`/_internal/ready` and its alias `/_internal/healthcheck` keep their
+API-readiness HTTP status. No synchronization stop makes the API unready;
+catalog health failures and failing maintenance still can. While synchronization
+is enabled, a ready answer adds `sync.state`, the mirror's state, read from
+memory without a catalog query: `starting` until this process's first
+reconciliation finishes, then `running`; `retrying` while a run or a directory
+watch rebuild waits to retry; `paused` until an explicit rescan succeeds; and
+`stopped` after shutdown. The summary carries no counts, paths, names,
+catalog/root IDs or tokens; detailed strict diagnostics require management
+authorization. While the mirror is retrying, paused or stopped without a recorded
+pause reason, status `state` is `Unhealthy`. The `sync` object is outside the
+public contract until directory synchronization is complete.
 
 ## Resources, ownership and remaining approval
 

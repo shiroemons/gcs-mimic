@@ -44,6 +44,45 @@ fn nested_control_errors_keep_status_and_text() {
     }
 }
 
+/// The mirror's state, not the server's readiness, decides `Unhealthy`, and a mirror that has
+/// not reconciled in this process is still observing whatever baseline an earlier one recorded.
+#[test]
+fn status_state_follows_the_mirror_state() {
+    let observation = |paused_reason| Summary {
+        revision: 1,
+        baseline_complete: true,
+        tracked_objects: 0,
+        mapping_findings: 0,
+        pending_writeback: 0,
+        path_stops: 0,
+        unresolved_conflicts: 0,
+        paused_reason,
+        scan_stop: None,
+        writeback: None,
+    };
+    let clear = observation(None);
+    assert_eq!(control_state(MirrorState::Running, &clear, None), "Ready");
+    assert_eq!(
+        control_state(MirrorState::Starting, &clear, None),
+        "Observing"
+    );
+    for mirror in [
+        MirrorState::Retrying,
+        MirrorState::Paused,
+        MirrorState::Stopped,
+    ] {
+        assert_eq!(control_state(mirror, &clear, None), "Unhealthy", "{mirror}");
+    }
+    let recorded = observation(Some(PauseReason::IoFailure));
+    for mirror in [MirrorState::Paused, MirrorState::Starting] {
+        assert_eq!(
+            control_state(mirror, &recorded, None),
+            "IoFailure",
+            "{mirror}"
+        );
+    }
+}
+
 /// A paused mirror and a stopped one never ran the control, so both answer as a closed queue.
 #[test]
 fn controls_that_never_ran_answer_busy() {
@@ -1322,11 +1361,13 @@ async fn controls_reject_invalid_input_and_unsupported_routes() {
     assert_eq!(waited["timed_out"], false);
     assert_eq!(waited["reason"], "Ready");
     assert!(waited["journal_fence"]["sequence"].is_u64());
+    assert_eq!(fixture.status().await["state"], "Ready");
+    // The mirror's state decides the synchronization state; the server's readiness does not.
     fixture
         .state
         .ready
         .store(false, std::sync::atomic::Ordering::Release);
-    assert_eq!(fixture.status().await["state"], "Unhealthy");
+    assert_eq!(fixture.status().await["state"], "Ready");
     fixture.finish().await;
 }
 

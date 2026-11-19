@@ -49,13 +49,15 @@ for each file, and requires a local filesystem. Traversal processes 256-entry
 pages and stops at named depth and entry limits instead of retaining a whole tree.
 The operating system's actual descriptor limit still applies; the application
 does not raise it. Exceeding capacity, unsupported watch setup or a permanently
-unwatched subtree fails visibly and keeps readiness off.
+unwatched subtree fails visibly and pauses synchronization. The Storage API stays
+ready; `/_internal/ready` reports the mirror apart as `sync.state`.
 
 Permission loss during re-registration preserves the old watches and retries
-twice with exponential backoff. Persistent failure pauses intake and lowers
-readiness while retaining the root and control queue. An authorized explicit
-rescan after repair must complete registration and reconciliation before
-restoring readiness. Shutdown interrupts backoff and releases the root.
+twice with exponential backoff, while `sync.state` is `retrying`. Persistent
+failure pauses intake (`paused`) while retaining the root and control queue. An
+authorized explicit rescan after repair must complete registration and
+reconciliation before synchronization reports `running` again; inspecting the
+paused root does not resume it. Shutdown interrupts backoff and releases the root.
 macOS directory inode metadata, ownership and extended-attribute notifications
 all require a fresh access check; an ownership-only event can revoke access
 without a separate inode-metadata notification. The flag-classification regression

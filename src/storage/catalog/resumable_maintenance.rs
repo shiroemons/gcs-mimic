@@ -421,7 +421,7 @@ impl Catalog {
     }
 
     /// False while a background loop is down: restarting after a panic until a pass succeeds,
-    /// failing every pass, or stopped for good.
+    /// or failing every pass.
     pub(crate) fn background_tasks_running(&self) -> bool {
         !self.0.maintenance_health.is_down()
             && self
@@ -434,7 +434,9 @@ impl Catalog {
     }
 
     /// Reports `health` through readiness for as long as the catalog lives, for a background
-    /// worker the catalog does not start itself, such as the sync mirror.
+    /// worker the catalog does not start at open, such as the notification publisher. The
+    /// directory mirror reports its own state instead: a stopped mirror stops synchronization,
+    /// not the Storage API.
     pub(crate) fn watch_background_task(&self, health: crate::task::TaskHealth) {
         self.0
             .background_health

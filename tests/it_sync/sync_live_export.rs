@@ -81,6 +81,12 @@ impl SyncServer {
         assert_eq!(value["completed"], true);
         reply
     }
+    /// The `sync.state` of a readiness probe that answers 200.
+    fn sync_state(&self) -> String {
+        let ready = self.request("GET", "/_internal/ready", b"").json_ok();
+        assert_eq!(ready["status"], "ok", "{ready}");
+        ready["sync"]["state"].as_str().unwrap().to_owned()
+    }
     fn wait(&self, payload: &[u8]) -> (common::effects::Reply, Duration) {
         let started = std::time::Instant::now();
         let reply = self.request("POST", "/_internal/sync/wait", payload);
@@ -102,13 +108,21 @@ fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_st
     waited.expect(409);
     let waited: Value = serde_json::from_slice(&waited.body).unwrap();
     assert_eq!(waited["reason"], "Paused");
-    server.request("GET", "/_internal/ready", b"").expect(503);
+    // The pause stops synchronization only: the API stays ready and reports it apart.
+    assert_eq!(server.sync_state(), "paused");
+    // Neither inspection nor a rescan that fails again resumes it.
+    let status = server.request("GET", "/_internal/sync", b"").json_ok();
+    assert_eq!(status["state"], "Paused", "{status}");
+    server
+        .request("POST", "/_internal/sync/rescan", b"{}")
+        .expect(503);
+    assert_eq!(server.sync_state(), "paused");
     server.stop();
     for _ in 0..2 {
         let mut server =
             SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "4"]);
         server.wait(br#"{"timeout_ms":30000}"#).0.expect(200);
-        server.request("GET", "/_internal/ready", b"").expect(200);
+        assert_eq!(server.sync_state(), "running");
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/test-bucket/o/three?alt=media", b"")

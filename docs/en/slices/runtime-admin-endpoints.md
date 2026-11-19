@@ -25,7 +25,12 @@ claims or exact reproduction of the reference's unrestricted handler.
 `GET` and `HEAD /_internal/healthcheck` use the same readiness test as
 its compatibility alias `/_internal/ready`: recovery and seeding must have completed, the catalog must
 remain healthy, background tasks must be running, and shutdown must not have
-revoked readiness. `/_internal/health` keeps its existing liveness behavior.
+revoked readiness. The directory-sync mirror is not one of those tasks: a paused
+or stopped mirror stops synchronization only. While synchronization is enabled,
+a ready answer adds `sync.state`, which the
+[synchronization contract](directory-synchronization.md#stops-findings-and-remedies)
+defines and which is outside the public contract until synchronization is
+complete. `/_internal/health` keeps its existing liveness behavior.
 Probe bodies return 413 and unsupported methods return 405 with `Allow`.
 The CLI accepts the old healthcheck path with an explicit `--url`.
 

@@ -2,7 +2,7 @@ use super::control::{Command, ControlError, Reply};
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
-use super::{Pass, SyncError};
+use super::{MirrorState, MirrorStatus, Pass, SyncError};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
@@ -73,6 +73,7 @@ pub struct Reconciliation {
 pub struct Task {
     stop: tokio::sync::watch::Sender<bool>,
     done: tokio::sync::oneshot::Receiver<()>,
+    status: MirrorStatus,
     // Holding the sender keeps the worker's rescan channel open for the task's lifetime.
     #[cfg_attr(
         not(all(test, any(target_os = "linux", target_os = "macos"))),
@@ -113,7 +114,7 @@ impl DirectoryWatch {
         &mut self,
         root: &RootLease,
         stopping: &tokio::sync::watch::Receiver<bool>,
-        health: &crate::task::TaskHealth,
+        status: &MirrorStatus,
     ) -> Result<(), SyncError> {
         let mut backoff = MIRROR_BACKOFF;
         let mut failures = 0;
@@ -129,12 +130,12 @@ impl DirectoryWatch {
                     watcher.generation = self.generation;
                     watcher.pending = self.pending.take();
                     *self = watcher;
-                    health.pass_succeeded();
+                    status.enter(MirrorState::Running);
                     return Ok(());
                 }
                 Err(error) if error.is_watch_retryable() => {
                     failures += 1;
-                    health.pass_failed();
+                    status.enter(MirrorState::Retrying);
                     #[cfg(test)]
                     export_checkpoint("retry").await;
                     if failures >= 3 {
@@ -148,7 +149,7 @@ impl DirectoryWatch {
                             &error,
                             serde_json::json!({
                                 "reason":crate::error::Report(&error).to_string(),"delay_ms":delay.as_millis(),
-                                "remedy":"Restore read/search permissions on the sync tree; observation remains unhealthy until every subtree is watched"
+                                "remedy":"Restore read/search permissions on the sync tree; synchronization is retrying until every subtree is watched, and pauses until an explicit rescan when the retries fail"
                             }),
                         ),
                     );
@@ -179,6 +180,10 @@ impl Task {
     }
     pub(crate) fn stop(&self) {
         self.stop.send_replace(true);
+    }
+    /// What the mirror is doing, for the readiness probe.
+    pub fn status(&self) -> MirrorStatus {
+        self.status.clone()
     }
     pub async fn finish(self) -> io::Result<()> {
         self.stop();
@@ -247,16 +252,18 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     let root = std::sync::Arc::new(root.with_shutdown(stopping.clone()));
     let (done, completion) = tokio::sync::oneshot::channel();
     let (rescan, mut requests) = tokio::sync::mpsc::channel(1);
+    // The mirror reports its own state instead of joining the catalog's background tasks, so
+    // that a stopped mirror stops synchronization but never the Storage API's readiness.
+    // A transient failure (catalog contention, a timeout) is retried with backoff. Persistent
+    // failures pause intake but retain ownership and controls; only an explicit rescan after
+    // repair may resume synchronization.
+    let status = MirrorStatus::default();
     catalog
-        .register_sync_controls(&root, rescan.clone())
+        .register_sync_controls(&root, rescan.clone(), status.clone())
         .map_err(io::Error::other)?;
-    // A transient failure (catalog contention, a timeout) is retried with backoff and counts as
-    // a failed pass, so readiness drops only once failures repeat and recovers with the next
-    // successful pass. Persistent failures pause intake but retain ownership and controls;
-    // only an explicit rescan after repair may restore synchronization readiness.
-    let health = crate::task::TaskHealth::default();
-    catalog.watch_background_task(health.clone());
+    let mirror = status.clone();
     crate::task::spawn_thread("sync-mirror", move || {
+        let status = mirror;
         let mut backoff = MIRROR_BACKOFF;
         let mut resume = None;
         let mut controls = observation::Controls::default();
@@ -270,7 +277,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                         catalog: &catalog,
                         root: &root,
                         config: &config,
-                        health: &health,
+                        status: &status,
                         resume: resume.take(),
                     },
                     &mut stopping,
@@ -284,11 +291,10 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 Err(error) => SyncError::Panicked(error),
             };
             if !error.is_transient() {
-                health.mark_restarting();
-                descriptor::paused(&error);
-                if let Err(error) =
-                    runtime.block_on(root.observation_pause(Some(error.pause_reason())))
-                {
+                let reason = error.pause_reason();
+                status.enter(MirrorState::Paused);
+                descriptor::paused(&error, reason);
+                if let Err(error) = runtime.block_on(root.observation_pause(Some(reason))) {
                     diagnostics::emit(
                         LogLevel::Error,
                         "sync_pause_unrecorded",
@@ -309,7 +315,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 backoff.reset();
                 continue;
             }
-            health.pass_failed();
+            status.enter(MirrorState::Retrying);
             // A run that lasted longer than the cap had recovered, so its failure starts over.
             if started.elapsed() >= RETRY_DELAY_MAX {
                 backoff.reset();
@@ -326,18 +332,16 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
                 break;
             }
         }
+        // Before the queued controls hear that synchronization stopped.
+        status.enter(MirrorState::Stopped);
         controls.stop();
         drop(requests);
         if let Err(error) = catalog.clear_sync_controls() {
-            health.mark_stopped();
             diagnostics::emit(
                 LogLevel::Error,
                 "sync_controls_closed",
                 serde_json::json!({"reason":error.to_string()}),
             );
-        }
-        if health.is_down() {
-            health.mark_stopped();
         }
         runtime.block_on(async {
             if !*stopping.borrow() {
@@ -353,6 +357,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     Ok(Task {
         stop,
         done: completion,
+        status,
         rescan,
     })
 }
@@ -361,7 +366,7 @@ struct LiveRun<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
     config: &'a Config,
-    health: &'a crate::task::TaskHealth,
+    status: &'a MirrorStatus,
     resume: Option<Resume>,
 }
 
@@ -420,7 +425,7 @@ async fn run_live_config(
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
     controls: &mut observation::Controls,
 ) -> Result<(), SyncError> {
-    let (catalog, root, config, health) = (run.catalog, run.root, run.config, run.health);
+    let (catalog, root, config, status) = (run.catalog, run.root, run.config, run.status);
     let Initialized {
         mut state,
         mut watcher,
@@ -495,7 +500,7 @@ async fn run_live_config(
                         observation::Observed::Settled(observed,settled) => {
                             if settled==observation::Quiet::Established {controls.settled();}
                             unsettled.quiet=settled;
-                            if observed==watch::Change::Structure {watcher.rebuild(root,stopping,health).await?;}
+                            if observed==watch::Change::Structure {watcher.rebuild(root,stopping,status).await?;}
                             if *stopping.borrow() {break}
                             let history=watcher.history_scan(unsettled.quiet);
                             let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};
@@ -507,7 +512,6 @@ async fn run_live_config(
                                 unsettled.unsettle(root).await?;
                             }
                             diagnostics::emit(LogLevel::Info,"sync_ingested",&summary);
-                            health.pass_succeeded();
                         }
                     }
                 }
@@ -533,7 +537,6 @@ async fn run_live_config(
         )
         .await?;
         diagnostics::emit(LogLevel::Info, "sync_exported", &summary);
-        health.pass_succeeded();
     }
     Ok(())
 }
@@ -628,7 +631,7 @@ async fn initialize_live(
         catalog,
         root,
         config,
-        health,
+        status,
         resume,
     } = run;
     let initial_root = resume
@@ -672,7 +675,10 @@ async fn initialize_live(
     )
     .await?;
     root.observation_pause(None).await?;
-    health.pass_succeeded();
+    // Running only now, after this run reconciled the whole tree: until then a starting mirror
+    // stays starting, a retrying one retrying and a paused one paused, even while its explicit
+    // rescan runs.
+    status.enter(MirrorState::Running);
     if let Some(request) = resume {
         let _ = request.reply.send(Ok(summary));
         writeback = writeback.with_root(root)?;

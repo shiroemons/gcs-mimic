@@ -2,7 +2,10 @@ use super::{Catalog, unavailable};
 use crate::{
     bucket::CatalogError,
     storage::sync_state::root::RootLease,
-    sync::control::{Command, Registration},
+    sync::{
+        MirrorStatus,
+        control::{Command, Registration},
+    },
 };
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -21,6 +24,7 @@ impl Catalog {
         &self,
         root: &Arc<RootLease>,
         sender: mpsc::Sender<Command>,
+        status: MirrorStatus,
     ) -> Result<(), CatalogError> {
         let mut session = [0; 16];
         getrandom::fill(&mut session).map_err(|error| unavailable(std::io::Error::other(error)))?;
@@ -29,6 +33,7 @@ impl Catalog {
             session: crate::hashing::encode_lower(&session),
             root: Arc::downgrade(root),
             sender,
+            status,
         });
         Ok(())
     }

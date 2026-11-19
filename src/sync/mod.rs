@@ -9,11 +9,13 @@ mod ingest;
 mod interrupt;
 pub mod mapping;
 mod mirror;
+mod status;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod test_support;
 pub(crate) mod tree;
 pub(crate) use error::{Cause, Pass, SyncError};
 pub use mirror::{Reconciliation, Task, reconcile, start};
+pub use status::{MirrorState, MirrorStatus, UnknownMirrorState};
 
 #[cfg(test)]
 struct Hook {

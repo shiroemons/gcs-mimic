@@ -58,6 +58,9 @@ pub struct State {
     pub api_base_url: String,
     pub default_location: String,
     pub auth: Auth,
+    /// The directory mirror's state when `sync_dir` is set, which readiness reports beside
+    /// the API's own and never folds into it.
+    pub sync: Option<crate::sync::MirrorStatus>,
 }
 
 impl State {
@@ -73,6 +76,7 @@ impl State {
             api_base_url: "http://localhost:4443".into(),
             default_location: "US".into(),
             auth,
+            sync: None,
         }
     }
 
@@ -2234,15 +2238,26 @@ fn unknown_route() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
 }
 
-fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<Bytes>>> {
-    let path = request.uri().path();
-    let internal = matches!(
-        path,
-        "/_internal/health" | "/_internal/ready" | "/_internal/healthcheck"
-    );
-    if !internal {
-        return None;
+/// What a probe path asks: whether the process answers, or whether the API is ready.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Probe {
+    Liveness,
+    /// `/_internal/ready` and its compatible alias `/_internal/healthcheck`.
+    Readiness,
+}
+
+impl Probe {
+    fn parse(path: &str) -> Option<Self> {
+        match path {
+            "/_internal/health" => Some(Self::Liveness),
+            "/_internal/ready" | "/_internal/healthcheck" => Some(Self::Readiness),
+            _ => None,
+        }
     }
+}
+
+fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<Bytes>>> {
+    let probe = Probe::parse(request.uri().path())?;
     let (status, body) = if request.method() != Method::GET && request.method() != Method::HEAD {
         (
             StatusCode::METHOD_NOT_ALLOWED,
@@ -2253,7 +2268,7 @@ fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<
             StatusCode::PAYLOAD_TOO_LARGE,
             "{\"error\":\"probe bodies are not supported\"}".to_owned(),
         )
-    } else if matches!(path, "/_internal/ready" | "/_internal/healthcheck") && !state.is_ready() {
+    } else if probe == Probe::Readiness && !state.is_ready() {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "{\"status\":\"not ready\"}".to_owned(),
@@ -2265,9 +2280,17 @@ fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        // The mirror's state alone, read from memory: an unauthenticated probe learns no counts,
+        // paths or IDs, and a busy catalog cannot delay it.
+        let sync = match (probe, &state.sync) {
+            (Probe::Readiness, Some(mirror)) => {
+                format!(",\"sync\":{{\"state\":\"{}\"}}", mirror.state())
+            }
+            (Probe::Readiness, None) | (Probe::Liveness, _) => String::new(),
+        };
         (
             StatusCode::OK,
-            format!("{{\"status\":\"ok\",\"unix_time\":{now}}}"),
+            format!("{{\"status\":\"ok\",\"unix_time\":{now}{sync}}}"),
         )
     };
     let content_length = hyper::header::HeaderValue::from(body.len());

@@ -637,6 +637,7 @@ pub(crate) async fn serve(
         api_base_url: ready.api_base_url,
         default_location: config.default_location.clone(),
         auth,
+        sync: sync_task.as_ref().map(gcs_mimic::sync::Task::status),
     });
     // Readiness must follow every fallible startup step, including sync worker creation.
     println!("{}", ready.event);

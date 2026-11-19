@@ -151,4 +151,6 @@ pub(crate) struct Registration {
     pub session: String,
     pub root: Weak<RootLease>,
     pub sender: mpsc::Sender<Command>,
+    /// What the mirror behind `sender` is doing, which the status control reports.
+    pub status: super::MirrorStatus,
 }

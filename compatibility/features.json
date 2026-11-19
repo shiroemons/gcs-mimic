@@ -60383,9 +60383,15 @@
         },
         {
           "id": "sync-directory-access-revalidation",
-          "description": "macOS directory inode metadata, ownership and xattr events require access revalidation; ownership-only notifications cannot bypass it. Regular-file ownership changes remain content observations. The live permission test drains its startup journal fence before chmod and retains the original five-second unhealthy-observer and shutdown assertions. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "description": "macOS directory inode metadata, ownership and xattr events require access revalidation; ownership-only notifications cannot bypass it. Regular-file ownership changes remain content observations. The live permission test drains its startup journal fence before chmod and retains the shutdown assertions; since 2026-11-19 it requires the mirror to report retrying before it pauses while the Storage API stays ready, where it required an unhealthy observer before. Scope: docs/en/slices/continuous-directory-observation.md.",
           "result": "PASS",
-          "test_ids": ["directory_ownership_changes_require_access_revalidation", "native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root"]
+          "test_ids": ["directory_ownership_changes_require_access_revalidation", "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root"]
+        },
+        {
+          "id": "sync-ready-state",
+          "description": "A failed, paused, retrying or stopped mirror stops synchronization only: /_internal/ready and its alias /_internal/healthcheck keep answering 200 and, while synchronization is enabled, add sync.state (starting, running, retrying, paused or stopped), read from memory so that a catalog with every admission slot taken answers without queueing the probe; /_internal/health is unchanged and failing maintenance still answers 503. The mirror stays paused through inspection and a rescan that fails again, and reports running only after an explicit rescan succeeds; a transient failure reports retrying until a run gets through its start, and shutdown leaves stopped. A wait sent while starting answers only after this process's first reconciliation, even when an earlier process completed the baseline. Status state follows the mirror state, not the server's readiness. The sync object carries no counts and is outside the public contract until synchronization is complete. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/runtime-admin-endpoints.md.",
+          "result": "PASS",
+          "test_ids": ["a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready", "explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership", "persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root", "a_transient_mirror_failure_is_retried_until_it_clears", "a_mirror_stopped_by_shutdown_stays_ready", "a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation", "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root", "readiness_reports_the_mirror_state_without_a_catalog_query", "failing_maintenance_still_turns_readiness_off_beside_a_running_mirror", "status_state_follows_the_mirror_state", "states_parse_from_the_names_they_report", "a_stopped_mirror_stays_stopped", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
         },
         {
           "id": "sync-installed-body-durability",
@@ -60779,7 +60785,19 @@
         "stopping_after_dequeue_retains_the_request_until_its_stopped_reply",
         "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines",
         "directory_ownership_changes_require_access_revalidation",
-        "native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root",
+        "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root",
+        "a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready",
+        "explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership",
+        "persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root",
+        "a_transient_mirror_failure_is_retried_until_it_clears",
+        "a_mirror_stopped_by_shutdown_stays_ready",
+        "a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation",
+        "readiness_reports_the_mirror_state_without_a_catalog_query",
+        "failing_maintenance_still_turns_readiness_off_beside_a_running_mirror",
+        "status_state_follows_the_mirror_state",
+        "states_parse_from_the_names_they_report",
+        "a_stopped_mirror_stays_stopped",
+        "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -61071,7 +61089,14 @@
           "result": "PASS",
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/continuous-directory-observation.md",
-          "test_ids": ["directory_ownership_changes_require_access_revalidation", "native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root"]
+          "test_ids": ["directory_ownership_changes_require_access_revalidation", "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root a_transient_mirror_failure_is_retried_until_it_clears a_mirror_stopped_by_shutdown_stays_ready a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation native_watch_permission_retry_reports_retrying readiness_reports_the_mirror_state_without_a_catalog_query failing_maintenance_still_turns_readiness_off_beside_a_running_mirror status_state_follows_the_mirror_state states_parse_from_the_names_they_report a_stopped_mirror_stays_stopped --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready", "explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership", "persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root", "a_transient_mirror_failure_is_retried_until_it_clears", "a_mirror_stopped_by_shutdown_stays_ready", "a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation", "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root", "readiness_reports_the_mirror_state_without_a_catalog_query", "failing_maintenance_still_turns_readiness_off_beside_a_running_mirror", "status_state_follows_the_mirror_state", "states_parse_from_the_names_they_report", "a_stopped_mirror_stays_stopped", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",

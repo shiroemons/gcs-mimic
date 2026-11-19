@@ -1,12 +1,13 @@
-use crate::sync::SyncError;
+use crate::{storage::sync_state::observation::PauseReason, sync::SyncError};
 
-pub(super) fn paused(error: &SyncError) {
+/// Reports a pause with the reason the status control and the root-stop finding name.
+pub(super) fn paused(error: &SyncError, pause: PauseReason) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
         "sync_paused",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
         ),
     );
 }

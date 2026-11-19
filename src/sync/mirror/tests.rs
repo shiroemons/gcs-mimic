@@ -34,14 +34,14 @@ async fn run_live_controlled(
     stopping: &mut tokio::sync::watch::Receiver<bool>,
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
 ) -> Result<(), SyncError> {
-    let health = crate::task::TaskHealth::default();
+    let status = MirrorStatus::default();
     let config = Config::default();
     run_live_config(
         LiveRun {
             catalog,
             root,
             config: &config,
-            health: &health,
+            status: &status,
             resume: None,
         },
         stopping,
@@ -152,7 +152,7 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
                 catalog: &worker_catalog,
                 root: &worker_root,
                 config: &Config::default(),
-                health: &crate::task::TaskHealth::default(),
+                status: &MirrorStatus::default(),
                 resume: None,
             },
             &mut stopping,
@@ -2040,7 +2040,49 @@ enum LiveFailure {
 static LIVE_FAILURES: std::sync::Mutex<Vec<(PathBuf, LiveFailure)>> =
     std::sync::Mutex::new(Vec::new());
 
+/// A mirror run held before it starts, armed per working tree like `LIVE_FAILURES`.
+struct LiveHold {
+    entered: tokio::sync::oneshot::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+static LIVE_HOLDS: std::sync::Mutex<Vec<(PathBuf, LiveHold)>> = std::sync::Mutex::new(Vec::new());
+
+/// Holds the next run of the mirror on `tree` before it starts. The first receiver fires once
+/// the run is held; the run continues when the sender fires or drops, so a failed test cannot
+/// leave the mirror thread blocked.
+fn hold_next_run(
+    tree: &Path,
+) -> (
+    tokio::sync::oneshot::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let (entered, held) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    LIVE_HOLDS.lock().unwrap().push((
+        tree.to_owned(),
+        LiveHold {
+            entered,
+            release: released,
+        },
+    ));
+    (held, release)
+}
+
 pub(super) fn injected_live_failure(config: &Config) -> Result<(), SyncError> {
+    let hold = {
+        let mut holds = LIVE_HOLDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        holds
+            .iter()
+            .position(|(tree, _)| config.sync_dir.as_ref() == Some(tree))
+            .map(|index| holds.remove(index).1)
+    };
+    if let Some(hold) = hold {
+        let _ = hold.entered.send(());
+        let _ = hold.release.recv();
+    }
     let mut armed = LIVE_FAILURES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -2083,28 +2125,69 @@ async fn started_mirror_failing(failures: &[LiveFailure]) -> (TestDir, TestDir, 
     (data, tree, catalog, task)
 }
 
-/// An error or panic must keep readiness off until an explicit rescan succeeds.
+/// Whether the Storage API reports ready, as `/_internal/ready` decides it.
+fn api_ready(catalog: &Catalog) -> bool {
+    crate::server::State::for_test(catalog.clone(), crate::auth::Auth::permissive()).is_ready()
+}
+
+/// Waits until `task`'s mirror is in `state`.
+async fn mirror_reaches(task: &Task, state: MirrorState) {
+    tokio::time::timeout(HANG_GUARD, task.status().reached(state))
+        .await
+        .unwrap_or_else(|_| panic!("the mirror never became {state}"));
+}
+
+/// Queues a wait on `task`'s mirror; the receiver answers it.
+async fn queue_wait(
+    task: &Task,
+    timeout: Duration,
+) -> tokio::sync::oneshot::Receiver<
+    Result<crate::sync::control::WaitResult, crate::sync::control::ControlError>,
+> {
+    let (reply, response) = tokio::sync::oneshot::channel();
+    task.rescan
+        .send(Command::Wait {
+            deadline: tokio::time::Instant::now() + timeout,
+            settling: Default::default(),
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    response
+}
+
+/// An error or panic pauses synchronization until an explicit rescan succeeds; the Storage API
+/// stays ready throughout, and after shutdown.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_stopped_mirror_turns_readiness_off() {
+async fn a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready() {
+    use MirrorState::{Paused, Starting, Stopped};
     for failure in [LiveFailure::Error, LiveFailure::Panic] {
         let (_data, _tree, catalog, task) = started_mirror(Some(failure)).await;
-        eventually_async("the mirror to stop", || async {
-            !catalog.background_tasks_running()
-        })
-        .await;
+        mirror_reaches(&task, Paused).await;
         assert!(
             catalog.is_healthy(),
             "a stopped mirror does not poison the catalog"
         );
+        assert!(api_ready(&catalog), "a paused mirror leaves the API ready");
         let (control, root) = catalog.sync_controls().unwrap().unwrap();
         await_paused(&root).await;
-        assert!(
-            !catalog.background_tasks_running(),
+        assert_eq!(
+            control.status.state(),
+            Paused,
+            "status reads the same state"
+        );
+        assert_eq!(
+            task.status().state(),
+            Paused,
             "inspection cannot resume a paused observer"
         );
         drop((control, root));
+        let status = task.status();
         task.finish().await.unwrap();
-        assert!(!catalog.background_tasks_running(), "the stop is permanent");
+        assert_eq!(status.state(), Stopped, "the stop is permanent");
+        assert_eq!(status.entered(), [Starting, Paused, Stopped]);
+        assert!(api_ready(&catalog), "a stopped mirror leaves the API ready");
         catalog.close().await.unwrap();
     }
     assert_eq!(
@@ -2114,12 +2197,11 @@ async fn a_stopped_mirror_turns_readiness_off() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_rescan_recovers_a_paused_observer_and_shutdown_releases_ownership() {
+async fn explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership() {
+    use MirrorState::{Paused, Running, Starting, Stopped};
     let (_data, tree, catalog, task) = started_mirror(Some(LiveFailure::Error)).await;
-    eventually_async("the mirror to stop", || async {
-        !catalog.background_tasks_running()
-    })
-    .await;
+    mirror_reaches(&task, Paused).await;
+    assert!(api_ready(&catalog));
     assert!(matches!(
         catalog
             .sync_state()
@@ -2135,7 +2217,11 @@ async fn explicit_rescan_recovers_a_paused_observer_and_shutdown_releases_owners
         b"preserve while paused",
     )
     .unwrap();
-    assert!(!catalog.background_tasks_running());
+    assert_eq!(
+        task.status().state(),
+        Paused,
+        "inspection cannot resume a paused observer"
+    );
     assert!(
         tokio::time::timeout(Duration::from_secs(10), task.rescan())
             .await
@@ -2144,9 +2230,17 @@ async fn explicit_rescan_recovers_a_paused_observer_and_shutdown_releases_owners
             .baseline_complete
     );
     assert!(root.observation().await.unwrap().paused_reason.is_none());
-    assert!(catalog.background_tasks_running());
+    assert_eq!(
+        task.status().state(),
+        Running,
+        "the rescan's reply follows the resumed state"
+    );
+    assert!(api_ready(&catalog));
     drop(root);
+    let status = task.status();
     task.finish().await.unwrap();
+    assert_eq!(status.entered(), [Starting, Paused, Running, Stopped]);
+    assert!(api_ready(&catalog));
     assert!(catalog.sync_controls().unwrap().is_none());
     let root = catalog
         .sync_state()
@@ -2169,7 +2263,8 @@ async fn await_paused(root: &RootLease) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn persistent_disk_full_pauses_for_controls_and_shutdown_releases_the_root() {
+async fn persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root()
+ {
     let (_data, tree, catalog, task) = started_mirror(None).await;
     task.rescan().await.unwrap();
     let (_, root) = catalog.sync_controls().unwrap().unwrap();
@@ -2181,7 +2276,12 @@ async fn persistent_disk_full_pauses_for_controls_and_shutdown_releases_the_root
     let bucket = BucketName::new("test-bucket").unwrap();
     let record = publish_origin(&catalog, &bucket, b"API winner survives", Origin::Api).await;
     await_paused(&root).await;
-    assert!(!catalog.background_tasks_running());
+    // The mirror enters the state before it records the pause.
+    assert_eq!(task.status().state(), MirrorState::Paused);
+    assert!(
+        api_ready(&catalog),
+        "a full disk pauses only synchronization"
+    );
     assert!(catalog.sync_controls().unwrap().is_some());
     let page = root
         .conflict_page(
@@ -2480,23 +2580,23 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
     catalog.close().await.unwrap();
 }
 
-/// Contention that outlasts the catalog wait must not take the server out of readiness until
-/// restart: the mirror retries, and its next successful pass clears the failed ones, even after
-/// enough consecutive failures to report it down.
+/// Contention that outlasts the catalog wait makes the mirror retry, which it reports as
+/// retrying until a run gets through its start; the Storage API stays ready throughout.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_transient_mirror_failure_is_retried_until_it_clears() {
+    use MirrorState::{Retrying, Running, Starting, Stopped};
     let (_data, _tree, catalog, task) = started_mirror_failing(&[LiveFailure::Busy; 4]).await;
     // A served rescan shows a retried run got past its start.
     tokio::time::timeout(std::time::Duration::from_secs(10), task.rescan())
         .await
         .unwrap()
         .unwrap();
-    assert!(
-        catalog.background_tasks_running(),
-        "a successful pass restores readiness"
-    );
+    assert_eq!(task.status().state(), Running);
+    assert!(api_ready(&catalog));
+    let status = task.status();
     task.finish().await.unwrap();
-    assert!(catalog.background_tasks_running());
+    assert_eq!(status.entered(), [Starting, Retrying, Running, Stopped]);
+    assert!(api_ready(&catalog));
     catalog.close().await.unwrap();
 }
 
@@ -2556,31 +2656,69 @@ async fn a_mirror_stopped_by_shutdown_stays_ready() {
         .await
         .unwrap()
         .unwrap();
-    assert!(catalog.background_tasks_running());
+    assert!(api_ready(&catalog));
+    let status = task.status();
     task.finish().await.unwrap();
-    assert!(catalog.background_tasks_running());
+    assert_eq!(status.state(), MirrorState::Stopped);
+    assert!(api_ready(&catalog));
+    catalog.close().await.unwrap();
+}
+
+/// A wait sent before the first reconciliation of this process waits for it, even though an
+/// earlier process already completed the baseline that the catalog keeps.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    reconcile(&catalog, &root).await.unwrap();
+    assert!(root.observation().await.unwrap().baseline_complete);
+    publish_origin(&catalog, &bucket, b"exported at start", Origin::Api).await;
+    let exported = tree.0.join("test-bucket/object");
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        ..Default::default()
+    };
+    let (held, release) = hold_next_run(&tree.0);
+    let task = start(catalog.clone(), root, &config).unwrap();
+    tokio::time::timeout(HANG_GUARD, held)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.status().state(), MirrorState::Starting);
+    assert!(api_ready(&catalog), "the API is ready while sync starts");
+    let mut response = queue_wait(&task, HANG_GUARD).await;
+    assert!(matches!(
+        response.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    assert!(!exported.exists());
+    release.send(()).unwrap();
+    let waited = tokio::time::timeout(HANG_GUARD, response)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(waited.reason, crate::sync::control::WaitReason::Ready);
+    assert_eq!(
+        fs::read(&exported).unwrap(),
+        b"exported at start",
+        "the wait answered after the first reconciliation exported the object"
+    );
+    assert_eq!(task.status().state(), MirrorState::Running);
+    task.finish().await.unwrap();
     catalog.close().await.unwrap();
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn native_watch_permission_retry_lowers_readiness_and_shutdown_releases_the_root() {
+async fn native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root()
+ {
     use std::{os::unix::fs::PermissionsExt, time::Duration};
     let (_data, tree, catalog, task) = started_mirror(None).await;
-    // Drain startup exports before attributing an unhealthy observer to the permission change.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    let (reply, response) = tokio::sync::oneshot::channel();
-    task.rescan
-        .send(Command::Wait {
-            deadline,
-            settling: Default::default(),
-            reply,
-            identity: None,
-        })
-        .await
-        .unwrap();
+    // Drain startup exports before attributing a retrying observer to the permission change.
+    let response = queue_wait(&task, Duration::from_secs(10)).await;
     assert_eq!(
-        tokio::time::timeout_at(deadline, response)
+        tokio::time::timeout(Duration::from_secs(10), response)
             .await
             .unwrap()
             .unwrap()
@@ -2590,10 +2728,17 @@ async fn native_watch_permission_retry_lowers_readiness_and_shutdown_releases_th
     );
     let bucket = tree.0.join("test-bucket");
     std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o0)).unwrap();
-    eventually_async("the observer to stop", || async {
-        !catalog.background_tasks_running()
-    })
-    .await;
+    // Retries that keep failing pause the mirror; the rebuild reported retrying before that.
+    mirror_reaches(&task, MirrorState::Paused).await;
+    let entered = task.status().entered();
+    let retrying = entered
+        .iter()
+        .position(|state| *state == MirrorState::Retrying);
+    let paused = entered
+        .iter()
+        .position(|state| *state == MirrorState::Paused);
+    assert!(retrying.is_some() && retrying < paused, "{entered:?}");
+    assert!(api_ready(&catalog), "an unwatched subtree pauses only sync");
     tokio::time::timeout(Duration::from_secs(5), task.finish())
         .await
         .unwrap()

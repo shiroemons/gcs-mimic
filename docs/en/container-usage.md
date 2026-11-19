@@ -296,8 +296,11 @@ directory cannot be watched, so the server reports the failure and does not
 become ready.
 
 Directory metadata, ownership and extended-attribute changes revalidate read and
-search access. An inaccessible subtree keeps synchronization readiness down until
-access is repaired and observation recovers.
+search access. An inaccessible subtree pauses synchronization until access is
+repaired and an explicit rescan (`gcs-mimic sync rescan`) succeeds. The Storage API
+stays ready meanwhile; `/_internal/ready` reports the mirror apart as `sync.state`
+(`starting`, `running`, `retrying`, `paused` or `stopped`), a field outside the
+public contract until synchronization is complete.
 
 Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
