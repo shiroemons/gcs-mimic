@@ -1440,3 +1440,5 @@ The new genproto revision changes no file under `googleapis/storage`, which hold
 | `markdownlint-cli2` on the changed Markdown files | 0 issues in 10 files |
 
 Both freshness checks ran with `GITHUB_TOKEN` set.
+
+Later that day the check began to apply recorded exceptions. The full check at `2026-11-19T05:05:09Z` exited 0 with 142 `CURRENT` lines: both Temurin lines read `DEFERRED` with `review_by=2026-11-26`, and the run ended with the `DEFERRED` summary that dependencies are not all current. See [dependency freshness exceptions](dependency-exceptions.md).

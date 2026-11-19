@@ -27,6 +27,7 @@ All tests are in `dependencies::exceptions::tests`. They drive the report with f
 | DEP-007-A14 | `without_exceptions_every_input_is_reported_as_before` | In both scopes the four input outcomes print as before and the run adds no line |
 | DEP-007-A15 | `a_deferred_moving_image_tag_names_its_platforms` | The `DEFERRED` line of an image tag keeps `on linux/amd64` |
 | DEP-007-A16 | `committed_exceptions_parse_and_name_manifests_the_check_reports` | The committed `exceptions` parse and each manifest is one the check reports |
+| DEP-007-P1 | `freshness-live-deferred`, the live run recorded below | The full-scope check reports the recorded Temurin deferral as `DEFERRED` for both Java manifests and exits 0 |
 
 ## Commands and results
 
@@ -34,8 +35,9 @@ All tests are in `dependencies::exceptions::tests`. They drive the report with f
 | --- | --- |
 | `just check` at `b92475e8` | PASS, exit 0 on 2026-11-19: `cargo test` for the `xtask` package with 295 library unit tests passed and 0 failed, plus 13 `compatibility`, 3 `dependencies` and 1 `differential` tests; host `cargo xtask lint` with 0 violations; `cargo xtask lint --target` clean for `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` |
 | `cargo test -p xtask` | PASS on 2026-11-19, rerun for this record: 295 library unit tests (including the 15 above), 13 `compatibility`, 3 `dependencies` and 1 `differential` tests, 0 failed |
+| `cargo xtask dependencies check` at `2026-11-19T05:05:09Z`, with `GITHUB_TOKEN` set | PASS, exit 0: 142 `CURRENT` lines; `Temurin toolchain: DEFERRED current=27.0.1.0.2+1 latest=27.0.1.1+4 review_by=2026-11-26` once for `manifest=sdk-tests/java/pom.xml` and once for `manifest=sdk-scorecard/java/pom.xml`; the last line reads `DEFERRED: 2 updates deferred by recorded exceptions, earliest review_by 2026-11-26; dependencies are not all current`; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE`. A run four minutes earlier stopped with `CHECK_FAILED` and exit 2 on a 30-second timeout fetching the Go module proxy, before it reached the Java inputs |
 
 ## Not yet verified
 
-- The live full-scope `cargo xtask dependencies check` has not been run since exceptions were implemented. It needs the network and the official release sources, so it is not part of the offline gates above. Until it runs, DEP-007-P1 stays `PENDING`: the recorded Temurin deferral has not been observed as `DEFERRED` with exit 0, and the exit status and printed output of the command are not covered by the unit tests.
+- No automated test runs the command itself, so the process exit status of a lapsed exception (1) and of a malformed record (2) is not asserted; the live run above observed only the deferred path and exit 0.
 - That the exceptions are parsed before any network access follows from the order of the calls in `xtask/src/dependencies.rs`; no test asserts the order.

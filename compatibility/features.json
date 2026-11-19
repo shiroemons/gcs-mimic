@@ -69057,7 +69057,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Implemented in xtask/src/dependencies/exceptions.rs, xtask/src/dependencies.rs and xtask/src/date.rs. The `exceptions` list of compatibility/dependency-status.json is parsed and applied by `cargo xtask dependencies check`. A record names current/latest version, upstream reference, evidence file, reason, impact, owner, next action and review date. In the full scope an in-date, still-accurate record reports DEFERRED, exits 0 and ends the run with a summary that dependencies are not all current; an expired, outdated, stale or duplicate record, or a schema violation, fails the check, and `--scope release` never defers. The unit tests pass; the live full-scope run against the recorded Temurin deferral has not been executed since the change. See docs/en/evidence/dependency-exceptions.md.",
+      "notes": "Implemented in xtask/src/dependencies/exceptions.rs, xtask/src/dependencies.rs and xtask/src/date.rs. The `exceptions` list of compatibility/dependency-status.json is parsed and applied by `cargo xtask dependencies check`. A record names current/latest version, upstream reference, evidence file, reason, impact, owner, next action and review date. In the full scope an in-date, still-accurate record reports DEFERRED, exits 0 and ends the run with a summary that dependencies are not all current; an expired, outdated, stale or duplicate record, or a schema violation, fails the check, and `--scope release` never defers. The unit tests pass, and the live full-scope run of 2026-11-19 reported the recorded Temurin deferral as DEFERRED for both Java manifests and exited 0. See docs/en/evidence/dependency-exceptions.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -69193,11 +69193,14 @@
         {
           "id": "DEP-007-P1",
           "description": "The live full-scope check reports the recorded Temurin deferral as DEFERRED and exits 0.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "freshness-live-deferred"
+          ]
         }
       ],
       "test_ids": [
+        "freshness-live-deferred",
         "dependencies::exceptions::tests::an_in_date_exception_defers_its_update_and_the_full_check_passes",
         "dependencies::exceptions::tests::the_exception_holds_through_its_review_date_and_fails_the_day_after",
         "dependencies::exceptions::tests::an_upstream_release_past_the_recorded_latest_fails",
@@ -69237,11 +69240,20 @@
             "dependencies::exceptions::tests::a_deferred_moving_image_tag_names_its_platforms",
             "dependencies::exceptions::tests::committed_exceptions_parse_and_name_manifests_the_check_reports"
           ]
+        },
+        {
+          "command": "cargo xtask dependencies check",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/evidence/dependency-exceptions.md",
+          "test_ids": [
+            "freshness-live-deferred"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "DEP-007-P1 is pending: no one has run the live full-scope `cargo xtask dependencies check` since exceptions were implemented, so the recorded Temurin deferral has not been observed as DEFERRED with exit 0 against the network. The unit tests drive the report with fixed inputs and a fixed date; they do not run the command, its exit status or its output. That parsing happens before any network access follows from the order of calls in xtask/src/dependencies.rs and has no test of its own."
+        "No automated test runs the command itself: the unit tests drive the report with fixed inputs and a fixed date, so they establish each decision, the printed lines and the pass/fail flag, but not the process exit status of a lapsed exception (1) or a malformed record (2), nor that the records are parsed before any network access, which follows only from the order of calls in xtask/src/dependencies.rs. The live run of 2026-11-19 observed the deferred path and exit 0."
       ],
       "implemented_in": "b92475e82a72e3a2abc5813f694d2834879bd27f",
       "last_verified": "2026-11-19"
