@@ -91,3 +91,29 @@ fn overlapping_power_loss_arms_keep_their_own_baselines_and_all_seam_updates() {
         );
     }
 }
+
+#[test]
+#[should_panic(expected = "BeforeCommit holds no transaction to roll back")]
+fn a_rollback_armed_where_no_transaction_is_open_panics() {
+    let data = TestDir::new();
+    arm(&data.0, Step::BeforeCommit, 0, Fault::RollBack);
+    let _ = hit(&data.0, Step::BeforeCommit);
+}
+
+#[test]
+fn a_rollback_ends_the_open_transaction_and_fails_with_an_io_error() {
+    let data = TestDir::new();
+    let mut connection = rusqlite::Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    let transaction = connection.transaction().unwrap();
+    arm(&data.0, Step::PublishUpload, 0, Fault::RollBack);
+    let failure = hit_transaction(&transaction, Step::PublishUpload);
+    assert!(
+        matches!(
+            failure,
+            Err(Injected::Sqlite(rusqlite::Error::SqliteFailure(ref error, _)))
+                if error.extended_code == rusqlite::ffi::SQLITE_IOERR
+        ),
+        "{failure:?}"
+    );
+    assert!(transaction.is_autocommit());
+}
