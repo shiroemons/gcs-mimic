@@ -4,11 +4,11 @@
 //! wait for the writer anyway. They queue their commits instead, and the next holder of the
 //! execution permit publishes the whole queue in one transaction, so one sync makes all of them
 //! durable. Nothing waits for a batch to fill: a lone upload commits as soon as the writer is free.
-//! An upload whose failure ends the whole transaction, as SQLite may after an I/O, full-disk or
-//! out-of-memory error, would fail the others with it; since nothing was committed, each upload of
-//! that batch is published again in its own transaction, and an upload fails only if its own
+//! An upload whose failure rolls back the whole transaction, as SQLite may after an I/O, full-disk
+//! or out-of-memory error, would fail the others with it; since nothing was committed, each upload
+//! of that batch is published again in its own transaction, and an upload fails only if its own
 //! transaction does. A transient failure need not recur, and then no reply reports it, so the one
-//! that ended the batch is logged as `upload_batch_retried` before the retry.
+//! that rolled the batch back is logged as `upload_batch_retried` before the retry.
 
 use super::*;
 use crate::storage::failure::{BackendCause, StorageCause, wording::BackendFailureEvent};
@@ -32,8 +32,10 @@ enum BatchFailure {
     /// No upload caused it, and publishing one again could publish it twice, so every upload
     /// shares the failure and its cleanup checks for a reference.
     Shared(ObjectError),
-    /// Publishing one upload ended the transaction before its commit, so nothing was published.
-    Interrupted(ObjectError),
+    /// Publishing one upload rolled the transaction back before its commit, so nothing was
+    /// published: SQLite rolled it back after the upload's error, or the upload's savepoint could
+    /// not be ended and the transaction rolls back when it is dropped.
+    RolledBack(ObjectError),
 }
 
 /// The fields of an `upload_batch_retried` event.
@@ -41,7 +43,7 @@ enum BatchFailure {
 struct BatchRetried {
     /// How many uploads are published again, each in its own transaction.
     uploads: usize,
-    /// The failure that ended the batch's transaction.
+    /// The failure that rolled the batch's transaction back.
     #[serde(flatten)]
     failure: BackendFailureEvent,
 }
@@ -191,8 +193,8 @@ fn publish_batch(
     match publish_all(connection, commits) {
         Ok(outcomes) => Ok(outcomes),
         Err(BatchFailure::Shared(failure)) => Err(failure),
-        Err(BatchFailure::Interrupted(failure)) if commits.len() == 1 => Ok(vec![Err(failure)]),
-        Err(BatchFailure::Interrupted(failure)) => {
+        Err(BatchFailure::RolledBack(failure)) if commits.len() == 1 => Ok(vec![Err(failure)]),
+        Err(BatchFailure::RolledBack(failure)) => {
             // Nothing was published. A transient failure need not recur when its upload is
             // published again, and then no reply reports it, so it is logged here.
             crate::diagnostics::emit(
@@ -216,7 +218,7 @@ fn publish_each(connection: &mut Connection, commits: &[UploadCommit]) -> Vec<Up
     for commit in commits {
         match publish_all(connection, std::slice::from_ref(commit)) {
             Ok(published) => outcomes.extend(published),
-            Err(BatchFailure::Interrupted(failure)) => outcomes.push(Err(failure)),
+            Err(BatchFailure::RolledBack(failure)) => outcomes.push(Err(failure)),
             Err(BatchFailure::Shared(failure)) => {
                 outcomes.extend(shared(failure, commits.len() - outcomes.len()));
                 break;
@@ -238,14 +240,14 @@ fn publish_all(
         .iter()
         .map(|commit| publish_isolated(&transaction, commit))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(BatchFailure::Interrupted)?;
+        .map_err(BatchFailure::RolledBack)?;
     commit_publication(transaction).map_err(BatchFailure::Shared)?;
     Ok(outcomes)
 }
 
-/// Returns the upload's own outcome, or the error that ended the transaction: its savepoint could
-/// not be ended, or its error made SQLite roll back the whole transaction. Either way the
-/// transaction rolls back when it is dropped, if SQLite has not rolled it back already.
+/// Returns the upload's own outcome, or the error that rolls the transaction back: its error made
+/// SQLite roll back the whole transaction, or its savepoint could not be ended and the transaction
+/// rolls back when it is dropped.
 fn publish_isolated(
     transaction: &Transaction<'_>,
     commit: &UploadCommit,

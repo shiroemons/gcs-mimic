@@ -152,19 +152,19 @@ async fn a_panicking_upload_fails_alone_and_its_changes_roll_back() {
 }
 
 /// Marks the child process of
-/// [`an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publish`].
+/// [`an_upload_that_rolls_back_the_batch_fails_alone_and_the_rest_publish`].
 const RETRIED_BATCH: &str = "GCSM_TEST_RETRIED_BATCH";
 
 /// The child runs the batch, and the parent reads the event it logged to its own stderr.
 #[tokio::test]
-async fn an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publish() {
+async fn an_upload_that_rolls_back_the_batch_fails_alone_and_the_rest_publish() {
     if std::env::var_os(RETRIED_BATCH).is_some() {
-        return retry_an_interrupted_batch().await;
+        return retry_a_rolled_back_batch().await;
     }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "storage::catalog::objects::upload::group_commit::tests::an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publish",
+            "storage::catalog::objects::upload::group_commit::tests::an_upload_that_rolls_back_the_batch_fails_alone_and_the_rest_publish",
             "--nocapture",
         ])
         .env(RETRIED_BATCH, "1")
@@ -196,11 +196,11 @@ async fn an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publ
     );
 }
 
-async fn retry_an_interrupted_batch() {
+async fn retry_a_rolled_back_batch() {
     let data = TestDir::new();
     let catalog = open(&data.0).await;
-    // The second upload of the batch ends the whole transaction, as SQLite may after an I/O,
-    // full-disk or out-of-memory error, and does so again when it is published on its own.
+    // The second upload of the batch rolls back the whole transaction, as SQLite may after an
+    // I/O, full-disk or out-of-memory error, and does so again when it is published on its own.
     fault::arm(&data.0, Step::PublishUpload, 1, Fault::RollBack);
     fault::arm(&data.0, Step::PublishUpload, 1, Fault::RollBack);
     let tasks = queue_uploads(&catalog, &unconditional(&NAMES)).await;

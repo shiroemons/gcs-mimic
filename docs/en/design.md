@@ -451,7 +451,7 @@ only its savepoint, and every upload is answered only after the commit. When an 
 error makes SQLite roll back the whole transaction, as an I/O, full-disk or out-of-memory
 error may, nothing was committed: each upload of that batch is published again, in queue
 order, in its own transaction, so an upload fails only if its own transaction does. A
-transient failure need not recur, so the one that ended the batch is first logged as an
+transient failure need not recur, so the one that rolled the batch back is first logged as an
 `upload_batch_retried` warning with its SQLite extended result code. If one of these
 commits fails, the uploads committed before it stay published and those not yet tried fail
 with it. A failed batch commit may have published everything, so it is not retried and
