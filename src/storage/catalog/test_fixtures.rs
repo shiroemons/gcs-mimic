@@ -168,7 +168,9 @@ pub(crate) async fn downgraded<T>(
 }
 
 /// Closes the catalog and takes it back to the schema before the files of a set waiting for a
-/// decision were kept apart from it, so that the next open runs that migration.
+/// decision were kept apart from it, so that the next open runs that migration. Only the
+/// deletion tests, which run where synchronization does, take it back.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) async fn before_held_files(dir: &TestDir, catalog: &Catalog) {
     downgraded(dir, catalog, |connection| {
         super::test_support::downgrade_held_schema(connection);
