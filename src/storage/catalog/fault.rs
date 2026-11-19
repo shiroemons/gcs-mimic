@@ -131,6 +131,11 @@ pub(crate) enum Step {
     SyncCopySync,
     /// After the copied file and workspace are synced, before installation.
     SyncCopyDurable,
+    /// Before installation removes the empty directory that holds its target's name. An injected
+    /// I/O error stands in for the removal's own failure.
+    SyncEmptyDirectoryRemove,
+    /// After that directory is removed, before its parent is synced.
+    SyncEmptyDirectoryRemoved,
     /// After installation renamed, exchanged or moved the target, before the directory syncs
     /// that make the change durable.
     SyncCopyRenamed,

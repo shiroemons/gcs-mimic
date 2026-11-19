@@ -553,6 +553,27 @@ writing, including an existing external alias, and revoke any previously mapped
 member without treating its disappearance as an external deletion. Existing
 files in an ambiguous group remain untouched pending operator resolution.
 
+An external directory at an exported object's target name gives way only when
+it is empty and nothing the catalog records refers to it or to a path below it:
+no tracked file, path stop, unfinished write-back operation or retained
+conflict. The export then removes that one directory under its armed operation,
+with `rmdir` relative to the parent's descriptor, which never follows a symlink
+and never removes a directory that holds an entry; it syncs the parent and
+installs the object in its place. This is how an object `a` created through the
+API after `a/x` was deleted there reaches the tree without operator action.
+Nothing lists the directory or removes what it holds, no ancestor that the
+removal empties is removed, and neither a bucket's own directory nor a reserved
+name is ever removed. A directory that holds anything, even a file that scans
+ignore such as `.DS_Store`, a directory under another spelling, a symlink at the
+name, a directory the catalog still refers to, an export that would replace a
+tracked file, and a removal the filesystem refuses (`ENOTEMPTY`, `EEXIST`,
+`EBUSY`, `EACCES` or `EPERM`) all stay as they are and leave a `Collision`
+finding for that object alone; other objects continue. The `sync_directory_kept`
+event names the check that kept the directory. Catalog references compare names
+byte for byte, so a reference under another letter case on a root that folds
+case does not keep the directory; the removal itself still refuses one that
+holds an entry.
+
 For every `File(p)`, decoding that exact relative path must reproduce the same
 bucket and object bytes. Filesystem normalization must preserve this property;
 otherwise return Unrepresentable. Test the actual root's behavior using bounded
@@ -839,7 +860,12 @@ Preserve divergent external bytes as a conflict; an already absent target is a
 no-op. A file newly created at the target afterward is new external input and
 must not be unlinked. Remove only empty directories, never recursively remove
 untracked external files when an API bucket disappears. Apply the same parent
-durability and state-after-file ordering to removal.
+durability and state-after-file ordering to removal. Exporting a deletion opens
+the target's directories without creating them: a missing directory means the
+target is already gone, and creating it would put back a directory someone
+removed. Removing an empty directory before a publication follows the same
+ordering: the removal, its parent's sync, and only then the rename that installs
+the object.
 
 On Linux with supported `renameat2(RENAME_EXCHANGE)`, exchange existing target
 and prepared output, then validate the actual displaced inode/fingerprint/hash

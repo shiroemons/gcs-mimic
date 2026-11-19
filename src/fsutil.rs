@@ -15,6 +15,7 @@ mod unsupported;
 use unsupported as imp;
 
 use imp::directory_names_within;
+pub(crate) use imp::remove_empty_directory_at;
 pub(crate) use imp::{child_directory, child_regular};
 pub(crate) use imp::{
     create_regular_at, directory_at, name_max, open_regular_writable_at, sole_regular_link,
@@ -1678,6 +1679,42 @@ mod tests {
             Err(CloneFailure::NotCreated(FsError::Unsupported))
         ));
         assert!(!directory.0.join("clone").exists());
+    }
+
+    /// Removing an empty directory never removes what a directory holds and never follows a
+    /// symlink: a directory with an entry, and a symlink to a directory or to nothing, all stay as
+    /// they were, with what they hold or point to.
+    #[cfg(unix)]
+    #[test]
+    fn removing_an_empty_directory_keeps_entries_and_symlinks() {
+        let tree = crate::test_support::TestDir::new();
+        let root = File::open(&tree.0).unwrap();
+        std::fs::create_dir(tree.0.join("empty")).unwrap();
+        std::fs::create_dir_all(tree.0.join("full/inner")).unwrap();
+        std::fs::create_dir(tree.0.join("pointed")).unwrap();
+        std::os::unix::fs::symlink(tree.0.join("pointed"), tree.0.join("link")).unwrap();
+        std::os::unix::fs::symlink(tree.0.join("gone"), tree.0.join("dangling")).unwrap();
+        remove_empty_directory_at(&root, "empty".as_ref()).unwrap();
+        assert!(!tree.0.join("empty").exists());
+        let full = remove_empty_directory_at(&root, "full".as_ref()).unwrap_err();
+        assert!(
+            matches!(
+                full.kind(),
+                io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::AlreadyExists
+            ),
+            "{full:?}"
+        );
+        assert!(tree.0.join("full/inner").is_dir());
+        for link in ["link", "dangling"] {
+            let refused = remove_empty_directory_at(&root, link.as_ref()).unwrap_err();
+            assert_eq!(refused.kind(), io::ErrorKind::NotADirectory, "{link}");
+            assert!(
+                std::fs::symlink_metadata(tree.0.join(link))
+                    .unwrap()
+                    .is_symlink()
+            );
+        }
+        assert!(tree.0.join("pointed").is_dir());
     }
 
     /// Refilling an emptied file keeps its inode and position-independent bytes, whether or not

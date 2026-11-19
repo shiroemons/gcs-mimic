@@ -1,6 +1,8 @@
 use super::super::{SyncPath, SyncRecord};
 use super::*;
+use std::ops::ControlFlow;
 
+mod directory;
 #[cfg(test)]
 pub(super) mod faults;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -73,6 +75,22 @@ pub(crate) enum LiveResult {
     Complete,
     Conflict,
     Obsolete,
+    /// A directory holds the target's name and stays: it holds an entry, the catalog refers to
+    /// it or to a path below it, or the export had a body there to replace.
+    Collision,
+}
+
+/// How one installation attempt ended.
+#[derive(Debug)]
+enum Installed {
+    /// The target holds the exported state.
+    Done,
+    /// The target changed since the export began.
+    Changed,
+    /// A directory holds the target's name, and the attempt had no proof to remove it with.
+    Directory,
+    /// A directory holds the target's name and stays.
+    Kept(directory::Kept),
 }
 
 #[derive(Clone)]
@@ -487,14 +505,65 @@ fn target_directory(
     }
 }
 
+/// What holds an installation's target name before it installs.
+enum Current {
+    /// The regular file there, if any.
+    File(Option<File>),
+    /// A directory that the installation may remove if it is empty.
+    Directory(directory::RemovableDirectory),
+}
+
+/// What holds `install`'s target name. A directory at a publication's target breaks with
+/// [`Installed::Directory`] unless `removal` brings the catalog's half of the proof that it may
+/// go, and with [`Installed::Kept`] when the tree's half fails. A removal's target keeps failing
+/// on a directory, as it did before directories were removed: nothing takes its place.
+fn current_target(
+    root: &File,
+    install: &Install,
+    removal: Option<directory::Unreferenced>,
+) -> Result<ControlFlow<Installed, Current>, Error> {
+    let selected = &install.item;
+    if selected.kind == Kind::Remove {
+        let file = target(root, install.naming, &selected.path)?;
+        return Ok(ControlFlow::Continue(Current::File(file)));
+    }
+    match target_entry(root, install.naming, &selected.path)? {
+        TargetEntry::File(file) => Ok(ControlFlow::Continue(Current::File(Some(file)))),
+        TargetEntry::Missing => Ok(ControlFlow::Continue(Current::File(None))),
+        TargetEntry::Directory => {
+            let Some(removal) = removal else {
+                return Ok(ControlFlow::Break(Installed::Directory));
+            };
+            let holder = parent(root, install.naming, &selected.path, ParentSync::Skip)?
+                .ok_or_else(stale)?;
+            Ok(
+                match directory::RemovableDirectory::prove(holder, install.naming, removal)? {
+                    Ok(proof) => ControlFlow::Continue(Current::Directory(proof)),
+                    Err(kept) => ControlFlow::Break(Installed::Kept(kept)),
+                },
+            )
+        }
+    }
+}
+
 /// Installs the staged copy at the target path (or moves a removed file into the workspace)
-/// unless an earlier attempt already did; `Ok(false)` reports an external change.
-fn install_target(root: &File, workspace: &File, install: &mut Install) -> Result<bool, Error> {
+/// unless an earlier attempt already did. With `removal`, an empty directory at a publication's
+/// target is removed just before the copy takes its name; [`current_target`] says when.
+fn install_target(
+    root: &File,
+    workspace: &File,
+    install: &mut Install,
+    removal: Option<directory::Unreferenced>,
+) -> Result<Installed, Error> {
+    let (current, removable) = match current_target(root, install, removal)? {
+        ControlFlow::Continue(Current::File(current)) => (current, None),
+        ControlFlow::Continue(Current::Directory(proof)) => (None, Some(proof)),
+        ControlFlow::Break(ended) => return Ok(ended),
+    };
     let selected = &install.item;
     let expected = install.tracked.as_ref();
     let staged = install.staged;
     let source_device = install.purpose.source_device();
-    let current = target(root, install.naming, &selected.path)?;
     let directory = target_directory(root, install.naming, selected)?;
     let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
     let retained = entry(workspace, selected.token.id)?;
@@ -508,7 +577,7 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
     };
     if !already_installed {
         if matches!(install.purpose, Purpose::RestoreAbsent) && current.is_some() {
-            return Ok(false);
+            return Ok(Installed::Changed);
         }
         if let Some(staged) = staged {
             let copy = retained.as_ref().ok_or(Error::Protected)?;
@@ -526,8 +595,13 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
             {
                 Some(fsutil::stat_identity(file)?)
             }
-            _ => return Ok(false),
+            _ => return Ok(Installed::Changed),
         };
+        if let Some(proof) = removable
+            && let Err(kept) = directory::remove(proof, install)?
+        {
+            return Ok(Installed::Kept(kept));
+        }
         let outcome = if selected.kind == Kind::Remove && current.is_none() {
             fsutil::ReplaceOutcome::Created
         } else {
@@ -588,7 +662,7 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
     root.sync_all()?;
     #[cfg(test)]
     install.faults.tree_synced();
-    Ok(true)
+    Ok(Installed::Done)
 }
 
 impl Writeback {
@@ -769,86 +843,32 @@ impl Writeback {
         if let Some(conflict) = operation.purpose.conflict() {
             conflict.verify_owned(&self.lease).await?;
         }
-        let purpose = operation.purpose.clone();
-        let mut item = operation.item.clone();
-        let selected = item.clone();
-        if item.phase == Phase::Prepared {
-            let armed = self
-                .db(move |c| {
-                    #[cfg(test)]
-                    failure(selected.token.root, "arm")?;
-                    let tx = c.transaction()?;
-                    api_original(&tx, &selected, &purpose)?;
-                    checked(&tx, &selected.token)?;
-                    tx.prepare_cached(
-                        "UPDATE sync_writeback_ops SET phase=1,revision=revision+1 WHERE id=?1",
-                    )?
-                    .execute([&selected.token.id])?;
-                    let armed = load(
-                        &tx,
-                        selected.token.catalog,
-                        selected.token.root,
-                        selected.token.id,
-                    )?;
-                    tx.commit()?;
-                    Ok(armed)
-                })
-                .await;
-            match armed {
-                Ok(armed) => {
-                    item = armed;
-                    operation.item = item.clone();
-                }
-                Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                    operation.progress = operation.progress.cancel(LiveResult::Obsolete);
-                    self.cancel_live_copy(operation).await?;
-                    return Ok(LiveResult::Obsolete);
-                }
-                Err(error) => return Err(error),
-            }
+        let Some(item) = self.arm_live(operation).await? else {
+            return Ok(LiveResult::Obsolete);
+        };
+        let mut installed = self.attempt_install(operation, &item, None).await;
+        if matches!(installed, Ok(Installed::Directory)) {
+            installed = match self.unreferenced_target(operation, &item).await? {
+                Ok(removal) => self.attempt_install(operation, &item, Some(removal)).await,
+                Err(kept) => Ok(Installed::Kept(kept)),
+            };
         }
         let staged = operation.progress.staged();
-        let install = Install {
-            item: item.clone(),
-            naming: self.lease.naming()?,
-            tracked: operation.tracked.clone(),
-            staged,
-            purpose: operation.purpose.clone(),
-            #[cfg(test)]
-            faults: self.fault_paths(),
-        };
-        let observing = matches!(operation.body, Body::Observe { .. });
-        // The job hands back the staged identity installation confirmed even when it fails
-        // afterwards, so a retry, a cancellation and the displacement check compare against it.
-        let attempt = self
-            .fs(move |root, workspace| {
-                let mut install = install;
-                #[cfg(test)]
-                failure(install.item.token.root, "install")?;
-                let installed = if observing {
-                    observe_target(root, install.naming, &install.item)
-                } else {
-                    install_target(root, workspace, &mut install)
-                };
-                #[cfg(test)]
-                let installed = installed.and_then(|installed| {
-                    if installed && !observing {
-                        install.faults.hit(Step::SyncCopyInstalled)?;
-                    }
-                    Ok(installed)
-                });
-                Ok((install.staged, installed))
-            })
-            .await;
-        let (staged, installed) = attempt.unwrap_or_else(|error| (staged, Err(error)));
-        operation.progress = Progress::Staged(staged);
         match installed {
-            Ok(false) => {
+            Ok(Installed::Changed) => {
                 operation.progress = operation.progress.cancel(LiveResult::Conflict);
                 self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
-            Ok(true) => operation.progress = Progress::Installed(staged),
+            Ok(ended @ (Installed::Directory | Installed::Kept(_))) => {
+                if let Installed::Kept(kept) = ended {
+                    kept.report(&item);
+                }
+                operation.progress = operation.progress.cancel(LiveResult::Collision);
+                self.cancel_live_copy(operation).await?;
+                return Ok(LiveResult::Collision);
+            }
+            Ok(Installed::Done) => operation.progress = Progress::Installed(staged),
             Err(Error::Protected) => {
                 operation.item = self.inspect_inner(item.token.clone()).await?;
                 return Err(Error::Protected);
@@ -867,6 +887,122 @@ impl Writeback {
             }
         }
         Ok(LiveResult::Pending)
+    }
+
+    /// Arms `operation` unless it is armed already, and returns its row. `None` means the API
+    /// object or the operation changed first, and the export was cancelled as obsolete.
+    async fn arm_live(&self, operation: &mut LiveOperation) -> Result<Option<Pending>, Error> {
+        if operation.item.phase != Phase::Prepared {
+            return Ok(Some(operation.item.clone()));
+        }
+        let purpose = operation.purpose.clone();
+        let selected = operation.item.clone();
+        let armed = self
+            .db(move |c| {
+                #[cfg(test)]
+                failure(selected.token.root, "arm")?;
+                let tx = c.transaction()?;
+                api_original(&tx, &selected, &purpose)?;
+                checked(&tx, &selected.token)?;
+                tx.prepare_cached(
+                    "UPDATE sync_writeback_ops SET phase=1,revision=revision+1 WHERE id=?1",
+                )?
+                .execute([&selected.token.id])?;
+                let armed = load(
+                    &tx,
+                    selected.token.catalog,
+                    selected.token.root,
+                    selected.token.id,
+                )?;
+                tx.commit()?;
+                Ok(armed)
+            })
+            .await;
+        match armed {
+            Ok(armed) => {
+                operation.item = armed.clone();
+                Ok(Some(armed))
+            }
+            Err(Error::Admin(AdminError::Precondition | AdminError::NotFound)) => {
+                operation.progress = operation.progress.cancel(LiveResult::Obsolete);
+                self.cancel_live_copy(operation).await?;
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Runs one installation attempt of the armed `item` on a file worker. The staged identity
+    /// that installation confirmed is kept even when the attempt fails afterwards, so a retry, a
+    /// cancellation and the displacement check compare against it.
+    async fn attempt_install(
+        &self,
+        operation: &mut LiveOperation,
+        item: &Pending,
+        removal: Option<directory::Unreferenced>,
+    ) -> Result<Installed, Error> {
+        let staged = operation.progress.staged();
+        let install = Install {
+            item: item.clone(),
+            naming: self.lease.naming()?,
+            tracked: operation.tracked.clone(),
+            staged,
+            purpose: operation.purpose.clone(),
+            #[cfg(test)]
+            faults: self.fault_paths(),
+        };
+        let observing = matches!(operation.body, Body::Observe { .. });
+        let attempt = self
+            .fs(move |root, workspace| {
+                let mut install = install;
+                #[cfg(test)]
+                failure(install.item.token.root, "install")?;
+                let installed = if observing {
+                    observe_target(root, install.naming, &install.item).map(|holds| {
+                        if holds {
+                            Installed::Done
+                        } else {
+                            Installed::Changed
+                        }
+                    })
+                } else {
+                    install_target(root, workspace, &mut install, removal)
+                };
+                #[cfg(test)]
+                let installed = installed.and_then(|installed| {
+                    if matches!(installed, Installed::Done) && !observing {
+                        install.faults.hit(Step::SyncCopyInstalled)?;
+                    }
+                    Ok(installed)
+                });
+                Ok((install.staged, installed))
+            })
+            .await;
+        let (staged, installed) = attempt.unwrap_or_else(|error| (staged, Err(error)));
+        operation.progress = Progress::Staged(staged);
+        installed
+    }
+
+    /// The catalog's half of the proof that installation may remove the directory at `item`'s
+    /// target. Only an ordinary export that replaces no tracked body may: a tracked body, a
+    /// restore into an absent target and a preserved conflict each expect a file there.
+    async fn unreferenced_target(
+        &self,
+        operation: &LiveOperation,
+        item: &Pending,
+    ) -> Result<Result<directory::Unreferenced, directory::Kept>, Error> {
+        if operation.tracked.is_some() || !matches!(operation.purpose, Purpose::Ordinary) {
+            return Ok(Err(directory::Kept::Replaces));
+        }
+        let selected = item.clone();
+        self.db(move |c| {
+            // One read transaction, so the four reads see one state of the catalog.
+            let tx = c.transaction()?;
+            let unreferenced = directory::unreferenced(&tx, &selected)?;
+            tx.commit()?;
+            Ok(unreferenced)
+        })
+        .await
     }
 
     /// Determines whether a failed installation has already displaced the target.
@@ -1049,12 +1185,10 @@ impl Writeback {
         let naming = self.lease.naming()?;
         let cancelled = self
             .fs(move |root, workspace| {
+                // A directory that a cancelled export left at its target is not its copy.
                 if let Some(staged) = staged
-                    && target(root, naming, &selected.path)?
-                        .as_ref()
-                        .map(fsutil::stat_identity)
-                        .transpose()?
-                        .is_some_and(|identity| identity.node() == staged.node())
+                    && let TargetEntry::File(file) = target_entry(root, naming, &selected.path)?
+                    && fsutil::stat_identity(&file)?.node() == staged.node()
                 {
                     return Err(Error::Protected);
                 }

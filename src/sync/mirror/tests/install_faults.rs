@@ -90,7 +90,7 @@ fn restore_tree(snapshot: &Path, tree: &Path) {
 }
 
 /// The bytes of each private workspace entry.
-fn workspace_bodies(tree: &Path) -> Vec<Vec<u8>> {
+pub(super) fn workspace_bodies(tree: &Path) -> Vec<Vec<u8>> {
     operation_entries(&tree.join(mapping::WORKSPACE))
         .into_iter()
         .map(|entry| fs::read(entry).unwrap())
@@ -99,7 +99,7 @@ fn workspace_bodies(tree: &Path) -> Vec<Vec<u8>> {
 
 /// The entries of `workspace` that write-back operations own, without the directory the root's
 /// naming probe keeps there.
-fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
+pub(super) fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
     fs::read_dir(workspace)
         .unwrap()
         .map(|entry| entry.unwrap())
@@ -109,7 +109,7 @@ fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
 }
 
 /// The bytes of every retained conflict in `data`.
-fn conflict_bodies(data: &Path) -> Vec<Vec<u8>> {
+pub(super) fn conflict_bodies(data: &Path) -> Vec<Vec<u8>> {
     match fs::read_dir(data.join("sync-conflicts")) {
         Ok(entries) => entries
             .map(|entry| fs::read(entry.unwrap().path()).unwrap())
@@ -121,21 +121,21 @@ fn conflict_bodies(data: &Path) -> Vec<Vec<u8>> {
 
 /// A mirror started the way the server starts it: write-back recovery, ingestion,
 /// reconciliation and deletion observation.
-struct Started {
-    catalog: Catalog,
-    root: RootLease,
+pub(super) struct Started {
+    pub(super) catalog: Catalog,
+    pub(super) root: RootLease,
     config: Config,
     live: Initialized,
     stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl Started {
-    async fn open(data: &Path, tree: &Path) -> Self {
+    pub(super) async fn open(data: &Path, tree: &Path) -> Self {
         let catalog = Catalog::open(data).await.unwrap();
         Self::start(catalog, data, tree).await
     }
 
-    async fn start(catalog: Catalog, data: &Path, tree: &Path) -> Self {
+    pub(super) async fn start(catalog: Catalog, data: &Path, tree: &Path) -> Self {
         let config = Config {
             data_dir: data.to_owned(),
             sync_dir: Some(tree.to_owned()),
@@ -169,7 +169,7 @@ impl Started {
     }
 
     /// Runs the wait `sync wait` sends, which also exports the API changes it replays.
-    async fn wait(&mut self) -> Result<WaitResult, SyncError> {
+    pub(super) async fn wait(&mut self) -> Result<WaitResult, SyncError> {
         let stopping = self.stop.subscribe();
         LiveControl {
             scope: LiveScope {
@@ -186,7 +186,7 @@ impl Started {
         .await
     }
 
-    async fn close(self) {
+    pub(super) async fn close(self) {
         drop(self.live);
         drop(self.root);
         self.catalog.close().await.unwrap();

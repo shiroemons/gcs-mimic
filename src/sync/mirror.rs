@@ -1341,7 +1341,10 @@ pub(super) async fn restore_from_catalog(
     loop {
         match advance_with_retry(&writeback, operation.clone()).await? {
             LiveResult::Pending => {}
-            LiveResult::Complete | LiveResult::Conflict | LiveResult::Obsolete => return Ok(()),
+            LiveResult::Complete
+            | LiveResult::Conflict
+            | LiveResult::Obsolete
+            | LiveResult::Collision => return Ok(()),
         }
     }
 }
@@ -1596,7 +1599,7 @@ impl LiveObject<'_> {
         })
         .await?
         {
-            Target::Replaced(_) if tracked.is_some() => {
+            Target::Directory | Target::Replaced(_) if tracked.is_some() => {
                 super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
                 Ok(None)
             }
@@ -1606,7 +1609,7 @@ impl LiveObject<'_> {
             }
             Target::Identical => Ok(Some(Content::Identical)),
             Target::Absent if self.missing_is_deleted(record, tracked).await? => Ok(None),
-            Target::Absent | Target::Conflicting => Ok(Some(Content::Changed)),
+            Target::Absent | Target::Conflicting | Target::Directory => Ok(Some(Content::Changed)),
         }
     }
 
@@ -1660,6 +1663,18 @@ impl LiveObject<'_> {
                 }
                 LiveResult::Obsolete => {
                     self.summary.deferred += 1;
+                    break;
+                }
+                LiveResult::Collision => {
+                    self.root
+                        .record_finding(
+                            plan.binding.clone(),
+                            name.clone(),
+                            plan.generation,
+                            Reason::Collision,
+                        )
+                        .await?;
+                    self.summary.unrepresentable += 1;
                     break;
                 }
                 LiveResult::Conflict => {
@@ -1946,6 +1961,8 @@ enum Target {
     Absent,
     Identical,
     Conflicting,
+    /// A directory holds the name; installation removes it if it may and it is empty.
+    Directory,
     Finding(Reason),
     /// A directory or special file holds the path: a tracked file replaced, or a name the tree
     /// cannot hold for an object it never tracked, for the reason given.
@@ -1984,7 +2001,7 @@ fn inspect(
         Err(_)
             if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() =>
         {
-            return Ok(Target::Replaced(Reason::Collision));
+            return Ok(Target::Directory);
         }
         Err(_) => return Ok(Target::Replaced(Reason::UnsafeEntry)),
     };

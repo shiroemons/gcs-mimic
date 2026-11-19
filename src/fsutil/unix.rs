@@ -162,6 +162,23 @@ pub(crate) fn unlink_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
     directory.sync_all()
 }
 
+/// Removes the empty directory `name` under the pinned directory. `unlinkat(AT_REMOVEDIR)` never
+/// follows a symlink: it fails with `ENOTDIR` on one, and with `ENOTEMPTY` or `EEXIST` on a
+/// directory that holds any entry, so it never removes what a directory holds. It does not sync
+/// the parent: the caller does, after the step the fault model checks between the two.
+#[expect(
+    unsafe_code,
+    reason = "unlinkat on a pinned descriptor has no safe std equivalent"
+)]
+pub(crate) fn remove_empty_directory_at(directory: &File, name: &OsStr) -> io::Result<()> {
+    let name = component(name)?;
+    // SAFETY: a validated single component is relative to the live directory descriptor.
+    if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Pins the selected directory without following a replacement symlink.
 pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
     // Trailing separators/dots otherwise make the OS follow a final symlink.

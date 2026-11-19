@@ -620,6 +620,38 @@ fn target(root: &File, naming: RootNaming, path: &str) -> Result<Option<File>, E
         Err(e) => Err(e.into()),
     }
 }
+/// What holds an export's target name.
+enum TargetEntry {
+    File(File),
+    /// A directory reached without following a symlink, under the target's exact spelling or,
+    /// on a root that folds names, under another one.
+    Directory,
+    Missing,
+}
+
+/// Like [`target`], but tells a directory at the target apart instead of failing on it. Any other
+/// entry that is no regular file, such as a symlink, fails as it does there.
+fn target_entry(root: &File, naming: RootNaming, path: &str) -> Result<TargetEntry, Error> {
+    let Some(directory) = parent(root, naming, path, ParentSync::Skip)? else {
+        return Ok(TargetEntry::Missing);
+    };
+    let name: &std::ffi::OsStr = path.rsplit('/').next().ok_or_else(stale)?.as_ref();
+    match fsutil::child_regular(&directory, name) {
+        Ok(fsutil::RegularChild::File(file)) => Ok(TargetEntry::File(file)),
+        Ok(fsutil::RegularChild::Missing) => Ok(TargetEntry::Missing),
+        Ok(fsutil::RegularChild::Alias) => Err(stale()),
+        Err(error) if crate::sync::tree::structural_entry_error(&error) => {
+            match fsutil::child_directory(&directory, name, fsutil::DirectoryOpen::Existing) {
+                Ok(fsutil::Child::Directory { .. } | fsutil::Child::Alias) => {
+                    Ok(TargetEntry::Directory)
+                }
+                // The entry that failed to open as a file is the one to report.
+                Ok(fsutil::Child::Missing) | Err(_) => Err(error.into()),
+            }
+        }
+        Err(error) => Err(error.into()),
+    }
+}
 fn entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
     present(fsutil::open_regular_at(workspace, id.to_hex().as_ref()))
 }

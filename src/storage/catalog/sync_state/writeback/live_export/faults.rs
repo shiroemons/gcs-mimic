@@ -20,6 +20,26 @@ impl Paths {
         fault::hit(&self.data, step).map_err(objects::object_unavailable)?;
         Ok(())
     }
+    /// Like [`Self::hit`], for a step whose injected failure stands in for an I/O call's own.
+    pub(in crate::storage::catalog::sync_state::writeback) fn hit_io(
+        &self,
+        step: Step,
+    ) -> std::io::Result<()> {
+        fault::hit_io(&self.tree, step)?;
+        fault::hit_io(&self.data, step)
+    }
+    /// Records that installation removed the empty directory at `item`'s target, then stops at
+    /// the step before its parent's sync makes that durable.
+    pub(in crate::storage::catalog::sync_state::writeback) fn directory_removed(
+        &self,
+        item: &Pending,
+    ) -> Result<(), Error> {
+        #[cfg(unix)]
+        fault::dir_removed(&self.tree.join(&item.path));
+        #[cfg(not(unix))]
+        let _ = item;
+        self.hit(Step::SyncEmptyDirectoryRemoved)
+    }
     pub(in crate::storage::catalog::sync_state::writeback) fn synced(
         &self,
         file: &File,

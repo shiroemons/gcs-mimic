@@ -291,7 +291,7 @@ async fn marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_rei
 
 #[cfg(unix)]
 #[tokio::test]
-async fn runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them() {
+async fn runtime_mapping_reports_length_file_and_symlink_conflicts_without_following_them() {
     let data = TestDir::new();
     let tree = TestDir::new();
     let outside = TestDir::new();
@@ -300,13 +300,11 @@ async fn runtime_mapping_reports_type_length_and_symlink_conflicts_without_follo
     for key in [
         "link/child".to_owned(),
         "file/child".into(),
-        "directory".into(),
         "x".repeat(256),
     ] {
         object(&catalog, &name, &key, b"api").await;
     }
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
-    fs::create_dir(tree.0.join("test-bucket/directory")).unwrap();
     fs::write(tree.0.join("test-bucket/file"), b"external").unwrap();
     fs::write(outside.0.join("child"), b"protected").unwrap();
     std::os::unix::fs::symlink(&outside.0, tree.0.join("test-bucket/link")).unwrap();
@@ -316,11 +314,55 @@ async fn runtime_mapping_reports_type_length_and_symlink_conflicts_without_follo
     assert_eq!(summary.exported, 0);
     assert!(!summary.baseline_complete);
     let findings = root.findings_page(0, 256).await.unwrap();
-    assert_eq!(findings.len(), 4);
+    assert_eq!(findings.len(), 3);
     assert_eq!(fs::read(outside.0.join("child")).unwrap(), b"protected");
     assert_eq!(
         fs::read(tree.0.join("test-bucket/file")).unwrap(),
         b"external"
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// An object whose target name an empty directory holds is exported in its place. A directory
+/// that holds anything stays with what it holds and reports the object, even when all it holds is
+/// a file that scans ignore.
+#[cfg(unix)]
+#[tokio::test]
+async fn runtime_mapping_exports_over_an_empty_directory_and_keeps_one_that_holds_anything() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let name = bucket(&catalog, "test-bucket", "owner").await;
+    for key in ["empty", "full", "ignored"] {
+        object(&catalog, &name, key, b"api").await;
+    }
+    for directory in ["empty", "full", "ignored"] {
+        fs::create_dir_all(tree.0.join("test-bucket").join(directory)).unwrap();
+    }
+    fs::write(tree.0.join("test-bucket/full/file"), b"external").unwrap();
+    fs::write(tree.0.join("test-bucket/ignored/.DS_Store"), b"finder").unwrap();
+    let config = config(&data, &tree);
+    let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
+    assert_eq!(summary.exported, 1);
+    assert_eq!(fs::read(tree.0.join("test-bucket/empty")).unwrap(), b"api");
+    let mut reported = root
+        .findings_page(0, 256)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|finding| finding.name)
+        .collect::<Vec<_>>();
+    reported.sort();
+    assert_eq!(reported, ["full", "ignored"]);
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/full/file")).unwrap(),
+        b"external"
+    );
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/ignored/.DS_Store")).unwrap(),
+        b"finder"
     );
     drop(root);
     catalog.close().await.unwrap();

@@ -20,6 +20,7 @@ use bytes::Bytes;
 use std::fs;
 
 mod baseline;
+mod empty_directory;
 mod ingest_durability;
 mod install_faults;
 pub(super) mod state;

@@ -13,6 +13,7 @@ use crate::{
     test_support::TestDir,
 };
 use std::fs;
+mod empty_directory;
 mod migration;
 mod removal;
 
