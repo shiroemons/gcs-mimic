@@ -968,7 +968,8 @@ async fn ingest_external_with(
     }
     observe_deletions(catalog, root, config, summary.gate(), interrupt).await?;
     // Boxed like the reconciliation above, which also runs exports inside this pass.
-    Box::pin(skipped.retry(scope, interrupt)).await?;
+    let retried = Box::pin(skipped.retry(scope, interrupt)).await?;
+    summary.carry_held(&retried);
     summary.interrupted |= interrupt.check() != Interrupted::No;
     Ok(summary)
 }
@@ -1210,7 +1211,9 @@ impl LiveControl<'_> {
         // The deleted members held back the exports into their bucket's missing directory,
         // which no tree change would otherwise run again.
         let interrupt = Interrupt::new(self.scope.stopping);
-        Box::pin(self.state.skipped.retry(self.scope, interrupt)).await
+        Box::pin(self.state.skipped.retry(self.scope, interrupt))
+            .await
+            .map(drop)
     }
 }
 
@@ -1275,18 +1278,19 @@ impl SkippedExports {
     /// Runs each skipped export again while the API and the tree still hold the generations it
     /// was planned with. Another change settled the rest: a journal replay exports a newer API
     /// state, and an ingested edit or a finished export moves the tracked generation. An
-    /// interruption or a failure keeps the exports it did not reach for the next pass.
+    /// interruption or a failure keeps the exports it did not reach for the next pass. Returns
+    /// the counts of the retried exports, of which a pass takes only those held for approval
+    /// ([`Reconciliation::carry_held`]).
     async fn retry(
         &mut self,
         scope: LiveScope<'_>,
         interrupt: Interrupt<'_>,
-    ) -> Result<(), SyncError> {
+    ) -> Result<Reconciliation, SyncError> {
+        let mut uncounted = Reconciliation::default();
         if self.is_empty() {
-            return Ok(());
+            return Ok(uncounted);
         }
         let fence = scope.catalog.current_fence().await?;
-        // Like the baseline reconciliation of an ingestion pass, a retry reports no counts.
-        let mut uncounted = Reconciliation::default();
         let pending: Vec<_> = self
             .0
             .iter()
@@ -1313,7 +1317,7 @@ impl SkippedExports {
             };
             self.record(object, outcome);
         }
-        Ok(())
+        Ok(uncounted)
     }
 }
 

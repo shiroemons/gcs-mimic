@@ -10,6 +10,7 @@ use super::baseline::exists;
 use super::ingest_durability::Started;
 use super::*;
 use crate::sync::control::{WaitReason, WaitResult};
+use crate::sync::outstanding::{Holdup, Outstanding};
 
 const BODY: &[u8] = b"tracked bytes";
 const BUCKET: &str = "test-bucket";
@@ -135,8 +136,17 @@ async fn an_api_write_into_a_missing_bucket_directory_waits_for_the_approval() {
     assert_eq!((set.candidate_count, set.guarded), (2, true));
 
     publish_named(&catalog, &bucket, "third", BODY, Origin::Api).await;
-    let waited = wait_control(&commands).await;
-    assert_eq!(waited.reason, WaitReason::DeletionApproval);
+    // The held export stays queued for the retry after the approval; every wait, not only the
+    // first after the write, reads it as the pending approval, and so does the status.
+    for _ in 0..2 {
+        let waited = wait_control(&commands).await;
+        assert_eq!(waited.reason, WaitReason::DeletionApproval);
+    }
+    let status = Outstanding::of_status(
+        &root.observation().await.unwrap(),
+        root.deletion_set().await.unwrap().as_ref(),
+    );
+    assert_eq!(status.first(), Holdup::DeletionApproval);
     assert!(!tree.0.join(BUCKET).exists());
     // The API write moved the journal, so the inventory offers the same members under a new
     // revision.

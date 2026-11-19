@@ -140,7 +140,10 @@ impl LiveControl<'_> {
             // A skipped export runs again only once the tree settles, and one that a retry in
             // this pass skipped again counts nothing.
             Hold::Clear if !self.state.skipped.is_empty() => TreeSide::Changing,
-            Hold::Clear => TreeSide::Settled,
+            // Exports held for approval stay queued, but the tree owes nothing else: the guarded
+            // set the inventory offered, which the judgment reads as a deletion approval, is
+            // what they wait for.
+            Hold::AwaitingApproval | Hold::Clear => TreeSide::Settled,
         };
         let outstanding = Outstanding::new(&observation, deletion.as_ref(), tree);
         Ok((WaitReason::from(outstanding.first()), findings))

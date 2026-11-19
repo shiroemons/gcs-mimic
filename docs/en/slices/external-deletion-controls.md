@@ -84,7 +84,8 @@ startup or later, so the set waits for approval
 missing, and every export into the bucket, such as that of an object written
 through the API while the server ran or was stopped, waits as deferred. Such an
 export holds back neither the baseline nor the inventory, which offers the set
-to approve. Approving the set deletes the files and then runs the waiting
+to approve, and while it waits, a wait and the status report the pending
+deletion approval rather than a changing source. Approving the set deletes the files and then runs the waiting
 exports; putting the directory back runs them on the next pass. A disabled
 guard changes only these decisions.
 
@@ -159,7 +160,8 @@ deletion, an unsafe entry that stops deletions until it is removed, a tracked
 file replaced by a directory, a lowered `max_sync_depth`, an unreadable tracked
 path beside a deleted file, and the reuse rules of an identical inventory. They
 hold an API write into a bucket whose directory is missing until approval, at
-startup and while running, and cut power after write-back observed a file whose
+startup and while running, with repeated waits and the status reporting that
+approval, and cut power after write-back observed a file whose
 ingestion sync had failed. An integration test deletes files while the server
 is stopped and after it is killed.
 The ordinary hold-negative write-back test remains enabled and passes.

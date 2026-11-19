@@ -36,6 +36,7 @@ pub(in crate::sync) struct PassGate {
     conflicting: u64,
     entries: UnrepresentableEntries,
     unimported: u64,
+    held_for_approval: u64,
 }
 
 /// What holds back the baseline and the deletion inventory after a pass, in the order
@@ -55,6 +56,11 @@ pub(in crate::sync) enum Hold {
     /// Nothing in the pass holds anything back, but the baseline is not complete, so a missing
     /// file is not yet a deletion.
     BaselineOpen,
+    /// Exports wait for a deletion approval, because they would recreate a bucket directory the
+    /// inventory takes to approval, and nothing else holds anything back. Like `Clear`, it holds
+    /// back neither the baseline nor the inventory, which offers the set to approve; a wait
+    /// reads it as that approval rather than as a change still settling.
+    AwaitingApproval,
     /// Nothing holds anything back.
     Clear,
 }
@@ -77,6 +83,9 @@ impl PassGate {
             (false, 0, 0, 1.., ..) => Hold::TreeEntries,
             (false, 0, 0, 0, 1.., _) => Hold::Unimported,
             (false, 0, 0, 0, 0, Baseline::Activating) => Hold::BaselineOpen,
+            (false, 0, 0, 0, 0, Baseline::Complete) if self.held_for_approval > 0 => {
+                Hold::AwaitingApproval
+            }
             (false, 0, 0, 0, 0, Baseline::Complete) => Hold::Clear,
         }
     }
@@ -86,7 +95,7 @@ impl Hold {
     /// Whether a reconciliation after this pass may record the baseline as complete.
     pub(in crate::sync) fn completes_baseline(self) -> bool {
         match self {
-            Self::BaselineOpen | Self::Clear => true,
+            Self::BaselineOpen | Self::AwaitingApproval | Self::Clear => true,
             Self::Interrupted
             | Self::Deferred
             | Self::Conflicting
@@ -99,7 +108,7 @@ impl Hold {
     /// whether a deletion set it leaves without candidates may reset the deletion history.
     pub(in crate::sync) fn infers_deletions(self) -> bool {
         match self {
-            Self::Clear => true,
+            Self::AwaitingApproval | Self::Clear => true,
             Self::Interrupted
             | Self::Deferred
             | Self::Conflicting
@@ -112,13 +121,22 @@ impl Hold {
 
 impl Reconciliation {
     /// Counts an export held back because it would recreate a bucket directory that the
-    /// inventory takes to approval. It is deferred, so a report and a wait show the object
-    /// still owed to the tree, but it holds back neither the baseline nor the inventory: that
+    /// inventory takes to approval. It is deferred, so a rescan result shows the object still
+    /// owed to the tree, but it holds back neither the baseline nor the inventory: that
     /// inventory is what offers the set whose approval, like the directory's return, releases
-    /// the export.
+    /// the export, and a wait reports that approval ([`Hold::AwaitingApproval`]).
     pub(in crate::sync) fn hold_for_approval(&mut self) {
         self.deferred += 1;
         self.held_for_approval += 1;
+    }
+
+    /// Carries into this pass the exports that a retry of skipped exports held for approval.
+    /// They stay queued for the retry after the approval, and carried here a wait reads them as
+    /// waiting for that approval instead of as a change still settling. A retry reports no
+    /// other counts, like the baseline reconciliation of an ingestion pass.
+    pub(in crate::sync) fn carry_held(&mut self, retried: &Self) {
+        self.deferred += retried.held_for_approval;
+        self.held_for_approval += retried.held_for_approval;
     }
 
     /// Counts an object or bucket the API holds that the working tree cannot hold. It is
@@ -169,6 +187,7 @@ impl Reconciliation {
             conflicting: self.conflicting,
             entries: self.unrepresentable_entries(),
             unimported: self.external_only,
+            held_for_approval: self.held_for_approval,
         }
     }
 }
@@ -306,5 +325,37 @@ mod tests {
         };
         assert!(clear.gate().hold().completes_baseline());
         assert!(clear.gate().hold().infers_deletions());
+    }
+
+    /// Exports held for approval, whether this pass held them or a retry of its skipped exports
+    /// did, read as awaiting that approval, which holds back neither the baseline nor the
+    /// inventory that offers the set. Any other deferral still comes first.
+    #[test]
+    fn exports_held_for_approval_await_it_and_hold_back_nothing_else() {
+        let mut pass = Reconciliation {
+            baseline_complete: true,
+            ..Default::default()
+        };
+        pass.hold_for_approval();
+        let mut retried = Reconciliation::default();
+        retried.hold_for_approval();
+        let mut carried = Reconciliation {
+            baseline_complete: true,
+            ..Default::default()
+        };
+        carried.carry_held(&retried);
+        for pass in [&pass, &carried] {
+            assert_eq!(pass.deferred, 1);
+            let hold = pass.gate().hold();
+            assert_eq!(hold, Hold::AwaitingApproval);
+            assert!(hold.completes_baseline());
+            assert!(hold.infers_deletions());
+        }
+
+        pass.deferred += 1;
+        assert_eq!(pass.gate().hold(), Hold::Deferred);
+        let mut unsettled = carried;
+        unsettled.external_only = 1;
+        assert_eq!(unsettled.gate().hold(), Hold::Unimported);
     }
 }
