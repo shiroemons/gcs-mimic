@@ -33,9 +33,48 @@ pub(super) enum Kept {
     NotAnObject,
     /// The entry is no directory under its exact spelling: a symlink, a file or an alias.
     NotDirectory,
-    /// The filesystem refused the removal: the directory holds an entry, is in use, may not be
-    /// removed, or changed before the removal.
-    Refused(io::ErrorKind),
+    /// The filesystem refused the removal.
+    Refused(Refusal),
+}
+
+/// Why the filesystem refused to remove the directory at an export's target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Refusal {
+    /// The directory holds an entry (`ENOTEMPTY`, or `EEXIST` where the system reports that).
+    NotEmpty,
+    /// The directory is in use, such as a mount point (`EBUSY`).
+    Busy,
+    /// The directory may not be removed (`EACCES`, `EPERM`).
+    PermissionDenied,
+    /// The entry became something other than a directory after the proof read it (`ENOTDIR`).
+    NotADirectory,
+}
+
+impl Refusal {
+    /// The refusal `error` reports; `None` for an error that is no refusal, which fails the
+    /// attempt for a retry instead of keeping the directory.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "io::ErrorKind is non-exhaustive, and every kind it adds is no refusal"
+    )]
+    fn of(error: &io::Error) -> Option<Self> {
+        match error.kind() {
+            io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::AlreadyExists => Some(Self::NotEmpty),
+            io::ErrorKind::ResourceBusy => Some(Self::Busy),
+            io::ErrorKind::PermissionDenied => Some(Self::PermissionDenied),
+            io::ErrorKind::NotADirectory => Some(Self::NotADirectory),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NotEmpty => "not_empty",
+            Self::Busy => "busy",
+            Self::PermissionDenied => "permission_denied",
+            Self::NotADirectory => "not_a_directory",
+        }
+    }
 }
 
 impl Kept {
@@ -48,7 +87,21 @@ impl Kept {
             Self::Conflict => "conflict",
             Self::NotAnObject => "not_an_object",
             Self::NotDirectory => "not_directory",
-            Self::Refused(_) => "refused",
+            Self::Refused(refusal) => refusal.as_str(),
+        }
+    }
+
+    /// What frees the name, as the finding [`Self::finding`] records gives it.
+    fn remedy(self) -> String {
+        match self {
+            Self::NotDirectory => crate::sync::control::UNREPRESENTABLE_REMEDY.to_owned(),
+            Self::Replaces
+            | Self::Tracked
+            | Self::PathStop
+            | Self::Pending
+            | Self::Conflict
+            | Self::NotAnObject
+            | Self::Refused(_) => crate::sync::control::occupied_directory_remedy(),
         }
     }
 
@@ -68,26 +121,19 @@ impl Kept {
         }
     }
 
-    /// Logs why the directory at `item`'s target stays. The collision finding the mirror records
-    /// names the object; this says which check kept the directory.
+    /// Warns that the directory at `item`'s target stays and keeps the object out of the tree:
+    /// the finding the mirror records names the object, and this also says which check kept
+    /// the directory, so an operator knows what to change.
     pub(super) fn report(self, item: &Pending) {
-        let error = match self {
-            Self::Refused(kind) => Some(kind.to_string()),
-            Self::Replaces
-            | Self::Tracked
-            | Self::PathStop
-            | Self::Pending
-            | Self::Conflict
-            | Self::NotAnObject
-            | Self::NotDirectory => None,
-        };
         crate::diagnostics::emit(
-            crate::diagnostics::LogLevel::Info,
+            crate::diagnostics::LogLevel::Warn,
             "sync_directory_kept",
             serde_json::json!({
+                "bucket": item.bucket.as_str(),
+                "object": item.name.as_str(),
                 "path": item.path,
                 "reason": self.as_str(),
-                "error": error,
+                "remedy": self.remedy(),
             }),
         );
     }
@@ -231,20 +277,6 @@ fn listed(parent: &File, name: &std::ffi::OsStr) -> Result<bool, Error> {
     }
 }
 
-/// Whether a failed removal leaves a collision rather than an error to retry: the directory holds
-/// an entry (`ENOTEMPTY`, or `EEXIST` where the system reports that), is in use (`EBUSY`), may not
-/// be removed (`EACCES`, `EPERM`), or changed into something else since it was proved.
-fn refused(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::DirectoryNotEmpty
-            | io::ErrorKind::AlreadyExists
-            | io::ErrorKind::ResourceBusy
-            | io::ErrorKind::PermissionDenied
-            | io::ErrorKind::NotADirectory
-    )
-}
-
 /// Removes the directory `proof` names if it is empty, then syncs the directory that held it, so
 /// the removal is durable before installation takes the name, and returns that directory for
 /// installation to rename into. A refused removal changes nothing. A directory already gone
@@ -262,27 +294,43 @@ pub(super) fn remove(
     let reached = install.faults.hit_io(Step::SyncEmptyDirectoryRemove);
     #[cfg(not(test))]
     let reached: io::Result<()> = Ok(());
-    match reached.and_then(|()| fsutil::remove_empty_directory_at(&parent, &name)) {
-        Ok(()) => {
-            #[cfg(test)]
-            install.faults.directory_removed(&install.item)?;
-        }
-        // Someone removed the directory since the proof read it. Installation takes the name
-        // only through a rename that never replaces an entry, so whatever took the name since,
-        // a file or a new directory, fails installation and keeps its bytes. The parent's sync
-        // below still makes the removal durable before the copy takes the name.
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            #[cfg(test)]
-            install.faults.hit(Step::SyncEmptyDirectoryRemoved)?;
-        }
-        Err(error) if refused(&error) => return Ok(Err(Kept::Refused(error.kind()))),
-        Err(error) => return Err(error.into()),
-    }
+    let removed_here =
+        match reached.and_then(|()| fsutil::remove_empty_directory_at(&parent, &name)) {
+            Ok(()) => {
+                #[cfg(test)]
+                install.faults.directory_removed(&install.item)?;
+                true
+            }
+            // Someone removed the directory since the proof read it. Installation takes the name
+            // only through a rename that never replaces an entry, so whatever took the name since,
+            // a file or a new directory, fails installation and keeps its bytes. The parent's sync
+            // below still makes the removal durable before the copy takes the name.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                #[cfg(test)]
+                install.faults.hit(Step::SyncEmptyDirectoryRemoved)?;
+                false
+            }
+            Err(error) => match Refusal::of(&error) {
+                Some(refusal) => return Ok(Err(Kept::Refused(refusal))),
+                None => return Err(error.into()),
+            },
+        };
     #[cfg(test)]
     failure(install.item.token.root, "directory-parent-sync")?;
     parent.sync_all()?;
     #[cfg(test)]
     install.faults.target_dir_synced(&install.item);
+    if removed_here {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Info,
+            "sync_directory_removed",
+            serde_json::json!({
+                "bucket": install.item.bucket.as_str(),
+                "object": install.item.name.as_str(),
+                "path": install.item.path,
+            }),
+        );
+    }
     Ok(Ok(parent))
 }
 

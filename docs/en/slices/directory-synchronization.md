@@ -582,8 +582,11 @@ entries out rather than to rename the object; other objects continue. A
 directory under another spelling stays and leaves a `collision` finding, as any
 alias does. A symlink at the name is never followed or removed and leaves an
 `unsafe-entry` finding. A directory where a tracked file was is no export
-target: it stops that path as `EntryReplaced`. The `sync_directory_kept`
-event names the check that kept the directory. Catalog references compare names
+target: it stops that path as `EntryReplaced`. A `sync_directory_kept` warning
+names the bucket, the object, the check that kept the directory (such as
+`tracked`, `not_empty`, `busy` or `permission_denied`) and the finding's remedy;
+an info `sync_directory_removed` event names each directory the export removed.
+Catalog references compare names
 byte for byte, so a reference under another letter case on a root that folds
 case does not keep the directory; the removal itself still refuses one that
 holds an entry. On a root that the probe found to fold letter case, the parent

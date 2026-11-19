@@ -78,14 +78,18 @@ pub(crate) fn resume_retry_remedy() -> String {
     )
 }
 
-/// What frees the file name of an object that a directory with entries holds, as its finding
-/// gives it.
+/// What frees the file name of an object that a directory with entries holds, as its finding and
+/// the `sync_directory_kept` warning give it.
 pub(crate) fn occupied_directory_remedy() -> String {
     format!(
         "A directory holds this object's file name. Move everything in it out of the tree, including hidden files such as .DS_Store, then run {}; the empty directory is then replaced by the file",
         Advised::Rescan
     )
 }
+
+/// What makes an object whose name the tree cannot hold reach it, as its finding and the
+/// `sync_directory_kept` warning give it.
+pub(crate) const UNREPRESENTABLE_REMEDY: &str = "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes";
 
 /// What a control that a pause refuses answers, and how the refusal reads in a log.
 pub(crate) fn paused_control_remedy() -> String {

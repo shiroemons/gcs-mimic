@@ -53,7 +53,7 @@ pub(super) fn value(
             | Reason::UnsafeEntry,
         )) => (
             "Unrepresentable",
-            "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes".into(),
+            crate::sync::control::UNREPRESENTABLE_REMEDY.into(),
         ),
         // The API name is fine here: only the entries in the directory keep the file out.
         FindingReason::Mapping(FindingKind::Unmapped(Reason::DirectoryOccupied)) => (
