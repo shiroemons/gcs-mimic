@@ -2700,12 +2700,13 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
     catalog.close().await.unwrap();
 }
 
-/// Contention that outlasts the catalog wait makes the mirror retry, which it reports as
-/// retrying until a run gets through its start; the Storage API stays ready throughout.
+/// Contention that outlasts the catalog wait makes the mirror retry. Before its first pass has
+/// finished, the mirror stays starting through those retries, so a healthcheck keeps waiting
+/// for that pass; the Storage API stays ready throughout.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_transient_mirror_failure_is_retried_until_it_clears() {
-    use MirrorState::{Retrying, Running, Starting, Stopped};
-    let (_data, _tree, catalog, task) = started_mirror_failing(&[LiveFailure::Busy; 4]).await;
+    use MirrorState::{Running, Starting, Stopped};
+    let (_data, tree, catalog, task) = started_mirror_failing(&[LiveFailure::Busy; 4]).await;
     // A served rescan shows a retried run got past its start.
     tokio::time::timeout(std::time::Duration::from_secs(10), task.rescan())
         .await
@@ -2713,9 +2714,17 @@ async fn a_transient_mirror_failure_is_retried_until_it_clears() {
         .unwrap();
     assert_eq!(task.status().state(), Running);
     assert!(api_ready(&catalog));
+    assert!(
+        LIVE_FAILURES
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(armed, _)| *armed != tree.0),
+        "every armed failure was retried"
+    );
     let status = task.status();
     task.finish().await.unwrap();
-    assert_eq!(status.entered(), [Starting, Retrying, Running, Stopped]);
+    assert_eq!(status.entered(), [Starting, Running, Stopped]);
     assert!(api_ready(&catalog));
     catalog.close().await.unwrap();
 }

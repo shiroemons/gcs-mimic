@@ -589,7 +589,19 @@ fn signing_credentials<'a>(
     }
 }
 
+const HEALTHCHECK_USAGE: &str = "gcs-mimic healthcheck [--url URL] [--ca-cert PATH]";
+
 fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
+    // Options are checked before anything is probed or PID 1 is read, and a mistake in them is
+    // reported as one: the advice for an unreachable server would only mislead.
+    let options = HealthcheckArgs::try_from(args).map_err(|error| {
+        Diagnostics::error(
+            DiagnosticSource::Cli,
+            "healthcheck",
+            format!("Invalid healthcheck options: {error}. Usage: {HEALTHCHECK_USAGE}"),
+        )
+    })?;
+    let ca_cert = options.ca_cert.as_deref();
     let repair = |url: &str| {
         format!(
             "Verify the server settings and retry with healthcheck --url {url}{}.",
@@ -600,45 +612,25 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             }
         )
     };
-    let failed = |url: &str, error: io::Error| {
+    let failed = |url: &ProbeUrl, error: io::Error| {
         Diagnostics::error(
             DiagnosticSource::Cli,
             "healthcheck",
             format!(
                 "Healthcheck {url} failed: {error}; require HTTP 200 and verify CA trust (including 403 access denial). {}",
-                repair(url)
+                repair(&url.to_string())
             ),
         )
     };
-    // A ready API that fails only the synchronization requirement answered, so the PID 1
-    // fallback below never runs for it.
-    let synchronized = |url: &str, ready: &Ready| {
-        ready.synchronized().map_err(|error| {
-            let causes = std::iter::successors(std::error::Error::source(&error), |cause| {
-                cause.source()
-            });
-            let reason = causes.fold(error.to_string(), |reason, cause| {
-                format!("{reason}: {cause}")
-            });
-            Diagnostics::error(
-                DiagnosticSource::Cli,
-                "healthcheck",
-                format!(
-                    "Healthcheck {url} found the API ready, but {reason}. Inspect synchronization with gcs-mimic sync status, or omit --require-sync to probe only the API."
-                ),
-            )
-        })
-    };
-    let explicit_url = option_pairs(args)
-        .filter_map(Result::ok)
-        .find_map(|(name, value)| (name == "--url").then(|| value.to_owned()));
-    if let Some(url) = explicit_url {
-        let ready = probe(args, &url).map_err(|error| failed(&url, error))?;
-        return synchronized(&url, &ready);
+    // A ready API whose synchronization is still starting answered, so the PID 1 fallback below
+    // never runs for it.
+    if let Some(url) = &options.url {
+        let body = probe(url, ca_cert).map_err(|error| failed(url, error))?;
+        return synchronization_started(url, ca_cert, &body);
     }
     let url = probe_url(&[], &repair)?;
-    let error = match probe(args, &url) {
-        Ok(ready) => return synchronized(&url, &ready),
+    let error = match probe(&url, ca_cert) {
+        Ok(body) => return synchronization_started(&url, ca_cert, &body),
         Err(error) => error,
     };
     // Only a failed probe consults PID 1: Rosetta emulates /proc/<pid>/cmdline with a temporary
@@ -653,99 +645,256 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
     if fallback == url {
         return Err(failed(&url, error));
     }
-    let ready = probe(args, &fallback).map_err(|error| failed(&fallback, error))?;
-    synchronized(&fallback, &ready)
+    let body = probe(&fallback, ca_cert).map_err(|error| failed(&fallback, error))?;
+    synchronization_started(&fallback, ca_cert, &body)
 }
 
-/// What a healthcheck requires besides a ready API, from `--require-sync`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SyncRequirement {
-    /// `false`, the default: the API alone decides.
-    ApiOnly,
-    /// `true`: directory synchronization must also report `running`.
-    Running,
+/// The options of `gcs-mimic healthcheck`.
+#[derive(Debug)]
+struct HealthcheckArgs {
+    /// The probe; without it, the configuration and then PID 1 select one.
+    url: Option<ProbeUrl>,
+    ca_cert: Option<std::path::PathBuf>,
 }
 
-impl std::str::FromStr for SyncRequirement {
-    type Err = std::str::ParseBoolError;
+impl TryFrom<&[String]> for HealthcheckArgs {
+    type Error = HealthcheckUsage;
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(if value.parse()? {
-            Self::Running
-        } else {
-            Self::ApiOnly
+    fn try_from(args: &[String]) -> Result<Self, Self::Error> {
+        let mut url = None;
+        let mut ca_cert = None;
+        for pair in option_pairs(args) {
+            let (name, value) = pair.map_err(|_| HealthcheckUsage::Pairs)?;
+            let slot = match name {
+                "--url" => &mut url,
+                "--ca-cert" => &mut ca_cert,
+                _ => return Err(HealthcheckUsage::Unknown(name.to_owned())),
+            };
+            if value.is_empty() {
+                return Err(HealthcheckUsage::Empty(name.to_owned()));
+            }
+            if slot.replace(value).is_some() {
+                return Err(HealthcheckUsage::Duplicate(name.to_owned()));
+            }
+        }
+        let url = url
+            .map(str::parse::<ProbeUrl>)
+            .transpose()
+            .map_err(HealthcheckUsage::Url)?;
+        // A URL from the configuration may still turn out to be HTTPS, so only an explicit one
+        // settles this before probing.
+        if ca_cert.is_some()
+            && url
+                .as_ref()
+                .is_some_and(|url| url.scheme == ProbeScheme::Http)
+        {
+            return Err(HealthcheckUsage::CaCertNeedsHttps);
+        }
+        Ok(Self {
+            url,
+            ca_cert: ca_cert.map(std::path::PathBuf::from),
         })
     }
 }
 
-/// A probe that answered HTTP 200, with what the command line requires of its body.
-struct Ready {
-    body: Vec<u8>,
-    sync: SyncRequirement,
+/// Healthcheck options that cannot run.
+#[derive(Debug, PartialEq, Eq)]
+enum HealthcheckUsage {
+    Pairs,
+    Unknown(String),
+    Empty(String),
+    Duplicate(String),
+    Url(InvalidProbeUrl),
+    CaCertNeedsHttps,
 }
 
-/// The part of a ready answer that `--require-sync` reads; the server adds `sync` only while
-/// directory synchronization is enabled.
-#[derive(serde::Deserialize)]
-struct ReadyBody {
-    sync: Option<ReadySync>,
-}
-
-#[derive(serde::Deserialize)]
-struct ReadySync {
-    state: String,
-}
-
-impl Ready {
-    fn synchronized(&self) -> Result<(), SyncNotRunning> {
-        if self.sync == SyncRequirement::ApiOnly {
-            return Ok(());
-        }
-        let body: ReadyBody =
-            serde_json::from_slice(&self.body).map_err(SyncNotRunning::Unreadable)?;
-        let state = body
-            .sync
-            .ok_or(SyncNotRunning::Disabled)?
-            .state
-            .parse::<gcs_mimic::sync::MirrorState>()
-            .map_err(SyncNotRunning::Unknown)?;
-        if state == gcs_mimic::sync::MirrorState::Running {
-            Ok(())
-        } else {
-            Err(SyncNotRunning::State(state))
-        }
-    }
-}
-
-/// Why a ready server fails `--require-sync true`.
-#[derive(Debug)]
-enum SyncNotRunning {
-    /// The answer has no `sync`: the server runs without a sync directory.
-    Disabled,
-    State(gcs_mimic::sync::MirrorState),
-    Unknown(gcs_mimic::sync::UnknownMirrorState),
-    Unreadable(serde_json::Error),
-}
-
-impl std::fmt::Display for SyncNotRunning {
+impl std::fmt::Display for HealthcheckUsage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Disabled => {
-                f.write_str("it reports no synchronization (no sync directory is set)")
-            }
-            Self::State(state) => write!(f, "synchronization is {state}, not running"),
-            Self::Unknown(_) => f.write_str("it reports a state this command does not know"),
-            Self::Unreadable(_) => f.write_str("its answer is not a readiness body"),
+            Self::Pairs => f.write_str("options require --name VALUE pairs"),
+            Self::Unknown(name) => write!(f, "unknown option {name}"),
+            Self::Empty(name) => write!(f, "{name} needs a value"),
+            Self::Duplicate(name) => write!(f, "{name} is given more than once"),
+            Self::Url(error) => write!(f, "--url {error}"),
+            Self::CaCertNeedsHttps => f.write_str("--ca-cert requires an HTTPS healthcheck URL"),
         }
     }
 }
 
-impl std::error::Error for SyncNotRunning {
+impl std::error::Error for HealthcheckUsage {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeScheme {
+    Http,
+    Https,
+}
+
+impl ProbeScheme {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Https => "https",
+        }
+    }
+}
+
+/// A probe of this server: an HTTP(S) origin with an explicit port and a probe path.
+#[derive(Debug, PartialEq, Eq)]
+struct ProbeUrl {
+    scheme: ProbeScheme,
+    authority: String,
+    /// The host without IPv6 brackets, as TLS names it.
+    host: String,
+    /// The probe path without its leading slash.
+    path: &'static str,
+}
+
+impl ProbeUrl {
+    fn origin(&self) -> String {
+        format!("{}://{}", self.scheme.as_str(), self.authority)
+    }
+}
+
+impl std::fmt::Display for ProbeUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.origin(), self.path)
+    }
+}
+
+/// A URL that names no probe of this server.
+#[derive(Debug, PartialEq, Eq)]
+struct InvalidProbeUrl;
+
+impl std::fmt::Display for InvalidProbeUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck")
+    }
+}
+
+impl std::error::Error for InvalidProbeUrl {}
+
+impl std::str::FromStr for ProbeUrl {
+    type Err = InvalidProbeUrl;
+
+    fn from_str(url: &str) -> Result<Self, Self::Err> {
+        let uri: hyper::Uri = url.parse().map_err(|_| InvalidProbeUrl)?;
+        let scheme = match uri.scheme_str() {
+            Some("http") => ProbeScheme::Http,
+            Some("https") => ProbeScheme::Https,
+            _ => return Err(InvalidProbeUrl),
+        };
+        let (Some(authority), Some(host)) = (uri.authority(), uri.host()) else {
+            return Err(InvalidProbeUrl);
+        };
+        let path = match uri.path() {
+            "/_internal/health" => "_internal/health",
+            "/_internal/ready" => "_internal/ready",
+            "/_internal/healthcheck" => "_internal/healthcheck",
+            _ => return Err(InvalidProbeUrl),
+        };
+        if uri.port_u16().is_none()
+            || uri.query().is_some()
+            || url.contains('#')
+            || authority.as_str().contains(['@', '\r', '\n'])
+        {
+            return Err(InvalidProbeUrl);
+        }
+        Ok(Self {
+            scheme,
+            authority: authority.as_str().to_owned(),
+            host: host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned(),
+            path,
+        })
+    }
+}
+
+/// Passes unless the ready answer `body` reports directory synchronization still `starting`.
+/// `starting` lasts until this process's first pass over the tree, which exports existing
+/// objects, has finished, so a dependent container started on this healthcheck sees the tree.
+fn synchronization_started(
+    url: &ProbeUrl,
+    ca_cert: Option<&Path>,
+    body: &[u8],
+) -> Result<(), Diagnostics> {
+    use gcs_mimic::sync::MirrorState;
+    let fix = match reported_sync(body) {
+        // A mirror past `starting` has ended its first pass. Later trouble is for sync status
+        // and the server log to explain: waiting would not end a pause or a stop, and a failing
+        // healthcheck would hold back or restart a container whose Storage API serves.
+        Ok(
+            None
+            | Some(
+                MirrorState::Running
+                | MirrorState::Retrying
+                | MirrorState::Paused
+                | MirrorState::Stopped,
+            ),
+        ) => return Ok(()),
+        Ok(Some(MirrorState::Starting)) => format!(
+            "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. Follow it with gcs-mimic sync status --endpoint {}{} (add --token-file PATH under strict authentication); the healthcheck passes once the state leaves starting.",
+            url.origin(),
+            ca_cert.map_or_else(String::new, |path| format!(" --ca-cert {}", path.display())),
+        ),
+        Err(error) => {
+            let causes =
+                std::iter::successors(std::error::Error::source(&error), |cause| cause.source());
+            let reason = causes.fold(error.to_string(), |reason, cause| {
+                format!("{reason}: {cause}")
+            });
+            format!(
+                "Healthcheck {url} found the API ready, but {reason}. The server runs another gcs-mimic version; probe it with the gcs-mimic of the server's version."
+            )
+        }
+    };
+    Err(Diagnostics::error(
+        DiagnosticSource::Cli,
+        "healthcheck",
+        fix,
+    ))
+}
+
+/// The mirror state a ready answer reports. The server adds `sync` only while directory
+/// synchronization is enabled; an answer without it, or one that is not a JSON object at all,
+/// leaves the API alone to decide, as before the field existed.
+fn reported_sync(body: &[u8]) -> Result<Option<gcs_mimic::sync::MirrorState>, UnreadableSync> {
+    #[derive(serde::Deserialize)]
+    struct ReadySync {
+        state: String,
+    }
+    let Ok(serde_json::Value::Object(mut fields)) = serde_json::from_slice(body) else {
+        return Ok(None);
+    };
+    let Some(sync) = fields.remove("sync") else {
+        return Ok(None);
+    };
+    let ReadySync { state } = serde_json::from_value(sync).map_err(UnreadableSync::Shape)?;
+    state.parse().map(Some).map_err(UnreadableSync::State)
+}
+
+/// A `sync` object this healthcheck cannot read, as from a server of another version.
+#[derive(Debug)]
+enum UnreadableSync {
+    Shape(serde_json::Error),
+    State(gcs_mimic::sync::UnknownMirrorState),
+}
+
+impl std::fmt::Display for UnreadableSync {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Shape(_) => "its sync object is not one this healthcheck reads",
+            Self::State(_) => "its sync.state is not one this healthcheck knows",
+        })
+    }
+}
+
+impl std::error::Error for UnreadableSync {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Disabled | Self::State(_) => None,
-            Self::Unknown(error) => Some(error),
-            Self::Unreadable(error) => Some(error),
+            Self::Shape(error) => Some(error),
+            Self::State(error) => Some(error),
         }
     }
 }
@@ -754,21 +903,23 @@ impl std::error::Error for SyncNotRunning {
 fn probe_url(
     server_args: &[String],
     repair: &dyn Fn(&str) -> String,
-) -> Result<String, Diagnostics> {
+) -> Result<ProbeUrl, Diagnostics> {
     let mut report = Config::preflight_os(server_args, std::env::vars_os());
     let url = report.config.healthcheck_url();
-    if report.diagnostics.is_err() {
-        report.diagnostics.errors.push(Diagnostic::new(
-            DiagnosticSource::Cli,
-            "healthcheck",
-            format!(
-                "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
-                repair(&url)
-            ),
-        ));
-        return Err(report.diagnostics);
+    match url.parse() {
+        Ok(probe) if !report.diagnostics.is_err() => Ok(probe),
+        Ok(_) | Err(InvalidProbeUrl) => {
+            report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Cli,
+                "healthcheck",
+                format!(
+                    "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
+                    repair(&url)
+                ),
+            ));
+            Err(report.diagnostics)
+        }
     }
-    Ok(url)
 }
 
 /// The server options in `cmdline`, the NUL-separated `/proc/1/cmdline` of a container's PID 1,
@@ -791,80 +942,30 @@ fn container_server_args(cmdline: &[u8]) -> Option<Vec<String>> {
         .map(<[String]>::to_vec)
 }
 
-fn probe(args: &[String], url: &str) -> io::Result<Ready> {
-    let mut options = BTreeMap::new();
-    let syntax = || {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "healthcheck accepts [--url URL] [--ca-cert PATH] [--require-sync BOOL]",
-        )
-    };
-    for pair in option_pairs(args) {
-        let (name, value) = pair.map_err(|_| syntax())?;
-        if !matches!(name, "--url" | "--ca-cert" | "--require-sync") {
-            return Err(syntax());
-        }
-        if value.is_empty() || options.insert(name, value).is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "empty or duplicate healthcheck option",
-            ));
-        }
-    }
-    let invalid = || {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "expected http(s)://HOST:PORT/_internal/health, /_internal/ready or /_internal/healthcheck",
-        )
-    };
-    let uri: hyper::Uri = url.parse().map_err(|_| invalid())?;
-    let authority = uri.authority().ok_or_else(invalid)?.as_str();
-    let path = uri.path().strip_prefix('/').ok_or_else(invalid)?;
-    if !matches!(
-        path,
-        "_internal/health" | "_internal/ready" | "_internal/healthcheck"
-    ) || !matches!(uri.scheme_str(), Some("http" | "https"))
-        || uri.port_u16().is_none()
-        || uri.query().is_some()
-        || url.contains('#')
-        || authority.contains(['@', '\r', '\n'])
-    {
-        return Err(invalid());
-    }
-    let sync = options
-        .get("--require-sync")
-        .map_or(Ok(SyncRequirement::ApiOnly), |value| value.parse())
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "--require-sync takes true or false",
-            )
-        })?;
-    // Liveness answers carry no synchronization state, so the requirement could never hold.
-    if sync == SyncRequirement::Running && path == "_internal/health" {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "--require-sync true needs a readiness URL: /_internal/ready or /_internal/healthcheck",
-        ));
-    }
-    let client = match (uri.scheme_str(), options.get("--ca-cert")) {
-        (Some("https"), Some(path)) => Some(tls::client_config(Path::new(path))?),
-        (Some("https"), None) => Some(tls::development_client_config()?),
-        (_, Some(_)) => {
+/// The body of the HTTP 200 answer to `url`.
+fn probe(url: &ProbeUrl, ca_cert: Option<&Path>) -> io::Result<Vec<u8>> {
+    let client = match (url.scheme, ca_cert) {
+        (ProbeScheme::Https, Some(path)) => Some(tls::client_config(path)?),
+        (ProbeScheme::Https, None) => Some(tls::development_client_config()?),
+        // Only a URL from the configuration gets here: an explicit one was refused as usage.
+        (ProbeScheme::Http, Some(_)) => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "--ca-cert requires an HTTPS healthcheck URL",
             ));
         }
-        _ => None,
+        (ProbeScheme::Http, None) => None,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     let result = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(2), async {
-            let addresses = tokio::net::lookup_host(authority).await?;
-            let mut connected = Err(invalid());
+            let addresses = tokio::net::lookup_host(url.authority.as_str()).await?;
+            let mut connected = Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the probe host resolved to no address",
+            ));
             for address in addresses.take(8) {
                 connected = tokio::net::TcpStream::connect(address).await;
                 if connected.is_ok() {
@@ -873,19 +974,19 @@ fn probe(args: &[String], url: &str) -> io::Result<Ready> {
             }
             let stream = connected?;
             if let Some(client) = client {
-                let host = uri
-                    .host()
-                    .ok_or_else(invalid)?
-                    .trim_start_matches('[')
-                    .trim_end_matches(']');
-                let name = tokio_rustls::rustls::pki_types::ServerName::try_from(host.to_owned())
-                    .map_err(|_| invalid())?;
+                let name = tokio_rustls::rustls::pki_types::ServerName::try_from(url.host.clone())
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "the probe host is not a valid TLS server name",
+                        )
+                    })?;
                 let stream = tokio_rustls::TlsConnector::from(client)
                     .connect(name, stream)
                     .await?;
-                probe_response(stream, authority, path).await
+                probe_response(stream, &url.authority, url.path).await
             } else {
-                probe_response(stream, authority, path).await
+                probe_response(stream, &url.authority, url.path).await
             }
         })
         .await
@@ -893,7 +994,7 @@ fn probe(args: &[String], url: &str) -> io::Result<Ready> {
     });
     // DNS resolution uses blocking workers; a timed-out one-shot probe must not wait for them.
     runtime.shutdown_background();
-    result.map(|body| Ready { body, sync })
+    result
 }
 
 /// The body of an HTTP 200 answer to `GET /{path}`.
@@ -997,85 +1098,147 @@ mod tests {
         }
     }
 
-    /// Without `--require-sync true` any ready answer passes, as before the option existed; with
-    /// it only a ready answer whose mirror runs does.
+    /// Only a ready answer whose mirror is still starting fails, and its diagnostic gives the
+    /// command that follows the mirror. An answer without `sync`, as from a server without a sync
+    /// directory or from the liveness probe, passes as before; a `sync` this command cannot read
+    /// names a version mismatch instead.
     #[test]
-    fn a_sync_requirement_accepts_only_a_running_mirror() {
+    fn the_healthcheck_fails_only_while_synchronization_starts() {
         use gcs_mimic::sync::MirrorState;
-        let ready = |sync, body: &str| Ready {
-            body: body.as_bytes().to_vec(),
-            sync,
+        let fix = |url: &str, ca_cert: Option<&str>, body: &str| {
+            let url = url.parse().unwrap();
+            let Err(diagnostics) =
+                synchronization_started(&url, ca_cert.map(Path::new), body.as_bytes())
+            else {
+                return None;
+            };
+            let [error] = diagnostics.errors.as_slice() else {
+                panic!("{diagnostics:?}");
+            };
+            Some(error.fix.clone())
         };
-        let answer = |state: &str| {
-            format!(r#"{{"status":"ok","unix_time":1,"sync":{{"state":"{state}"}}}}"#)
-        };
-        for body in ["", "not json", r#"{"status":"ok","unix_time":1}"#] {
-            assert!(
-                ready(SyncRequirement::ApiOnly, body).synchronized().is_ok(),
-                "{body}"
-            );
+        let ready = "http://127.0.0.1:4443/_internal/ready";
+        let answer = |sync: &str| format!(r#"{{"status":"ok","unix_time":1,"sync":{sync}}}"#);
+        let state = |state: &str| answer(&format!(r#"{{"state":"{state}"}}"#));
+        for body in ["", "ok", "[]", r#"{"status":"ok","unix_time":1}"#] {
+            assert_eq!(fix(ready, None, body), None, "{body}");
         }
-        let required = |body: &str| ready(SyncRequirement::Running, body).synchronized();
-        assert!(required(&answer("running")).is_ok());
-        for state in [
-            MirrorState::Starting,
+        for mirror in [
+            MirrorState::Running,
             MirrorState::Retrying,
             MirrorState::Paused,
             MirrorState::Stopped,
         ] {
-            let error = required(&answer(state.as_str())).unwrap_err();
-            assert!(
-                matches!(error, SyncNotRunning::State(reported) if reported == state),
-                "{error:?}"
-            );
-            assert_eq!(
-                error.to_string(),
-                format!("synchronization is {state}, not running")
-            );
+            assert_eq!(fix(ready, None, &state(mirror.as_str())), None, "{mirror}");
         }
-        assert!(matches!(
-            required(r#"{"status":"ok","unix_time":1}"#),
-            Err(SyncNotRunning::Disabled)
-        ));
-        let unknown = required(&answer("Running")).unwrap_err();
-        assert!(matches!(unknown, SyncNotRunning::Unknown(_)), "{unknown:?}");
-        assert_eq!(
-            std::error::Error::source(&unknown).map(ToString::to_string),
-            Some(r#"unknown synchronization state "Running""#.to_owned())
+        let starting = fix(ready, None, &state("starting")).unwrap();
+        assert!(
+            starting.starts_with(&format!(
+                "Healthcheck {ready} found the API ready, but sync.state is starting: "
+            )),
+            "{starting}"
         );
-        let unreadable = required("not json").unwrap_err();
-        assert!(matches!(unreadable, SyncNotRunning::Unreadable(_)));
-        assert!(std::error::Error::source(&unreadable).is_some());
-    }
-
-    /// The option takes a boolean, and a requirement that a liveness answer could never meet is
-    /// refused before any connection.
-    #[test]
-    fn a_sync_requirement_takes_a_boolean_and_a_readiness_url() {
-        for (value, url, message) in [
+        assert!(
+            starting.contains(
+                "Follow it with gcs-mimic sync status --endpoint http://127.0.0.1:4443 (add"
+            ),
+            "{starting}"
+        );
+        let trusted = fix(
+            "https://[::1]:4443/_internal/healthcheck",
+            Some("tls/ca.pem"),
+            &state("starting"),
+        )
+        .unwrap();
+        assert!(
+            trusted.contains(
+                "gcs-mimic sync status --endpoint https://[::1]:4443 --ca-cert tls/ca.pem (add"
+            ),
+            "{trusted}"
+        );
+        for (body, reason) in [
             (
-                "yes",
-                "http://127.0.0.1:1/_internal/ready",
-                "--require-sync takes true or false",
+                state("Running"),
+                r#"its sync.state is not one this healthcheck knows: unknown synchronization state "Running""#,
             ),
             (
-                "",
-                "http://127.0.0.1:1/_internal/ready",
-                "empty or duplicate healthcheck option",
+                answer(r#"{"state":1}"#),
+                "its sync object is not one this healthcheck reads: ",
             ),
             (
-                "true",
-                "http://127.0.0.1:1/_internal/health",
-                "--require-sync true needs a readiness URL: /_internal/ready or /_internal/healthcheck",
+                answer(r#""running""#),
+                "its sync object is not one this healthcheck reads: ",
             ),
         ] {
-            let args = ["--require-sync", value].map(str::to_owned);
-            let Err(error) = probe(&args, url) else {
-                panic!("{value} {url} was accepted");
-            };
-            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{value} {url}");
-            assert_eq!(error.to_string(), message);
+            let mismatch = fix(ready, None, &body).unwrap();
+            assert!(mismatch.contains(reason), "{mismatch}");
+            assert!(mismatch.contains("another gcs-mimic version"), "{mismatch}");
+            assert!(!mismatch.contains("sync status"), "{mismatch}");
         }
+    }
+
+    /// Options that cannot run are reported as usage before anything is probed or PID 1 is read,
+    /// without the advice for an unreachable server, which only a failed probe gets.
+    #[test]
+    fn healthcheck_usage_errors_come_before_any_probe() {
+        let args = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        let ready = "http://127.0.0.1:1/_internal/ready";
+        for (given, usage) in [
+            (
+                args(&["--require-sync", "true"]),
+                HealthcheckUsage::Unknown("--require-sync".to_owned()),
+            ),
+            (args(&["--url"]), HealthcheckUsage::Pairs),
+            (
+                args(&["--url", ""]),
+                HealthcheckUsage::Empty("--url".to_owned()),
+            ),
+            (
+                args(&["--url", ready, "--url", ready]),
+                HealthcheckUsage::Duplicate("--url".to_owned()),
+            ),
+            (
+                args(&["--url", "http://127.0.0.1:1/anything"]),
+                HealthcheckUsage::Url(InvalidProbeUrl),
+            ),
+            (
+                args(&["--url", "http://127.0.0.1/_internal/ready"]),
+                HealthcheckUsage::Url(InvalidProbeUrl),
+            ),
+            (
+                args(&["--url", ready, "--ca-cert", "ca.pem"]),
+                HealthcheckUsage::CaCertNeedsHttps,
+            ),
+        ] {
+            assert_eq!(
+                HealthcheckArgs::try_from(given.as_slice()).unwrap_err(),
+                usage
+            );
+            let diagnostics = healthcheck(&given).unwrap_err();
+            let [error] = diagnostics.errors.as_slice() else {
+                panic!("{diagnostics:?}");
+            };
+            assert_eq!(
+                error.fix,
+                format!("Invalid healthcheck options: {usage}. Usage: {HEALTHCHECK_USAGE}")
+            );
+        }
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let url = format!("http://{closed}/_internal/ready");
+        let diagnostics = healthcheck(&args(&["--url", &url])).unwrap_err();
+        let [error] = diagnostics.errors.as_slice() else {
+            panic!("{diagnostics:?}");
+        };
+        assert!(
+            error
+                .fix
+                .starts_with(&format!("Healthcheck {url} failed: ")),
+            "{}",
+            error.fix
+        );
     }
 
     #[test]

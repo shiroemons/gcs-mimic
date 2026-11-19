@@ -20,7 +20,7 @@ use gcs_mimic::{
 use serde_json::Value;
 use std::{
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     process::{Child, ChildStdout, Stdio},
     time::Duration,
 };
@@ -81,20 +81,9 @@ impl SyncServer {
         assert_eq!(value["completed"], true);
         reply
     }
-    /// Runs `gcs-mimic healthcheck` against `path`, with `--require-sync` set to `require` when
-    /// given, and returns its exit status and standard error.
-    fn healthcheck(&self, path: &str, require: Option<&str>) -> (std::process::ExitStatus, String) {
-        let url = format!("http://{}{path}", self.address);
-        let mut command = common::server_command();
-        command.args(["healthcheck", "--url", &url]);
-        if let Some(value) = require {
-            command.args(["--require-sync", value]);
-        }
-        let output = command.output().unwrap();
-        (
-            output.status,
-            String::from_utf8_lossy(&output.stderr).into_owned(),
-        )
+    /// Runs `gcs-mimic healthcheck` against `path` and returns its exit status and standard error.
+    fn healthcheck(&self, path: &str) -> (std::process::ExitStatus, String) {
+        healthcheck(&format!("http://{}{path}", self.address))
     }
     /// The `sync.state` of a readiness probe that answers 200.
     fn sync_state(&self) -> String {
@@ -148,34 +137,74 @@ fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_st
     }
 }
 
-/// The plain healthcheck follows the API, and `--require-sync true` also follows the mirror.
+/// The healthcheck fails while synchronization starts, naming the command that follows it, and
+/// passes once the mirror has left starting, even for a pause, on every probe path.
 #[test]
-fn the_healthcheck_requires_running_synchronization_only_when_asked() {
+fn the_healthcheck_waits_only_while_synchronization_starts() {
+    // A server cannot be held in its first pass from here, so a stand-in answers as one would.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let starting = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = BufReader::new(stream.try_clone().unwrap());
+        let mut line = String::new();
+        while line != "\r\n" {
+            line.clear();
+            request.read_line(&mut line).unwrap();
+        }
+        let body = r#"{"status":"ok","unix_time":1,"sync":{"state":"starting"}}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    let (status, stderr) = healthcheck(&format!("{origin}/_internal/ready"));
+    starting.join().unwrap();
+    assert!(!status.success());
+    assert!(stderr.contains("sync.state is starting"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("gcs-mimic sync status --endpoint {origin} ")),
+        "{stderr}"
+    );
     let data = TestDir::new();
     let tree = TestDir::new();
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     for name in ["one", "two", "three"] {
         fs::write(tree.0.join("test-bucket").join(name), b"body").unwrap();
     }
+    // A pause ends the first pass too: waiting would not end it, so the check passes.
     let mut server = SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "3"]);
     server.wait(br#"{"timeout_ms":30000}"#).0.expect(409);
     assert_eq!(server.sync_state(), "paused");
-    let (plain, _) = server.healthcheck("/_internal/healthcheck", None);
-    assert!(plain.success(), "a paused mirror leaves the API ready");
-    let (required, stderr) = server.healthcheck("/_internal/healthcheck", Some("true"));
-    assert!(!required.success());
-    assert!(
-        stderr.contains("found the API ready, but synchronization is paused, not running"),
-        "{stderr}"
-    );
-    let (unrequired, _) = server.healthcheck("/_internal/ready", Some("false"));
-    assert!(unrequired.success());
+    for path in [
+        "/_internal/healthcheck",
+        "/_internal/ready",
+        "/_internal/health",
+    ] {
+        let (status, stderr) = server.healthcheck(path);
+        assert!(status.success(), "{path}: {stderr}");
+    }
     server.stop();
     let mut server = SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "4"]);
     server.wait(br#"{"timeout_ms":30000}"#).0.expect(200);
-    let (required, stderr) = server.healthcheck("/_internal/ready", Some("true"));
-    assert!(required.success(), "{stderr}");
+    assert_eq!(server.sync_state(), "running");
+    let (status, stderr) = server.healthcheck("/_internal/ready");
+    assert!(status.success(), "{stderr}");
     server.stop();
+}
+
+/// Runs `gcs-mimic healthcheck --url url` and returns its exit status and standard error.
+fn healthcheck(url: &str) -> (std::process::ExitStatus, String) {
+    let output = common::server_command()
+        .args(["healthcheck", "--url", url])
+        .output()
+        .unwrap();
+    (
+        output.status,
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
 }
 
 #[test]

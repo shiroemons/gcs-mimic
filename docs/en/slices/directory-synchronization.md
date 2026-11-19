@@ -1093,8 +1093,9 @@ API-readiness HTTP status. No synchronization stop makes the API unready;
 catalog health failures and failing maintenance still can. While synchronization
 is enabled, a ready answer adds `sync.state`, the mirror's state, read from
 memory without a catalog query: `starting` until this process's first
-reconciliation finishes, then `running`; `retrying` while a run or a directory
-watch rebuild waits to retry; `paused` until an explicit rescan succeeds, so a
+reconciliation finishes, through any retries on the way, then `running`;
+`retrying` while a run of a mirror that has started, or a directory watch
+rebuild, waits to retry; `paused` until an explicit rescan succeeds, so a
 rescan that fails, even transiently, answers with its failure and leaves the
 mirror paused under the reason it recorded; and `stopped` after shutdown or
 after the mirror's thread ends unexpectedly, which also withdraws the sync
@@ -1103,9 +1104,17 @@ catalog/root IDs or tokens; detailed strict diagnostics require management
 authorization. While the mirror is retrying, paused or stopped without a recorded
 pause reason, status `state` is `Unhealthy`. The `sync` object is outside the
 public contract until directory synchronization is complete.
-`gcs-mimic healthcheck --require-sync true` succeeds only while it reports
-`running`, so a container healthcheck can wait for synchronization; without the
-option, or with `false`, the healthcheck follows the API alone.
+
+`gcs-mimic healthcheck`, which the container image runs, fails while a ready
+answer reports `starting`. `starting` covers the whole first pass: ingesting the
+tree, then exporting every existing object, so a Compose dependency on a healthy
+container sees the tree reconciled. Every other state passes, because waiting
+would not end a pause or a stop, and `gcs-mimic sync status` explains them. The
+diagnostic for `starting` names that command with the probed origin. An answer
+without `sync` passes as before, and a `sync` object the healthcheck cannot
+read, as from another version, fails and says so. The image allows a 5-minute
+start period, checked every 2 seconds, for the first pass over a tree near the
+local-development scale.
 
 ## Resources, ownership and remaining approval
 

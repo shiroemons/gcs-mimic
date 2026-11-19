@@ -144,7 +144,7 @@ These are emulator extensions, not Google API methods:
 | Command | Required behavior |
 | --- | --- |
 | `gcs-mimic serve --config PATH` | Validate configuration, recover persistence, seed if appropriate, start listeners. |
-| `gcs-mimic healthcheck --url URL` | Exit zero only when the health/readiness request succeeds. |
+| `gcs-mimic healthcheck --url URL` | Exit zero only when the health/readiness request succeeds and, with directory synchronization, the ready answer no longer reports it starting. |
 | `gcs-mimic url public --base-url URL --bucket B --object O` | Print an encoded object address without changing permissions. |
 | `gcs-mimic url sign --base-url URL --bucket B --object O --method GET --expires 15m --signer ID --private-key PATH` | Print a locally generated V4 URL for the supplied final endpoint. Never call real Google IAM. |
 | `gcs-mimic admin reset --endpoint URL --confirm gcs-mimic` | Reset only this local emulator instance when admin operations are explicitly enabled. Keep this command out of ordinary startup. |

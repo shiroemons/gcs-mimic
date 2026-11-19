@@ -10,8 +10,9 @@ use tokio::sync::watch;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MirrorState {
     /// Until this process's first initialization, which ends with a full reconciliation,
-    /// finishes. The baseline an earlier process completed survives a restart, so without this
-    /// state the mirror would look caught up before it has compared the tree with the catalog.
+    /// finishes, through any retries on the way. The baseline an earlier process completed
+    /// survives a restart, so without this state the mirror would look caught up before it has
+    /// compared the tree with the catalog.
     Starting,
     /// Observing the tree and replaying API changes.
     Running,
@@ -137,6 +138,10 @@ impl Default for MirrorStatusSender {
 }
 
 impl MirrorStatusSender {
+    pub(crate) fn state(&self) -> MirrorState {
+        *self.current.borrow()
+    }
+
     /// A reader of this state.
     pub(crate) fn subscribe(&self) -> MirrorStatus {
         MirrorStatus {

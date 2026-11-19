@@ -57,7 +57,11 @@ COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
 USER 10001:10001
 EXPOSE 4443
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=15 CMD ["gcs-mimic", "healthcheck"]
+# With sync_dir set, the healthcheck fails until the first pass has exported existing objects,
+# which a thousand-object bucket can take minutes to finish. Failures in the start period do not
+# count, and the first success ends it, so a server without sync_dir is healthy as soon as it
+# answers. The start interval keeps the 2s cadence there, where Docker would otherwise use 5s.
+HEALTHCHECK --interval=2s --timeout=2s --start-period=5m --start-interval=2s --retries=15 CMD ["gcs-mimic", "healthcheck"]
 ENTRYPOINT ["gcs-mimic"]
 # Like fake-gcs-server's `-data /data`, a bucket/object tree mounted at /data seeds every start.
 # scratch defines no PATH, and the exec-form HEALTHCHECK resolves `gcs-mimic` through it.

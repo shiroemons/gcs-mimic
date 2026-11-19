@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 const USAGE: &str = "gcs-mimic — local Google Cloud Storage emulator
 Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the first argument is an option)
        gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|resolve|wait --endpoint URL [OPTIONS]
-       gcs-mimic healthcheck [--url URL] [--ca-cert PATH] [--require-sync BOOL]
+       gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [OPTIONS] (see import fake-gcs-server --help)
        gcs-mimic buckets new [--name NAME [SETTINGS]]... [--format json|env|compose] (writes a buckets document; see buckets new --help)
        gcs-mimic tls ca
@@ -50,8 +50,8 @@ Without --url, healthcheck reads GCS_MIMIC_* and the selected JSON config, uses 
 maps wildcard listeners to loopback and probes over HTTP unless scheme=https. When that
 probe fails, it retries with the options of a gcs-mimic server running as PID 1, as in the
 container image; elsewhere, server CLI options need an explicit --url.
---require-sync true also requires the ready answer's sync.state to be running, so the check
-fails while directory synchronization starts, retries, pauses or stops, or when it is off.
+A ready answer that reports directory synchronization still starting also fails the check,
+until the server's first pass over sync_dir, which exports existing objects, has finished.
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 /// The settings most setups need, which the help lists first. The scheme leads because it
@@ -522,7 +522,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "d47d917f93f375c24460496ccb9e0123f1e00e00ef48d07fd54b89128be694b1"
+            "74d00a966b09749091885a5be22d989f229de7b40302c19908dcf09398efe1db"
         );
     }
 }

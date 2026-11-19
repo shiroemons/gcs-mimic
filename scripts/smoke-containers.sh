@@ -333,6 +333,8 @@ for platform in "$@"; do
     --mount "type=volume,src=$volume,dst=/state" \
     -e GCS_MIMIC_SCHEME=http -e GCS_MIMIC_DATA_DIR=/state/data -e GCS_MIMIC_SYNC_DIR=/state/sync \
     "$GCSM_IMAGE")
+  # The healthcheck also fails while synchronization is starting, so this waits for the
+  # mirror's first pass, which ingests external files and exports existing objects.
   wait_sync_ready() {
     for ((attempt = 0; attempt < 40; attempt++)); do
       if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then
@@ -362,17 +364,15 @@ for platform in "$@"; do
     echo "sync_dir file $1 did not reach the expected state" >&2
     return 1
   }
-  # Ingestion of external files also runs after readiness.
+  # Ingestion of external files runs after API readiness but within the first pass, so once
+  # wait_sync_ready returns, the object is already there.
   expect_ingested_object() {
-    for ((attempt = 0; attempt < 40; attempt++)); do
-      if curl --disable --noproxy '*' --fail --silent --max-time 5 \
-        "http://$address/storage/v1/b/sync-bucket/o/$1?alt=media" >"$work/sync-actual" &&
-        cmp -s "$2" "$work/sync-actual"; then
-        return 0
-      fi
-      sleep 0.25
-    done
-    echo "external file $1 was not ingested after restart" >&2
+    if curl --disable --noproxy '*' --fail --silent --max-time 5 \
+      "http://$address/storage/v1/b/sync-bucket/o/$1?alt=media" >"$work/sync-actual" &&
+      cmp -s "$2" "$work/sync-actual"; then
+      return 0
+    fi
+    echo "external file $1 was not ingested when the healthcheck passed after restart" >&2
     return 1
   }
   wait_sync_ready

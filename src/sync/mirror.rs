@@ -387,7 +387,11 @@ impl Mirror {
         backoff: &mut Backoff,
         started: std::time::Instant,
     ) -> Step {
-        self.state.enter(MirrorState::Retrying);
+        // A retry of the first pass is still part of starting: the healthcheck waits for that
+        // pass, and `retrying` would let it pass before the tree was reconciled.
+        if self.state.state() != MirrorState::Starting {
+            self.state.enter(MirrorState::Retrying);
+        }
         // A run that lasted longer than the cap had recovered, so its failure starts over.
         if started.elapsed() >= RETRY_DELAY_MAX {
             backoff.reset();
