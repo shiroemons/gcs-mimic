@@ -89,13 +89,15 @@ export holds back neither the baseline nor the inventory, which offers the set
 to approve, and while it waits, a wait and the status report the pending
 deletion approval rather than a changing source. Approving the set deletes the files and then runs the waiting
 exports; putting the directory back runs them on the next pass. The guard
-also stops it, whatever the counts, for a bucket whose directory is there but
-has held none of its tracked files since the first inventory after the server
-started, as when a bind mount of the bucket comes up empty
-(`sync_bucket_directory_emptied` names the bucket). That inventory takes in
-what changed while the server was stopped; a bucket emptied while the server
-runs, or one that has held a tracked file again since, is left to the counts.
-One decision covers both reasons. A disabled
+also stops it, whatever the counts, for a bucket whose directory the first
+inventory after the server started finds holding none of its tracked files, as
+when a bind mount of the bucket comes up empty
+(`sync_bucket_directory_emptied` names the bucket), for as long as none of
+those files is back. That inventory takes in what changed while the server was
+stopped. A file the bucket gains later, such as the export of an object written
+through the API, does not count, so it neither ends the wait nor is held back.
+A bucket emptied while the server runs, or one with any of those files back, is
+left to the counts. One decision covers both reasons. A disabled
 guard changes only these decisions.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,

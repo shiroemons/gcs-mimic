@@ -7,10 +7,7 @@ use crate::storage::failure::{Link, TypedSource};
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError, NodeId},
-    storage::{
-        admin::{AdminError, BucketName},
-        lock,
-    },
+    storage::{admin::AdminError, lock, sync_state::deletions::EmptiedAtStart},
     sync::{
         mapping::{MARKER, MARKER_STAGING},
         naming::RootNaming,
@@ -19,7 +16,6 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
     fs::File,
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -342,9 +338,9 @@ struct Ownership {
     identity: FileIdentity,
     /// Set once the mirror has probed the pinned root, and shared by every clone of its lease.
     naming: OnceLock<RootNaming>,
-    /// The buckets all of whose tracked files have been gone since the first deletion inventory
-    /// that completed while this process owned the root; `None` until one has.
-    emptied_since_start: Mutex<Option<BTreeSet<BucketName>>>,
+    /// What the deletion inventories of this process found of the buckets emptied while the
+    /// server was stopped; `None` until the first of them completed.
+    emptied_at_start: Mutex<Option<EmptiedAtStart>>,
     _catalog_permit: OwnedSemaphorePermit,
 }
 
@@ -461,28 +457,26 @@ impl RootLease {
     pub(crate) async fn revalidate(&self) -> Result<(), RootError> {
         self.file_job(|_| Ok(())).await
     }
-    /// Of `emptied`, the buckets all of whose tracked files a complete deletion inventory just
-    /// found gone, those that have stayed so since the first such inventory while this process
-    /// owned the root. The first one takes all of `emptied`: what it finds gone went while the
-    /// server was stopped. A bucket that holds a tracked file again drops out for good, so that
-    /// emptying it later is a deletion made while the mirror watched.
-    pub(crate) fn emptied_since_start(
-        &self,
-        emptied: BTreeSet<BucketName>,
-    ) -> BTreeSet<BucketName> {
-        // A panic between taking the set and storing it again leaves `None`, which takes the
-        // next inventory for the first: the side that asks for approval.
-        let mut since_start = self
-            .ownership
-            .emptied_since_start
+    /// What the last complete deletion inventory of this process kept of the buckets emptied
+    /// while the server was stopped; `None` while none has completed, which makes the next one
+    /// the first, whose findings went while the server was stopped.
+    pub(crate) fn emptied_at_start(&self) -> Option<EmptiedAtStart> {
+        self.ownership
+            .emptied_at_start
             .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let kept = match since_start.take() {
-            None => emptied,
-            Some(earlier) => earlier.intersection(&emptied).cloned().collect(),
-        };
-        *since_start = Some(kept.clone());
-        kept
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Records what a complete deletion inventory kept of the buckets emptied at the start. A
+    /// bucket it leaves out, because one of those files was there again, drops out for good, so
+    /// that emptying it later is a deletion made while the mirror watched.
+    pub(crate) fn keep_emptied_at_start(&self, kept: EmptiedAtStart) {
+        *self
+            .ownership
+            .emptied_at_start
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(kept);
     }
     pub(crate) fn watch_path(&self) -> &Path {
         &self.ownership.path
@@ -700,7 +694,7 @@ impl SyncState {
                         selected_path,
                         identity,
                         naming: OnceLock::new(),
-                        emptied_since_start: Mutex::new(None),
+                        emptied_at_start: Mutex::new(None),
                         _catalog_permit: permit,
                     };
                     ownership.validate()?;

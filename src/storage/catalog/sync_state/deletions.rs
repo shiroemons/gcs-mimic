@@ -163,15 +163,22 @@ pub(crate) enum Removal {
     Bucket(BucketGone),
 }
 
+/// The tracked files, by path, of each bucket that the first complete inventory while this
+/// process owned the root found all gone, as later inventories still find them. Only these files
+/// tell whether such a bucket stays emptied: a file the tree gained since, such as the export of
+/// an object written through the API, does not.
+pub(crate) type EmptiedAtStart =
+    std::collections::BTreeMap<BucketName, std::collections::BTreeSet<String>>;
+
 /// How every tracked file of one bucket went at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BucketGone {
     /// The bucket's directory is missing.
     Missing,
-    /// The directory is there but holds none of the files the tree tracked in it, and has held
-    /// none since the first inventory of this process, which takes in what changed while the
-    /// server was stopped. A bucket emptied while the mirror runs is a deletion the user made in
-    /// front of it, which only the counts take to approval.
+    /// None of the files the tree tracked in the bucket when the first inventory of this process
+    /// ran, which takes in what changed while the server was stopped, has been there since. A
+    /// bucket emptied while the mirror runs is a deletion the user made in front of it, which
+    /// only the counts take to approval.
     Emptied,
 }
 

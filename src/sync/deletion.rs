@@ -12,15 +12,18 @@ use crate::{
         sync_state::{
             OpaqueId, Ordinal, PageLimit, SyncBinding,
             deletions::{
-                BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard,
-                Removal,
+                BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet,
+                EmptiedAtStart, Guard, Inventory, Removal,
             },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
         },
     },
 };
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 mod presence;
 pub(super) use presence::{Missing, Presence, Unobservable, presence};
@@ -159,13 +162,13 @@ impl Applied {
 /// pass was interrupted; `Diverged` that the earlier set this inventory confirms differs.
 async fn count_candidates(
     root: &RootLease,
-    inventory: &mut crate::storage::sync_state::deletions::Inventory,
+    inventory: &mut Inventory,
     interrupt: Interrupt<'_>,
     unobserved: &mut Unobserved,
 ) -> Result<Option<Confirmed>, SyncError> {
     let naming = root.naming()?;
     let mut after = String::new();
-    let mut buckets = BTreeMap::<BucketName, BucketTally>::new();
+    let mut gone = GoneBuckets::new(root);
     loop {
         if interrupt.check() != Interrupted::No {
             return Ok(None);
@@ -174,7 +177,7 @@ async fn count_candidates(
             .deletion_inventory_page(inventory.clone(), after.clone())
             .await?;
         if page.is_empty() {
-            take_gone_buckets(root, inventory, &buckets);
+            gone.take(root, inventory);
             return Ok(Some(Confirmed::Same));
         }
         let baseline = page.len() as u64;
@@ -190,15 +193,13 @@ async fn count_candidates(
                 }
                 Ok(_) | Err(_) => Presence::Unobservable(Unobservable::NameMismatch),
             };
-            let tally = buckets.entry(candidate.bucket.clone()).or_default();
-            tally.tracked += 1;
             match presence {
                 Presence::Absent(absence) => {
                     let missing_file = absence.of(candidate);
-                    tally.saw_absent(missing_file.removal());
+                    gone.saw_absent(missing_file.candidate(), missing_file.removal());
                     missing.push(missing_file);
                 }
-                Presence::Present => {}
+                Presence::Present => gone.saw_present(&candidate),
                 Presence::Unobservable(reason) => {
                     unobservable(root, &candidate, &reason, unobserved).await?;
                 }
@@ -214,7 +215,7 @@ async fn count_candidates(
 /// seen absent. Only a path seen empty becomes a candidate.
 async fn record_missing(
     root: &RootLease,
-    inventory: &mut crate::storage::sync_state::deletions::Inventory,
+    inventory: &mut Inventory,
     baseline: u64,
     missing: Vec<Missing>,
 ) -> Result<Confirmed, SyncError> {
@@ -228,55 +229,84 @@ async fn record_missing(
         .await?)
 }
 
-/// What a complete inventory found of one bucket's tracked files.
-#[derive(Debug, Default)]
-struct BucketTally {
-    tracked: u64,
-    absent: u64,
-    directory_missing: bool,
+/// What an inventory finds of the buckets whose tracked files may all have gone at once: a
+/// bucket whose directory is missing, or one that none of its files the first complete inventory
+/// of this process found gone has come back to since. Both look exactly like the user deleting
+/// the files when a mount did not come up or came up empty. A bucket emptied while the mirror
+/// runs is left to the counts.
+struct GoneBuckets {
+    /// What the earlier inventories of this process kept; `None` while this one is the first.
+    at_start: Option<EmptiedAtStart>,
+    buckets: BTreeMap<BucketName, BucketTally>,
 }
 
-impl BucketTally {
-    fn saw_absent(&mut self, removal: Removal) {
-        self.absent += 1;
-        match removal {
-            Removal::Bucket(BucketGone::Missing) => self.directory_missing = true,
-            Removal::Bucket(BucketGone::Emptied) | Removal::Files => {}
+#[derive(Default)]
+struct BucketTally {
+    directory_missing: bool,
+    /// Whether a file that counts was there, which ends the bucket's emptiness for good.
+    returned: bool,
+    /// The paths of the files that count and were gone, while none was there.
+    absent: BTreeSet<String>,
+}
+
+impl GoneBuckets {
+    fn new(root: &RootLease) -> Self {
+        Self {
+            at_start: root.emptied_at_start(),
+            buckets: BTreeMap::new(),
         }
     }
 
-    /// Whether the directory is there but none of the tracked files are.
-    fn emptied(&self) -> bool {
-        !self.directory_missing && self.absent == self.tracked
+    /// Whether the file of `candidate` tells whether its bucket was emptied at the start: every
+    /// tracked file in the first inventory, and later only the files that inventory found gone.
+    /// A file the tree gained since, such as the export of an object written through the API,
+    /// does not; exporting it must not let the files gone at the start be deleted unasked.
+    fn counts(&self, candidate: &Candidate) -> bool {
+        self.at_start.as_ref().is_none_or(|at_start| {
+            at_start
+                .get(&candidate.bucket)
+                .is_some_and(|paths| paths.contains(&candidate.path))
+        })
     }
-}
 
-/// Takes to approval, whatever the counts, the files of each bucket that `buckets` shows went
-/// all at once, and warns about each such bucket: its directory is missing, or it has held none
-/// of its tracked files since the first complete inventory of this process. Both look exactly
-/// like the user deleting the files when a mount did not come up or came up empty. A bucket
-/// emptied while the mirror runs is left to the counts.
-fn take_gone_buckets(
-    root: &RootLease,
-    inventory: &mut crate::storage::sync_state::deletions::Inventory,
-    buckets: &BTreeMap<BucketName, BucketTally>,
-) {
-    let emptied = buckets
-        .iter()
-        .filter(|(_, tally)| tally.emptied())
-        .map(|(bucket, _)| bucket.clone())
-        .collect();
-    let since_start = root.emptied_since_start(emptied);
-    for (bucket, tally) in buckets {
-        let gone = if tally.directory_missing {
-            BucketGone::Missing
-        } else if since_start.contains(bucket) {
-            BucketGone::Emptied
-        } else {
-            continue;
-        };
-        warn_bucket_gone(bucket, gone);
-        inventory.saw_gone(Removal::Bucket(gone));
+    fn saw_absent(&mut self, candidate: &Candidate, removal: Removal) {
+        let counts = self.counts(candidate);
+        let tally = self.buckets.entry(candidate.bucket.clone()).or_default();
+        match removal {
+            Removal::Bucket(BucketGone::Missing) => tally.directory_missing = true,
+            Removal::Bucket(BucketGone::Emptied) | Removal::Files => {}
+        }
+        if counts && !tally.returned {
+            tally.absent.insert(candidate.path.clone());
+        }
+    }
+
+    fn saw_present(&mut self, candidate: &Candidate) {
+        if self.counts(candidate) {
+            let tally = self.buckets.entry(candidate.bucket.clone()).or_default();
+            tally.returned = true;
+            tally.absent = BTreeSet::new();
+        }
+    }
+
+    /// Takes to approval, whatever the counts, the files of each bucket that went all at once,
+    /// warns about each such bucket, and keeps the emptied ones for the next inventory.
+    fn take(self, root: &RootLease, inventory: &mut Inventory) {
+        let mut kept = EmptiedAtStart::new();
+        for (bucket, tally) in self.buckets {
+            let emptied = !tally.returned && !tally.absent.is_empty();
+            let gone = match (tally.directory_missing, emptied) {
+                (true, _) => BucketGone::Missing,
+                (false, true) => BucketGone::Emptied,
+                (false, false) => continue,
+            };
+            warn_bucket_gone(&bucket, gone);
+            inventory.saw_gone(Removal::Bucket(gone));
+            if emptied {
+                kept.insert(bucket, tally.absent);
+            }
+        }
+        root.keep_emptied_at_start(kept);
     }
 }
 

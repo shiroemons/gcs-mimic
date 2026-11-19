@@ -291,8 +291,9 @@ directory meanwhile, not even for an object written into the bucket through the
 API, which waits with it, and the bucket stays after the approved deletion. A
 bucket directory that the server finds at startup holding none of its tracked
 files, as a bind mount of the bucket that came up empty does, waits for the
-approval too, logged as `sync_bucket_directory_emptied`; emptying a bucket
-while the server runs is left to the counts. Deleting
+approval too, logged as `sync_bucket_directory_emptied`, also after an object
+written through the API meanwhile is exported into it; emptying a bucket while
+the server runs is left to the counts. Deleting
 a bucket through the API keeps its directory.
 A file deleted while the server was stopped, or before it crashed, deletes its
 object at the next startup instead of being written back; only the guard above

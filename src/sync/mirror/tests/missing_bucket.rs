@@ -108,39 +108,70 @@ async fn approve_control(commands: &tokio::sync::mpsc::Sender<Command>, root: &R
         .unwrap();
 }
 
+/// A mirror that runs over the tree and answers the controls sent to `commands`, as the server's
+/// control routes hand them on.
+struct Live {
+    catalog: Catalog,
+    root: RootLease,
+    commands: tokio::sync::mpsc::Sender<Command>,
+    stop: tokio::sync::watch::Sender<bool>,
+    worker: tokio::task::JoinHandle<Result<(), SyncError>>,
+}
+
+impl Live {
+    async fn start(data: &Path, tree: &Path) -> Self {
+        let catalog = Catalog::open(data).await.unwrap();
+        let config = Config {
+            data_dir: data.to_owned(),
+            sync_dir: Some(tree.to_owned()),
+            ..Default::default()
+        };
+        let root = crate::sync::preflight(&catalog, &config)
+            .await
+            .unwrap()
+            .unwrap();
+        let (stop, mut stopping) = tokio::sync::watch::channel(false);
+        let (commands, mut requests) = tokio::sync::mpsc::channel(1);
+        let worker_catalog = catalog.clone();
+        let worker_root = root.clone();
+        let worker = tokio::spawn(async move {
+            run_live_controlled(&worker_catalog, &worker_root, &mut stopping, &mut requests).await
+        });
+        Self {
+            catalog,
+            root,
+            commands,
+            stop,
+            worker,
+        }
+    }
+
+    async fn stop(self) {
+        self.stop.send_replace(true);
+        self.worker.await.unwrap().unwrap();
+        drop(self.root);
+        self.catalog.close().await.unwrap();
+    }
+}
+
 /// The directory goes away while the server runs, and an API write into its bucket follows. The
 /// replayed export waits instead of recreating the directory, a wait reports the pending
 /// approval, and approving the set deletes the tracked files and then runs the export.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_api_write_into_a_missing_bucket_directory_waits_for_the_approval() {
     let (data, tree, bucket) = tracked_pair().await;
-    let catalog = Catalog::open(&data.0).await.unwrap();
-    let config = Config {
-        data_dir: data.0.clone(),
-        sync_dir: Some(tree.0.clone()),
-        ..Default::default()
-    };
-    let root = crate::sync::preflight(&catalog, &config)
-        .await
-        .unwrap()
-        .unwrap();
-    let (stop, mut stopping) = tokio::sync::watch::channel(false);
-    let (commands, mut requests) = tokio::sync::mpsc::channel(1);
-    let worker_catalog = catalog.clone();
-    let worker_root = root.clone();
-    let worker = tokio::spawn(async move {
-        run_live_controlled(&worker_catalog, &worker_root, &mut stopping, &mut requests).await
-    });
+    let live = Live::start(&data.0, &tree.0).await;
+    let (catalog, root, commands) = (&live.catalog, &live.root, &live.commands);
     fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
-    rescan_control(&commands).await;
+    rescan_control(commands).await;
     let set = root.deletion_set().await.unwrap().unwrap();
     assert_eq!((set.candidate_count, set.guarded), (2, true));
 
-    publish_named(&catalog, &bucket, "third", BODY, Origin::Api).await;
+    publish_named(catalog, &bucket, "third", BODY, Origin::Api).await;
     // The held export stays queued for the retry after the approval; every wait, not only the
     // first after the write, reads it as the pending approval, and so does the status.
     for _ in 0..2 {
-        let waited = wait_control(&commands).await;
+        let waited = wait_control(commands).await;
         assert_eq!(waited.reason, WaitReason::DeletionApproval);
     }
     let status = Outstanding::of_status(
@@ -154,22 +185,51 @@ async fn an_api_write_into_a_missing_bucket_directory_waits_for_the_approval() {
     let held = root.deletion_set().await.unwrap().unwrap();
     assert_eq!((held.candidate_count, held.guarded), (2, true));
     assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
-    all_exist(&catalog, &bucket).await;
+    all_exist(catalog, &bucket).await;
 
-    approve_control(&commands, &root).await;
+    approve_control(commands, root).await;
     eventually_async("the held export to run", || async {
         tree.0.join(BUCKET).join("third").is_file()
     })
     .await;
     assert_eq!(fs::read(tree.0.join(BUCKET).join("third")).unwrap(), BODY);
     for name in TRACKED {
-        assert!(!exists(&catalog, &bucket, name).await, "{name}");
+        assert!(!exists(catalog, &bucket, name).await, "{name}");
     }
-    assert!(exists(&catalog, &bucket, "third").await);
-    stop.send_replace(true);
-    worker.await.unwrap().unwrap();
-    drop(root);
-    catalog.close().await.unwrap();
+    assert!(exists(catalog, &bucket, "third").await);
+    live.stop().await;
+}
+
+/// An API write into a bucket emptied while the server was stopped reaches the tree, as any
+/// write does. The file it adds was not there at the start, so it does not end the wait of the
+/// files that went while the server was stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_api_write_into_a_bucket_emptied_while_stopped_keeps_the_rest_waiting() {
+    let (data, tree, bucket) = tracked_pair().await;
+    for name in TRACKED {
+        fs::remove_file(tree.0.join(BUCKET).join(name)).unwrap();
+    }
+    let live = Live::start(&data.0, &tree.0).await;
+    let (catalog, root, commands) = (&live.catalog, &live.root, &live.commands);
+    rescan_control(commands).await;
+    let set = root.deletion_set().await.unwrap().unwrap();
+    assert_eq!((set.candidate_count, set.guarded), (2, true));
+
+    publish_named(catalog, &bucket, "third", BODY, Origin::Api).await;
+    eventually_async("the API write to reach the tree", || async {
+        tree.0.join(BUCKET).join("third").is_file()
+    })
+    .await;
+    // The rescan inventories again with `third` tracked in the bucket.
+    rescan_control(commands).await;
+    let waited = wait_control(commands).await;
+    assert_eq!(waited.reason, WaitReason::DeletionApproval);
+    let held = root.deletion_set().await.unwrap().unwrap();
+    assert_eq!((held.candidate_count, held.guarded), (2, true));
+    assert_eq!(held.completed_count, 0);
+    assert_eq!(fs::read(tree.0.join(BUCKET).join("third")).unwrap(), BODY);
+    all_exist(catalog, &bucket).await;
+    live.stop().await;
 }
 
 /// Inventories `root` again, as a later pass of the same run does, and returns its set.
@@ -209,6 +269,23 @@ async fn a_bucket_emptied_while_stopped_waits_for_approval() {
         assert!(exists(&started.catalog, &bucket, name).await, "{name}");
     }
     assert!(tree.0.join(BUCKET).is_dir());
+    started.close().await;
+}
+
+/// One of the files a bucket lost while the server was stopped comes back, so the bucket is no
+/// longer emptied, and the other file is left to the counts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_back_in_a_bucket_emptied_while_stopped_leaves_the_rest_to_the_counts() {
+    let (data, tree, _) = tracked_pair().await;
+    for name in TRACKED {
+        fs::remove_file(tree.0.join(BUCKET).join(name)).unwrap();
+    }
+    let started = Started::start(&data.0, &tree.0).await;
+    let set = started.root.deletion_set().await.unwrap().unwrap();
+    assert_eq!((set.candidate_count, set.guarded), (2, true));
+    fs::write(tree.0.join(BUCKET).join("first"), BODY).unwrap();
+    let again = inventory_again(&started, &data.0, &tree.0).await;
+    assert_eq!((again.candidate_count, again.guarded), (1, false));
     started.close().await;
 }
 
