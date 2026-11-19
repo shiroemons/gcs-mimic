@@ -45,9 +45,15 @@ unreadable path, or a directory or special file in the file's place) keeps its
 own object out of the set, and the inventory goes on with the other paths. Each
 complete inventory logs such paths in one `sync_deletion_unobservable` warning:
 their count and the first ten, each with its reason and remedy. A directory or special file that
-replaced a tracked file also stops that one path as `EntryReplaced`, in exports
-and inventories alike, until the path is empty or holds a regular file again;
-the root keeps running. An untracked one stays a mapping finding. The directory
+replaced a tracked file also stops that one path as `EntryReplaced` (the
+warning's reason `entry-replaced`), in exports and inventories alike, until the
+path is empty or holds a regular file again; the root keeps running. That holds
+for an empty directory only: a file inside the directory needs the tracked
+object's name as a directory, so it is an entry no object can take
+(`sync_path_collision`) and holds back every deletion, before any inventory
+looks at the path. Moving the directory away without putting a regular file
+back leaves the path empty, which deletes the object as deleting the file does.
+Where no tracked file was, such an entry stays a mapping finding. The directory
 of a bucket deleted through the API holds nothing back while it is empty or
 holds only regular files with ignored names, which the same classification
 decides, and is left in place; a directory or symlink with such a name holds it

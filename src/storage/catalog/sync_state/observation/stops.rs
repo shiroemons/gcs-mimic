@@ -11,7 +11,8 @@ pub(crate) enum PathStop {
     SourceChanging,
     IoFailure,
     /// A directory or special file took the place of a tracked file. Neither an export nor a
-    /// deletion reaches through it, and it stops only its own path.
+    /// deletion reaches through it, and it stops only its own path; a file inside such a
+    /// directory is an entry of its own, which no object can take.
     EntryReplaced,
 }
 sql::text_enum!(pub(super) PathStop, "invalid path stop", {

@@ -202,7 +202,7 @@ async fn an_inventory_names_the_first_unobservable_paths_and_counts_the_rest() {
             .map(|index| format!("test-bucket/{index:04}"))
             .collect::<Vec<_>>()
             .iter()
-            .map(|path| (path.as_str(), Unobservable::Replaced.as_str()))
+            .map(|path| (path.as_str(), Unobservable::EntryReplaced.as_str()))
             .collect::<Vec<_>>()
     );
     let set = root

@@ -73,8 +73,9 @@ pub(in crate::sync) enum Unobservable {
     ParentBlocked,
     /// The directory holds the file under another spelling of its name.
     Alias,
-    /// A directory or special file took the regular file's place.
-    Replaced,
+    /// A directory or special file took the regular file's place. The log names it as the path
+    /// stop and the findings view do, `entry-replaced` beside the other reasons' spelling.
+    EntryReplaced,
     /// The path no longer maps back to its tracked object, as after a naming change.
     NameMismatch,
     /// Reading the path failed.
@@ -89,7 +90,7 @@ impl Unobservable {
             Self::NameRejected => "name-rejected",
             Self::ParentBlocked => "parent-blocked",
             Self::Alias => "alias",
-            Self::Replaced => "replaced",
+            Self::EntryReplaced => "entry-replaced",
             Self::NameMismatch => "name-mismatch",
             Self::Io(_) => "io-failure",
         }
@@ -101,7 +102,7 @@ impl Unobservable {
     /// nothing the mirror could destroy, so they only keep the object out of the deletion set.
     pub(in crate::sync) fn stops_path(&self) -> bool {
         match self {
-            Self::Replaced => true,
+            Self::EntryReplaced => true,
             Self::BeyondLimit
             | Self::InvalidPath
             | Self::NameRejected
@@ -124,7 +125,7 @@ impl Unobservable {
             }
             Self::ParentBlocked => Correction::BlockedParent.remedy(),
             Self::Alias => Correction::AliasedName.remedy(),
-            Self::Replaced => Correction::ReplacedEntry.remedy(),
+            Self::EntryReplaced => Correction::ReplacedEntry.remedy(),
             Self::Io(_) => Correction::UnreadablePath.remedy(),
         }
     }
@@ -139,7 +140,7 @@ impl fmt::Display for Unobservable {
             | Self::NameRejected
             | Self::ParentBlocked
             | Self::Alias
-            | Self::Replaced
+            | Self::EntryReplaced
             | Self::NameMismatch => f.write_str(self.as_str()),
         }
     }
@@ -221,7 +222,7 @@ fn lookup_failure(error: io::Error) -> Presence {
     Presence::Unobservable(if name_refused {
         Unobservable::NameRejected
     } else if tree::structural_entry_error(&error) {
-        Unobservable::Replaced
+        Unobservable::EntryReplaced
     } else {
         Unobservable::Io(error)
     })

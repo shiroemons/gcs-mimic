@@ -325,9 +325,12 @@ the log names it with a remedy once, when a scan first finds it, as
 the rest. A regular file directly in the
 directory, such as a `README.md` or `.gitkeep`, belongs to no bucket: it is
 skipped with one `sync_skipped` warning and holds nothing back, and files named
-like `.DS_Store` are skipped silently. A directory put where a synchronized
-file was stops only that path, and `gcs-mimic sync findings` lists it as
-`EntryReplaced`.
+like `.DS_Store` are skipped silently. An empty directory put where a
+synchronized file was stops only that path, and `gcs-mimic sync findings` lists
+it as `EntryReplaced`. A file inside such a directory is an entry no object can
+take, logged as `sync_path_collision`, so it holds back every deletion. Moving
+the directory away without putting a regular file back deletes the object, as
+deleting the file does.
 When both the API and a file changed the same object, the API's version wins:
 the file is replaced with the API's bytes and the edit is retained as a
 conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;

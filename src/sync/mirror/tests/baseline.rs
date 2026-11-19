@@ -269,6 +269,43 @@ async fn a_tracked_file_replaced_by_a_directory_stops_only_its_own_path() {
     catalog.close().await.unwrap();
 }
 
+/// A directory with a file in it where a tracked file was stops more than its own path: the file
+/// inside needs that path as a directory while the tracked object keeps it a file, so it is an
+/// entry no object can take, which holds back every deletion. Moving the directory away without
+/// putting a file back then deletes the object it replaced, as deleting the file does.
+#[tokio::test]
+async fn a_tracked_file_replaced_by_a_directory_with_files_holds_back_every_deletion() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    for name in ["replaced", "deleted", "kept"] {
+        publish_named(&catalog, &bucket, name, name.as_bytes(), Origin::Api).await;
+    }
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    let replaced = tree.0.join("test-bucket/replaced");
+    fs::remove_file(&replaced).unwrap();
+    fs::create_dir(&replaced).unwrap();
+    fs::write(replaced.join("inside"), b"inside").unwrap();
+    fs::remove_file(tree.0.join("test-bucket/deleted")).unwrap();
+    let status = Lifecycle::default();
+    let mut baseline = COMPLETE;
+    let summary = ingest(&catalog, &root, &status, &mut baseline).await;
+    assert_eq!(summary.unrepresentable_entries().get(), 1);
+    assert!(exists(&catalog, &bucket, "deleted").await);
+    assert!(exists(&catalog, &bucket, "replaced").await);
+    assert!(!exists(&catalog, &bucket, "replaced/inside").await);
+    // No inventory ran to look at the path, so the entry inside is what names it.
+    assert!(path_stops(&root).await.is_empty());
+
+    fs::remove_dir_all(&replaced).unwrap();
+    let summary = ingest(&catalog, &root, &status, &mut baseline).await;
+    assert_eq!(summary.unrepresentable_entries().get(), 0);
+    assert!(!exists(&catalog, &bucket, "replaced").await);
+    assert!(!exists(&catalog, &bucket, "deleted").await);
+    assert!(exists(&catalog, &bucket, "kept").await);
+    assert!(path_stops(&root).await.is_empty());
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// With the baseline complete, a tracked file missing while its API generation stayed the same
 /// was deleted from the tree, wherever the mirror was meanwhile. Reconciliation leaves it to the
 /// deletion inventory instead of writing it back.

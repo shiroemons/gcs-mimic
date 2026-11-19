@@ -153,7 +153,7 @@ impl Correction {
                 "Restore file permissions or free disk space, and preserve pending bytes"
             }
             Self::ReplacedEntry => {
-                "A directory or special file replaced this tracked file. Move it away and put a regular file back, or delete the object through the API"
+                "A directory or special file replaced this tracked file. To keep the object, move the entry away and put a regular file back. Moving the entry away without putting a file back deletes the object, as deleting the file does"
             }
             Self::BlockedParent => "Put a directory back in place of the entry above this path",
             Self::AliasedName => {
