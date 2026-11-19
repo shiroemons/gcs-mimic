@@ -144,7 +144,7 @@ impl Lookup {
     }
 
     /// How many times this lookup and its clones read a directory to confirm a spelling.
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn reads(&self) -> usize {
         self.listings().reads
     }
