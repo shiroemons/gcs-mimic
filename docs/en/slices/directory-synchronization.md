@@ -1190,8 +1190,9 @@ longer than the host allows, a file and directory of one name or a case alias,
 stay reachable through the API and do not stop a wait: a `Ready` answer counts
 them in `findings.unmapped` with the findings `revision` that lists them. Names
 the tree ignores, such as `.DS_Store`, are neither counted nor stop it. Deleting
-such an object through the API removes its finding once the deletion is
-replayed, so it stops counting. An export conflict stays through the deletion,
+such an object through the API stops it counting at once, even while the
+mirror is paused and has not replayed the deletion; the findings view lists its
+finding until the deletion is replayed or a scan removes it. An export conflict stays through the deletion,
 and a name finding of a later generation in the same bucket incarnation does not
 replace it, since the external edit it holds is still unresolved. With
 `require_no_findings: true`, a `Ready` wait that counts any becomes
