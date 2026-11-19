@@ -392,7 +392,7 @@ struct UnobservedPath {
     object: crate::storage::admin::ObjectName,
     path: String,
     reason: String,
-    remedy: &'static str,
+    remedy: String,
 }
 
 impl Unobserved {

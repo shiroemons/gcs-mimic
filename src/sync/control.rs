@@ -3,6 +3,7 @@
 use super::{
     Reconciliation, SyncError,
     advice::{Advised, AtHand},
+    entries::EntryProblem,
     outstanding::{Holdup, UnmappedObjects},
 };
 use crate::{
@@ -100,18 +101,77 @@ pub(crate) fn paused_control_remedy() -> String {
     )
 }
 
-/// Where the findings that the advice `at_hand` refers to are listed: the findings view at the
-/// revision at hand, or without one, at the revision the status reports when it runs.
-fn findings_listing(at_hand: AtHand<'_>) -> String {
-    format!(
-        "the findings view lists them: {}",
-        Advised::Findings(at_hand.findings_revision)
-    )
+/// A condition outside a pause that the next pass clears once an operator corrects it. A wait
+/// runs its own pass over the tree, so the advice for each ends by naming the wait; a rescan
+/// resumes only a pause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Correction {
+    /// Entries that no object can take or that a pass could not read, which a wait ends on and
+    /// a pause names too.
+    UnrepresentableEntries,
+    /// A file a pass could not read, which the `sync_source_deferred` event names.
+    UnreadableFile,
+    /// An entry a pass could not take in or could not read, which its own event names when a
+    /// scan first finds it.
+    Entry(EntryProblem),
+    /// An export that met an edited file, which a finding names.
+    ExportConflict,
+    /// A file that kept changing, which a path stop names.
+    ChangingPath,
+    /// A path whose input or output failed, which a path stop names.
+    PathIoFailure,
+    /// A tracked file that a directory or special file replaced, which a path stop and a
+    /// deletion check name.
+    ReplacedEntry,
+    /// An entry above a tracked path that is not a directory, which a deletion check names.
+    BlockedParent,
+    /// A differently spelled entry in place of a tracked name, which a deletion check names.
+    AliasedName,
+    /// A path whose permissions keep a deletion check from reading it.
+    UnreadablePath,
+}
+
+impl Correction {
+    /// What to correct, which names no command.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnrepresentableEntries => {
+                "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API. Restore read access to entries that could not be read"
+            }
+            Self::UnreadableFile => {
+                "Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), and free disk space if needed"
+            }
+            Self::Entry(problem) => problem.correction(),
+            Self::ExportConflict => {
+                "Preserve the edited file, then inspect the retained conflicts or restore the previously exported bytes"
+            }
+            Self::ChangingPath => "Finish or stop the external writer",
+            Self::PathIoFailure => {
+                "Restore file permissions or free disk space, and preserve pending bytes"
+            }
+            Self::ReplacedEntry => {
+                "A directory or special file replaced this tracked file. Move it away and put a regular file back, or delete the object through the API"
+            }
+            Self::BlockedParent => "Put a directory back in place of the entry above this path",
+            Self::AliasedName => {
+                "Rename the differently spelled entry back to the tracked name or move it away"
+            }
+            Self::UnreadablePath => {
+                "Restore read and search permissions on this path and its parents"
+            }
+        }
+    }
+
+    /// The correction, then the wait whose pass takes it in.
+    pub(crate) fn remedy(self) -> String {
+        format!("{}; then wait again: {}", self.as_str(), Advised::Wait)
+    }
 }
 
 /// What resumes synchronization after a pause for `reason`. The `sync_paused` event, the root-stop
 /// finding and a failed rescan give the same advice, naming the commands to run with the
-/// revisions `at_hand`; a log has none, so its advice names the status, which reports them.
+/// revisions `at_hand`; a log has none, so its advice lists the findings at the revision the
+/// status reports.
 pub(crate) fn pause_remedy(reason: PauseReason, at_hand: AtHand<'_>) -> String {
     let rescan = Advised::Rescan;
     match reason {
@@ -123,14 +183,15 @@ pub(crate) fn pause_remedy(reason: PauseReason, at_hand: AtHand<'_>) -> String {
             "Restore access to the directory or free disk space without deleting pending data; then resume synchronization: {rescan}"
         ),
         PauseReason::RecoveryRequired => format!(
-            "Protected workspace entries wait for recovery. Preserve them, and settle each with the resolve subcommand as an exact confirmed recovery discard or a registered conflict; {}; then resume synchronization: {rescan}",
-            findings_listing(at_hand)
+            "Protected workspace entries wait for recovery. List them: {}; preserve each one and settle it with the resolve subcommand, as a confirmed recovery discard or a registered conflict; then resume synchronization: {rescan}",
+            Advised::Findings(at_hand.findings_revision)
         ),
         PauseReason::SourceChanging => format!(
             "Let the programs writing in the directory finish and restore access to it; then resume synchronization: {rescan}"
         ),
         PauseReason::SourceUnrepresentable => format!(
-            "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API. Restore read access to entries that could not be read. Then resume synchronization: {rescan}"
+            "{}. Then resume synchronization: {rescan}",
+            Correction::UnrepresentableEntries.as_str()
         ),
         PauseReason::ObserverFailure => format!(
             "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names. A changed server setting, such as max_sync_entries, needs a restart instead; anything else, a rescan: {rescan}"
@@ -142,16 +203,36 @@ pub(crate) fn pause_remedy(reason: PauseReason, at_hand: AtHand<'_>) -> String {
 /// synchronization of their paths only.
 pub(crate) fn findings_remedy(at_hand: AtHand<'_>) -> String {
     format!(
-        "Findings or retained conflicts stop synchronization of some paths, and other paths continue. Follow the remedy of each; {}; the conflicts listing names the retained conflicts: {}",
-        findings_listing(at_hand),
+        "Findings or retained conflicts stop synchronization of some paths, and other paths continue. Follow the remedy of each; the findings view lists them: {}; the conflicts listing names the retained conflicts: {}",
+        Advised::Findings(at_hand.findings_revision),
         Advised::Conflicts
     )
 }
 
-/// What lets synchronization take in entries that no object can take or that a pass could not
-/// read.
-pub(crate) fn unrepresentable_remedy() -> String {
-    pause_remedy(PauseReason::SourceUnrepresentable, AtHand::default())
+/// What the `sync_external_conflict` event asks for after a newer external edit arrived while
+/// the earlier one was being preserved: a rescan, whose pass runs the skipped export again.
+pub(crate) fn newer_edit_remedy() -> String {
+    format!(
+        "A newer external edit arrived after preservation. Stop the writer and inspect retained conflicts before restoring or discarding a revision; then rescan, which exports the object again: {}",
+        Advised::Rescan
+    )
+}
+
+/// What the `sync_export_retry` event asks for if the failure lasts and pauses synchronization.
+pub(crate) fn export_retry_remedy() -> String {
+    format!(
+        "A transient failure is retried twice, and a lasting one pauses synchronization. Free disk space or restore permissions and inspect retained work; then resume synchronization: {}",
+        Advised::Rescan
+    )
+}
+
+/// What replaces a finding carried over from a release that recorded name collisions and
+/// export conflicts alike: an observation of the object, which a restart or a rescan makes.
+pub(crate) fn unclassified_collision_remedy() -> String {
+    format!(
+        "Carried over from a release that recorded name collisions and export conflicts alike. Have the object observed again and classified, by restarting the server or by a rescan: {}; then follow the remedy of the finding that replaces this one",
+        Advised::Rescan
+    )
 }
 
 /// What lets external deletions go on: an approval of the deletion set at the revision at

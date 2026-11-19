@@ -795,9 +795,13 @@ async fn findings_page(
                 })
                 .encode(&prefix)
             });
+        let at_hand = AtHand {
+            findings_revision: Some(revision),
+            deletion_revision: None,
+        };
         let items = items
             .iter()
-            .map(|item| findings::value(item, &prefix, observation.writeback.as_ref()))
+            .map(|item| findings::value(item, &prefix, observation.writeback.as_ref(), at_hand))
             .collect::<Result<_, _>>()?;
         super::encode(&RootDocument::new(
             &ids,

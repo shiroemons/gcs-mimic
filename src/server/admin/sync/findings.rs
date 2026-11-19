@@ -8,17 +8,23 @@ use crate::{
             FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
         },
     },
-    sync::mapping::Reason,
+    sync::{
+        advice::AtHand,
+        control::{self, Correction},
+        mapping::Reason,
+    },
 };
 use serde_json::{Value, json};
 use std::borrow::Cow;
 
-/// Renders one finding. A recovery finding's retained hashes that fail to encode answer like
-/// any other unencodable management result.
+/// Renders one finding of the page at the findings revision `at_hand`, which a root stop's
+/// remedy names. A recovery finding's retained hashes that fail to encode answer like any
+/// other unencodable management result.
 pub(super) fn value(
     item: &Item,
     prefix: &str,
     quota: Option<&WritebackSummary>,
+    at_hand: AtHand<'_>,
 ) -> Result<Value, ApiError> {
     let (reason, remedy): (&str, Cow<'static, str>) = match &item.reason {
         FindingReason::RootStop(pause) => (
@@ -30,17 +36,17 @@ pub(super) fn value(
                 | PauseReason::SourceChanging
                 | PauseReason::SourceUnrepresentable => pause.as_str(),
             },
-            crate::sync::control::pause_remedy(*pause, crate::sync::advice::AtHand::default()).into(),
+            control::pause_remedy(*pause, at_hand).into(),
         ),
         FindingReason::Mapping(FindingKind::ExportConflict) => (
             "Conflict",
-            "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan".into(),
+            Correction::ExportConflict.remedy().into(),
         ),
         // The row cannot say whether an edited file exists, so the remedy asks for the
         // observation that tells, not for preserving a file that may not be there.
         FindingReason::Mapping(FindingKind::UnclassifiedCollision) => (
             "Conflict",
-            "Carried over from a release that recorded name collisions and export conflicts alike; rescan or restart so the object is observed again and classified, then follow the remedy of the finding that replaces this one".into(),
+            control::unclassified_collision_remedy().into(),
         ),
         // A name collision is a name the tree cannot hold, like the other mapping reasons; only
         // an export that met an edited file is a conflict.
@@ -66,15 +72,15 @@ pub(super) fn value(
         ),
         FindingReason::PathStop(PathStop::SourceChanging) => (
             "SourceChanging",
-            "Finish or stop the external writer, then rescan or wait for a stable snapshot".into(),
+            Correction::ChangingPath.remedy().into(),
         ),
         FindingReason::PathStop(PathStop::IoFailure) => (
             "IoFailure",
-            "Restore file permissions or free disk space, preserve pending bytes and request a rescan".into(),
+            Correction::PathIoFailure.remedy().into(),
         ),
         FindingReason::PathStop(PathStop::EntryReplaced) => (
             "EntryReplaced",
-            "A directory or special file replaced this tracked file; move it away and put a regular file back, or delete the object through the API, then rescan".into(),
+            Correction::ReplacedEntry.remedy().into(),
         ),
         FindingReason::Writeback(_) => (
             "RecoveryRequired",
@@ -182,9 +188,21 @@ mod tests {
         let expected = format!(
             r#"{{"finding_id":"prefix010000000000000007","category":"writeback","reason":"RecoveryRequired","scope":"path","bucket":"bucket","object":"object","bucket_incarnation":null,"generation":5,"owner_project":"project","detail_code":"protected","remedy":"Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal","operation_id":"{a}","conflict_id":null,"conflict_revision":null,"recovery_id":"{a}","recovery_revision":"{b}","target_identity":"{c}","phase":"protected","retained_location":"workspace","retained_bytes":18,"hashes":{{"md5":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],"crc32c":4294967295}},"over_limit":true}}"#
         );
-        let rendered = value(&recovery_finding(hashes), "prefix", Some(&quota)).unwrap();
+        let rendered = value(
+            &recovery_finding(hashes),
+            "prefix",
+            Some(&quota),
+            AtHand::default(),
+        )
+        .unwrap();
         assert_eq!(serde_json::to_string(&rendered).unwrap(), expected);
-        let without = value(&recovery_finding(Value::Null), "prefix", None).unwrap();
+        let without = value(
+            &recovery_finding(Value::Null),
+            "prefix",
+            None,
+            AtHand::default(),
+        )
+        .unwrap();
         assert_eq!(without["hashes"], Value::Null);
         assert_eq!(without["over_limit"], false);
     }
@@ -223,7 +241,7 @@ mod tests {
                 "invalid-name",
             ),
         ] {
-            let value = value(&mapping_finding(kind), "prefix", None).unwrap();
+            let value = value(&mapping_finding(kind), "prefix", None, AtHand::default()).unwrap();
             assert_eq!(
                 (&value["reason"], &value["detail_code"], &value["scope"]),
                 (&json!(rendered), &json!(detail), &json!("path")),
@@ -241,6 +259,7 @@ mod tests {
             &mapping_finding(FindingKind::UnclassifiedCollision),
             "prefix",
             None,
+            AtHand::default(),
         )
         .unwrap();
         assert_eq!(
@@ -260,6 +279,7 @@ mod tests {
             &mapping_finding(FindingKind::Unmapped(Reason::DirectoryOccupied)),
             "prefix",
             None,
+            AtHand::default(),
         )
         .unwrap();
         assert_eq!(
@@ -270,5 +290,41 @@ mod tests {
         assert!(remedy.contains("Move everything in it out"), "{remedy}");
         assert!(remedy.contains("gcs-mimic sync rescan"), "{remedy}");
         assert!(!remedy.contains("API name"), "{remedy}");
+    }
+
+    /// A root stop's remedy names the findings view at the revision of the page that lists it,
+    /// and a path's correction ends by naming the wait whose pass takes it in.
+    #[test]
+    fn remedies_name_the_page_revision_and_the_wait_that_takes_a_correction_in() {
+        let revision = crate::sync::advice::SAMPLE_FINDINGS_REVISION;
+        let at_hand = AtHand {
+            findings_revision: Some(revision),
+            deletion_revision: None,
+        };
+        let root_stop = Item {
+            category: FindingCategory::RootStop,
+            reason: FindingReason::RootStop(PauseReason::RecoveryRequired),
+            ..mapping_finding(FindingKind::ExportConflict)
+        };
+        let rendered = value(&root_stop, "prefix", None, at_hand).unwrap();
+        let remedy = rendered["remedy"].as_str().unwrap();
+        assert!(
+            remedy.contains(&format!(
+                "List them: gcs-mimic sync status --view findings --revision {revision} --endpoint URL;"
+            )),
+            "{remedy}"
+        );
+        let exported = value(
+            &mapping_finding(FindingKind::ExportConflict),
+            "prefix",
+            None,
+            at_hand,
+        )
+        .unwrap();
+        let remedy = exported["remedy"].as_str().unwrap();
+        assert!(
+            remedy.ends_with("; then wait again: gcs-mimic sync wait --endpoint URL"),
+            "{remedy}"
+        );
     }
 }

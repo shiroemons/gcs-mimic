@@ -1,7 +1,7 @@
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use super::MirrorState;
 use super::control::PauseChange;
-use super::control::{Command, ControlError, Reply};
+use super::control::{Command, ControlError, Reply, export_retry_remedy, newer_edit_remedy};
 use super::entries::{EntryClass, classify};
 use super::error::{Recorded, StoppedRescan, unless_superseded};
 use super::interrupt::{Interrupt, Interrupted};
@@ -1803,7 +1803,7 @@ impl LiveObject<'_> {
                     diagnostics::emit(
                         LogLevel::Warn,
                         "sync_external_conflict",
-                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":"A newer external edit arrived after preservation; stop the writer and rescan. Inspect retained conflicts before restoring or discarding a revision"}),
+                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":newer_edit_remedy()}),
                     );
                     // Ingestion publishes the newer edit only while the tree tracks the API
                     // generation; otherwise the rescan the remedy names runs this export again.
@@ -1990,7 +1990,7 @@ async fn wait_retry(error: &writeback::Error, retry: &mut Backoff, root: &RootLe
         "sync_export_retry",
         serde_json::json!({
             "reason":crate::error::Report(error).to_string(),"retry_seconds":delay.as_secs(),
-            "remedy":"A transient failure is retried twice. Persistent failure pauses synchronization; free disk space or restore permissions, inspect retained work and request a rescan"
+            "remedy":export_retry_remedy()
         }),
     );
     if let Some(mut stopping) = root.stop_signal() {

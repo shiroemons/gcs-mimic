@@ -5,8 +5,11 @@
 
 use super::{
     control::{
-        occupied_directory_remedy, paused_control_remedy, resume_retry_remedy, unsettled_remedy,
+        Correction, export_retry_remedy, newer_edit_remedy, occupied_directory_remedy,
+        paused_control_remedy, resume_retry_remedy, unclassified_collision_remedy,
+        unsettled_remedy,
     },
+    entries::EntryProblem,
     outstanding::Holdup,
 };
 use crate::storage::sync_state::{observation::PauseReason, writeback::Stop};
@@ -112,8 +115,10 @@ pub fn commands() -> Vec<String> {
 /// Every piece of advice the server gives that names a command, with [`ENDPOINT`] left in: the
 /// remedy of every holdup with and without the revisions at hand, which a wait's answer gives,
 /// and for a pause also the `sync_paused` event, the root-stop finding and a failed rescan; of
-/// a wait that ran out of time; of a failed resume, which the `sync_resume_failed` event also
-/// gives; of a control a pause refuses; and of a directory that holds an object's file name.
+/// a wait that ran out of time; of every correction outside a pause, which findings and events
+/// give; of the export events and the finding carried over from an older release; of a failed
+/// resume, which the `sync_resume_failed` event also gives; of a control a pause refuses; and of
+/// a directory that holds an object's file name.
 #[doc(hidden)]
 pub fn catalog() -> Vec<String> {
     let at_hand = [
@@ -148,6 +153,40 @@ pub fn catalog() -> Vec<String> {
         | Holdup::UnmappedObjects { .. }
         | Holdup::Ready => holdup,
     };
+    let corrections = [
+        Correction::UnrepresentableEntries,
+        Correction::UnreadableFile,
+        Correction::Entry(EntryProblem::UnmappableName),
+        Correction::Entry(EntryProblem::UnsafeEntry),
+        Correction::Entry(EntryProblem::Unreadable),
+        Correction::Entry(EntryProblem::PathCollision),
+        Correction::Entry(EntryProblem::DeletedBucket),
+        Correction::ExportConflict,
+        Correction::ChangingPath,
+        Correction::PathIoFailure,
+        Correction::ReplacedEntry,
+        Correction::BlockedParent,
+        Correction::AliasedName,
+        Correction::UnreadablePath,
+    ];
+    let correction_listed = |correction: Correction| match correction {
+        Correction::UnrepresentableEntries
+        | Correction::UnreadableFile
+        | Correction::Entry(
+            EntryProblem::UnmappableName
+            | EntryProblem::UnsafeEntry
+            | EntryProblem::Unreadable
+            | EntryProblem::PathCollision
+            | EntryProblem::DeletedBucket,
+        )
+        | Correction::ExportConflict
+        | Correction::ChangingPath
+        | Correction::PathIoFailure
+        | Correction::ReplacedEntry
+        | Correction::BlockedParent
+        | Correction::AliasedName
+        | Correction::UnreadablePath => correction.remedy(),
+    };
     holdups
         .map(listed)
         .flat_map(|holdup| {
@@ -155,8 +194,12 @@ pub fn catalog() -> Vec<String> {
                 .into_iter()
                 .filter_map(move |at_hand| holdup.remedy(at_hand))
         })
+        .chain(corrections.map(correction_listed))
         .chain([
             unsettled_remedy(None, None),
+            newer_edit_remedy(),
+            export_retry_remedy(),
+            unclassified_collision_remedy(),
             resume_retry_remedy(),
             paused_control_remedy(),
             occupied_directory_remedy(),

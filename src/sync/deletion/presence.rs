@@ -9,6 +9,7 @@ use crate::{
     },
     sync::{
         SyncError,
+        control::Correction,
         tree::{self, ParentError, ParentOpen},
     },
 };
@@ -123,26 +124,19 @@ impl Unobservable {
     }
 
     /// What the user can do so that the path tells again whether its file was deleted.
-    pub(in crate::sync) fn remedy(&self) -> &'static str {
+    pub(in crate::sync) fn remedy(&self) -> String {
         match self {
             Self::BeyondLimit => {
                 "Raise max_sync_depth and restart the server, or delete the object through the API"
+                    .to_owned()
             }
             Self::InvalidPath | Self::NameRejected | Self::NameMismatch => {
-                "This file system cannot hold the tracked path any longer; delete or rename the object through the API"
+                "This file system cannot hold the tracked path any longer; delete or rename the object through the API".to_owned()
             }
-            Self::ParentBlocked => {
-                "Put a directory back in place of the entry above this path, then request another rescan"
-            }
-            Self::Alias => {
-                "Rename the differently spelled entry back to the tracked name or move it away, then request another rescan"
-            }
-            Self::Replaced => {
-                "Move the directory or special file away and put a regular file back, or delete the object through the API, then request another rescan"
-            }
-            Self::Io(_) => {
-                "Restore read and search permissions on this path and its parents, then request another rescan"
-            }
+            Self::ParentBlocked => Correction::BlockedParent.remedy(),
+            Self::Alias => Correction::AliasedName.remedy(),
+            Self::Replaced => Correction::ReplacedEntry.remedy(),
+            Self::Io(_) => Correction::UnreadablePath.remedy(),
         }
     }
 }

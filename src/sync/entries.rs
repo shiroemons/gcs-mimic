@@ -3,7 +3,7 @@
 //! a user searching the tree for what to fix; the list names them, up to a bound, and is rebuilt
 //! by every complete scan.
 
-use super::{mapping, naming::RootNaming, tree::TreeEntry};
+use super::{control::Correction, mapping, naming::RootNaming, tree::TreeEntry};
 use crate::{
     diagnostics::{self, LogLevel},
     fsutil::FileIdentity,
@@ -166,9 +166,10 @@ impl EntryProblem {
         }
     }
 
-    /// What the user can do. Until a scan no longer finds the entry, it holds back every inferred
-    /// deletion of the root.
-    fn remedy(self) -> &'static str {
+    /// What the user corrects, which names no command; [`Correction::Entry`] adds the wait that
+    /// takes the correction in. Until a scan no longer finds the entry, it holds back every
+    /// inferred deletion of the root.
+    pub(crate) const fn correction(self) -> &'static str {
         match self {
             Self::UnmappableName => {
                 "Rename the entry to a name the API can hold, or move it out of the directory"
@@ -183,7 +184,7 @@ impl EntryProblem {
                 "Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"
             }
             Self::DeletedBucket => {
-                "Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"
+                "Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project)"
             }
         }
     }
@@ -213,7 +214,7 @@ pub(crate) fn warn_unrepresentable(entry: &UnrepresentableEntry) {
         serde_json::json!({
             "path":entry.path.to_string_lossy(),
             "reason":entry.problem.reason(),
-            "remedy":entry.problem.remedy(),
+            "remedy":Correction::Entry(entry.problem).remedy(),
         }),
     );
 }

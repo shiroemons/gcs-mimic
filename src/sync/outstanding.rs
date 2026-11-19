@@ -8,8 +8,8 @@
 use super::{
     advice::AtHand,
     control::{
-        deletion_approval_remedy, findings_remedy, pause_remedy, unmapped_objects_remedy,
-        unrepresentable_remedy, unsettled_remedy,
+        Correction, deletion_approval_remedy, findings_remedy, pause_remedy,
+        unmapped_objects_remedy, unsettled_remedy,
     },
 };
 use crate::storage::sync_state::{
@@ -142,7 +142,9 @@ impl Holdup {
             Self::Paused(reason) => pause_remedy(reason, at_hand),
             Self::Writeback(_) | Self::FindingsPending => findings_remedy(at_hand),
             Self::SourceChanging | Self::Observing => unsettled_remedy(Some(self), None),
-            Self::SourceUnrepresentable | Self::SourceUnreadable => unrepresentable_remedy(),
+            Self::SourceUnrepresentable | Self::SourceUnreadable => {
+                Correction::UnrepresentableEntries.remedy()
+            }
             Self::DeletionApproval => deletion_approval_remedy(at_hand),
             Self::UnmappedObjects { count } => unmapped_objects_remedy(count, at_hand),
             Self::Ready => return None,

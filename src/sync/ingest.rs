@@ -2,6 +2,7 @@ use super::interrupt::{Interrupt, Interrupted};
 use super::tree::TreeScan as Scan;
 use super::{
     Pass, SyncError,
+    control::Correction,
     deletion::Presence,
     entries::{EntryClass, EntryProblem, MappedFile, classify},
     mapping,
@@ -440,7 +441,7 @@ impl Ingest<'_> {
             "sync_source_deferred",
             serde_json::json!({
                 "path":path.to_string_lossy(),"reason":kind.to_string(),
-                "remedy":"Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), free disk space if needed, then request another rescan"
+                "remedy":Correction::UnreadableFile.remedy()
             }),
         );
     }
