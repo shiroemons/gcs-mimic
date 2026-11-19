@@ -482,6 +482,68 @@ async fn recovery_protects_unexpected_unarmed_remove_bodies_and_rejects_workspac
     fixture.close().await;
 }
 
+/// A rename that falls back to a hard link and stops before the unlink leaves the private copy
+/// also linked at the target. Recovery keeps the target, protects the copy, and records no
+/// installation: one inode under two names proves neither that the rename finished nor that it
+/// did not.
+#[tokio::test]
+async fn restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing() {
+    let fixture = Fixture::new().await;
+    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
+    let operation = fixture.live().await;
+    fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await
+        .unwrap();
+    super::super::live_export::inject_failure(fixture.lease.status().root_id, "install", 1);
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .is_err()
+    );
+    let item = live_pending(&operation).await;
+    drop(operation);
+    let copy = fixture
+        .tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(item.token.id().to_string());
+    let target = fixture.tree.0.join("test-bucket/object");
+    fs::hard_link(&copy, &target).unwrap();
+    let fixture = fixture.restart(Journal::Disabled).await;
+    let usage = fixture.writeback.recover_pending().await.unwrap();
+    assert_eq!(
+        (usage.stop(), usage.entries, usage.retained_bytes),
+        (Stop::ProtectedBody, 1, API.len() as u128)
+    );
+    assert_eq!(
+        fixture.writeback.preserve_protected().await.unwrap().stop(),
+        Stop::Ready
+    );
+    assert!(!copy.exists());
+    assert_eq!(fs::read(&target).unwrap(), API);
+    let binding = fixture
+        .catalog
+        .sync_state()
+        .binding(&fixture.bucket)
+        .await
+        .unwrap();
+    assert!(
+        fixture
+            .catalog
+            .sync_state()
+            .get_path(binding, "test-bucket/object".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    fixture.api().await;
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn restart_after_arming_a_live_copy_retains_the_uninstalled_body() {
     let fixture = Fixture::new().await;

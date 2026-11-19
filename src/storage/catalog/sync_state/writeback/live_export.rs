@@ -231,6 +231,9 @@ struct Install {
     /// The staged copy's identity; installation replaces it with the one it confirmed.
     staged: Option<fsutil::FileIdentity>,
     purpose: Purpose,
+    /// Where the fault model records the namespace changes installation makes.
+    #[cfg(test)]
+    faults: faults::Paths,
 }
 
 /// Whether `file` still holds the tracked body. Size and mtime rule out an edit cheaply; the
@@ -511,22 +514,27 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
         };
         let outcome = if selected.kind == Kind::Remove && current.is_none() {
             fsutil::ReplaceOutcome::Created
-        } else if selected.kind == Kind::Publish {
-            fsutil::durable_replace_between(
-                workspace,
-                selected.token.id.to_hex().as_ref(),
-                &directory,
-                name.as_ref(),
-                identity.as_ref(),
-            )?
         } else {
-            fsutil::durable_replace_between(
-                &directory,
-                name.as_ref(),
-                workspace,
-                selected.token.id.to_hex().as_ref(),
-                None,
-            )?
+            let outcome = if selected.kind == Kind::Publish {
+                fsutil::durable_replace_between(
+                    workspace,
+                    selected.token.id.to_hex().as_ref(),
+                    &directory,
+                    name.as_ref(),
+                    identity.as_ref(),
+                )?
+            } else {
+                fsutil::durable_replace_between(
+                    &directory,
+                    name.as_ref(),
+                    workspace,
+                    selected.token.id.to_hex().as_ref(),
+                    None,
+                )?
+            };
+            #[cfg(test)]
+            install.faults.renamed(selected, &outcome)?;
+            outcome
         };
         if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
             return Err(Error::Protected);
@@ -546,13 +554,21 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
         }
         #[cfg(test)]
         failure(selected.token.root, "displaced-unlink")?;
+        #[cfg(test)]
+        install.faults.unlinking(selected, &file)?;
         fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
     }
     #[cfg(test)]
     failure(selected.token.root, "displaced-parent-sync")?;
     directory.sync_all()?;
+    #[cfg(test)]
+    install.faults.target_dir_synced(selected);
     workspace.sync_all()?;
+    #[cfg(test)]
+    install.faults.workspace_synced();
     root.sync_all()?;
+    #[cfg(test)]
+    install.faults.tree_synced();
     Ok(true)
 }
 
@@ -779,10 +795,10 @@ impl Writeback {
             tracked: operation.tracked.clone(),
             staged,
             purpose: operation.purpose.clone(),
+            #[cfg(test)]
+            faults: self.fault_paths(),
         };
         let observing = matches!(operation.body, Body::Observe { .. });
-        #[cfg(test)]
-        let faults = self.fault_paths();
         // The job hands back the staged identity installation confirmed even when it fails
         // afterwards, so a retry, a cancellation and the displacement check compare against it.
         let attempt = self
@@ -798,8 +814,7 @@ impl Writeback {
                 #[cfg(test)]
                 let installed = installed.and_then(|installed| {
                     if installed && !observing {
-                        faults.installed(&install.item);
-                        faults.hit(Step::SyncCopyInstalled)?;
+                        install.faults.hit(Step::SyncCopyInstalled)?;
                     }
                     Ok(installed)
                 });

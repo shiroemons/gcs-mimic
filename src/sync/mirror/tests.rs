@@ -19,6 +19,8 @@ use crate::{
 use bytes::Bytes;
 use std::fs;
 
+mod install_faults;
+
 async fn run_live(
     catalog: &Catalog,
     root: &RootLease,

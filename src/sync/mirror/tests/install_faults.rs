@@ -1,0 +1,371 @@
+//! Crashes and power losses while a live export installs its target, recovered through the
+//! startup path and then checked with the wait that `sync wait` runs.
+
+use super::*;
+use crate::storage::fault::{Crash, Fault, Step};
+use crate::sync::control::{WaitReason, WaitResult};
+
+const BEFORE: &[u8] = b"before\0api";
+const AFTER: &[u8] = b"after\0\xffapi";
+const TARGET: &str = "test-bucket/object";
+
+/// The API change whose export a crash interrupts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Change {
+    Create,
+    Overwrite,
+    Remove,
+}
+
+impl Change {
+    const ALL: [Self; 3] = [Self::Create, Self::Overwrite, Self::Remove];
+
+    /// The installation checkpoints the export passes. A removal copies no API body.
+    fn steps(self) -> &'static [Step] {
+        match self {
+            Self::Create | Self::Overwrite => &[
+                Step::SyncCopyDurable,
+                Step::SyncCopyRenamed,
+                Step::SyncCopyInstalled,
+                Step::SyncCopyCommit,
+            ],
+            Self::Remove => &[
+                Step::SyncCopyRenamed,
+                Step::SyncCopyInstalled,
+                Step::SyncCopyCommit,
+            ],
+        }
+    }
+
+    /// The target's bytes before the export.
+    fn before(self) -> Option<&'static [u8]> {
+        match self {
+            Self::Create => None,
+            Self::Overwrite | Self::Remove => Some(BEFORE),
+        }
+    }
+
+    /// The target's bytes once the export is complete, which are also the private copy's.
+    fn after(self) -> Option<&'static [u8]> {
+        match self {
+            Self::Create | Self::Overwrite => Some(AFTER),
+            Self::Remove => None,
+        }
+    }
+
+    /// The bytes in the private workspace entry and at the target that the snapshot at `step`
+    /// holds.
+    fn snapshot(self, step: Step, crash: Crash) -> (Option<&'static [u8]>, Option<&'static [u8]>) {
+        match (step, crash) {
+            // Before installation, or after a power loss undid the volatile rename whole.
+            (Step::SyncCopyDurable, _) | (Step::SyncCopyRenamed, Crash::PowerLoss) => {
+                (self.after(), self.before())
+            }
+            // An abort keeps the rename, with the displaced or removed body not yet unlinked.
+            (Step::SyncCopyRenamed, Crash::Abort) => (self.before(), self.after()),
+            (Step::SyncCopyInstalled | Step::SyncCopyCommit, _) => (None, self.after()),
+            (step, _) => panic!("no installation checkpoint: {step:?}"),
+        }
+    }
+}
+
+/// Copies what a snapshot holds of the workspace and the target back into the tree. The root and
+/// workspace directories stay, because the catalog binds their identities.
+fn restore_tree(snapshot: &Path, tree: &Path) {
+    let workspace = tree.join(mapping::WORKSPACE);
+    for entry in fs::read_dir(&workspace).unwrap() {
+        fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    for entry in fs::read_dir(snapshot.join(mapping::WORKSPACE)).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), workspace.join(entry.file_name())).unwrap();
+    }
+    let target = tree.join(TARGET);
+    if target.exists() {
+        fs::remove_file(&target).unwrap();
+    }
+    if snapshot.join(TARGET).exists() {
+        fs::copy(snapshot.join(TARGET), target).unwrap();
+    }
+}
+
+/// The bytes of each private workspace entry.
+fn workspace_bodies(tree: &Path) -> Vec<Vec<u8>> {
+    fs::read_dir(tree.join(mapping::WORKSPACE))
+        .unwrap()
+        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .collect()
+}
+
+/// The bytes of every retained conflict in `data`.
+fn conflict_bodies(data: &Path) -> Vec<Vec<u8>> {
+    match fs::read_dir(data.join("sync-conflicts")) {
+        Ok(entries) => entries
+            .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+            .collect(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => panic!("{error}"),
+    }
+}
+
+/// A mirror started the way the server starts it: write-back recovery, ingestion,
+/// reconciliation and deletion observation.
+struct Started {
+    catalog: Catalog,
+    root: RootLease,
+    config: Config,
+    live: Initialized,
+    stop: tokio::sync::watch::Sender<bool>,
+}
+
+impl Started {
+    async fn open(data: &Path, tree: &Path) -> Self {
+        let catalog = Catalog::open(data).await.unwrap();
+        Self::start(catalog, data, tree).await
+    }
+
+    async fn start(catalog: Catalog, data: &Path, tree: &Path) -> Self {
+        let config = Config {
+            data_dir: data.to_owned(),
+            sync_dir: Some(tree.to_owned()),
+            ..Default::default()
+        };
+        let root = crate::sync::preflight(&catalog, &config)
+            .await
+            .unwrap()
+            .unwrap();
+        let (stop, stopping) = tokio::sync::watch::channel(false);
+        let status = MirrorStatus::default();
+        let live = initialize_live(
+            LiveRun {
+                catalog: &catalog,
+                root: &root,
+                config: &config,
+                status: &status,
+                resume: None,
+            },
+            &stopping,
+        )
+        .await
+        .unwrap();
+        Self {
+            catalog,
+            root,
+            config,
+            live,
+            stop,
+        }
+    }
+
+    /// Runs the wait `sync wait` sends, which also exports the API changes it replays.
+    async fn wait(&mut self) -> Result<WaitResult, SyncError> {
+        let stopping = self.stop.subscribe();
+        LiveControl {
+            scope: LiveScope {
+                catalog: &self.catalog,
+                root: &self.root,
+                config: &self.config,
+                writeback: &self.live.writeback,
+                stopping: &stopping,
+            },
+            state: &mut self.live.state,
+        }
+        .wait(crate::test_support::hang_deadline())
+        .await
+    }
+
+    async fn close(self) {
+        drop(self.live);
+        drop(self.root);
+        self.catalog.close().await.unwrap();
+    }
+}
+
+/// Makes the API change, returning the record it leaves, if any.
+async fn change_api(
+    catalog: &Catalog,
+    bucket: &BucketName,
+    change: Change,
+    before: Option<&ObjectRecord>,
+) -> Option<ObjectRecord> {
+    match (change.after(), before) {
+        (Some(after), _) => Some(publish_origin(catalog, bucket, after, Origin::Api).await),
+        (None, Some(before)) => {
+            catalog
+                .admin(Origin::Api)
+                .delete_object(
+                    bucket,
+                    &ObjectName::new("object").unwrap(),
+                    GenerationCondition::Is(Generation::new(before.generation).unwrap()),
+                )
+                .await
+                .unwrap();
+            None
+        }
+        (None, None) => panic!("{change:?} has nothing to remove"),
+    }
+}
+
+/// Checks that the API still holds `expected` and that the tree converged to it.
+async fn assert_converged(started: &Started, bucket: &BucketName, expected: Option<&ObjectRecord>) {
+    let name = ObjectName::new("object").unwrap();
+    let tree = started.config.sync_dir.as_deref().unwrap();
+    let current = started
+        .catalog
+        .admin(Origin::Api)
+        .get_object(bucket, &name, None)
+        .await;
+    if let Some(record) = expected {
+        assert_eq!(current.unwrap(), *record);
+        assert_eq!(fs::read(tree.join(TARGET)).unwrap(), AFTER);
+    } else {
+        assert!(matches!(current, Err(AdminError::NotFound)));
+        assert!(!tree.join(TARGET).exists());
+    }
+    assert_eq!(
+        tracked_generation(&started.catalog, &started.root, bucket).await,
+        expected.map(|record| record.generation)
+    );
+    assert!(workspace_bodies(tree).is_empty());
+}
+
+/// A crash or power loss at each installation checkpoint of a create, an overwrite and a
+/// removal loses neither API nor external bytes. The restart recovers write-back, rescans and
+/// reconciles, and the target converges to the API state. The snapshot holds exactly the state
+/// the checkpoint promises, so dropping one of installation's directory syncs fails this test.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn installation_crashes_and_power_losses_recover_to_the_api_state() {
+    for change in Change::ALL {
+        for &step in change.steps() {
+            for &crash in Crash::ALL {
+                let case = format!("{change:?} {step:?} {crash:?}");
+                let (data, tree, catalog, bucket, _) = live_fixture().await;
+                let before = match change.before() {
+                    Some(body) => Some(publish_origin(&catalog, &bucket, body, Origin::Api).await),
+                    None => None,
+                };
+                let mut started = Started::start(catalog, &data.0, &tree.0).await;
+                assert_eq!(
+                    fs::read(tree.0.join(TARGET)).ok().as_deref(),
+                    change.before()
+                );
+                let snapshots = TestDir::new();
+                let (snapshot_data, snapshot_tree) =
+                    (snapshots.0.join("data"), snapshots.0.join("tree"));
+                fault::arm(&tree.0, step, 0, crash.fault(snapshot_tree.clone()));
+                started
+                    .catalog
+                    .inject(step, 0, Fault::Snapshot(snapshot_data.clone()));
+                let api = change_api(&started.catalog, &bucket, change, before.as_ref()).await;
+                assert_eq!(
+                    started.wait().await.unwrap().reason,
+                    WaitReason::Ready,
+                    "{case}"
+                );
+                assert_eq!(fault::pending(&tree.0), 0, "{case}");
+                assert_eq!(started.catalog.pending_faults(), 0, "{case}");
+                started.close().await;
+
+                restore_tree(&snapshot_tree, &tree.0);
+                let (copy, target) = change.snapshot(step, crash);
+                assert_eq!(
+                    workspace_bodies(&tree.0),
+                    copy.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
+                    "{case}"
+                );
+                assert_eq!(
+                    fs::read(tree.0.join(TARGET)).ok().as_deref(),
+                    target,
+                    "{case}"
+                );
+                let catalog = Catalog::open(&snapshot_data).await.unwrap();
+                crate::storage::sync_state::writeback::retrack_restored(&catalog, &tree.0)
+                    .await
+                    .unwrap();
+                let mut started = Started::start(catalog, &snapshot_data, &tree.0).await;
+                let reason = started.wait().await.unwrap().reason;
+                // A private entry that still holds a body when recovery restarts is protected
+                // and moved into the conflict store, even when it holds only API bytes.
+                let protected = match (step, crash) {
+                    (Step::SyncCopyRenamed, Crash::PowerLoss) => change.after(),
+                    (Step::SyncCopyRenamed, Crash::Abort) => change.before(),
+                    _ => None,
+                };
+                assert_eq!(
+                    conflict_bodies(&snapshot_data),
+                    protected
+                        .into_iter()
+                        .map(<[u8]>::to_vec)
+                        .collect::<Vec<_>>(),
+                    "{case}"
+                );
+                assert_eq!(
+                    reason,
+                    if protected.is_some() {
+                        WaitReason::FindingsPending
+                    } else {
+                        WaitReason::Ready
+                    },
+                    "{case}"
+                );
+                assert_converged(&started, &bucket, api.as_ref()).await;
+                started.close().await;
+                drop(data);
+            }
+        }
+    }
+}
+
+/// A parent directory sync that fails after the rename leaves the export displaced. A restart
+/// recovers it without losing API or external bytes, and the target converges to the API state;
+/// the bytes the rename displaced or removed stay in the conflict store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_parent_sync_failing_after_the_rename_recovers_on_restart() {
+    for change in Change::ALL {
+        for failing in [mapping::WORKSPACE, "test-bucket"] {
+            let case = format!("{change:?} {failing}");
+            let (data, tree, catalog, bucket, _) = live_fixture().await;
+            let before = match change.before() {
+                Some(body) => Some(publish_origin(&catalog, &bucket, body, Origin::Api).await),
+                None => None,
+            };
+            fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
+            let mut started = Started::start(catalog, &data.0, &tree.0).await;
+            let directory =
+                fsutil::stat_identity(&fs::File::open(tree.0.join(failing)).unwrap()).unwrap();
+            *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() = Some((directory.device, directory.inode));
+            let api = change_api(&started.catalog, &bucket, change, before.as_ref()).await;
+            let failed = started.wait().await;
+            *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() = None;
+            assert!(
+                failed.is_err(),
+                "{case}: {:?}",
+                failed.map(|result| result.reason)
+            );
+            started.close().await;
+
+            let mut started = Started::open(&data.0, &tree.0).await;
+            let reason = started.wait().await.unwrap().reason;
+            let displaced = change.before();
+            assert_eq!(
+                conflict_bodies(&data.0),
+                displaced
+                    .into_iter()
+                    .map(<[u8]>::to_vec)
+                    .collect::<Vec<_>>(),
+                "{case}"
+            );
+            assert_eq!(
+                reason,
+                if displaced.is_some() {
+                    WaitReason::FindingsPending
+                } else {
+                    WaitReason::Ready
+                },
+                "{case}"
+            );
+            assert_converged(&started, &bucket, api.as_ref()).await;
+            started.close().await;
+        }
+    }
+}

@@ -1,8 +1,6 @@
 //! Restart recovery touches only opaque owned workspace entries, never live targets.
 
 use super::*;
-#[cfg(all(test, unix))]
-use crate::storage::catalog::fault;
 #[cfg(test)]
 use crate::storage::catalog::fault::Step;
 
@@ -75,18 +73,12 @@ impl Writeback {
                 if let Some(body) = body {
                     #[cfg(test)]
                     faults.hit(Step::SyncRecoveryUnlink)?;
-                    #[cfg(all(test, unix))]
-                    fault::unlinked(
-                        &faults
-                            .tree
-                            .join(mapping::WORKSPACE)
-                            .join(selected.token.id.to_hex()),
-                        &body,
-                    )?;
+                    #[cfg(test)]
+                    faults.unlinking(&selected, &body)?;
                     fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
                     #[cfg(test)]
                     faults.hit(Step::SyncRecoveryUnlinked)?;
-                    #[cfg(not(all(test, unix)))]
+                    #[cfg(not(test))]
                     drop(body);
                 }
                 #[cfg(test)]
@@ -95,10 +87,8 @@ impl Writeback {
                 root.sync_all()?;
                 #[cfg(test)]
                 {
-                    #[cfg(unix)]
-                    fault::dir_synced(&faults.tree.join(mapping::WORKSPACE));
-                    #[cfg(unix)]
-                    fault::dir_synced(&faults.tree);
+                    faults.workspace_synced();
+                    faults.tree_synced();
                     faults.hit(Step::SyncRecoveryParentDurable)?;
                 }
                 Ok(())

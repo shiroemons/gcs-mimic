@@ -61891,9 +61891,9 @@
         },
         {
           "id": "sync-native-writeback-fault-recovery",
-          "description": "Native storage paired catalog/tree Snapshot and PowerLoss seams verify retry through exact owned cancellation or retained protection, unchanged API body/checksums, original directory identities and full charge until explicitly confirmed discard. This does not complete runtime mirror, control shutdown, Linux checked-exchange or physical host-power-loss acceptance.",
+          "description": "Native storage paired catalog/tree Snapshot and PowerLoss seams verify retry through exact owned cancellation or retained protection, unchanged API body/checksums, original directory identities and full charge until explicitly confirmed discard. Installation's move or exchange stays volatile in the power-loss model until both directories are synced; create, overwrite and removal crashes at each installation checkpoint recover through startup to the API state. This does not complete runtime mirror, control shutdown, Linux checked-exchange or physical host-power-loss acceptance.",
           "result": "PASS",
-          "test_ids": ["recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancellation", "live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack", "protection_snapshots_keep_full_charge_until_confirmed_discard_and_rescan"]
+          "test_ids": ["recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancellation", "live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack", "protection_snapshots_keep_full_charge_until_confirmed_discard_and_rescan", "exchanges_and_moves_between_directories_need_both_directory_syncs", "undoing_an_exchange_with_a_missing_name_fails_the_snapshot", "undoing_a_move_onto_a_taken_name_fails_the_snapshot", "replacement_between_directories_is_durable_when_it_returns", "installation_crashes_and_power_losses_recover_to_the_api_state", "a_parent_sync_failing_after_the_rename_recovers_on_restart", "restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing"]
         },
         {
           "id": "sync-conflict-storage-recovery",
@@ -62221,6 +62221,13 @@
         "a_retried_copy_of_a_read_only_blob_completes_with_the_mode_a_first_copy_gets",
         "a_retry_never_empties_a_private_copy_that_another_name_links",
         "durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy",
+        "exchanges_and_moves_between_directories_need_both_directory_syncs",
+        "undoing_an_exchange_with_a_missing_name_fails_the_snapshot",
+        "undoing_a_move_onto_a_taken_name_fails_the_snapshot",
+        "replacement_between_directories_is_durable_when_it_returns",
+        "installation_crashes_and_power_losses_recover_to_the_api_state",
+        "a_parent_sync_failing_after_the_rename_recovers_on_restart",
+        "restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing",
         "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
         "sync_root_activation_failure_boundaries_never_publish_partial_markers",
@@ -62396,6 +62403,13 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
           "test_ids": ["live_export_installs_a_staged_copy_whose_inode_number_alone_changed","live_export_cancels_a_renumbered_unchanged_copy_as_obsolete","live_export_protects_a_private_copy_whose_bytes_changed_after_staging","a_retried_copy_refills_the_partial_private_copy_in_place","a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power_loss","copying_after_an_unsupported_clone_keeps_the_new_entry","refilling_an_emptied_file_keeps_its_inode","live_export_retries_a_renumbered_copy_after_a_failure_before_installation_confirmed_it","live_export_still_reports_a_displaced_target_beside_a_renumbered_copy","a_failed_sync_after_a_refill_keeps_the_private_copy_for_the_next_retry","a_retried_copy_of_a_read_only_blob_completes_with_the_mode_a_first_copy_gets","a_retry_never_empties_a_private_copy_that_another_name_links","durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::fault sync_state::writeback sync:: fsutil::",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/native-writeback-recovery.md",
+          "test_ids": ["exchanges_and_moves_between_directories_need_both_directory_syncs","undoing_an_exchange_with_a_missing_name_fails_the_snapshot","undoing_a_move_onto_a_taken_name_fails_the_snapshot","replacement_between_directories_is_durable_when_it_returns","installation_crashes_and_power_losses_recover_to_the_api_state","a_parent_sync_failing_after_the_rename_recovers_on_restart","restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",

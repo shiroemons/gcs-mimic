@@ -15,7 +15,8 @@
 //!
 //! - File contents: a file is identified by device and inode, so the record follows it
 //!   through renames. Files that existed when the fault was armed count as durable at their
-//!   length then; [`file_synced`] records a file's current length as durable. The snapshot
+//!   length then; [`file_synced`] records a file's current length as durable, and
+//!   [`file_synced_at`] does so for a seam that knows the file only by an open descriptor. The snapshot
 //!   truncates every other copy to its durable length, or to empty when none was recorded.
 //!   Writes are modeled as appends: a rewrite in place below the durable length survives.
 //!   [`truncated`] lowers the durable length when a seamed path cuts a file back, so bytes
@@ -26,6 +27,14 @@
 //!   volatile rename moves the file back to its old name, a volatile new entry vanishes,
 //!   and a volatile unlink restores bytes from its retained test descriptor. Entries made
 //!   by paths outside these seams are not modeled; they survive as they are on disk.
+//! - Renames that change two directory entries: [`exchanged`] records two names that swapped
+//!   their files, and [`moved`] a file that moved to a new name in another directory. Either
+//!   stays volatile until both directories are synced: no single directory sync is specified to
+//!   make a change to two directories durable. The model assumes the rename itself is atomic, so
+//!   a power loss keeps the change whole or undoes it whole, never half of it. The snapshot
+//!   undoes it the same way, exchanging the two names again or moving the file back without
+//!   replacing anything, and fails if either name is missing or the old name is taken again:
+//!   skipping that undo would invent a state no power loss leaves.
 //! - SQLite files keep their on-disk state: SQLite syncs them itself, and its WAL commit
 //!   protocol is not what these tests check.
 //! - Unix only, because directory fsync is the unix publication protocol.
@@ -111,7 +120,10 @@ pub(crate) enum Step {
     SyncCopySync,
     /// After the copied file and workspace are synced, before installation.
     SyncCopyDurable,
-    /// After checked installation and the existing namespace syncs.
+    /// After installation renamed, exchanged or moved the target, before the directory syncs
+    /// that make the change durable.
+    SyncCopyRenamed,
+    /// After checked installation and its directory syncs.
     SyncCopyInstalled,
     /// After the sync fingerprint and completion transaction commits.
     SyncCopyCommit,
@@ -469,8 +481,8 @@ fn fire(fired: Armed, step: Step) -> Result<(), Injected> {
 struct Ledger {
     /// Durable length per file, keyed by device and inode.
     durable: HashMap<(u64, u64), u64>,
-    /// Directory entries whose parent has not been synced since, oldest first.
-    volatile: Vec<Entry>,
+    /// Directory entries that a directory sync has yet to make durable, oldest first.
+    volatile: Vec<Volatile>,
 }
 
 #[cfg(unix)]
@@ -479,18 +491,56 @@ enum Entry {
     CreatedFile(PathBuf),
     Unlinked { path: PathBuf, file: fs::File },
     Renamed { from: PathBuf, to: PathBuf },
+    Exchanged { left: PathBuf, right: PathBuf },
+    Moved { from: PathBuf, to: PathBuf },
 }
 
 #[cfg(unix)]
 impl Entry {
-    /// The directory whose sync makes this entry durable.
-    fn parent(&self) -> Option<&Path> {
-        match self {
+    /// The directories whose syncs together make this entry durable.
+    fn parents(&self) -> Vec<PathBuf> {
+        let mut parents: Vec<PathBuf> = match self {
             Self::Created(path)
             | Self::CreatedFile(path)
             | Self::Unlinked { path, .. }
-            | Self::Renamed { to: path, .. } => path.parent(),
+            | Self::Renamed { to: path, .. } => vec![path],
+            Self::Exchanged {
+                left: first,
+                right: second,
+            }
+            | Self::Moved {
+                from: first,
+                to: second,
+            } => vec![first, second],
         }
+        .into_iter()
+        .filter_map(|path| path.parent().map(Path::to_owned))
+        .collect();
+        parents.dedup();
+        parents
+    }
+}
+
+/// A directory entry that a power loss would undo, with the directories still to be synced.
+#[cfg(unix)]
+struct Volatile {
+    entry: Entry,
+    unsynced: Vec<PathBuf>,
+}
+
+#[cfg(unix)]
+impl Volatile {
+    fn new(entry: Entry) -> Self {
+        Self {
+            unsynced: entry.parents(),
+            entry,
+        }
+    }
+
+    /// Counts the sync of `synced`; whether the entry still awaits the sync of another directory.
+    fn volatile_after(&mut self, synced: &Path) -> bool {
+        self.unsynced.retain(|parent| parent != synced);
+        !self.unsynced.is_empty()
     }
 }
 
@@ -504,6 +554,16 @@ fn inode(metadata: &fs::Metadata) -> (u64, u64) {
 #[cfg(unix)]
 fn sqlite_file(name: &std::ffi::OsStr) -> bool {
     name.to_string_lossy().starts_with("catalog.sqlite3")
+}
+
+/// Whether any entry, a dangling symlink included, has the name `path`.
+#[cfg(unix)]
+fn present(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 /// Resolves `path` like [`key`], through its parent when the path itself is gone.
@@ -555,6 +615,15 @@ pub(crate) fn file_synced(data_dir: &Path, metadata: &fs::Metadata) {
     let _ = (data_dir, metadata);
 }
 
+/// Like [`file_synced`], for the file at `path` in whichever armed data directory holds it: a
+/// seam that sees only an open descriptor resolves its path instead of naming a data directory.
+#[cfg(unix)]
+pub(crate) fn file_synced_at(path: &Path, metadata: &fs::Metadata) {
+    record(path, |ledger, _| {
+        ledger.durable.insert(inode(metadata), metadata.len());
+    });
+}
+
 /// Records that a file in `data_dir` was cut back to its current length. Bytes written past
 /// the cut replace bytes that may have been durable, so they count as durable again only
 /// after a later [`file_synced`].
@@ -582,7 +651,7 @@ pub(crate) fn truncated(data_dir: &Path, metadata: &fs::Metadata) {
 #[cfg(unix)]
 pub(crate) fn dir_created(path: &Path) {
     record(path, |ledger, path| {
-        ledger.volatile.push(Entry::Created(path));
+        ledger.volatile.push(Volatile::new(Entry::Created(path)));
     });
 }
 
@@ -590,7 +659,9 @@ pub(crate) fn dir_created(path: &Path) {
 #[cfg(unix)]
 pub(crate) fn file_created(path: &Path) {
     record(path, |ledger, path| {
-        ledger.volatile.push(Entry::CreatedFile(path))
+        ledger
+            .volatile
+            .push(Volatile::new(Entry::CreatedFile(path)));
     });
 }
 
@@ -621,10 +692,10 @@ pub(crate) fn unlinked(path: &Path, file: &fs::File) -> io::Result<()> {
         .filter(|fault| path.starts_with(&fault.data_dir))
     {
         if let Some(ledger) = &mut fault.ledger {
-            ledger.volatile.push(Entry::Unlinked {
+            ledger.volatile.push(Volatile::new(Entry::Unlinked {
                 path: path.clone(),
                 file: file.try_clone()?,
-            });
+            }));
         }
     }
     Ok(())
@@ -635,10 +706,36 @@ pub(crate) fn unlinked(path: &Path, file: &fs::File) -> io::Result<()> {
 pub(crate) fn renamed(from: &Path, to: &Path) {
     let from = resolve(from);
     record(to, |ledger, to| {
-        ledger.volatile.push(Entry::Renamed {
+        ledger.volatile.push(Volatile::new(Entry::Renamed {
             from: from.clone(),
             to,
-        });
+        }));
+    });
+}
+
+/// Records that the files at `left` and `right` swapped names in one atomic exchange, durable
+/// only once both of their directories are synced.
+#[cfg(unix)]
+pub(crate) fn exchanged(left: &Path, right: &Path) {
+    let left = resolve(left);
+    record(right, |ledger, right| {
+        ledger.volatile.push(Volatile::new(Entry::Exchanged {
+            left: left.clone(),
+            right,
+        }));
+    });
+}
+
+/// Records that the file at `from` moved to the new name `to`, which it did not replace, durable
+/// only once both of their directories are synced.
+#[cfg(unix)]
+pub(crate) fn moved(from: &Path, to: &Path) {
+    let from = resolve(from);
+    record(to, |ledger, to| {
+        ledger.volatile.push(Volatile::new(Entry::Moved {
+            from: from.clone(),
+            to,
+        }));
     });
 }
 
@@ -648,7 +745,7 @@ pub(crate) fn dir_synced(path: &Path) {
     record(path, |ledger, path| {
         ledger
             .volatile
-            .retain(|entry| entry.parent() != Some(path.as_path()));
+            .retain_mut(|change| change.volatile_after(&path));
     });
 }
 
@@ -683,55 +780,93 @@ impl Ledger {
                 .map(|relative| target.join(relative))
                 .map_err(|_| io::Error::other("volatile entry outside the data directory"))
         };
-        for entry in self.volatile.iter().rev() {
-            match entry {
-                Entry::Created(path) => {
-                    let path = relocate(path)?;
-                    if path.exists() {
-                        fs::remove_dir_all(path)?;
-                    }
-                }
-                Entry::CreatedFile(path) => {
-                    let path = relocate(path)?;
-                    if path.exists() {
-                        fs::remove_file(path)?;
-                    }
-                }
-                Entry::Unlinked { path, file } => {
-                    let path = relocate(path)?;
-                    if !path.exists() {
-                        let mut target = fs::OpenOptions::new()
-                            .create_new(true)
-                            .write(true)
-                            .open(path)?;
-                        let length = self
-                            .durable
-                            .get(&inode(&file.metadata()?))
-                            .copied()
-                            .unwrap_or(0);
-                        let mut buffer = [0; 65_536];
-                        let mut offset = 0;
-                        while offset < length {
-                            let count = crate::fsutil::read_at(
-                                file,
-                                &mut buffer[..(length - offset).min(65_536) as usize],
-                                offset,
-                            )?;
-                            if count == 0 {
-                                return Err(io::Error::other("short retained unlink snapshot"));
-                            }
-                            std::io::Write::write_all(&mut target, &buffer[..count])?;
-                            offset += count as u64;
-                        }
-                    }
-                }
-                Entry::Renamed { from, to } => {
-                    let to = relocate(to)?;
-                    if to.exists() {
-                        fs::rename(to, relocate(from)?)?;
-                    }
+        for change in self.volatile.iter().rev() {
+            self.undo(&change.entry, &relocate)?;
+        }
+        Ok(())
+    }
+
+    /// Undoes one volatile entry in the snapshot, whose paths `relocate` maps.
+    fn undo(
+        &self,
+        entry: &Entry,
+        relocate: &impl Fn(&Path) -> io::Result<PathBuf>,
+    ) -> io::Result<()> {
+        match entry {
+            Entry::Created(path) => {
+                let path = relocate(path)?;
+                if path.exists() {
+                    fs::remove_dir_all(path)?;
                 }
             }
+            Entry::CreatedFile(path) => {
+                let path = relocate(path)?;
+                if path.exists() {
+                    fs::remove_file(path)?;
+                }
+            }
+            Entry::Unlinked { path, file } => {
+                let path = relocate(path)?;
+                if !path.exists() {
+                    self.restore_unlinked(&path, file)?;
+                }
+            }
+            Entry::Renamed { from, to } => {
+                let to = relocate(to)?;
+                if to.exists() {
+                    fs::rename(to, relocate(from)?)?;
+                }
+            }
+            Entry::Exchanged { left, right } => {
+                let (left, right) = (relocate(left)?, relocate(right)?);
+                if !present(&left)? || !present(&right)? {
+                    return Err(io::Error::other(format!(
+                        "cannot undo the volatile exchange of {} and {}: a name is missing",
+                        left.display(),
+                        right.display()
+                    )));
+                }
+                crate::fsutil::exchange_paths(&left, &right)?;
+            }
+            Entry::Moved { from, to } => {
+                let (from, to) = (relocate(from)?, relocate(to)?);
+                if !present(&to)? || present(&from)? {
+                    return Err(io::Error::other(format!(
+                        "cannot undo the volatile move of {} to {}: the file is gone or its old name is taken",
+                        from.display(),
+                        to.display()
+                    )));
+                }
+                crate::fsutil::rename_noreplace(&to, &from)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes back the durable bytes of an unlinked file from its retained descriptor.
+    fn restore_unlinked(&self, path: &Path, file: &fs::File) -> io::Result<()> {
+        let mut target = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(path)?;
+        let length = self
+            .durable
+            .get(&inode(&file.metadata()?))
+            .copied()
+            .unwrap_or(0);
+        let mut buffer = [0; 65_536];
+        let mut offset = 0;
+        while offset < length {
+            let count = crate::fsutil::read_at(
+                file,
+                &mut buffer[..(length - offset).min(65_536) as usize],
+                offset,
+            )?;
+            if count == 0 {
+                return Err(io::Error::other("short retained unlink snapshot"));
+            }
+            std::io::Write::write_all(&mut target, &buffer[..count])?;
+            offset += count as u64;
         }
         Ok(())
     }

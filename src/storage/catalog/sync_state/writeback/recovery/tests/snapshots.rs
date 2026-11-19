@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::catalog::fault::{Crash, Fault, Step};
+use crate::storage::catalog::fault::{self, Crash, Fault, Step};
 
 fn restore_tree(snapshot: &std::path::Path, tree: &std::path::Path) {
     let workspace = tree.join(mapping::WORKSPACE);

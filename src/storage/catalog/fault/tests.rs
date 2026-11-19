@@ -92,6 +92,105 @@ fn overlapping_power_loss_arms_keep_their_own_baselines_and_all_seam_updates() {
     }
 }
 
+/// An exchange and a move between two directories stay volatile until both directories are
+/// synced; a power loss before then undoes each whole.
+#[test]
+fn exchanges_and_moves_between_directories_need_both_directory_syncs() {
+    let data = TestDir::new();
+    let snapshots = TestDir::new();
+    let left = data.0.join("left");
+    let right = data.0.join("right");
+    fs::create_dir(&left).unwrap();
+    fs::create_dir(&right).unwrap();
+    fs::write(left.join("swapped"), b"left bytes").unwrap();
+    fs::write(right.join("swapped"), b"right bytes").unwrap();
+    fs::write(left.join("moving"), b"moving bytes").unwrap();
+    let unsynced = snapshots.0.join("unsynced");
+    let one = snapshots.0.join("one");
+    let both = snapshots.0.join("both");
+    for (step, snapshot) in [
+        (Step::BeforeCommit, &unsynced),
+        (Step::AfterCommit, &one),
+        (Step::PublishUpload, &both),
+    ] {
+        arm(&data.0, step, 0, Fault::PowerLoss(snapshot.clone()));
+    }
+    crate::fsutil::exchange_paths(&left.join("swapped"), &right.join("swapped")).unwrap();
+    exchanged(&left.join("swapped"), &right.join("swapped"));
+    crate::fsutil::rename_noreplace(&left.join("moving"), &right.join("moving")).unwrap();
+    moved(&left.join("moving"), &right.join("moving"));
+    hit(&data.0, Step::BeforeCommit).unwrap();
+    dir_synced(&left);
+    hit(&data.0, Step::AfterCommit).unwrap();
+    dir_synced(&right);
+    hit(&data.0, Step::PublishUpload).unwrap();
+    assert_eq!(pending(&data.0), 0);
+    for snapshot in [&unsynced, &one] {
+        assert_eq!(
+            fs::read(snapshot.join("left/swapped")).unwrap(),
+            b"left bytes"
+        );
+        assert_eq!(
+            fs::read(snapshot.join("right/swapped")).unwrap(),
+            b"right bytes"
+        );
+        assert_eq!(
+            fs::read(snapshot.join("left/moving")).unwrap(),
+            b"moving bytes"
+        );
+        assert!(!snapshot.join("right/moving").exists());
+    }
+    assert_eq!(fs::read(both.join("left/swapped")).unwrap(), b"right bytes");
+    assert_eq!(fs::read(both.join("right/swapped")).unwrap(), b"left bytes");
+    assert_eq!(
+        fs::read(both.join("right/moving")).unwrap(),
+        b"moving bytes"
+    );
+    assert!(!both.join("left/moving").exists());
+}
+
+/// A volatile exchange whose name vanished cannot be undone; the snapshot fails instead of
+/// keeping a state no power loss leaves.
+#[test]
+#[should_panic(expected = "cannot undo the volatile exchange")]
+fn undoing_an_exchange_with_a_missing_name_fails_the_snapshot() {
+    let data = TestDir::new();
+    let snapshot = TestDir::new();
+    fs::write(data.0.join("left"), b"left").unwrap();
+    fs::write(data.0.join("right"), b"right").unwrap();
+    arm(
+        &data.0,
+        Step::BeforeCommit,
+        0,
+        Fault::PowerLoss(snapshot.0.join("power-loss")),
+    );
+    crate::fsutil::exchange_paths(&data.0.join("left"), &data.0.join("right")).unwrap();
+    exchanged(&data.0.join("left"), &data.0.join("right"));
+    fs::remove_file(data.0.join("right")).unwrap();
+    let _ = hit(&data.0, Step::BeforeCommit);
+}
+
+/// A volatile move whose old name was taken again cannot be undone without replacing that file.
+#[test]
+#[should_panic(expected = "cannot undo the volatile move")]
+fn undoing_a_move_onto_a_taken_name_fails_the_snapshot() {
+    let data = TestDir::new();
+    let snapshot = TestDir::new();
+    fs::create_dir(data.0.join("from")).unwrap();
+    fs::create_dir(data.0.join("to")).unwrap();
+    fs::write(data.0.join("from/body"), b"moved").unwrap();
+    arm(
+        &data.0,
+        Step::BeforeCommit,
+        0,
+        Fault::PowerLoss(snapshot.0.join("power-loss")),
+    );
+    crate::fsutil::rename_noreplace(&data.0.join("from/body"), &data.0.join("to/body")).unwrap();
+    moved(&data.0.join("from/body"), &data.0.join("to/body"));
+    fs::write(data.0.join("from/body"), b"later").unwrap();
+    let _ = hit(&data.0, Step::BeforeCommit);
+}
+
 #[test]
 #[should_panic(expected = "BeforeCommit holds no transaction to roll back")]
 fn a_rollback_armed_where_no_transaction_is_open_panics() {

@@ -29,6 +29,8 @@ mod conflict_transfer;
 mod live_export;
 mod recovery;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) use live_export::faults::retrack_restored;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::inject_failure as inject_live_export_failure;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::tests::{

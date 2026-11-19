@@ -1028,7 +1028,11 @@ fn sync_replace_parent(directory: &File) -> io::Result<()> {
             return Err(io::Error::other("injected replacement parent sync failure"));
         }
     }
-    directory.sync_all()
+    directory.sync_all()?;
+    // The fault model learns of the sync only once it ran, so removing the sync removes this too.
+    #[cfg(test)]
+    crate::storage::fault::dir_synced(&crate::storage::fault::descriptor_path(directory)?);
+    Ok(())
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1118,6 +1122,31 @@ pub(crate) fn rename_noreplace(from: &std::path::Path, to: &std::path::Path) -> 
     link_then_unlink(from, to)
 }
 
+/// Swaps the entries at `left` and `right` in one atomic exchange, as the fault model undoes a
+/// volatile exchange in a snapshot.
+#[cfg(all(test, unix))]
+pub(crate) fn exchange_paths(left: &std::path::Path, right: &std::path::Path) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let left = std::ffi::CString::new(left.as_os_str().as_bytes())?;
+        let right = std::ffi::CString::new(right.as_os_str().as_bytes())?;
+        rename_at(
+            libc::AT_FDCWD,
+            &left,
+            libc::AT_FDCWD,
+            &right,
+            RenameMode::Exchange,
+        )
+        .map_err(io::Error::from)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (left, right);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+}
+
 #[cfg(unix)]
 fn link_then_unlink(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
     std::fs::hard_link(from, to)?;
@@ -1147,7 +1176,13 @@ pub(crate) fn durable_replace_between(
         use std::os::fd::AsRawFd;
         let staged = component(staged_name)?;
         let destination = component(destination_name)?;
-        open_at(source_directory, &staged, FileOpen::Existing)?.sync_all()?;
+        let source = open_at(source_directory, &staged, FileOpen::Existing)?;
+        source.sync_all()?;
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        crate::storage::fault::file_synced_at(
+            &crate::storage::fault::descriptor_path(&source)?,
+            &source.metadata()?,
+        );
         let before = if expected.is_some() {
             identity_at(destination_directory, &destination)?
         } else {
@@ -1896,6 +1931,78 @@ mod tests {
             std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
             b"third"
         );
+    }
+
+    /// A power loss right after the replacement returns keeps the staged bytes under the
+    /// destination name, and an exchange keeps the displaced bytes under the staged name. The
+    /// test records the rename before the call, so only the syncs inside the call can make it
+    /// durable: dropping the staged file's sync or either parent's sync fails this test.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn replacement_between_directories_is_durable_when_it_returns() {
+        use crate::storage::fault::{self, Fault, Step};
+        for exchange in [false, true] {
+            let directory = crate::test_support::TestDir::new();
+            let snapshot = crate::test_support::TestDir::new();
+            let snapshot = snapshot.0.join("power-loss");
+            let root = open_directory_nofollow(&directory.0).unwrap();
+            let workspace =
+                directory_path_at(&root, "work".as_ref(), DirectoryOpen::CreateIfMissing).unwrap();
+            let target =
+                directory_path_at(&root, "bucket".as_ref(), DirectoryOpen::CreateIfMissing)
+                    .unwrap();
+            let staged = directory.0.join("work/body");
+            let destination = directory.0.join("bucket/body");
+            if exchange {
+                std::fs::write(&destination, b"displaced").unwrap();
+            }
+            fault::arm(
+                &directory.0,
+                Step::SyncCopyRenamed,
+                0,
+                Fault::PowerLoss(snapshot.clone()),
+            );
+            // Written after arming, so neither its bytes nor its entry are durable yet.
+            std::fs::write(&staged, b"staged").unwrap();
+            fault::file_created(&staged);
+            let expected = if exchange {
+                fault::exchanged(&staged, &destination);
+                Some(stat_identity(&File::open(&destination).unwrap()).unwrap())
+            } else {
+                fault::moved(&staged, &destination);
+                None
+            };
+            let outcome = durable_replace_between(
+                &workspace,
+                "body".as_ref(),
+                &target,
+                "body".as_ref(),
+                expected.as_ref(),
+            )
+            .unwrap();
+            assert!(
+                matches!(
+                    (&outcome, exchange),
+                    (ReplaceOutcome::Created, false) | (ReplaceOutcome::Replaced { .. }, true)
+                ),
+                "{outcome:?}"
+            );
+            fault::hit(&directory.0, Step::SyncCopyRenamed).unwrap();
+            assert_eq!(fault::pending(&directory.0), 0);
+            assert_eq!(
+                std::fs::read(snapshot.join("bucket/body")).unwrap(),
+                b"staged",
+                "exchange={exchange}"
+            );
+            if exchange {
+                assert_eq!(
+                    std::fs::read(snapshot.join("work/body")).unwrap(),
+                    b"displaced"
+                );
+            } else {
+                assert!(!snapshot.join("work/body").exists());
+            }
+        }
     }
 
     #[cfg(unix)]
