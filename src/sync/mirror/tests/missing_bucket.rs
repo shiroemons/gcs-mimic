@@ -445,15 +445,18 @@ impl Decision {
     }
 }
 
-/// A change to the tree that touches no member of the set that waits.
+/// A change to the tree while the set waits, which a decision follows before any pass.
 #[derive(Clone, Copy, Debug)]
-enum Unrelated {
+enum Change {
     /// A file directly in the directory, which belongs to no bucket.
     RootFile,
     /// A late notification about the directory that the export of an object written through
     /// the API into another bucket created, after the pass that took the export in. The write
     /// moved the journal past the set, which that pass confirmed under the same revision.
     ExportedDirectory,
+    /// The bucket directory and the member `first` back, so that the set no longer holds what
+    /// the tree shows.
+    MemberBack,
 }
 
 /// Runs `work` while letting the mirror past every checkpoint `hook` stops it at.
@@ -475,14 +478,25 @@ pub(super) async fn released<F: std::future::Future>(hook: &Hook, work: F) -> F:
 /// event took effect, so the decision is the next thing it handles.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_decision_right_after_a_change_to_another_path_is_accepted_the_first_time() {
-    for unrelated in [Unrelated::RootFile, Unrelated::ExportedDirectory] {
+    for change in [Change::RootFile, Change::ExportedDirectory] {
         for decision in [Decision::Reject, Decision::Approve] {
-            decide_after_a_change_to_another_path(unrelated, decision).await;
+            decide_after_a_change(change, decision).await;
         }
     }
 }
 
-async fn decide_after_a_change_to_another_path(unrelated: Unrelated, decision: Decision) {
+/// A decision sent right after a member's file came back, before any pass looked at the tree
+/// again, is refused as stale: the inventory before the decision finds the set no longer holds
+/// what the tree shows and replaces it. An approval therefore deletes nothing, not even the
+/// object of the member still missing, which the new set holds and keeps waiting for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_decision_right_after_a_member_came_back_is_refused_as_stale() {
+    for decision in [Decision::Reject, Decision::Approve] {
+        decide_after_a_change(Change::MemberBack, decision).await;
+    }
+}
+
+async fn decide_after_a_change(change: Change, decision: Decision) {
     let (data, tree, bucket) = tracked_pair().await;
     fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
     let hook = std::sync::Arc::new(Hook {
@@ -497,9 +511,13 @@ async fn decide_after_a_change_to_another_path(unrelated: Unrelated, decision: D
     let set = root.deletion_set().await.unwrap().unwrap();
     assert_eq!((set.candidate_count, set.guarded), (2, true));
 
-    match unrelated {
-        Unrelated::RootFile => fs::write(tree.0.join("README.md"), b"notes").unwrap(),
-        Unrelated::ExportedDirectory => {
+    match change {
+        Change::RootFile => fs::write(tree.0.join("README.md"), b"notes").unwrap(),
+        Change::MemberBack => {
+            fs::create_dir(tree.0.join(BUCKET)).unwrap();
+            fs::write(tree.0.join(BUCKET).join("first"), BODY).unwrap();
+        }
+        Change::ExportedDirectory => {
             let other = BucketName::new("other-bucket").unwrap();
             catalog
                 .admin(Origin::Api)
@@ -535,27 +553,92 @@ async fn decide_after_a_change_to_another_path(unrelated: Unrelated, decision: D
             releasing.entered.notified().await;
         }
     });
-    let decided = tokio::time::timeout(HANG_GUARD, answer)
+    let answer = tokio::time::timeout(HANG_GUARD, answer)
         .await
         .unwrap()
-        .unwrap()
-        .unwrap_or_else(|error| panic!("{decision:?} after {unrelated:?}: {error:?}"));
-    assert_eq!(
-        decided.revision, set.revision,
-        "{decision:?} after {unrelated:?}"
-    );
-
-    assert_eq!(wait_control(commands).await.reason, WaitReason::Ready);
-    for name in TRACKED {
-        let kept = exists(catalog, &bucket, name).await;
-        match decision {
-            Decision::Approve => assert!(!kept, "{name}"),
-            Decision::Reject => {
-                assert!(kept, "{name}");
-                assert_eq!(fs::read(tree.0.join(BUCKET).join(name)).unwrap(), BODY);
-            }
+        .unwrap();
+    let decided = Decided {
+        live: &live,
+        bucket: &bucket,
+        tree: &tree.0,
+        revision: set.revision,
+        decision,
+    };
+    match change {
+        Change::MemberBack => decided.refused_as_stale(answer).await,
+        Change::RootFile | Change::ExportedDirectory => {
+            let accepted =
+                answer.unwrap_or_else(|error| panic!("{decision:?} after {change:?}: {error:?}"));
+            assert_eq!(
+                accepted.revision, set.revision,
+                "{decision:?} after {change:?}"
+            );
+            decided.applied().await;
         }
     }
     live.stop().await;
     releaser.abort();
+}
+
+/// A decision on the set `revision` that the mirror answered, and what it should have done.
+struct Decided<'a> {
+    live: &'a Live,
+    bucket: &'a BucketName,
+    tree: &'a Path,
+    revision: crate::storage::sync_state::OpaqueId,
+    decision: Decision,
+}
+
+impl Decided<'_> {
+    /// The decision took effect: an approval deleted the members' objects, and a rejection kept
+    /// them and wrote their files back.
+    async fn applied(&self) {
+        let (decision, catalog) = (self.decision, &self.live.catalog);
+        assert_eq!(
+            wait_control(&self.live.commands).await.reason,
+            WaitReason::Ready
+        );
+        for name in TRACKED {
+            let kept = exists(catalog, self.bucket, name).await;
+            match decision {
+                Decision::Approve => assert!(!kept, "{name}"),
+                Decision::Reject => {
+                    assert!(kept, "{name}");
+                    assert_eq!(fs::read(self.tree.join(BUCKET).join(name)).unwrap(), BODY);
+                }
+            }
+        }
+    }
+
+    /// The decision was refused as stale and changed nothing: a new set that holds only the
+    /// member still missing replaced the named one and waits, every object remains, and nothing
+    /// wrote the missing file back.
+    async fn refused_as_stale(&self, answer: Result<DeletionSet, ControlError>) {
+        let decision = self.decision;
+        assert!(
+            matches!(
+                answer,
+                Err(ControlError::Failed(SyncError::Root(RootError::Admin(
+                    AdminError::Precondition
+                ))))
+            ),
+            "{decision:?}: {answer:?}"
+        );
+        let replaced = self.live.root.deletion_set().await.unwrap().unwrap();
+        assert_ne!(replaced.revision, self.revision, "{decision:?}");
+        assert_eq!(
+            (replaced.candidate_count, replaced.guarded),
+            (1, true),
+            "{decision:?}"
+        );
+        assert_eq!(
+            wait_control(&self.live.commands).await.reason,
+            WaitReason::DeletionApproval
+        );
+        for name in TRACKED {
+            let kept = exists(&self.live.catalog, self.bucket, name).await;
+            assert!(kept, "{decision:?}: {name}");
+        }
+        assert!(!self.tree.join(BUCKET).join("second").exists());
+    }
 }
