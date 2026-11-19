@@ -883,6 +883,17 @@ async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() 
     assert!(page["items"][0]["bucket"].is_null());
     assert!(page["items"][0]["object"].is_null());
     assert!(page["next_cursor"].is_null());
+    // A wait names the entries its own pass could not take in; the status names none.
+    let (code, waited) = fixture.wait(br#"{"timeout_ms":10000}"#).await;
+    assert_eq!(code, StatusCode::CONFLICT, "{waited}");
+    assert_eq!(waited["reason"], "SourceUnrepresentable");
+    assert_eq!(
+        waited["source_entries"],
+        json!({"total":2,"entries":[
+            {"path":"INVALID-BUCKET","reason":"unmappable-name"},
+            {"path":"INVALID-BUCKET/body","reason":"unmappable-name"}],"omitted":0})
+    );
+    assert!(status.get("source_entries").is_none());
     fs::rename(
         fixture.tree.0.join("INVALID-BUCKET"),
         fixture.tree.0.join("valid-bucket"),
@@ -898,6 +909,44 @@ async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() 
         StatusCode::CONFLICT
     );
     assert!(fixture.status().await["observation"]["scan_stop"].is_null());
+    fixture.finish().await;
+}
+
+/// A wait over a tree that holds entries whose names are not UTF-8, a directory and a symlink,
+/// answers with them named, rather than failing its answer or the log that names the symlink.
+/// macOS file systems refuse such names, so only Linux can place them.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_wait_names_source_entries_whose_names_are_not_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+    let fixture = Fixture::new(Tree::Empty).await;
+    let name = |bytes: &[u8]| fixture.tree.0.join(std::ffi::OsStr::from_bytes(bytes));
+    fs::create_dir(name(b"caf\xe9")).unwrap();
+    std::os::unix::fs::symlink("target", name(b"link\xff")).unwrap();
+    fixture.task.rescan().await.unwrap();
+    let (code, waited) = fixture.wait(br#"{"timeout_ms":10000}"#).await;
+    assert_eq!(code, StatusCode::CONFLICT, "{waited}");
+    assert_eq!(waited["reason"], "SourceUnrepresentable");
+    assert_eq!(waited["source_entries"]["total"], 2, "{waited}");
+    let mut named: Vec<(String, String)> = waited["source_entries"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().unwrap().to_owned(),
+                entry["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    named.sort();
+    assert_eq!(
+        named,
+        [
+            ("caf\u{fffd}".to_owned(), "unmappable-name".to_owned()),
+            ("link\u{fffd}".to_owned(), "unsafe-entry".to_owned()),
+        ]
+    );
     fixture.finish().await;
 }
 

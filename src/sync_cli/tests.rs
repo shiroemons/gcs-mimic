@@ -892,6 +892,73 @@ fn a_wait_keeps_asking_until_its_own_timeout() {
     assert_eq!(requests(&endpoint, server), [60_000, 60_000, 30_000]);
 }
 
+/// A wait that ended on source entries no object can take names the first of them, with how
+/// many there were, before its remedy.
+#[test]
+fn a_wait_that_ended_on_source_entries_names_the_first_of_them() {
+    let connection = "--endpoint http://127.0.0.1:4443";
+    let remedy = "Rename them; then wait again: gcs-mimic sync wait --endpoint URL";
+    let many = json!({"reason":"SourceUnrepresentable","remedy":remedy,
+        "source_entries":{"total":7,"omitted":5,"entries":[
+            {"path":"INVALID-BUCKET","reason":"unmappable-name"},
+            {"path":"bucket/link","reason":"unsafe-entry"}]}});
+    assert_eq!(
+        WaitOutcome::read(&many).advice(connection).errors[0].fix,
+        "sync wait ended with SourceUnrepresentable (7 source entries: INVALID-BUCKET [unmappable-name], bucket/link [unsafe-entry], and 5 more): Rename them; then wait again: gcs-mimic sync wait --endpoint http://127.0.0.1:4443"
+    );
+    let one = json!({"reason":"SourceUnrepresentable","remedy":remedy,
+        "source_entries":{"total":1,"omitted":0,"entries":[{"path":"bucket/secret","reason":"unreadable"}]}});
+    assert!(
+        WaitOutcome::read(&one).advice(connection).errors[0]
+            .fix
+            .starts_with(
+                "sync wait ended with SourceUnrepresentable (1 source entry: bucket/secret [unreadable]): "
+            )
+    );
+}
+
+/// A file name in the sync directory reaches the terminal of whoever runs the command, through
+/// the entries a wait names, its remedy and a failed request's message. Every control character
+/// in them is escaped, so none reaches the terminal raw, even after the JSON envelope, which
+/// leaves DEL and the C1 controls alone.
+#[test]
+fn names_from_the_server_reach_the_terminal_with_their_control_characters_escaped() {
+    let raw = |diagnostics: &Diagnostics| {
+        let mut written = Vec::new();
+        diagnostics.write(&mut written).unwrap();
+        let written = String::from_utf8(written).unwrap();
+        written
+            .trim_end_matches('\n')
+            .chars()
+            .filter(|character| character.is_control())
+            .collect::<String>()
+    };
+    let hostile = "bucket/\u{1b}]0;owned\u{7}\u{1b}[2J\nnext\u{7f}\u{9b}31m";
+    let escaped = r"bucket/\u{1b}]0;owned\u{7}\u{1b}[2J\nnext\u{7f}\u{9b}31m";
+    let answer = json!({"reason":"SourceUnrepresentable",
+        "remedy":format!("Rename {hostile}; then wait again: gcs-mimic sync wait --endpoint URL"),
+        "source_entries":{"total":1,"omitted":0,"entries":[{"path":hostile,"reason":"unmappable-name"}]}});
+    let advice = WaitOutcome::read(&answer).advice("");
+    assert_eq!(raw(&advice), "");
+    assert_eq!(
+        advice.errors[0].fix,
+        format!(
+            "sync wait ended with SourceUnrepresentable (1 source entry: {escaped} [unmappable-name]): Rename {escaped}; then wait again: gcs-mimic sync wait"
+        )
+    );
+    let ready = json!({"reason":"Ready","findings":{"unmapped":1,"revision":hostile}});
+    let advice = WaitOutcome::read(&ready).advice("");
+    assert_eq!(raw(&advice), "");
+    assert!(advice.warnings[0].fix.ends_with(escaped), "{advice:?}");
+    let refused = json!({"error":{"code":409,"message":format!("Cannot export {hostile}")}});
+    let failure = http_failure(StatusCode::CONFLICT, error_message(&refused), "");
+    assert_eq!(raw(&failure), "");
+    assert_eq!(
+        failure.errors[0].fix,
+        format!("Synchronization control returned HTTP 409: Cannot export {escaped}")
+    );
+}
+
 /// A reason that only someone acting can change ends the wait with the first answer.
 #[test]
 fn a_wait_stops_at_once_for_what_waiting_cannot_change() {

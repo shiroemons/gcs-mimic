@@ -18,6 +18,7 @@ use crate::{
         Cause, MirrorState, Reconciliation, UnmappedObjects,
         advice::AtHand,
         control::{Command, ControlError, PauseChange, Registration, WaitReason, WaitResult},
+        entries::EntryListing,
         handshake,
     },
 };
@@ -157,6 +158,9 @@ struct WaitAnswer<'a> {
     findings: Option<WaitFindingsAnswer>,
     /// The reason a paused root recorded, which its remedy follows.
     paused_reason: Option<PauseReason>,
+    /// For a wait that ended on source entries no object can take or that could not be read,
+    /// the first of them, which its remedy is about, listed as an entry report is.
+    source_entries: Option<EntryListing<'a>>,
     remedy: Option<String>,
 }
 
@@ -165,6 +169,19 @@ struct WaitAnswer<'a> {
 struct WaitFindingsAnswer {
     unmapped: u64,
     revision: String,
+}
+
+/// The source entries a wait answer names; the rest are counted as omitted.
+const LISTED_SOURCE_ENTRIES: usize = 5;
+
+/// The first entries of `result`'s own pass, for a wait that ended on them, so that whoever
+/// waited sees what to correct.
+fn source_entries(result: &WaitResult) -> Option<EntryListing<'_>> {
+    let pass = result
+        .reconciliation
+        .as_ref()
+        .filter(|_| result.reason == WaitReason::SourceUnrepresentable)?;
+    Some(pass.entries().listing(LISTED_SOURCE_ENTRIES)).filter(|listing| !listing.is_empty())
 }
 
 /// The revision that binds the findings view: this server session's ID and the observation
@@ -362,6 +379,7 @@ async fn wait(
         remedy: result.remedy(at_hand),
         findings,
         paused_reason,
+        source_entries: source_entries(&result),
         result: &result,
     };
     let mut response = bounded(&super::encode(&answer)?)?;

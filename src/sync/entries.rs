@@ -233,22 +233,27 @@ pub(crate) struct EntryReport {
     root_files: Vec<PathBuf>,
 }
 
-/// The status lists the named entries with the count of those past the bound, which only the
+/// The status lists every named entry with the count of those past the bound, which only the
 /// total accounts for.
 impl serde::Serialize for EntryReport {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        #[derive(serde::Serialize)]
-        struct Listed<'a> {
-            total: u64,
-            entries: &'a [UnrepresentableEntry],
-            omitted: u64,
-        }
-        Listed {
-            total: self.total(),
-            entries: self.entries(),
-            omitted: self.omitted(),
-        }
-        .serialize(serializer)
+        self.listing(Self::LIMIT).serialize(serializer)
+    }
+}
+
+/// Entries as an entry report and a wait list them: the first ones by path and reason, and how
+/// many the total counts past them.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct EntryListing<'a> {
+    total: u64,
+    entries: &'a [UnrepresentableEntry],
+    omitted: u64,
+}
+
+impl EntryListing<'_> {
+    /// Whether the scan found no entry at all, named or counted.
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.total == 0
     }
 }
 
@@ -310,17 +315,24 @@ impl EntryReport {
     }
 
     /// The entries named by path, in scan order.
+    #[cfg(test)]
     pub(crate) fn entries(&self) -> &[UnrepresentableEntry] {
         &self.entries
     }
 
-    /// How many entries the scan counted past [`Self::LIMIT`] without naming them.
-    fn omitted(&self) -> u64 {
-        let named = u64::try_from(self.entries.len()).unwrap_or(u64::MAX);
-        self.total.saturating_sub(named)
+    /// The first `count` named entries, in scan order, with the count of the rest.
+    pub(crate) fn listing(&self, count: usize) -> EntryListing<'_> {
+        let entries = self.entries.get(..count).unwrap_or(&self.entries);
+        let named = u64::try_from(entries.len()).unwrap_or(u64::MAX);
+        EntryListing {
+            total: self.total,
+            entries,
+            omitted: self.total.saturating_sub(named),
+        }
     }
 
     /// How many entries the scan could not take in or could not read, named or only counted.
+    #[cfg(test)]
     pub(crate) fn total(&self) -> u64 {
         self.total
     }
@@ -369,6 +381,15 @@ mod tests {
         assert_eq!(
             listed["entries"].as_array().unwrap().len(),
             EntryReport::LIMIT
+        );
+        // A shorter listing names fewer entries and counts the rest as omitted.
+        let first = serde_json::to_value(report.listing(2)).unwrap();
+        assert_eq!(first["total"], EntryReport::LIMIT + 10);
+        assert_eq!(first["omitted"], EntryReport::LIMIT + 8);
+        assert_eq!(first["entries"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            serde_json::to_value(report.listing(EntryReport::LIMIT + 1)).unwrap(),
+            listed
         );
     }
 

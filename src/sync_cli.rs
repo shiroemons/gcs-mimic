@@ -688,7 +688,7 @@ fn http_failure(status: StatusCode, message: Option<&str>, connection: &str) -> 
     fail(match message {
         Some(message) => format!(
             "Synchronization control returned HTTP {status}: {}",
-            advice::with_connection(message, connection)
+            printable(&advice::with_connection(message, connection))
         ),
         None => format!(
             "Synchronization control returned HTTP {status}; inspect its JSON response and preserve pending work."
@@ -703,6 +703,9 @@ struct WaitOutcome<'a> {
     /// The objects the tree cannot hold, and the findings revision that lists them.
     unmapped: Option<(u64, &'a str)>,
     paused_reason: Option<&'a str>,
+    /// The first source entries a wait that ended on them names, each as `path [reason]`, and
+    /// how many there were.
+    source_entries: Option<(Vec<String>, u64)>,
     remedy: Option<&'a str>,
     /// The message of an answer that is a request's failure rather than a wait's end.
     message: Option<&'a str>,
@@ -719,6 +722,21 @@ impl<'a> WaitOutcome<'a> {
                 .and_then(Value::as_u64)
                 .zip(findings.and_then(|findings| text(findings, "revision"))),
             paused_reason: text(body, "paused_reason"),
+            source_entries: body.get("source_entries").and_then(|source| {
+                let first = source
+                    .get("entries")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(|entry| {
+                        Some(format!(
+                            "{} [{}]",
+                            text(entry, "path")?,
+                            text(entry, "reason")?
+                        ))
+                    })
+                    .collect();
+                Some((first, source.get("total")?.as_u64()?))
+            }),
             remedy: text(body, "remedy"),
             message: error_message(body),
         }
@@ -760,13 +778,13 @@ impl<'a> WaitOutcome<'a> {
                 Diagnostic::new(
                     DiagnosticSource::Cli,
                     "sync-findings",
-                    format!(
+                    printable(&format!(
                         "{count} {objects} in the API cannot be written to the sync directory because of {names} and {stay} reachable only through the API; list {them} with {}",
                         advice::with_connection(
                             &advice::Advised::Findings(Some(revision)).to_string(),
                             connection
                         )
-                    ),
+                    )),
                 )
             })
             .into_iter()
@@ -778,13 +796,19 @@ impl<'a> WaitOutcome<'a> {
                 let paused = self
                     .paused_reason
                     .map_or_else(String::new, |paused| format!(" (paused_reason {paused})"));
+                let entries = self
+                    .source_entries
+                    .as_ref()
+                    .map_or_else(String::new, |(first, total)| listed_entries(first, *total));
                 let remedy = self.remedy.map_or_else(String::new, |remedy| {
                     format!(": {}", advice::with_connection(remedy, connection))
                 });
                 Diagnostic::new(
                     DiagnosticSource::Cli,
                     "sync",
-                    format!("sync wait ended with {reason}{paused}{remedy}"),
+                    printable(&format!(
+                        "sync wait ended with {reason}{paused}{entries}{remedy}"
+                    )),
                 )
             })
             .into_iter()
@@ -797,11 +821,41 @@ impl<'a> WaitOutcome<'a> {
     }
 }
 
+/// The `first` source entries of `total` that a wait ended on, as its error line names them.
+fn listed_entries(first: &[String], total: u64) -> String {
+    let noun = if total == 1 { "entry" } else { "entries" };
+    let more = total.saturating_sub(u64::try_from(first.len()).unwrap_or(u64::MAX));
+    let more = if more > 0 {
+        format!(", and {more} more")
+    } else {
+        String::new()
+    };
+    format!(" ({total} source {noun}: {}{more})", first.join(", "))
+}
+
 /// A synchronization control's answer, with the headers that carry the server's version.
 struct Reply {
     status: StatusCode,
     headers: HeaderMap,
     body: Value,
+}
+
+/// `text` with each control character written as its escape, such as `\u{1b}` for ESC, for a
+/// line that repeats what a server answered: the names of files anyone can put in the sync
+/// directory, and remedies and messages that embed them. Unescaped, such a name could move the
+/// cursor, recolor or rewrite the terminal that shows the line. The JSON envelope the diagnostics
+/// are written in escapes only U+0000 through U+001F; DEL and the C1 controls, such as U+009B
+/// (CSI), would pass through it.
+fn printable(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character.is_control() {
+            escaped.extend(character.escape_debug());
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 /// The command's single diagnostic: what went wrong is rendered once, here, for the user.

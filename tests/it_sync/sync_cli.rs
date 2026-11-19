@@ -260,6 +260,53 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
     server.stop();
 }
 
+/// A name anyone can give a directory in the tree reaches the terminal of whoever waits, as an
+/// entry the wait ended on. Its control characters, ESC and a newline as well as DEL and the C1
+/// CSI that the JSON envelope leaves alone, reach standard error escaped and never raw, while
+/// the JSON answer keeps the name as it is.
+#[test]
+fn live_cli_wait_escapes_the_control_characters_of_an_entry_it_names() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let hostile = "Bad\u{1b}[2J\nname\u{7f}\u{9b}31m";
+    fs::create_dir(tree.0.join(hostile)).unwrap();
+    let mut server = Server::start(&data, Some(&tree));
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = common::server_command()
+        .args(["sync", "wait", "--endpoint", &server.endpoint])
+        .args(["--timeout", "30s"])
+        .output()
+        .unwrap();
+    let answer: Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(answer["reason"], "SourceUnrepresentable", "{answer}");
+    assert_eq!(answer["source_entries"]["entries"][0]["path"], hostile);
+    assert_eq!(status.code(), Some(2));
+    let stderr = String::from_utf8(stderr).unwrap();
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(
+        lines.iter().all(|line| !line.chars().any(char::is_control)),
+        "{stderr:?}"
+    );
+    let errors: Vec<String> = lines
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .flat_map(|line| line["diagnostics"].as_array().cloned().unwrap_or_default())
+        .filter(|diagnostic| diagnostic["key"] == "sync")
+        .map(|diagnostic| diagnostic["fix"].as_str().unwrap().to_owned())
+        .collect();
+    let [error] = errors.try_into().unwrap();
+    assert!(
+        error.starts_with(
+            r"sync wait ended with SourceUnrepresentable (1 source entry: Bad\u{1b}[2J\nname\u{7f}\u{9b}31m [unmappable-name]): "
+        ),
+        "{error}"
+    );
+    server.stop();
+}
+
 #[test]
 fn live_cli_wait_after_writing_observes_bytes_without_retrying() {
     let data = TestDir::new();

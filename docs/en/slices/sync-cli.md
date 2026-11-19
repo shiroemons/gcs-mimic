@@ -170,6 +170,23 @@ view without `--revision`; every command a remedy, a log event or the
 healthcheck names is rendered from one list of commands, each of which this
 command's tests parse.
 
+A wait that ends with `SourceUnrepresentable` also answers `source_entries`:
+their `total`, the first five `entries` its own pass could not take in, each
+with its `path` and `reason`, and how many it `omitted`. Its error names them
+before the remedy, for
+example `sync wait ended with SourceUnrepresentable (2 source entries:
+INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`.
+The status reports only the scan stop and lists no entries. A path that is not
+UTF-8, the kind of name a scan cannot take in, shows U+FFFD for each invalid
+sequence.
+
+Every line the command writes from a server's answer, the entries, remedy,
+findings revision and error message alike, has each control character escaped,
+such as `\u{1b}` for ESC, before it reaches the terminal. A file name in the
+sync directory therefore cannot move the cursor or rewrite the terminal of
+whoever runs the command. The JSON documents the command prints keep the
+server's strings as JSON encodes them.
+
 Authorization and request-body preparation use the catalog-wait budget without
 being mistaken for connection inactivity. After parsing authorized input, the
 requested observation budget takes over. Waiting captures a fixed scan/journal fence; unrelated later
