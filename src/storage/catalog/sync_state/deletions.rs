@@ -367,16 +367,36 @@ fn read_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<Candidate> {
     })
 }
 
+/// Which of the root's sets a withdrawal reaches.
+#[derive(Clone, Copy, Debug)]
+enum Withdrawal {
+    /// The set, whatever it waits for ([`RootLease::invalidate_deletions`]).
+    Any,
+    /// The set unless it waits for a decision ([`RootLease::unsettle_deletions`]).
+    UnlessAwaiting,
+}
+
+impl Withdrawal {
+    /// The statement that withdraws the sets this reaches; only a valid set is written.
+    const fn sql(self) -> &'static str {
+        match self {
+            Self::Any => "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1",
+            Self::UnlessAwaiting => concat!(
+                "UPDATE sync_deletion_sets AS d SET valid=0 WHERE d.root_id=?1 AND d.valid=1 AND NOT (",
+                awaiting!(),
+                ")"
+            ),
+        }
+    }
+}
+
 impl RootLease {
     /// Withdraws the root's set from inspection, approval and execution. Only a valid set is
     /// written, so invalidating twice changes nothing the second time. The set keeps whether it
     /// was approved: an inventory that finds the same members may restore an unapproved set, but
     /// never an approved one, which would let its approval be used twice.
     pub(crate) async fn invalidate_deletions(&self) -> Result<(), RootError> {
-        self.withdraw_deletions(
-            "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1",
-        )
-        .await
+        self.withdraw_deletions(Withdrawal::Any).await
     }
 
     /// Withdraws the root's set because the tree changed, unless the set waits for an approval
@@ -387,22 +407,17 @@ impl RootLease {
     /// about some other path arrived. Every other set is withdrawn as by
     /// [`Self::invalidate_deletions`].
     pub(crate) async fn unsettle_deletions(&self) -> Result<(), RootError> {
-        self.withdraw_deletions(concat!(
-            "UPDATE sync_deletion_sets AS d SET valid=0 WHERE d.root_id=?1 AND d.valid=1 AND NOT (",
-            awaiting!(),
-            ")"
-        ))
-        .await
+        self.withdraw_deletions(Withdrawal::UnlessAwaiting).await
     }
 
-    async fn withdraw_deletions(&self, statement: &'static str) -> Result<(), RootError> {
+    async fn withdraw_deletions(&self, withdrawal: Withdrawal) -> Result<(), RootError> {
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
                 scope.authorize(&tx)?;
-                sql::exec(&tx, statement, [root])?;
+                sql::exec(&tx, withdrawal.sql(), [root])?;
                 tx.commit().map_err(unavailable)
             })
             .await?;
