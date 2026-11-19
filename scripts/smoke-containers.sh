@@ -434,6 +434,51 @@ for platform in "$@"; do
   volume=
   echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, colon names exported and ingested, skipped backslash names, external create ingestion at restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
 
+  # compose.sync.yaml must work as written after the one step it asks for, creating the host
+  # directory: `up --wait` returns only after the first pass, and no step adds a flag or a wait.
+  project="gcs-mimic-sync-compose-${arch}-$$"
+  export COMPOSE_FILE=compose.yaml:compose.http.yaml:compose.sync.yaml GCSM_PORT=0
+  export GCSM_SYNC_DIR=$work/compose-sync
+  mkdir "$GCSM_SYNC_DIR"
+  docker compose -p "$project" config --quiet
+  docker compose -p "$project" up --detach --no-build --wait --wait-timeout 60
+  service=$(docker compose -p "$project" ps --quiet gcs)
+  address=$(docker compose -p "$project" port gcs 4443)
+  [[ $(docker inspect --format '{{.State.Health.Status}}' "$service") == healthy ]] || exit 1
+  [[ -d $GCSM_SYNC_DIR ]] || exit 1
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 "http://$address/_internal/ready" \
+    | jq -e '.sync.state == "running"' >/dev/null || { echo 'ready does not report sync.state running' >&2; exit 1; }
+  compose_wait() {
+    docker compose -p "$project" exec -T gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
+  }
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -H 'Content-Type: application/json' --data '{"name":"compose-bucket"}' \
+    "http://$address/storage/v1/b?project=local-project" >/dev/null
+  printf 'from api' >"$work/compose-api"
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/compose-api" \
+    "http://$address/upload/storage/v1/b/compose-bucket/o?uploadType=media&name=docs%2Fapi.txt" >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/compose-api" \
+    "http://$address/upload/storage/v1/b/compose-bucket/o?uploadType=media&name=logs%2F2026-10-28T12%3A00%3A00.log" >/dev/null
+  # (b) and (d): after the wait, the files an API write made are on the host, colon included.
+  compose_wait
+  cmp "$work/compose-api" "$GCSM_SYNC_DIR/compose-bucket/docs/api.txt"
+  cmp "$work/compose-api" "$GCSM_SYNC_DIR/compose-bucket/logs/2026-10-28T12:00:00.log"
+  # (c) and (d): files made on the host become objects once the wait returns.
+  printf 'from host' >"$work/compose-host"
+  printf 'from host' >"$GCSM_SYNC_DIR/compose-bucket/host.txt"
+  printf 'from host' >"$GCSM_SYNC_DIR/compose-bucket/a:b.txt"
+  compose_wait
+  for name in host.txt a%3Ab.txt; do
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+      "http://$address/storage/v1/b/compose-bucket/o/$name?alt=media" >"$work/compose-actual"
+    cmp "$work/compose-host" "$work/compose-actual"
+  done
+  docker compose -p "$project" down --volumes
+  project=
+  unset GCSM_SYNC_DIR
+  export COMPOSE_FILE=compose.yaml:compose.http.yaml
+  echo "PASS: $platform compose.sync.yaml as written: up --wait returns healthy with sync.state running, API writes (colon name included) are files after sync wait, host-created files (colon name included) are objects after sync wait"
+
   # The strict local recipe must work as written: application servers on the unpublished trusted
   # listener, the host and browsers on the published main listener, URLs signed by the test signer.
   # COMPOSE_FILE also points the failure cleanup at this project's file.
