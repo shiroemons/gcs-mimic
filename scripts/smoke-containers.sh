@@ -408,13 +408,25 @@ for platform in "$@"; do
   printf external >"$work/sync-external"
   expect_ingested_object external.txt "$work/sync-external"
   expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
+  # The data directory has moved off the image's path, on a read-only root that names no SQLite
+  # temporary directory. Concurrent uploads share group commits, and once a commit's journal
+  # outgrew memory, its whole batch failed with 503 disk I/O error. The exports these uploads
+  # queue are not awaited: shutdown stops between them.
+  statuses=$(seq 1 1000 | xargs -P 8 -I{} curl --disable --noproxy '*' --silent --show-error --max-time 30 \
+    -o /dev/null -w '%{http_code}\n' --data-binary {} \
+    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=bulk%2F{}" | sort | uniq -c)
+  [[ $(awk '{ print $1 ":" $2 }' <<<"$statuses") == "1000:200" ]] || {
+    echo "Uploads failed with the data directory moved under a read-only root: $statuses" >&2
+    docker logs --tail 50 "$container" >&2
+    exit 1
+  }
   docker stop --timeout 15 "$container" >/dev/null
   [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
   docker rm "$container" >/dev/null
   container=
   docker volume rm "$volume" >/dev/null
   volume=
-  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, skipped colon names, external create ingestion at restart and clean shutdown"
+  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, skipped colon names, external create ingestion at restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
 
   # The strict local recipe must work as written: application servers on the unpublished trusted
   # listener, the host and browsers on the published main listener, URLs signed by the test signer.
