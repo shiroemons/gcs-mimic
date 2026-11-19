@@ -203,12 +203,31 @@ impl TypedSource for ProbeError {
     }
 }
 
+/// The rules a root recorded and the other rules a later probe of the same root observed.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct NamingChange {
+    recorded: RootNaming,
+    observed: RootNaming,
+}
+
 /// Probes the root's naming rules in its workspace, records them on the lease that every clone
 /// of it shares and reports them. A root whose filesystem rewrites names is refused here, before
 /// a scan could ingest a rewritten spelling as a second object.
 pub(super) async fn activate(writeback: &Writeback) -> Result<RootNaming, SyncError> {
-    let naming = RootNaming::try_from(writeback.probe_naming().await??)?;
-    writeback.root_lease().record_naming(naming)?;
-    diagnostics::emit(LogLevel::Info, "sync_root_naming", naming);
-    Ok(naming)
+    let observed = RootNaming::try_from(writeback.probe_naming().await??)?;
+    let lease = writeback.root_lease();
+    if let Err(error) = lease.record_naming(observed) {
+        // `sync_root_naming` reports only recorded rules, so the stop names both sets here: the
+        // operator sees which rule changed under the root.
+        if let Ok(recorded) = lease.naming() {
+            diagnostics::emit(
+                LogLevel::Error,
+                "sync_root_naming_changed",
+                NamingChange { recorded, observed },
+            );
+        }
+        return Err(error.into());
+    }
+    diagnostics::emit(LogLevel::Info, "sync_root_naming", observed);
+    Ok(observed)
 }

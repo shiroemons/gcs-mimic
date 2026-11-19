@@ -163,6 +163,45 @@ async fn host_probe_reports_the_filesystem_of_the_root() {
     catalog.close().await.unwrap();
 }
 
+/// A second probe of the same root, as a rescan after a pause or a retried failure runs, records
+/// the rules the first one did instead of stopping the root as changed. Each probe unlinks and
+/// creates its names again, and the case check reads their spelling, never their inode numbers,
+/// which Docker Desktop's shared folders can report anew for a recreated name.
+#[tokio::test]
+async fn probing_the_same_root_again_records_the_same_rules() {
+    let (_data, tree, catalog, root, _config) = unprobed_fixture(None).await;
+    let writeback = root.default_writeback().await.unwrap();
+    let first = activate(&writeback).await.unwrap();
+    assert_eq!(activate(&writeback).await.unwrap(), first);
+    assert_eq!(root.naming().unwrap(), first);
+    assert!(probe_entries(&tree.0).is_empty());
+    drop((writeback, root));
+    catalog.close().await.unwrap();
+}
+
+/// A root that stops because a probe observed other rules logs both sets, so the operator sees
+/// which rule changed under it.
+#[test]
+fn a_naming_change_reports_the_recorded_and_the_observed_rules() {
+    let observed = RootNaming::try_from(observed(
+        Colon::Rejected,
+        Case::Insensitive,
+        Spelling::Preserved,
+    ))
+    .unwrap();
+    let change = NamingChange {
+        recorded: RootNaming::posix(),
+        observed,
+    };
+    assert_eq!(
+        serde_json::to_value(change).unwrap(),
+        serde_json::json!({
+            "recorded": {"colon": "accepted", "case": "sensitive", "name_max": 255},
+            "observed": {"colon": "rejected", "case": "insensitive", "name_max": 255},
+        })
+    );
+}
+
 #[tokio::test]
 async fn probe_leftovers_are_removed_by_name_and_other_entries_are_kept() {
     let (_data, tree, catalog, root, _config) = unprobed_fixture(None).await;

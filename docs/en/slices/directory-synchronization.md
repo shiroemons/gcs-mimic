@@ -502,7 +502,11 @@ subdirectory of `.gcs-mimic-sync-work` and records one set of naming rules for
 the root: whether `:` is stored as created, whether letter case folds, and the
 component byte limit that `fpathconf(_PC_NAME_MAX)` reports, capped at 255. An
 info-level `sync_root_naming` log event reports them (`colon`, `case`,
-`name_max`). No setting chooses or overrides these rules. Both mapping directions, parent walks,
+`name_max`). Letter case is decided by the spelling check that target lookups
+use, never by comparing inode numbers, which Docker Desktop shared folders can
+report anew for a name the probe creates again. A later probe of the same root
+that observes other rules stops it as changed and logs `sync_root_naming_changed`
+with the `recorded` and `observed` rules. No setting chooses or overrides these rules. Both mapping directions, parent walks,
 target checks and deletion checks read that one value, and each rule is decided
 on its own: a filesystem that refuses `:` makes only colon components
 `HostRestriction`. A colon `HostRestriction` finding that an earlier start

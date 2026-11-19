@@ -7,7 +7,7 @@
 //! an entry it did not create, and it never removes the subdirectory.
 
 use super::{Case, Colon, NameMax, Observation, ProbeError, Spelling};
-use crate::fsutil::{self, DirectoryNames, DirectoryOpen};
+use crate::fsutil::{self, DirectoryNames, DirectoryOpen, RegularChild};
 use std::{fs::File, io};
 
 /// The workspace subdirectory that holds the probe's entries.
@@ -111,23 +111,19 @@ impl Probe {
         Ok(Spelling::Rewritten)
     }
 
-    /// Whether [`FOLDED`] opens the file created as [`CASED`], and whether that one kept its
-    /// spelling.
+    /// Whether [`FOLDED`] resolves to the file created as [`CASED`] under that other spelling, and
+    /// whether that one kept its spelling. The spelling check that every target lookup uses
+    /// decides, not a comparison of inode numbers: Docker Desktop's shared folders can report a new
+    /// inode number for an unchanged file, and each probe unlinks and creates its names again, so a
+    /// second probe of the same root could see two numbers for one file and record other rules.
     fn case(&self) -> Result<(Case, Spelling), ProbeError> {
         let cased = fsutil::create_regular_at(&self.directory, CASED.as_ref())?;
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         self.faults.created(CASED)?;
         let spelling = self.listed(CASED)?;
-        let case = match fsutil::open_regular_at(&self.directory, FOLDED.as_ref()) {
-            Ok(folded)
-                if fsutil::stat_identity(&folded)?.node()
-                    == fsutil::stat_identity(&cased)?.node() =>
-            {
-                Case::Insensitive
-            }
-            Ok(_) => Case::Sensitive,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Case::Sensitive,
-            Err(error) => return Err(error.into()),
+        let case = match fsutil::child_regular(&self.directory, FOLDED.as_ref())? {
+            RegularChild::Alias => Case::Insensitive,
+            RegularChild::File(_) | RegularChild::Missing => Case::Sensitive,
         };
         drop(cased);
         self.remove(CASED)?;
