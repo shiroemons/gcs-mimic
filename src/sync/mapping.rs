@@ -340,6 +340,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     fn observations() -> impl Strategy<Value = Observation> {
         (
             prop_oneof![Just(Colon::Accepted), Just(Colon::Rejected)],
@@ -385,7 +386,10 @@ mod tests {
 
         /// One rules value decides a name the same way in both mapping directions, in the
         /// per-component check that parent walks and target checks apply, and in the catalog's
-        /// path validator, whatever the root's rules are.
+        /// path validator, whatever the root's rules are. A Windows build adds its own fixed
+        /// restrictions on top of the root's rules, which
+        /// `windows_restrictions_cover_devices_and_special_components` covers instead.
+        #[cfg(not(windows))]
         #[test]
         fn one_rules_value_decides_names_in_both_directions_and_the_catalog(
             observed in observations(),
