@@ -15,6 +15,7 @@ use crate::{
         change_journal::{ChangeKind, ChangePage, ChangeRead, JournalFence},
         sync_state::{
             SyncBinding, SyncPath, SyncRecord,
+            observation::PauseReason,
             root::{RootError, RootLease},
             writeback::{self, LiveExport, LiveResult, LiveSource, Stop, Writeback},
         },
@@ -267,6 +268,7 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
         stopping,
         requests,
         controls: observation::Controls::default(),
+        paused_for: None,
     };
     crate::task::spawn_thread("sync-mirror", move || mirror.run(done))?;
     Ok(Task {
@@ -289,6 +291,9 @@ struct Mirror {
     stopping: tokio::sync::watch::Receiver<bool>,
     requests: tokio::sync::mpsc::Receiver<Command>,
     controls: observation::Controls,
+    /// The reason this mirror last recorded for a pause, which a resume that fails transiently
+    /// keeps.
+    paused_for: Option<PauseReason>,
 }
 
 impl Mirror {
@@ -349,8 +354,12 @@ impl Mirror {
     /// the failure, and a transient one keeps the reason the pause recorded before.
     fn pause(&mut self, error: SyncError, failed: Option<Resume>) -> Option<Resume> {
         self.state.enter(MirrorState::Paused);
-        if failed.is_some() && error.is_transient() {
+        let kept = self
+            .paused_for
+            .filter(|_| failed.is_some() && error.is_transient());
+        let reason = if let Some(reason) = kept {
             descriptor::resume_failed(&error);
+            reason
         } else {
             let reason = error.pause_reason();
             descriptor::paused(&error, reason);
@@ -364,9 +373,13 @@ impl Mirror {
                     serde_json::json!({"reason":error.to_string()}),
                 );
             }
-        }
+            self.paused_for = Some(reason);
+            reason
+        };
         if let Some(request) = failed {
-            let _ = request.reply.send(Err(ControlError::Failed(error)));
+            let _ = request
+                .reply
+                .send(Err(ControlError::RescanFailed { reason, error }));
         }
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         tests::injected_pause_panic(&self.config);
@@ -1038,7 +1051,11 @@ impl LiveControl<'_> {
                 } else {
                     Ok(())
                 };
-                let _ = reply.send(summary.map_err(ControlError::Failed));
+                let answer = match (summary, stop) {
+                    (Err(error), Some(reason)) => Err(ControlError::RescanFailed { reason, error }),
+                    (summary, _) => summary.map_err(ControlError::Failed),
+                };
+                let _ = reply.send(answer);
                 paused?;
                 if let Some(reason) = stop {
                     return Err(SyncError::RescanStopped(reason));

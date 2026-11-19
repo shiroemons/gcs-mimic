@@ -2344,10 +2344,14 @@ async fn a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds() 
         .await
         .unwrap()
         .unwrap_err();
+    // The rescan hears its own cause and the reason the pause keeps.
     assert!(
         matches!(
             &failed,
-            ControlError::Failed(SyncError::Admin(AdminError::Busy { .. }))
+            ControlError::RescanFailed {
+                reason,
+                error: SyncError::Admin(AdminError::Busy { .. }),
+            } if Some(*reason) == recorded
         ),
         "{failed:?}"
     );

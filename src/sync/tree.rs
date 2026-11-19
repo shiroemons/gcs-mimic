@@ -44,7 +44,7 @@ impl TreeLimits {
     pub(crate) fn too_many_entries(self) -> AdminError {
         AdminError::Invalid(match self.entries {
             Some(entries) => format!(
-                "sync tree exceeds {entries} inspected entries; preserve the tree, then raise max_sync_entries or reduce its size before rescanning"
+                "sync tree exceeds {entries} inspected entries; preserve the tree, then reduce its size and rescan, or raise max_sync_entries and restart the server, which reads the setting only at startup"
             ),
             // Without an entry limit, only a name no filesystem should hold reaches this.
             None => "sync tree holds a directory entry name past 4096 bytes; preserve the tree, then rename or remove that entry before rescanning".to_owned(),
@@ -55,7 +55,7 @@ impl TreeLimits {
         AdminError::Invalid(match self.depth {
             Some(depth) => {
                 format!(
-                    "sync tree exceeds {depth} levels; raise max_sync_depth or reduce its depth"
+                    "sync tree exceeds {depth} levels; reduce its depth and rescan, or raise max_sync_depth and restart the server, which reads the setting only at startup"
                 )
             }
             None => format!(

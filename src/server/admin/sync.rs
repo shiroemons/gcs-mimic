@@ -919,6 +919,23 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
                 | Cause::Other => None,
             })
             .unwrap_or_else(busy),
-        ControlError::Paused | ControlError::Shutdown => busy(),
+        // The caller holds sync control authority, so the answer may name the cause, which is
+        // what tells a failed resume apart from a busy queue.
+        ControlError::RescanFailed { reason, error } => ApiError::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            format!(
+                "The rescan failed, so synchronization stays paused with paused_reason {}: {}. {}",
+                reason.as_str(),
+                crate::error::Report(error),
+                crate::sync::control::pause_remedy(*reason),
+            ),
+        ),
+        ControlError::Paused => ApiError::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            "Synchronization is paused, so it cannot act on this control yet; find the reason with gcs-mimic sync status, correct it and run gcs-mimic sync rescan --endpoint URL first",
+        ),
+        ControlError::Shutdown => busy(),
     }
 }

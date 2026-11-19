@@ -83,15 +83,75 @@ fn status_state_follows_the_mirror_state() {
     }
 }
 
-/// A paused mirror and a stopped one never ran the control, so both answer as a closed queue.
+/// A stopped mirror never ran the control, so it answers as a closed queue. A paused one, and a
+/// rescan that failed to resume it, answer 409 with what resumes synchronization instead of
+/// asking to retry a busy queue: a failed rescan names the reason it stays paused and its cause.
 #[test]
-fn controls_that_never_ran_answer_busy() {
-    let expected = busy();
-    for error in [ControlError::Paused, ControlError::Shutdown] {
-        let actual = control_error(&error);
-        assert_eq!(actual.status, expected.status, "{error:?}");
-        assert_eq!(actual.reason, expected.reason, "{error:?}");
-        assert_eq!(actual.message, expected.message, "{error:?}");
+fn controls_answer_with_what_resumes_synchronization() {
+    let busy = busy();
+    let stopped = control_error(&ControlError::Shutdown);
+    assert_eq!(
+        (stopped.status, stopped.reason, &stopped.message),
+        (busy.status, busy.reason, &busy.message)
+    );
+    let paused = control_error(&ControlError::Paused);
+    assert_eq!(paused.status, StatusCode::CONFLICT);
+    assert!(
+        paused
+            .message
+            .contains("run gcs-mimic sync rescan --endpoint URL first"),
+        "{}",
+        paused.message
+    );
+    let limit = control_error(&ControlError::RescanFailed {
+        reason: PauseReason::ObserverFailure,
+        error: SyncError::Admin(AdminError::Invalid(
+            "sync tree exceeds 3 inspected entries".to_owned(),
+        )),
+    });
+    let kept = control_error(&ControlError::RescanFailed {
+        reason: PauseReason::IoFailure,
+        error: SyncError::Admin(AdminError::Busy {
+            retry_after: Duration::from_secs(1),
+        }),
+    });
+    for (failed, parts) in [
+        (
+            &limit,
+            [
+                "paused_reason observer-failure: ",
+                "sync tree exceeds 3 inspected entries",
+                "such as max_sync_entries, needs a restart",
+            ],
+        ),
+        (
+            &kept,
+            [
+                "paused_reason IoFailure: ",
+                "free disk space without deleting pending data",
+                "gcs-mimic sync rescan --endpoint URL",
+            ],
+        ),
+    ] {
+        assert_eq!(failed.status, StatusCode::CONFLICT, "{}", failed.message);
+        assert_ne!(failed.message, busy.message);
+        for part in parts {
+            assert!(failed.message.contains(part), "{part}: {}", failed.message);
+        }
+    }
+    for reason in [
+        PauseReason::ConflictCapacity,
+        PauseReason::IoFailure,
+        PauseReason::RecoveryRequired,
+        PauseReason::ObserverFailure,
+        PauseReason::SourceChanging,
+        PauseReason::SourceUnrepresentable,
+    ] {
+        assert!(
+            crate::sync::control::pause_remedy(reason)
+                .contains("then run gcs-mimic sync rescan --endpoint URL"),
+            "{reason:?}"
+        );
     }
 }
 

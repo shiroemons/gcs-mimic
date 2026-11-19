@@ -81,6 +81,20 @@ impl SyncServer {
         assert_eq!(value["completed"], true);
         reply
     }
+    /// Runs `gcs-mimic sync command` against this server and returns its exit status and the
+    /// JSON answer it prints.
+    fn sync_cli(&self, command: &str, options: &[&str]) -> (std::process::ExitStatus, Value) {
+        let output = common::server_command()
+            .args(["sync", command, "--endpoint"])
+            .arg(format!("http://{}", self.address))
+            .args(options)
+            .output()
+            .unwrap();
+        (
+            output.status,
+            serde_json::from_slice(&output.stdout).unwrap(),
+        )
+    }
     /// Runs `gcs-mimic healthcheck` against `path` and returns its exit status and standard error.
     fn healthcheck(&self, path: &str) -> (std::process::ExitStatus, String) {
         healthcheck(&format!("http://{}{path}", self.address))
@@ -114,12 +128,30 @@ fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_st
     assert_eq!(waited["reason"], "Paused");
     // The pause stops synchronization only: the API stays ready and reports it apart.
     assert_eq!(server.sync_state(), "paused");
-    // Neither inspection nor a rescan that fails again resumes it.
+    // Neither inspection nor a rescan that fails again resumes it. The failed rescan says why
+    // and that the limit needs a restart, and an approval asks for a rescan first; neither
+    // answers as a busy queue that a retry would get through.
     let status = server.request("GET", "/_internal/sync", b"").json_ok();
     assert_eq!(status["state"], "Paused", "{status}");
-    server
-        .request("POST", "/_internal/sync/rescan", b"{}")
-        .expect(503);
+    let (rescanned, rescan) = server.sync_cli("rescan", &[]);
+    assert!(!rescanned.success());
+    assert_eq!(rescan["error"]["code"], 409, "{rescan}");
+    let message = rescan["error"]["message"].as_str().unwrap();
+    for part in [
+        "stays paused with paused_reason observer-failure: ",
+        "exceeds 3 inspected entries",
+        "raise max_sync_entries and restart the server",
+    ] {
+        assert!(message.contains(part), "{part}: {message}");
+    }
+    let (approved, approve) = server.sync_cli("approve", &["--deletion-set", &"0".repeat(32)]);
+    assert!(!approved.success());
+    assert_eq!(approve["error"]["code"], 409, "{approve}");
+    let message = approve["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("run gcs-mimic sync rescan --endpoint URL first"),
+        "{message}"
+    );
     assert_eq!(server.sync_state(), "paused");
     server.stop();
     for _ in 0..2 {

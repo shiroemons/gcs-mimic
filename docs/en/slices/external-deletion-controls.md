@@ -53,8 +53,8 @@ answer 503 once the mirror is closed or the wait gives up, cap JSON inputs at
 | `GET /_internal/sync?view=deletions&revision=...` | Fixed members with original owner, incarnation and generation; opaque bound cursors; no filesystem paths. Long names shorten a page to respect the byte cap. |
 | `GET /_internal/sync?view=findings&revision=...` | Root source stops, mapping findings, protected paths, retained conflicts and pending recovery with exact target/revision and remedy; runtime-session-bound cursors. |
 | `GET /_internal/sync/conflicts` | Original-owner retained revisions, metadata and combined quota with bounded listing and revision-bound continuation. |
-| `POST /_internal/sync/rescan` | Empty JSON object; serialized complete observation with operation ID and reconciliation result. It grants no deletion override. |
-| `POST /_internal/sync/approve` | Exact `deletion_set` revision, one-shot acceptance and count. Observer disconnect does not cancel the accepted operation. |
+| `POST /_internal/sync/rescan` | Empty JSON object; serialized complete observation with operation ID and reconciliation result. It grants no deletion override. A rescan that fails and leaves synchronization paused answers 409 with the `paused_reason`, the cause and the commands that resume it. |
+| `POST /_internal/sync/approve` | Exact `deletion_set` revision, one-shot acceptance and count. Observer disconnect does not cancel the accepted operation. While synchronization is paused it answers 409 and asks for `gcs-mimic sync rescan` first. |
 | `POST /_internal/sync/wait` | Empty object or explicit `timeout_ms`; captured source scan and finite journal fence, completed/timeout/stop result without cancelling owned side effects. |
 | `POST /_internal/sync/resolve` | Exact registered-conflict restore/discard, or exact recovery identity with an explicit backup/disposal confirmation; durable operation-ID retries. |
 

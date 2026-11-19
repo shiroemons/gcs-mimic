@@ -7,7 +7,7 @@ pub(super) fn paused(error: &SyncError, pause: PauseReason) {
         "sync_paused",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":"Preserve pending data, correct the reported condition and request an explicit rescan"}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":crate::sync::control::pause_remedy(pause)}),
         ),
     );
 }
@@ -19,7 +19,7 @@ pub(super) fn resume_failed(error: &SyncError) {
         "sync_resume_failed",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":"Synchronization stays paused under its recorded reason; run the rescan again"}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":"Synchronization stays paused for the reason it recorded; run gcs-mimic sync rescan --endpoint URL again"}),
         ),
     );
 }

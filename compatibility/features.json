@@ -60400,6 +60400,12 @@
           "test_ids": ["the_healthcheck_fails_only_while_synchronization_starts", "healthcheck_usage_errors_come_before_any_probe", "the_healthcheck_waits_only_while_synchronization_starts", "a_transient_mirror_failure_is_retried_until_it_clears"]
         },
         {
+          "id": "sync-paused-control-answers",
+          "description": "A rescan that fails and leaves synchronization paused, whether it was to resume a paused mirror or ran on a running one, answers 409 with the paused_reason it keeps or records, the cause and the remedy for that reason, instead of a 503 that asks to retry a busy queue; a resume that failed transiently keeps the reason recorded before. An approval while paused answers 409 and asks for gcs-mimic sync rescan first; a mirror that stopped before running a control still answers 503. The sync_paused event, the root-stop finding and the failed rescan take their remedy from one text per pause reason that names the gcs-mimic sync commands to run. The entry and depth limit failures say that reducing the tree needs a rescan, while raising max_sync_entries or max_sync_depth needs a restart. The CLI prints the 409 answer and exits nonzero. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/external-deletion-controls.md.",
+          "result": "PASS",
+          "test_ids": ["controls_answer_with_what_resumes_synchronization", "a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
+        },
+        {
           "id": "sync-installed-body-durability",
           "description": "Durable always verifies installed body hashes, including same-inode/size edits with restored mtime; acknowledgement checks the complete recorded stat instead of hashing again. Reusing private copy hashes cannot establish the installed bytes after namespace exposure. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
@@ -60815,6 +60821,7 @@
         "the_healthcheck_fails_only_while_synchronization_starts",
         "healthcheck_usage_errors_come_before_any_probe",
         "the_healthcheck_waits_only_while_synchronization_starts",
+        "controls_answer_with_what_resumes_synchronization",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -61132,6 +61139,13 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/container-usage.md",
           "test_ids": ["the_healthcheck_fails_only_while_synchronization_starts", "healthcheck_usage_errors_come_before_any_probe", "the_healthcheck_waits_only_while_synchronization_starts"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- controls_answer_with_what_resumes_synchronization a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds sync::tree:: --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/external-deletion-controls.md",
+          "test_ids": ["controls_answer_with_what_resumes_synchronization", "a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",

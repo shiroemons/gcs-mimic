@@ -18,25 +18,16 @@ pub(super) fn value(
     quota: Option<&WritebackSummary>,
 ) -> Result<Value, ApiError> {
     let (reason, remedy) = match &item.reason {
-        FindingReason::RootStop(PauseReason::SourceUnrepresentable) => (
-            "SourceUnrepresentable",
-            "Inspect source-tree diagnostics; preserve unsafe or unmappable entries, repair their representation and rescan",
-        ),
-        FindingReason::RootStop(PauseReason::SourceChanging) => (
-            "SourceChanging",
-            "Finish or stop external writers, restore source access and rescan",
-        ),
-        FindingReason::RootStop(PauseReason::ConflictCapacity) => (
-            "ConflictCapacity",
-            "Inspect retained conflicts and protected work, resolve exact revisions within quota, then rescan",
-        ),
-        FindingReason::RootStop(PauseReason::IoFailure) => (
-            "IoFailure",
-            "Free disk space or restore access without deleting pending data, inspect retained work and rescan",
-        ),
-        FindingReason::RootStop(PauseReason::RecoveryRequired) => (
-            "RecoveryRequired",
-            "Inspect protected workspace entries; preserve them before an exact confirmed recovery discard or registered conflict transfer",
+        FindingReason::RootStop(pause) => (
+            match pause {
+                PauseReason::ObserverFailure => "Paused",
+                PauseReason::ConflictCapacity
+                | PauseReason::IoFailure
+                | PauseReason::RecoveryRequired
+                | PauseReason::SourceChanging
+                | PauseReason::SourceUnrepresentable => pause.as_str(),
+            },
+            crate::sync::control::pause_remedy(*pause),
         ),
         FindingReason::ExportConflict => (
             "Conflict",
@@ -67,10 +58,6 @@ pub(super) fn value(
         FindingReason::Conflict(_) => (
             "Conflict",
             "Inspect the retained conflict revision, then restore with the current expected generation or explicitly discard that revision",
-        ),
-        FindingReason::RootStop(PauseReason::ObserverFailure) => (
-            "Paused",
-            "Inspect server diagnostics, correct the reported condition without removing pending data and request an explicit rescan",
         ),
     };
     // A finding ID is the finding's cursor under a prefix that names only the catalog and the

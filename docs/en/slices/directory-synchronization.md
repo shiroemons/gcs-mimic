@@ -992,7 +992,10 @@ GET bodies are rejected. Responses are capped at 256 KiB with paged detail.
 Unknown method returns 405; unknown route/disabled sync returns 404; malformed
 input 400, oversize 413, stale conditions 409, closed service or a catalog wait past its budget 503.
 Accepted asynchronous mutations return 202 with operation ID; completed reads
-and wait return 200, wait deadline 408 and an existing stop 409. The CLI exits
+and wait return 200, wait deadline 408 and an existing stop 409. A rescan that
+fails and leaves synchronization paused answers 409 with the `paused_reason`, the
+cause and the remedy, and an approval while paused answers 409 and asks for a
+rescan first; neither answers 503, which would invite a blind retry. The CLI exits
 nonzero on errors, timeout or stopped work and prints actionable diagnostics.
 Control requests have no count limit. A command waits for the mirror's one-command queue
 within its own deadline: the requested `timeout_ms` for a wait, which still answers 408, and

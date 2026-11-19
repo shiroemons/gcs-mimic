@@ -8,6 +8,7 @@ use crate::{
         sync_state::{
             OpaqueId,
             deletions::DeletionSet,
+            observation::PauseReason,
             root::{RootError, RootLease},
         },
     },
@@ -24,10 +25,41 @@ use tokio::sync::{mpsc, oneshot};
 pub(crate) enum ControlError {
     /// The rescan, approval or wait ran, or was being authorized, and failed.
     Failed(SyncError),
+    /// A rescan ran and failed, and synchronization is paused for `reason`: the reason a failed
+    /// resume keeps, or the one the failure itself recorded.
+    RescanFailed {
+        reason: PauseReason,
+        error: SyncError,
+    },
     /// Synchronization is paused; only an explicit rescan may resume it.
     Paused,
     /// The mirror stopped before running the control.
     Shutdown,
+}
+
+/// What resumes synchronization after a pause for `reason`. The `sync_paused` event, the root-stop
+/// finding and a failed rescan give the same advice, naming the commands to run.
+pub(crate) const fn pause_remedy(reason: PauseReason) -> &'static str {
+    match reason {
+        PauseReason::ConflictCapacity => {
+            "Resolve or discard, within the quota, the retained conflicts that gcs-mimic sync conflicts lists, with gcs-mimic sync resolve, then run gcs-mimic sync rescan --endpoint URL"
+        }
+        PauseReason::IoFailure => {
+            "Restore access to the directory or free disk space without deleting pending data, then run gcs-mimic sync rescan --endpoint URL"
+        }
+        PauseReason::RecoveryRequired => {
+            "Preserve the protected workspace entries that gcs-mimic sync findings lists and settle each with gcs-mimic sync resolve, as an exact confirmed recovery discard or a registered conflict, then run gcs-mimic sync rescan --endpoint URL"
+        }
+        PauseReason::SourceChanging => {
+            "Let the programs writing in the directory finish, restore access to it, then run gcs-mimic sync rescan --endpoint URL"
+        }
+        PauseReason::SourceUnrepresentable => {
+            "Preserve the entries that gcs-mimic sync findings lists as unrepresentable and rename them or move them out of the directory, then run gcs-mimic sync rescan --endpoint URL"
+        }
+        PauseReason::ObserverFailure => {
+            "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names, then run gcs-mimic sync rescan --endpoint URL; a changed server setting, such as max_sync_entries, needs a restart instead"
+        }
+    }
 }
 
 impl From<SyncError> for ControlError {
@@ -46,9 +78,14 @@ impl fmt::Display for ControlError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Failed(error) => fmt::Display::fmt(error, f),
-            Self::Paused => {
-                f.write_str("Synchronization is paused; correct the condition and request a rescan")
-            }
+            Self::RescanFailed { reason, .. } => write!(
+                f,
+                "the rescan failed and synchronization stays paused ({})",
+                reason.as_str()
+            ),
+            Self::Paused => f.write_str(
+                "Synchronization is paused; correct the condition and run gcs-mimic sync rescan first",
+            ),
             Self::Shutdown => f.write_str("synchronization stopped before the control ran"),
         }
     }
@@ -57,7 +94,7 @@ impl fmt::Display for ControlError {
 impl Error for ControlError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Failed(error) => Some(error),
+            Self::Failed(error) | Self::RescanFailed { error, .. } => Some(error),
             Self::Paused | Self::Shutdown => None,
         }
     }
