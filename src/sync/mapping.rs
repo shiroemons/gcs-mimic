@@ -164,15 +164,20 @@ mod tests {
 
     #[test]
     fn literal_names_round_trip_without_normalization() {
-        for object in [
+        // Windows keeps its own component rules whatever the root's rules say, and they refuse a
+        // colon, so the colon names round-trip only off Windows.
+        #[cfg(not(windows))]
+        let colon_names = ["a:b", "logs/2026-10-28T12:00:00.log"];
+        #[cfg(windows)]
+        let colon_names: [&str; 0] = [];
+        let plain_names = [
             "%2F/%25.txt",
             "日本語/é/e\u{301}",
             "._assets/ok",
             "dir.swp/ok",
             "4913/ok",
-            "a:b",
-            "logs/2026-10-28T12:00:00.log",
-        ] {
+        ];
+        for object in plain_names.into_iter().chain(colon_names) {
             let PathMapping::File(path) = mapping("demo-bucket", object) else {
                 panic!("representable lexical name: {object}");
             };
@@ -194,7 +199,10 @@ mod tests {
         );
     }
 
+    // Windows refuses a colon and its device names by its own component rules, whatever the
+    // root's rules say; `windows_restrictions_cover_devices_and_special_components` covers them.
     #[test]
+    #[cfg(not(windows))]
     fn colon_names_follow_the_root_rules_in_both_directions() {
         let rejecting = naming(Colon::Rejected, Some(255));
         for object in ["a:b", "logs/2026-10-28T12:00:00.log", "dir:x/file"] {
