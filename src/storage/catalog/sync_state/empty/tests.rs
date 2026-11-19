@@ -3,8 +3,8 @@ use crate::{sync::naming::RootNaming, test_support::TestDir};
 use std::fs;
 
 /// Every name a directory may hold and still count as empty is one that scans skip as an
-/// ignored file wherever it lies, so neither removing it with a directory nor switching to a root
-/// that holds it loses anything the tree would publish as an object.
+/// ignored file wherever it lies, so removing it with a directory loses nothing the tree would
+/// publish as an object.
 #[test]
 fn every_finder_metadata_name_is_one_scans_ignore() {
     use crate::sync::entries::{EntryClass, Skip, classify};

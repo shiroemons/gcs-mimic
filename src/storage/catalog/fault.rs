@@ -137,6 +137,9 @@ pub(crate) enum Step {
     SyncCopySync,
     /// After the copied file and workspace are synced, before installation.
     SyncCopyDurable,
+    /// Before installation reopens a Finder metadata file in the directory that holds its
+    /// target's name to unlink it. An injected I/O error stands in for the unlink's own failure.
+    SyncDirectoryMetadataUnlink,
     /// After installation unlinked the Finder metadata files, such as `.DS_Store`, from the
     /// directory that holds its target's name, and each unlink synced that directory, before the
     /// directory's removal.

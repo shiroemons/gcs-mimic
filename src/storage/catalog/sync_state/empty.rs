@@ -12,7 +12,7 @@ use std::{fs::File, io};
 /// name that scans ignore, so none of them would become an object. Other names scans ignore,
 /// such as `._*` or an editor's swap file, may hold a user's data, and a directory that holds one
 /// is not empty.
-pub(super) const FINDER_METADATA: [&str; 1] = [".DS_Store"];
+const FINDER_METADATA: [&str; 1] = [".DS_Store"];
 
 /// The most names [`contents`] reads. Any name but a Finder metadata file makes a directory hold
 /// something, so one that lists more is never empty, and the bound keeps a large directory from
@@ -35,7 +35,7 @@ pub(super) enum Contents {
     /// An entry other than a regular Finder metadata file, or more names than are read.
     Holds,
     /// Listing the directory failed with this error, so what it holds is unknown.
-    Unlisted(io::ErrorKind),
+    Unlisted(io::Error),
 }
 
 /// Lists `directory`, never below it and at most [`LIST_LIMIT`] names, and opens each
@@ -53,7 +53,7 @@ pub(super) fn contents(directory: &File) -> io::Result<Contents> {
             Err(error) if error.kind() == io::ErrorKind::InvalidData => {
                 return Ok(Contents::Holds);
             }
-            Err(error) => return Ok(Contents::Unlisted(error.kind())),
+            Err(error) => return Ok(Contents::Unlisted(error)),
         };
         let Some(name) = FINDER_METADATA
             .into_iter()

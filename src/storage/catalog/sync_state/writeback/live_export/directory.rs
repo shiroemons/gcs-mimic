@@ -5,19 +5,23 @@
 //! directory itself rather than leave the operator to, under a proof built in two halves: the
 //! catalog records nothing at or below the target ([`unreferenced`]), and the tree holds a
 //! directory there under its exact spelling, below its bucket's directory and outside the names
-//! the root reserves ([`RemovableDirectory::prove`]). [`remove`] takes that proof. Removal itself
-//! is the last check, because an entry can arrive after every other one: `rmdir` never follows a
-//! symlink and refuses a directory that holds anything else, which is left as a collision.
+//! the root reserves ([`RemovableDirectory::prove`]). [`remove`] takes that proof.
 //!
-//! Only Finder's metadata files ([`empty::FINDER_METADATA`]) are ever removed from the directory:
-//! a regular `.DS_Store` that Finder writes into every directory it shows, which would otherwise
-//! keep a directory holding nothing of the user's. The proof lists the directory, never below it
-//! and only a few names, to find whether that is all it holds ([`empty::contents`]); any other
-//! entry, or a listing that fails, keeps the directory with everything in it. The listing is also
-//! what keeps AppleDouble `._*` files: macOS's `rmdir` removes a directory that holds only `._*`
-//! files of names it does not hold, and those files with it, so `rmdir` alone would not refuse
-//! one. No ancestor that a removal empties is removed after it. On a root that folds letter case
-//! the directory that holds the target is listed too, to confirm the spelling.
+//! Only Finder's metadata files are ever removed from the directory: a regular `.DS_Store` that
+//! Finder writes into every directory it shows, which would otherwise keep a directory holding
+//! nothing of the user's. The proof lists the directory, never below it and only a few names, to
+//! find whether that is all it holds ([`empty::contents`]); any other entry, or a listing that
+//! fails, keeps the directory with everything in it. The listing is also what keeps AppleDouble
+//! `._*` files: macOS's `rmdir` removes a directory that holds only `._*` files of names it does
+//! not hold, and those files with it, so `rmdir` alone would not refuse one.
+//!
+//! An entry can arrive at any time, so [`remove`] checks just before `rmdir` that the name still
+//! holds the proved directory and lists that directory once more ([`unchanged`]). `rmdir` never
+//! follows a symlink and refuses a directory that holds an entry that arrived after that listing,
+//! which is left as a collision, with one exception no check can close: on macOS, an AppleDouble
+//! `._*` file created between that listing and `rmdir` goes with the directory. No ancestor that
+//! a removal empties is removed after it. On a root that folds letter case the directory that
+//! holds the target is listed too, to confirm the spelling.
 
 use super::*;
 use crate::storage::catalog::sync_state::empty::{self, Contents, MetadataFile};
@@ -44,8 +48,12 @@ pub(super) enum Kept {
     /// The directory lists an entry other than a regular Finder metadata file, or more names
     /// than a proof reads.
     Holds,
-    /// Listing the directory failed with this error, so what it holds is unknown.
-    Unlisted(io::ErrorKind),
+    /// Listing the directory failed, so what it holds is unknown. The error's kind and its
+    /// system error code, which the warning reports, keep this value `Copy`.
+    Unlisted {
+        kind: io::ErrorKind,
+        os: Option<i32>,
+    },
     /// The filesystem refused the removal.
     Refused(Refusal),
 }
@@ -103,7 +111,7 @@ impl Kept {
             // The operator frees the name the same way as when the removal itself finds an
             // entry: by moving what the directory holds out of the tree.
             Self::Holds => "not_empty",
-            Self::Unlisted(_) => "unlisted",
+            Self::Unlisted { .. } => "unlisted",
             Self::Refused(refusal) => refusal.as_str(),
         }
     }
@@ -119,7 +127,7 @@ impl Kept {
             | Self::Conflict
             | Self::NotAnObject
             | Self::Holds
-            | Self::Unlisted(_)
+            | Self::Unlisted { .. }
             | Self::Refused(_) => crate::sync::control::occupied_directory_remedy(),
         }
     }
@@ -137,7 +145,7 @@ impl Kept {
             | Self::Conflict
             | Self::NotAnObject
             | Self::Holds
-            | Self::Unlisted(_)
+            | Self::Unlisted { .. }
             | Self::Refused(_) => mapping::Reason::DirectoryOccupied,
         }
     }
@@ -147,7 +155,11 @@ impl Kept {
     /// the directory, so an operator knows what to change.
     pub(super) fn report(self, item: &Pending) {
         let error = match self {
-            Self::Unlisted(kind) => Some(kind.to_string()),
+            Self::Unlisted {
+                kind,
+                os: Some(code),
+            } => Some(format!("{kind} (os error {code})")),
+            Self::Unlisted { kind, os: None } => Some(kind.to_string()),
             Self::Replaces
             | Self::Tracked
             | Self::PathStop
@@ -307,7 +319,10 @@ fn metadata_only(directory: &File) -> Result<Result<Vec<MetadataFile>, Kept>, Er
     Ok(match empty::contents(directory)? {
         Contents::Empty(metadata) => Ok(metadata),
         Contents::Holds => Err(Kept::Holds),
-        Contents::Unlisted(kind) => Err(Kept::Unlisted(kind)),
+        Contents::Unlisted(error) => Err(Kept::Unlisted {
+            kind: error.kind(),
+            os: error.raw_os_error(),
+        }),
     })
 }
 
@@ -348,6 +363,8 @@ fn remove_metadata(
 ) -> Result<usize, Error> {
     let mut unlinked = 0;
     for file in metadata {
+        #[cfg(test)]
+        install.faults.hit_io(Step::SyncDirectoryMetadataUnlink)?;
         let current = match fsutil::child_regular(directory, file.name.as_ref()) {
             Ok(fsutil::RegularChild::File(current)) => current,
             Ok(fsutil::RegularChild::Missing | fsutil::RegularChild::Alias) => continue,
@@ -373,12 +390,38 @@ fn remove_metadata(
     Ok(unlinked)
 }
 
+/// Rechecks what the proof read just before the removal: that the name still holds the directory
+/// the proof opened, and that the directory holds nothing but Finder metadata files. A name that
+/// holds another directory by now fails the attempt, and the retry proves that one; an entry
+/// that is no directory keeps the name. A directory gone since the proof passes, and the removal
+/// finds it gone.
+fn unchanged(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    directory: &File,
+) -> Result<Result<(), Kept>, Error> {
+    match fsutil::child_directory(parent, name, fsutil::DirectoryOpen::Existing) {
+        Ok(fsutil::Child::Directory { file, .. }) => {
+            if fsutil::stat_identity(&file)?.node() != fsutil::stat_identity(directory)?.node() {
+                return Err(stale());
+            }
+        }
+        Ok(fsutil::Child::Missing) => return Ok(Ok(())),
+        Ok(fsutil::Child::Alias) => return Ok(Err(Kept::NotDirectory)),
+        Err(error) if crate::sync::tree::structural_entry_error(&error) => {
+            return Ok(Err(Kept::NotDirectory));
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(metadata_only(directory)?.map(drop))
+}
+
 /// Removes the directory `proof` names once its Finder metadata files are unlinked, if it is
 /// empty then, and syncs the directory that held it, so the removal is durable before
-/// installation takes the name; returns that directory for installation to rename into. A
-/// refused removal leaves the directory with whatever it holds; a metadata file already unlinked
-/// stays unlinked, since the system that wrote it writes it again. A directory already gone
-/// counts as removed.
+/// installation takes the name; returns that directory for installation to rename into. The
+/// directory is listed once more first ([`unchanged`]). A refused removal leaves the directory
+/// with whatever it holds; a metadata file already unlinked stays unlinked, since the system that
+/// wrote it writes it again. A directory already gone counts as removed.
 pub(super) fn remove(
     proof: RemovableDirectory,
     install: &Install,
@@ -395,6 +438,9 @@ pub(super) fn remove(
         return Err(stale());
     }
     let unlinked = remove_metadata(&directory, &metadata, install)?;
+    if let Err(kept) = unchanged(&parent, &name, &directory)? {
+        return Ok(Err(kept));
+    }
     #[cfg(test)]
     let reached = install.faults.hit_io(Step::SyncEmptyDirectoryRemove);
     #[cfg(not(test))]

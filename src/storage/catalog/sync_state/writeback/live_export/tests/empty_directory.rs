@@ -360,8 +360,34 @@ async fn a_failed_parent_sync_after_the_removal_is_retried() {
     fixture.close().await;
 }
 
+/// An unlink of a Finder metadata file that fails fails the attempt with its own cause and keeps
+/// the directory with the file; the retry unlinks it, removes the directory and completes.
+#[tokio::test]
+async fn a_failed_metadata_unlink_is_retried() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    let directory = fixture.tree.0.join(DIRECTORY);
+    fs::write(directory.join(".DS_Store"), b"finder").unwrap();
+    fixture.catalog.inject(
+        Step::SyncDirectoryMetadataUnlink,
+        0,
+        Fault::Io(io::ErrorKind::Other),
+    );
+    let failed = finish(&fixture, &operation).await;
+    let Err(Error::Admin(AdminError::Io(cause))) = &failed else {
+        panic!("{failed:?}")
+    };
+    assert_eq!(cause.kind(), io::ErrorKind::Other);
+    assert_eq!(names(&directory), [".DS_Store"]);
+    let result = finish(&fixture, &operation).await.unwrap();
+    assert_exported(&fixture, result).await;
+    drop(operation);
+    fixture.close().await;
+}
+
 /// Advances `operation` until it ends, running `change` on the target's path while the attempt
-/// that removes the directory there waits at `step`: just before the removal, or just after it.
+/// that removes the directory there waits at `step`: before a metadata file's unlink, after the
+/// unlinks, just before the removal, or just after it.
 async fn race_removal(
     fixture: &Fixture,
     operation: &LiveExport,
@@ -411,6 +437,85 @@ async fn an_entry_that_arrives_before_the_removal_keeps_the_directory() {
     .await;
     assert_kept(&fixture, result.unwrap(), &["late"]).await;
     assert_eq!(fs::read(&late).unwrap(), b"late");
+    drop(operation);
+    fixture.close().await;
+}
+
+/// A `.DS_Store` written again after the proof opened it is no longer the file the proof found,
+/// so it is not unlinked: the removal then finds the directory not empty, and the directory stays
+/// with the new file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_metadata_file_written_again_before_its_unlink_stays() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    let finder = fixture.tree.0.join(DIRECTORY).join(".DS_Store");
+    fs::write(&finder, b"finder").unwrap();
+    let result = race_removal(
+        &fixture,
+        &operation,
+        Step::SyncDirectoryMetadataUnlink,
+        |directory| {
+            let path = directory.join(".DS_Store");
+            fs::remove_file(&path).unwrap();
+            fs::write(&path, b"written again").unwrap();
+        },
+    )
+    .await;
+    assert_kept(&fixture, result.unwrap(), &[".DS_Store"]).await;
+    assert_eq!(fs::read(&finder).unwrap(), b"written again");
+    drop(operation);
+    fixture.close().await;
+}
+
+/// An AppleDouble file that arrives after the proof listed the directory keeps it: macOS's
+/// `rmdir` would remove the directory with that file, so the removal lists the directory once
+/// more just before it. Only a file that arrives after that listing can still go that way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_apple_double_file_that_arrives_after_the_proof_keeps_the_directory() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    let directory = fixture.tree.0.join(DIRECTORY);
+    fs::write(directory.join(".DS_Store"), b"finder").unwrap();
+    let result = race_removal(
+        &fixture,
+        &operation,
+        Step::SyncDirectoryMetadataRemoved,
+        |directory| fs::write(directory.join("._a"), b"apple double").unwrap(),
+    )
+    .await;
+    assert_kept(&fixture, result.unwrap(), &["._a"]).await;
+    assert_eq!(fs::read(directory.join("._a")).unwrap(), b"apple double");
+    drop(operation);
+    fixture.close().await;
+}
+
+/// A directory that another one replaced after the proof is not the directory the proof read:
+/// the attempt fails rather than remove the new one, and the retry proves the new directory,
+/// which keeps it with its AppleDouble file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_directory_replaced_after_the_proof_is_proved_again() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    let directory = fixture.tree.0.join(DIRECTORY);
+    fs::write(directory.join(".DS_Store"), b"finder").unwrap();
+    let result = race_removal(
+        &fixture,
+        &operation,
+        Step::SyncDirectoryMetadataRemoved,
+        |directory| {
+            fs::remove_dir(directory).unwrap();
+            fs::create_dir(directory).unwrap();
+            fs::write(directory.join("._a"), b"apple double").unwrap();
+        },
+    )
+    .await;
+    assert!(
+        matches!(result, Err(Error::Admin(AdminError::Precondition))),
+        "{result:?}"
+    );
+    let result = finish(&fixture, &operation).await.unwrap();
+    assert_kept(&fixture, result, &["._a"]).await;
+    assert_eq!(fs::read(directory.join("._a")).unwrap(), b"apple double");
     drop(operation);
     fixture.close().await;
 }
