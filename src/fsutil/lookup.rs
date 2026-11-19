@@ -184,13 +184,14 @@ impl Lookup {
         let mut found = false;
         imp::each_name(parent, |listed| {
             found |= listed == name;
-            names = names
-                .take()
-                .filter(|kept| kept.len() < KEPT_NAMES)
-                .map(|mut kept| {
-                    kept.insert(listed.to_owned());
-                    kept
-                });
+            // A directory with more names than a listing keeps is read again for each lookup, so
+            // its names are dropped once they reach the bound.
+            if names.as_ref().is_some_and(|kept| kept.len() >= KEPT_NAMES) {
+                names = None;
+            }
+            if let Some(kept) = names.as_mut() {
+                kept.insert(listed.to_owned());
+            }
             Ok(if found && names.is_none() {
                 ControlFlow::Break(())
             } else {

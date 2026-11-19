@@ -22,6 +22,9 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> Result<Native, Error> {
             .map(|entries| entries.get().saturating_add(1)),
     )?;
     native.register(root)?;
+    // One lookup for the whole build, so that the directories it lists to confirm a spelling are
+    // read once rather than for each child.
+    let lookup = fsutil::Lookup::unprobed();
     let mut stack = vec![WatchFrame::new(root.try_clone()?)];
     loop {
         let depth = stack.len();
@@ -45,11 +48,7 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> Result<Native, Error> {
         if depth == 1 && crate::sync::mapping::is_reserved_root_entry(&name) {
             continue;
         }
-        match fsutil::Lookup::unprobed().directory(
-            &frame.directory,
-            &name,
-            fsutil::DirectoryOpen::Existing,
-        ) {
+        match lookup.directory(&frame.directory, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
                 if depth > limits.deepest_directory() {
                     return Err(Error::Tree(limits.too_deep()));
