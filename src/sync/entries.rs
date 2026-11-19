@@ -122,7 +122,7 @@ pub(crate) fn warn_root_file(path: &Path) {
 }
 
 /// Why a scan could not take a working-tree entry in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum EntryProblem {
     /// Its name maps to no object name, or its top-level directory to no bucket name.
@@ -137,28 +137,117 @@ pub(crate) enum EntryProblem {
     DeletedBucket,
 }
 
-/// One entry a scan could not take in.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+impl EntryProblem {
+    /// The event that names an entry with this problem in the log. The unsafe entry keeps the
+    /// name the rescan advice refers to, and the others the names they were logged under before
+    /// each entry was named once.
+    fn event(self) -> &'static str {
+        match self {
+            Self::UnmappableName => "sync_unmappable_entry",
+            Self::UnsafeEntry => "sync_unsafe_entry",
+            Self::Unreadable => "sync_unreadable_entry",
+            Self::PathCollision => "sync_path_collision",
+            Self::DeletedBucket => "sync_bucket_missing",
+        }
+    }
+
+    fn reason(self) -> &'static str {
+        match self {
+            Self::UnmappableName => {
+                "The entry's name maps to no object name, or the top-level directory's to no bucket name"
+            }
+            Self::UnsafeEntry => {
+                "Symbolic links and special files are never followed or synchronized"
+            }
+            Self::Unreadable => "The entry could not be read",
+            Self::PathCollision => "The file is also the parent directory of an object",
+            Self::DeletedBucket => "The previously synchronized bucket was deleted through the API",
+        }
+    }
+
+    /// What the user can do. Until a scan no longer finds the entry, it holds back every inferred
+    /// deletion of the root.
+    fn remedy(self) -> &'static str {
+        match self {
+            Self::UnmappableName => {
+                "Rename the entry to a name the API can hold, or move it out of the directory"
+            }
+            Self::UnsafeEntry => {
+                "Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"
+            }
+            Self::Unreadable => {
+                "Restore read and search permissions on the entry and its parents (for example, chmod u+rx DIRECTORY), or move it out of the directory"
+            }
+            Self::PathCollision => {
+                "Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"
+            }
+            Self::DeletedBucket => {
+                "Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"
+            }
+        }
+    }
+}
+
+/// One entry a scan could not take in. The status lists it by its path and the reason no object
+/// can take it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub(crate) struct UnrepresentableEntry {
-    /// The entry below the sync root.
+    /// The entry below the sync root. An entry is often unrepresentable because its name is not
+    /// UTF-8, which a JSON string cannot hold as it is.
+    #[serde(serialize_with = "lossy_path")]
     pub(crate) path: PathBuf,
+    #[serde(rename = "reason")]
     pub(crate) problem: EntryProblem,
+}
+
+fn lossy_path<S: serde::Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&path.to_string_lossy())
+}
+
+/// Warns about an entry no object can take, once when a complete scan first finds it.
+pub(crate) fn warn_unrepresentable(entry: &UnrepresentableEntry) {
+    diagnostics::emit(
+        LogLevel::Warn,
+        entry.problem.event(),
+        serde_json::json!({
+            "path":entry.path.to_string_lossy(),
+            "reason":entry.problem.reason(),
+            "remedy":entry.problem.remedy(),
+        }),
+    );
 }
 
 /// The first [`EntryReport::LIMIT`] entries one scan could not take in, in scan order, and how
 /// many there were. A tree can hold any number of them, so only the count is unbounded.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct EntryReport {
     entries: Vec<UnrepresentableEntry>,
     total: u64,
     /// The entries among `total` that could not be read, which hold back the baseline and
     /// deletions as unreadable rather than as unrepresentable.
-    #[serde(skip)]
     unreadable: u64,
     /// The first [`EntryReport::LIMIT`] files the scan skipped directly in the root. Each is
     /// warned about when a scan first finds it, not on every scan while it stays.
-    #[serde(skip)]
     root_files: Vec<PathBuf>,
+}
+
+/// The status lists the named entries with the count of those past the bound, which only the
+/// total accounts for.
+impl serde::Serialize for EntryReport {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(serde::Serialize)]
+        struct Listed<'a> {
+            total: u64,
+            entries: &'a [UnrepresentableEntry],
+            omitted: u64,
+        }
+        Listed {
+            total: self.total(),
+            entries: self.entries(),
+            omitted: self.omitted(),
+        }
+        .serialize(serializer)
+    }
 }
 
 impl EntryReport {
@@ -207,13 +296,29 @@ impl EntryReport {
         self.unreadable = self.unreadable.saturating_add(other.unreadable);
     }
 
-    #[cfg(test)]
+    /// The entries this report names that `previous` did not, so that each is warned about when
+    /// a scan first finds it, not on every scan while it stays.
+    pub(crate) fn entries_since(&self, previous: &Self) -> Vec<UnrepresentableEntry> {
+        let previous: HashSet<&UnrepresentableEntry> = previous.entries.iter().collect();
+        self.entries
+            .iter()
+            .filter(|entry| !previous.contains(entry))
+            .cloned()
+            .collect()
+    }
+
+    /// The entries named by path, in scan order.
     pub(crate) fn entries(&self) -> &[UnrepresentableEntry] {
         &self.entries
     }
 
+    /// How many entries the scan counted past [`Self::LIMIT`] without naming them.
+    fn omitted(&self) -> u64 {
+        let named = u64::try_from(self.entries.len()).unwrap_or(u64::MAX);
+        self.total.saturating_sub(named)
+    }
+
     /// How many entries the scan could not take in or could not read, named or only counted.
-    #[cfg(test)]
     pub(crate) fn total(&self) -> u64 {
         self.total
     }
@@ -252,10 +357,52 @@ mod tests {
         );
         assert_eq!(report.entries().len(), EntryReport::LIMIT);
         assert_eq!(report.entries()[0].path, Path::new("bucket/0"));
+        let listed = serde_json::to_value(&report).unwrap();
+        assert_eq!(listed["total"], EntryReport::LIMIT + 10);
+        assert_eq!(listed["omitted"], 10);
         assert_eq!(
-            serde_json::to_value(&report.entries()[0]).unwrap(),
-            serde_json::json!({"path":"bucket/0","problem":"unsafe-entry"})
+            listed["entries"][0],
+            serde_json::json!({"path":"bucket/0","reason":"unsafe-entry"})
         );
+        assert_eq!(
+            listed["entries"].as_array().unwrap().len(),
+            EntryReport::LIMIT
+        );
+    }
+
+    /// An entry whose name is not UTF-8, which is often why no object can take it, is listed and
+    /// logged under a lossy path instead of failing the status or panicking the scan.
+    #[cfg(unix)]
+    #[test]
+    fn an_entry_that_is_not_utf8_is_listed_and_logged_lossily() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = Path::new(OsStr::from_bytes(b"bucket/bad\xff"));
+        let mut report = EntryReport::default();
+        report.record(path, EntryProblem::UnmappableName);
+        assert_eq!(
+            serde_json::to_value(&report).unwrap()["entries"][0],
+            serde_json::json!({"path":"bucket/bad\u{fffd}","reason":"unmappable-name"})
+        );
+        warn_unrepresentable(&report.entries()[0]);
+    }
+
+    /// A report warns only about the entries that the previous complete scan did not name, so an
+    /// entry that stays is warned about once and one that comes back is warned about again.
+    #[test]
+    fn only_entries_the_previous_scan_did_not_name_are_new() {
+        let entry = |path: &str, problem| {
+            let mut report = EntryReport::default();
+            report.record(Path::new(path), problem);
+            report
+        };
+        let link = entry("bucket/link", EntryProblem::UnsafeEntry);
+        let mut both = link.clone();
+        both.record(Path::new("bad name"), EntryProblem::UnmappableName);
+        assert_eq!(link.entries_since(&EntryReport::default()), link.entries());
+        assert!(link.entries_since(&both).is_empty());
+        assert_eq!(both.entries_since(&link), &both.entries()[1..]);
+        let replaced = entry("bucket/link", EntryProblem::Unreadable);
+        assert_eq!(replaced.entries_since(&link), replaced.entries());
     }
 
     /// What the scan could not read decides before what the entry is, and only a regular file

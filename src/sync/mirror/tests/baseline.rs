@@ -168,6 +168,52 @@ async fn an_entry_no_object_can_take_stops_deletions_and_is_named_until_it_is_go
     catalog.close().await.unwrap();
 }
 
+/// The log names each entry no object can take once while it stays: a later scan that still
+/// finds it warns about nothing, a new entry is warned about on its own, and one that comes
+/// back after it was gone is warned about again.
+#[tokio::test]
+async fn each_entry_no_object_can_take_is_warned_about_once_while_it_stays() {
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    let link = tree.0.join("test-bucket/link");
+    std::os::unix::fs::symlink("nowhere", &link).unwrap();
+    let status = Lifecycle::default();
+    let mut baseline = COMPLETE;
+    ingest(&catalog, &root, &status, &mut baseline).await;
+    ingest(&catalog, &root, &status, &mut baseline).await;
+    let unsafe_link = UnrepresentableEntry {
+        path: "test-bucket/link".into(),
+        problem: EntryProblem::UnsafeEntry,
+    };
+    assert_eq!(
+        status.entries().warned_entries(),
+        std::slice::from_ref(&unsafe_link)
+    );
+
+    fs::create_dir(tree.0.join("Not_A_Bucket")).unwrap();
+    ingest(&catalog, &root, &status, &mut baseline).await;
+    let unmappable = UnrepresentableEntry {
+        path: "Not_A_Bucket".into(),
+        problem: EntryProblem::UnmappableName,
+    };
+    assert_eq!(
+        status.entries().warned_entries(),
+        [unsafe_link.clone(), unmappable.clone()]
+    );
+
+    fs::remove_file(&link).unwrap();
+    ingest(&catalog, &root, &status, &mut baseline).await;
+    std::os::unix::fs::symlink("nowhere", &link).unwrap();
+    let summary = ingest(&catalog, &root, &status, &mut baseline).await;
+    assert_eq!(summary.unrepresentable_entries().get(), 2);
+    assert_eq!(
+        status.entries().warned_entries(),
+        [unsafe_link.clone(), unmappable, unsafe_link]
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A directory where a tracked file was tells nothing about that file. It stops that one path,
 /// in the inventory and in exports alike, while the other deletion goes ahead and the pass ends
 /// without a failure that would pause or retry the root.

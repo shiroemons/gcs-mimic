@@ -249,7 +249,9 @@ pub(super) async fn rescan_with(
                 EntryClass::Directory => {}
                 EntryClass::Skipped(skip) => ingest.summary.count_skipped(&entry.path, skip),
                 EntryClass::Unrepresentable(problem) => {
-                    ingest.unrepresentable(&entry.path, problem);
+                    ingest
+                        .summary
+                        .count_unrepresentable_entry(&entry.path, problem);
                 }
                 EntryClass::File(file) => {
                     if let Some(candidate) = ingest.candidate(entry.path, file).await? {
@@ -437,22 +439,10 @@ impl Ingest<'_> {
             LogLevel::Warn,
             "sync_source_deferred",
             serde_json::json!({
-                "path":path,"reason":kind.to_string(),
+                "path":path.to_string_lossy(),"reason":kind.to_string(),
                 "remedy":"Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), free disk space if needed, then request another rescan"
             }),
         );
-    }
-
-    /// Counts an entry no object can take, and names an unsafe one in the log.
-    fn unrepresentable(&mut self, path: &std::path::Path, problem: EntryProblem) {
-        self.summary.count_unrepresentable_entry(path, problem);
-        if problem == EntryProblem::UnsafeEntry {
-            diagnostics::emit(
-                LogLevel::Warn,
-                "sync_unsafe_entry",
-                serde_json::json!({"path":path,"remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}),
-            );
-        }
     }
 
     async fn bucket_directory(
@@ -475,14 +465,6 @@ impl Ingest<'_> {
         self.summary.blocked_buckets += 1;
         self.summary
             .count_unrepresentable_entry(path, EntryProblem::DeletedBucket);
-        diagnostics::emit(
-            LogLevel::Warn,
-            "sync_bucket_missing",
-            serde_json::json!({
-                "path":path,"reason":"The previously synchronized bucket was deleted through the API",
-                "remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"
-            }),
-        );
         Ok(BucketDirectory::Blocked)
     }
 
@@ -551,11 +533,6 @@ impl Ingest<'_> {
         if super::mirror::hierarchy_collision(&self.admin, &bucket, &name).await? {
             self.summary
                 .count_unrepresentable_entry(&path, EntryProblem::PathCollision);
-            diagnostics::emit(
-                LogLevel::Warn,
-                "sync_path_collision",
-                serde_json::json!({"path":path,"remedy":"Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"}),
-            );
             return Ok(None);
         }
         Ok(Some(Candidate {

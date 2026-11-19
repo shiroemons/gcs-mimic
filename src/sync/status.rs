@@ -3,6 +3,8 @@
 //! and must answer while the catalog is busy.
 
 use super::entries::EntryReport;
+#[cfg(test)]
+use super::entries::UnrepresentableEntry;
 use std::{fmt, str::FromStr, sync::Arc};
 use tokio::sync::watch;
 
@@ -107,10 +109,10 @@ impl MirrorStatus {
     /// The working-tree entries the latest complete scan could not take in, which hold back
     /// the baseline and deletion detection until they are renamed, replaced or moved away.
     #[cfg_attr(
-        not(all(test, any(target_os = "linux", target_os = "macos"))),
+        not(test),
         expect(
             dead_code,
-            reason = "the status control has yet to list these entries; until it does only the mirror's tests, which run where synchronization does, read them"
+            reason = "the status control has yet to read this report, which serializes to the list it shows; until it does only tests read it"
         )
     )]
     pub(crate) fn unrepresentable_entries(&self) -> Arc<EntryReport> {
@@ -174,6 +176,9 @@ pub(crate) struct EntryReportSender {
     /// Every root file warned about, in order, so that a test sees how often each was.
     #[cfg(test)]
     warned: std::sync::Arc<std::sync::Mutex<Vec<std::path::PathBuf>>>,
+    /// Every entry no object can take that was warned about, in order.
+    #[cfg(test)]
+    warned_entries: std::sync::Arc<std::sync::Mutex<Vec<UnrepresentableEntry>>>,
 }
 
 impl Default for EntryReportSender {
@@ -182,24 +187,36 @@ impl Default for EntryReportSender {
             report: watch::Sender::new(Arc::default()),
             #[cfg(test)]
             warned: std::sync::Arc::default(),
+            #[cfg(test)]
+            warned_entries: std::sync::Arc::default(),
         }
     }
 }
 
 impl EntryReportSender {
     /// Replaces the entries of the previous complete scan with those of `report`, and warns
-    /// about each file skipped directly in the root that the previous complete scan did not
-    /// skip, so a file that stays is warned about once.
+    /// about each entry no object can take and each file skipped directly in the root that the
+    /// previous complete scan did not name, so an entry that stays is warned about once.
     pub(crate) fn report(&self, report: EntryReport) {
         let mut found = Vec::new();
+        let mut found_entries = Vec::new();
         self.report.send_if_modified(|current| {
             found = report.root_files_since(current);
+            found_entries = report.entries_since(current);
             if **current == report {
                 return false;
             }
             *current = Arc::new(report);
             true
         });
+        for entry in found_entries {
+            super::entries::warn_unrepresentable(&entry);
+            #[cfg(test)]
+            self.warned_entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(entry);
+        }
         for path in found {
             super::entries::warn_root_file(&path);
             #[cfg(test)]
@@ -208,6 +225,16 @@ impl EntryReportSender {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(path);
         }
+    }
+
+    /// The entries no object can take that were warned about so far, in order. Only the
+    /// mirror's tests, which run where synchronization does, read them.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn warned_entries(&self) -> Vec<UnrepresentableEntry> {
+        self.warned_entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// The root files warned about so far, in order. Only the mirror's tests, which run where
