@@ -4,6 +4,7 @@
 )]
 use super::*;
 use crate::storage::sync_state::conflicts::ConflictTarget;
+use crate::storage::sync_state::findings::FindingKind;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::sync::test_support::{Retrack, hooked_worker, retrack};
 use crate::{
@@ -2850,9 +2851,8 @@ async fn wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_f
     );
     let findings = root.findings_page(0, 256).await.unwrap();
     assert!(
-        findings
-            .iter()
-            .any(|finding| finding.name == "object" && finding.reason == Reason::Collision),
+        findings.iter().any(|finding| finding.name == "object"
+            && finding.reason == FindingKind::Unmapped(Reason::Collision)),
         "{findings:?}"
     );
     assert_eq!(
