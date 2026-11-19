@@ -158,7 +158,27 @@ impl Flag {
 
     /// Whether the option is a switch, which takes no value.
     const fn is_switch(self) -> bool {
-        matches!(self, Self::RequireNoFindings)
+        match self {
+            Self::RequireNoFindings => true,
+            Self::Endpoint
+            | Self::CaCert
+            | Self::TokenFile
+            | Self::TimeoutMs
+            | Self::Timeout
+            | Self::Revision
+            | Self::Cursor
+            | Self::Limit
+            | Self::Conflict
+            | Self::Recovery
+            | Self::Action
+            | Self::ExpectedGeneration
+            | Self::TargetIdentity
+            | Self::OperationId
+            | Self::ConfirmBackupVerified
+            | Self::ConfirmDiscardWithoutBackup
+            | Self::DeletionSet
+            | Self::View => false,
+        }
     }
 }
 
@@ -169,9 +189,17 @@ fn switch_value(switch: &str, value: &str) -> Diagnostics {
     ))
 }
 
+/// What the command line gave an option: a switch stands alone, and any other option has a
+/// value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Given<'a> {
+    Switch,
+    Value(&'a str),
+}
+
 /// The options of one command line. Each step takes what it reads; anything left was not
-/// accepted by the selected operation. A switch reads as an empty value.
-struct Flags<'a>(BTreeMap<Flag, &'a str>);
+/// accepted by the selected operation.
+struct Flags<'a>(BTreeMap<Flag, Given<'a>>);
 
 impl<'a> Flags<'a> {
     /// Known options, each once, with a nonempty value of at most 8192 bytes, or none for a
@@ -189,12 +217,12 @@ impl<'a> Flags<'a> {
                     Some(_) | None => refused(),
                 });
             };
-            let value = if flag.is_switch() {
+            let given = if flag.is_switch() {
                 if let Some(value) = tail.first().filter(|value| !value.starts_with("--")) {
                     return Err(switch_value(name, value));
                 }
                 rest = tail;
-                ""
+                Given::Switch
             } else {
                 let [value, tail @ ..] = tail else {
                     return Err(refused());
@@ -203,11 +231,11 @@ impl<'a> Flags<'a> {
                     return Err(refused());
                 }
                 rest = tail;
-                value.as_str()
+                Given::Value(value)
             };
             match flags.entry(flag) {
                 btree_map::Entry::Vacant(entry) => {
-                    entry.insert(value);
+                    entry.insert(given);
                 }
                 btree_map::Entry::Occupied(_) => return Err(refused()),
             }
@@ -215,8 +243,18 @@ impl<'a> Flags<'a> {
         Ok(Self(flags))
     }
 
+    /// The value given to `flag`, which takes one.
     fn take(&mut self, flag: Flag) -> Option<&'a str> {
-        self.0.remove(&flag)
+        match self.0.remove(&flag)? {
+            Given::Value(value) => Some(value),
+            // Only a switch stands alone, and a switch is read through `switched`.
+            Given::Switch => None,
+        }
+    }
+
+    /// Whether the switch `flag` was given.
+    fn switched(&mut self, flag: Flag) -> bool {
+        matches!(self.0.remove(&flag), Some(Given::Switch))
     }
 
     fn contains(&self, flag: Flag) -> bool {
@@ -1430,11 +1468,11 @@ fn request(
         (Some(Command::Status), None) => Plan::once(STATUS_PATH, None),
         (Some(Command::Rescan), None) => Plan::once("/_internal/sync/rescan", Some(json!({}))),
         // Each request of a wait carries its own body, with the time left at that request.
-        (Some(Command::Wait), None) => Plan::Wait(
-            flags
-                .take(Flag::RequireNoFindings)
-                .map_or(UnmappedObjects::Report, |_| UnmappedObjects::Refuse),
-        ),
+        (Some(Command::Wait), None) => Plan::Wait(if flags.switched(Flag::RequireNoFindings) {
+            UnmappedObjects::Refuse
+        } else {
+            UnmappedObjects::Report
+        }),
         (Some(Command::Resolve), revision) => Plan::once(
             "/_internal/sync/resolve",
             Some(resolve_body(revision, flags)?),
