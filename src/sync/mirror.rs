@@ -3,7 +3,7 @@ use super::MirrorState;
 use super::control::PauseChange;
 use super::control::{Command, ControlError, Reply};
 use super::entries::{EntryClass, classify};
-use super::error::StoppedRescan;
+use super::error::{Recorded, StoppedRescan, unless_superseded};
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 use super::naming::RootNaming;
@@ -1446,17 +1446,23 @@ impl LiveObject<'_> {
         self.summary.count_deferred(&path);
     }
 
-    /// Records why this object stays out of the working tree and counts it.
+    /// Records why this object stays out of the working tree and counts it. A generation that
+    /// changed or went since this export read it is the next replay's to record.
     async fn finding(&mut self, record: &ObjectRecord, reason: Reason) -> Result<(), SyncError> {
         let binding = self.catalog.sync_state().binding(self.bucket).await?;
-        self.root
-            .record_finding(
-                binding,
-                self.name.clone(),
-                Generation::new(record.generation)?,
-                reason,
-            )
-            .await?;
+        let recorded = unless_superseded(
+            self.root
+                .record_finding(
+                    binding,
+                    self.name.clone(),
+                    Generation::new(record.generation)?,
+                    reason,
+                )
+                .await,
+        )?;
+        if recorded == Recorded::Superseded {
+            return Ok(());
+        }
         if reason == Reason::Ignored {
             self.summary.ignored += 1;
         } else {
@@ -1497,9 +1503,11 @@ impl LiveObject<'_> {
                 match record {
                     Some(record) => self.finding(&record, reason).await?,
                     None => {
-                        self.root
-                            .remove_deleted_finding(binding, name.clone())
-                            .await?
+                        unless_superseded(
+                            self.root
+                                .remove_deleted_finding(binding, name.clone())
+                                .await,
+                        )?;
                     }
                 }
                 return Ok(None);
@@ -1526,9 +1534,11 @@ impl LiveObject<'_> {
             let Some(tracked) = tracked else {
                 // Nothing to remove from the tree, but a finding that kept the deleted object
                 // out of it would still count it.
-                self.root
-                    .remove_deleted_finding(binding, name.clone())
-                    .await?;
+                unless_superseded(
+                    self.root
+                        .remove_deleted_finding(binding, name.clone())
+                        .await,
+                )?;
                 return Ok(None);
             };
             if self.replaced(path).await? {

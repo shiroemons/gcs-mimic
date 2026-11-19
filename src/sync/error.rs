@@ -239,13 +239,36 @@ impl SyncError {
 
     /// Whether a deletion pass met a concurrent change and must start over, not fail.
     pub(super) fn is_stale_deletion(&self) -> bool {
-        matches!(
-            self,
-            Self::Root(RootError::Admin(
-                AdminError::Precondition | AdminError::NotFound
-            ))
-        )
+        matches!(self, Self::Root(error) if superseded(error))
     }
+}
+
+/// Whether a catalog write about one name failed because an API or bucket change made it moot
+/// after the caller read the state it describes: the object, its generation or its bucket
+/// changed. The journal brings that change to the next replay or pass, which records what then
+/// holds; failing would pause the whole mirror over a race it resolves by itself.
+pub(super) fn superseded(error: &RootError) -> bool {
+    matches!(
+        error,
+        RootError::Admin(AdminError::Precondition | AdminError::NotFound)
+    )
+}
+
+/// The result of a catalog write about one name, with a write that a concurrent change made
+/// moot, as [`superseded`] decides, as done: whether it was recorded or is no longer needed.
+pub(super) fn unless_superseded(result: Result<(), RootError>) -> Result<Recorded, RootError> {
+    match result {
+        Ok(()) => Ok(Recorded::Yes),
+        Err(error) if superseded(&error) => Ok(Recorded::Superseded),
+        Err(error) => Err(error),
+    }
+}
+
+/// Whether a catalog write about one name was recorded or a concurrent change made it moot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Recorded {
+    Yes,
+    Superseded,
 }
 
 /// Retry a write-back step that failed under descriptor or memory pressure.

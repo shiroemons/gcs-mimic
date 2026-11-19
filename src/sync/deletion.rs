@@ -220,13 +220,11 @@ pub(super) async fn record_replaced(
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    match root
-        .record_path_stop(binding, name.clone(), PathStop::EntryReplaced)
-        .await
-    {
-        Ok(()) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => Ok(()),
-        Err(error) => Err(error.into()),
-    }
+    super::error::unless_superseded(
+        root.record_path_stop(binding, name.clone(), PathStop::EntryReplaced)
+            .await,
+    )?;
+    Ok(())
 }
 
 pub(super) async fn execute(

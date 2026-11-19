@@ -710,16 +710,12 @@ impl Ingest<'_> {
         name: &ObjectName,
         reason: PathStop,
     ) -> Result<(), SyncError> {
-        match self
-            .root
-            .record_path_stop(binding.clone(), name.clone(), reason)
-            .await
-        {
-            Ok(()) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                Ok(())
-            }
-            Err(error) => Err(error.into()),
-        }
+        super::error::unless_superseded(
+            self.root
+                .record_path_stop(binding.clone(), name.clone(), reason)
+                .await,
+        )?;
+        Ok(())
     }
 
     /// Makes the file at `path`, observed as `identity`, durable together with the directory
