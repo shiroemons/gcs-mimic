@@ -59203,7 +59203,7 @@
       "acceptance_cases": [
         {
           "id": "healthcheck-default-url",
-          "description": "Healthcheck derives readiness URL from environment/config with wildcard loopback and both HTTP preference, trusts the development CA and preserves explicit URL behavior. Contract: docs/en/slices/migrate-defaults.md.",
+          "description": "Healthcheck derives readiness URL from environment/config with wildcard loopback and both HTTP preference, trusts the development CA and preserves explicit URL behavior. Sync commands given no --endpoint find their server through the same origin function (DESIGN-072 sync-cli-server-discovery). Contract: docs/en/slices/migrate-defaults.md.",
           "result": "PASS",
           "test_ids": ["healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin", "healthcheck_defaults_follow_http_https_both_and_changed_ports"]
         },
@@ -59527,6 +59527,13 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["storage::catalog::tests::panicked_operation_rolls_back_and_keeps_the_catalog_ready"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_process -- --test-threads=4 healthcheck",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/migrate-defaults.md",
+          "test_ids": ["healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin", "healthcheck_defaults_follow_http_https_both_and_changed_ports", "healthcheck_config_failure_explains_candidate_url_and_explicit_override", "healthcheck_exit_status_tracks_readiness", "healthcheck_rejects_truncated_malformed_and_oversized_responses", "healthcheck_deadline_includes_slow_streaming_responses"]
         }
       ],
       "sdk_evidence": [],
@@ -59536,7 +59543,7 @@
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-11-11"
+      "last_verified": "2026-11-20"
     },
     {
       "id": "DESIGN-068",
@@ -60219,6 +60226,24 @@
           "test_ids": ["live_cli_observes_rescans_waits_and_rejects_stale_revisions", "live_cli_reports_disabled_synchronization_without_success", "live_cli_strict_controls_require_project_authority_and_honor_token_file_precedence", "native_cli_prints_unavailable_json_and_fails_without_retry"]
         },
         {
+          "id": "sync-cli-wait-outcomes",
+          "description": "gcs-mimic sync wait exits 0 when ready, 2 when someone must act (Paused, SourceUnrepresentable, DeletionApproval or FindingsPending), 3 when its timeout passed while work was in progress (Timeout, SourceChanging or JournalChanged) and 1 for anything else, including Stopped and an answer without a reason; the other commands exit 0 or 1. A wait's reason and the holdup its remedy follows come from one ending, so a ready pass that a deadline then cut short still ends as Timeout. --require-no-findings is a switch that refuses a value; it ends an otherwise ready wait with remaining unmapped objects as FindingsPending with a remedy of its own and leaves any other ending as the mirror decided it. The wait defaults to two minutes. A wait that ends with SourceUnrepresentable names its first source entries and their total before the remedy. A root stop's remedy names the findings view at the revision of the page that lists it, and a correction outside a pause ends by naming the wait: an object renamed through the API to a name the tree can hold loses its finding by the next wait that requires no findings, without a rescan. A view without --revision lists the page at the revision status reports, reading status once more when that revision changed before the page was read. Scope: docs/en/slices/sync-cli.md and docs/en/container-usage.md.",
+          "result": "PASS",
+          "test_ids": ["a_wait_exits_with_the_status_of_how_it_ended", "a_waits_reason_and_its_holdup_come_from_one_ending", "a_wait_that_refuses_unmapped_objects_ends_on_them_alone", "canonical_control_flags_map_to_the_exact_wire_contract", "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines", "a_wait_that_ended_on_source_entries_names_the_first_of_them", "remedies_name_the_page_revision_and_the_wait_that_takes_a_correction_in", "live_cli_wait_takes_in_an_unmapped_object_renamed_through_the_api_without_a_rescan", "a_view_without_a_revision_lists_the_page_at_the_revision_status_reports"]
+        },
+        {
+          "id": "sync-cli-server-discovery",
+          "description": "Without --endpoint, a sync command controls the server the configuration gives, found by the code gcs-mimic healthcheck uses (local_server): GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME, with GCS_MIMIC_LISTEN_HTTP under both, and the config file GCS_MIMIC_CONFIG selects, plain HTTP wherever a listener accepts it and a wildcard listen address reached on loopback. When no request reached a server there, it tries once more at the server that the options of a gcs-mimic server running as PID 1 give; a request that may have reached a server, such as one that timed out, is not sent again. An explicit --endpoint wins, the commands its advice names leave it out, and a configuration with errors or an origin the command cannot reach asks for --endpoint. A request that gets no answer the command can read (an unresolved name, a refused connection, a failed TLS handshake or a server that does not speak the command's TLS, a broken HTTP exchange, an oversized, truncated or non-JSON answer, or no answer in time) fails with the URL it tried, what went wrong with its cause and the setting to check, naming the configuration when that gave the server; a refused request repeats the server's error message with the connection options filled in. The PID 1 fallback is covered by unit tests, not by a container run. Scope: docs/en/slices/sync-cli.md.",
+          "result": "PASS",
+          "test_ids": ["without_an_endpoint_the_command_controls_the_server_the_environment_configures", "a_failed_request_names_the_url_it_tried_and_the_servers_message", "wire_client_rejects_oversized_truncated_and_foreign_responses", "only_a_gcs_mimic_server_with_options_gives_a_fallback", "a_retryable_failure_tries_the_server_pid_1_gives_once", "live_cli_wait_without_an_endpoint_finds_an_https_server_as_the_healthcheck_does"]
+        },
+        {
+          "id": "sync-cli-terminal-safe-output",
+          "description": "Every diagnostic line a sync command writes from a server's answer, such as the entries a wait names, its remedy and a failed request's message, escapes each control character, DEL and the C1 controls included, which the JSON envelope leaves alone, so a file name in the sync directory cannot drive the terminal of whoever runs the command. The JSON answer printed on standard output also writes DEL and U+0080 through U+009F as \\u escapes and reads back as the same value. An entry whose path is not UTF-8 is listed and logged with U+FFFD for each invalid sequence; the server's wait answer for such a name is tested only on Linux and has no recorded run here. Scope: docs/en/slices/sync-cli.md.",
+          "result": "PASS",
+          "test_ids": ["names_from_the_server_reach_the_terminal_with_their_control_characters_escaped", "the_printed_answer_escapes_every_control_character", "live_cli_wait_escapes_the_control_characters_of_an_entry_it_names", "an_entry_that_is_not_utf8_is_listed_and_logged_lossily"]
+        },
+        {
           "id": "sync-cli-deletion-approval",
           "description": "The actual native CLI inspects exactly 100 frozen deletion candidates across three pages with matching denominator, scan revision and journal fence, rejects API-invalidated pages and stale approvals, approves the exact revision, waits for API deletions and preserves the empty bucket directory. Replay and restart-stale approvals fail. This scoped operator journey does not complete the broader deletion-race/platform cases.",
           "result": "PASS",
@@ -60344,9 +60369,11 @@
         },
         {
           "id": "sync-root-naming-probe",
-          "description": "PASS local-development subset: each activation probes the root's filesystem after write-back recovery and before the first scan, in the fixed naming-probe workspace subdirectory with fixed names outside the 32-hex operation-ID form, unlinking those names first and never listing-and-deleting or removing the subdirectory. It records whether ':' is stored as created (refused with EINVAL/EILSEQ or rewritten means rejected), whether case folds, and fpathconf(_PC_NAME_MAX) capped at 255, once per root lease; a later probe with other rules is RootChanged. A root that rewrites the spelling of created names pauses with observer-failure before any scan, with a reason that says a rescan pauses again and to set sync_dir to a directory on a filesystem that keeps names as created and restart; probe I/O failure pauses with io-failure and keeps its cause. Colon-rejecting, case-folding and rewriting roots are covered by injected observations; a colon finding left by an earlier start clears once a later start exports the object; a crash or power loss at every probe boundary leaves nothing recovery or scans take for data. No setting exists; the schema version is unchanged. Linux and Docker bind-mount runs of the probe remain unverified.",
+          "description": "PASS local-development subset: each activation probes the root's filesystem after write-back recovery and before the first scan, in the fixed naming-probe workspace subdirectory with fixed names outside the 32-hex operation-ID form, unlinking those names first and never listing-and-deleting or removing the subdirectory. It records whether ':' is stored as created (refused with EINVAL/EILSEQ or rewritten means rejected), whether letter case folds and whether Unicode normalization folds (an NFC name created and looked up in NFD), reported as `normalization`, and fpathconf(_PC_NAME_MAX) capped at 255, once per root lease; a later probe with other rules is RootChanged, and the stop logs both the recorded and the observed rules. A root that rewrites the spelling of created names pauses with observer-failure before any scan, with a reason that says a rescan pauses again and to set sync_dir to a directory on a filesystem that keeps names as created and restart; probe I/O failure pauses with io-failure and keeps its cause. Colon-rejecting, case-folding and rewriting roots are covered by injected observations; a colon finding left by an earlier start clears once a later start exports the object; a crash or power loss at every probe boundary leaves nothing recovery or scans take for data. No setting exists; the schema version is unchanged. On 2026-11-20 a Docker Desktop bind mount of an APFS directory, in a linux/arm64 container, logged case and normalization insensitive with name_max 255 (docs/en/evidence/sync-listing-attribute-cache.txt). A native Linux run of the probe remains unverified, and the Linux-only check that a folded name left in the probe directory proves no folding has no recorded run.",
           "result": "PASS",
           "test_ids": [
+            "a_naming_change_reports_the_recorded_and_the_observed_rules",
+            "sync-listing-bench:bind-mount-1000-files:linux/arm64",
             "probe_names_never_take_the_operation_id_form",
             "observations_become_rules_only_when_names_keep_their_spelling",
             "host_probe_reports_the_filesystem_of_the_root",
@@ -60366,6 +60393,18 @@
           "description": "PASS: initial export records lexical/ignored, prefix/type, host length and symlink findings without following redirects or modifying API/external bytes; descriptor directory pages are bounded. Exhaustive case/Unicode alias groups before first export, stale-finding reconciliation, legacy invalid-bucket per-object findings and non-Linux conflict guarantees remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
           "test_ids": ["initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_length_file_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision"]
+        },
+        {
+          "id": "sync-export-over-empty-directory",
+          "description": "PASS: an export whose target path holds a directory removes it and installs the object there only when nothing in the catalog refers to that path or below it and the directory is empty or holds only Finder's regular .DS_Store and the ._.DS_Store beside it, names that scans ignore. The proof lists at most eight names at the target and never below it; the removal unlinks each metadata file relative to the directory's descriptor only while the name still holds the file the proof opened, syncs the directory, lists it once more and removes it with rmdir, which is the last check. Anything else, such as another AppleDouble or hidden file, an empty subdirectory, a .DS_Store that is a directory or a symlink, more names than the bound, or a removal the filesystem refuses, keeps the directory and everything in it and records a directory-occupied finding for that object alone (catalog schema 60 admits the reason and keeps every finding), whose remedy asks to empty the directory, while other exports continue; a symlink at the target is neither followed nor removed. On a root that folds letter case, only a directory its parent lists under the exact spelling gives way. A failed unlink, removal or parent sync fails the attempt with its own cause and is retried; a directory replaced after the proof is proved again, and one removed meanwhile counts as gone. Crash and power-loss snapshots after the metadata unlink and around the removal recover to the API state at restart. A collision at installation counts the object as one the tree cannot hold, which holds back neither the baseline, a wait nor deletion detection. Scope: docs/en/container-usage.md and docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["an_empty_directory_gives_way_to_the_export", "a_directory_that_holds_anything_stays_a_collision", "a_directory_that_holds_only_finder_metadata_gives_way", "each_catalog_reference_keeps_an_empty_directory", "references_beside_the_target_keep_nothing", "a_refused_removal_is_a_collision_and_a_failed_one_is_retried", "a_failed_parent_sync_after_the_removal_is_retried", "a_failed_metadata_unlink_is_retried", "an_entry_that_arrives_before_the_removal_keeps_the_directory", "a_metadata_file_written_again_before_its_unlink_stays", "an_apple_double_file_that_arrives_after_the_proof_keeps_the_directory", "a_directory_replaced_after_the_proof_is_proved_again", "a_directory_removed_before_the_removal_counts_as_gone", "a_folding_root_removes_a_directory_listed_under_the_exact_spelling", "a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list", "an_api_object_replaces_the_directory_an_api_delete_emptied", "a_refused_removal_is_one_collision_and_other_exports_continue", "a_collision_at_installation_counts_the_object_and_holds_back_nothing", "a_transient_removal_failure_is_retried", "a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_deletions", "crashes_and_power_losses_after_the_metadata_unlink_recover_to_the_api_state", "a_symlink_at_the_target_is_neither_followed_nor_removed", "crashes_and_power_losses_around_the_removal_recover_to_the_api_state", "every_finder_metadata_name_is_one_scans_ignore", "only_nothing_or_regular_finder_metadata_counts_as_empty", "an_occupied_directory_renders_its_own_detail_and_asks_to_empty_it", "schema_60_admits_occupied_directories_and_keeps_every_finding"]
+        },
+        {
+          "id": "sync-unrepresentable-entry-report",
+          "description": "PASS: a scan's entry report counts the tree's entries no object can take apart from the API objects the tree cannot hold, and the JSON keeps unrepresentable as their sum beside unrepresentable_entries and unmapped_objects, with the entries that could not be read counted apart from all three. What could not be read is decided before what an entry is, and only a regular file is ignored or skipped by its name or place. The report names its first 256 entries by path and reason and only counts the rest. The log names each such entry with its remedy once, when a scan first finds it, as sync_unsafe_entry, sync_unmappable_entry, sync_unreadable_entry, sync_path_collision or sync_bucket_missing; an entry that stays is not named again, and one that comes back after it was gone is. A path that is not UTF-8 is listed and logged with U+FFFD for each invalid sequence instead of failing the status or the scan. How these entries hold back deletion detection is outside this case. Scope: docs/en/container-usage.md and docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["the_json_total_is_the_sum_of_both_sides", "an_entry_is_unreadable_unsafe_or_skipped_before_its_name_is_mapped", "the_report_keeps_the_first_entries_and_counts_the_rest", "only_entries_the_previous_scan_did_not_name_are_new", "each_entry_no_object_can_take_is_warned_about_once_while_it_stays", "an_entry_that_is_not_utf8_is_listed_and_logged_lossily"]
         },
         {
           "id": "sync-name-mapping",
@@ -60423,9 +60462,9 @@
         },
         {
           "id": "sync-paused-control-answers",
-          "description": "A rescan that fails and leaves synchronization paused, whether it was to resume a paused mirror or ran on a running one, answers 409 with the paused_reason it keeps or records, the cause and the remedy for that reason, instead of a 503 that asks to retry a busy queue; a resume that failed transiently keeps the reason recorded before. An approval while paused answers 409 and asks for gcs-mimic sync rescan first; a mirror that stopped before running a control still answers 503. The sync_paused event, the root-stop finding and the failed rescan take their remedy from one text per pause reason that names the gcs-mimic sync commands to run. The entry and depth limit failures say that reducing the tree needs a rescan, while raising max_sync_entries or max_sync_depth needs a restart. The CLI prints the 409 answer and exits nonzero. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/external-deletion-controls.md.",
+          "description": "A rescan that fails and leaves synchronization paused, whether it was to resume a paused mirror or ran on a running one, answers 409 with the paused_reason it keeps or records, the cause and the remedy for that reason, instead of a 503 that asks to retry a busy queue; a resume that failed transiently keeps the reason recorded before. An approval while paused answers 409 and asks for gcs-mimic sync rescan first; a mirror that stopped before running a control still answers 503. A rescan of a running mirror that fails transiently, as when catalog admission timed out, answers 503 so that its client retries and pauses nothing: the mirror keeps running, status names no pause, and the retried rescan succeeds without a resume. The sync_paused event, the root-stop finding and the failed rescan take their remedy from one text per pause reason that names the gcs-mimic sync commands to run. The entry and depth limit failures say that reducing the tree needs a rescan, while raising max_sync_entries or max_sync_depth needs a restart. The CLI prints the 409 answer and exits nonzero. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/external-deletion-controls.md.",
           "result": "PASS",
-          "test_ids": ["controls_answer_with_what_resumes_synchronization", "a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
+          "test_ids": ["controls_answer_with_what_resumes_synchronization", "a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up", "a_transient_failure_of_a_running_rescan_answers_503_and_pauses_nothing"]
         },
         {
           "id": "sync-status-state-vocabulary",
@@ -60441,9 +60480,9 @@
         },
         {
           "id": "sync-observation-io-diagnostics",
-          "description": "Unreadable child directories leave an incomplete external inventory while other entries progress; changed directory identity remains retryable. Descriptor exhaustion logs soft/hard limits and a ulimit remedy. Unavailable Linux casefold flags fall back to exact directory names. Staging recheck retains its original drift error when cleanup also fails. Matching racy exports directly assert zero staging calls and stable observations use exact zero-work assertions. Atomic marker publication reserves its staging component at every object depth. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/directory-synchronization.md.",
+          "description": "Unreadable child directories leave an incomplete external inventory while other entries progress; changed directory identity remains retryable. Descriptor exhaustion logs soft/hard limits and a ulimit remedy. Unavailable Linux casefold flags fall back to exact directory names. The root probe's rules only make the spelling check stricter: below a root that folds letter case or Unicode normalization a clear casefold flag is not believed and the parent's listing decides, and a directory whose flag cannot be read is listed whatever the probe found. A listing is read in one pass over the directory and kept for the rest of one mirror pass (one ingestion scan, one deletion inventory or application, one installation), for at most 4 directories of at most 4096 names each. A kept listing answers only while the directory reports the identity, size, modification time and change time taken before the read, and is kept only when the directory's last change lies at least 2 seconds before the read, so a directory that changed during the pass, just changed or holds more names is read for each lookup. On Linux that identity comes from statx with AT_STATX_FORCE_SYNC, past the attribute cache of FUSE and NFS mounts: on a Docker Desktop bind mount, what fstat answers kept a directory's times from before a case-only rename on the host while AT_STATX_FORCE_SYNC returned the new ones (docs/en/evidence/sync-listing-attribute-cache.txt; a rename timed between two lookups of one pass was not reproduced). A scan opens the names its listing returned without confirming their spelling, and ingestion opens a changed file again under its exact spelling before it reads it. Staging recheck retains its original drift error when cleanup also fails. Matching racy exports directly assert zero staging calls and stable observations use exact zero-work assertions. Atomic marker publication reserves its staging component at every object depth. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations"]
+          "test_ids": ["external_inventory_defers_unreadable_children_without_stopping_other_files", "descriptor_pressure_diagnostics_include_limits_only_for_descriptor_exhaustion", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "source_recheck_preserves_precondition_when_staging_cleanup_also_fails", "racy_exported_bytes_are_verified_without_staging_again", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "root_rules_decide_only_what_the_casefold_flag_leaves_open", "a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list", "capture_path_rejects_case_aliases_in_parents_and_the_selected_leaf", "a_pass_reads_an_unchanged_directory_once", "a_directory_changed_during_a_pass_is_read_again", "a_directory_that_just_changed_is_read_for_each_lookup", "a_directory_beyond_the_kept_names_is_read_for_each_lookup", "a_directory_reports_its_uncached_identity_as_fstat_does", "a_scan_confirms_no_spelling_of_the_names_it_lists", "sync-listing-attribute-cache:docker-desktop:linux/arm64"]
         },
         {
           "id": "sync-observer-queue-recovery",
@@ -60465,9 +60504,9 @@
         },
         {
           "id": "sync-live-api-export",
-          "description": "PASS local-development subset: post-ready journal replay exports API create/overwrite/delete/copy/compose and empty bucket creation; tracked fingerprints and hashes guard update/delete, externally edited files remain intact with findings, and API bucket deletion retains directories. Backslash names are recorded as HostRestriction findings without stopping later exports; where the root's probed filesystem stores ':', colon names export and external colon files are ingested under the same name. The container smoke repeated export, skipped colon names and restart ingestion on linux/amd64 and linux/arm64 on 2026-10-28; its updated colon export and ingestion checks have not run in containers yet. Ingestion, conflict transfer and bucket-directory deletion remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "description": "PASS local-development subset: post-ready journal replay exports API create/overwrite/delete/copy/compose and empty bucket creation; tracked fingerprints and hashes guard update/delete, externally edited files remain intact with findings, and API bucket deletion retains directories. Backslash names are recorded as HostRestriction findings without stopping later exports; where the root's probed filesystem stores ':', colon names export and external colon files are ingested under the same name. The container smoke repeated export, skipped colon names and restart ingestion on linux/amd64 and linux/arm64 on 2026-10-28. On 2026-11-20 its volume stage, whose checks now follow gcs-mimic sync wait run in the container without --endpoint instead of polling for files and objects, passed on linux/arm64 under Docker Desktop with the colon export and ingestion checks (docs/en/evidence/sync-bind-mount-containers.txt); linux/amd64 has not run the updated stage yet. Ingestion, conflict transfer and bucket-directory deletion remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_exports_colon_names_and_skips_backslash_names", "scripts/smoke-containers.sh:linux/amd64", "scripts/smoke-containers.sh:linux/arm64", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed"]
+          "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_exports_colon_names_and_skips_backslash_names", "scripts/smoke-containers.sh:linux/amd64", "scripts/smoke-containers.sh:linux/arm64", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed", "scripts/smoke-containers.sh:sync-volume:linux/arm64"]
         },
         {
           "id": "sync-live-export-observation",
@@ -60519,9 +60558,9 @@
         },
         {
           "id": "sync-bounded-observation",
-          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and record one short measurement at about 1,000 entries (a full rescan and one wait) as a fact, without a gate or inferred performance claims; owners sync-watcher and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and record one short measurement at about 1,000 entries (a full rescan and one wait) as a fact, without a gate or inferred performance claims; owners sync-watcher and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Recorded so far, on 2026-11-20 with Docker Desktop 29.9.3 running linux/arm64 containers on an arm64 macOS host: the container smoke's Compose stage bind-mounts a host directory as compose.sync.yaml documents and, after gcs-mimic sync wait each time, reflects a host create, edit and deletion and an API overwrite without a restart; after compose stop and up --no-recreate, an edit and a deletion made while stopped arrive as an update and a deletion, sync status reports root_change null and the log holds two starts and no sync_root_switched. It passed on the default path and again on the host-user path that Linux takes (docs/en/evidence/sync-bind-mount-containers.txt). One measurement, a fact and not a gate: a bind mount of an APFS directory that folds letter case and normalization, with 1,000 files in one bucket, took 38.59 s from start to healthy, 3.44 s for a first rescan followed by a wait and 2.64 s for a second (docs/en/evidence/sync-listing-attribute-cache.txt). The same script against an image of the sources before the listing changes, equivalent to 41d8a38c, took 155.81 s, 48.85 s and 33.89 s; that run's output is not in the record. Still PENDING: a run on a native Linux host, the full-rescan fallback for overflowed, duplicate, self-caused and missed notifications, and the other bounded-worker and queue cases this row lists.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": ["scripts/smoke-containers.sh:sync-compose:linux/arm64", "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64", "sync-listing-bench:bind-mount-1000-files:linux/arm64"]
         },
         {
           "id": "CATALOG-INDEX",
@@ -60704,9 +60743,9 @@
         },
         {
           "id": "onboarding-state-sync-benchmark",
-          "description": "Record one full-rescan timing at about 1,000 entries, unchanged and then with one changed file, as a fact without a regression gate after synchronization exists; currently unimplemented and unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "description": "Record one full-rescan timing at about 1,000 entries, unchanged and then with one changed file, as a fact without a regression gate after synchronization exists. The unchanged timing on a Docker Desktop bind mount was measured once on 2026-11-20 (sync-bounded-observation, docs/en/evidence/sync-listing-attribute-cache.txt); the timing with one changed file remains unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": ["sync-listing-bench:bind-mount-1000-files:linux/arm64"]
         },
         {
           "id": "DESIGN-072-MEDIA-SAFETY",
@@ -61004,7 +61043,72 @@
         "an_unclassified_collision_gives_way_to_the_finding_that_classifies_it",
         "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again",
         "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision",
-        "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict"
+        "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict",
+        "a_wait_exits_with_the_status_of_how_it_ended",
+        "a_waits_reason_and_its_holdup_come_from_one_ending",
+        "a_wait_that_refuses_unmapped_objects_ends_on_them_alone",
+        "canonical_control_flags_map_to_the_exact_wire_contract",
+        "a_wait_that_ended_on_source_entries_names_the_first_of_them",
+        "remedies_name_the_page_revision_and_the_wait_that_takes_a_correction_in",
+        "live_cli_wait_takes_in_an_unmapped_object_renamed_through_the_api_without_a_rescan",
+        "a_view_without_a_revision_lists_the_page_at_the_revision_status_reports",
+        "without_an_endpoint_the_command_controls_the_server_the_environment_configures",
+        "a_failed_request_names_the_url_it_tried_and_the_servers_message",
+        "wire_client_rejects_oversized_truncated_and_foreign_responses",
+        "only_a_gcs_mimic_server_with_options_gives_a_fallback",
+        "a_retryable_failure_tries_the_server_pid_1_gives_once",
+        "live_cli_wait_without_an_endpoint_finds_an_https_server_as_the_healthcheck_does",
+        "names_from_the_server_reach_the_terminal_with_their_control_characters_escaped",
+        "the_printed_answer_escapes_every_control_character",
+        "live_cli_wait_escapes_the_control_characters_of_an_entry_it_names",
+        "an_entry_that_is_not_utf8_is_listed_and_logged_lossily",
+        "a_transient_failure_of_a_running_rescan_answers_503_and_pauses_nothing",
+        "a_naming_change_reports_the_recorded_and_the_observed_rules",
+        "root_rules_decide_only_what_the_casefold_flag_leaves_open",
+        "capture_path_rejects_case_aliases_in_parents_and_the_selected_leaf",
+        "a_pass_reads_an_unchanged_directory_once",
+        "a_directory_changed_during_a_pass_is_read_again",
+        "a_directory_that_just_changed_is_read_for_each_lookup",
+        "a_directory_beyond_the_kept_names_is_read_for_each_lookup",
+        "a_directory_reports_its_uncached_identity_as_fstat_does",
+        "a_scan_confirms_no_spelling_of_the_names_it_lists",
+        "an_empty_directory_gives_way_to_the_export",
+        "a_directory_that_holds_anything_stays_a_collision",
+        "a_directory_that_holds_only_finder_metadata_gives_way",
+        "each_catalog_reference_keeps_an_empty_directory",
+        "references_beside_the_target_keep_nothing",
+        "a_refused_removal_is_a_collision_and_a_failed_one_is_retried",
+        "a_failed_parent_sync_after_the_removal_is_retried",
+        "a_failed_metadata_unlink_is_retried",
+        "an_entry_that_arrives_before_the_removal_keeps_the_directory",
+        "a_metadata_file_written_again_before_its_unlink_stays",
+        "an_apple_double_file_that_arrives_after_the_proof_keeps_the_directory",
+        "a_directory_replaced_after_the_proof_is_proved_again",
+        "a_directory_removed_before_the_removal_counts_as_gone",
+        "a_folding_root_removes_a_directory_listed_under_the_exact_spelling",
+        "a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list",
+        "an_api_object_replaces_the_directory_an_api_delete_emptied",
+        "a_refused_removal_is_one_collision_and_other_exports_continue",
+        "a_collision_at_installation_counts_the_object_and_holds_back_nothing",
+        "a_transient_removal_failure_is_retried",
+        "a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_deletions",
+        "crashes_and_power_losses_after_the_metadata_unlink_recover_to_the_api_state",
+        "a_symlink_at_the_target_is_neither_followed_nor_removed",
+        "crashes_and_power_losses_around_the_removal_recover_to_the_api_state",
+        "every_finder_metadata_name_is_one_scans_ignore",
+        "only_nothing_or_regular_finder_metadata_counts_as_empty",
+        "an_occupied_directory_renders_its_own_detail_and_asks_to_empty_it",
+        "schema_60_admits_occupied_directories_and_keeps_every_finding",
+        "the_json_total_is_the_sum_of_both_sides",
+        "an_entry_is_unreadable_unsafe_or_skipped_before_its_name_is_mapped",
+        "the_report_keeps_the_first_entries_and_counts_the_rest",
+        "only_entries_the_previous_scan_did_not_name_are_new",
+        "each_entry_no_object_can_take_is_warned_about_once_while_it_stays",
+        "scripts/smoke-containers.sh:sync-volume:linux/arm64",
+        "scripts/smoke-containers.sh:sync-compose:linux/arm64",
+        "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64",
+        "sync-listing-bench:bind-mount-1000-files:linux/arm64",
+        "sync-listing-attribute-cache:docker-desktop:linux/arm64"
       ],
       "verification": [
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
@@ -61600,6 +61704,55 @@
             "live_export_creates_replaces_deletes_and_preserves_edited_files",
             "live_export_exports_colon_names_and_skips_backslash_names"
           ]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 fsutil:: sync::tree:: sync::naming:: empty_directory:: path_reuse::",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["a_pass_reads_an_unchanged_directory_once", "a_directory_changed_during_a_pass_is_read_again", "a_directory_that_just_changed_is_read_for_each_lookup", "a_directory_beyond_the_kept_names_is_read_for_each_lookup", "a_directory_reports_its_uncached_identity_as_fstat_does", "root_rules_decide_only_what_the_casefold_flag_leaves_open", "unavailable_casefold_flags_fall_back_to_exact_directory_names", "a_scan_confirms_no_spelling_of_the_names_it_lists", "capture_path_rejects_case_aliases_in_parents_and_the_selected_leaf", "host_probe_reports_the_filesystem_of_the_root", "case_folding_roots_are_recorded_and_still_map_colons", "a_naming_change_reports_the_recorded_and_the_observed_rules", "an_empty_directory_gives_way_to_the_export", "a_directory_that_holds_anything_stays_a_collision", "a_directory_that_holds_only_finder_metadata_gives_way", "each_catalog_reference_keeps_an_empty_directory", "references_beside_the_target_keep_nothing", "a_refused_removal_is_a_collision_and_a_failed_one_is_retried", "a_failed_parent_sync_after_the_removal_is_retried", "a_failed_metadata_unlink_is_retried", "an_entry_that_arrives_before_the_removal_keeps_the_directory", "a_metadata_file_written_again_before_its_unlink_stays", "an_apple_double_file_that_arrives_after_the_proof_keeps_the_directory", "a_directory_replaced_after_the_proof_is_proved_again", "a_directory_removed_before_the_removal_counts_as_gone", "a_folding_root_removes_a_directory_listed_under_the_exact_spelling", "a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list", "an_api_object_replaces_the_directory_an_api_delete_emptied", "a_refused_removal_is_one_collision_and_other_exports_continue", "a_collision_at_installation_counts_the_object_and_holds_back_nothing", "a_transient_removal_failure_is_retried", "a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_deletions", "crashes_and_power_losses_after_the_metadata_unlink_recover_to_the_api_state", "a_symlink_at_the_target_is_neither_followed_nor_removed", "crashes_and_power_losses_around_the_removal_recover_to_the_api_state"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 sync::control:: sync::entries:: sync::mirror::gate:: sync::mirror::tests::baseline:: server::admin::sync storage::catalog::sync_state::empty:: storage::catalog::sync_state::findings::",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["a_waits_reason_and_its_holdup_come_from_one_ending", "a_wait_that_refuses_unmapped_objects_ends_on_them_alone", "remedies_name_the_page_revision_and_the_wait_that_takes_a_correction_in", "a_transient_failure_of_a_running_rescan_answers_503_and_pauses_nothing", "an_entry_that_is_not_utf8_is_listed_and_logged_lossily", "every_finder_metadata_name_is_one_scans_ignore", "only_nothing_or_regular_finder_metadata_counts_as_empty", "an_occupied_directory_renders_its_own_detail_and_asks_to_empty_it", "schema_60_admits_occupied_directories_and_keeps_every_finding", "the_json_total_is_the_sum_of_both_sides", "an_entry_is_unreadable_unsafe_or_skipped_before_its_name_is_mapped", "the_report_keeps_the_first_entries_and_counts_the_rest", "only_entries_the_previous_scan_did_not_name_are_new", "each_entry_no_object_can_take_is_warned_about_once_while_it_stays"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- --test-threads=4 sync_cli:: local_server:: healthcheck",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/sync-cli.md",
+          "test_ids": ["a_wait_exits_with_the_status_of_how_it_ended", "canonical_control_flags_map_to_the_exact_wire_contract", "rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines", "a_wait_that_ended_on_source_entries_names_the_first_of_them", "a_view_without_a_revision_lists_the_page_at_the_revision_status_reports", "without_an_endpoint_the_command_controls_the_server_the_environment_configures", "a_failed_request_names_the_url_it_tried_and_the_servers_message", "wire_client_rejects_oversized_truncated_and_foreign_responses", "only_a_gcs_mimic_server_with_options_gives_a_fallback", "a_retryable_failure_tries_the_server_pid_1_gives_once", "names_from_the_server_reach_the_terminal_with_their_control_characters_escaped", "the_printed_answer_escapes_every_control_character", "the_healthcheck_fails_only_while_synchronization_starts", "healthcheck_usage_errors_come_before_any_probe"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- --test-threads=4 sync_cli:: healthcheck",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/sync-cli.md",
+          "test_ids": ["live_cli_wait_takes_in_an_unmapped_object_renamed_through_the_api_without_a_rescan", "live_cli_wait_without_an_endpoint_finds_an_https_server_as_the_healthcheck_does", "live_cli_wait_escapes_the_control_characters_of_an_entry_it_names", "live_cli_observes_rescans_waits_and_rejects_stale_revisions", "live_cli_reports_disabled_synchronization_without_success", "live_cli_strict_controls_require_project_authority_and_honor_token_file_precedence", "native_cli_prints_unavailable_json_and_fails_without_retry", "the_healthcheck_waits_only_while_synchronization_starts"]
+        },
+        {
+          "command": "docker buildx build --platform linux/arm64 --load --tag gcs-mimic:smoke-bind-arm64 .; bash target/smoke-sync-stages.sh --image gcs-mimic:smoke-bind-arm64 linux/arm64; GCSM_SMOKE_AS_HOST_USER=1 bash target/smoke-compose-stage.sh --image gcs-mimic:smoke-bind-arm64 linux/arm64 (the volume and Compose synchronization stages of scripts/smoke-containers.sh, extracted unchanged with the sed commands the record shows; Docker Desktop 29.9.3 and Docker Compose v5.6.1 on an arm64 macOS host)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/evidence/sync-bind-mount-containers.txt",
+          "test_ids": ["scripts/smoke-containers.sh:sync-volume:linux/arm64", "scripts/smoke-containers.sh:sync-compose:linux/arm64", "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64"]
+        },
+        {
+          "command": "docker build --platform linux/arm64 --build-arg CARGO_BUILD_JOBS=8 -t gcs-mimic-listing-fallback:fixed .; zsh <temp>/listing-bench.sh fixed run1 (the script and its output are in the record; Docker Desktop 29.9.3 on an arm64 macOS host, 1,000 files in one bucket on a bind mount of an APFS directory; one run, not a gate)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/evidence/sync-listing-attribute-cache.txt",
+          "test_ids": ["sync-listing-bench:bind-mount-1000-files:linux/arm64"]
+        },
+        {
+          "command": "zsh <temp>/cache-check.sh (the script and its output are in the record; debian:trixie-slim linux/arm64 under Docker Desktop 29.9.3 with a bind mount of an APFS directory, a case-only rename on the host, then stat with --cached=always, the default and --cached=never)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/evidence/sync-listing-attribute-cache.txt",
+          "test_ids": ["sync-listing-attribute-cache:docker-desktop:linux/arm64"]
         }
       ],
       "sdk_evidence": [],
@@ -61617,7 +61770,7 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "56a701b3905f43af372f861307863c0e3104de42",
-      "last_verified": "2026-10-31"
+      "last_verified": "2026-11-20"
     },
     {
       "id": "DESIGN-073",
