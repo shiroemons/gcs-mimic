@@ -178,7 +178,7 @@ example `sync wait ended with SourceUnrepresentable (2 source entries:
 INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`.
 The status reports only the scan stop and lists no entries. A path that is not
 UTF-8, the kind of name a scan cannot take in, shows U+FFFD for each invalid
-sequence.
+sequence, in the answer as in the logs and remedies that name it.
 
 Every line the command writes from a server's answer, the entries, remedy,
 findings revision and error message alike, has each control character escaped,

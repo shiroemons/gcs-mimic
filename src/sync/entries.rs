@@ -10,6 +10,7 @@ use crate::{
     storage::admin::{BucketName, ObjectName},
 };
 use std::{
+    borrow::Cow,
     collections::HashSet,
     ffi::OsStr,
     io,
@@ -115,7 +116,7 @@ pub(crate) fn warn_root_file(path: &Path) {
         LogLevel::Warn,
         "sync_skipped",
         serde_json::json!({
-            "path":path.to_string_lossy(),
+            "path":path_text(path),
             "reason":"top-level entries must be bucket directories",
             "remedy":"Move the file into a bucket directory to make it an object; where it is, it is never synchronized and holds nothing back",
         }),
@@ -190,20 +191,37 @@ impl EntryProblem {
     }
 }
 
+/// A working-tree path as logs, remedies, an entry report and a wait name it. An entry is often
+/// unrepresentable because its name is not UTF-8, which a JSON string cannot hold as it is: the
+/// text shows U+FFFD for each invalid sequence, where serializing the path itself would fail the
+/// answer, or panic inside `json!`, because of the very entry it reports.
+pub(crate) fn path_text(path: &Path) -> Cow<'_, str> {
+    path.to_string_lossy()
+}
+
 /// One entry a scan could not take in. The status lists it by its path and the reason no object
 /// can take it.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct UnrepresentableEntry {
-    /// The entry below the sync root. An entry is often unrepresentable because its name is not
-    /// UTF-8, which a JSON string cannot hold as it is.
-    #[serde(serialize_with = "lossy_path")]
+    /// The entry below the sync root.
     pub(crate) path: PathBuf,
-    #[serde(rename = "reason")]
     pub(crate) problem: EntryProblem,
 }
 
-fn lossy_path<S: serde::Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(&path.to_string_lossy())
+/// An entry is listed by the text of its path, which cannot fail to serialize.
+impl serde::Serialize for UnrepresentableEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(serde::Serialize)]
+        struct Listed<'a> {
+            path: Cow<'a, str>,
+            reason: EntryProblem,
+        }
+        Listed {
+            path: path_text(&self.path),
+            reason: self.problem,
+        }
+        .serialize(serializer)
+    }
 }
 
 /// Warns about an entry no object can take, once when a complete scan first finds it.
@@ -212,7 +230,7 @@ pub(crate) fn warn_unrepresentable(entry: &UnrepresentableEntry) {
         LogLevel::Warn,
         entry.problem.event(),
         serde_json::json!({
-            "path":entry.path.to_string_lossy(),
+            "path":path_text(&entry.path),
             "reason":entry.problem.reason(),
             "remedy":Correction::Entry(entry.problem).remedy(),
         }),
@@ -400,6 +418,7 @@ mod tests {
     fn an_entry_that_is_not_utf8_is_listed_and_logged_lossily() {
         use std::os::unix::ffi::OsStrExt;
         let path = Path::new(OsStr::from_bytes(b"bucket/bad\xff"));
+        assert_eq!(path_text(path), "bucket/bad\u{fffd}");
         let mut report = EntryReport::default();
         report.record(path, EntryProblem::UnmappableName);
         assert_eq!(

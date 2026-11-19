@@ -3,7 +3,7 @@
 use super::{
     Reconciliation, SyncError,
     advice::{Advised, AtHand},
-    entries::EntryProblem,
+    entries::{EntryProblem, path_text},
     outstanding::{Holdup, UnmappedObjects},
 };
 use crate::{
@@ -285,10 +285,7 @@ pub(crate) fn unsettled_remedy(holdup: Option<Holdup>, pass: Option<&Reconciliat
             let first = if names.is_empty() {
                 String::new()
             } else {
-                let names: Vec<String> = names
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect();
+                let names: Vec<_> = names.iter().map(|path| path_text(path)).collect();
                 format!(", the first {}", names.join(", "))
             };
             let count = if changing == 1 {
