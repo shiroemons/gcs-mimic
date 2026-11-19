@@ -90,6 +90,17 @@ deletion approval rather than a changing source. Approving the set deletes the f
 exports; putting the directory back runs them on the next pass. A disabled
 guard changes only these decisions.
 
+A new set that waits for approval logs `sync_deletion_approval_required` once,
+with its revision, its counts and the commands that inspect and approve it; an
+inventory that confirms it under the same revision does not log it again, and
+a restart, which never confirms an earlier set, logs the new one. Deletions that
+run log `sync_deletions_applied` with their count and their first ten paths in
+set order. The first pass of a run, after a start, a retry or a resumed rescan,
+logs them as a warning, since it deletes what was deleted from the tree while
+the mirror was not watching, such as while the server was stopped; later passes
+and an approved set log them at the info level. The rescan result and the
+`sync_ingested` and `sync_reconciled` events do not count deletions.
+
 Observed tree changes, root/marker failures, API journal changes and restart
 invalidate unused revisions. An API or bucket change during an inventory makes
 it stale: it stops, logs `sync_deletion_inventory_superseded` at the info

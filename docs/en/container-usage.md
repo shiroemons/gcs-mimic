@@ -278,7 +278,12 @@ generations, with hashes, shortly after the change; no restart is needed.
 Deleting a file deletes its live object, subject to holds and retention. When at
 least 100 objects would go and they are more than half of the tree, the deletion
 guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
-set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
+set is approved with `gcs-mimic sync approve`; the log names such a set once,
+as `sync_deletion_approval_required`, with its revision and the commands that
+inspect and approve it. Deletions that run are logged as
+`sync_deletions_applied` with their count and first ten paths, as a warning
+when the first pass after a start or a retry runs them and at the info level
+otherwise. Recent automatic deletions also
 count toward this threshold across split scans. Deleting a whole bucket
 directory waits for that approval however few files it held, because a mount
 that did not come up looks the same; the server does not recreate the

@@ -22,6 +22,17 @@ pub(crate) struct Inventory {
     removal: Removal,
 }
 
+impl Inventory {
+    /// Whether finishing this inventory writes a set under a revision nobody has seen yet,
+    /// rather than confirming the root's earlier set under its own.
+    pub(crate) fn writes_new_set(&self) -> bool {
+        match self.draft {
+            Draft::New => true,
+            Draft::Confirming { .. } => false,
+        }
+    }
+}
+
 /// What an inventory writes: a new set, or nothing while it confirms the root's earlier one.
 #[derive(Clone, Copy)]
 enum Draft {

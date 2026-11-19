@@ -1,7 +1,7 @@
 //! Missing tracked files become candidates only after an error-free complete scan.
 
 use super::interrupt::{Interrupt, Interrupted};
-use super::{SyncError, mapping, mirror::PassGate};
+use super::{SyncError, advice::AtHand, control::WaitReason, mapping, mirror::PassGate};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
@@ -10,7 +10,7 @@ use crate::{
         Catalog,
         admin::{AdminError, BucketName, GenerationCondition},
         sync_state::{
-            Ordinal, PageLimit, SyncBinding,
+            OpaqueId, Ordinal, PageLimit, SyncBinding,
             deletions::{Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard, Removal},
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
@@ -43,7 +43,8 @@ pub(super) async fn inventory(
 
 /// Inventories the tracked files missing after `pass`, and returns the complete set. A set the
 /// root already holds keeps its revision when this inventory finds exactly its members again, so
-/// that a pass which changed nothing does not withdraw a revision someone is inspecting.
+/// that a pass which changed nothing does not withdraw a revision someone is inspecting. A new
+/// set that waits for approval is warned about once, under its new revision.
 pub(super) async fn inventory_with(
     root: &RootLease,
     config: &Config,
@@ -63,13 +64,85 @@ pub(super) async fn inventory_with(
         let Some(counted) = count_candidates(root, &mut inventory, interrupt).await? else {
             return Ok(None);
         };
+        let new_set = inventory.writes_new_set();
         if counted == Confirmed::Same
             && let Some(set) = root.finish_deletion_inventory(inventory.clone()).await?
         {
+            if new_set {
+                warn_awaiting_approval(&set);
+            }
             return Ok(Some(set));
         }
         // The root's earlier set differs from what the tree shows now, so a new one replaces it.
         inventory = root.begin_new_deletion_inventory(guard).await?;
+    }
+}
+
+/// Warns that `set` waits for approval, with the commands that inspect and approve it, which a
+/// wait gives too. Nothing else reports a guarded set until someone asks for the status.
+fn warn_awaiting_approval(set: &DeletionSet) {
+    match set.authorization {
+        DeletionAuthorization::Granted => {}
+        DeletionAuthorization::Withheld => {
+            let revision = set.revision.to_hex();
+            let at_hand = AtHand {
+                deletion_revision: Some(&revision),
+                ..AtHand::default()
+            };
+            diagnostics::emit(
+                LogLevel::Warn,
+                "sync_deletion_approval_required",
+                serde_json::json!({
+                    "revision":revision,"candidates":set.candidate_count,"baseline":set.baseline_count,
+                    "remedy":WaitReason::DeletionApproval.remedy(None, at_hand),
+                }),
+            );
+        }
+    }
+}
+
+/// What a deletion set deleted: how many objects, and the paths of the first few, which the log
+/// names. Nothing else reports an automatic deletion after it ran.
+#[derive(Debug)]
+pub(super) struct Applied {
+    revision: OpaqueId,
+    count: u64,
+    paths: Vec<String>,
+}
+
+impl Applied {
+    /// Paths the log names; the rest are only counted.
+    const NAMED: usize = 10;
+
+    fn of(set: &DeletionSet) -> Self {
+        Self {
+            revision: set.revision,
+            count: 0,
+            paths: Vec::new(),
+        }
+    }
+
+    fn record(&mut self, path: &str) {
+        self.count += 1;
+        if self.paths.len() < Self::NAMED {
+            self.paths.push(path.to_owned());
+        }
+    }
+
+    /// Logs the deletions, if there were any, at `level`.
+    pub(super) fn report(&self, level: LogLevel) {
+        if self.count == 0 {
+            return;
+        }
+        let named = u64::try_from(self.paths.len()).unwrap_or(u64::MAX);
+        diagnostics::emit(
+            level,
+            "sync_deletions_applied",
+            serde_json::json!({
+                "revision":self.revision.to_hex(),"deleted":self.count,
+                "paths":self.paths,"omitted":self.count.saturating_sub(named),
+            }),
+        );
     }
 }
 
@@ -227,29 +300,36 @@ pub(super) async fn record_replaced(
     Ok(())
 }
 
+/// Runs `set` and returns how many objects it deleted.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(super) async fn execute(
     catalog: &Catalog,
     root: &RootLease,
     set: DeletionSet,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<u64, SyncError> {
-    execute_with(catalog, root, set, Interrupt::new(stopping)).await
+    Ok(execute_with(catalog, root, set, Interrupt::new(stopping))
+        .await?
+        .count)
 }
+
+/// Deletes the objects of an authorized set whose paths are still empty, and returns what it
+/// deleted. A set that waits for approval deletes nothing.
 pub(super) async fn execute_with(
     catalog: &Catalog,
     root: &RootLease,
     set: DeletionSet,
     interrupt: Interrupt<'_>,
-) -> Result<u64, SyncError> {
+) -> Result<Applied, SyncError> {
     if set.authorization != DeletionAuthorization::Granted {
-        return Ok(0);
+        return Ok(Applied::of(&set));
     }
     let mut after = Ordinal::START;
-    let mut completed = 0;
+    let mut applied = Applied::of(&set);
     let mut restored_buckets = std::collections::BTreeSet::new();
     loop {
         if interrupt.check() != Interrupted::No {
-            return Ok(completed);
+            return Ok(applied);
         }
         let page = match root
             .deletion_page(set.revision, after, PageLimit::LARGEST)
@@ -258,7 +338,7 @@ pub(super) async fn execute_with(
             Ok(page) => page,
             Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
                 root.invalidate_deletions().await?;
-                return Ok(completed);
+                return Ok(applied);
             }
             Err(error) => return Err(error.into()),
         };
@@ -267,7 +347,7 @@ pub(super) async fn execute_with(
         }
         for candidate in page {
             if interrupt.check() != Interrupted::No {
-                return Ok(completed);
+                return Ok(applied);
             }
             after = candidate.ordinal;
             // A file that came back, or a path that no longer tells, ends this set; the next
@@ -276,11 +356,11 @@ pub(super) async fn execute_with(
                 Presence::Absent(absence) => absence.of(candidate),
                 Presence::Present | Presence::Unobservable(_) => {
                     root.invalidate_deletions().await?;
-                    return Ok(completed);
+                    return Ok(applied);
                 }
             };
             if interrupt.check() != Interrupted::No {
-                return Ok(completed);
+                return Ok(applied);
             }
             let candidate = missing.candidate();
             match delete(root, &set, &missing).await? {
@@ -290,7 +370,7 @@ pub(super) async fn execute_with(
                 }
                 Deleted::Stale => {
                     root.invalidate_deletions().await?;
-                    return Ok(completed);
+                    return Ok(applied);
                 }
                 Deleted::Protected(binding) => {
                     root.record_path_stop(
@@ -312,7 +392,7 @@ pub(super) async fn execute_with(
                         "sync_protected_deletion",
                         serde_json::json!({"bucket":candidate.bucket,"object":candidate.name,"generation":candidate.generation,"remedy":"The API object remains protected. Its file was restored where safe; release the hold or retention through the API, then delete the file again to retry"}),
                     );
-                    return Ok(completed);
+                    return Ok(applied);
                 }
             }
             if restored_buckets.insert(candidate.bucket.clone()) {
@@ -322,10 +402,10 @@ pub(super) async fn execute_with(
                 )
                 .await?;
             }
-            completed += 1;
+            applied.record(&candidate.path);
         }
     }
-    Ok(completed)
+    Ok(applied)
 }
 
 /// Deletes the object of a member whose path was just seen empty.

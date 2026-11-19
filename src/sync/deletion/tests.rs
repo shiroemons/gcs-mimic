@@ -124,6 +124,39 @@ async fn zero_candidate_inventory_can_clear_automatic_deletion_history() {
     catalog.close().await.unwrap();
 }
 
+/// The log names the first deleted paths in set order and counts the rest, so a deletion the
+/// user did not expect, such as one made while the server was stopped, can be traced to its
+/// files without the log growing with the set.
+#[tokio::test]
+async fn applied_deletions_name_the_first_paths_and_count_the_rest() {
+    let (_data, tree, catalog, root, config) = fixture(100).await;
+    for index in 0..12 {
+        fs::remove_file(tree.0.join(format!("test-bucket/{index:04}"))).unwrap();
+    }
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let set = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    let revision = set.revision;
+    let applied = execute_with(&catalog, &root, set, Interrupt::new(&stopping))
+        .await
+        .unwrap();
+    assert_eq!((applied.count, applied.revision), (12, revision));
+    assert_eq!(
+        applied.paths,
+        (0..Applied::NAMED)
+            .map(|index| format!("test-bucket/{index:04}"))
+            .collect::<Vec<_>>()
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate() {
     let (_data, tree, catalog, root, config) = fixture(1).await;
@@ -152,7 +185,10 @@ async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candida
         set.revision
     );
     assert_eq!(
-        execute_with(&catalog, &root, set, deadline).await.unwrap(),
+        execute_with(&catalog, &root, set, deadline)
+            .await
+            .unwrap()
+            .count,
         0
     );
     assert!(

@@ -880,6 +880,7 @@ async fn initialize_live(
         config,
         summary.gate(),
         Interrupt::new(stopping),
+        Inventorying::RunStart,
     )
     .await?;
     // Running only now, after this run reconciled the whole tree: until then a starting mirror
@@ -972,7 +973,15 @@ async fn ingest_external_with(
     if summary.interrupted {
         return Ok(summary);
     }
-    observe_deletions(catalog, root, config, summary.gate(), interrupt).await?;
+    observe_deletions(
+        catalog,
+        root,
+        config,
+        summary.gate(),
+        interrupt,
+        Inventorying::Running,
+    )
+    .await?;
     // Boxed like the reconciliation above, which also runs exports inside this pass.
     let retried = Box::pin(skipped.retry(scope, interrupt)).await?;
     summary.carry_held(&retried);
@@ -990,17 +999,40 @@ fn report_entries(entries: &EntryReportSender, ingested: &Reconciliation) {
     }
 }
 
+/// Which inventory of a run deletes objects, which decides how loudly the log names them.
+#[derive(Clone, Copy, Debug)]
+enum Inventorying {
+    /// The first of a run, after a start, a retry or a resumed rescan. It deletes what was
+    /// deleted from the tree while the mirror was not watching, such as while the server was
+    /// stopped, which nobody may expect, so it warns.
+    RunStart,
+    /// A later one, which deletes what was just deleted from the tree.
+    Running,
+}
+
+impl Inventorying {
+    fn applied_level(self) -> LogLevel {
+        match self {
+            Self::RunStart => LogLevel::Warn,
+            Self::Running => LogLevel::Info,
+        }
+    }
+}
+
 async fn observe_deletions(
     catalog: &Catalog,
     root: &RootLease,
     config: &Config,
     pass: PassGate,
     interrupt: Interrupt<'_>,
+    inventorying: Inventorying,
 ) -> Result<(), SyncError> {
     let inventory = super::deletion::inventory_with(root, config, pass, interrupt).await;
     match inventory {
         Ok(Some(set)) => {
-            super::deletion::execute_with(catalog, root, set, interrupt).await?;
+            super::deletion::execute_with(catalog, root, set, interrupt)
+                .await?
+                .report(inventorying.applied_level());
         }
         Ok(None) => {}
         // An API change moved the journal, or a bucket or the root changed, during the
@@ -1230,16 +1262,12 @@ impl LiveControl<'_> {
         let Some(set) = set else {
             return Ok(());
         };
-        super::deletion::execute(
-            self.scope.catalog,
-            self.scope.root,
-            set,
-            self.scope.stopping,
-        )
-        .await?;
+        let interrupt = Interrupt::new(self.scope.stopping);
+        super::deletion::execute_with(self.scope.catalog, self.scope.root, set, interrupt)
+            .await?
+            .report(LogLevel::Info);
         // The deleted members held back the exports into their bucket's missing directory,
         // which no tree change would otherwise run again.
-        let interrupt = Interrupt::new(self.scope.stopping);
         Box::pin(self.state.skipped.retry(self.scope, interrupt))
             .await
             .map(drop)
