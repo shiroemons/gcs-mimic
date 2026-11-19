@@ -91,7 +91,13 @@ exports; putting the directory back runs them on the next pass. A disabled
 guard changes only these decisions.
 
 Observed tree changes, root/marker failures, API journal changes and restart
-invalidate unused revisions. Invalidating a set that is already invalid changes
+invalidate unused revisions. An API or bucket change during an inventory makes
+it stale: it stops, logs `sync_deletion_inventory_superseded` at the info
+level, and the next pass inventories again. A change that writes the
+tree brings that pass through the native events of its own writes, which the
+mirror does not filter out; a change to object metadata alone writes nothing, so
+the missing files wait for the next change to the directory, a rescan or a wait.
+Invalidating a set that is already invalid changes
 nothing, so it starts no new observation revision. An inventory that finds
 exactly the members of the root's unapproved set again, at the same journal
 fence and guard setting, confirms that set under its revision instead of

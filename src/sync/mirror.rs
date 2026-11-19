@@ -1003,9 +1003,22 @@ async fn observe_deletions(
             super::deletion::execute_with(catalog, root, set, interrupt).await?;
         }
         Ok(None) => {}
-        // The journal moved or the root changed during the inventory; the next pass, which the
-        // change itself brings, inventories again.
-        Err(error) if error.is_stale_deletion() => {}
+        // An API change moved the journal, or a bucket or the root changed, during the
+        // inventory. A change that writes the tree raises native events for those writes, which
+        // nothing filters out as the mirror's own, and the pass they bring inventories again. A
+        // change to metadata alone writes nothing, so the missing files wait for the next change
+        // to the tree, a rescan or a wait, and the log says why they still wait. The deletions
+        // of a set end on such a change by themselves and leave it to the next inventory too.
+        Err(error) if error.is_stale_deletion() => {
+            diagnostics::emit(
+                LogLevel::Info,
+                "sync_deletion_inventory_superseded",
+                serde_json::json!({
+                    "reason":"An API or bucket change during the deletion inventory made it stale",
+                    "next":"The next change to the directory, a rescan or a wait inventories the missing files again",
+                }),
+            );
+        }
         Err(error) => return Err(error),
     }
     Ok(())
