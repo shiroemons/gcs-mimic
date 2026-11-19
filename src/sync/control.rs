@@ -247,10 +247,11 @@ pub(crate) fn export_retry_remedy() -> String {
 }
 
 /// What replaces a finding carried over from a release that recorded name collisions and
-/// export conflicts alike: an observation of the object, which a restart or a rescan makes.
+/// export conflicts alike: an observation of the object, which every ingestion makes, so a wait
+/// or a rescan does.
 pub(crate) fn unclassified_collision_remedy() -> String {
     format!(
-        "Carried over from a release that recorded name collisions and export conflicts alike. Have the object observed again and classified, by restarting the server or by a rescan: {}; then follow the remedy of the finding that replaces this one",
+        "Carried over from a release that recorded name collisions and export conflicts alike. Have the object observed again and classified by a wait or a rescan: {}; then follow the remedy of the finding that replaces this one",
         Advised::Rescan
     )
 }

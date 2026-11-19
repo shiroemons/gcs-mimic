@@ -679,6 +679,23 @@ report the spelling, and a Linux mount that folds case without the casefold flag
 reports any spelling as exact; removing `photos/` for an object `Photos` would
 put a file where the parent of a tracked `photos/a.jpg` was.
 
+A `collision`, `unsafe-entry`, `directory-occupied` or `unclassified-collision`
+finding can go without any change of its own object, because another API object
+or an entry in the tree stands in its way. Every ingestion, which a native
+notification, a rescan and a wait each run, observes those objects again before
+it scans the tree and exports each one whose cause went. Moving the entry in the
+way, or deleting the other object through the API, therefore needs no restart:
+the next wait or rescan exports the object and removes its finding. A finding
+that still holds only reads the catalog, so the findings revision moves only
+when a finding changes. One whose target cannot be read at that moment, such as
+behind a directory without search permission, keeps its row for a later pass
+and holds back nothing else; the scan reports that directory. A regular file
+directly in the root under a bucket's name keeps every object of that bucket
+out as `collision` findings until it is moved away, and the ingestion after the
+move exports them. Other reasons depend only on the object's name and the
+root's rules, and an `export-conflict` waits for its resolution, so those
+findings are not observed again.
+
 For every `File(p)`, decoding that exact relative path must reproduce the same
 bucket and object bytes. Filesystem normalization must preserve this property;
 otherwise return Unrepresentable. Test the actual root's behavior using bounded
@@ -1444,7 +1461,7 @@ details and aggregate counts.
 | `Observing` | Running without a complete baseline; status | Wait for the scan, or run `gcs-mimic sync wait`. |
 | `DeletionApproval` | External deletions paused; status, `sync_deletion_approval_required` event and the wait's `deletions` | List the set with `gcs-mimic sync deletions --revision`. If a mount failed or pointed elsewhere, fix it and restart before deciding. If the files went by mistake, reject the set (`gcs-mimic sync reject`), which writes them back from their objects, then wait again; or put them back yourself and wait again. If you meant to delete them, approve that exact revision. A set that changes needs a new decision. |
 | `FindingsPending` | Running with findings, path stops, pending write-back or unresolved conflicts; status | List them with `gcs-mimic sync findings --revision` and the status's `findings_revision`, and follow each finding's remedy. Other paths continue. |
-| `Conflict` | Path finding after successful preservation; `conflicts`, status/event. A mapping finding with `detail_code` `export-conflict` is an export that met an edited file and left it as it was; one with `unclassified-collision` was carried over from a `collision` recorded before schema 58 | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. For an export conflict, preserve the edited file, then inspect conflicts or restore the previously exported bytes and wait again. For an unclassified collision, rescan or restart so the object is observed again, then follow the remedy of the finding that replaces it. Other paths continue. |
+| `Conflict` | Path finding after successful preservation; `conflicts`, status/event. A mapping finding with `detail_code` `export-conflict` is an export that met an edited file and left it as it was; one with `unclassified-collision` was carried over from a `collision` recorded before schema 58 | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. For an export conflict, preserve the edited file, then inspect conflicts or restore the previously exported bytes and wait again. For an unclassified collision, wait or rescan, either of which observes the object again, then follow the remedy of the finding that replaces it. Other paths continue. |
 | `ConflictCapacity` | Root ingestion and destructive write-back paused; status/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
 | `RecoveryRequired` | Root pause, write-back state, or a path's pending write-back operation; status, `sync_paused` event and paged recovery findings | Preserve the workspace and current target, inspect each recovery finding with `gcs-mimic sync findings`, and settle it with `gcs-mimic sync resolve --recovery` as an exact confirmed discard, or as a registered conflict; then rescan. |
 | `ProtectedBody` | Write-back state while a displaced body is protected in the workspace; status and paged recovery findings, whose `reason` is `RecoveryRequired` | As for `RecoveryRequired`; when it stops a run, the root pauses as `RecoveryRequired`. |

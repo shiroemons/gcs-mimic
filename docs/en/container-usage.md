@@ -393,7 +393,9 @@ Finder's `.DS_Store`, and the `._.DS_Store` that macOS writes beside it on some
 volumes, counts as empty: those files go with the directory, and nothing else is
 ever removed from one. A directory that holds anything else, even only a hidden
 file such as `._x` or an editor's swap file, stays as it is, and that object is
-reported as a `directory-occupied` finding. Object names
+reported as a `directory-occupied` finding. Once its entries, or a symlink or
+file that kept an object out, are moved away, the next `gcs-mimic sync wait` (or
+`rescan`) exports that object without a restart. Object names
 containing `\`, and other names
 that cannot be mapped to host file names, are skipped without stopping
 synchronization; they stay available through the API. `gcs-mimic sync wait` succeeds

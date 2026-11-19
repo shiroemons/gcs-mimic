@@ -193,6 +193,21 @@ impl FindingKind {
             ) => FindingEffect::Reports,
         }
     }
+
+    /// Whether each ingestion observes this finding's object again, because its cause can go
+    /// without a change of the object itself: another API object or an entry in the tree stands
+    /// in its way, or a schema 57 row still waits to be classified. A name the tree cannot hold
+    /// stays so until the object changes, and an export conflict waits for its resolution.
+    pub(crate) const fn observed_again(self) -> bool {
+        match self {
+            Self::Unmapped(Reason::Collision | Reason::UnsafeEntry | Reason::DirectoryOccupied)
+            | Self::UnclassifiedCollision => true,
+            Self::Unmapped(
+                Reason::InvalidName | Reason::HostRestriction | Reason::Reserved | Reason::Ignored,
+            )
+            | Self::ExportConflict => false,
+        }
+    }
 }
 
 sql::text_enum!(

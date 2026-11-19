@@ -333,6 +333,15 @@ impl Reconciliation {
         }
     }
 
+    /// Adds the exports that another part of this pass ran, such as a journal replay: what
+    /// reached the tree, the conflicts they preserved and what they left for a later pass.
+    pub(in crate::sync) fn absorb_exports(&mut self, other: &Self) {
+        self.exported += other.exported;
+        self.identical += other.identical;
+        self.conflicting += other.conflicting;
+        self.absorb_deferred(other);
+    }
+
     /// Adds what holds back a reconciliation that ran inside this pass, so that the pass's own
     /// [`Hold`] names it instead of leaving the baseline open without a reason.
     pub(in crate::sync) fn absorb_hold(&mut self, reconciled: &Self) {

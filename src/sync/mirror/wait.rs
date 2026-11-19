@@ -105,10 +105,7 @@ impl LiveControl<'_> {
                 &mut self.state.skipped,
             )
             .await?;
-            summary.exported += replay.exported;
-            summary.identical += replay.identical;
-            summary.conflicting += replay.conflicting;
-            summary.absorb_deferred(&replay);
+            summary.absorb_exports(&replay);
             if replay.interrupted {
                 return Ok(WaitResult::unfinished(
                     self.interruption(),

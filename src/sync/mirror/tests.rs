@@ -26,6 +26,7 @@ mod empty_directory;
 mod ingest_durability;
 mod install_faults;
 mod missing_bucket;
+mod reevaluation;
 mod rejection;
 mod root_files;
 mod several_roots;

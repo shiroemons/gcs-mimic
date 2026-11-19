@@ -63,6 +63,7 @@ mod tests;
 pub(crate) use tests::state::{RescanFault, arm_rescan_fault};
 
 mod descriptor;
+mod findings;
 mod gate;
 mod lifecycle;
 mod observation;
@@ -947,8 +948,13 @@ async fn ingest_external_with(
     let _publication = root.begin_observation_publication().await?;
     // A rejection the run could not finish waits in the catalog; see `initialize_live`.
     super::deletion::write_back_rejected(catalog, root, interrupt).await?;
+    // Before the scan, which then finds the exported files tracked as they are. Boxed like the
+    // reconciliation below, which also runs exports inside this pass.
+    let observed = Box::pin(skipped.observe_findings(scope, interrupt)).await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
+    summary.absorb_exports(&observed);
+    summary.interrupted |= observed.interrupted;
     entries.report_pass(&summary);
     baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
@@ -1360,6 +1366,7 @@ async fn reconcile_live_object(
         name,
         summary,
         missing: MissingFile::Inventory,
+        occasion: Occasion::Change,
     };
     let Some(plan) = object.plan().await? else {
         return Ok(None);
@@ -1434,6 +1441,7 @@ impl SkippedExports {
                 name,
                 summary: &mut uncounted,
                 missing: MissingFile::Inventory,
+                occasion: Occasion::Change,
             };
             let outcome = match live.plan().await? {
                 Some(plan) if plan.skipped() == Some(skipped) => {
@@ -1477,6 +1485,7 @@ pub(super) async fn restore_from_catalog(
         name,
         summary: &mut uncounted,
         missing: MissingFile::Restore,
+        occasion: Occasion::Change,
     };
     let Some(plan) = object.plan().await? else {
         return Ok(Restored::Skipped);
@@ -1518,6 +1527,19 @@ struct LiveObject<'a> {
     /// The counts of the pass this object belongs to.
     summary: &'a mut Reconciliation,
     missing: MissingFile,
+    occasion: Occasion,
+}
+
+/// Why an export observes its object, which decides what a failure to read its target does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Occasion {
+    /// A journal change, a reconciliation, a retry or a restore: a failed read is retried and
+    /// then fails the pass, since the object's change would otherwise be lost.
+    Change,
+    /// A finding observed again by an ingestion: a failed read leaves the finding as it is for
+    /// a later pass. The entry the read failed on is the scan's to report, and the object's own
+    /// changes still come through the journal.
+    Finding,
 }
 
 /// What an export does when the tracked file of an API generation that has not changed since is
@@ -1779,11 +1801,26 @@ impl LiveObject<'_> {
         let observed = record.clone();
         let naming = self.root.naming()?;
         let lookup = self.root.lookup()?;
-        match file_job_retry(self.root, move |root| {
-            inspect(root, naming, &lookup, &path, &observed)
-        })
-        .await?
-        {
+        let target = match self.occasion {
+            Occasion::Change => {
+                file_job_retry(self.root, move |root| {
+                    inspect(root, naming, &lookup, &path, &observed)
+                })
+                .await?
+            }
+            Occasion::Finding => match self
+                .root
+                .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
+                .await
+            {
+                Ok(target) => target,
+                Err(RootError::Admin(AdminError::Io(_) | AdminError::Precondition)) => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error.into()),
+            },
+        };
+        match target {
             Target::Directory | Target::Replaced(_) if tracked.is_some() => {
                 super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
                 Ok(None)
