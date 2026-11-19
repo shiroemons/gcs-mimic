@@ -193,6 +193,8 @@ mod tests {
                 "{object:?}"
             );
         }
+        // On Windows a backslash separates components, so this path is another object's.
+        #[cfg(not(windows))]
         assert_eq!(
             path_to_name(Path::new(r"demo-bucket/a\b"), RootNaming::posix()),
             Err(Reason::HostRestriction)
