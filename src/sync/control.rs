@@ -402,10 +402,44 @@ pub(crate) struct WaitResult {
     /// the wait renders them.
     #[serde(skip)]
     pub findings: Option<WaitFindings>,
-    /// What the wait's last pass ended on: the pause its remedy follows, or, for a wait that
-    /// ended while work was under way, what it was still waiting for.
+    /// How the wait came to `reason`. Only the constructors set the two, so that they agree.
     #[serde(skip)]
-    pub holdup: Option<Holdup>,
+    ending: Ending,
+}
+
+/// How a wait ended: on the first condition that held after its last pass, which decides its
+/// reason, or before a pass could decide it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ending {
+    Held(Holdup),
+    /// `last` is what the wait's last finished pass was still waiting for, if one finished.
+    Unfinished {
+        why: Unfinished,
+        last: Option<Holdup>,
+    },
+}
+
+/// Why a wait ended before a pass could decide it by what holds synchronization back: its
+/// deadline passed, the server began to stop, the journal was rebuilt under it, or the tree was
+/// still settling when the server answered for it. Every other reason comes from a holdup,
+/// through [`WaitResult::held`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unfinished {
+    Timeout,
+    Stopped,
+    JournalChanged,
+    SourceChanging,
+}
+
+impl From<Unfinished> for WaitReason {
+    fn from(why: Unfinished) -> Self {
+        match why {
+            Unfinished::Timeout => Self::Timeout,
+            Unfinished::Stopped => Self::Stopped,
+            Unfinished::JournalChanged => Self::JournalChanged,
+            Unfinished::SourceChanging => Self::SourceChanging,
+        }
+    }
 }
 
 /// The findings a wait leaves behind without stopping, read with the observation it decided on.
@@ -537,11 +571,15 @@ impl From<JournalFence> for WaitFence {
     }
 }
 impl WaitResult {
-    pub(crate) fn result(
-        reason: WaitReason,
+    fn new(
+        ending: Ending,
         journal_fence: Option<WaitFence>,
         reconciliation: Option<Reconciliation>,
     ) -> Self {
+        let reason = match ending {
+            Ending::Held(holdup) => WaitReason::from(holdup),
+            Ending::Unfinished { why, .. } => WaitReason::from(why),
+        };
         Self {
             completed: reason == WaitReason::Ready,
             timed_out: reason == WaitReason::Timeout,
@@ -549,11 +587,34 @@ impl WaitResult {
             reconciliation,
             reason,
             findings: None,
-            holdup: None,
+            ending,
         }
     }
+
+    /// A wait its last pass decided: by `holdup`, the first condition that held after it.
+    pub(crate) fn held(
+        holdup: Holdup,
+        journal_fence: Option<WaitFence>,
+        reconciliation: Option<Reconciliation>,
+    ) -> Self {
+        Self::new(Ending::Held(holdup), journal_fence, reconciliation)
+    }
+
+    /// A wait that ended for `why` before a pass could decide it.
+    pub(crate) fn unfinished(
+        why: Unfinished,
+        journal_fence: Option<WaitFence>,
+        reconciliation: Option<Reconciliation>,
+    ) -> Self {
+        Self::new(
+            Ending::Unfinished { why, last: None },
+            journal_fence,
+            reconciliation,
+        )
+    }
+
     pub(crate) fn timeout() -> Self {
-        Self::result(WaitReason::Timeout, None, None)
+        Self::unfinished(Unfinished::Timeout, None, None)
     }
 
     /// This result with the findings the wait read.
@@ -561,19 +622,34 @@ impl WaitResult {
         Self { findings, ..self }
     }
 
-    /// This result with what the wait's last pass ended on.
-    pub(crate) fn with_holdup(self, holdup: Holdup) -> Self {
-        Self {
-            holdup: Some(holdup),
-            ..self
+    /// The same wait ending for `why` before another pass could decide it: its deadline passed,
+    /// or the server began to stop. What its last pass ended on stays, so that the remedy names
+    /// what remained, but no longer decides how the wait ended.
+    pub(crate) fn cut_short(self, why: Unfinished) -> Self {
+        let findings = self.findings;
+        let last = self.holdup();
+        Self::new(
+            Ending::Unfinished { why, last },
+            self.journal_fence,
+            self.reconciliation,
+        )
+        .with_findings(findings)
+    }
+
+    /// What the wait's last finished pass ended on: the holdup that decided the wait, or, for a
+    /// wait cut short, what that pass was still waiting for.
+    pub(crate) const fn holdup(&self) -> Option<Holdup> {
+        match self.ending {
+            Ending::Held(holdup) => Some(holdup),
+            Ending::Unfinished { last, .. } => last,
         }
     }
 
-    /// The reason the pause this wait met recorded, as the mirror knew it when it answered.
+    /// The reason the pause this wait ended on recorded, as the mirror knew it when it answered.
     pub(crate) const fn paused_reason(&self) -> Option<PauseReason> {
-        match self.holdup {
-            Some(Holdup::Paused(reason)) => Some(reason),
-            Some(
+        match self.ending {
+            Ending::Held(Holdup::Paused(reason)) => Some(reason),
+            Ending::Held(
                 Holdup::Writeback(_)
                 | Holdup::SourceChanging
                 | Holdup::SourceUnrepresentable
@@ -584,7 +660,7 @@ impl WaitResult {
                 | Holdup::UnmappedObjects { .. }
                 | Holdup::Ready,
             )
-            | None => None,
+            | Ending::Unfinished { .. } => None,
         }
     }
 
@@ -592,44 +668,37 @@ impl WaitResult {
     /// the wait ended on. A wait that ended while work was under way names what its last pass
     /// was still waiting for; a success, a shutdown and a rebuilt journal need nothing.
     pub(crate) fn remedy(&self, at_hand: AtHand<'_>) -> Option<String> {
-        match self.reason {
-            WaitReason::Timeout | WaitReason::SourceChanging => {
-                Some(unsettled_remedy(self.holdup, self.reconciliation.as_ref()))
+        let pass = self.reconciliation.as_ref();
+        match self.ending {
+            Ending::Held(holdup) if self.reason.is_in_progress() => {
+                Some(unsettled_remedy(Some(holdup), pass))
             }
-            WaitReason::Ready | WaitReason::Stopped | WaitReason::JournalChanged => None,
-            WaitReason::Paused
-            | WaitReason::SourceUnrepresentable
-            | WaitReason::DeletionApproval
-            | WaitReason::FindingsPending => self.holdup.and_then(|holdup| holdup.remedy(at_hand)),
+            Ending::Held(holdup) => holdup.remedy(at_hand),
+            Ending::Unfinished {
+                why: Unfinished::Timeout | Unfinished::SourceChanging,
+                last,
+            } => Some(unsettled_remedy(last, pass)),
+            Ending::Unfinished {
+                why: Unfinished::Stopped | Unfinished::JournalChanged,
+                ..
+            } => None,
         }
     }
 
     /// This wait under `unmapped`, its request's policy for objects whose names the tree cannot
-    /// hold. Only a ready wait changes: one that refuses them ends as the holdup of those that
-    /// remain, with that holdup's reason and remedy.
+    /// hold. Only a wait its pass decided ready changes: one that refuses them ends as the
+    /// holdup of those that remain, with that holdup's reason and remedy. A wait cut short stays
+    /// as it ended, whatever its last pass found.
     pub(crate) fn with_unmapped(self, unmapped: UnmappedObjects) -> Self {
-        let objects = self.findings.map_or(0, |findings| findings.unmapped);
-        let held = self
-            .holdup
-            .map(|holdup| holdup.with_unmapped(unmapped, objects));
-        match held {
-            Some(holdup) if held != self.holdup => Self {
-                holdup: held,
-                ..self.with_reason(WaitReason::from(holdup))
-            },
-            Some(_) | None => self,
+        let Ending::Held(holdup) = self.ending else {
+            return self;
+        };
+        let findings = self.findings;
+        let held = holdup.with_unmapped(unmapped, findings.map_or(0, |found| found.unmapped));
+        if held == holdup {
+            return self;
         }
-    }
-
-    /// The same wait ending for `reason` instead: its deadline passed, or the server began to
-    /// stop, before another pass, or its holdup changed its reason.
-    pub(crate) fn with_reason(self, reason: WaitReason) -> Self {
-        Self {
-            completed: reason == WaitReason::Ready,
-            timed_out: reason == WaitReason::Timeout,
-            reason,
-            ..self
-        }
+        Self::held(held, self.journal_fence, self.reconciliation).with_findings(findings)
     }
 }
 
@@ -658,7 +727,7 @@ mod tests {
     #[test]
     fn only_work_in_progress_is_waited_for_again_and_the_rest_name_a_remedy() {
         use crate::storage::sync_state::writeback::Stop;
-        use WaitReason::{JournalChanged, Ready, SourceChanging, Stopped, Timeout};
+        use WaitReason::{JournalChanged, Ready, SourceChanging, Timeout};
         for reason in WaitReason::ALL {
             assert_eq!(
                 reason.is_in_progress(),
@@ -684,19 +753,23 @@ mod tests {
                     .is_some_and(|remedy| remedy.contains("--endpoint URL")),
                 "{holdup:?}"
             );
-            let ended =
-                WaitResult::result(WaitReason::from(holdup), None, None).with_holdup(holdup);
+            let ended = WaitResult::held(holdup, None, None);
+            assert_eq!(ended.reason, WaitReason::from(holdup), "{holdup:?}");
             assert_eq!(ended.remedy(AtHand::default()), remedy, "{holdup:?}");
         }
         assert_eq!(Holdup::Ready.remedy(AtHand::default()), None);
-        for reason in [Ready, Stopped, JournalChanged] {
-            let ended = WaitResult::result(reason, None, None);
-            assert_eq!(ended.remedy(AtHand::default()), None, "{reason}");
+        let ready = WaitResult::held(Holdup::Ready, None, None);
+        assert_eq!((ready.reason, ready.completed), (Ready, true));
+        assert_eq!(ready.remedy(AtHand::default()), None);
+        for why in [Unfinished::Stopped, Unfinished::JournalChanged] {
+            let ended = WaitResult::unfinished(why, None, None);
+            assert_eq!(ended.remedy(AtHand::default()), None, "{why:?}");
         }
         let timed_out = WaitResult::timeout().remedy(AtHand::default());
         assert_eq!(
             timed_out,
-            WaitResult::result(SourceChanging, None, None).remedy(AtHand::default())
+            WaitResult::unfinished(Unfinished::SourceChanging, None, None)
+                .remedy(AtHand::default())
         );
         assert!(
             timed_out
@@ -709,19 +782,11 @@ mod tests {
     /// lists them and names nothing else; any other end stays as the mirror decided it.
     #[test]
     fn a_wait_that_refuses_unmapped_objects_ends_on_them_alone() {
-        let ended = |reason, holdup, unmapped| {
-            WaitResult::result(reason, None, None)
-                .with_holdup(holdup)
-                .with_findings(Some(WaitFindings {
-                    unmapped,
-                    observation_revision: 1,
-                }))
-        };
-        let refused =
-            ended(WaitReason::Ready, Holdup::Ready, 2).with_unmapped(UnmappedObjects::Refuse);
+        let refused = with_unmapped_found(WaitResult::held(Holdup::Ready, None, None), 2)
+            .with_unmapped(UnmappedObjects::Refuse);
         assert_eq!(refused.reason, WaitReason::FindingsPending);
         assert!(!refused.completed);
-        assert_eq!(refused.holdup, Some(Holdup::UnmappedObjects { count: 2 }));
+        assert_eq!(refused.holdup(), Some(Holdup::UnmappedObjects { count: 2 }));
         let at_hand = AtHand {
             findings_revision: Some(super::super::advice::SAMPLE_FINDINGS_REVISION),
             deletion_revision: None,
@@ -739,29 +804,60 @@ mod tests {
             "{remedy}"
         );
         assert!(!remedy.contains("conflicts"), "{remedy}");
-        for (reason, holdup, unmapped, policy) in [
-            (WaitReason::Ready, Holdup::Ready, 2, UnmappedObjects::Report),
-            (WaitReason::Ready, Holdup::Ready, 0, UnmappedObjects::Refuse),
-            (
-                WaitReason::FindingsPending,
-                Holdup::FindingsPending,
-                2,
-                UnmappedObjects::Refuse,
-            ),
-            (
-                WaitReason::Timeout,
-                Holdup::SourceChanging,
-                2,
-                UnmappedObjects::Refuse,
-            ),
+        for (holdup, unmapped, policy) in [
+            (Holdup::Ready, 2, UnmappedObjects::Report),
+            (Holdup::Ready, 0, UnmappedObjects::Refuse),
+            (Holdup::FindingsPending, 2, UnmappedObjects::Refuse),
         ] {
-            let kept = ended(reason, holdup, unmapped).with_unmapped(policy);
+            let kept = with_unmapped_found(WaitResult::held(holdup, None, None), unmapped)
+                .with_unmapped(policy);
             assert_eq!(
-                (kept.reason, kept.holdup),
-                (reason, Some(holdup)),
+                (kept.reason, kept.holdup()),
+                (WaitReason::from(holdup), Some(holdup)),
                 "{policy:?}"
             );
         }
+    }
+
+    /// A wait's reason and the holdup its remedy follows come from one ending, so the two
+    /// cannot disagree. Only a pass's holdup makes a wait ready, so every ready wait meets the
+    /// request's policy for unmapped objects. A wait cut short keeps the reason it was cut short
+    /// for, and with it the exit status that reason maps to, whatever its last pass found: a
+    /// ready pass whose deadline then passed still times out, rather than ending on the
+    /// unmapped objects that pass counted.
+    #[test]
+    fn a_waits_reason_and_its_holdup_come_from_one_ending() {
+        for why in [
+            Unfinished::Timeout,
+            Unfinished::Stopped,
+            Unfinished::JournalChanged,
+            Unfinished::SourceChanging,
+        ] {
+            let ended = with_unmapped_found(WaitResult::unfinished(why, None, None), 2)
+                .with_unmapped(UnmappedObjects::Refuse);
+            assert_eq!(
+                (ended.reason, ended.holdup(), ended.completed),
+                (WaitReason::from(why), None, false),
+                "{why:?}"
+            );
+            let cut = with_unmapped_found(WaitResult::held(Holdup::Ready, None, None), 2)
+                .cut_short(why)
+                .with_unmapped(UnmappedObjects::Refuse);
+            assert_eq!(
+                (cut.reason, cut.holdup(), cut.completed),
+                (WaitReason::from(why), Some(Holdup::Ready), false),
+                "{why:?}"
+            );
+            assert_eq!(cut.timed_out, why == Unfinished::Timeout, "{why:?}");
+            assert_eq!(cut.findings.map(|found| found.unmapped), Some(2));
+        }
+    }
+
+    fn with_unmapped_found(result: WaitResult, unmapped: u64) -> WaitResult {
+        result.with_findings(Some(WaitFindings {
+            unmapped,
+            observation_revision: 1,
+        }))
     }
 
     /// A wait that ran out of time names what its last pass was still waiting for: how many
@@ -774,9 +870,8 @@ mod tests {
         for name in ["bucket/a", "bucket/b", "bucket/c", "bucket/d"] {
             pass.count_deferred(std::path::Path::new(name));
         }
-        let remedy = WaitResult::result(WaitReason::SourceChanging, None, Some(pass))
-            .with_holdup(Holdup::SourceChanging)
-            .with_reason(WaitReason::Timeout)
+        let remedy = WaitResult::held(Holdup::SourceChanging, None, Some(pass))
+            .cut_short(Unfinished::Timeout)
             .remedy(AtHand::default())
             .unwrap();
         assert!(
@@ -789,23 +884,21 @@ mod tests {
             external_only: 1,
             ..Reconciliation::default()
         };
-        let remedy = WaitResult::result(WaitReason::Timeout, None, Some(written))
+        let remedy = WaitResult::unfinished(Unfinished::Timeout, None, Some(written))
             .remedy(AtHand::default())
             .unwrap();
         assert!(
             remedy.starts_with("1 file was written after the wait's pass took the tree in. "),
             "{remedy}"
         );
-        let remedy = WaitResult::result(WaitReason::SourceChanging, None, None)
-            .with_holdup(Holdup::Observing)
+        let remedy = WaitResult::held(Holdup::Observing, None, None)
             .remedy(AtHand::default())
             .unwrap();
         assert!(
             remedy.starts_with("The API changed during each pass"),
             "{remedy}"
         );
-        let paused = WaitResult::result(WaitReason::Paused, None, None)
-            .with_holdup(Holdup::Paused(PauseReason::IoFailure));
+        let paused = WaitResult::held(Holdup::Paused(PauseReason::IoFailure), None, None);
         assert_eq!(paused.paused_reason(), Some(PauseReason::IoFailure));
         assert_eq!(
             paused.remedy(AtHand::default()),

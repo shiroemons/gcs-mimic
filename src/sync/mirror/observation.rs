@@ -232,8 +232,8 @@ impl Controls {
         for request in self.0.drain(..) {
             match request {
                 Command::Wait { reply, .. } => {
-                    let _ = reply.send(Ok(crate::sync::control::WaitResult::result(
-                        crate::sync::control::WaitReason::Stopped,
+                    let _ = reply.send(Ok(crate::sync::control::WaitResult::unfinished(
+                        crate::sync::control::Unfinished::Stopped,
                         None,
                         None,
                     )));
@@ -336,8 +336,8 @@ impl Controls {
                         .await
                         .map_err(ControlError::from)
                         .map(|()| {
-                            crate::sync::control::WaitResult::result(
-                                crate::sync::control::WaitReason::SourceChanging,
+                            crate::sync::control::WaitResult::unfinished(
+                                crate::sync::control::Unfinished::SourceChanging,
                                 None,
                                 None,
                             )

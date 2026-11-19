@@ -612,7 +612,7 @@ async fn await_resume(
                     }
                 }
                 Command::Approve {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
-                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::result(super::control::WaitReason::Paused,None,None).with_holdup(super::outstanding::Holdup::Paused(paused_for))));}
+                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::held(super::outstanding::Holdup::Paused(paused_for),None,None)));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
                     let result=root.resolve_conflict(request,authority,config.max_object_bytes).await;

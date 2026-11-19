@@ -1,6 +1,6 @@
 use super::gate::Hold;
 use super::*;
-use crate::sync::control::{WaitFindings, WaitReason, WaitResult};
+use crate::sync::control::{Unfinished, WaitFindings, WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding, TreeSide};
 
 impl LiveControl<'_> {
@@ -17,7 +17,7 @@ impl LiveControl<'_> {
             // A pass the deadline cut short knows less than the finished one before it.
             let result = match (result.reason, last.take()) {
                 (WaitReason::Timeout, Some(previous)) => {
-                    return Ok(previous.with_reason(WaitReason::Timeout));
+                    return Ok(previous.cut_short(Unfinished::Timeout));
                 }
                 (_, _) => result,
             };
@@ -26,8 +26,8 @@ impl LiveControl<'_> {
             }
             let mut stopping = self.scope.stopping.clone();
             tokio::select! {
-                _=tokio::time::sleep_until(deadline)=>return Ok(result.with_reason(WaitReason::Timeout)),
-                _=stopping.changed()=>return Ok(result.with_reason(WaitReason::Stopped)),
+                _=tokio::time::sleep_until(deadline)=>return Ok(result.cut_short(Unfinished::Timeout)),
+                _=stopping.changed()=>return Ok(result.cut_short(Unfinished::Stopped)),
                 ()=tokio::time::sleep(Duration::from_millis(super::super::SETTLE_MS))=>{},
             }
             last = Some(result);
@@ -35,11 +35,11 @@ impl LiveControl<'_> {
     }
 
     /// Why an interrupted wait ended: the server is stopping, or the wait's deadline passed.
-    fn interruption(&self) -> WaitReason {
+    fn interruption(&self) -> Unfinished {
         if *self.scope.stopping.borrow() {
-            WaitReason::Stopped
+            Unfinished::Stopped
         } else {
-            WaitReason::Timeout
+            Unfinished::Timeout
         }
     }
 
@@ -62,21 +62,25 @@ impl LiveControl<'_> {
         )
         .await?;
         if summary.interrupted {
-            return Ok(WaitResult::result(self.interruption(), None, Some(summary)));
+            return Ok(WaitResult::unfinished(
+                self.interruption(),
+                None,
+                Some(summary),
+            ));
         }
         #[cfg(test)]
         export_checkpoint("wait-ingested").await;
         let fence = self.scope.catalog.current_fence().await?;
         #[cfg(test)]
         export_checkpoint("wait-fence").await;
-        let mut reason = WaitReason::Ready;
+        let mut cut = None;
         while self.state.cursor != fence {
             if *self.scope.stopping.borrow() {
-                reason = WaitReason::Stopped;
+                cut = Some(Unfinished::Stopped);
                 break;
             }
             if tokio::time::Instant::now() >= deadline {
-                reason = WaitReason::Timeout;
+                cut = Some(Unfinished::Timeout);
                 break;
             }
             let page = match self
@@ -86,7 +90,7 @@ impl LiveControl<'_> {
                 .await?
             {
                 ChangeRead::Rescan { .. } => {
-                    reason = WaitReason::JournalChanged;
+                    cut = Some(Unfinished::JournalChanged);
                     break;
                 }
                 ChangeRead::Page(page) => page,
@@ -106,7 +110,7 @@ impl LiveControl<'_> {
             summary.conflicting += replay.conflicting;
             summary.absorb_deferred(&replay);
             if replay.interrupted {
-                return Ok(WaitResult::result(
+                return Ok(WaitResult::unfinished(
                     self.interruption(),
                     Some(fence.into()),
                     Some(summary),
@@ -114,20 +118,17 @@ impl LiveControl<'_> {
             }
             self.state.cursor = next;
         }
-        if reason != WaitReason::Ready {
-            return Ok(WaitResult::result(
-                reason,
+        if let Some(why) = cut {
+            return Ok(WaitResult::unfinished(
+                why,
                 Some(fence.into()),
                 Some(summary),
             ));
         }
         let (decided, findings) = self.observed_wait_reason(&summary, deadline).await?;
         let result = match decided {
-            Decided::Holdup(holdup) => {
-                WaitResult::result(WaitReason::from(holdup), Some(fence.into()), Some(summary))
-                    .with_holdup(holdup)
-            }
-            Decided::Ended(reason) => WaitResult::result(reason, Some(fence.into()), Some(summary)),
+            Decided::Holdup(holdup) => WaitResult::held(holdup, Some(fence.into()), Some(summary)),
+            Decided::Ended(why) => WaitResult::unfinished(why, Some(fence.into()), Some(summary)),
         };
         Ok(result.with_findings(Some(findings)))
     }
@@ -150,7 +151,7 @@ impl LiveControl<'_> {
             observation_revision: observation.revision,
         };
         if tokio::time::Instant::now() >= deadline {
-            return Ok((Decided::Ended(WaitReason::Timeout), findings));
+            return Ok((Decided::Ended(Unfinished::Timeout), findings));
         }
         let hold = summary.gate().hold();
         let tree = match (hold, hold.tree_side()) {
@@ -173,5 +174,5 @@ impl LiveControl<'_> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Decided {
     Holdup(Holdup),
-    Ended(WaitReason),
+    Ended(Unfinished),
 }

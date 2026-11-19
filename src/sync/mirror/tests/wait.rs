@@ -101,7 +101,7 @@ async fn wait_and_status_stop_at_once_for_a_file_without_read_permission() {
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(result.reason, WaitReason::SourceUnrepresentable);
     assert!(!result.reason.is_in_progress());
-    assert_eq!(result.holdup, Some(Holdup::SourceUnreadable));
+    assert_eq!(result.holdup(), Some(Holdup::SourceUnreadable));
     let pass = result.reconciliation.as_ref().unwrap();
     assert_eq!((pass.unreadable(), pass.deferred), (1, 0));
     assert_eq!(

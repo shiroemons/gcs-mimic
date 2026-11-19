@@ -17,7 +17,9 @@ use crate::{
     sync::{
         Cause, MirrorState, Reconciliation, UnmappedObjects,
         advice::AtHand,
-        control::{Command, ControlError, PauseChange, Registration, WaitReason, WaitResult},
+        control::{
+            Command, ControlError, PauseChange, Registration, Unfinished, WaitReason, WaitResult,
+        },
         entries::EntryListing,
         handshake,
     },
@@ -351,7 +353,7 @@ async fn wait(
     let result = match observed {
         Ok(result) => result?.map_err(|error| control_error(&error))?,
         Err(_) if settling.load(std::sync::atomic::Ordering::Acquire) => {
-            WaitResult::result(WaitReason::SourceChanging, None, None)
+            WaitResult::unfinished(Unfinished::SourceChanging, None, None)
         }
         Err(_) => WaitResult::timeout(),
     }
