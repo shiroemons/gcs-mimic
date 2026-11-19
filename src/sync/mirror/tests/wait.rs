@@ -376,3 +376,57 @@ async fn wait_stops_for_either_export_conflict_a_scan_records() {
         catalog.close().await.unwrap();
     }
 }
+
+/// What stops deletion detection also stops a wait: a file left in the directory of a bucket
+/// deleted through the API is an entry no bucket takes, where a missing file may have gone, so
+/// the wait cannot succeed while every deletion is held back. The status shows the same reason.
+#[tokio::test]
+async fn wait_stops_for_files_left_where_the_api_deleted_their_bucket() {
+    let (_data, tree, catalog, _bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    let deleted = BucketName::new("deleted-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&deleted, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    catalog
+        .delete_bucket(deleted.as_str(), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    fs::write(tree.0.join("deleted-bucket/retained"), b"left behind").unwrap();
+    let result = wait_from(&catalog, &root, catalog.current_fence().await.unwrap()).await;
+    assert_eq!(result.reason, WaitReason::SourceUnrepresentable);
+    let observation = root.observation().await.unwrap();
+    assert_eq!(
+        crate::sync::outstanding::Outstanding::of_status(&observation, None).first(),
+        crate::sync::outstanding::Holdup::SourceUnrepresentable
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// A directory where a tracked file was stops only that path, and a wait stops for that path
+/// stop as for any other, without failing on the rest of the tree.
+#[tokio::test]
+async fn wait_stops_for_a_tracked_file_replaced_by_a_directory() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    publish_named(&catalog, &bucket, "replaced", b"replaced", Origin::Api).await;
+    publish_named(&catalog, &bucket, "kept", b"kept", Origin::Api).await;
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    let replaced = tree.0.join("test-bucket/replaced");
+    fs::remove_file(&replaced).unwrap();
+    fs::create_dir(&replaced).unwrap();
+    let result = wait_from(&catalog, &root, catalog.current_fence().await.unwrap()).await;
+    assert_eq!(result.reason, WaitReason::FindingsPending);
+    let observation = root.observation().await.unwrap();
+    assert_eq!(
+        (observation.path_stops, observation.mapping_findings),
+        (1, 0)
+    );
+    assert!(replaced.is_dir());
+    drop(root);
+    catalog.close().await.unwrap();
+}

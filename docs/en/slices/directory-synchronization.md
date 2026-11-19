@@ -1184,7 +1184,21 @@ Each kind of stop has its own exhaustive type; no single type covers them all:
 | `retrying` | `Retrying`. |
 | `paused` | `ConflictCapacity`, `IoFailure` or `RecoveryRequired` for that recorded reason; otherwise `Paused`, also for a pause the mirror failed to record. |
 | `stopped` | `Stopped`. |
-| `running` | The first that holds: a recorded pause, named as for `paused`; the write-back state other than `Ready`; the scan stop; `Observing` without a complete baseline; `DeletionApproval` while a guarded deletion set waits; `FindingsPending` while findings that stop a wait (`blocking_findings`), path stops, pending write-back or unresolved conflicts remain; otherwise `Ready`, also while `unmapped_findings` counts objects the tree cannot hold. |
+| `running` | The first that holds: a recorded pause, named as for `paused`; the write-back state other than `Ready`; the scan stop; `Observing` without a complete baseline; `DeletionApproval` while a guarded deletion set waits for an approval no operator has given; `FindingsPending` while findings that stop a wait (`blocking_findings`), path stops, pending write-back or unresolved conflicts remain; otherwise `Ready`, also while `unmapped_findings` counts objects the tree cannot hold. |
+
+A wait that finished its own pass ends by the same judgment, in the same
+order. Only the working tree's side differs: the wait reads it from what held
+back its own pass, the same answer that decides whether missing files become
+deletion candidates, instead of the stop an earlier scan recorded. Files still
+changing, exports skipped for a busy file and a baseline still open are work
+in progress, which the wait asks about again until its deadline; tree entries
+no object can take, files no object accounts for yet, and the non-empty
+directory of a bucket deleted through the API end it with
+`SourceUnrepresentable`, since they hold back every deletion too; files that
+wait for a conflict decision end it with `FindingsPending`. Objects the tree
+cannot hold never decide it. A deletion set ends a wait with
+`DeletionApproval` only while it is guarded and unapproved, as in status; a
+granted set runs in the pass that completes it.
 
 Distinguish a whole-root pause, a blocked path and a nonblocking finding. Emit
 structured stderr events on transitions, not on every repeated observation.

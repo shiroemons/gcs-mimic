@@ -12,6 +12,7 @@ mod interrupt;
 pub mod mapping;
 mod mirror;
 pub(crate) mod naming;
+pub(crate) mod outstanding;
 mod status;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod test_support;

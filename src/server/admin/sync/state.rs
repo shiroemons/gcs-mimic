@@ -1,10 +1,13 @@
 use crate::{
     storage::sync_state::{
-        deletions::{DeletionAuthorization, DeletionSet},
-        observation::{PauseReason, ScanStop, Summary},
+        deletions::DeletionSet,
+        observation::{PauseReason, Summary},
         writeback::Stop,
     },
-    sync::MirrorState,
+    sync::{
+        MirrorState,
+        outstanding::{Holdup, Outstanding},
+    },
 };
 
 /// The one `state` the status control reports, from a closed set. While the mirror is not
@@ -101,32 +104,17 @@ impl ControlState {
         }
     }
 
+    /// A running mirror shows the first condition that holds, as a wait judges it.
     fn running(observation: &Summary, set: Option<&DeletionSet>) -> Self {
-        if let Some(reason) = observation.paused_reason {
-            Self::paused(reason)
-        } else if let Some(stop) = observation
-            .writeback
-            .as_ref()
-            .and_then(|writeback| Self::writeback(writeback.state))
-        {
-            stop
-        } else if let Some(stop) = observation.scan_stop {
-            Self::scan_stopped(stop)
-        } else if !observation.baseline_complete {
-            Self::Observing
-        } else if set
-            .is_some_and(|set| set.guarded && set.authorization == DeletionAuthorization::Withheld)
-        {
-            Self::DeletionApproval
-        } else if observation.path_stops
-            + observation.blocking_findings
-            + observation.pending_writeback
-            + observation.unresolved_conflicts
-            > 0
-        {
-            Self::FindingsPending
-        } else {
-            Self::Ready
+        match Outstanding::of_status(observation, set).first() {
+            Holdup::Paused(reason) => Self::paused(reason),
+            Holdup::Writeback(stop) => Self::writeback(stop),
+            Holdup::SourceChanging => Self::SourceChanging,
+            Holdup::SourceUnrepresentable => Self::SourceUnrepresentable,
+            Holdup::Observing => Self::Observing,
+            Holdup::DeletionApproval => Self::DeletionApproval,
+            Holdup::FindingsPending => Self::FindingsPending,
+            Holdup::Ready => Self::Ready,
         }
     }
 
@@ -143,20 +131,15 @@ impl ControlState {
         }
     }
 
-    const fn scan_stopped(stop: ScanStop) -> Self {
+    /// The judgment reports only a write-back state that is not `Ready`, which then reads as
+    /// nothing to wait for.
+    const fn writeback(stop: Stop) -> Self {
         match stop {
-            ScanStop::SourceChanging => Self::SourceChanging,
-            ScanStop::SourceUnrepresentable => Self::SourceUnrepresentable,
-        }
-    }
-
-    const fn writeback(stop: Stop) -> Option<Self> {
-        match stop {
-            Stop::Ready => None,
-            Stop::RecoveryRequired => Some(Self::RecoveryRequired),
-            Stop::ProtectedBody => Some(Self::ProtectedBody),
-            Stop::ConflictCapacity => Some(Self::ConflictCapacity),
-            Stop::IoFailure => Some(Self::IoFailure),
+            Stop::Ready => Self::Ready,
+            Stop::RecoveryRequired => Self::RecoveryRequired,
+            Stop::ProtectedBody => Self::ProtectedBody,
+            Stop::ConflictCapacity => Self::ConflictCapacity,
+            Stop::IoFailure => Self::IoFailure,
         }
     }
 }

@@ -1,5 +1,7 @@
+use super::gate::Hold;
 use super::*;
 use crate::sync::control::{WaitFindings, WaitReason, WaitResult};
+use crate::sync::outstanding::{Outstanding, TreeSide};
 
 impl LiveControl<'_> {
     pub(super) async fn wait(
@@ -110,10 +112,11 @@ impl LiveControl<'_> {
     }
 
     /// Decides a wait whose scan and replay finished, from `summary`, this pass's counts, and
-    /// the observation it reads. The scan's own counts decide the tree, since the baseline stays
-    /// complete once reached; the observation decides what the catalog still holds. A name the
-    /// tree cannot hold does not stop the wait: the object stays reachable through the API, and
-    /// the findings it returns count it.
+    /// the observation it reads, through the judgment the status shares. The gate that decides
+    /// deletion detection decides the tree side from this pass, since the baseline stays complete
+    /// once reached; the observation decides what the catalog still holds. A name the tree cannot
+    /// hold does not stop the wait: the object stays reachable through the API, and the findings
+    /// it returns count it.
     pub(super) async fn observed_wait_reason(
         &self,
         summary: &Reconciliation,
@@ -121,33 +124,25 @@ impl LiveControl<'_> {
     ) -> Result<(WaitReason, WaitFindings), SyncError> {
         let observation = self.scope.root.observation().await?;
         let deletion = self.scope.root.deletion_set().await?;
-        let reason = if tokio::time::Instant::now() >= deadline {
-            WaitReason::Timeout
-        } else if summary.deferred > 0 || !self.state.skipped.is_empty() {
-            // A skipped export runs again only once the tree settles, and one that a retry in
-            // this pass skipped again counts nothing.
-            WaitReason::SourceChanging
-        } else if summary.unrepresentable > 0 {
-            WaitReason::SourceUnrepresentable
-        } else if deletion.is_some_and(|set| set.candidate_count > set.completed_count) {
-            WaitReason::DeletionApproval
-        } else if observation.blocking_findings > 0
-            || observation.unresolved_conflicts > 0
-            || observation.path_stops > 0
-            || observation.pending_writeback > 0
-            || observation
-                .writeback
-                .as_ref()
-                .is_some_and(|value| value.state != Stop::Ready)
-        {
-            WaitReason::FindingsPending
-        } else {
-            WaitReason::Ready
-        };
         let findings = WaitFindings {
             unmapped: observation.unmapped_findings,
             observation_revision: observation.revision,
         };
-        Ok((reason, findings))
+        if tokio::time::Instant::now() >= deadline {
+            return Ok((WaitReason::Timeout, findings));
+        }
+        let tree = match summary.gate().hold() {
+            Hold::Interrupted => return Ok((self.interruption(), findings)),
+            Hold::Deferred => TreeSide::Changing,
+            Hold::Conflicting => TreeSide::Conflicting,
+            Hold::TreeEntries | Hold::Unimported => TreeSide::Unrepresentable,
+            Hold::BaselineOpen => TreeSide::Observing,
+            // A skipped export runs again only once the tree settles, and one that a retry in
+            // this pass skipped again counts nothing.
+            Hold::Clear if !self.state.skipped.is_empty() => TreeSide::Changing,
+            Hold::Clear => TreeSide::Settled,
+        };
+        let outstanding = Outstanding::new(&observation, deletion.as_ref(), tree);
+        Ok((WaitReason::from(outstanding.first()), findings))
     }
 }

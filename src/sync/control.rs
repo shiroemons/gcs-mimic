@@ -1,6 +1,6 @@
 //! Bounded live-server controls; the catalog keeps no strong root ownership cycle.
 
-use super::{Reconciliation, SyncError};
+use super::{Reconciliation, SyncError, outstanding::Holdup};
 use crate::{
     auth::Identity,
     storage::{
@@ -82,7 +82,7 @@ pub(crate) const fn pause_remedy(reason: PauseReason) -> &'static str {
             "Let the programs writing in the directory finish, restore access to it, then run gcs-mimic sync rescan --endpoint URL"
         }
         PauseReason::SourceUnrepresentable => {
-            "Preserve the entries that gcs-mimic sync findings lists as unrepresentable and rename them or move them out of the directory, then run gcs-mimic sync rescan --endpoint URL"
+            "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API; then run gcs-mimic sync rescan --endpoint URL"
         }
         PauseReason::ObserverFailure => {
             "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names, then run gcs-mimic sync rescan --endpoint URL; a changed server setting, such as max_sync_entries, needs a restart instead"
@@ -194,6 +194,23 @@ pub enum WaitReason {
     SourceUnrepresentable,
     DeletionApproval,
     FindingsPending,
+}
+
+/// How a wait answers the first condition that holds after its pass. Every write-back stop is
+/// work an operator must finish, as the findings that stop a wait are. A baseline still open
+/// after the wait's own pass is work in progress, which the wait asks about again until its
+/// deadline, like a tree still changing.
+impl From<Holdup> for WaitReason {
+    fn from(holdup: Holdup) -> Self {
+        match holdup {
+            Holdup::Paused(_) => Self::Paused,
+            Holdup::SourceChanging | Holdup::Observing => Self::SourceChanging,
+            Holdup::SourceUnrepresentable => Self::SourceUnrepresentable,
+            Holdup::DeletionApproval => Self::DeletionApproval,
+            Holdup::Writeback(_) | Holdup::FindingsPending => Self::FindingsPending,
+            Holdup::Ready => Self::Ready,
+        }
+    }
 }
 
 impl WaitReason {
