@@ -52,6 +52,24 @@ expect_status() {
   fi
 }
 
+# Waits through the documented command until the mirror reflects every change made before it.
+# The arguments run it where the server is, as `docker exec CONTAINER` or `docker compose exec -T
+# SERVICE` does; without --endpoint it finds the server the container's configuration gives. Its
+# exit status tells why it stopped short: 2 when someone must act, 3 when its timeout passed while
+# work was in progress, 1 for anything else.
+sync_wait() {
+  local status=0
+  "$@" gcs-mimic sync wait >"$work/sync-wait.out" 2>"$work/sync-wait.err" || status=$?
+  case $status in
+    0) return 0 ;;
+    2) echo 'sync wait exited 2: someone must act' >&2 ;;
+    3) echo 'sync wait exited 3: its timeout passed while work was in progress' >&2 ;;
+    *) echo "sync wait exited $status" >&2 ;;
+  esac
+  cat "$work/sync-wait.out" "$work/sync-wait.err" >&2
+  return "$status"
+}
+
 printf '\000gcs-mimic\377\n' >"$work/expected"
 expect_object() {
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
@@ -351,21 +369,22 @@ for platform in "$@"; do
     docker run --rm --read-only --network none --user 0 --entrypoint cat \
       --mount "type=volume,src=$volume,dst=/state,readonly" "$peer_image" "/state/sync/$1"
   }
-  # Export runs after the API response, so poll for the expected file state.
+  # Export runs after the API response and ingestion after the file changes, so the checks below
+  # follow a sync wait; an object whose name the directory cannot hold, such as the backslash
+  # name, is only counted and does not stop it.
+  container_sync_wait() {
+    sync_wait docker exec "$container"
+  }
   expect_sync_file() {
-    for ((attempt = 0; attempt < 40; attempt++)); do
-      if [[ $2 == absent ]]; then
-        sync_cat "$1" >/dev/null 2>&1 || return 0
-      elif sync_cat "$1" >"$work/sync-actual" 2>/dev/null && cmp -s "$2" "$work/sync-actual"; then
-        return 0
-      fi
-      sleep 0.25
-    done
+    if [[ $2 == absent ]]; then
+      sync_cat "$1" >/dev/null 2>&1 || return 0
+    elif sync_cat "$1" >"$work/sync-actual" 2>/dev/null && cmp -s "$2" "$work/sync-actual"; then
+      return 0
+    fi
     echo "sync_dir file $1 did not reach the expected state" >&2
     return 1
   }
-  # After a restart an external file is already an object once
-  # wait_sync_ready returns, so that check does not poll.
+  # After a restart an external file is already an object once wait_sync_ready returns.
   expect_ingested_object() {
     if curl --disable --noproxy '*' --fail --silent --max-time 5 \
       "http://$address/storage/v1/b/sync-bucket/o/$1?alt=media" >"$work/sync-actual" &&
@@ -374,15 +393,6 @@ for platform in "$@"; do
     fi
     echo "external file $1 was not ingested" >&2
     return 1
-  }
-  # The backslash object above stays an unrepresentable finding, and sync wait does not succeed
-  # while one is pending, so this stage polls for the watcher's ingestion instead.
-  poll_ingested_object() {
-    for ((attempt = 0; attempt < 40; attempt++)); do
-      if expect_ingested_object "$@" 2>/dev/null; then return 0; fi
-      sleep 0.25
-    done
-    expect_ingested_object "$@"
   }
   wait_sync_ready
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
@@ -398,6 +408,7 @@ for platform in "$@"; do
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
     "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
+  container_sync_wait
   expect_sync_file sync-bucket/dir/file.bin "$work/expected"
   expect_sync_file sync-bucket/logs/2026-10-28T12:00:00.log "$work/sync-colon"
   expect_sync_file 'sync-bucket/dir\file.bin' absent
@@ -405,11 +416,14 @@ for platform in "$@"; do
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     --data-binary @"$work/sync-replaced" \
     "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
+  container_sync_wait
   expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X POST \
     "http://$address/storage/v1/b/sync-bucket/o/dir%2Ffile.bin/copyTo/b/sync-bucket/o/copied.bin" >/dev/null
+  container_sync_wait
   expect_sync_file sync-bucket/copied.bin "$work/sync-replaced"
   expect_status DELETE /storage/v1/b/sync-bucket/o/copied.bin 204
+  container_sync_wait
   expect_sync_file sync-bucket/copied.bin absent
   # The directory is watched, so files created from outside become objects without a restart; the
   # restart below then shows that they also survive one.
@@ -417,8 +431,9 @@ for platform in "$@"; do
     --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
     -c 'printf external > /state/sync/sync-bucket/external.txt && printf colon > /state/sync/sync-bucket/a:b.txt'
   printf external >"$work/sync-external"
-  poll_ingested_object external.txt "$work/sync-external"
-  poll_ingested_object a%3Ab.txt "$work/sync-colon"
+  container_sync_wait
+  expect_ingested_object external.txt "$work/sync-external"
+  expect_ingested_object a%3Ab.txt "$work/sync-colon"
   docker stop --timeout 15 "$container" >/dev/null
   [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
   docker start "$container" >/dev/null
@@ -469,7 +484,7 @@ for platform in "$@"; do
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 "http://$address/_internal/ready" \
     | jq -e '.sync.state == "running"' >/dev/null || { echo 'ready does not report sync.state running' >&2; exit 1; }
   compose_wait() {
-    docker compose -p "$project" exec -T gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
+    sync_wait docker compose -p "$project" exec -T gcs
   }
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -H 'Content-Type: application/json' --data '{"name":"compose-bucket"}' \
