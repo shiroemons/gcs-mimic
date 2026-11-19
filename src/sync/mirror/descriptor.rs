@@ -14,6 +14,15 @@ pub(super) fn paused(error: &SyncError, pause: PauseReason) {
         ),
     );
 }
+/// Reports a pause the catalog did not record; the mirror is paused all the same, and status
+/// shows `Paused` until a rescan succeeds.
+pub(super) fn pause_unrecorded(error: &crate::storage::sync_state::root::RootError) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Error,
+        "sync_pause_unrecorded",
+        serde_json::json!({"reason":crate::error::Report(error).to_string()}),
+    );
+}
 /// Reports a rescan that was to resume a paused mirror and failed transiently: the pause and
 /// its recorded reason stay until a rescan succeeds.
 pub(super) fn resume_failed(error: &SyncError) {

@@ -381,11 +381,7 @@ impl Mirror {
                 .runtime
                 .block_on(self.root.observation_pause(Some(reason)))
             {
-                diagnostics::emit(
-                    LogLevel::Error,
-                    "sync_pause_unrecorded",
-                    serde_json::json!({"reason":error.to_string()}),
-                );
+                descriptor::pause_unrecorded(&error);
             }
             self.paused_for = Some(reason);
             reason
@@ -548,6 +544,13 @@ async fn await_resume(
         }
     }
     None
+}
+
+/// Records the pause that a rescan's failure leaves behind.
+async fn record_pause(scope: LiveScope<'_>, reason: PauseReason) -> Result<(), RootError> {
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    tests::injected_pause_record_failure(scope.config)?;
+    scope.root.observation_pause(Some(reason)).await
 }
 
 async fn run_live_config(
@@ -954,6 +957,8 @@ struct LiveControl<'a> {
 }
 impl LiveControl<'_> {
     async fn rescan(&mut self) -> Result<Reconciliation, SyncError> {
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        tests::injected_rescan_failure(self.scope.config)?;
         let writeback = recover_writeback(self.scope.root).await?;
         let scope = LiveScope {
             writeback: &writeback,
@@ -1078,17 +1083,19 @@ impl LiveControl<'_> {
                     .err()
                     .filter(|error| !error.is_transient())
                     .map(SyncError::pause_reason);
-                let paused = if let Some(reason) = stop {
-                    self.scope.root.observation_pause(Some(reason)).await
-                } else {
-                    Ok(())
-                };
+                // A failure to record the pause is only logged: the mirror records it again as it
+                // pauses. Returned as this run's failure, a transient one would retry the run and
+                // resume synchronization without a rescan that succeeded.
+                if let Some(reason) = stop
+                    && let Err(error) = record_pause(self.scope, reason).await
+                {
+                    descriptor::pause_unrecorded(&error);
+                }
                 let answer = match (summary, stop) {
                     (Err(error), Some(reason)) => Err(ControlError::RescanFailed { reason, error }),
                     (summary, _) => summary.map_err(ControlError::Failed),
                 };
                 let _ = reply.send(answer);
-                paused?;
                 if let Some(reason) = stop {
                     return Err(SyncError::RescanStopped(reason));
                 }
