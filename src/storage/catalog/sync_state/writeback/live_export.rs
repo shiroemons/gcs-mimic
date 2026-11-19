@@ -290,29 +290,83 @@ impl CopyCheck {
     }
 }
 
-/// Confirms that the private copy `file` still holds what was staged as `staged`, and returns
-/// the identity to compare it with from now on. Every field must match, except that the inode
-/// number alone may differ ([`fsutil::IdentityChanges::is_inode_only`]); the same handle then
-/// proves the bytes by size and hashes. Any other difference, or different bytes, is `Protected`,
-/// logged with the changed fields and whether the bytes were checked.
+/// How a private copy compares with the identity it was staged under.
+enum CopyMatch {
+    /// It is the staged copy; the identity is the one to compare it with from now on.
+    Staged(fsutil::FileIdentity),
+    /// It is not, or it changed while it was checked.
+    Changed {
+        changes: fsutil::IdentityChanges,
+        content: CopyContent,
+    },
+}
+
+/// Whether a changed private copy's bytes were read.
+#[derive(Clone, Copy)]
+enum CopyContent {
+    /// Fields other than the inode number changed, so the bytes were not read.
+    NotChecked,
+    /// Only the inode number differed, but the bytes, or the identity while they were read,
+    /// did not match.
+    Differs,
+}
+
+impl CopyContent {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NotChecked => "not_checked",
+            Self::Differs => "differs",
+        }
+    }
+}
+
+/// Compares the private copy `file` with the identity `staged` it was staged under; every check
+/// of a private copy against that identity uses this one rule. Every field must match, except
+/// that the inode number alone may differ ([`fsutil::IdentityChanges::is_inode_only`]): the same
+/// handle then proves the staged bytes by size and hashes, and the identity observed while they
+/// were read must still differ in nothing but the inode number.
+fn compare_copy(
+    file: &File,
+    staged: fsutil::FileIdentity,
+    item: &Pending,
+) -> Result<CopyMatch, Error> {
+    let current = fsutil::stat_identity(file)?;
+    let changes = staged.changed_fields(&current);
+    if changes.is_empty() {
+        return Ok(CopyMatch::Staged(current));
+    }
+    if !changes.is_inode_only() {
+        return Ok(CopyMatch::Changed {
+            changes,
+            content: CopyContent::NotChecked,
+        });
+    }
+    let confirmed =
+        verified_identity(file, item.size, item.md5, item.crc32c)?.filter(|confirmed| {
+            let changes = staged.changed_fields(confirmed);
+            changes.is_empty() || changes.is_inode_only()
+        });
+    Ok(match confirmed {
+        Some(confirmed) => CopyMatch::Staged(confirmed),
+        None => CopyMatch::Changed {
+            changes,
+            content: CopyContent::Differs,
+        },
+    })
+}
+
+/// Confirms that the private copy `file` is still the copy staged as `staged`
+/// ([`compare_copy`]), and returns the identity to compare it with from now on. Anything else is
+/// `Protected`, logged with the changed fields and whether the bytes were checked.
 fn confirm_copy(
     file: &File,
     staged: fsutil::FileIdentity,
     item: &Pending,
     check: CopyCheck,
 ) -> Result<fsutil::FileIdentity, Error> {
-    let current = fsutil::stat_identity(file)?;
-    let changes = staged.changed_fields(&current);
-    if changes.is_empty() {
-        return Ok(current);
-    }
-    let content = if changes.is_inode_only() {
-        if let Some(confirmed) = verified_identity(file, item.size, item.md5, item.crc32c)? {
-            return Ok(confirmed);
-        }
-        "differs"
-    } else {
-        "not_checked"
+    let (changes, content) = match compare_copy(file, staged, item)? {
+        CopyMatch::Staged(identity) => return Ok(identity),
+        CopyMatch::Changed { changes, content } => (changes, content),
     };
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
@@ -322,7 +376,7 @@ fn confirm_copy(
             "operation": item.token.id.to_hex(),
             "check": check.as_str(),
             "changed": changes.iter().map(fsutil::IdentityField::as_str).collect::<Vec<_>>(),
-            "content": content,
+            "content": content.as_str(),
         }),
     );
     Err(Error::Protected)
@@ -785,11 +839,16 @@ impl Writeback {
     ) -> Result<bool, Error> {
         self.fs(move |root, workspace| {
             if let Some(staged) = staged {
-                let retained = entry(workspace, item.token.id)?
-                    .as_ref()
-                    .map(fsutil::stat_identity)
-                    .transpose()?;
-                if retained.is_some_and(|retained| retained.node() != staged.node()) {
+                // Another file in the private copy's entry means the namespace already changed.
+                // The copy itself under another inode number is not one: a failure before
+                // installation confirmed the copy leaves `staged` as it was recorded.
+                if let Some(retained) = entry(workspace, item.token.id)?
+                    && fsutil::stat_identity(&retained)?.node() != staged.node()
+                    && matches!(
+                        compare_copy(&retained, staged, &item)?,
+                        CopyMatch::Changed { .. }
+                    )
+                {
                     return Ok(true);
                 }
                 let current = target(root, &item.path)?

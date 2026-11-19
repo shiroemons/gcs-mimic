@@ -30,7 +30,13 @@ deletion or recreation.
    number differs, the same handle rehashes the copy, and matching hashes record
    the new identity for the rest of the operation. Any other difference, or
    different bytes, stops the operation as Protected and logs
-   `sync_writeback_copy_changed` with the changed fields. Descriptor-relative
+   `sync_writeback_copy_changed` with the changed fields. When a step fails before
+   this check, the operation still holds the identity recorded at staging. The
+   check that decides whether the failure displaced the target applies the same
+   rule, so the private copy under a new number stays an ordinary retryable
+   failure, and any other body in its entry still stops the root as displaced.
+   Re-reading the identity after hashing must again differ only in the inode
+   number. Descriptor-relative
    traversal checks actual spelling, rejects aliases and symlinks, and checks the
    selected ancestors again. Installation syncs both affected parents. Reading or
    inspecting an existing parent never creates directories or calls fsync.
@@ -105,7 +111,10 @@ negative rollback, SQLite FULL and retry cases.
 Copy-step tests run without Docker. A test seam records a staged inode number
 that later observations do not repeat, which reproduces the Docker Desktop
 report. With the seam, installation and obsolete cancellation complete when the
-bytes are unchanged. A copy whose bytes changed stays Protected at both checks,
+bytes are unchanged. A failure injected before installation confirms such a copy
+is retried and installs it instead of stopping the root, while the original
+target moved into the private entry is still reported as displaced. A copy
+whose bytes changed stays Protected at both checks,
 alone or together with other stat changes. A retry after a failed sync and a
 failed write keeps the private copy's inode, and crash and power-loss snapshots
 taken while it refills the copy keep only synced bytes and recover to Ready.

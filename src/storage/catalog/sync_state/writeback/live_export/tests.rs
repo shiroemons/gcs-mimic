@@ -156,6 +156,43 @@ impl Fixture {
             .await
             .unwrap()
     }
+    /// Begins exporting the live generation of `name` over the file its tracked record names.
+    async fn begin_over_tracked(&self, name: &str) -> LiveExport {
+        let name = ObjectName::new(name).unwrap();
+        let binding = self
+            .catalog
+            .sync_state()
+            .binding(&self.bucket)
+            .await
+            .unwrap();
+        let PathMapping::File(path) = mapping::name_to_path(&self.bucket, &name) else {
+            panic!("fixture path must be representable")
+        };
+        let tracked = self
+            .catalog
+            .sync_state()
+            .get_path(binding.clone(), path.to_str().unwrap().to_owned())
+            .await
+            .unwrap();
+        assert!(tracked.is_some(), "{name:?} is not tracked");
+        let (record, reader) = self
+            .catalog
+            .admin(Origin::Api)
+            .open_object(&self.bucket, &name, None)
+            .await
+            .unwrap();
+        self.writeback
+            .begin_live_export(
+                binding,
+                name,
+                Generation::new(record.generation).unwrap(),
+                tracked,
+                self.catalog.current_fence().await.unwrap(),
+                LiveSource::ApiCopy(reader.into_file().unwrap()),
+            )
+            .await
+            .unwrap()
+    }
     async fn close(self) {
         drop(self.writeback);
         drop(self.root);
@@ -630,31 +667,8 @@ async fn live_export_replaces_a_tracked_target_whose_inode_number_alone_changed(
                 .set_modified(modified)
                 .unwrap();
         }
-        let tracked = fixture
-            .catalog
-            .sync_state()
-            .get_path(binding.clone(), "test-bucket/object".into())
-            .await
-            .unwrap();
-        let later = fixture.publish("object", b"later api").await;
-        let (_, reader) = fixture
-            .catalog
-            .admin(Origin::Api)
-            .open_object(&fixture.bucket, &name, None)
-            .await
-            .unwrap();
-        let operation = fixture
-            .writeback
-            .begin_live_export(
-                binding.clone(),
-                name,
-                Generation::new(later.generation).unwrap(),
-                tracked,
-                fixture.catalog.current_fence().await.unwrap(),
-                LiveSource::ApiCopy(reader.into_file().unwrap()),
-            )
-            .await
-            .unwrap();
+        fixture.publish("object", b"later api").await;
+        let operation = fixture.begin_over_tracked("object").await;
         let expected: (LiveResult, &[u8]) = if edited {
             (LiveResult::Conflict, b"API")
         } else {
@@ -676,6 +690,102 @@ async fn live_export_replaces_a_tracked_target_whose_inode_number_alone_changed(
         );
         fixture.close().await;
     }
+}
+
+/// A failure before installation confirms a renumbered copy leaves the operation's staged
+/// identity as it was recorded. That copy, under its new number, is still this operation's own:
+/// the failure stays an ordinary retryable error instead of a displacement that stops the root,
+/// and the retry installs it.
+#[tokio::test]
+async fn live_export_retries_a_renumbered_copy_after_a_failure_before_installation_confirmed_it() {
+    let fixture = Fixture::new().await;
+    fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    let root = fixture.root.status().root_id;
+    inject_renumbered_copy(root, 1);
+    assert_eq!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap(),
+        LiveResult::Pending
+    );
+    inject_failure(root, "install", 1);
+    let result = fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await;
+    assert!(
+        matches!(result, Err(Error::Admin(AdminError::DiskFull(_)))),
+        "{result:?}"
+    );
+    // The unfinished operation keeps the root in recovery until it completes; a displacement
+    // would also protect the entry and mark the operation failed.
+    let usage = fixture.writeback.status().await.unwrap();
+    assert_eq!(
+        (usage.entries, usage.protected_entries, usage.stop()),
+        (1, 0, Stop::RecoveryRequired)
+    );
+    drain(&fixture.writeback, operation).await;
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        b"api"
+    );
+    let usage = fixture.writeback.status().await.unwrap();
+    assert_eq!((usage.entries, usage.stop()), (0, Stop::Ready));
+    fixture.close().await;
+}
+
+/// Accepting a renumbered copy does not hide a real displacement: when the exchange already
+/// moved the original target into the private copy's entry and a later step fails, that entry
+/// holds other bytes, so the failure is still reported as displaced and the original kept.
+#[tokio::test]
+async fn live_export_still_reports_a_displaced_target_beside_a_renumbered_copy() {
+    let fixture = Fixture::new().await;
+    fixture.publish("object", b"api").await;
+    drain(&fixture.writeback, fixture.begin("object").await).await;
+    fixture.publish("object", b"later api").await;
+    let operation = fixture.begin_over_tracked("object").await;
+    let root = fixture.root.status().root_id;
+    inject_renumbered_copy(root, 1);
+    assert_eq!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap(),
+        LiveResult::Pending
+    );
+    let item = pending(&operation).await;
+    inject_failure(root, "installed", 1);
+    let result = fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await;
+    assert!(matches!(result, Err(Error::Displaced(_))), "{result:?}");
+    assert_eq!(
+        fs::read(
+            fixture
+                .tree
+                .0
+                .join(mapping::WORKSPACE)
+                .join(item.token.id.to_string())
+        )
+        .unwrap(),
+        b"api"
+    );
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        b"later api"
+    );
+    let usage = fixture.writeback.status().await.unwrap();
+    assert_eq!(
+        (usage.protected_entries, usage.stop()),
+        (1, Stop::IoFailure)
+    );
+    drop(operation);
+    fixture.close().await;
 }
 
 /// Advances `operation` until it stops being pending, and returns how it finished.
