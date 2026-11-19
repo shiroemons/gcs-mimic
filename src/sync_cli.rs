@@ -273,8 +273,9 @@ impl View {
         }
     }
 
-    /// The revision of this view's pages that the status `answer` reports.
-    fn revision_in(self, answer: &Value) -> Result<&str, Diagnostics> {
+    /// The revision of this view's pages that the status `answer` reports. A refusal names the
+    /// status command with `connection`, the options that reached the server.
+    fn revision_in<'a>(self, answer: &'a Value, connection: &str) -> Result<&'a str, Diagnostics> {
         let field = match self {
             Self::Deletions => "pending_deletion_revision",
             Self::Findings => "findings_revision",
@@ -286,7 +287,8 @@ impl View {
                 "No deletion set awaits approval: status reports no pending_deletion_revision",
             )),
             (Self::Deletions | Self::Findings, _) => Err(fail(format!(
-                "Status reported no {field} this command can read; inspect its JSON response"
+                "Status reported no {field} this command can read; check what it reports: {}",
+                advice::with_connection(&advice::Advised::Status.to_string(), connection)
             ))),
         }
     }
@@ -1245,7 +1247,9 @@ impl Options {
         {
             return Ok(status);
         }
-        let revision = page.view.revision_in(&status.body)?;
+        let revision = page
+            .view
+            .revision_in(&status.body, &self.connection(endpoint))?;
         let path = page.paging.path(Listing::View(page.view), Some(revision));
         self.execute(endpoint, &path, None, self.timeout)
     }

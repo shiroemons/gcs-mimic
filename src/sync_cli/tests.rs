@@ -801,6 +801,20 @@ fn a_view_without_a_revision_lists_the_page_at_the_revision_status_reports() {
         "No deletion set awaits approval: status reports no pending_deletion_revision"
     );
     assert_eq!(server.join().unwrap(), ["/_internal/sync"]);
+
+    // A status whose revision the command cannot read names the command that shows it.
+    let (endpoint, server) = page_server(vec![("200 OK", json!({"findings_revision":"short"}))]);
+    let options = parse(&["findings", "--endpoint", &endpoint]).unwrap();
+    let Err(CliError::Diagnostics(refused)) = options.answer(&options.endpoint) else {
+        panic!("a status without a readable revision must be refused with a diagnostic");
+    };
+    assert_eq!(
+        refused.errors[0].fix,
+        format!(
+            "Status reported no findings_revision this command can read; check what it reports: gcs-mimic sync status --endpoint {endpoint}"
+        )
+    );
+    assert_eq!(server.join().unwrap(), ["/_internal/sync"]);
 }
 
 /// The status and reason a test server answers one wait request with, at once.
