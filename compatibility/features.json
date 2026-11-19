@@ -60481,7 +60481,7 @@
           "id": "sync-status-and-wait",
           "description": "Implement all documented stop scopes/remedies and GET /_internal/sync fixed-revision views for deletions and findings with limit/cursor, exact candidate/Unrepresentable/ProtectedDeletion/recovery fields and remedies; verify multi-page inspection equals the approved set, intermediate changes reject stale cursors/approval with 409, bounded responses/request admission and sanitized readiness without changing API-ready status; wait on captured stable-scan/journal barriers with timeout/disconnect/shutdown behavior and inspectable stopped state; owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names"]
         },
         {
           "id": "sync-bounded-observation",
@@ -60944,7 +60944,8 @@
         "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict",
         "mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record",
         "name_findings_keep_an_export_conflict_until_the_generation_moves_on",
-        "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"
+        "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names",
+        "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names"
       ],
       "verification": [
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
@@ -61448,6 +61449,13 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record", "name_findings_keep_an_export_conflict_until_the_generation_moves_on", "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::sync_state::findings server::admin::sync::findings storage::catalog::sync_state::observation",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names"]
         }
       ],
       "sdk_evidence": [],

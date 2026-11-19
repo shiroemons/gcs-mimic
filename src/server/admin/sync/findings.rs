@@ -7,7 +7,6 @@ use crate::{
             FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
         },
     },
-    sync::mapping::Reason,
 };
 use serde_json::{Value, json};
 
@@ -39,10 +38,12 @@ pub(super) fn value(
             "RecoveryRequired",
             "Inspect protected workspace entries; preserve them before an exact confirmed recovery discard or registered conflict transfer",
         ),
-        FindingReason::ExportConflict | FindingReason::Mapping(Reason::Collision) => (
+        FindingReason::ExportConflict => (
             "Conflict",
             "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan",
         ),
+        // A name collision is a name the tree cannot hold, like the other mapping reasons; only
+        // an export that met an edited file is a conflict.
         FindingReason::Mapping(_) => (
             "Unrepresentable",
             "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes",
@@ -174,5 +175,46 @@ mod tests {
         let without = value(&recovery_finding(Value::Null), "prefix", None).unwrap();
         assert_eq!(without["hashes"], Value::Null);
         assert_eq!(without["over_limit"], false);
+    }
+
+    /// Only an export that met an edited file is a conflict; a name collision is a name the
+    /// tree cannot hold, like the other mapping reasons.
+    #[test]
+    fn export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names() {
+        use crate::sync::mapping::Reason;
+        let mapping = |reason| Item {
+            ordinal: Ordinal::try_from(3).unwrap(),
+            category: FindingCategory::Mapping,
+            bucket: Some("bucket".into()),
+            object: Some("object".into()),
+            bucket_incarnation: None,
+            generation: Some(5),
+            reason,
+            operation_id: None,
+            owner_project: Some("project".into()),
+            recovery: None,
+            conflict_id: None,
+            conflict_revision: None,
+        };
+        for (reason, rendered, detail) in [
+            (FindingReason::ExportConflict, "Conflict", "export-conflict"),
+            (
+                FindingReason::Mapping(Reason::Collision),
+                "Unrepresentable",
+                "collision",
+            ),
+            (
+                FindingReason::Mapping(Reason::InvalidName),
+                "Unrepresentable",
+                "invalid-name",
+            ),
+        ] {
+            let value = value(&mapping(reason), "prefix", None).unwrap();
+            assert_eq!(
+                (&value["reason"], &value["detail_code"], &value["scope"]),
+                (&json!(rendered), &json!(detail), &json!("path")),
+                "{detail}"
+            );
+        }
     }
 }
