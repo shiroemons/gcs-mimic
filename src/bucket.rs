@@ -14,6 +14,7 @@ pub(crate) mod autoclass;
 pub(crate) mod cors;
 pub(crate) mod location;
 pub(crate) mod name;
+pub(crate) mod resource;
 
 pub(crate) use location::{Location, LocationKind};
 

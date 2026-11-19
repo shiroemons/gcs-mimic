@@ -1056,7 +1056,8 @@ fn bucket_inserts_from_members_match_inserts_from_json_bodies() {
     for profile in [CompatProfile::Native, CompatProfile::FakeGcsServer] {
         let insert = |body: &Value, project: &str| {
             let members = body.as_object().unwrap();
-            let from_members = buckets::insert_from_object(members, project, now, profile, "US");
+            let from_members =
+                crate::bucket::resource::parse_insert(members, project, now, profile, "US");
             let bytes = serde_json::to_vec(body).unwrap();
             let from_bytes =
                 buckets::parse_insert_with_profile(&bytes, project, now, profile, "US");
@@ -1149,7 +1150,7 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
 
 #[test]
 fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
-    for field in super::buckets::UNSUPPORTED_FIELDS {
+    for field in crate::bucket::resource::UNSUPPORTED_FIELDS {
         for value in [Value::Null, json!({}), json!([]), json!(false)] {
             // `rpo` null and DEFAULT restate what every bucket has, so they are accepted below.
             if *field == "rpo" && value.is_null() {

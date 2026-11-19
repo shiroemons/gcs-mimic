@@ -81,7 +81,7 @@ pub(super) async fn respond(
             "legacy bucket creation settings; use the native compatibility profile",
         ));
     }
-    let mut record = crate::json::insert_from_object(
+    let mut record = crate::bucket::resource::parse_insert(
         &configuration.into_insert_body(bucket, period),
         &project,
         ctx.state.clock.now(),

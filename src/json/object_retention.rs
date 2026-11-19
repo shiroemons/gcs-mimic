@@ -71,23 +71,6 @@ pub(super) fn render(retention: &ObjectRetention) -> Result<Value, JsonError> {
     }))
 }
 
-/// Parses an echoed bucket `objectRetention`: `Some(true)` for `{"mode":"Enabled"}`.
-///
-/// The value is output-only after creation; callers compare it with the stored state.
-pub(super) fn parse_bucket(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
-    let Some(value) = value.filter(|value| !value.is_null() && *value != &json!({})) else {
-        return Ok(None);
-    };
-    match value.get("mode").and_then(Value::as_str) {
-        Some("Enabled") if value.as_object().is_some_and(|fields| fields.len() == 1) => {
-            Ok(Some(true))
-        }
-        _ => Err(JsonError::invalid(
-            "objectRetention only reports {\"mode\":\"Enabled\"}; enable object retention with the enableObjectRetention=true query parameter on bucket insert",
-        )),
-    }
-}
-
 pub(super) fn render_bucket(bucket: &crate::bucket::BucketRecord) -> Option<Value> {
     bucket
         .object_retention_enabled
@@ -193,22 +176,5 @@ mod tests {
             parsed_render("10000-01-01T00:00:00Z").unwrap_err().reason,
             "invalid"
         );
-    }
-    #[test]
-    fn bucket_object_retention_echo_values() {
-        assert_eq!(parse_bucket(None).unwrap(), None);
-        assert_eq!(parse_bucket(Some(&Value::Null)).unwrap(), None);
-        assert_eq!(parse_bucket(Some(&json!({}))).unwrap(), None);
-        assert_eq!(
-            parse_bucket(Some(&json!({"mode":"Enabled"}))).unwrap(),
-            Some(true)
-        );
-        for invalid in [
-            json!({"mode":"Disabled"}),
-            json!({"mode":"Enabled","extra":true}),
-            json!(true),
-        ] {
-            assert!(parse_bucket(Some(&invalid)).is_err(), "{invalid}");
-        }
     }
 }

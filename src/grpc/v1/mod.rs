@@ -22,12 +22,11 @@ pub mod pb {
 
 use crate::{
     auth::{BUCKETS_LIST, Caller, ListenerRole},
-    bucket::{BucketAccess, BucketConditions, CatalogError},
+    bucket::{BucketAccess, BucketConditions, CatalogError, resource},
     grpc::{
         v2::status::unsupported,
         validate::{self, NegativeGeneration},
     },
-    json,
     object::{
         MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectTarget, Patch,
         WriteMode, generation::Generation,
@@ -469,7 +468,7 @@ impl Storage {
             Status::invalid_argument("bucket is required; set bucket.name=example-bucket")
         })?;
         let body = convert::insert_body(&mut bucket)?;
-        let record = json::insert_from_object(
+        let record = resource::parse_insert(
             &body,
             &project,
             self.state.clock.now(),

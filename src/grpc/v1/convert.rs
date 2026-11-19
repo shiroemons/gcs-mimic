@@ -37,7 +37,7 @@ pub(super) fn bucket(record: &BucketRecord) -> pb::Bucket {
 }
 
 /// The InsertBucket settings as the JSON insert object every protocol's bucket creation
-/// validates (`json::insert_from_object`); any other field set is rejected.
+/// validates (`bucket::resource::parse_insert`); any other field set is rejected.
 pub(super) fn insert_body(bucket: &mut pb::Bucket) -> Result<Map<String, Value>, Status> {
     let mut body = Map::from_iter([
         (

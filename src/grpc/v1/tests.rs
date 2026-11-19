@@ -4,6 +4,7 @@ use crate::grpc::test_support::{self as fixtures, assert_code};
 use crate::{
     auth::{Auth, Registry},
     bucket::BucketRecord,
+    json,
     storage::{Catalog, test_fixtures::PERMISSIVE},
     test_support::TestDir,
 };
