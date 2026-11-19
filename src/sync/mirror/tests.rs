@@ -2178,18 +2178,19 @@ async fn a_mirror_thread_that_panics_outside_a_run_reports_stopped_and_withdraws
     mirror_reaches(&task, Stopped).await;
     assert!(catalog.sync_controls().unwrap().is_none());
     assert!(api_ready(&catalog));
-    let panics = crate::task::tests::reported_panics("sync-mirror");
-    assert!(
-        panics
-            .iter()
-            .any(|panic| panic == "injected paused mirror panic"),
-        "{panics:?}"
-    );
     let status = task.status();
     assert!(
         task.finish().await.is_err(),
         "the thread ended without its orderly shutdown"
     );
+    // The thread reports its panic only once it has unwound, after the guard reported it
+    // stopped and dropped the sender that `finish` waits for.
+    eventually_async("the mirror thread to report its panic", || async {
+        crate::task::tests::reported_panics("sync-mirror")
+            .iter()
+            .any(|panic| panic == "injected paused mirror panic")
+    })
+    .await;
     assert_eq!(status.entered(), [Starting, Paused, Stopped]);
     // The unwound thread released the root, so the directory can be owned again.
     let root = catalog
