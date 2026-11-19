@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 //! Filesystem synchronization adapters and shared reversible name mapping.
 
+pub mod advice;
 pub(crate) mod control;
 pub use control::{UnknownWaitReason, WaitReason};
 mod deletion;

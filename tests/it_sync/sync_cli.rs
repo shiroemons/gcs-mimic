@@ -225,8 +225,13 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
     assert!(!strict.success);
     assert_eq!(strict.answer["reason"], "FindingsPending");
     let [error] = strict.diagnostics("sync").try_into().unwrap();
+    // The remedy names the findings view at the revision this wait read its findings at.
     assert!(
-        error.starts_with("sync wait ended with FindingsPending: List the findings with gcs-mimic sync status --view findings --revision REVISION --endpoint http://"),
+        error.starts_with(&format!(
+            "sync wait ended with FindingsPending: List the findings with gcs-mimic sync status --view findings --revision {} --endpoint {},",
+            strict.answer["findings"]["revision"].as_str().unwrap(),
+            server.endpoint
+        )),
         "{error}"
     );
     assert!(!error.contains("--endpoint URL"), "{error}");

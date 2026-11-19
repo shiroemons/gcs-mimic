@@ -11,6 +11,7 @@ use crate::{
     sync::mapping::Reason,
 };
 use serde_json::{Value, json};
+use std::borrow::Cow;
 
 /// Renders one finding. A recovery finding's retained hashes that fail to encode answer like
 /// any other unencodable management result.
@@ -19,7 +20,7 @@ pub(super) fn value(
     prefix: &str,
     quota: Option<&WritebackSummary>,
 ) -> Result<Value, ApiError> {
-    let (reason, remedy) = match &item.reason {
+    let (reason, remedy): (&str, Cow<'static, str>) = match &item.reason {
         FindingReason::RootStop(pause) => (
             match pause {
                 PauseReason::ObserverFailure => "Paused",
@@ -29,17 +30,17 @@ pub(super) fn value(
                 | PauseReason::SourceChanging
                 | PauseReason::SourceUnrepresentable => pause.as_str(),
             },
-            crate::sync::control::pause_remedy(*pause),
+            crate::sync::control::pause_remedy(*pause).into(),
         ),
         FindingReason::Mapping(FindingKind::ExportConflict) => (
             "Conflict",
-            "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan",
+            "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan".into(),
         ),
         // The row cannot say whether an edited file exists, so the remedy asks for the
         // observation that tells, not for preserving a file that may not be there.
         FindingReason::Mapping(FindingKind::UnclassifiedCollision) => (
             "Conflict",
-            "Carried over from a release that recorded name collisions and export conflicts alike; rescan or restart so the object is observed again and classified, then follow the remedy of the finding that replaces this one",
+            "Carried over from a release that recorded name collisions and export conflicts alike; rescan or restart so the object is observed again and classified, then follow the remedy of the finding that replaces this one".into(),
         ),
         // A name collision is a name the tree cannot hold, like the other mapping reasons; only
         // an export that met an edited file is a conflict.
@@ -52,31 +53,31 @@ pub(super) fn value(
             | Reason::UnsafeEntry,
         )) => (
             "Unrepresentable",
-            "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes",
+            "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes".into(),
         ),
         FindingReason::PathStop(PathStop::ProtectedDeletion) => (
             "ProtectedDeletion",
-            "Release the API hold or retention through a supported operation, then delete the restored file again",
+            "Release the API hold or retention through a supported operation, then delete the restored file again".into(),
         ),
         FindingReason::PathStop(PathStop::SourceChanging) => (
             "SourceChanging",
-            "Finish or stop the external writer, then rescan or wait for a stable snapshot",
+            "Finish or stop the external writer, then rescan or wait for a stable snapshot".into(),
         ),
         FindingReason::PathStop(PathStop::IoFailure) => (
             "IoFailure",
-            "Restore file permissions or free disk space, preserve pending bytes and request a rescan",
+            "Restore file permissions or free disk space, preserve pending bytes and request a rescan".into(),
         ),
         FindingReason::PathStop(PathStop::EntryReplaced) => (
             "EntryReplaced",
-            "A directory or special file replaced this tracked file; move it away and put a regular file back, or delete the object through the API, then rescan",
+            "A directory or special file replaced this tracked file; move it away and put a regular file back, or delete the object through the API, then rescan".into(),
         ),
         FindingReason::Writeback(_) => (
             "RecoveryRequired",
-            "Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal",
+            "Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal".into(),
         ),
         FindingReason::Conflict(_) => (
             "Conflict",
-            "Inspect the retained conflict revision, then restore with the current expected generation or explicitly discard that revision",
+            "Inspect the retained conflict revision, then restore with the current expected generation or explicitly discard that revision".into(),
         ),
     };
     // A finding ID is the finding's cursor under a prefix that names only the catalog and the

@@ -1,6 +1,10 @@
 //! Bounded live-server controls; the catalog keeps no strong root ownership cycle.
 
-use super::{Reconciliation, SyncError, outstanding::Holdup};
+use super::{
+    Reconciliation, SyncError,
+    advice::{Advised, AtHand},
+    outstanding::Holdup,
+};
 use crate::{
     auth::Identity,
     storage::{
@@ -63,30 +67,49 @@ impl PauseChange {
 
 /// What to do after a rescan that was to resume a pause failed transiently: the
 /// `sync_resume_failed` event and the rescan's answer both say it.
-pub(crate) const RESUME_RETRY_REMEDY: &str = "Synchronization stays paused for the reason it recorded; run gcs-mimic sync rescan --endpoint URL again";
+pub(crate) fn resume_retry_remedy() -> String {
+    format!(
+        "Synchronization stays paused for the reason it recorded; run {} again",
+        Advised::Rescan
+    )
+}
+
+/// What a control that a pause refuses answers, and how the refusal reads in a log.
+pub(crate) fn paused_control_remedy() -> String {
+    format!(
+        "Synchronization is paused, so it cannot act on this control yet; find the reason with {}, correct it and run {} first",
+        Advised::Status,
+        Advised::Rescan
+    )
+}
 
 /// What resumes synchronization after a pause for `reason`. The `sync_paused` event, the root-stop
-/// finding and a failed rescan give the same advice, naming the commands to run.
-pub(crate) const fn pause_remedy(reason: PauseReason) -> &'static str {
+/// finding and a failed rescan give the same advice, naming the commands to run. It names only
+/// commands complete without a revision, since a log has none at hand: the findings view takes
+/// the `findings_revision` that status reports.
+pub(crate) fn pause_remedy(reason: PauseReason) -> String {
+    let rescan = Advised::Rescan;
     match reason {
-        PauseReason::ConflictCapacity => {
-            "Resolve or discard, within the quota, the retained conflicts that gcs-mimic sync conflicts lists, with gcs-mimic sync resolve, then run gcs-mimic sync rescan --endpoint URL"
-        }
-        PauseReason::IoFailure => {
-            "Restore access to the directory or free disk space without deleting pending data, then run gcs-mimic sync rescan --endpoint URL"
-        }
-        PauseReason::RecoveryRequired => {
-            "Preserve the protected workspace entries that gcs-mimic sync findings lists and settle each with gcs-mimic sync resolve, as an exact confirmed recovery discard or a registered conflict, then run gcs-mimic sync rescan --endpoint URL"
-        }
-        PauseReason::SourceChanging => {
-            "Let the programs writing in the directory finish, restore access to it, then run gcs-mimic sync rescan --endpoint URL"
-        }
-        PauseReason::SourceUnrepresentable => {
-            "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API; then run gcs-mimic sync rescan --endpoint URL"
-        }
-        PauseReason::ObserverFailure => {
-            "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names, then run gcs-mimic sync rescan --endpoint URL; a changed server setting, such as max_sync_entries, needs a restart instead"
-        }
+        PauseReason::ConflictCapacity => format!(
+            "Resolve or discard, within the quota, the retained conflicts that {} lists, each with the resolve subcommand, then run {rescan}",
+            Advised::Conflicts
+        ),
+        PauseReason::IoFailure => format!(
+            "Restore access to the directory or free disk space without deleting pending data, then run {rescan}"
+        ),
+        PauseReason::RecoveryRequired => format!(
+            "Preserve the protected workspace entries that the findings view lists at the findings_revision {} reports, and settle each with the resolve subcommand, as an exact confirmed recovery discard or a registered conflict, then run {rescan}",
+            Advised::Status
+        ),
+        PauseReason::SourceChanging => format!(
+            "Let the programs writing in the directory finish, restore access to it, then run {rescan}"
+        ),
+        PauseReason::SourceUnrepresentable => format!(
+            "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API; then run {rescan}"
+        ),
+        PauseReason::ObserverFailure => format!(
+            "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names, then run {rescan}; a changed server setting, such as max_sync_entries, needs a restart instead"
+        ),
     }
 }
 
@@ -112,9 +135,7 @@ impl fmt::Display for ControlError {
                 change.paused(),
                 reason.as_str()
             ),
-            Self::Paused => f.write_str(
-                "Synchronization is paused; correct the condition and run gcs-mimic sync rescan first",
-            ),
+            Self::Paused => f.write_str(&paused_control_remedy()),
             Self::Shutdown => f.write_str("synchronization stopped before the control ran"),
         }
     }
@@ -214,7 +235,7 @@ impl From<Holdup> for WaitReason {
 }
 
 impl WaitReason {
-    const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Ready,
         Self::Timeout,
         Self::Stopped,
@@ -256,27 +277,44 @@ impl WaitReason {
     }
 
     /// What lets a later wait succeed after this one ended for this reason, naming the commands
-    /// to run; `paused` is the reason a paused root recorded. A reason that needs nothing but
-    /// time or a restart has none. The pause reasons reuse the advice of the pause itself.
-    pub(crate) const fn remedy(self, paused: Option<PauseReason>) -> Option<&'static str> {
+    /// to run with the revisions `at_hand`; `paused` is the reason a paused root recorded. A
+    /// reason that needs nothing but time or a restart has none. The pause reasons reuse the
+    /// advice of the pause itself.
+    pub(crate) fn remedy(self, paused: Option<PauseReason>, at_hand: AtHand<'_>) -> Option<String> {
+        let rescan = Advised::Rescan;
         match self {
             Self::Ready | Self::Timeout | Self::Stopped | Self::JournalChanged => None,
-            Self::Paused => Some(pause_remedy(match paused {
-                Some(reason) => reason,
-                None => PauseReason::ObserverFailure,
-            })),
+            Self::Paused => Some(pause_remedy(paused.unwrap_or(PauseReason::ObserverFailure))),
             // The directory was still changing when the wait's own deadline passed; nothing is
             // paused, so waiting again once the writers finish is enough.
-            Self::SourceChanging => Some(
-                "Let the programs writing in the directory finish, then run gcs-mimic sync wait --endpoint URL again, with a longer --timeout if they need more time",
-            ),
+            Self::SourceChanging => Some(format!(
+                "Let the programs writing in the directory finish, then run {} again, with a longer --timeout if they need more time",
+                Advised::Wait
+            )),
             Self::SourceUnrepresentable => Some(pause_remedy(PauseReason::SourceUnrepresentable)),
-            Self::DeletionApproval => Some(
-                "Inspect the deletion set that gcs-mimic sync status --view deletions --revision REVISION --endpoint URL lists for the pending_deletion_revision status reports, and approve it with gcs-mimic sync approve --deletion-set REVISION --endpoint URL, or restore the files and run gcs-mimic sync rescan --endpoint URL; changed candidates require fresh approval",
-            ),
-            Self::FindingsPending => Some(
-                "List the findings with gcs-mimic sync status --view findings --revision REVISION --endpoint URL, using the findings revision this answer or status reports, and the retained conflicts with gcs-mimic sync conflicts --endpoint URL, and follow each one's remedy; other paths continue",
-            ),
+            Self::DeletionApproval => Some(match at_hand.deletion_revision {
+                Some(revision) => format!(
+                    "Inspect the deletion set that {} lists, and approve it with {}, or restore the files and run {rescan}; changed candidates require fresh approval",
+                    Advised::Deletions(revision),
+                    Advised::Approve(revision)
+                ),
+                None => format!(
+                    "Inspect the deletion set at the pending_deletion_revision {} reports, through the deletions view, and approve it with sync approve, or restore the files and run {rescan}; changed candidates require fresh approval",
+                    Advised::Status
+                ),
+            }),
+            Self::FindingsPending => Some(match at_hand.findings_revision {
+                Some(revision) => format!(
+                    "List the findings with {}, and the retained conflicts with {}, and follow each one's remedy; other paths continue",
+                    Advised::Findings(revision),
+                    Advised::Conflicts
+                ),
+                None => format!(
+                    "List the findings through the findings view at the findings_revision {} reports, and the retained conflicts with {}, and follow each one's remedy; other paths continue",
+                    Advised::Status,
+                    Advised::Conflicts
+                ),
+            }),
         }
     }
 }
@@ -388,7 +426,7 @@ mod tests {
                 matches!(reason, Timeout | SourceChanging | JournalChanged),
                 "{reason}"
             );
-            let remedy = reason.remedy(None);
+            let remedy = reason.remedy(None, AtHand::default());
             if matches!(reason, Ready | Timeout | Stopped | JournalChanged) {
                 assert!(remedy.is_none(), "{reason}");
             } else {
@@ -399,16 +437,16 @@ mod tests {
             }
         }
         assert_eq!(
-            WaitReason::Paused.remedy(Some(PauseReason::IoFailure)),
+            WaitReason::Paused.remedy(Some(PauseReason::IoFailure), AtHand::default()),
             Some(pause_remedy(PauseReason::IoFailure))
         );
         assert_eq!(
-            WaitReason::Paused.remedy(None),
+            WaitReason::Paused.remedy(None, AtHand::default()),
             Some(pause_remedy(PauseReason::ObserverFailure))
         );
         assert!(
             SourceChanging
-                .remedy(None)
+                .remedy(None, AtHand::default())
                 .is_some_and(|remedy| remedy.contains("gcs-mimic sync wait --endpoint URL again"))
         );
     }

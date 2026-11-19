@@ -140,7 +140,11 @@ success. A wait that fails prints an `error` diagnostic with its reason, the
 recorded `paused_reason` for a pause and the remedy with the connection options
 filled in, such as `gcs-mimic sync rescan --endpoint https://127.0.0.1:4443` for
 a pause, `gcs-mimic sync conflicts` for conflicts and
-`gcs-mimic sync status --view deletions` for deletions awaiting approval.
+`gcs-mimic sync status --view deletions --revision` with the revision of the
+deletion set awaiting approval. A remedy names the findings view and the deletion
+view with the revision its answer read; every command a remedy, a log event or the
+healthcheck names is rendered from one list of commands, each of which this
+command's tests parse.
 
 Authorization and request-body preparation use the catalog-wait budget without
 being mistaken for connection inactivity. After parsing authorized input, the

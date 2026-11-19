@@ -1133,7 +1133,8 @@ replace it, since the external edit it holds is still unresolved. With
 `FindingsPending`; the decision is the control's, and the mirror's barrier is the
 same either way. Every answer other than `Ready`, `Timeout`, `Stopped` and
 `JournalChanged` carries the `remedy` for its reason, with `--endpoint URL` for
-the client to fill in. A writer that never settles yields timeout. A successful
+the client to fill in and the findings revision or the deletion set revision the
+answer read filled in already. A writer that never settles yields timeout. A successful
 wait is not a permanent quiescence claim. Shutdown wakes waiters and drains
 accepted side effects before releasing locks. CLI users can write a file, wait,
 then read through the API.

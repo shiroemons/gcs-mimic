@@ -6,7 +6,7 @@ use gcs_mimic::{
     config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
-    sync::{WaitReason, handshake},
+    sync::{WaitReason, advice, handshake},
     tls,
 };
 use http_body_util::{BodyExt, Full};
@@ -469,7 +469,11 @@ impl<'a> WaitOutcome<'a> {
                     DiagnosticSource::Cli,
                     "sync-findings",
                     format!(
-                        "{count} {objects} in the API cannot be written to the sync directory because of {names} and {stay} reachable only through the API; list {them} with gcs-mimic sync status --view findings --revision {revision} {connection}"
+                        "{count} {objects} in the API cannot be written to the sync directory because of {names} and {stay} reachable only through the API; list {them} with {}",
+                        advice::with_connection(
+                            &advice::Advised::Findings(revision).to_string(),
+                            connection
+                        )
                     ),
                 )
             })
@@ -483,7 +487,7 @@ impl<'a> WaitOutcome<'a> {
                     .paused_reason
                     .map_or_else(String::new, |paused| format!(" (paused_reason {paused})"));
                 let remedy = self.remedy.map_or_else(String::new, |remedy| {
-                    format!(": {}", remedy.replace("--endpoint URL", connection))
+                    format!(": {}", advice::with_connection(remedy, connection))
                 });
                 Diagnostic::new(
                     DiagnosticSource::Cli,

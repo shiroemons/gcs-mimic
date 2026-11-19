@@ -213,6 +213,7 @@ fn controls_answer_with_what_resumes_synchronization() {
             retry_after: Duration::from_secs(1),
         }),
     });
+    let retry = crate::sync::control::resume_retry_remedy();
     for (failed, parts) in [
         (
             &began,
@@ -235,7 +236,7 @@ fn controls_answer_with_what_resumes_synchronization() {
             [
                 "synchronization stays paused with paused_reason IoFailure: ",
                 "Busy",
-                crate::sync::control::RESUME_RETRY_REMEDY,
+                retry.as_str(),
             ],
         ),
     ] {
@@ -245,14 +246,7 @@ fn controls_answer_with_what_resumes_synchronization() {
             assert!(failed.message.contains(part), "{part}: {}", failed.message);
         }
     }
-    for reason in [
-        PauseReason::ConflictCapacity,
-        PauseReason::IoFailure,
-        PauseReason::RecoveryRequired,
-        PauseReason::ObserverFailure,
-        PauseReason::SourceChanging,
-        PauseReason::SourceUnrepresentable,
-    ] {
+    for reason in PauseReason::ALL {
         assert!(
             crate::sync::control::pause_remedy(reason)
                 .contains("then run gcs-mimic sync rescan --endpoint URL"),
@@ -1599,9 +1593,14 @@ async fn a_wait_reports_names_the_tree_cannot_hold_and_fails_only_when_asked_to(
     assert_eq!(strict["reason"], "FindingsPending");
     assert_eq!(strict["completed"], false);
     assert_eq!(strict["findings"]["unmapped"], 1);
+    // The remedy names the findings view at the revision this answer read its findings at.
+    let at_hand = crate::sync::advice::AtHand {
+        findings_revision: strict["findings"]["revision"].as_str(),
+        deletion_revision: None,
+    };
     assert_eq!(
         strict["remedy"],
-        WaitReason::FindingsPending.remedy(None).unwrap()
+        WaitReason::FindingsPending.remedy(None, at_hand).unwrap()
     );
     let (code, relaxed) = fixture.wait(br#"{"require_no_findings":false}"#).await;
     assert_eq!(code, StatusCode::OK, "{relaxed}");

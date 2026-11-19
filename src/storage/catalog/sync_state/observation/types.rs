@@ -21,6 +21,18 @@ sql::text_enum!(pub(crate) PauseReason, "invalid synchronization pause reason", 
 
 crate::serde_util::serialize_as_str!(PauseReason);
 
+impl PauseReason {
+    /// Every reason, whose remedies the advice catalog checks.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::ConflictCapacity,
+        Self::IoFailure,
+        Self::RecoveryRequired,
+        Self::ObserverFailure,
+        Self::SourceChanging,
+        Self::SourceUnrepresentable,
+    ];
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FindingCategory {
     Mapping,

@@ -16,6 +16,7 @@ use crate::{
     },
     sync::{
         Cause, MirrorState, Reconciliation,
+        advice::AtHand,
         control::{Command, ControlError, PauseChange, Registration, WaitReason, WaitResult},
         handshake,
     },
@@ -186,7 +187,7 @@ struct WaitAnswer<'a> {
     findings: Option<WaitFindingsAnswer>,
     /// The reason a paused root recorded, which its remedy follows.
     paused_reason: Option<PauseReason>,
-    remedy: Option<&'static str>,
+    remedy: Option<String>,
 }
 
 /// The objects the tree cannot hold, and the findings revision whose view lists them.
@@ -366,22 +367,36 @@ async fn wait(
         }
         Err(_) => WaitResult::timeout(),
     });
-    // The mirror answers a paused wait without the reason, which the root recorded.
+    // The mirror answers a paused wait without the reason, which the root recorded, and a wait
+    // for approval without the deletion set its remedy names.
     let paused_reason = if result.reason == WaitReason::Paused {
-        root.observation_for(authority)
+        root.observation_for(authority.clone())
             .await
             .map_err(|error| root_error(&error))?
             .paused_reason
     } else {
         None
     };
+    let deletion_revision = if result.reason == WaitReason::DeletionApproval {
+        root.deletion_set_for(authority)
+            .await
+            .map_err(|error| root_error(&error))?
+            .map(|set| set.revision.to_hex())
+    } else {
+        None
+    };
+    let findings = result.findings.map(|findings| WaitFindingsAnswer {
+        unmapped: findings.unmapped,
+        revision: findings_revision(&registration.session, findings.observation_revision),
+    });
+    let at_hand = AtHand {
+        findings_revision: findings.as_ref().map(|findings| findings.revision.as_str()),
+        deletion_revision: deletion_revision.as_deref(),
+    };
     let answer = WaitAnswer {
-        findings: result.findings.map(|findings| WaitFindingsAnswer {
-            unmapped: findings.unmapped,
-            revision: findings_revision(&registration.session, findings.observation_revision),
-        }),
+        remedy: result.reason.remedy(paused_reason, at_hand),
+        findings,
         paused_reason,
-        remedy: result.reason.remedy(paused_reason),
         result: &result,
     };
     let mut response = bounded(&super::encode(&answer)?)?;
@@ -981,7 +996,7 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
                 match change {
                     // The failure was transient, so the same rescan may now succeed; the
                     // `sync_resume_failed` event says the same.
-                    PauseChange::Kept => crate::sync::control::RESUME_RETRY_REMEDY,
+                    PauseChange::Kept => crate::sync::control::resume_retry_remedy(),
                     PauseChange::Began | PauseChange::Recorded => {
                         crate::sync::control::pause_remedy(*reason)
                     }
@@ -991,7 +1006,7 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
         ControlError::Paused => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
-            "Synchronization is paused, so it cannot act on this control yet; find the reason with gcs-mimic sync status, correct it and run gcs-mimic sync rescan --endpoint URL first",
+            crate::sync::control::paused_control_remedy(),
         ),
         ControlError::Shutdown => busy(),
     }

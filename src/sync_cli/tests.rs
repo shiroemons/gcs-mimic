@@ -694,6 +694,92 @@ fn wait_advice_names_the_command_to_run_next() {
     assert_eq!(options.connection(), "--endpoint http://127.0.0.1:4443");
 }
 
+/// Every command that advice can name parses as this command line once the options that
+/// reached a server replace its endpoint. Every piece of advice names commands only by rendering
+/// them: what the server answers and logs, the healthcheck diagnostic, and this command's own
+/// advice after a wait, which fills in the endpoint.
+#[test]
+fn every_advised_command_parses_as_this_command_line() {
+    let inputs = crate::test_support::TestDir::new();
+    let token = inputs.0.join("token");
+    std::fs::write(&token, b"secret\n").unwrap();
+    let connections = [
+        "--endpoint http://127.0.0.1:4443".to_owned(),
+        "--endpoint https://[::1]:4443 --ca-cert tls/ca.pem".to_owned(),
+        format!(
+            "--endpoint https://127.0.0.1:4443 --token-file {}",
+            token.display()
+        ),
+    ];
+    let commands = advice::commands();
+    for command in &commands {
+        for connection in &connections {
+            let line = advice::with_connection(command, connection);
+            let args = line.strip_prefix("gcs-mimic sync ").unwrap();
+            let args: Vec<String> = args.split(' ').map(str::to_owned).collect();
+            if let Err(error) = Options::parse(&args) {
+                panic!("{line}: {error:?}");
+            }
+        }
+    }
+
+    // Each piece of advice, with the connection that replaced its endpoint.
+    let catalog = advice::catalog();
+    let mut advised: Vec<(String, String)> = catalog
+        .iter()
+        .map(|advice| (advice.clone(), advice::ENDPOINT.to_owned()))
+        .collect();
+    let starting = br#"{"status":"ok","unix_time":1,"sync":{"state":"starting"}}"#;
+    for (url, ca_cert) in [
+        ("http://127.0.0.1:4443/_internal/ready", None),
+        (
+            "https://[::1]:4443/_internal/ready",
+            Some(Path::new("tls/ca.pem")),
+        ),
+    ] {
+        let url = url.parse().unwrap();
+        let Err(diagnostics) = crate::synchronization_started(&url, ca_cert, starting) else {
+            panic!("a starting mirror passed the healthcheck");
+        };
+        let connection = crate::probe_connection(&url, ca_cert);
+        advised.extend(
+            diagnostics
+                .errors
+                .into_iter()
+                .map(|error| (error.fix, connection.clone())),
+        );
+    }
+    let connection = &connections[1];
+    for remedy in &catalog {
+        let answer = json!({"reason":"FindingsPending","remedy":remedy,
+            "findings":{"unmapped":1,"revision":advice::SAMPLE_FINDINGS_REVISION}});
+        let diagnostics = WaitOutcome::read(&answer).advice(connection);
+        let given = diagnostics.warnings.into_iter().chain(diagnostics.errors);
+        advised.extend(given.map(|diagnostic| (diagnostic.fix, connection.clone())));
+    }
+
+    for (advice, connection) in &advised {
+        let rendered: Vec<String> = commands
+            .iter()
+            .map(|command| advice::with_connection(command, connection))
+            .collect();
+        let named = advice.match_indices("gcs-mimic sync ").map(|(at, _)| {
+            let text = &advice[at..];
+            // A rendered command followed by another argument would be one it does not parse.
+            rendered.iter().any(|command| {
+                text.strip_prefix(command.as_str()).is_some_and(|rest| {
+                    !rest.starts_with(" -") && !rest.starts_with(char::is_alphanumeric)
+                })
+            })
+        });
+        let named: Vec<bool> = named.collect();
+        assert!(
+            !named.is_empty() && named.iter().all(|rendered| *rendered),
+            "{advice}"
+        );
+    }
+}
+
 #[test]
 fn wire_client_decodes_chunked_json_and_preserves_failure_status() {
     let (result, request) = mock_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\n{}\r\n0\r\n\r\n".to_vec());

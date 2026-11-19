@@ -31,7 +31,7 @@ pub(super) fn resume_failed(error: &SyncError) {
         "sync_resume_failed",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":crate::sync::control::RESUME_RETRY_REMEDY}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":crate::sync::control::resume_retry_remedy()}),
         ),
     );
 }

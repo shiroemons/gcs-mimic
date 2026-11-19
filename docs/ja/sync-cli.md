@@ -83,7 +83,9 @@ waitは、反映できる変更をすべて反映した時点で成功します�
 件数が0なら、何も追加しません。`--require-no-findings true`を付けると、こうしたwaitを`FindingsPending`で失敗させます。既定の`false`では成功のままです。
 失敗したwaitは、理由、一時停止なら記録された`paused_reason`、接続オプションを埋めた対処を`error`の診断で示します。
 例えば一時停止では`gcs-mimic sync rescan --endpoint https://127.0.0.1:4443`、競合では`gcs-mimic sync conflicts`、
-承認待ちの削除では`gcs-mimic sync status --view deletions`を案内します。
+承認待ちの削除では、その削除集合のリビジョンを付けた`gcs-mimic sync status --view deletions --revision`を案内します。
+対処が示すfindingsと削除の一覧には、その応答が読んだリビジョンが入ります。
+対処、ログのイベント、ヘルスチェックが示すコマンドはすべて1つのコマンドの一覧から組み立て、その一覧のコマンドはすべてCLIのテストで解析できることを確かめています。
 
 認可のDB待ちと本文の準備にはcatalogの待機期限を使い、connectionのinactivityとして扱いません。
 認可済みの本文を読めた後に指定の観測期限へ切り替え、エラーや取消しでも待機保護を解放します。

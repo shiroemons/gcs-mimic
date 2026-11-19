@@ -819,7 +819,7 @@ fn synchronization_started(
     ca_cert: Option<&Path>,
     body: &[u8],
 ) -> Result<(), Diagnostics> {
-    use gcs_mimic::sync::MirrorState;
+    use gcs_mimic::sync::{MirrorState, advice};
     let fix = match reported_sync(body) {
         // A mirror past `starting` has ended its first pass. Later trouble is for sync status
         // and the server log to explain: waiting would not end a pause or a stop, and a failing
@@ -834,9 +834,11 @@ fn synchronization_started(
             ),
         ) => return Ok(()),
         Ok(Some(MirrorState::Starting)) => format!(
-            "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. Follow it with gcs-mimic sync status --endpoint {}{} (add --token-file PATH under strict authentication); the healthcheck passes once the state leaves starting.",
-            url.origin(),
-            ca_cert.map_or_else(String::new, |path| format!(" --ca-cert {}", path.display())),
+            "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. Follow it with {} (add --token-file PATH under strict authentication); the healthcheck passes once the state leaves starting.",
+            advice::with_connection(
+                &advice::Advised::Status.to_string(),
+                &probe_connection(url, ca_cert)
+            ),
         ),
         Err(error) => {
             let causes =
@@ -854,6 +856,14 @@ fn synchronization_started(
         "healthcheck",
         fix,
     ))
+}
+
+/// The options that reach the server a healthcheck probed, as `gcs-mimic sync` spells them.
+fn probe_connection(url: &ProbeUrl, ca_cert: Option<&Path>) -> String {
+    match ca_cert {
+        Some(path) => format!("--endpoint {} --ca-cert {}", url.origin(), path.display()),
+        None => format!("--endpoint {}", url.origin()),
+    }
 }
 
 /// The mirror state a ready answer reports. The server adds `sync` only while directory
