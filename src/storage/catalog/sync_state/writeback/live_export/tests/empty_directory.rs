@@ -319,3 +319,68 @@ async fn an_entry_that_arrives_before_the_removal_keeps_the_directory() {
     drop(operation);
     fixture.close().await;
 }
+
+/// Whether the filesystem that holds the test directories opens a name under another letter
+/// case.
+fn test_filesystem_folds_case() -> bool {
+    let probe = TestDir::new();
+    fs::create_dir(probe.0.join("fold")).unwrap();
+    probe.0.join("FOLD").is_dir()
+}
+
+/// Takes the entries of a directory as spelled the way they were opened while it lives.
+struct UncheckedSpelling((u64, u64));
+
+impl UncheckedSpelling {
+    fn of(directory: &std::path::Path) -> Self {
+        let identity = fsutil::stat_identity(&fs::File::open(directory).unwrap()).unwrap();
+        let unchecked = (identity.device, identity.inode);
+        fsutil::UNCHECKED_SPELLING.lock().unwrap().push(unchecked);
+        Self(unchecked)
+    }
+}
+
+impl Drop for UncheckedSpelling {
+    fn drop(&mut self) {
+        if let Ok(mut unchecked) = fsutil::UNCHECKED_SPELLING.lock() {
+            unchecked.retain(|directory| *directory != self.0);
+        }
+    }
+}
+
+/// On a root that folds letter case, an empty directory whose parent lists it under the target's
+/// exact spelling still gives way.
+#[tokio::test]
+async fn a_folding_root_removes_a_directory_listed_under_the_exact_spelling() {
+    let fixture = Fixture::with_naming(crate::sync::naming::RootNaming::folding()).await;
+    let operation = begin_over_directory(&fixture).await;
+    let result = finish(&fixture, &operation).await.unwrap();
+    assert_exported(&fixture, result).await;
+    drop(operation);
+    fixture.close().await;
+}
+
+/// On a root that folds letter case, a directory reached under another spelling is never removed,
+/// even where the filesystem reports the spelling as exact, as a Linux mount that folds case
+/// without the casefold flag does: `photos/`, emptied by deleting its tracked `a.jpg` on the
+/// host, stays when `Photos` is created through the API, so that deletion still reaches the API
+/// instead of stopping at a file where its parent was. Only a test filesystem that folds case
+/// can answer for another spelling; elsewhere the test has nothing to show.
+#[tokio::test]
+async fn a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list() {
+    if !test_filesystem_folds_case() {
+        return;
+    }
+    let fixture = Fixture::with_naming(crate::sync::naming::RootNaming::folding()).await;
+    Reference::Tracked.record(&fixture, "photos/a.jpg").await;
+    let bucket = fixture.tree.0.join("test-bucket");
+    let _unchecked = UncheckedSpelling::of(&bucket);
+    fixture.publish("Photos", b"api").await;
+    let operation = fixture.begin("Photos").await;
+    let result = finish(&fixture, &operation).await.unwrap();
+    assert_eq!(result, LiveResult::Collision(mapping::Reason::Collision));
+    assert_eq!(names(&bucket), ["photos"]);
+    assert!(bucket.join("photos").is_dir());
+    drop(operation);
+    fixture.close().await;
+}

@@ -8,8 +8,9 @@
 //! the root reserves ([`RemovableDirectory::prove`]). [`remove`] takes that proof. Removal itself
 //! is the last check, because an entry can arrive after every other one: `rmdir` removes only an
 //! empty directory and never follows a symlink, so a directory that holds anything, even a file
-//! that scans ignore, is left as a collision. Nothing here lists a directory or removes what it
-//! holds, and no ancestor that a removal empties is removed after it.
+//! that scans ignore, is left as a collision. Nothing here lists the directory or removes what
+//! it holds, and no ancestor that a removal empties is removed after it; on a root that folds
+//! letter case, only the directory that holds it is listed, to confirm the spelling.
 
 use super::*;
 use std::ffi::OsString;
@@ -164,7 +165,7 @@ impl RemovableDirectory {
     /// rules out the bucket's directory itself as well as the workspace and the marker: a removed
     /// bucket directory would let a directory created later under that name bring a deleted
     /// bucket back. The entry must open as a directory under its exact spelling without following
-    /// a symlink.
+    /// a symlink, and on a root that folds letter case `parent` must also list that spelling.
     pub(super) fn prove(
         parent: File,
         naming: RootNaming,
@@ -179,6 +180,11 @@ impl RemovableDirectory {
             return Ok(Err(Kept::NotAnObject));
         };
         match fsutil::child_directory(&parent, name, fsutil::DirectoryOpen::Existing) {
+            Ok(fsutil::Child::Directory { .. })
+                if naming.folds_case() && !listed(&parent, name)? =>
+            {
+                Ok(Err(Kept::NotDirectory))
+            }
             Ok(fsutil::Child::Directory { .. }) => Ok(Ok(Self {
                 parent,
                 name: name.to_owned(),
@@ -188,6 +194,31 @@ impl RemovableDirectory {
                 Ok(Err(Kept::NotDirectory))
             }
             Err(error) => Err(error.into()),
+        }
+    }
+}
+
+/// The most names [`listed`] reads from the directory that holds the target. A directory with
+/// more leaves the spelling unconfirmed, which keeps the target's directory.
+const SPELLING_LIST_LIMIT: usize = 4096;
+
+/// Whether `parent` lists `name` under exactly that spelling. On a root that folds letter case,
+/// opening a name can reach an entry spelled otherwise, and the filesystem need not say so: a
+/// Linux mount that folds case without the casefold flag, as Docker Desktop's bind mounts do,
+/// reports every spelling as exact. Removing `photos/` for an object `Photos` would then put a
+/// file where the parent of a tracked `photos/a.jpg` was, and stop that file's deletion. The
+/// root probe cannot find a mount that equates names only by Unicode normalization, so this
+/// check never runs on one.
+fn listed(parent: &File, name: &std::ffi::OsStr) -> Result<bool, Error> {
+    let mut names = fsutil::DirectoryNames::default();
+    loop {
+        match names.next_name(parent, SPELLING_LIST_LIMIT) {
+            Ok(Some(listed)) if listed == name => return Ok(true),
+            Ok(Some(_)) => {}
+            Ok(None) => return Ok(false),
+            // More names than the limit: the spelling stays unconfirmed.
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => return Ok(false),
+            Err(error) => return Err(error.into()),
         }
     }
 }

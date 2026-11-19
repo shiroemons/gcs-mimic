@@ -88,6 +88,11 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_naming(crate::sync::naming::RootNaming::posix()).await
+    }
+
+    /// A fixture whose root assumes `naming` instead of probing its filesystem.
+    async fn with_naming(naming: crate::sync::naming::RootNaming) -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
         let catalog = Catalog::open(&data.0).await.unwrap();
@@ -103,7 +108,7 @@ impl Fixture {
             .activate_root(&tree.0, super::super::super::root::Activation::Open)
             .await
             .unwrap()
-            .assume_naming(crate::sync::naming::RootNaming::posix());
+            .assume_naming(naming);
         let writeback = root.default_writeback().await.unwrap();
         Self {
             data,

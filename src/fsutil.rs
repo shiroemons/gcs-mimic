@@ -1018,6 +1018,15 @@ pub(crate) fn durable_replace(
 pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Vec<(u64, u64)>> =
     std::sync::Mutex::new(Vec::new());
 
+/// The directories, by device and inode number, whose entries tests take as spelled the way they
+/// were opened without asking the filesystem. On a test filesystem that folds letter case, such a
+/// directory stands in for a Linux mount that folds case without the casefold flag, where the
+/// spelling check cannot tell another spelling apart. Tests run in parallel, so each adds its own
+/// directory and removes only that one again.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) static UNCHECKED_SPELLING: std::sync::Mutex<Vec<(u64, u64)>> =
+    std::sync::Mutex::new(Vec::new());
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn sync_replace_parent(directory: &File) -> io::Result<()> {
     #[cfg(test)]

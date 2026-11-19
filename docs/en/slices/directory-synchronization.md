@@ -583,7 +583,13 @@ target: it stops that path as `EntryReplaced`. The `sync_directory_kept`
 event names the check that kept the directory. Catalog references compare names
 byte for byte, so a reference under another letter case on a root that folds
 case does not keep the directory; the removal itself still refuses one that
-holds an entry.
+holds an entry. On a root that the probe found to fold letter case, the parent
+must also list the target's exact spelling within its first 4096 names before
+the directory goes: a Linux mount that folds case without the casefold flag,
+such as a Docker Desktop bind mount, reports any spelling as exact, and removing
+`photos/` for an object `Photos` would put a file where the parent of a tracked
+`photos/a.jpg` was. The probe cannot find a mount that equates names only by
+Unicode normalization, so this check does not cover one.
 
 For every `File(p)`, decoding that exact relative path must reproduce the same
 bucket and object bytes. Filesystem normalization must preserve this property;

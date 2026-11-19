@@ -16,7 +16,7 @@ pub(crate) fn child_directory(
         }
         Err(error) => return Err(error),
     };
-    if exact_spelling(parent, name, &file)? {
+    if spelled_as_opened(parent, name, &file)? {
         Ok(Child::Directory { file, created })
     } else {
         Ok(Child::Alias)
@@ -51,11 +51,28 @@ pub(crate) fn child_regular(parent: &File, name: &OsStr) -> io::Result<RegularCh
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(RegularChild::Missing),
         Err(error) => return Err(error),
     };
-    if exact_spelling(parent, name, &file)? {
+    if spelled_as_opened(parent, name, &file)? {
         Ok(RegularChild::File(file))
     } else {
         Ok(RegularChild::Alias)
     }
+}
+
+/// Whether `file`, opened as `name` in `parent`, has that exact spelling there. Tests can take a
+/// directory's entries as spelled the way they were opened ([`crate::fsutil::UNCHECKED_SPELLING`]).
+fn spelled_as_opened(parent: &File, name: &OsStr, file: &File) -> io::Result<bool> {
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    {
+        let identity = crate::fsutil::stat_identity(parent)?;
+        if crate::fsutil::UNCHECKED_SPELLING
+            .lock()
+            .map_err(|_| io::Error::other("spelling injection poisoned"))?
+            .contains(&(identity.device, identity.inode))
+        {
+            return Ok(true);
+        }
+    }
+    exact_spelling(parent, name, file)
 }
 
 fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<bool> {

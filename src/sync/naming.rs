@@ -116,6 +116,27 @@ impl RootNaming {
         }
     }
 
+    /// The rules of a filesystem that folds letter case and keeps every other name byte, for
+    /// tests below the mirror that do not probe a root.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn folding() -> Self {
+        Self {
+            case: Case::Insensitive,
+            ..Self::posix()
+        }
+    }
+
+    /// Whether the probe found that two names differing only in letter case name one file
+    /// here. Where it did, opening a name may reach an entry under another spelling, and only a
+    /// listing of the parent shows the spelling for certain: a Linux mount that folds case
+    /// without the casefold flag, such as a Docker Desktop bind mount, says nothing when asked.
+    pub(crate) fn folds_case(self) -> bool {
+        match self.case {
+            Case::Sensitive => false,
+            Case::Insensitive => true,
+        }
+    }
+
     /// The longest component the mirror maps, in bytes: the filesystem's limit, capped at
     /// [`PORTABLE_NAME_MAX`].
     pub(crate) fn component_limit(self) -> usize {
