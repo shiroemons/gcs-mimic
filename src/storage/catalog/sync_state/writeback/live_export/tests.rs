@@ -803,7 +803,7 @@ async fn settle(writeback: &Writeback, operation: LiveExport) -> LiveResult {
 }
 
 /// Advances `operation` to completion.
-async fn drain(writeback: &Writeback, operation: LiveExport) {
+pub(super) async fn drain(writeback: &Writeback, operation: LiveExport) {
     assert_eq!(settle(writeback, operation).await, LiveResult::Complete);
 }
 

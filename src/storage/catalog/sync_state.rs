@@ -92,10 +92,7 @@ pub(crate) struct SyncFingerprint {
 }
 impl SyncFingerprint {
     pub(crate) fn matches_identity(&self, identity: crate::fsutil::FileIdentity) -> bool {
-        self.size == identity.size
-            && self.inode == identity.inode
-            && self.mtime_ns == identity.modified_ns
-            && self.ctime_ns == identity.changed_ns
+        self.changed_fields(identity).is_empty()
     }
     /// The stat fields of `identity` that differ from this observation. A fingerprint records
     /// no device, so the device never differs.

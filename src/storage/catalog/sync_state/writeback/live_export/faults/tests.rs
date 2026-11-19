@@ -1,3 +1,4 @@
+use super::super::tests::drain;
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
@@ -218,22 +219,6 @@ fn limits() -> Limits {
         crate::sync::CONFLICT_MAX_ENTRIES,
     )
     .unwrap()
-}
-
-async fn drain(writeback: &Writeback, operation: LiveExport) {
-    loop {
-        match writeback
-            .advance_live_export(operation.clone())
-            .await
-            .unwrap()
-        {
-            LiveResult::Pending => {}
-            result => {
-                assert_eq!(result, LiveResult::Complete);
-                return;
-            }
-        }
-    }
 }
 
 async fn unchanged_api(catalog: &Catalog, record: &ObjectRecord) {
