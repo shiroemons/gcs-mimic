@@ -233,6 +233,86 @@ async fn retry_an_interrupted_batch() {
     catalog.close().await.unwrap();
 }
 
+/// Arms the second upload of the batch to end its transaction, so the uploads are published one
+/// by one, and `fault` for the second of their commits: the batch never reaches its own commit.
+fn arm_second_commit_after_a_rollback(data: &Path, step: Step, fault: Fault) {
+    fault::arm(data, Step::PublishUpload, 1, Fault::RollBack);
+    fault::arm(data, step, 1, fault);
+}
+
+#[tokio::test]
+async fn a_failed_commit_while_publishing_one_by_one_fails_the_rest_and_keeps_what_committed() {
+    for (step, committed) in [(Step::BeforeCommit, false), (Step::AfterCommit, true)] {
+        let data = TestDir::new();
+        let catalog = open(&data.0).await;
+        arm_second_commit_after_a_rollback(&data.0, step, Fault::Io(io::ErrorKind::Other));
+        let tasks = queue_uploads(&catalog, &unconditional(&NAMES)).await;
+        let outcomes = outcomes(tasks).await;
+        assert_eq!(fault::pending(&data.0), 0, "{step:?}");
+        // The first upload committed on its own before the failure.
+        let published: Vec<_> = outcomes.iter().filter_map(|o| o.as_ref().ok()).collect();
+        let [first] = published.as_slice() else {
+            panic!("exactly one upload must succeed at {step:?}: {outcomes:?}");
+        };
+        assert_eq!(&&read(&catalog, &first.name).await.unwrap(), first);
+        // The second upload's commit failed and the third was never tried, so both report the
+        // failure. Only a commit that failed after it was written stays published, and its
+        // cleanup keeps its blob; the others' blobs are removed.
+        let mut kept = 0;
+        for (name, outcome) in NAMES.iter().zip(&outcomes) {
+            if outcome.is_err() {
+                assert!(
+                    matches!(outcome, Err(ObjectError::Io(_))),
+                    "{step:?} {outcome:?}"
+                );
+                kept += usize::from(read(&catalog, name).await.is_ok());
+            }
+        }
+        assert_eq!(kept, usize::from(committed), "{step:?}");
+        assert_eq!(blob_count(&data.0), 1 + usize::from(committed), "{step:?}");
+        put(&catalog, "after", b"ok").await;
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_crash_while_publishing_one_by_one_keeps_only_what_committed() {
+    for crash in Crash::ALL {
+        for (step, committed) in [(Step::BeforeCommit, 1), (Step::AfterCommit, 2)] {
+            let data = TestDir::new();
+            let snapshot = TestDir::new();
+            let catalog = open(&data.0).await;
+            arm_second_commit_after_a_rollback(&data.0, step, crash.fault(snapshot.0.clone()));
+            let tasks = queue_uploads(&catalog, &unconditional(&NAMES)).await;
+            let mut records: Vec<_> = outcomes(tasks)
+                .await
+                .into_iter()
+                .map(Result::unwrap)
+                .collect();
+            assert_eq!(fault::pending(&data.0), 0, "{crash:?} {step:?}");
+            catalog.close().await.unwrap();
+            // Each upload committed on its own in queue order, so generations give the order.
+            records.sort_by_key(|record| record.generation);
+            let restarted = Catalog::open(&snapshot.0).await.unwrap();
+            let (kept, lost) = records.split_at(committed);
+            for record in kept {
+                let read = read(&restarted, &record.name).await.unwrap();
+                assert_eq!(read.generation, record.generation, "{crash:?} {step:?}");
+            }
+            for record in lost {
+                assert_eq!(
+                    read(&restarted, &record.name).await,
+                    Err(ObjectError::ObjectNotFound),
+                    "{crash:?} {step:?}"
+                );
+            }
+            // Recovery reclaims the published blobs that no committed row references.
+            assert_eq!(blob_count(&snapshot.0), committed, "{crash:?} {step:?}");
+            restarted.close().await.unwrap();
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_failed_batch_commit_fails_every_queued_upload_and_keeps_none_of_their_blobs() {
     let data = TestDir::new();
@@ -320,6 +400,7 @@ async fn uploads_publish_without_a_writable_temporary_directory() {
 
 /// Publishes batches of uploads whose savepoints each rewrite more existing pages than SQLite
 /// keeps in memory before it moves a sub-journal to a temporary file.
+/// Checked: with the writer's `temp_store = FILE`, these uploads fail with `SQL logic error`.
 #[cfg(target_vendor = "apple")]
 async fn publish_long_names_without_temporary_files() {
     let data = TestDir::new();
