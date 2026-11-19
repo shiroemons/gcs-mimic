@@ -356,7 +356,7 @@ impl Mirror {
                 &mut self.controls,
             );
             #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-            let run = tests::failing_on_signal(&self.config, run);
+            let run = tests::state::failing_on_signal(&self.config, run);
             self.runtime.block_on(run)
         });
         result.unwrap_or_else(|panicked| Err(SyncError::Panicked(panicked)))
@@ -554,7 +554,7 @@ async fn await_resume(
 /// Records the pause that a rescan's failure leaves behind.
 async fn record_pause(scope: LiveScope<'_>, reason: PauseReason) -> Result<(), RootError> {
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    tests::injected_pause_record_failure(scope.config)?;
+    tests::state::injected_pause_record_failure(scope.config)?;
     scope.root.observation_pause(Some(reason)).await
 }
 
@@ -963,7 +963,7 @@ struct LiveControl<'a> {
 impl LiveControl<'_> {
     async fn rescan(&mut self) -> Result<Reconciliation, SyncError> {
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-        tests::injected_rescan_failure(self.scope.config)?;
+        tests::state::injected_rescan_failure(self.scope.config)?;
         let writeback = recover_writeback(self.scope.root).await?;
         let scope = LiveScope {
             writeback: &writeback,
