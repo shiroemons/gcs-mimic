@@ -3,6 +3,7 @@
 use super::{
     OpaqueId, Ordinal, PageLimit,
     conflicts::RecoveryPhase,
+    findings::{FindingEffect, FindingKind},
     root::{RootError, RootId, RootLease},
     writeback,
 };
@@ -31,7 +32,13 @@ pub(crate) struct Summary {
     pub revision: i64,
     pub baseline_complete: bool,
     pub tracked_objects: u64,
+    /// Every mapping finding, whatever it does to `sync wait`.
     pub mapping_findings: u64,
+    /// The mapping findings that stop `sync wait`.
+    pub blocking_findings: u64,
+    /// The mapping findings that `sync wait` reports without stopping: objects the API holds
+    /// whose names the tree cannot.
+    pub unmapped_findings: u64,
     pub pending_writeback: u64,
     pub path_stops: u64,
     pub unresolved_conflicts: u64,
@@ -199,12 +206,48 @@ impl Totals {
     }
 }
 
+/// A root's mapping findings counted by what each does to `sync wait`. The statement groups by
+/// the stored reason and [`FindingKind::effect`] decides each group, so the decision lives in one
+/// exhaustive match and a new kind needs no change here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct EffectCounts {
+    blocking: u64,
+    unmapped: u64,
+}
+
+impl EffectCounts {
+    const SELECT: &str =
+        "SELECT reason,count(*) FROM sync_findings WHERE root_id=?1 GROUP BY reason";
+
+    fn read(connection: &Connection, root: RootId) -> Result<Self, CatalogError> {
+        let mut counts = Self::default();
+        let mut statement = connection.prepare_cached(Self::SELECT)?;
+        let groups = statement.query_map([root], |row| {
+            Ok((row.get::<_, FindingKind>(0)?, row.get::<_, u64>(1)?))
+        })?;
+        for group in groups {
+            let (kind, count) = group.map_err(unavailable)?;
+            counts.add(kind.effect(), count);
+        }
+        Ok(counts)
+    }
+
+    fn add(&mut self, effect: FindingEffect, count: u64) {
+        match effect {
+            FindingEffect::Blocks => self.blocking += count,
+            FindingEffect::Reports => self.unmapped += count,
+            FindingEffect::Silent => {}
+        }
+    }
+}
+
 fn read_summary(
     connection: &Connection,
     root: super::root::RootId,
 ) -> Result<Summary, CatalogError> {
     let revision = revision(connection, root)?;
     let totals = sql::row(connection, Totals::SELECT, [root], Totals::read)?;
+    let effects = EffectCounts::read(connection, root)?;
     let exists: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_writeback_roots WHERE root_id=?1)",
@@ -223,6 +266,8 @@ fn read_summary(
         baseline_complete: totals.baseline_complete,
         tracked_objects: totals.tracked_objects,
         mapping_findings: totals.mapping_findings,
+        blocking_findings: effects.blocking,
+        unmapped_findings: effects.unmapped,
         pending_writeback: totals.pending_writeback,
         path_stops: totals.path_stops,
         unresolved_conflicts: totals.unresolved_conflicts,

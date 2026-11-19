@@ -1170,6 +1170,11 @@ struct SkippedExport {
 struct SkippedExports(std::collections::BTreeMap<(BucketName, ObjectName), SkippedExport>);
 
 impl SkippedExports {
+    /// Whether every export of this run reached the tree or was superseded.
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Keeps the outcome of an object's latest export: a skipped one to run again, or none.
     fn record(&mut self, object: (BucketName, ObjectName), outcome: Option<SkippedExport>) {
         match outcome {
@@ -1191,7 +1196,7 @@ impl SkippedExports {
         scope: LiveScope<'_>,
         interrupt: Interrupt<'_>,
     ) -> Result<(), SyncError> {
-        if self.0.is_empty() {
+        if self.is_empty() {
             return Ok(());
         }
         let fence = scope.catalog.current_fence().await?;

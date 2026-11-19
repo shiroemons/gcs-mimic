@@ -39,9 +39,11 @@ pub(super) enum ControlState {
     Observing,
     /// External deletions wait for an approval.
     DeletionApproval,
-    /// Findings, path stops, pending write-back or unresolved conflicts remain.
+    /// Findings that stop `sync wait`, path stops, pending write-back or unresolved conflicts
+    /// remain.
     FindingsPending,
-    /// Nothing waits.
+    /// Nothing waits. Objects whose names the tree cannot hold may remain; they stay reachable
+    /// through the API, and the findings view lists them.
     Ready,
 }
 
@@ -117,7 +119,7 @@ impl ControlState {
         {
             Self::DeletionApproval
         } else if observation.path_stops
-            + observation.mapping_findings
+            + observation.blocking_findings
             + observation.pending_writeback
             + observation.unresolved_conflicts
             > 0

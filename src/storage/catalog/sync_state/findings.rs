@@ -136,13 +136,6 @@ impl FindingKind {
 
     /// What this finding does to `sync wait`. Every kind decides here, so a new kind cannot
     /// reach the wait without a decision.
-    #[cfg_attr(
-        not(all(test, unix)),
-        expect(
-            dead_code,
-            reason = "only the Unix unit tests read it until the wait counts findings by effect"
-        )
-    )]
     pub(crate) const fn effect(self) -> FindingEffect {
         match self {
             Self::ExportConflict | Self::UnclassifiedCollision => FindingEffect::Blocks,
@@ -165,13 +158,6 @@ sql::text_enum!(
 );
 
 /// What a finding does to `sync wait`.
-#[cfg_attr(
-    not(all(test, unix)),
-    expect(
-        dead_code,
-        reason = "only the Unix unit tests read it until the wait counts findings by effect"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FindingEffect {
     /// The wait cannot succeed while the finding remains: an external edit and an API

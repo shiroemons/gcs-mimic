@@ -138,9 +138,24 @@ pub(crate) struct WaitResult {
     pub journal_fence: Option<WaitFence>,
     pub reconciliation: Option<Reconciliation>,
     pub reason: WaitReason,
+    /// The findings the wait read with the observation it decided on; the control that answers
+    /// the wait renders them.
+    #[serde(skip)]
+    pub findings: Option<WaitFindings>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub(crate) enum WaitReason {
+
+/// The findings a wait leaves behind without stopping, read with the observation it decided on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WaitFindings {
+    /// The objects the API holds whose names the tree cannot.
+    pub unmapped: u64,
+    /// The observation revision these counts were read at, which binds the findings view.
+    pub observation_revision: i64,
+}
+
+/// Why `sync wait` ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitReason {
     Ready,
     Timeout,
     Stopped,
@@ -150,6 +165,105 @@ pub(crate) enum WaitReason {
     SourceUnrepresentable,
     DeletionApproval,
     FindingsPending,
+}
+
+impl WaitReason {
+    const ALL: [Self; 9] = [
+        Self::Ready,
+        Self::Timeout,
+        Self::Stopped,
+        Self::Paused,
+        Self::JournalChanged,
+        Self::SourceChanging,
+        Self::SourceUnrepresentable,
+        Self::DeletionApproval,
+        Self::FindingsPending,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready",
+            Self::Timeout => "Timeout",
+            Self::Stopped => "Stopped",
+            Self::Paused => "Paused",
+            Self::JournalChanged => "JournalChanged",
+            Self::SourceChanging => "SourceChanging",
+            Self::SourceUnrepresentable => "SourceUnrepresentable",
+            Self::DeletionApproval => "DeletionApproval",
+            Self::FindingsPending => "FindingsPending",
+        }
+    }
+
+    /// Whether the work the wait waited for was still in progress, so that another wait may
+    /// succeed without anyone repairing anything: its deadline passed, the tree was still
+    /// changing, or the journal was rebuilt under it. The other reasons stay until someone acts.
+    pub const fn is_in_progress(self) -> bool {
+        match self {
+            Self::Timeout | Self::SourceChanging | Self::JournalChanged => true,
+            Self::Ready
+            | Self::Stopped
+            | Self::Paused
+            | Self::SourceUnrepresentable
+            | Self::DeletionApproval
+            | Self::FindingsPending => false,
+        }
+    }
+
+    /// What lets a later wait succeed after this one ended for this reason, naming the commands
+    /// to run; `paused` is the reason a paused root recorded. A reason that needs nothing but
+    /// time or a restart has none. The pause reasons reuse the advice of the pause itself.
+    pub(crate) const fn remedy(self, paused: Option<PauseReason>) -> Option<&'static str> {
+        match self {
+            Self::Ready | Self::Timeout | Self::Stopped | Self::JournalChanged => None,
+            Self::Paused => Some(pause_remedy(match paused {
+                Some(reason) => reason,
+                None => PauseReason::ObserverFailure,
+            })),
+            // The directory was still changing when the wait's own deadline passed; nothing is
+            // paused, so waiting again once the writers finish is enough.
+            Self::SourceChanging => Some(
+                "Let the programs writing in the directory finish, then run gcs-mimic sync wait --endpoint URL again, with a longer --timeout if they need more time",
+            ),
+            Self::SourceUnrepresentable => Some(pause_remedy(PauseReason::SourceUnrepresentable)),
+            Self::DeletionApproval => Some(
+                "Inspect the deletion set that gcs-mimic sync status --view deletions --revision REVISION --endpoint URL lists for the pending_deletion_revision status reports, and approve it with gcs-mimic sync approve --deletion-set REVISION --endpoint URL, or restore the files and run gcs-mimic sync rescan --endpoint URL; changed candidates require fresh approval",
+            ),
+            Self::FindingsPending => Some(
+                "List the findings with gcs-mimic sync status --view findings --revision REVISION --endpoint URL, using the findings revision this answer or status reports, and the retained conflicts with gcs-mimic sync conflicts --endpoint URL, and follow each one's remedy; other paths continue",
+            ),
+        }
+    }
+}
+
+crate::serde_util::serialize_as_str!(WaitReason);
+
+impl fmt::Display for WaitReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A `reason` that names no way a wait ends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownWaitReason(String);
+
+impl fmt::Display for UnknownWaitReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unknown wait reason {:?}", self.0)
+    }
+}
+
+impl Error for UnknownWaitReason {}
+
+impl std::str::FromStr for WaitReason {
+    type Err = UnknownWaitReason;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|reason| reason.as_str() == value)
+            .ok_or_else(|| UnknownWaitReason(value.to_owned()))
+    }
 }
 #[derive(serde::Serialize)]
 pub(crate) struct WaitFence {
@@ -176,10 +290,81 @@ impl WaitResult {
             journal_fence,
             reconciliation,
             reason,
+            findings: None,
         }
     }
     pub(crate) fn timeout() -> Self {
         Self::result(WaitReason::Timeout, None, None)
+    }
+
+    /// This result with the findings the wait read.
+    pub(crate) fn with_findings(self, findings: Option<WaitFindings>) -> Self {
+        Self { findings, ..self }
+    }
+
+    /// The same wait ending for `reason` instead, as a control that applies a stricter
+    /// condition than the mirror decides it.
+    pub(crate) fn with_reason(self, reason: WaitReason) -> Self {
+        Self {
+            completed: reason == WaitReason::Ready,
+            timed_out: reason == WaitReason::Timeout,
+            reason,
+            ..self
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wait_reasons_parse_from_the_names_they_serialize_as() {
+        for reason in WaitReason::ALL {
+            assert_eq!(reason.as_str().parse::<WaitReason>(), Ok(reason));
+            assert_eq!(
+                serde_json::to_value(reason).unwrap(),
+                serde_json::Value::from(reason.as_str())
+            );
+        }
+        assert!("ready".parse::<WaitReason>().is_err());
+        assert!("".parse::<WaitReason>().is_err());
+    }
+
+    /// Only the reasons a wait meets while work is still under way are worth waiting again
+    /// for; each other one has a remedy that names what to run, with the endpoint to fill in.
+    #[test]
+    fn only_work_in_progress_is_waited_for_again_and_the_rest_name_a_remedy() {
+        use WaitReason::{JournalChanged, Ready, SourceChanging, Stopped, Timeout};
+        for reason in WaitReason::ALL {
+            assert_eq!(
+                reason.is_in_progress(),
+                matches!(reason, Timeout | SourceChanging | JournalChanged),
+                "{reason}"
+            );
+            let remedy = reason.remedy(None);
+            if matches!(reason, Ready | Timeout | Stopped | JournalChanged) {
+                assert!(remedy.is_none(), "{reason}");
+            } else {
+                assert!(
+                    remedy.is_some_and(|remedy| remedy.contains("--endpoint URL")),
+                    "{reason}"
+                );
+            }
+        }
+        assert_eq!(
+            WaitReason::Paused.remedy(Some(PauseReason::IoFailure)),
+            Some(pause_remedy(PauseReason::IoFailure))
+        );
+        assert_eq!(
+            WaitReason::Paused.remedy(None),
+            Some(pause_remedy(PauseReason::ObserverFailure))
+        );
+        assert!(
+            SourceChanging
+                .remedy(None)
+                .is_some_and(|remedy| remedy.contains("gcs-mimic sync wait --endpoint URL again"))
+        );
     }
 }
 

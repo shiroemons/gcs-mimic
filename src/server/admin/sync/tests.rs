@@ -55,6 +55,8 @@ fn status_state_follows_the_mirror_state() {
         baseline_complete: true,
         tracked_objects: 0,
         mapping_findings: 0,
+        blocking_findings: 0,
+        unmapped_findings: 0,
         pending_writeback: 0,
         path_stops: 0,
         unresolved_conflicts: 0,
@@ -118,6 +120,21 @@ fn status_state_follows_the_mirror_state() {
         ..observation(None)
     };
     assert_eq!(state(Running, &observing), ControlState::Observing);
+    // Only a finding that stops a wait holds the state at FindingsPending. Names the tree cannot
+    // hold, and names it ignores, leave it Ready, as they leave a wait ready.
+    let unmapped = Summary {
+        mapping_findings: 2,
+        unmapped_findings: 1,
+        ..observation(None)
+    };
+    assert_eq!(state(Running, &unmapped), ControlState::Ready);
+    let blocking = Summary {
+        mapping_findings: 3,
+        blocking_findings: 1,
+        unmapped_findings: 1,
+        ..observation(None)
+    };
+    assert_eq!(state(Running, &blocking), ControlState::FindingsPending);
 }
 
 /// `state` takes its values from one closed set, each serialized as its own name.
@@ -661,6 +678,53 @@ impl Fixture {
         self.task.finish().await.unwrap();
         self.state.catalog.close().await.unwrap();
     }
+
+    /// Publishes `bytes` as `name` in `test-bucket` through the API, creating the bucket first.
+    async fn publish(&self, name: &str, bytes: &'static [u8]) -> crate::object::ObjectRecord {
+        use crate::{
+            object::UploadChunk,
+            storage::admin::{Publication, PublishMode},
+        };
+        let bucket = BucketName::new("test-bucket").unwrap();
+        let admin = self.state.catalog.admin(Origin::Api);
+        admin
+            .ensure_bucket(
+                BucketDefinition::default_for(&bucket, &self.config.seed_project, &SystemClock)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (sender, receiver) = tokio::sync::mpsc::channel(2);
+        sender
+            .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
+            .unwrap();
+        sender.try_send(Ok(UploadChunk::End)).unwrap();
+        admin
+            .publish_object(
+                &bucket,
+                &ObjectName::new(name).unwrap(),
+                Publication {
+                    content_type: "application/octet-stream".into(),
+                    metadata: Default::default(),
+                    expected: Default::default(),
+                    condition: None,
+                    max_bytes: 4096,
+                    mode: PublishMode::Replace,
+                },
+                receiver,
+            )
+            .await
+            .unwrap()
+    }
+
+    /// Sends a wait with `payload` and returns the status and the answer.
+    async fn wait(&self, payload: &[u8]) -> (StatusCode, Value) {
+        let response = self
+            .request("POST", "/_internal/sync/wait", payload, None)
+            .await
+            .unwrap();
+        (response.status(), body(response).await)
+    }
 }
 
 #[track_caller]
@@ -1017,42 +1081,11 @@ async fn recovery_http_refreshes_changed_workspace_identity_and_requires_exact_d
 
 #[tokio::test]
 async fn strict_http_conflict_resolution_requires_exact_targets_and_preserves_api_conditions() {
-    use crate::{
-        object::UploadChunk,
-        storage::admin::{Generation, ObjectName, Publication},
-    };
     let mut fixture = Fixture::new(Tree::Empty).await;
     let bucket = BucketName::new("test-bucket").unwrap();
     let name = ObjectName::new("object").unwrap();
     let admin = fixture.state.catalog.admin(Origin::Api);
-    admin
-        .ensure_bucket(
-            BucketDefinition::default_for(&bucket, &fixture.config.seed_project, &SystemClock)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (sender, receiver) = tokio::sync::mpsc::channel(2);
-    sender
-        .try_send(Ok(UploadChunk::Data(Bytes::from_static(b"API winner"))))
-        .unwrap();
-    sender.try_send(Ok(UploadChunk::End)).unwrap();
-    let winner = admin
-        .publish_object(
-            &bucket,
-            &name,
-            Publication {
-                content_type: "application/octet-stream".into(),
-                metadata: Default::default(),
-                expected: Default::default(),
-                condition: None,
-                max_bytes: 4096,
-                mode: crate::storage::admin::PublishMode::Replace,
-            },
-            receiver,
-        )
-        .await
-        .unwrap();
+    let winner = fixture.publish("object", b"API winner").await;
     fixture.task.rescan().await.unwrap();
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
     let external = TestDir::new();
@@ -1481,6 +1514,72 @@ async fn controls_reject_invalid_input_and_unsupported_routes() {
         .ready
         .store(false, std::sync::atomic::Ordering::Release);
     assert_eq!(fixture.status().await["state"], "Ready");
+    fixture.finish().await;
+}
+
+/// A name the tree cannot hold does not stop a wait: the wait succeeds, counts the object, and
+/// returns the findings revision whose view lists it, and status stays Ready. Only a wait that
+/// requires no findings fails, as FindingsPending with the remedy that lists them; the mirror
+/// decided both the same way.
+#[tokio::test]
+async fn a_wait_reports_names_the_tree_cannot_hold_and_fails_only_when_asked_to() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    let (status, waited) = fixture.wait(b"{}").await;
+    assert_eq!(status, StatusCode::OK, "{waited}");
+    assert_eq!(waited["findings"]["unmapped"], 0);
+    assert!(waited["remedy"].is_null());
+    assert!(waited["paused_reason"].is_null());
+    fixture.publish(r"dir\file", b"backslash").await;
+    let (status, waited) = fixture.wait(br#"{"timeout_ms":30000}"#).await;
+    assert_eq!(status, StatusCode::OK, "{waited}");
+    assert_eq!(waited["reason"], "Ready");
+    assert_eq!(waited["completed"], true);
+    assert_eq!(waited["findings"]["unmapped"], 1);
+    assert!(waited["remedy"].is_null());
+    let revision = waited["findings"]["revision"].as_str().unwrap();
+    let page = body(
+        fixture
+            .request(
+                "GET",
+                &format!("/_internal/sync?view=findings&revision={revision}"),
+                b"",
+                None,
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(page["total_count"], 1, "{page}");
+    assert_eq!(page["items"][0]["reason"], "Unrepresentable");
+    assert_eq!(page["items"][0]["object"], r"dir\file");
+    let status = fixture.status().await;
+    assert_eq!(status["state"], "Ready", "{status}");
+    assert_eq!(status["observation"]["unmapped_findings"], 1);
+    assert_eq!(status["observation"]["blocking_findings"], 0);
+    let (code, strict) = fixture.wait(br#"{"require_no_findings":true}"#).await;
+    assert_eq!(code, StatusCode::CONFLICT, "{strict}");
+    assert_eq!(strict["reason"], "FindingsPending");
+    assert_eq!(strict["completed"], false);
+    assert_eq!(strict["findings"]["unmapped"], 1);
+    assert_eq!(
+        strict["remedy"],
+        WaitReason::FindingsPending.remedy(None).unwrap()
+    );
+    let (code, relaxed) = fixture.wait(br#"{"require_no_findings":false}"#).await;
+    assert_eq!(code, StatusCode::OK, "{relaxed}");
+    assert_eq!(
+        status_of(
+            fixture
+                .request(
+                    "POST",
+                    "/_internal/sync/wait",
+                    br#"{"require_no_findings":"yes"}"#,
+                    None
+                )
+                .await
+        ),
+        StatusCode::BAD_REQUEST
+    );
     fixture.finish().await;
 }
 

@@ -126,6 +126,14 @@ fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_st
     waited.expect(409);
     let waited: Value = serde_json::from_slice(&waited.body).unwrap();
     assert_eq!(waited["reason"], "Paused");
+    // The wait names the recorded reason and what resumes synchronization after it.
+    assert_eq!(waited["paused_reason"], "observer-failure", "{waited}");
+    assert!(
+        waited["remedy"]
+            .as_str()
+            .is_some_and(|remedy| remedy.contains("such as max_sync_entries, needs a restart")),
+        "{waited}"
+    );
     // The pause stops synchronization only: the API stays ready and reports it apart.
     assert_eq!(server.sync_state(), "paused");
     // Neither inspection nor a rescan that fails again resumes it. The failed rescan says why

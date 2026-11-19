@@ -2,6 +2,7 @@
 //! Filesystem synchronization adapters and shared reversible name mapping.
 
 pub(crate) mod control;
+pub use control::{UnknownWaitReason, WaitReason};
 mod deletion;
 pub(crate) mod entries;
 mod error;

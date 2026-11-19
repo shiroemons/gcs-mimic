@@ -145,6 +145,65 @@ async fn mapping_updates_deletes_and_restart_keep_a_monotonic_revision() {
     catalog.close().await.unwrap();
 }
 
+/// The summary counts each stored finding by what its kind does to a wait, as the Rust kind
+/// decides it, so the statement and `FindingKind::effect` cannot disagree. Every finding still
+/// counts in `mapping_findings`.
+#[tokio::test]
+async fn findings_count_by_what_each_does_to_a_wait() {
+    let (_data, _tree, catalog, root) = fixture().await;
+    let id = root.status().root_id;
+    catalog
+        .run_admin(move |connection| {
+            for (name, reason) in [
+                ("edited", "export-conflict"),
+                ("deleted", "export-conflict"),
+                ("a", "collision"),
+                (r"dir\file", "host-restriction"),
+                ("x/.DS_Store", "ignored"),
+            ] {
+                connection
+                    .execute(
+                        "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,'bucket',?2,'00000000000000000000000000000000',1,?3,'project')",
+                        params![id, name, reason],
+                    )
+                    .map_err(unavailable)?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let summary = root.observation().await.unwrap();
+    let listed = root.findings_page(0, 256).await.unwrap();
+    let counted = |effect| {
+        listed
+            .iter()
+            .filter(|finding| finding.reason.effect() == effect)
+            .count() as u64
+    };
+    assert_eq!(
+        (
+            summary.mapping_findings,
+            summary.blocking_findings,
+            summary.unmapped_findings
+        ),
+        (
+            listed.len() as u64,
+            counted(FindingEffect::Blocks),
+            counted(FindingEffect::Reports)
+        )
+    );
+    assert_eq!(
+        (
+            summary.mapping_findings,
+            summary.blocking_findings,
+            summary.unmapped_findings
+        ),
+        (5, 2, 2)
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn observation_schema_migrates_existing_roots_and_resets_with_catalog() {
     let (data, tree, catalog, root) = fixture().await;

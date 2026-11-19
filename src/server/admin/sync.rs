@@ -11,12 +11,12 @@ use crate::{
         MAX_PAGE, OpaqueId, Ordinal, PageLimit,
         authority::ControlAuthority,
         deletions::{Candidate, DeletionFence, DeletionSet},
-        observation::{ObservationCursor, Summary},
+        observation::{ObservationCursor, PauseReason, Summary},
         root::{RootError, RootLease, RootStatus},
     },
     sync::{
         Cause, MirrorState, Reconciliation,
-        control::{Command, ControlError, Registration, WaitReason},
+        control::{Command, ControlError, Registration, WaitReason, WaitResult},
         handshake,
     },
 };
@@ -144,6 +144,62 @@ struct Rescan {}
 #[serde(deny_unknown_fields)]
 struct Wait {
     timeout_ms: Option<u64>,
+    require_no_findings: Option<bool>,
+}
+
+/// What a wait that is otherwise ready does about objects whose names the tree cannot hold.
+/// The mirror decides the wait the same way for both; only this answer differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnmappedObjects {
+    /// Succeed and report how many remain: they stay reachable through the API.
+    Report,
+    /// Fail as `FindingsPending` while any remain, for a caller that needs every object in the
+    /// tree.
+    Refuse,
+}
+
+impl From<bool> for UnmappedObjects {
+    /// `require_no_findings`, which the request carries as a boolean.
+    fn from(required: bool) -> Self {
+        if required { Self::Refuse } else { Self::Report }
+    }
+}
+
+impl UnmappedObjects {
+    fn decide(self, result: WaitResult) -> WaitResult {
+        let unmapped = result.findings.map_or(0, |findings| findings.unmapped);
+        match self {
+            Self::Refuse if result.reason == WaitReason::Ready && unmapped > 0 => {
+                result.with_reason(WaitReason::FindingsPending)
+            }
+            Self::Refuse | Self::Report => result,
+        }
+    }
+}
+
+/// The answer to `POST /_internal/sync/wait`: the mirror's result, the findings it leaves behind
+/// with the revision that lists them, and for a wait that failed, what lets the next one succeed.
+#[derive(Serialize)]
+struct WaitAnswer<'a> {
+    #[serde(flatten)]
+    result: &'a WaitResult,
+    findings: Option<WaitFindingsAnswer>,
+    /// The reason a paused root recorded, which its remedy follows.
+    paused_reason: Option<PauseReason>,
+    remedy: Option<&'static str>,
+}
+
+/// The objects the tree cannot hold, and the findings revision whose view lists them.
+#[derive(Serialize)]
+struct WaitFindingsAnswer {
+    unmapped: u64,
+    revision: String,
+}
+
+/// The revision that binds the findings view: this server session's ID and the observation
+/// revision, so that a restart invalidates it as well as any change of a finding.
+fn findings_revision(session: &str, observation_revision: i64) -> String {
+    format!("{session}{observation_revision:016x}")
 }
 
 /// Every answer carries this release's version, refusals included, so that `gcs-mimic sync`
@@ -244,13 +300,24 @@ async fn control(
         }
         Control::Approve => mutate(request, Mutation::Approve, registration, identity, ctx).await,
         Control::Rescan => mutate(request, Mutation::Rescan, registration, identity, ctx).await,
-        Control::Wait => wait(request, registration, identity, ctx, preparation_deadline).await,
+        Control::Wait => {
+            wait(
+                request,
+                &registration,
+                &root,
+                identity,
+                ctx,
+                preparation_deadline,
+            )
+            .await
+        }
     }
 }
 
 async fn wait(
     request: Request<RequestBody>,
-    registration: Registration,
+    registration: &Registration,
+    root: &RootLease,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
     preparation_deadline: tokio::time::Instant,
@@ -267,7 +334,9 @@ async fn wait(
     .await
     .map_err(|_| busy())??;
     let value: Wait = serde_json::from_slice(&bytes).map_err(|_| {
-        ApiError::invalid_argument("Send an empty JSON object or timeout_ms from 1 through 60000")
+        ApiError::invalid_argument(
+            "Send an empty JSON object, timeout_ms from 1 through 60000, or the boolean require_no_findings",
+        )
     })?;
     let timeout = value.timeout_ms.unwrap_or(10_000);
     if !(1..=60_000).contains(&timeout) {
@@ -275,11 +344,13 @@ async fn wait(
             "timeout_ms must be 1 through 60000",
         ));
     }
+    let unmapped = UnmappedObjects::from(value.require_no_findings.unwrap_or(false));
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout);
     // The bounded handler deadline replaces the request deadline while the server observes work.
     crate::server::begin_catalog_wait_until(ctx.activity, Some(deadline)).await;
     let (reply, receive) = tokio::sync::oneshot::channel();
     let settling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let authority = ControlAuthority::new(ctx.config.seed_project.clone(), identity.clone());
     let command = Command::Wait {
         deadline,
         settling: settling.clone(),
@@ -287,19 +358,33 @@ async fn wait(
         identity,
     };
     // Time spent in line counts: the caller asked for an answer within this timeout.
-    let observed = tokio::time::timeout_at(deadline, submit(&registration, command, receive)).await;
-    let result = match observed {
+    let observed = tokio::time::timeout_at(deadline, submit(registration, command, receive)).await;
+    let result = unmapped.decide(match observed {
         Ok(result) => result?.map_err(|error| control_error(&error))?,
         Err(_) if settling.load(std::sync::atomic::Ordering::Acquire) => {
-            crate::sync::control::WaitResult::result(
-                crate::sync::control::WaitReason::SourceChanging,
-                None,
-                None,
-            )
+            WaitResult::result(WaitReason::SourceChanging, None, None)
         }
-        Err(_) => crate::sync::control::WaitResult::timeout(),
+        Err(_) => WaitResult::timeout(),
+    });
+    // The mirror answers a paused wait without the reason, which the root recorded.
+    let paused_reason = if result.reason == WaitReason::Paused {
+        root.observation_for(authority)
+            .await
+            .map_err(|error| root_error(&error))?
+            .paused_reason
+    } else {
+        None
     };
-    let mut response = bounded(&super::encode(&result)?)?;
+    let answer = WaitAnswer {
+        findings: result.findings.map(|findings| WaitFindingsAnswer {
+            unmapped: findings.unmapped,
+            revision: findings_revision(&registration.session, findings.observation_revision),
+        }),
+        paused_reason,
+        remedy: result.reason.remedy(paused_reason),
+        result: &result,
+    };
+    let mut response = bounded(&super::encode(&answer)?)?;
     if result.timed_out {
         *response.status_mut() = StatusCode::REQUEST_TIMEOUT
     } else if !result.completed {
@@ -636,7 +721,7 @@ async fn status(
             None,
         ),
     };
-    let findings_revision = format!("{session}{:016x}", observation.revision);
+    let findings_revision = findings_revision(session, observation.revision);
     match page {
         Page::Findings(query) => {
             if query.revision != findings_revision {
