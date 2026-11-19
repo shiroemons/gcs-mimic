@@ -332,9 +332,12 @@ the file is replaced with the API's bytes and the edit is retained as a
 conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;
 restoring it publishes the edit. An empty directory where an object's file
 belongs, such as `a/` after `a/x` was deleted through the API and `a` was
-created, is removed and replaced by the file. A directory that holds anything,
-even only `.DS_Store`, stays as it is, and that object is reported as a
-`directory-occupied` finding. Object names containing `\`, and other names
+created, is removed and replaced by the file. A directory that holds only
+Finder's `.DS_Store` counts as empty: that file goes with the directory, and
+nothing else is ever removed from one. A directory that holds anything else,
+even only a hidden file such as `._x` or an editor's swap file, stays as it is,
+and that object is reported as a `directory-occupied` finding. Object names
+containing `\`, and other names
 that cannot be mapped to host file names, are skipped without stopping the
 mirror; they stay available through the API. `gcs-mimic sync wait` succeeds
 past them: it counts them and prints one line with the command that lists them,

@@ -89,27 +89,105 @@ async fn an_empty_directory_gives_way_to_the_export() {
     fixture.close().await;
 }
 
-/// A directory that holds anything stays, with what it holds: a file, a file that scans ignore,
-/// an editor's swap file, or an empty directory. The removal never lists or empties it.
+/// What a test puts in the directory at the target.
+#[derive(Clone, Copy, Debug)]
+enum Held {
+    /// A regular file.
+    File(&'static str),
+    /// An empty directory.
+    Directory(&'static str),
+    /// A symlink to a regular file outside the directory.
+    Symlink(&'static str),
+}
+
+impl Held {
+    fn name(self) -> &'static str {
+        match self {
+            Self::File(name) | Self::Directory(name) | Self::Symlink(name) => name,
+        }
+    }
+
+    /// Puts this entry into `directory`, a symlink pointing at `outside`.
+    fn put(self, directory: &std::path::Path, outside: &std::path::Path) {
+        let path = directory.join(self.name());
+        match self {
+            Self::File(_) => fs::write(path, b"external").unwrap(),
+            Self::Directory(_) => fs::create_dir(path).unwrap(),
+            Self::Symlink(_) => std::os::unix::fs::symlink(outside, path).unwrap(),
+        }
+    }
+
+    /// Checks that this entry is still in `directory` as it was put there.
+    fn assert_kept(self, directory: &std::path::Path) {
+        let path = directory.join(self.name());
+        match self {
+            Self::File(_) => assert_eq!(fs::read(path).unwrap(), b"external"),
+            Self::Directory(_) => assert!(path.is_dir()),
+            Self::Symlink(_) => assert!(path.is_symlink()),
+        }
+    }
+}
+
+/// A directory that holds anything but a regular `.DS_Store` stays, with everything it holds: a
+/// file, an editor's swap file or AppleDouble file that scans ignore, an empty directory, a
+/// `.DS_Store` beside another file, a `.DS_Store` that is a directory or a symlink, and more
+/// entries than a removal lists. Nothing in it is removed, not even its `.DS_Store`. On macOS,
+/// `rmdir` itself removes a directory that holds only an AppleDouble file of a name it does not
+/// hold, so the `._a` case fails unless the removal lists the directory first.
 #[tokio::test]
 async fn a_directory_that_holds_anything_stays_a_collision() {
-    for held in ["file", ".DS_Store", ".a.swp", "inner"] {
+    let crowded: Vec<Held> = std::iter::once(Held::File(".DS_Store"))
+        .chain(
+            ["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"]
+                .into_iter()
+                .map(Held::File),
+        )
+        .collect();
+    let cases: [&[Held]; 8] = [
+        &[Held::File("file")],
+        &[Held::File(".a.swp")],
+        &[Held::File("._a")],
+        &[Held::Directory("inner")],
+        &[Held::File(".DS_Store"), Held::File("file")],
+        &[Held::Directory(".DS_Store")],
+        &[Held::Symlink(".DS_Store")],
+        &crowded,
+    ];
+    for held in cases {
         let fixture = Fixture::new().await;
         let operation = begin_over_directory(&fixture).await;
-        let entry = fixture.tree.0.join(DIRECTORY).join(held);
-        if held == "inner" {
-            fs::create_dir(&entry).unwrap();
-        } else {
-            fs::write(&entry, b"external").unwrap();
+        let directory = fixture.tree.0.join(DIRECTORY);
+        let outside = fixture.data.0.join("outside");
+        fs::write(&outside, b"outside").unwrap();
+        for entry in held {
+            entry.put(&directory, &outside);
         }
         let result = finish(&fixture, &operation).await.unwrap();
-        assert_kept(&fixture, result, &[held]).await;
-        if held != "inner" {
-            assert_eq!(fs::read(&entry).unwrap(), b"external");
+        let mut names = held.iter().map(|entry| entry.name()).collect::<Vec<_>>();
+        names.sort_unstable();
+        assert_kept(&fixture, result, &names).await;
+        for entry in held {
+            entry.assert_kept(&directory);
         }
+        assert_eq!(fs::read(&outside).unwrap(), b"outside", "{held:?}");
         drop(operation);
         fixture.close().await;
     }
+}
+
+/// A directory that holds only a regular `.DS_Store`, which Finder writes into every directory it
+/// shows, gives way like an empty one: the export removes that file and the directory and
+/// installs the object in their place.
+#[tokio::test]
+async fn a_directory_that_holds_only_ds_store_gives_way() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    fs::write(fixture.tree.0.join(DIRECTORY).join(".DS_Store"), b"finder").unwrap();
+    let result = finish(&fixture, &operation).await.unwrap();
+    assert_exported(&fixture, result).await;
+    assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
+    drop(operation);
+    fixture.close().await;
 }
 
 /// What the catalog records about a path at or below the target.

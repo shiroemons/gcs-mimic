@@ -28,6 +28,38 @@ impl Paths {
         fault::hit_io(&self.tree, step)?;
         fault::hit_io(&self.data, step)
     }
+    /// Records that installation unlinks `file`, the removable metadata file `name` in the
+    /// directory at `item`'s target, before the unlink.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            clippy::unused_self,
+            reason = "only Unix models unlinks under the fault roots"
+        )
+    )]
+    pub(super) fn unlinking_metadata(
+        &self,
+        item: &Pending,
+        name: &str,
+        file: &File,
+    ) -> Result<(), Error> {
+        #[cfg(unix)]
+        fault::unlinked(&self.tree.join(&item.path).join(name), file)?;
+        #[cfg(not(unix))]
+        let _ = (item, name, file);
+        Ok(())
+    }
+
+    /// Records the sync of the directory at `item`'s target that each metadata unlink ran, then
+    /// stops at the step after those unlinks and before the directory's removal.
+    pub(super) fn metadata_removed(&self, item: &Pending) -> Result<(), Error> {
+        #[cfg(unix)]
+        fault::dir_synced(&self.tree.join(&item.path));
+        #[cfg(not(unix))]
+        let _ = item;
+        self.hit(Step::SyncDirectoryMetadataRemoved)
+    }
+
     /// Records that installation removed the empty directory at `item`'s target, then stops at
     /// the step before its parent's sync makes that durable.
     pub(in crate::storage::catalog::sync_state::writeback) fn directory_removed(

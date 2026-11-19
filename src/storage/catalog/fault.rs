@@ -131,6 +131,10 @@ pub(crate) enum Step {
     SyncCopySync,
     /// After the copied file and workspace are synced, before installation.
     SyncCopyDurable,
+    /// After installation unlinked the removable metadata files, such as `.DS_Store`, from the
+    /// directory that holds its target's name, and each unlink synced that directory, before the
+    /// directory's removal.
+    SyncDirectoryMetadataRemoved,
     /// Before installation removes the empty directory that holds its target's name. An injected
     /// I/O error stands in for the removal's own failure.
     SyncEmptyDirectoryRemove,

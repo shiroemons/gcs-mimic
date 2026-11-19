@@ -21,6 +21,34 @@ fn the_range_below_a_name_takes_in_no_sibling() {
     }
 }
 
+/// Every name a removal may take out of a directory is one that scans skip as an ignored file
+/// wherever it lies, so removing it loses nothing the tree would publish as an object.
+#[test]
+fn every_removable_metadata_name_is_one_scans_ignore() {
+    use crate::sync::entries::{EntryClass, Skip, classify};
+    let identity = fsutil::FileIdentity {
+        device: 1,
+        inode: 1,
+        size: 0,
+        modified_ns: 0,
+        changed_ns: 0,
+    };
+    for name in REMOVABLE_METADATA {
+        assert!(crate::source_tree::is_ignored_regular_file(name), "{name}");
+        let entry = crate::sync::tree::TreeEntry {
+            path: std::path::Path::new("test-bucket/a").join(name),
+            identity: Some(identity),
+            directory: false,
+            error: None,
+        };
+        assert_eq!(
+            classify(&entry, RootNaming::posix()),
+            EntryClass::Skipped(Skip::IgnoredName),
+            "{name}"
+        );
+    }
+}
+
 /// Proves `path` in `tree`.
 fn prove(tree: &TestDir, path: &str) -> Result<RemovableDirectory, Kept> {
     RemovableDirectory::prove(

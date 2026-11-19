@@ -147,9 +147,9 @@ async fn a_transient_removal_failure_is_retried() {
     started.close().await;
 }
 
-/// A directory that holds only a file scans ignore keeps the object out of the tree as one the
-/// tree cannot hold: the wait is ready, the baseline completes and a file deleted from the tree
-/// still deletes its object.
+/// A directory that holds only a file scans ignore, but that a removal does not take out, keeps
+/// the object out of the tree as one the tree cannot hold: the wait is ready, the baseline
+/// completes and a file deleted from the tree still deletes its object.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_deletions() {
     let (data, tree, catalog, bucket, root) = live_fixture().await;
@@ -157,7 +157,7 @@ async fn a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_del
     publish_named(&catalog, &bucket, "a", BODY, Origin::Api).await;
     publish_named(&catalog, &bucket, "gone", BODY, Origin::Api).await;
     fs::create_dir_all(tree.0.join(TARGET)).unwrap();
-    fs::write(tree.0.join(TARGET).join(".DS_Store"), b"finder").unwrap();
+    fs::write(tree.0.join(TARGET).join(".x.swp"), b"editor").unwrap();
     let mut started = Started::start(catalog, &data.0, &tree.0).await;
     let waited = started.wait().await.unwrap();
     assert_eq!(waited.reason, WaitReason::Ready);
@@ -172,8 +172,88 @@ async fn a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_del
         .get_object(&bucket, &ObjectName::new("gone").unwrap(), None)
         .await;
     assert!(matches!(gone, Err(AdminError::NotFound)), "{gone:?}");
-    assert!(tree.0.join(TARGET).join(".DS_Store").is_file());
+    assert_eq!(
+        fs::read(tree.0.join(TARGET).join(".x.swp")).unwrap(),
+        b"editor"
+    );
     started.close().await;
+}
+
+/// A crash or power loss after the export unlinked the `.DS_Store` of the directory at its
+/// target, and before it removed that directory, recovers to the API state on restart: the
+/// unlink was synced, the snapshot holds the empty directory, and the restart's reconciliation
+/// removes it and installs the object. A user's file elsewhere in the bucket stays in the
+/// snapshot and in the tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn crashes_and_power_losses_after_the_metadata_unlink_recover_to_the_api_state() {
+    const KEPT: &str = "test-bucket/notes/keep.txt";
+    for &crash in Crash::ALL {
+        let case = format!("{crash:?}");
+        let (data, tree, catalog, bucket, _) = live_fixture().await;
+        fs::create_dir_all(tree.0.join(TARGET)).unwrap();
+        fs::write(tree.0.join(TARGET).join(".DS_Store"), b"finder").unwrap();
+        fs::create_dir_all(tree.0.join("test-bucket/notes")).unwrap();
+        fs::write(tree.0.join(KEPT), b"user").unwrap();
+        let mut started = Started::start(catalog, &data.0, &tree.0).await;
+        assert_eq!(started.wait().await.unwrap().reason, WaitReason::Ready);
+        let snapshots = TestDir::new();
+        let (snapshot_data, snapshot_tree) = (snapshots.0.join("data"), snapshots.0.join("tree"));
+        let step = Step::SyncDirectoryMetadataRemoved;
+        fault::arm(&tree.0, step, 0, crash.fault(snapshot_tree.clone()));
+        started
+            .catalog
+            .inject(step, 0, Fault::Snapshot(snapshot_data.clone()));
+        let record = publish_named(&started.catalog, &bucket, "a", BODY, Origin::Api).await;
+        assert_eq!(
+            started.wait().await.unwrap().reason,
+            WaitReason::Ready,
+            "{case}"
+        );
+        assert_eq!(fault::pending(&tree.0), 0, "{case}");
+        assert_eq!(started.catalog.pending_faults(), 0, "{case}");
+        started.close().await;
+
+        // The snapshot holds the directory without its `.DS_Store` and the user's file as it was.
+        assert!(snapshot_tree.join(TARGET).is_dir(), "{case}");
+        assert!(
+            !snapshot_tree.join(TARGET).join(".DS_Store").exists(),
+            "{case}"
+        );
+        assert_eq!(
+            fs::read(snapshot_tree.join(KEPT)).unwrap(),
+            b"user",
+            "{case}"
+        );
+        restore_tree(&snapshot_tree, &tree.0, &[TARGET]);
+        assert_eq!(workspace_bodies(&tree.0).len(), 1, "{case}");
+        assert_eq!(Held::at(&tree.0.join(TARGET)), Held::Directory, "{case}");
+
+        let catalog = Catalog::open(&snapshot_data).await.unwrap();
+        crate::storage::sync_state::writeback::retrack_restored(&catalog, &tree.0)
+            .await
+            .unwrap();
+        let mut started = Started::start(catalog, &snapshot_data, &tree.0).await;
+        assert_eq!(
+            started.wait().await.unwrap().reason,
+            WaitReason::Ready,
+            "{case}"
+        );
+        assert!(conflict_bodies(&snapshot_data).is_empty(), "{case}");
+        assert_eq!(Held::at(&tree.0.join(TARGET)), Held::Object, "{case}");
+        assert_eq!(
+            tracked(&started, &bucket).await,
+            Some(record.generation),
+            "{case}"
+        );
+        assert_eq!(fs::read(tree.0.join(KEPT)).unwrap(), b"user", "{case}");
+        assert!(workspace_bodies(&tree.0).is_empty(), "{case}");
+        assert!(
+            started.root.findings_page(0, 256).await.unwrap().is_empty(),
+            "{case}"
+        );
+        started.close().await;
+        drop((data, snapshots));
+    }
 }
 
 /// A symlink at the target, to an empty directory or to nothing, is never followed or removed:

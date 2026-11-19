@@ -83,7 +83,7 @@ pub(crate) fn resume_retry_remedy() -> String {
 /// the `sync_directory_kept` warning give it.
 pub(crate) fn occupied_directory_remedy() -> String {
     format!(
-        "A directory holds this object's file name. Move everything in it out of the tree, including hidden files such as .DS_Store, then run {}; the empty directory is then replaced by the file",
+        "A directory holds this object's file name. Move everything in it out of the tree, including hidden files such as ._* or editor swap files, then run {}; the directory is then replaced by the file, along with a .DS_Store if that is all it holds",
         Advised::Rescan
     )
 }

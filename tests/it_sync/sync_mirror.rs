@@ -347,11 +347,13 @@ fn sides(summary: &sync::Reconciliation) -> (u64, u64) {
     )
 }
 
-/// An object whose target name an empty directory holds is exported in its place. A directory
-/// that holds anything stays with what it holds and reports the object, even when all it holds is
-/// a file that scans ignore. Such an object is one the tree cannot hold, not a tree entry the pass
-/// could not take in: once the external file is gone, the baseline completes while the directory
-/// that holds only an ignored file stays, and the emptied directory gives way to its object.
+/// An object whose target name an empty directory holds is exported in its place, and so is one
+/// whose directory holds only Finder's `.DS_Store`, which goes with the directory. A directory
+/// that holds anything else stays with what it holds and reports the object, even when all it
+/// holds is a file that scans ignore. Such an object is one the tree cannot hold, not a tree entry
+/// the pass could not take in: once the external file is gone, the baseline completes while the
+/// directory that holds only an ignored file stays, and the emptied directory gives way to its
+/// object.
 #[cfg(unix)]
 #[tokio::test]
 async fn runtime_mapping_exports_over_an_empty_directory_and_keeps_one_that_holds_anything() {
@@ -359,31 +361,31 @@ async fn runtime_mapping_exports_over_an_empty_directory_and_keeps_one_that_hold
     let tree = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
     let name = bucket(&catalog, "test-bucket", "owner").await;
-    for key in ["empty", "full", "ignored"] {
+    for key in ["empty", "finder", "full", "ignored"] {
         object(&catalog, &name, key, b"api").await;
+        fs::create_dir_all(tree.0.join("test-bucket").join(key)).unwrap();
     }
-    for directory in ["empty", "full", "ignored"] {
-        fs::create_dir_all(tree.0.join("test-bucket").join(directory)).unwrap();
-    }
+    fs::write(tree.0.join("test-bucket/finder/.DS_Store"), b"finder").unwrap();
     fs::write(tree.0.join("test-bucket/full/file"), b"external").unwrap();
-    fs::write(tree.0.join("test-bucket/ignored/.DS_Store"), b"finder").unwrap();
+    fs::write(tree.0.join("test-bucket/ignored/.x.swp"), b"editor").unwrap();
     let config = config(&data, &tree);
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
     let summary = sync::reconcile(&catalog, &root).await.unwrap();
-    assert_eq!(summary.exported, 1);
+    assert_eq!(summary.exported, 2);
     assert_eq!(sides(&summary), (2, 0));
     // Only the external file, which a reconciliation does not import, keeps the baseline open.
     assert_eq!(summary.external_only, 1);
     assert!(!summary.baseline_complete);
     assert_eq!(fs::read(tree.0.join("test-bucket/empty")).unwrap(), b"api");
+    assert_eq!(fs::read(tree.0.join("test-bucket/finder")).unwrap(), b"api");
     assert_eq!(reported(&root).await, ["full", "ignored"]);
     assert_eq!(
         fs::read(tree.0.join("test-bucket/full/file")).unwrap(),
         b"external"
     );
     assert_eq!(
-        fs::read(tree.0.join("test-bucket/ignored/.DS_Store")).unwrap(),
-        b"finder"
+        fs::read(tree.0.join("test-bucket/ignored/.x.swp")).unwrap(),
+        b"editor"
     );
 
     fs::remove_file(tree.0.join("test-bucket/full/file")).unwrap();
