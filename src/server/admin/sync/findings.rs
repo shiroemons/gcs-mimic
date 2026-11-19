@@ -299,7 +299,7 @@ mod tests {
         let revision = crate::sync::advice::SAMPLE_FINDINGS_REVISION;
         let at_hand = AtHand {
             findings_revision: Some(revision),
-            deletion_revision: None,
+            deletion: None,
         };
         let root_stop = Item {
             category: FindingCategory::RootStop,

@@ -13,7 +13,10 @@ use super::{
     outstanding::Holdup,
 };
 use crate::storage::sync_state::{
-    OpaqueId, deletions::Refusal, observation::PauseReason, writeback::Halt,
+    OpaqueId,
+    deletions::{DeletionSet, Refusal},
+    observation::PauseReason,
+    writeback::Halt,
 };
 use std::fmt;
 
@@ -118,9 +121,38 @@ impl fmt::Display for UnmappedCount {
 pub(crate) struct AtHand<'a> {
     /// The findings revision the answer read its findings at.
     pub(crate) findings_revision: Option<&'a str>,
-    /// The revision of the deletion set that waits for approval.
-    pub(crate) deletion_revision: Option<&'a str>,
+    /// The deletion set that waits for a decision.
+    pub(crate) deletion: Option<AwaitingSet>,
 }
+
+/// The deletion set that waits for a decision, as advice names it: its revision, and how many
+/// of the files synchronization tracked are missing, which tells a deliberate deletion of a
+/// few files from a directory that went as a whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AwaitingSet {
+    pub(crate) revision: OpaqueId,
+    /// The tracked files that are missing, whose objects the set would delete.
+    pub(crate) missing: u64,
+    /// The files synchronization tracked when the set was taken.
+    pub(crate) tracked: u64,
+}
+
+impl From<&DeletionSet> for AwaitingSet {
+    fn from(set: &DeletionSet) -> Self {
+        Self {
+            revision: set.revision,
+            missing: set.candidate_count,
+            tracked: set.baseline_count,
+        }
+    }
+}
+
+/// The set the catalog renders where an answer would have a real one at hand.
+const SAMPLE_AWAITING_SET: AwaitingSet = AwaitingSet {
+    revision: OpaqueId::SAMPLE,
+    missing: 150,
+    tracked: 200,
+};
 
 /// A findings revision and a deletion revision of the shapes the command takes, which the
 /// catalog renders where an answer would have real ones at hand.
@@ -172,7 +204,7 @@ pub fn catalog() -> Vec<String> {
         AtHand::default(),
         AtHand {
             findings_revision: Some(SAMPLE_FINDINGS_REVISION),
-            deletion_revision: Some(SAMPLE_DELETION_REVISION),
+            deletion: Some(SAMPLE_AWAITING_SET),
         },
     ];
     let holdups = PauseReason::ALL.into_iter().map(Holdup::Paused).chain([

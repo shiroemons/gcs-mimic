@@ -246,24 +246,39 @@ pub(crate) fn unclassified_collision_remedy() -> String {
     )
 }
 
-/// What lets external deletions go on: a decision on the deletion set at the revision at hand,
-/// which approves deleting the objects or rejects it and writes the files back from them, or
-/// files put back.
+/// What lets external deletions go on once the files the set at hand counts went missing:
+/// inspecting the set, then the ways out that keep the objects before the one that deletes
+/// them, each with the case it is for. A rejection writes the files back from the objects,
+/// files restored by hand let the next pass find nothing missing, and only an approval deletes.
+/// A mount that failed looks like a directory emptied at once; it comes before the rejection,
+/// since a rejection before the mount returns writes the files under the mount point, where the
+/// mount then hides them, and the mount alone brings them back.
 pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
-    match at_hand.deletion_revision {
-        Some(revision) => format!(
-            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it to delete the objects: {}; reject it to write the files back from the objects: {}; or restore the files and wait again: {}",
-            Advised::Deletions(Some(revision)),
-            Advised::Approve(revision),
-            Advised::Reject(revision),
-            Advised::Wait
-        ),
-        None => format!(
-            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set, whose revision the approve and reject subcommands take as --deletion-set: {}; approve it to delete the objects, or reject it to write the files back from the objects; or restore the files and wait again: {}",
+    const MOUNT: &str = "if a mount failed, fix the mount and restart the server, which brings the files back, before anything else: a rejection before the mount returns writes them under the mount point, where the mount then hides them";
+    const REJECT: &str =
+        "if the files went by mistake, reject the set to write them back from the objects";
+    const RESTORE: &str = "or restore the files yourself and wait again";
+    const APPROVE: &str =
+        "if the files were deleted on purpose, approve the set to delete their objects";
+    let Some(set) = at_hand.deletion else {
+        return format!(
+            "Files that synchronization tracked are missing, and deleting their objects waits for a decision. Inspect the deletion set, whose revision the reject and approve subcommands take as --deletion-set: {}; {MOUNT}; {REJECT}; {RESTORE}: {}; {APPROVE}",
             Advised::Deletions(None),
             Advised::Wait
-        ),
-    }
+        );
+    };
+    let revision = set.revision.to_hex();
+    let tracked = if set.tracked == 1 { "file" } else { "files" };
+    let are = if set.missing == 1 { "is" } else { "are" };
+    format!(
+        "{} of the {} {tracked} that synchronization tracked {are} missing, and deleting their objects waits for a decision. Inspect the deletion set: {}; {MOUNT}; {REJECT}: {}; {RESTORE}: {}; {APPROVE}: {}",
+        set.missing,
+        set.tracked,
+        Advised::Deletions(Some(&revision)),
+        Advised::Reject(&revision),
+        Advised::Wait,
+        Advised::Approve(&revision)
+    )
 }
 
 /// What lets a wait that refuses objects whose names the tree cannot hold succeed while `count`
@@ -821,6 +836,77 @@ impl WaitResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::advice::AwaitingSet;
+
+    /// The remedy of a set waiting for a decision counts the missing files against the tracked
+    /// ones, and names the inspection first, then a failed mount to fix before anything else,
+    /// then the ways out that keep the objects, rejecting and restoring by hand, before the
+    /// approval that deletes them; it says which files call for which decision. Without a set at
+    /// hand it names the same steps without a revision.
+    #[test]
+    fn a_set_awaiting_a_decision_names_the_ways_that_keep_the_objects_first() {
+        let set = AwaitingSet {
+            revision: OpaqueId::SAMPLE,
+            missing: 150,
+            tracked: 200,
+        };
+        let revision = set.revision.to_hex();
+        let remedy = deletion_approval_remedy(AtHand {
+            deletion: Some(set),
+            ..AtHand::default()
+        });
+        assert!(
+            remedy.starts_with("150 of the 200 files that synchronization tracked are missing"),
+            "{remedy}"
+        );
+        let order = |remedy: &str, steps: &[String]| {
+            let at: Vec<_> = steps
+                .iter()
+                .map(|step| {
+                    remedy
+                        .find(step.as_str())
+                        .unwrap_or_else(|| panic!("{step}: {remedy}"))
+                })
+                .collect();
+            assert!(at.is_sorted(), "{remedy}");
+        };
+        let steps = [
+            Advised::Deletions(Some(&revision)).to_string(),
+            "if a mount failed, fix the mount and restart the server".to_owned(),
+            "if the files went by mistake, reject".to_owned(),
+            Advised::Reject(&revision).to_string(),
+            format!(
+                "restore the files yourself and wait again: {}",
+                Advised::Wait
+            ),
+            "if the files were deleted on purpose, approve".to_owned(),
+            Advised::Approve(&revision).to_string(),
+        ];
+        order(&remedy, &steps);
+        let one = deletion_approval_remedy(AtHand {
+            deletion: Some(AwaitingSet {
+                missing: 1,
+                tracked: 1,
+                ..set
+            }),
+            ..AtHand::default()
+        });
+        assert!(
+            one.starts_with("1 of the 1 file that synchronization tracked is missing"),
+            "{one}"
+        );
+        let without = deletion_approval_remedy(AtHand::default());
+        order(
+            &without,
+            &[
+                Advised::Deletions(None).to_string(),
+                "fix the mount".to_owned(),
+                "reject the set".to_owned(),
+                format!("wait again: {}", Advised::Wait),
+                "approve the set".to_owned(),
+            ],
+        );
+    }
 
     /// A refused decision names what became of its set and the command that follows: the
     /// status or the wait for a set decided already, the new set's view and the same decision
@@ -974,7 +1060,7 @@ mod tests {
         assert_eq!(refused.holdup(), Some(Holdup::UnmappedObjects { count: 2 }));
         let at_hand = AtHand {
             findings_revision: Some(super::super::advice::SAMPLE_FINDINGS_REVISION),
-            deletion_revision: None,
+            deletion: None,
         };
         let remedy = refused.remedy(at_hand).unwrap();
         assert!(

@@ -16,7 +16,7 @@ use crate::{
     },
     sync::{
         Cause, Decision, MirrorState, Reconciliation, UnmappedObjects,
-        advice::AtHand,
+        advice::{AtHand, AwaitingSet},
         control::{
             Command, ControlError, PauseChange, Registration, Unfinished, WaitReason, WaitResult,
         },
@@ -368,11 +368,12 @@ async fn wait(
     // The mirror answers a paused wait with the reason it paused for, which the catalog may not
     // have recorded, and a wait for approval without the deletion set its remedy names.
     let paused_reason = result.paused_reason();
-    let deletion_revision = if result.reason == WaitReason::DeletionApproval {
+    let deletion = if result.reason == WaitReason::DeletionApproval {
         root.deletion_set_for(authority)
             .await
             .map_err(|error| root_error(&error))?
-            .map(|set| set.revision.to_hex())
+            .as_ref()
+            .map(AwaitingSet::from)
     } else {
         None
     };
@@ -382,7 +383,7 @@ async fn wait(
     });
     let at_hand = AtHand {
         findings_revision: findings.as_ref().map(|findings| findings.revision.as_str()),
-        deletion_revision: deletion_revision.as_deref(),
+        deletion,
     };
     let answer = WaitAnswer {
         remedy: result.remedy(at_hand),
@@ -764,12 +765,9 @@ async fn status(
             let mirror = registration.status.state();
             let set = published_set.as_ref();
             let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
-            let awaiting = set
-                .filter(|set| set.awaits_decision())
-                .map(|set| set.revision.to_hex());
-            let remedy = awaiting.as_deref().map(|revision| {
+            let remedy = set.filter(|set| set.awaits_decision()).map(|set| {
                 crate::sync::control::deletion_approval_remedy(AtHand {
-                    deletion_revision: Some(revision),
+                    deletion: Some(AwaitingSet::from(set)),
                     ..AtHand::default()
                 })
             });
@@ -851,7 +849,7 @@ async fn findings_page(
             });
         let at_hand = AtHand {
             findings_revision: Some(revision),
-            deletion_revision: None,
+            deletion: None,
         };
         let items = items
             .iter()

@@ -2,7 +2,11 @@
 
 use super::interrupt::{Interrupt, Interrupted};
 use super::{
-    SyncError, advice::AtHand, control::deletion_approval_remedy, mapping, mirror::PassGate,
+    SyncError,
+    advice::{AtHand, AwaitingSet},
+    control::deletion_approval_remedy,
+    mapping,
+    mirror::PassGate,
 };
 use crate::{
     config::Config,
@@ -161,23 +165,23 @@ async fn take_inventory(
     }
 }
 
-/// Warns that `set` waits for approval, with the commands that inspect, approve and reject it,
-/// which a wait gives too. Nothing else reports a guarded set until someone asks for the status.
+/// Warns that `set` waits for a decision, with the commands that inspect, reject and approve
+/// it, which a wait gives too. Nothing else reports a guarded set until someone asks for the
+/// status.
 fn warn_awaiting_approval(set: &DeletionSet) {
     match set.authorization {
         DeletionAuthorization::Granted | DeletionAuthorization::Rejected => {}
         DeletionAuthorization::Withheld => {
-            let revision = set.revision.to_hex();
             let at_hand = AtHand {
-                deletion_revision: Some(&revision),
+                deletion: Some(AwaitingSet::from(set)),
                 ..AtHand::default()
             };
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_deletion_approval_required",
                 serde_json::json!({
-                    "revision":revision,"candidates":set.candidate_count,"baseline":set.baseline_count,
-                    "remedy":deletion_approval_remedy(at_hand),
+                    "revision":set.revision.to_hex(),"candidates":set.candidate_count,
+                    "baseline":set.baseline_count,"remedy":deletion_approval_remedy(at_hand),
                 }),
             );
         }

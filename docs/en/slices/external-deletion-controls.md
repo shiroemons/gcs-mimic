@@ -152,8 +152,13 @@ or their bucket, with the same decision on that set; still waiting after an
 API write raced the decision, which may be sent again; or no set waiting.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,
-with its revision, its counts and the commands that inspect, approve and reject
-it, which the status also gives as `pending_deletion_remedy`; an
+with its revision, its counts and a remedy, which the status also gives as
+`pending_deletion_remedy`. The remedy says how many of the tracked files are
+missing and names, in this order, the deletion view; fixing a failed mount and
+restarting before anything else, since a rejection before the mount returns
+writes the files under the mount point, where the mount then hides them;
+rejecting the set for files that went by mistake; restoring the files and
+waiting again; and approving it for files deleted on purpose. An
 inventory that confirms it under the same revision does not log it again, and
 a restart, which never confirms an earlier set, logs the new one. Deletions that
 run log `sync_deletions_applied` with their count and their first ten paths in

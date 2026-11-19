@@ -18,8 +18,8 @@ gcs-mimic sync status --view findings --endpoint https://127.0.0.1:4443 --revisi
 gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
-gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync reject --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
+gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
@@ -199,7 +199,11 @@ recorded `paused_reason` for a pause and the remedy with the connection options
 filled in, such as `gcs-mimic sync rescan --endpoint https://127.0.0.1:4443` for
 a pause, `gcs-mimic sync conflicts` for conflicts and
 `gcs-mimic sync status --view deletions --revision` with the revision of the
-deletion set awaiting approval. A remedy names the findings view and the deletion
+deletion set awaiting approval. The remedy of that set says how many of the
+tracked files are missing, and names, in this order, the deletion view, fixing
+a failed mount and restarting the server before anything else, `reject` for
+files that went by mistake, restoring the files and waiting again, and
+`approve` for files deleted on purpose. A remedy names the findings view and the deletion
 view with the revision its answer read, and without one, such as in a log, the
 view without `--revision`; every command a remedy, a log event or the
 healthcheck names is rendered from one list of commands, each of which this
