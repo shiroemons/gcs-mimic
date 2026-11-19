@@ -372,6 +372,7 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
             &mut requests,
             &mut stopping,
             &mut controls,
+            crate::storage::sync_state::observation::PauseReason::ObserverFailure,
         ),
     )
     .await
