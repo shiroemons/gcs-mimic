@@ -105,6 +105,23 @@ impl Unobservable {
         }
     }
 
+    /// Whether this also stops the path itself, in exports and inventories alike, until it is
+    /// empty or holds a regular file again: only a directory or special file in the file's place,
+    /// which removing or replacing it would destroy. The other reasons leave a path that holds
+    /// nothing the mirror could destroy, so they only keep the object out of the deletion set.
+    pub(in crate::sync) fn stops_path(&self) -> bool {
+        match self {
+            Self::Replaced => true,
+            Self::BeyondLimit
+            | Self::InvalidPath
+            | Self::NameRejected
+            | Self::ParentBlocked
+            | Self::Alias
+            | Self::NameMismatch
+            | Self::Io(_) => false,
+        }
+    }
+
     /// What the user can do so that the path tells again whether its file was deleted.
     pub(in crate::sync) fn remedy(&self) -> &'static str {
         match self {

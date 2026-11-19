@@ -194,7 +194,7 @@ async fn unobservable(
     candidate: &Candidate,
     reason: &Unobservable,
 ) -> Result<(), SyncError> {
-    if matches!(reason, Unobservable::Replaced) {
+    if reason.stops_path() {
         record_replaced(root, &candidate.bucket, &candidate.name).await?;
     }
     diagnostics::emit(

@@ -1566,7 +1566,7 @@ impl LiveObject<'_> {
             .into_string()
             .map_err(|_| SyncError::Invariant("invalid export path"))?;
         match super::deletion::presence(self.root, path).await? {
-            super::deletion::Presence::Unobservable(super::deletion::Unobservable::Replaced) => {
+            super::deletion::Presence::Unobservable(reason) if reason.stops_path() => {
                 super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
                 Ok(true)
             }
