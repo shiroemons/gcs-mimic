@@ -968,7 +968,7 @@
           "Verify API/external create, overwrite, deletion and rename with multiple buckets while preserving checksums, immutable generations and bucket settings.",
           "Handle partial writes, editor replacement, duplicate/self/missed events and bounded rescans; verify interruption, restart, disk-full and visible conflict handling without silent data loss."
         ],
-        "deferred_scope": "One-time seed or import does not satisfy bidirectional synchronization. Initializer completion and full public-host configuration are not prerequisites. All sync runtime cases remain PENDING; file-notification library selection and Windows watcher support require sync-watcher review and owner dependency approval. Shared state owns its internals; required properties and acceptance handoffs are in the directory synchronization contract."
+        "deferred_scope": "One-time seed or import does not satisfy bidirectional synchronization. Initializer completion and full public-host configuration are not prerequisites. Most sync runtime cases pass and the sync-* cases still listed PENDING record the remaining scope; file watching uses the existing libc dependency (inotify and FSEvents) with no notification crate, and native Windows synchronization is considered separately. Shared state owns its internals; required properties and acceptance handoffs are in the directory synchronization contract."
       },
       {
         "id": "source-storage-contract",
@@ -1026,7 +1026,7 @@
           "Verify bounded rescan and restart/recovery across the visible directory, immutable blobs and SQLite before claiming compatibility."
         ],
         "open_decisions": [
-          "sync-watcher must obtain owner approval before selecting a file-notification dependency and verify Windows/native/bind-mount notification support; no library is selected by sync-contract.",
+          "File watching uses inotify and FSEvents through the existing libc dependency and adds no notification crate; Docker bind mount notification support still needs its own evidence, and native Windows synchronization is considered separately.",
           "Shared state chooses its internal identity/state/journal/admission/recovery mechanisms and benchmark thresholds; the directory synchronization contract requests properties and acceptance cases only."
         ],
         "reference": "docs/en/slices/directory-synchronization.md"
@@ -60473,7 +60473,7 @@
         },
         {
           "id": "sync-bounded-observation",
-          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and measure actual resource/latency behavior without inferred performance claims; owners sync-watcher and sync-ingest, dependency selection requires owner approval. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and record one short measurement at about 1,000 entries (a full rescan and one wait) as a fact, without a gate or inferred performance claims; owners sync-watcher and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -61388,7 +61388,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Native continuous observation, conditional create/edit ingestion and revision-bound guarded deletion have scoped macOS evidence. Conflict recovery, strict synchronization and final Linux/SDK/container execution remain under integration; native Windows and physical host-power-loss guarantees are not claimed. Permanent export I/O failures require fixing space/permissions before graceful drain can finish. See docs/en/slices/continuous-directory-observation.md and docs/en/slices/external-deletion-controls.md.",
+        "Native continuous observation, conditional create/edit ingestion and revision-bound guarded deletion have scoped macOS evidence. Conflict recovery, strict synchronization and final Linux/SDK/container execution remain under integration; native Windows and physical host-power-loss guarantees are not claimed. A permanent export I/O failure pauses synchronization, and graceful shutdown still interrupts the retry and releases the root. See docs/en/slices/continuous-directory-observation.md and docs/en/slices/external-deletion-controls.md.",
         "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration, sync and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target.",
         "Shared imported identity, batch/file publication and import journals preserve the declared source subset with conditional publication and restart evidence. Source class/customTime/ACL and memory history extend that subset; see docs/en/slices/source-state-preservation.md and docs/en/slices/source-memory-snapshot.md. Broader source parity and performance are not claimed.",
         "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
