@@ -165,10 +165,11 @@ fn inspect_catalog(path: &Path) -> Result<(i64, Connection), CatalogError> {
         Connection::open_in_memory()
     }?;
     connection.busy_timeout(Duration::from_secs(5))?;
+    // Temporary storage stays in memory for the reason `open_writable` gives.
     connection.execute_batch(
         "PRAGMA cache_size = -2048;
                  PRAGMA mmap_size = 0;
-                 PRAGMA temp_store = FILE;",
+                 PRAGMA temp_store = MEMORY;",
     )?;
     let version: i64 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
     validate_schema_version(version, CATALOG_SCHEMA_VERSION)?;
@@ -202,6 +203,15 @@ fn inspect_catalog(path: &Path) -> Result<(i64, Connection), CatalogError> {
 }
 
 /// Opens the catalog for writing in WAL mode with full synchronization.
+///
+/// Temporary storage stays in memory, as on the readers. Otherwise SQLite moves a savepoint or
+/// statement journal past 64 KiB, and a sort or transient index past the page cache, to a file in
+/// the first writable directory among `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`, `/usr/tmp`, `/tmp`
+/// and the working directory. A read-only root offers none of them, and the failure surfaced as
+/// `disk I/O error` on uploads whose savepoint journal had grown. In memory, a request or
+/// maintenance pass journals and sorts only what its own rows and `LIMIT` batches touch. A
+/// statement that rewrites every object of one bucket (a bucket soft delete or restore, enabling
+/// Autoclass) journals pages in proportion to that bucket, as do schema migrations and reset.
 #[expect(
     clippy::disallowed_methods,
     reason = "switches the journal mode once at open"
@@ -214,7 +224,7 @@ fn open_writable(path: &Path) -> Result<Connection, CatalogError> {
         "PRAGMA foreign_keys = ON;
                  PRAGMA cache_size = -2048;
                  PRAGMA mmap_size = 0;
-                 PRAGMA temp_store = FILE;",
+                 PRAGMA temp_store = MEMORY;",
     )?;
     let mode: String = connection.pragma_query_value(None, "journal_mode", |r| r.get(0))?;
     if mode != "wal" {

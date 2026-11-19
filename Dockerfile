@@ -61,7 +61,7 @@ HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=15 CMD ["gcs-
 ENTRYPOINT ["gcs-mimic"]
 # Like fake-gcs-server's `-data /data`, a bucket/object tree mounted at /data seeds every start.
 # scratch defines no PATH, and the exec-form HEALTHCHECK resolves `gcs-mimic` through it.
-# A large statement spills its journal to a temporary file, which /tmp cannot hold on a read-only
-# root; the data volume always can, and SQLite unlinks these files as soon as it opens them.
-ENV PATH=/usr/local/bin GCS_MIMIC_LISTEN=0.0.0.0:4443 GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic GCS_MIMIC_DEFAULT_SEED_DIR=/data SQLITE_TMPDIR=/var/lib/gcs-mimic
+# The catalog keeps SQLite's temporary storage in memory, so a read-only root needs no SQLite
+# temporary directory wherever the data directory is mounted.
+ENV PATH=/usr/local/bin GCS_MIMIC_LISTEN=0.0.0.0:4443 GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic GCS_MIMIC_DEFAULT_SEED_DIR=/data
 CMD ["serve"]

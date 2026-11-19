@@ -197,6 +197,110 @@ async fn an_error_after_a_batch_commit_keeps_every_upload_it_published() {
     catalog.close().await.unwrap();
 }
 
+/// Marks the child process of [`uploads_publish_without_a_writable_temporary_directory`].
+const NO_TEMPORARY_DIRECTORY: &str = "GCSM_TEST_NO_TEMPORARY_DIRECTORY";
+
+/// SQLite creates a temporary file in the first of `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`,
+/// `/usr/tmp`, `/tmp` and `.` that exists and is writable. A test cannot take the system
+/// directories away, so the child points `SQLITE_TMPDIR` at a directory whose path leaves no room
+/// in SQLite's 512-byte buffer for a temporary file name: SQLite picks it and then cannot create
+/// the file, as on a read-only root where no candidate is writable. Linux creates the file with
+/// `O_TMPFILE` and never names it, so only Apple platforms can take temporary files away this way.
+#[cfg(target_vendor = "apple")]
+#[tokio::test]
+async fn uploads_publish_without_a_writable_temporary_directory() {
+    if std::env::var_os(NO_TEMPORARY_DIRECTORY).is_some() {
+        return publish_long_names_without_temporary_files().await;
+    }
+    let base = TestDir::new();
+    let mut unusable = base.0.clone();
+    while unusable.as_os_str().len() < 520 {
+        unusable.push("t".repeat(100));
+    }
+    fs::create_dir_all(&unusable).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "storage::catalog::objects::upload::group_commit::tests::uploads_publish_without_a_writable_temporary_directory",
+            "--nocapture",
+        ])
+        .env(NO_TEMPORARY_DIRECTORY, "1")
+        .env("SQLITE_TMPDIR", &unusable)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Publishes batches of uploads whose savepoints each rewrite more existing pages than SQLite
+/// keeps in memory before it moves a sub-journal to a temporary file.
+#[cfg(target_vendor = "apple")]
+async fn publish_long_names_without_temporary_files() {
+    let data = TestDir::new();
+    assert_no_temporary_files(&data.0);
+    let catalog = open(&data.0).await;
+    // A name this long leaves room for only a few keys on an index page, so publishing one
+    // splits pages that existed before its savepoint opened.
+    let names: Vec<String> = (0..192_u32)
+        .map(|index| {
+            format!(
+                "{:08x}-{}",
+                index.wrapping_mul(0x9E37_79B9),
+                "n".repeat(900)
+            )
+        })
+        .collect();
+    let writer = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let tasks: Vec<_> = names
+        .iter()
+        .map(|name| {
+            let catalog = catalog.clone();
+            let name = name.clone();
+            tokio::spawn(async move {
+                let permit = catalog.wait_object_upload().await?;
+                let upload = permissive_upload("bucket", &name, 1000);
+                let contents = body(vec![Bytes::from_static(b"spill")]);
+                catalog
+                    .put_object_prechecked(upload, contents, permit)
+                    .await
+            })
+        })
+        .collect();
+    eventually_async("every upload queued behind the writer", || async {
+        catalog.0.upload_commits.queued().len() == names.len()
+    })
+    .await;
+    drop(writer);
+    for (name, outcome) in names.iter().zip(outcomes(tasks).await) {
+        assert_eq!(outcome.unwrap().name, *name);
+    }
+    for name in &names {
+        read(&catalog, name).await.unwrap();
+    }
+    catalog.close().await.unwrap();
+}
+
+/// Shows that this process cannot create an SQLite temporary file: a sort larger than the page
+/// cache would spill to one.
+#[cfg(target_vendor = "apple")]
+fn assert_no_temporary_files(scratch: &Path) {
+    let connection = Connection::open(scratch.join("probe.sqlite3")).unwrap();
+    connection
+        .execute_batch("PRAGMA temp_store = FILE; PRAGMA cache_size = -1024;")
+        .unwrap();
+    let sorted = connection.query_row(
+        "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i + 1 FROM n WHERE i < 20000) \
+         SELECT randomblob(200) AS r FROM n ORDER BY r",
+        [],
+        |row| row.get::<_, Vec<u8>>(0),
+    );
+    assert!(sorted.is_err(), "{sorted:?}");
+}
+
 #[tokio::test]
 async fn a_crash_around_a_batch_commit_keeps_all_or_none_of_its_uploads() {
     for crash in Crash::ALL {

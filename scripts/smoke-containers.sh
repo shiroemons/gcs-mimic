@@ -165,8 +165,9 @@ for platform in "$@"; do
     -X PUT -H 'Content-Range: bytes 0-11/12' --data-binary @"$work/expected" "$location" \
     | jq -e '.name == "dir/file.bin" and .size == "12"' >/dev/null
   expect_object
-  # Now and then a session's insert spills a statement journal to a temporary file, which needs a
-  # directory this read-only root and unprivileged user can write. About 1 in 100 failed without one.
+  # A session's insert needs a statement journal, which SQLite once moved to a temporary file that
+  # this read-only root has no directory for; about 1 in 100 creations failed then. The catalog now
+  # keeps it in memory, and the image no longer names a temporary directory.
   statuses=$(seq 1 1000 | xargs -P 8 -I{} curl --disable --noproxy '*' --silent --show-error --max-time 30 \
     -o /dev/null -w '%{http_code}\n' -X POST \
     "http://$address/upload/storage/v1/b/smoke-bucket/o?uploadType=resumable&name=spill-{}" | sort | uniq -c)
