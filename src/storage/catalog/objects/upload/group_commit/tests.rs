@@ -360,6 +360,7 @@ async fn an_error_after_a_batch_commit_keeps_every_upload_it_published() {
 }
 
 /// Marks the child process of [`uploads_publish_without_a_writable_temporary_directory`].
+#[cfg(target_vendor = "apple")]
 const NO_TEMPORARY_DIRECTORY: &str = "GCSM_TEST_NO_TEMPORARY_DIRECTORY";
 
 /// SQLite creates a temporary file in the first of `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`,
