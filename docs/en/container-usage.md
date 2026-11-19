@@ -279,10 +279,15 @@ Deleting a file deletes its live object, subject to holds and retention. When at
 least 100 objects would go and they are more than half of the tree, the deletion
 guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
 set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
-count toward this threshold across split scans. Deleting a bucket directory
-keeps the bucket, and deleting a bucket through the API keeps its directory.
+count toward this threshold across split scans. Deleting a whole bucket
+directory waits for that approval however few files it held, because a mount
+that did not come up looks the same; the server does not recreate the
+directory meanwhile, and the bucket stays after the approved deletion. Deleting
+a bucket through the API keeps its directory.
 A file deleted while the server was stopped, or before it crashed, deletes its
-object at the next startup instead of being written back. An object whose name
+object at the next startup instead of being written back; only the guard above
+stops such deletions. Restoring the directory from an older backup likewise
+makes the files imported since then count as deleted. An object whose name
 cannot become a file, described below, never holds back these deletions. An
 entry in the directory that cannot become an object, such as a symlink or a file
 left in the directory of a bucket deleted through the API, holds back every

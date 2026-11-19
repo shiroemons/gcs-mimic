@@ -3,13 +3,16 @@
 
 use crate::{
     fsutil,
-    storage::sync_state::{deletions::Candidate, root::RootLease},
+    storage::sync_state::{
+        deletions::{Candidate, Removal},
+        root::RootLease,
+    },
     sync::{
         SyncError,
         tree::{self, ParentError, ParentOpen},
     },
 };
-use std::{fmt, io, path::Path};
+use std::{fmt, fs::File, io, path::Path};
 
 /// What a tracked file's path holds now. Whether it holds anything is one of three answers,
 /// never a `bool`: a path that cannot be observed is neither present nor absent.
@@ -23,11 +26,11 @@ pub(in crate::sync) enum Presence {
     Unobservable(Unobservable),
 }
 
-/// Proof that a tracked path was seen empty, which only [`presence`] gives. Recording a deletion
-/// candidate and deleting its object each take one, so that neither runs for a path nobody
-/// looked at.
+/// Proof that a tracked path was seen empty, which only [`presence`] gives, with what was gone
+/// above it. Recording a deletion candidate and deleting its object each take one, so that
+/// neither runs for a path nobody looked at.
 #[derive(Debug)]
-pub(in crate::sync) struct Absence(());
+pub(in crate::sync) struct Absence(Removal);
 
 impl Absence {
     /// `candidate`, whose path this proof saw empty.
@@ -51,11 +54,16 @@ impl Missing {
         &self.candidate
     }
 
+    /// What was gone above the candidate's path.
+    pub(in crate::sync) fn removal(&self) -> Removal {
+        self.absence.0
+    }
+
     /// The candidate, for the inventory page that records it; the proof ends here.
     pub(in crate::sync) fn into_candidate(self) -> Candidate {
         let Self {
             candidate,
-            absence: Absence(()),
+            absence: Absence(_),
         } = self;
         candidate
     }
@@ -162,7 +170,7 @@ pub(in crate::sync) async fn presence(
         };
         let directory = match tree::parent(root, naming, parent, ParentOpen::Existing) {
             Ok(directory) => directory,
-            Err(ParentError::Missing) => return Ok(Presence::Absent(Absence(()))),
+            Err(ParentError::Missing) => return Ok(missing_above(root, path)),
             Err(ParentError::Finding(_)) => {
                 return Ok(Presence::Unobservable(Unobservable::ParentBlocked));
             }
@@ -170,13 +178,27 @@ pub(in crate::sync) async fn presence(
         };
         Ok(match fsutil::child_regular(&directory, name) {
             Ok(fsutil::RegularChild::File(_)) => Presence::Present,
-            Ok(fsutil::RegularChild::Missing) => Presence::Absent(Absence(())),
+            Ok(fsutil::RegularChild::Missing) => Presence::Absent(Absence(Removal::Files)),
             Ok(fsutil::RegularChild::Alias) => Presence::Unobservable(Unobservable::Alias),
             Err(error) => lookup_failure(error),
         })
     })
     .await
     .map_err(SyncError::from)
+}
+
+/// The absence of `path`, a directory above which is missing: whether its bucket's whole
+/// directory is gone, or only directories inside it.
+fn missing_above(root: &File, path: &Path) -> Presence {
+    let Some(bucket) = path.iter().next() else {
+        return Presence::Unobservable(Unobservable::InvalidPath);
+    };
+    match fsutil::child_directory(root, bucket, fsutil::DirectoryOpen::Existing) {
+        Ok(fsutil::Child::Missing) => Presence::Absent(Absence(Removal::BucketDirectory)),
+        Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Absence(Removal::Files)),
+        Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),
+        Err(error) => lookup_failure(error),
+    }
 }
 
 /// Classifies a failed lookup of the path: the file system refused its name, another kind of

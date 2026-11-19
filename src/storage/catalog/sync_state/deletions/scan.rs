@@ -7,6 +7,8 @@ pub(crate) struct Inventory {
     root: RootId,
     fence: JournalFence,
     draft: Draft,
+    /// What the pages recorded so far saw gone above their candidates.
+    removal: Removal,
 }
 
 /// What an inventory writes: a new set, or nothing while it confirms the root's earlier one.
@@ -127,6 +129,7 @@ impl RootLease {
                             baseline: 0,
                             candidates: 0,
                         },
+                        removal: Removal::Files,
                     });
                 }
                 let revision = OpaqueId::generate().map_err(unavailable)?;
@@ -154,6 +157,7 @@ impl RootLease {
                     root,
                     fence: current,
                     draft: Draft::New,
+                    removal: Removal::Files,
                 })
             })
             .await?)
@@ -174,14 +178,16 @@ impl RootLease {
     }
 
     /// Adds one page of the inventory: `baseline` tracked live files, of which `candidates` are
-    /// absent. A new set records them; a confirming inventory only compares them with the
-    /// earlier set and writes nothing.
+    /// absent, with what `removal` saw gone above them. A new set records them; a confirming
+    /// inventory only compares them with the earlier set and writes nothing.
     pub(crate) async fn record_deletion_candidates(
         &self,
         inventory: &mut Inventory,
         baseline: u64,
         candidates: Vec<Candidate>,
+        removal: Removal,
     ) -> Result<Confirmed, RootError> {
+        inventory.removal = inventory.removal.and(removal);
         let found = candidates.len() as u64;
         if found > 256 || baseline > 256 || baseline < found {
             return Err(AdminError::Invalid("invalid deletion inventory page".into()).into());
@@ -231,7 +237,8 @@ impl RootLease {
             let complete = match inventory.draft { Draft::New => 0, Draft::Confirming { .. } => 1 };
             let (baseline,candidates,enabled,stored):(u64,u64,bool,bool)=sql::row(&transaction, "SELECT baseline_count,candidate_count,guard_enabled,guarded FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=?3", params![inventory.root,inventory.revision,complete],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)))?;
             let automatic=history::automatic_count(&transaction,inventory.root)?;
-            let guard=guarded(Guard::from(enabled),baseline+automatic,candidates+automatic);
+            let guard=guarded(Guard::from(enabled),baseline+automatic,candidates+automatic)
+                || inventory.removal.guarded(Guard::from(enabled));
             match inventory.draft {
                 Draft::New => {
                     sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,DeletionAuthorization::on_completion(guard)])?;

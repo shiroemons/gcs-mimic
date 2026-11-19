@@ -2108,6 +2108,38 @@ impl Reconciler<'_> {
         self.interrupt.check() != Interrupted::No
     }
 
+    /// Whether the directory of `bucket` is missing while the tree tracks files in it.
+    async fn directory_gone_with_files(&self, bucket: &BucketName) -> Result<bool, SyncError> {
+        let selected = bucket.clone();
+        let gone = self
+            .root
+            .file_job(move |root| {
+                Ok(matches!(
+                    crate::fsutil::child_directory(
+                        root,
+                        selected.as_str().as_ref(),
+                        crate::fsutil::DirectoryOpen::Existing,
+                    ),
+                    Ok(crate::fsutil::Child::Missing)
+                ))
+            })
+            .await?;
+        if !gone {
+            return Ok(false);
+        }
+        let binding = self.root.sync_binding(bucket).await?;
+        Ok(!self
+            .catalog
+            .sync_state()
+            .page(
+                binding,
+                None,
+                crate::storage::sync_state::PageLimit::LARGEST,
+            )
+            .await?
+            .is_empty())
+    }
+
     async fn live_object(
         &mut self,
         bucket: &BucketName,
@@ -2145,8 +2177,13 @@ impl Reconciler<'_> {
                     self.summary.deferred += 1;
                     continue;
                 }
-                // What occupies the directory's place is a tree entry, which the scans count.
-                if !create_directory(self.root, directory).await? {
+                // What occupies the directory's place is a tree entry, which the scans count. A
+                // directory gone with tracked files in it stays gone: the deletion inventory takes
+                // its files to approval, and recreating it here would turn them into files deleted
+                // one by one, as for a mount missing at startup.
+                if !self.directory_gone_with_files(&bucket).await?
+                    && !create_directory(self.root, directory).await?
+                {
                     self.summary.count_unmapped_object();
                 }
                 if self.objects(&bucket).await? == Step::Stopped

@@ -20,6 +20,7 @@ use bytes::Bytes;
 use std::fs;
 
 mod baseline;
+mod ingest_durability;
 mod install_faults;
 
 async fn run_live(

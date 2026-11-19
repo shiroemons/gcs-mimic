@@ -151,6 +151,36 @@ pub(crate) fn guarded(guard: Guard, baseline: u64, candidates: u64) -> bool {
         && u128::from(candidates) * 100 > u128::from(baseline) * 50
 }
 
+/// What an inventory saw gone above its candidates. A bucket's whole directory gone while the
+/// tree tracks files in it needs approval whatever the counts: a mount missing at startup, or a
+/// directory moved away, looks exactly like the user deleting it, and putting it back brings
+/// every file back. Deleting files inside a bucket directory needs approval only by the counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Removal {
+    #[default]
+    Files,
+    BucketDirectory,
+}
+
+impl Removal {
+    /// Whether this removal alone takes the set to approval under `guard`.
+    fn guarded(self, guard: Guard) -> bool {
+        match (guard, self) {
+            (Guard::Enabled, Self::BucketDirectory) => true,
+            (Guard::Enabled, Self::Files) | (Guard::Disabled, _) => false,
+        }
+    }
+
+    /// What two observations saw gone together.
+    #[must_use]
+    pub(crate) fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Files, Self::Files) => Self::Files,
+            (Self::BucketDirectory, _) | (_, Self::BucketDirectory) => Self::BucketDirectory,
+        }
+    }
+}
+
 fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
     super::enabled_fence(connection).map_err(unavailable)
 }

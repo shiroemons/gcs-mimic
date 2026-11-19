@@ -26,7 +26,10 @@ use crate::{
         },
     },
 };
+use durable::{NotDurable, SyncedDirectories};
 use std::{fs::File, io, path::PathBuf};
+
+mod durable;
 
 /// A changed regular file selected for ingestion, with what `candidate` already parsed from it.
 struct Candidate {
@@ -215,6 +218,7 @@ pub(super) async fn rescan_with(
         config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
+        synced: SyncedDirectories::default(),
     };
     forget_missing_directories(root, interrupt).await?;
     let mut scan = Scan::new(root.tree_limits());
@@ -257,6 +261,9 @@ pub(super) async fn rescan_with(
                 return Ok(ingest.interrupted());
             }
         }
+        // This page's listing observed every candidate, so a directory synced from here on covers
+        // their entries; the next listing may observe entries made after these syncs.
+        ingest.synced = SyncedDirectories::default();
         for candidate in candidates {
             if interrupt.check() != Interrupted::No {
                 return Ok(ingest.interrupted());
@@ -363,6 +370,8 @@ struct Ingest<'a> {
     admin: Admin,
     /// The counts of this rescan; `rescan_with` returns them.
     summary: Reconciliation,
+    /// The directories already made durable for the current scan page's files.
+    synced: SyncedDirectories,
 }
 
 impl Ingest<'_> {
@@ -683,6 +692,49 @@ impl Ingest<'_> {
         }
     }
 
+    /// Makes the file at `path`, observed as `identity`, durable together with the directory
+    /// entries above it, before the catalog records it. `false` means it could not: the file is
+    /// counted as deferred with the path stop that names why, nothing is recorded for it, and the
+    /// next scan tries again.
+    async fn make_durable(
+        &mut self,
+        path: &std::path::Path,
+        identity: FileIdentity,
+        binding: &SyncBinding,
+        name: &ObjectName,
+    ) -> Result<bool, SyncError> {
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        crate::storage::fault::hit_io(
+            &self.config.data_dir,
+            crate::storage::fault::Step::SyncSourceSync,
+        )?;
+        let selected = path.to_owned();
+        let mut synced = std::mem::take(&mut self.synced);
+        let (synced, outcome) = self
+            .root
+            .file_job(move |root| {
+                let outcome = durable::make_durable(root, &selected, identity, &mut synced);
+                Ok((synced, outcome))
+            })
+            .await?;
+        self.synced = synced;
+        match outcome {
+            Ok(()) => Ok(true),
+            Err(NotDurable::Changed) => {
+                self.summary.deferred += 1;
+                self.record_observation(binding, name, PathStop::SourceChanging)
+                    .await?;
+                Ok(false)
+            }
+            Err(NotDurable::Io(error)) => {
+                self.defer(path, error.kind());
+                self.record_observation(binding, name, PathStop::IoFailure)
+                    .await?;
+                Ok(false)
+            }
+        }
+    }
+
     async fn clear_observation(
         &self,
         binding: SyncBinding,
@@ -700,6 +752,7 @@ impl Ingest<'_> {
         };
         let Candidate {
             path,
+            identity,
             bucket,
             name,
             binding,
@@ -713,13 +766,20 @@ impl Ingest<'_> {
             if live.size == staged.size() && live.md5 == hashes.md5 && live.crc32c == hashes.crc32c
             {
                 staged.discard().await?;
+                if !self.make_durable(&path, identity, &binding, &name).await? {
+                    return Ok(());
+                }
                 match self
                     .catalog
                     .sync_state()
                     .acknowledge(&name, generation, update)
                     .await
                 {
-                    Ok(()) => self.summary.identical += 1,
+                    Ok(()) => {
+                        self.summary.identical += 1;
+                        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                        self.recorded().await?;
+                    }
                     Err(AdminError::Precondition | AdminError::NotFound) => {
                         self.summary.deferred += 1
                     }
@@ -771,6 +831,10 @@ impl Ingest<'_> {
             .map_or(Ok(GenerationCondition::Absent), |record| {
                 Generation::new(record.generation).map(GenerationCondition::Is)
             })?;
+        if !self.make_durable(&path, identity, &binding, &name).await? {
+            staged.discard().await?;
+            return Ok(());
+        }
         self.root.revalidate().await?;
         let result = self
             .admin
@@ -790,13 +854,33 @@ impl Ingest<'_> {
             .await?;
         for result in result.results {
             match result {
-                Ok(_) => self.summary.ingested += 1,
+                Ok(_) => {
+                    self.summary.ingested += 1;
+                    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                    self.recorded().await?;
+                }
                 Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
                     self.summary.deferred += 1
                 }
                 Err(error) => return Err(error.into()),
             }
         }
+        Ok(())
+    }
+
+    /// The fault seam after ingestion recorded a file: the tree and the catalog are snapshotted
+    /// together there.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    async fn recorded(&self) -> Result<(), SyncError> {
+        use crate::storage::fault::{self, Step};
+        let data = self.config.data_dir.clone();
+        self.root
+            .file_job(move |root| {
+                fault::hit_io(&fault::descriptor_path(root)?, Step::SyncSourceRecorded)?;
+                fault::hit_io(&data, Step::SyncSourceRecorded)?;
+                Ok(())
+            })
+            .await?;
         Ok(())
     }
 }

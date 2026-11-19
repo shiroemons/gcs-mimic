@@ -114,7 +114,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .await
         .unwrap();
     assert_eq!(page.len(), 1);
-    root.record_deletion_candidates(&mut inventory, 1, page)
+    root.record_deletion_candidates(&mut inventory, 1, page, Removal::Files)
         .await
         .unwrap();
     let set = root

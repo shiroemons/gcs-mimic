@@ -46,13 +46,26 @@ place.
 With the baseline complete, a tracked file that is missing while its API
 generation is still the one last synchronized was deleted from the tree, also
 when that happened while the server was stopped or after it was killed.
-Reconciliation leaves it to the next inventory instead of writing it back.
+Reconciliation leaves it to the next inventory instead of writing it back, and
+the delete guard below is what stops a large deletion. Ingestion syncs a file
+and each directory above it before it records the file, so a power loss never
+keeps a tracking row whose file it lost; a failed sync records nothing, counts
+the file as deferred and retries on the next scan. Restoring the synchronization
+directory to an earlier state, for example from a backup, makes the files
+ingested after that state count as deleted; the delete guard stops a mass
+deletion.
 
 Schema 40 persists one fixed root-bound deletion revision and its members.
 Candidates are paged in batches of at most 256. The denominator, count, captured
 journal fence and thresholds stay fixed across pages. The guard stops deletion
 when enabled, the candidate count is at least 100, and the fraction is strictly
-greater than one half. A disabled guard changes only that threshold decision.
+greater than one half. It also stops it, whatever the counts, when a bucket's
+whole directory is missing while the tree tracks files in it: a mount that did
+not come up, or a directory moved away, looks the same as deleting it, and
+putting it back brings every file back. Reconciliation does not recreate such a
+directory, at startup or later, so the set waits for approval
+(`sync_bucket_directory_missing` names the bucket). A disabled guard changes
+only these decisions.
 
 Observed tree changes, root/marker failures, API journal changes and restart
 invalidate unused revisions. Invalidating a set that is already invalid changes
@@ -68,8 +81,11 @@ An injected SQL failure rolls both back. Concurrent filesystem creation remains
 possible between the final absence check and catalog commit; it is never an
 authorization to unlink the newly created file.
 
-Deleting a bucket directory preserves the bucket and recreates an empty
-directory. Versioned deletion retains the selected generation as history.
+Deleting a bucket directory deletes its objects once the set is approved, as
+above; the bucket stays and an empty directory is recreated. An export of a new
+API object into that bucket before then recreates the directory too, after
+which its missing files count as single deletions. Versioned deletion retains
+the selected generation as history.
 The shared deletion path enforces holds and retention. A protected deletion
 restores the immutable API bytes where safe without changing their metadata,
 protection, generation or notification state. Its private read-copy mode checks

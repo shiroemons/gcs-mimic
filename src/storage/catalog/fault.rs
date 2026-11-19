@@ -63,6 +63,13 @@ pub(crate) enum Step {
     /// entry it creates or removes.
     #[cfg(unix)]
     SyncNamingProbe,
+    /// Before each sync that makes an ingested file and the directories above it durable; the
+    /// catalog reaches it once per file, before the file's first sync.
+    #[cfg(unix)]
+    SyncSourceSync,
+    /// After ingestion recorded a file, in the tree and in the catalog.
+    #[cfg(unix)]
+    SyncSourceRecorded,
     SyncMarkerWrite,
     SyncMarkerSync,
     SyncMarkerPrepared,

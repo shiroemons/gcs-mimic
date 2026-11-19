@@ -10,7 +10,7 @@ use crate::{
         admin::{AdminError, GenerationCondition},
         sync_state::{
             Ordinal, PageLimit, SyncBinding,
-            deletions::{Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard},
+            deletions::{Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard, Removal},
             observation::PathStop,
             root::{RootError, RootLease},
         },
@@ -81,6 +81,7 @@ async fn count_candidates(
 ) -> Result<Option<Confirmed>, SyncError> {
     let naming = root.naming()?;
     let mut after = String::new();
+    let mut gone_buckets = std::collections::BTreeSet::new();
     loop {
         if interrupt.check() != Interrupted::No {
             return Ok(None);
@@ -105,7 +106,15 @@ async fn count_candidates(
                 Ok(_) | Err(_) => Presence::Unobservable(Unobservable::NameMismatch),
             };
             match presence {
-                Presence::Absent(absence) => missing.push(absence.of(candidate)),
+                Presence::Absent(absence) => {
+                    let missing_file = absence.of(candidate);
+                    if missing_file.removal() == Removal::BucketDirectory
+                        && gone_buckets.insert(missing_file.candidate().bucket.clone())
+                    {
+                        bucket_directory_gone(&missing_file.candidate().bucket);
+                    }
+                    missing.push(missing_file);
+                }
                 Presence::Present => {}
                 Presence::Unobservable(reason) => unobservable(root, &candidate, &reason).await?,
             }
@@ -124,10 +133,29 @@ async fn record_missing(
     baseline: u64,
     missing: Vec<Missing>,
 ) -> Result<Confirmed, SyncError> {
+    let removal = missing
+        .iter()
+        .map(Missing::removal)
+        .fold(Removal::Files, Removal::and);
     let candidates = missing.into_iter().map(Missing::into_candidate).collect();
     Ok(root
-        .record_deletion_candidates(inventory, baseline, candidates)
+        .record_deletion_candidates(inventory, baseline, candidates, removal)
         .await?)
+}
+
+/// Reports a bucket whose whole directory is gone while the tree tracks files in it. The
+/// inventory takes those files to approval whatever their number, and nothing recreates the
+/// directory meanwhile.
+fn bucket_directory_gone(bucket: &crate::storage::admin::BucketName) {
+    diagnostics::emit(
+        LogLevel::Warn,
+        "sync_bucket_directory_missing",
+        serde_json::json!({
+            "bucket":bucket,"path":bucket,
+            "reason":"The directory of a bucket with synchronized files is missing",
+            "remedy":"Put the directory, or the mount that holds it, back to keep the objects; to delete them, approve the pending deletion set",
+        }),
+    );
 }
 
 /// Reports a tracked file whose path tells nothing about it. Its object is not deleted, and the

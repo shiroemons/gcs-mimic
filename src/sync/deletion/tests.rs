@@ -625,3 +625,70 @@ async fn an_identical_inventory_keeps_an_unapproved_revision_and_never_reuses_an
     drop(root);
     catalog.close().await.unwrap();
 }
+
+/// A bucket's whole directory gone takes its files to approval however few they are, because a
+/// missing mount looks the same; approving deletes them. The same files deleted inside a
+/// directory that is still there are deleted at once, and a disabled guard approves nothing.
+#[tokio::test]
+async fn a_bucket_directory_gone_as_a_whole_needs_approval_whatever_its_size() {
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+
+    let (_data, tree, catalog, root, config) = fixture(2).await;
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let set = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((set.baseline_count, set.candidate_count), (2, 2));
+    assert!(set.guarded);
+    assert_eq!(execute(&catalog, &root, set, &stopping).await.unwrap(), 0);
+    assert!(object_exists(&catalog, "0000").await);
+    assert!(object_exists(&catalog, "0001").await);
+    let set = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(set.guarded);
+    root.approve_deletions(set.revision).await.unwrap();
+    let approved = root.deletion_set().await.unwrap().unwrap();
+    assert_eq!(
+        execute(&catalog, &root, approved, &stopping).await.unwrap(),
+        2
+    );
+    assert!(!object_exists(&catalog, "0000").await);
+    assert!(!object_exists(&catalog, "0001").await);
+    drop(root);
+    catalog.close().await.unwrap();
+
+    let (_data, tree, catalog, root, config) = fixture(2).await;
+    for name in ["0000", "0001"] {
+        fs::remove_file(tree.0.join("test-bucket").join(name)).unwrap();
+    }
+    let set = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!set.guarded);
+    assert_eq!(execute(&catalog, &root, set, &stopping).await.unwrap(), 2);
+    drop(root);
+    catalog.close().await.unwrap();
+
+    let (_data, tree, catalog, root, config) = fixture(2).await;
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let unguarded = Config {
+        sync_delete_guard: false,
+        ..config
+    };
+    let set = inventory(&root, &unguarded, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!set.guarded);
+    assert_eq!(execute(&catalog, &root, set, &stopping).await.unwrap(), 2);
+    drop(root);
+    catalog.close().await.unwrap();
+}
