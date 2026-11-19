@@ -885,6 +885,13 @@ async fn bind_optional(
 /// waits instead of being refused. The kernel can still lower it to its own limit.
 const LISTEN_BACKLOG: u32 = 1024;
 
+#[cfg_attr(
+    not(all(unix, not(any(target_os = "linux", target_os = "android")))),
+    expect(
+        clippy::unused_async,
+        reason = "only BSD-style Unix hosts await the TIME_WAIT retry after a failed bind"
+    )
+)]
 async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {
     let socket = if address.is_ipv4() {
         tokio::net::TcpSocket::new_v4()?

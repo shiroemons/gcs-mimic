@@ -27,6 +27,13 @@ impl Paths {
         fault::file_synced(&self.tree, &file.metadata()?);
         Ok(())
     }
+    #[cfg_attr(
+        not(unix),
+        expect(
+            clippy::unused_self,
+            reason = "only Unix models the publish rename and directory syncs under the fault roots"
+        )
+    )]
     pub(super) fn installed(&self, item: &Pending) {
         #[cfg(unix)]
         if item.kind == Kind::Publish {

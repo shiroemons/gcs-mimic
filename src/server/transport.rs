@@ -153,6 +153,13 @@ pub(super) enum Stream {
 }
 
 impl Listener {
+    #[cfg_attr(
+        not(unix),
+        expect(
+            clippy::unused_async,
+            reason = "only the Unix-socket listener awaits its close"
+        )
+    )]
     pub(super) async fn close(self) -> io::Result<()> {
         match self {
             Self::Tcp(_) => Ok(()),

@@ -117,6 +117,13 @@ pub(crate) struct Watch {
     ready: AsyncFd<Native>,
 }
 impl Watch {
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(
+            clippy::unused_self,
+            reason = "only the Linux and macOS backends read the registered descriptor through the receiver"
+        )
+    )]
     pub(crate) fn try_changed(&self) -> io::Result<Option<Change>> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         match self.ready.get_ref().drain() {
@@ -171,12 +178,26 @@ impl Watch {
     }
     /// Keeps what `previous` learned about the files it reported. Only FSEvents reports a clone
     /// of an unchanged file, and a rebuilt watch would report that clone again.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            clippy::unused_self,
+            reason = "only the FSEvents backend carries per-file state to inherit into the receiver"
+        )
+    )]
     pub(crate) fn inherit(&self, previous: &Self) {
         #[cfg(target_os = "macos")]
         self.ready.get_ref().inherit(previous.ready.get_ref());
         #[cfg(not(target_os = "macos"))]
         let _ = previous;
     }
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos")),
+        expect(
+            clippy::unused_async,
+            reason = "only the Linux and macOS backends await descriptor readiness"
+        )
+    )]
     pub(crate) async fn changed(&self) -> io::Result<Change> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         loop {
