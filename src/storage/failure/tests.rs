@@ -271,6 +271,46 @@ fn backend_guidance_survives_changed_and_nested_contexts() {
 }
 
 #[test]
+fn backend_failure_events_carry_the_sqlite_extended_code_and_nothing_else_new() {
+    // SQLite's own message names only the primary code, whatever the extended one.
+    let temporary_path = || {
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR_GETTEMPPATH),
+            Some("disk I/O error".into()),
+        )
+    };
+    for cause in [
+        BackendCause::from_error(temporary_path()),
+        // A catalog failure inside an object failure, as a shared batch failure carries it.
+        BackendCause::from_error(unavailable(temporary_path())),
+        BackendCause::with_source("renamed diagnostic", temporary_path()),
+    ] {
+        let event = serde_json::to_value(wording::BackendFailureEvent::from(&cause)).unwrap();
+        let cause = if cause.message() == "renamed diagnostic" {
+            "unrecognized backend failure (private details withheld)"
+        } else {
+            "disk I/O error"
+        };
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "cause": cause,
+                "sqlite_extended_code": rusqlite::ffi::SQLITE_IOERR_GETTEMPPATH,
+            })
+        );
+    }
+    // Without an SQLite failure in its chain, the event keeps only the allowlisted cause.
+    for cause in [
+        BackendCause::new("database is locked: /secret token=private"),
+        BackendCause::from_error(io::Error::other("disk I/O error")),
+    ] {
+        let event = serde_json::to_value(wording::BackendFailureEvent::from(&cause)).unwrap();
+        assert_eq!(event.as_object().unwrap().len(), 1, "{event}");
+        assert!(!event.to_string().contains("secret"), "{event}");
+    }
+}
+
+#[test]
 fn sqlite_corruption_and_decoding_failures_are_corrupt_with_their_text() {
     let corrupt = sqlite_failure(rusqlite::ffi::SQLITE_CORRUPT);
     let text = corrupt.to_string();

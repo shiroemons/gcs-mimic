@@ -206,16 +206,37 @@ fn guidance(backend: &BackendCause) -> Option<(BackendFailure, &'static str)> {
     {
         return Some((failure, remedy));
     }
-    let cause = backend
-        .message()
-        .strip_prefix("catalog unavailable: ")
-        .unwrap_or(backend.message());
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Error,
         "object_backend_failure",
-        serde_json::json!({"cause": safe_backend_cause(cause)}),
+        BackendFailureEvent::from(backend),
     );
     None
+}
+
+/// The fields of an `object_backend_failure` event.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+pub(super) struct BackendFailureEvent {
+    /// The allowlisted cause, or a fixed text that withholds it.
+    cause: &'static str,
+    /// One message such as `disk I/O error` stands for many failures (no usable temporary
+    /// directory, a failed fsync, a short read); SQLite's extended code tells them apart without
+    /// exposing paths or values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sqlite_extended_code: Option<std::ffi::c_int>,
+}
+
+impl From<&BackendCause> for BackendFailureEvent {
+    fn from(backend: &BackendCause) -> Self {
+        let cause = backend
+            .message()
+            .strip_prefix("catalog unavailable: ")
+            .unwrap_or(backend.message());
+        Self {
+            cause: safe_backend_cause(cause),
+            sqlite_extended_code: backend.sqlite_extended_code(),
+        }
+    }
 }
 
 pub(crate) fn safe_backend_cause(cause: &str) -> &'static str {
