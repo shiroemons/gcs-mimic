@@ -175,7 +175,9 @@ async fn import_batch_rejects_bodies_staged_with_synchronization_state() {
     let hashes = item.publication.staged.hashes();
     let update = SyncUpdate::new(
         binding,
-        SyncPath::try_from("test-bucket/object".to_owned()).unwrap(),
+        crate::storage::sync_state::durable::Durable::assumed(
+            SyncPath::try_from("test-bucket/object".to_owned()).unwrap(),
+        ),
         SyncFingerprint {
             size: item.publication.staged.size(),
             mtime_ns: 1,

@@ -5,14 +5,15 @@ use super::{SyncError, mapping, mirror::PassGate};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
+    fsutil,
     storage::{
         Catalog,
-        admin::{AdminError, GenerationCondition},
+        admin::{AdminError, BucketName, GenerationCondition},
         sync_state::{
             Ordinal, PageLimit, SyncBinding,
             deletions::{Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard, Removal},
             observation::PathStop,
-            root::{RootError, RootLease},
+            root::{Baseline, RootError, RootLease},
         },
     },
 };
@@ -146,7 +147,7 @@ async fn record_missing(
 /// Reports a bucket whose whole directory is gone while the tree tracks files in it. The
 /// inventory takes those files to approval whatever their number, and nothing recreates the
 /// directory meanwhile.
-fn bucket_directory_gone(bucket: &crate::storage::admin::BucketName) {
+fn bucket_directory_gone(bucket: &BucketName) {
     diagnostics::emit(
         LogLevel::Warn,
         "sync_bucket_directory_missing",
@@ -156,6 +157,33 @@ fn bucket_directory_gone(bucket: &crate::storage::admin::BucketName) {
             "remedy":"Put the directory, or the mount that holds it, back to keep the objects; to delete them, approve the pending deletion set",
         }),
     );
+}
+
+/// Whether nothing may create the directory of `bucket` now: it is missing while the inventory
+/// takes tracked files in it to approval. Recreating it, for a reconciliation or for the export
+/// of another object alike, would turn those files into files deleted one by one, which the
+/// guard lets through below its threshold. Exports into the bucket wait until the set is
+/// approved and its files are deleted, or until the directory is back.
+pub(super) async fn bucket_directory_held(
+    root: &RootLease,
+    bucket: &BucketName,
+) -> Result<bool, SyncError> {
+    let selected = bucket.clone();
+    let missing = root
+        .file_job(move |root| {
+            Ok(matches!(
+                fsutil::child_directory(
+                    root,
+                    selected.as_str().as_ref(),
+                    fsutil::DirectoryOpen::Existing,
+                ),
+                Ok(fsutil::Child::Missing)
+            ))
+        })
+        .await?;
+    Ok(missing
+        && root.current_baseline().await? == Baseline::Complete
+        && root.inventories_in(bucket).await?)
 }
 
 /// Reports a tracked file whose path tells nothing about it. Its object is not deleted, and the
@@ -184,7 +212,7 @@ async fn unobservable(
 /// recreated or deleted meanwhile has no such path any more.
 pub(super) async fn record_replaced(
     root: &RootLease,
-    bucket: &crate::storage::admin::BucketName,
+    bucket: &BucketName,
     name: &crate::storage::admin::ObjectName,
 ) -> Result<(), SyncError> {
     let binding = match root.sync_binding(bucket).await {

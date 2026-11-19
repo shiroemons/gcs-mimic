@@ -282,7 +282,8 @@ set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
 count toward this threshold across split scans. Deleting a whole bucket
 directory waits for that approval however few files it held, because a mount
 that did not come up looks the same; the server does not recreate the
-directory meanwhile, and the bucket stays after the approved deletion. Deleting
+directory meanwhile, not even for an object written into the bucket through the
+API, which waits with it, and the bucket stays after the approved deletion. Deleting
 a bucket through the API keeps its directory.
 A file deleted while the server was stopped, or before it crashed, deletes its
 object at the next startup instead of being written back; only the guard above

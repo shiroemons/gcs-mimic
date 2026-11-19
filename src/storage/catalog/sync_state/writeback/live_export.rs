@@ -1,4 +1,4 @@
-use super::super::{SyncPath, SyncRecord};
+use super::super::SyncRecord;
 use super::*;
 use std::ops::ControlFlow;
 
@@ -1178,8 +1178,8 @@ impl Writeback {
                 verify_fingerprint(root, workspace, naming, &selected, expected.as_ref())
             })
             .await;
-        match verified {
-            Ok(()) => {}
+        let durable = match verified {
+            Ok(durable) => durable,
             Err(Error::Protected) => {
                 operation.item = self.inspect_inner(item.token.clone()).await?;
                 return Err(Error::Protected);
@@ -1192,14 +1192,15 @@ impl Writeback {
                 return Ok(LiveResult::Conflict);
             }
             Err(error) => return Err(error),
-        }
-        // `fingerprint` reports a body exactly when one was published.
-        let tracking = match (fp, &operation.body) {
-            (Some(fp), Body::Copy { record, .. } | Body::Observe { record }) => {
-                Some((fp, record.clone()))
+        };
+        // `fingerprint` reports a body exactly when one was published, and `verify_fingerprint`
+        // makes exactly a published one durable.
+        let tracking = match (fp, durable, &operation.body) {
+            (Some(fp), Some(durable), Body::Copy { record, .. } | Body::Observe { record }) => {
+                Some((fp, durable, record.clone()))
             }
-            (None, Body::Remove) => None,
-            (Some(_), Body::Remove) | (None, Body::Copy { .. } | Body::Observe { .. }) => {
+            (None, None, Body::Remove) => None,
+            (_, _, Body::Copy { .. } | Body::Observe { .. } | Body::Remove) => {
                 return Err(stale());
             }
         };
@@ -1222,8 +1223,11 @@ impl Writeback {
                 Err(error) => return Err(error.into()),
             };
             if same_binding {
-                if let Some((fp, record)) = tracking {
-                    let update = SyncUpdate::new(binding,SyncPath::try_from(current.path.clone())?,fp)?;
+                if let Some((fp, durable, record)) = tracking {
+                    if durable.path().as_str() != current.path {
+                        return Err(stale());
+                    }
+                    let update = SyncUpdate::new(binding,durable,fp)?;
                     // Track the bytes actually installed even if a newer API generation won meanwhile.
                     super::super::record_in_transaction(&tx,&update,&record)?;
                 } else {

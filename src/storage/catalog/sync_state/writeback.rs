@@ -7,7 +7,8 @@ use super::super::{
     objects, unavailable,
 };
 use super::{
-    CatalogId, OpaqueId, Ordinal, PageLimit, SyncBinding, SyncFingerprint, SyncUpdate,
+    CatalogId, OpaqueId, Ordinal, PageLimit, SyncBinding, SyncFingerprint, SyncPath, SyncUpdate,
+    durable::{self, Durable, NotDurable, SyncedDirectories},
     root::{RootError, RootId, RootLease},
 };
 use crate::storage::catalog::Incarnation;
@@ -805,18 +806,26 @@ fn fingerprint(
     Ok(result)
 }
 
+/// Checks that the target still holds what `expected` recorded, and makes that durable before
+/// the acknowledgement records it. A published file comes with the proof its tracking row needs:
+/// it may be one the user wrote that the export only observed, whose entry and the new
+/// directories above it nobody synced, so every directory up to the root is synced, not just
+/// its parent.
 fn verify_fingerprint(
     root: &File,
     workspace: &File,
     naming: RootNaming,
     item: &Pending,
     expected: Option<&SyncFingerprint>,
-) -> Result<(), Error> {
+) -> Result<Option<Durable>, Error> {
     if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
-    match (item.kind, expected, target(root, naming, &item.path)?) {
-        (Kind::Remove, None, None) => {}
+    let durable = match (item.kind, expected, target(root, naming, &item.path)?) {
+        (Kind::Remove, None, None) => {
+            parent(root, naming, &item.path, ParentSync::Sync)?;
+            None
+        }
         (Kind::Publish, Some(expected), Some(file)) => {
             let identity = fsutil::stat_identity(&file)?;
             if identity.device != fsutil::stat_identity(root)?.device
@@ -824,13 +833,18 @@ fn verify_fingerprint(
             {
                 return Err(stale());
             }
+            let path = SyncPath::try_from(item.path.clone())?;
+            match durable::make_durable(root, &path, identity, &mut SyncedDirectories::default()) {
+                Ok(durable) => Some(durable),
+                Err(NotDurable::Changed) => return Err(stale()),
+                Err(NotDurable::Io(error)) => return Err(error.into()),
+            }
         }
         _ => return Err(stale()),
-    }
-    parent(root, naming, &item.path, ParentSync::Sync)?;
+    };
     workspace.sync_all()?;
     root.sync_all()?;
-    Ok(())
+    Ok(durable)
 }
 
 impl Writeback {

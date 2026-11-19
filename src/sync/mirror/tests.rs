@@ -23,6 +23,7 @@ mod baseline;
 mod empty_directory;
 mod ingest_durability;
 mod install_faults;
+mod missing_bucket;
 mod root_files;
 pub(super) mod state;
 mod wait;

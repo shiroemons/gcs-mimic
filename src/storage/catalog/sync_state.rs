@@ -50,6 +50,7 @@ pub(crate) mod findings;
 pub(crate) mod buckets;
 
 pub(crate) mod deletions;
+pub(crate) mod durable;
 
 pub(crate) mod authority;
 pub(crate) mod conflicts;
@@ -186,6 +187,18 @@ impl TryFrom<String> for SyncPath {
     }
 }
 
+impl SyncPath {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for SyncPath {
+    fn as_ref(&self) -> &std::path::Path {
+        std::path::Path::new(&self.0)
+    }
+}
+
 impl rusqlite::ToSql for SyncPath {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         self.0.to_sql()
@@ -199,9 +212,12 @@ pub(crate) struct SyncUpdate {
     fingerprint: SyncFingerprint,
 }
 impl SyncUpdate {
+    /// The tracking row of the file `durable` covers. A row tells deletion detection that its
+    /// file was in the tree, so it takes the proof that the file's directory entry survives a
+    /// power loss.
     pub(crate) fn new(
         binding: SyncBinding,
-        path: SyncPath,
+        durable: durable::Durable,
         fingerprint: SyncFingerprint,
     ) -> Result<Self, AdminError> {
         if i64::try_from(fingerprint.size).is_err() {
@@ -211,7 +227,7 @@ impl SyncUpdate {
         }
         Ok(Self {
             binding,
-            path,
+            path: durable.into_path(),
             fingerprint,
         })
     }

@@ -89,6 +89,10 @@ pub struct Reconciliation {
     /// The working-tree entries among `unrepresentable`, by path, up to a bound.
     #[serde(skip)]
     pub(crate) entries: super::entries::EntryReport,
+    /// The exports among `deferred` that wait for a deletion approval, because they would
+    /// recreate a bucket directory the inventory takes to approval.
+    #[serde(skip)]
+    pub(crate) held_for_approval: u64,
 }
 
 pub struct Task {
@@ -807,8 +811,9 @@ async fn replay_page_with(
                 summary.deferred += 1;
                 continue;
             }
-            let directory = PathBuf::from(bucket.as_str());
-            create_directory(root, directory).await?;
+            if !super::deletion::bucket_directory_held(root, &bucket).await? {
+                create_directory(root, PathBuf::from(bucket.as_str())).await?;
+            }
         }
     }
     Ok(summary)
@@ -1164,35 +1169,48 @@ impl LiveControl<'_> {
                 revision,
                 reply,
                 identity,
-            } => {
-                let approved = match self
-                    .scope
-                    .root
-                    .authorize_controls(self.scope.config.seed_project.clone(), identity)
-                    .await
-                {
-                    Ok(()) => self
-                        .scope
-                        .root
-                        .approve_deletions(revision)
-                        .await
-                        .map_err(ControlError::from),
-                    Err(error) => Err(error.into()),
-                };
-                let set = approved.as_ref().ok().cloned();
-                let _ = reply.send(approved);
-                if let Some(set) = set {
-                    super::deletion::execute(
-                        self.scope.catalog,
-                        self.scope.root,
-                        set,
-                        self.scope.stopping,
-                    )
-                    .await?;
-                }
-            }
+            } => self.approve(revision, reply, identity).await?,
         }
         Ok(())
+    }
+
+    /// Approves the deletion set `revision`, answers, and runs it.
+    async fn approve(
+        &mut self,
+        revision: crate::storage::sync_state::OpaqueId,
+        reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
+        identity: Option<crate::auth::Identity>,
+    ) -> Result<(), SyncError> {
+        let approved = match self
+            .scope
+            .root
+            .authorize_controls(self.scope.config.seed_project.clone(), identity)
+            .await
+        {
+            Ok(()) => self
+                .scope
+                .root
+                .approve_deletions(revision)
+                .await
+                .map_err(ControlError::from),
+            Err(error) => Err(error.into()),
+        };
+        let set = approved.as_ref().ok().cloned();
+        let _ = reply.send(approved);
+        let Some(set) = set else {
+            return Ok(());
+        };
+        super::deletion::execute(
+            self.scope.catalog,
+            self.scope.root,
+            set,
+            self.scope.stopping,
+        )
+        .await?;
+        // The deleted members held back the exports into their bucket's missing directory,
+        // which no tree change would otherwise run again.
+        let interrupt = Interrupt::new(self.scope.stopping);
+        Box::pin(self.state.skipped.retry(self.scope, interrupt)).await
     }
 }
 
@@ -1621,7 +1639,8 @@ impl LiveObject<'_> {
     }
 
     /// Exports `plan`; `Some` is the export, skipped because preserving the file it would replace
-    /// failed or that file changed again after preservation, for a retry to finish.
+    /// failed or that file changed again after preservation, or because the bucket's directory
+    /// is held for a deletion approval, for a retry to finish.
     async fn export(
         &mut self,
         writeback: &Writeback,
@@ -1629,6 +1648,12 @@ impl LiveObject<'_> {
         mut plan: LivePlan,
     ) -> Result<Option<SkippedExport>, SyncError> {
         let (bucket, name) = (self.bucket, self.name);
+        // Write-back creates the directories above the file it installs, and even a removal opens
+        // them, so any export would bring the held directory back.
+        if super::deletion::bucket_directory_held(self.root, bucket).await? {
+            self.summary.hold_for_approval();
+            return Ok(plan.skipped());
+        }
         #[cfg(test)]
         export_checkpoint("after-get-path").await;
         let Some(mut operation) = self.begin_export(writeback, fence, &plan, None).await? else {
@@ -2214,38 +2239,6 @@ impl Reconciler<'_> {
         self.interrupt.check() != Interrupted::No
     }
 
-    /// Whether the directory of `bucket` is missing while the tree tracks files in it.
-    async fn directory_gone_with_files(&self, bucket: &BucketName) -> Result<bool, SyncError> {
-        let selected = bucket.clone();
-        let gone = self
-            .root
-            .file_job(move |root| {
-                Ok(matches!(
-                    crate::fsutil::child_directory(
-                        root,
-                        selected.as_str().as_ref(),
-                        crate::fsutil::DirectoryOpen::Existing,
-                    ),
-                    Ok(crate::fsutil::Child::Missing)
-                ))
-            })
-            .await?;
-        if !gone {
-            return Ok(false);
-        }
-        let binding = self.root.sync_binding(bucket).await?;
-        Ok(!self
-            .catalog
-            .sync_state()
-            .page(
-                binding,
-                None,
-                crate::storage::sync_state::PageLimit::LARGEST,
-            )
-            .await?
-            .is_empty())
-    }
-
     async fn live_object(
         &mut self,
         bucket: &BucketName,
@@ -2284,10 +2277,9 @@ impl Reconciler<'_> {
                     continue;
                 }
                 // What occupies the directory's place is a tree entry, which the scans count. A
-                // directory gone with tracked files in it stays gone: the deletion inventory takes
-                // its files to approval, and recreating it here would turn them into files deleted
-                // one by one, as for a mount missing at startup.
-                if !self.directory_gone_with_files(&bucket).await?
+                // directory gone with files the inventory takes to approval stays gone, and so do
+                // the exports into it that `LiveObject::export` holds back.
+                if !super::deletion::bucket_directory_held(self.root, &bucket).await?
                     && !create_directory(self.root, directory).await?
                 {
                     self.summary.count_unmapped_object();

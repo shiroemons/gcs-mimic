@@ -111,6 +111,16 @@ impl Hold {
 }
 
 impl Reconciliation {
+    /// Counts an export held back because it would recreate a bucket directory that the
+    /// inventory takes to approval. It is deferred, so a report and a wait show the object
+    /// still owed to the tree, but it holds back neither the baseline nor the inventory: that
+    /// inventory is what offers the set whose approval, like the directory's return, releases
+    /// the export.
+    pub(in crate::sync) fn hold_for_approval(&mut self) {
+        self.deferred += 1;
+        self.held_for_approval += 1;
+    }
+
     /// Counts an object or bucket the API holds that the working tree cannot hold. It is
     /// reported, and recorded as a finding where it has one, but decides nothing.
     pub(in crate::sync) fn count_unmapped_object(&mut self) {
@@ -155,7 +165,7 @@ impl Reconciliation {
                 Baseline::Activating
             },
             interrupted: self.interrupted,
-            deferred: self.deferred,
+            deferred: self.deferred.saturating_sub(self.held_for_approval),
             conflicting: self.conflicting,
             entries: self.unrepresentable_entries(),
             unimported: self.external_only,

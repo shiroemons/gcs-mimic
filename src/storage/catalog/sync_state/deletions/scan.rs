@@ -235,6 +235,29 @@ impl RootLease {
             .await?)
     }
 
+    /// Whether the deletion inventory looks at any tracked file of `bucket`: those are the files
+    /// whose deletion a missing bucket directory takes to approval. It reads [`inventoried!`]
+    /// like the inventory, so it names exactly the files the inventory would take.
+    pub(crate) async fn inventories_in(&self, bucket: &BucketName) -> Result<bool, RootError> {
+        let root = self.status().root_id;
+        let bucket = bucket.clone();
+        Ok(self
+            .catalog()
+            .run_admin(move |connection| {
+                connection
+                    .prepare_cached(concat!(
+                        "SELECT EXISTS(SELECT 1 ",
+                        inventoried!(),
+                        " AND s.bucket=?2)"
+                    ))
+                    .and_then(|mut statement| {
+                        statement.query_row(params![root, bucket], |row| row.get(0))
+                    })
+                    .map_err(unavailable)
+            })
+            .await?)
+    }
+
     /// Adds one page of the inventory: `baseline` tracked live files, of which `candidates` are
     /// absent, with what `removal` saw gone above them. A new set records them; a confirming
     /// inventory only compares them with the earlier set and writes nothing.

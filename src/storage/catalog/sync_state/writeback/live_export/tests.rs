@@ -706,7 +706,9 @@ async fn live_export_replaces_a_tracked_target_whose_inode_number_alone_changed(
                 Generation::new(record.generation).unwrap(),
                 SyncUpdate::new(
                     binding.clone(),
-                    SyncPath::try_from(tracked.path.clone()).unwrap(),
+                    crate::storage::sync_state::durable::Durable::assumed(
+                        SyncPath::try_from(tracked.path.clone()).unwrap(),
+                    ),
                     SyncFingerprint {
                         inode: !tracked.fingerprint.inode,
                         ..tracked.fingerprint.clone()

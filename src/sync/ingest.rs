@@ -21,15 +21,13 @@ use crate::{
         },
         sync_state::{
             Ordinal, SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate,
+            durable::{self, Durable, NotDurable, SyncedDirectories},
             observation::{PathStop, TransientStop},
             root::{RootError, RootLease},
         },
     },
 };
-use durable::{NotDurable, SyncedDirectories};
 use std::{fs::File, io, path::PathBuf};
-
-mod durable;
 
 /// A changed regular file selected for ingestion, with what `candidate` already parsed from it.
 struct Candidate {
@@ -86,6 +84,9 @@ enum HashCheck {
     Superseded,
     /// The bytes differ, or the file changed while it was read.
     Differs,
+    /// The file holds the tracked body, but it could not be made durable, so nothing is recorded
+    /// and it counts as deferred, as an ingested file would.
+    Deferred,
 }
 
 struct PinnedSource {
@@ -488,7 +489,7 @@ impl Ingest<'_> {
             let unchanged = match TrackedCheck::new(&tracked.fingerprint, identity) {
                 TrackedCheck::Unchanged => true,
                 TrackedCheck::Hash => match self
-                    .hash_tracked(&path, identity, tracked, &binding, &name)
+                    .hash_tracked(&key, identity, tracked, &binding, &name)
                     .await?
                 {
                     HashCheck::Recorded => {
@@ -497,6 +498,7 @@ impl Ingest<'_> {
                     }
                     HashCheck::Superseded => true,
                     HashCheck::Differs => false,
+                    HashCheck::Deferred => return Ok(None),
                 },
                 TrackedCheck::Changed => false,
             };
@@ -533,16 +535,18 @@ impl Ingest<'_> {
     }
 
     /// Hashes the file at `path`, observed as `expected`, and compares it with the tracked body.
-    /// A match records the observed identity, so a later stable pass skips the hash.
+    /// A match records the observed identity, so a later stable pass skips the hash. The file
+    /// may be a new one with the same bytes, such as an editor's save through a rename, whose
+    /// entry is as volatile as an ingested file's, so it is made durable first like one.
     async fn hash_tracked(
-        &self,
-        path: &std::path::Path,
+        &mut self,
+        path: &SyncPath,
         expected: FileIdentity,
         tracked: &SyncRecord,
         binding: &SyncBinding,
         name: &ObjectName,
     ) -> Result<HashCheck, SyncError> {
-        let selected = path.to_owned();
+        let selected = PathBuf::from(path.as_str());
         let naming = self.naming;
         let observed = self
             .root
@@ -565,11 +569,10 @@ impl Ingest<'_> {
         }
         let fingerprint =
             SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns()?);
-        let update = SyncUpdate::new(
-            binding.clone(),
-            SyncPath::try_from(path.to_string_lossy().into_owned())?,
-            fingerprint,
-        )?;
+        let Some(durable) = self.make_durable(path, expected, binding, name).await? else {
+            return Ok(HashCheck::Deferred);
+        };
+        let update = SyncUpdate::new(binding.clone(), durable, fingerprint)?;
         match self
             .catalog
             .sync_state()
@@ -629,7 +632,7 @@ impl Ingest<'_> {
     async fn stage_update(
         &mut self,
         candidate: &Candidate,
-    ) -> Result<Option<(StagedObject, SyncUpdate)>, SyncError> {
+    ) -> Result<Option<(StagedObject, SyncFingerprint)>, SyncError> {
         let staged = match self.stage(candidate.path.clone(), candidate.identity).await {
             Ok(staged) => staged,
             Err(RootError::Admin(error))
@@ -662,12 +665,7 @@ impl Ingest<'_> {
             .await?;
         let fingerprint =
             SyncFingerprint::observed(candidate.identity, hashes, self.root.observation_time_ns()?);
-        let update = SyncUpdate::new(
-            candidate.binding.clone(),
-            candidate.key.clone(),
-            fingerprint,
-        )?;
-        Ok(Some((staged, update)))
+        Ok(Some((staged, fingerprint)))
     }
 
     async fn record_observation(
@@ -689,22 +687,22 @@ impl Ingest<'_> {
     }
 
     /// Makes the file at `path`, observed as `identity`, durable together with the directory
-    /// entries above it, before the catalog records it. `false` means it could not: the file is
+    /// entries above it, before the catalog records it. `None` means it could not: the file is
     /// counted as deferred with the path stop that names why, nothing is recorded for it, and the
     /// next scan tries again.
     async fn make_durable(
         &mut self,
-        path: &std::path::Path,
+        path: &SyncPath,
         identity: FileIdentity,
         binding: &SyncBinding,
         name: &ObjectName,
-    ) -> Result<bool, SyncError> {
+    ) -> Result<Option<Durable>, SyncError> {
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         crate::storage::fault::hit_io(
             &self.config.data_dir,
             crate::storage::fault::Step::SyncSourceSync,
         )?;
-        let selected = path.to_owned();
+        let selected = path.clone();
         let mut synced = std::mem::take(&mut self.synced);
         let (synced, outcome) = self
             .root
@@ -715,18 +713,18 @@ impl Ingest<'_> {
             .await?;
         self.synced = synced;
         match outcome {
-            Ok(()) => Ok(true),
+            Ok(durable) => Ok(Some(durable)),
             Err(NotDurable::Changed) => {
                 self.summary.deferred += 1;
                 self.record_observation(binding, name, PathStop::SourceChanging)
                     .await?;
-                Ok(false)
+                Ok(None)
             }
             Err(NotDurable::Io(error)) => {
-                self.defer(path, error.kind());
+                self.defer(path.as_ref(), error.kind());
                 self.record_observation(binding, name, PathStop::IoFailure)
                     .await?;
-                Ok(false)
+                Ok(None)
             }
         }
     }
@@ -743,58 +741,32 @@ impl Ingest<'_> {
     }
 
     async fn ingest(&mut self, candidate: Candidate) -> Result<(), SyncError> {
-        let Some((staged, update)) = self.stage_update(&candidate).await? else {
+        let Some((staged, fingerprint)) = self.stage_update(&candidate).await? else {
             return Ok(());
         };
-        let Candidate {
-            path,
-            identity,
-            bucket,
-            name,
-            binding,
-            tracked,
-            live,
-            ..
-        } = candidate;
         let hashes = staged.hashes();
-        if let Some(live) = &live {
+        if let Some(live) = &candidate.live {
             let generation = Generation::new(live.generation)?;
             if live.size == staged.size() && live.md5 == hashes.md5 && live.crc32c == hashes.crc32c
             {
                 staged.discard().await?;
-                if !self.make_durable(&path, identity, &binding, &name).await? {
-                    return Ok(());
-                }
-                match self
-                    .catalog
-                    .sync_state()
-                    .acknowledge(&name, generation, update)
-                    .await
-                {
-                    Ok(()) => {
-                        self.summary.identical += 1;
-                        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                        self.recorded().await?;
-                    }
-                    Err(AdminError::Precondition | AdminError::NotFound) => {
-                        self.summary.deferred += 1
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-                return Ok(());
+                return self
+                    .acknowledge_identical(&candidate, generation, fingerprint)
+                    .await;
             }
-            if tracked
+            if candidate
+                .tracked
                 .as_ref()
                 .is_none_or(|record| record.generation != generation)
             {
                 staged.discard().await?;
                 self.root
-                    .record_export_conflict(binding, name, generation)
+                    .record_export_conflict(candidate.binding, candidate.name, generation)
                     .await?;
                 self.summary.conflicting += 1;
                 return Ok(());
             }
-        } else if let Some(tracked) = &tracked {
+        } else if let Some(tracked) = &candidate.tracked {
             let size = staged.size();
             staged.discard().await?;
             if tracked.fingerprint.size == size
@@ -806,13 +778,69 @@ impl Ingest<'_> {
                 return Ok(());
             }
             self.root
-                .record_export_conflict(binding, name, tracked.generation)
+                .record_export_conflict(candidate.binding, candidate.name, tracked.generation)
                 .await?;
             self.summary.conflicting += 1;
             return Ok(());
         }
+        self.publish(candidate, staged, fingerprint).await
+    }
+
+    /// Tracks the candidate's file, which holds the bytes of the live generation `generation`.
+    async fn acknowledge_identical(
+        &mut self,
+        candidate: &Candidate,
+        generation: Generation,
+        fingerprint: SyncFingerprint,
+    ) -> Result<(), SyncError> {
+        let Some(durable) = self
+            .make_durable(
+                &candidate.key,
+                candidate.identity,
+                &candidate.binding,
+                &candidate.name,
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+        let update = SyncUpdate::new(candidate.binding.clone(), durable, fingerprint)?;
+        match self
+            .catalog
+            .sync_state()
+            .acknowledge(&candidate.name, generation, update)
+            .await
+        {
+            Ok(()) => {
+                self.summary.identical += 1;
+                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                self.recorded().await?;
+            }
+            Err(AdminError::Precondition | AdminError::NotFound) => self.summary.deferred += 1,
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
+    }
+
+    /// Publishes the candidate's staged bytes as the object's next generation and tracks its file.
+    async fn publish(
+        &mut self,
+        candidate: Candidate,
+        staged: StagedObject,
+        fingerprint: SyncFingerprint,
+    ) -> Result<(), SyncError> {
         #[cfg(test)]
         checkpoint("publish").await;
+        let Candidate {
+            path,
+            key,
+            identity,
+            bucket,
+            name,
+            binding,
+            live,
+            ..
+        } = candidate;
         let content_type = self
             .config
             .seed_content_type
@@ -827,10 +855,11 @@ impl Ingest<'_> {
             .map_or(Ok(GenerationCondition::Absent), |record| {
                 Generation::new(record.generation).map(GenerationCondition::Is)
             })?;
-        if !self.make_durable(&path, identity, &binding, &name).await? {
+        let Some(durable) = self.make_durable(&key, identity, &binding, &name).await? else {
             staged.discard().await?;
             return Ok(());
-        }
+        };
+        let update = SyncUpdate::new(binding, durable, fingerprint)?;
         self.root.revalidate().await?;
         let result = self
             .admin

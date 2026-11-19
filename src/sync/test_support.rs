@@ -75,7 +75,9 @@ pub(super) async fn retrack(
             tracked.generation,
             SyncUpdate::new(
                 binding,
-                SyncPath::try_from(path.to_owned()).unwrap(),
+                crate::storage::sync_state::durable::Durable::assumed(
+                    SyncPath::try_from(path.to_owned()).unwrap(),
+                ),
                 fingerprint,
             )
             .unwrap(),

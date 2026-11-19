@@ -71,7 +71,7 @@ async fn entry(dir: &TestDir, admin: &Admin, name: &str, bytes: &[u8]) -> BatchP
 fn update(binding: SyncBinding, path: &str, entry: &BatchPublication) -> SyncUpdate {
     SyncUpdate::new(
         binding,
-        SyncPath::try_from(path.to_owned()).unwrap(),
+        super::durable::Durable::assumed(SyncPath::try_from(path.to_owned()).unwrap()),
         SyncFingerprint {
             size: entry.staged.size(),
             mtime_ns: i128::MIN,

@@ -58,10 +58,13 @@ the delete guard below is what stops a large deletion. It does so only for a
 file the inventory looks at: an object with a finding, such as one kept out of
 the tree while `max_sync_depth` was lower, is no candidate, so its missing file
 is written back once the cause is gone, which clears the finding. One catalog
-condition decides both. Ingestion syncs a file
-and each directory above it before it records the file, so a power loss never
-keeps a tracking row whose file it lost; a failed sync records nothing, counts
-the file as deferred and retries on the next scan. Restoring the synchronization
+condition decides both. Every path that records a tracking row syncs the file
+and each directory above it up to the root first: ingestion, including a file
+whose bytes it only confirms, and write-back, including a file the user wrote
+that an export only observes as identical. The row takes the proof of those
+syncs, so a power loss never keeps a tracking row whose file it lost. A failed
+sync records nothing; ingestion counts the file as deferred and retries on the
+next scan. Restoring the synchronization
 directory to an earlier state, for example from a backup, makes the files
 ingested after that state count as deleted; the delete guard stops a mass
 deletion.
@@ -73,10 +76,15 @@ when enabled, the candidate count is at least 100, and the fraction is strictly
 greater than one half. It also stops it, whatever the counts, when a bucket's
 whole directory is missing while the tree tracks files in it: a mount that did
 not come up, or a directory moved away, looks the same as deleting it, and
-putting it back brings every file back. Reconciliation does not recreate such a
-directory, at startup or later, so the set waits for approval
-(`sync_bucket_directory_missing` names the bucket). A disabled guard changes
-only these decisions.
+putting it back brings every file back. Nothing recreates such a directory, at
+startup or later, so the set waits for approval
+(`sync_bucket_directory_missing` names the bucket): reconciliation leaves it
+missing, and every export into the bucket, such as that of an object written
+through the API while the server ran or was stopped, waits as deferred. Such an
+export holds back neither the baseline nor the inventory, which offers the set
+to approve. Approving the set deletes the files and then runs the waiting
+exports; putting the directory back runs them on the next pass. A disabled
+guard changes only these decisions.
 
 Observed tree changes, root/marker failures, API journal changes and restart
 invalidate unused revisions. Invalidating a set that is already invalid changes
@@ -93,9 +101,7 @@ possible between the final absence check and catalog commit; it is never an
 authorization to unlink the newly created file.
 
 Deleting a bucket directory deletes its objects once the set is approved, as
-above; the bucket stays and an empty directory is recreated. An export of a new
-API object into that bucket before then recreates the directory too, after
-which its missing files count as single deletions. Versioned deletion retains
+above; the bucket stays and an empty directory is recreated. Versioned deletion retains
 the selected generation as history.
 The shared deletion path enforces holds and retention. A protected deletion
 restores the immutable API bytes where safe without changing their metadata,
@@ -149,9 +155,11 @@ versioned history, transactional rollback and owner retention across restart.
 Library tests also cover an object the tree cannot hold beside an external
 deletion, an unsafe entry that stops deletions until it is removed, a tracked
 file replaced by a directory, a lowered `max_sync_depth`, an unreadable tracked
-path beside a deleted file, and the reuse rules of an identical inventory. An
-integration test deletes files while the server is stopped and after it is
-killed.
+path beside a deleted file, and the reuse rules of an identical inventory. They
+hold an API write into a bucket whose directory is missing until approval, at
+startup and while running, and cut power after write-back observed a file whose
+ingestion sync had failed. An integration test deletes files while the server
+is stopped and after it is killed.
 The ordinary hold-negative write-back test remains enabled and passes.
 
 The read-copy tests pair a catalog crash snapshot with a tree snapshot at file
