@@ -1536,13 +1536,16 @@ rounding or new identity-preservation mode is introduced.
 
 This document changes no owner decision. It makes the specified non-exchange
 race window explicit rather than claiming an unattainable cross-filesystem/SQL
-atomic transaction. Runtime cases, process-kill/platform tests, official SDKs,
-containers and notification behavior have not been executed for this contract.
-Performance is **unmeasured**. Ordinary runtime slices require no benchmark or
+atomic transaction. When this contract was written, runtime cases,
+process-kill/platform tests, official SDKs, containers and notification behavior
+had not been executed for it; the [feature matrix](../feature-matrix.md) records
+what has run since. Ordinary runtime slices require no benchmark or
 measurement; a slice whose purpose is performance may record one short run at
-about 1,000 entries as a fact, without a regression gate. Bounded pages and the
-stat-first rescan remain design requirements enforced by tests and review. No
-speed or memory improvement is claimed.
+about 1,000 entries as a fact, without a regression gate. The listing fallback
+recorded one: a rescan and wait over 1,000 files on a Docker Desktop bind mount
+took 3.44 s ([evidence](../evidence/sync-listing-attribute-cache.txt)). Bounded
+pages and the stat-first rescan remain design requirements enforced by tests and
+review. No memory improvement is claimed.
 
 ### Historical contract-only document checks
 
