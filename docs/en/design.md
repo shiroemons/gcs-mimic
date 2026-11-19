@@ -71,7 +71,10 @@ answers that error in its own protocol: the JSON adapter renders the envelope th
 (`src/xml/error_mapping.rs`), and the gRPC adapter maps them to statuses
 (`src/grpc/v2/status.rs`). `ApiError` still carries an HTTP status and Cloud Storage's
 JSON `reason`, which the XML and gRPC conversions read; it is shared, not yet
-protocol-neutral. Production code under `src/grpc` and `src/xml` has no reference to the
+protocol-neutral. The lint only sees a named reference, so it does not measure this
+coupling. Removing it means the shared server logic and request parsers return domain and
+request-validation errors, as catalog, object and authentication failures already are, and
+each adapter chooses its own status, code and wording; that is a slice of its own. Production code under `src/grpc` and `src/xml` has no reference to the
 `json` module, and `cargo xtask lint` rejects a new one (`text::json_adapter_dependency`,
 zero tolerance).
 
