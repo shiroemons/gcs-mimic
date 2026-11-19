@@ -74,7 +74,11 @@ async fn a_refused_removal_is_one_collision_and_other_exports_continue() {
         // A name the tree cannot hold is reported and does not stop the wait.
         let waited = started.wait().await.unwrap();
         assert_eq!(waited.reason, WaitReason::Ready, "{kind:?}");
-        assert_eq!(waited.findings.map(|found| found.unmapped), Some(1), "{kind:?}");
+        assert_eq!(
+            waited.findings.map(|found| found.unmapped),
+            Some(1),
+            "{kind:?}"
+        );
         assert_eq!(fault::pending(&tree.0), 0, "{kind:?}");
         assert!(tree.0.join(TARGET).is_dir(), "{kind:?}");
         assert_eq!(fs::read(tree.0.join("test-bucket/b")).unwrap(), BODY);
