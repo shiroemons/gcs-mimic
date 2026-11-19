@@ -58,6 +58,7 @@ fn status_state_follows_the_mirror_state() {
         blocking_findings: 0,
         unmapped_findings: 0,
         pending_writeback: 0,
+        rejected_writeback: 0,
         path_stops: 0,
         unresolved_conflicts: 0,
         paused_reason,

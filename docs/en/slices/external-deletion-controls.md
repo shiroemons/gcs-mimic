@@ -137,7 +137,14 @@ revision is never confirmed, approved or rejected again. The write-back logs
 `sync_deletions_rejected` with how many files it restored, how many paths it
 kept because something was put there meanwhile, and how many it skipped because
 the object changed or went; a write-back that stopped or failed part way logs
-it as a warning with the number of files remaining. A stale, approved or
+it as a warning with the number of files remaining, and a failure also with its
+reason and what to correct. While files are left, the status counts them as
+`observation.rejected_writeback` and reads the directory as `SourceChanging`,
+not `Ready`, and `gcs-mimic sync wait` answers once they are all back. A
+write-back that keeps failing, such as for a missing permission, pauses
+synchronization with the reason the status and the `sync_paused` event name,
+and no deletion is detected meanwhile; correcting the cause and running the
+rescan the remedy names writes the rest back. A stale, approved or
 already rejected revision returns 409, as approval does. The 409 of a decision
 says what became of the set: approved or rejected already; replaced by the set
 it names, because files came back or went or an API change reached its objects

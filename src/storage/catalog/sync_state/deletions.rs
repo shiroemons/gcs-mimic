@@ -331,11 +331,15 @@ fn inspectable(
     }
 }
 
-/// Whether the root's set is rejected and has a member not written back yet.
-fn rejection_pending(connection: &Connection, root: RootId) -> Result<bool, CatalogError> {
+/// How many members of the root's rejected set are not written back yet; none for a root whose
+/// set is not rejected.
+pub(super) fn rejected_remaining(
+    connection: &Connection,
+    root: RootId,
+) -> Result<u64, CatalogError> {
     Ok(sql::scalar(
         connection,
-        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND d.authorization=2 AND m.done=0)",
+        "SELECT count(*) FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND d.authorization=2 AND m.done=0",
         [root],
     )?)
 }

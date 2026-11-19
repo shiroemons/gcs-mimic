@@ -69,6 +69,9 @@ pub(crate) struct Outstanding {
     paused: Option<PauseReason>,
     /// Why write-back stopped, if it did.
     writeback: Option<Halt>,
+    /// The files of a rejected deletion set are not all written back yet: the server itself is
+    /// still changing the directory.
+    rejected_writeback: bool,
     tree: TreeSide,
     /// A guarded deletion set waits for an operator's approval.
     deletion_approval: bool,
@@ -171,6 +174,7 @@ impl Outstanding {
                 .writeback
                 .as_ref()
                 .and_then(|writeback| writeback.state.halt()),
+            rejected_writeback: observation.rejected_writeback > 0,
             tree,
             // A guarded set waits only until an operator grants it. A granted set runs in the
             // pass that completes it, so it waits for nobody.
@@ -185,13 +189,19 @@ impl Outstanding {
 
     /// The first condition that holds. A pause and a write-back stop need an operator, so they
     /// come first; then what the tree still owes, since findings read before the tree settles may
-    /// change; then what an operator must decide before the findings to inspect.
+    /// change; then what an operator must decide before the findings to inspect. Files of a
+    /// rejected set still being written back change the tree as an edit in progress does, so
+    /// neither the status nor a wait reads it as ready until they are all back; a write-back
+    /// that fails pauses synchronization, which comes first.
     pub(crate) const fn first(self) -> Holdup {
         if let Some(reason) = self.paused {
             return Holdup::Paused(reason);
         }
         if let Some(halt) = self.writeback {
             return Holdup::Writeback(halt);
+        }
+        if self.rejected_writeback {
+            return Holdup::SourceChanging;
         }
         match self.tree {
             TreeSide::Changing => Holdup::SourceChanging,

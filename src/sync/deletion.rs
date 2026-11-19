@@ -702,20 +702,31 @@ impl WriteBack {
 
     /// Logs what this write-back of `pending` did, which ended as `finished`; a warning when it
     /// stopped or failed with members left, which the next start, retry or rescan writes back
-    /// before it looks for deleted files.
+    /// before it looks for deleted files. A failure names its cause and asks for it to be
+    /// corrected first, since a write-back that keeps failing keeps deletions from being
+    /// detected.
     fn report(&self, pending: &PendingRejection, finished: &Result<Interrupted, SyncError>) {
         let revision = pending.revision.to_hex();
-        if matches!(finished, Ok(Interrupted::No)) {
-            diagnostics::emit(
-                LogLevel::Info,
-                "sync_deletions_rejected",
-                serde_json::json!({
-                    "revision":revision,"restored":self.restored,"kept":self.kept,
-                    "skipped":self.skipped,
-                }),
-            );
-            return;
-        }
+        let reason = match finished {
+            Ok(Interrupted::No) => {
+                diagnostics::emit(
+                    LogLevel::Info,
+                    "sync_deletions_rejected",
+                    serde_json::json!({
+                        "revision":revision,"restored":self.restored,"kept":self.kept,
+                        "skipped":self.skipped,
+                    }),
+                );
+                return;
+            }
+            Ok(Interrupted::Stopped | Interrupted::Deadline) => None,
+            Err(error) => Some(crate::error::Report(error).to_string()),
+        };
+        let remedy = if reason.is_some() {
+            "Correct what the reason names, such as a missing permission on the directory or a full disk; the next start, retry or rescan writes the remaining files back before it looks for deleted files, and no deletion is detected until they are back"
+        } else {
+            "The next start, retry or rescan writes the remaining files back before it looks for deleted files"
+        };
         let ended = self.restored + self.kept + self.skipped;
         diagnostics::emit(
             LogLevel::Warn,
@@ -723,7 +734,7 @@ impl WriteBack {
             serde_json::json!({
                 "revision":revision,"restored":self.restored,"kept":self.kept,
                 "skipped":self.skipped,"remaining":pending.remaining.saturating_sub(ended),
-                "remedy":"The next start, retry or rescan writes the remaining files back before it looks for deleted files",
+                "reason":reason,"remedy":remedy,
             }),
         );
     }

@@ -11,6 +11,7 @@ fn summary() -> Summary {
         blocking_findings: 0,
         unmapped_findings: 0,
         pending_writeback: 0,
+        rejected_writeback: 0,
         path_stops: 0,
         unresolved_conflicts: 0,
         paused_reason: None,
@@ -27,7 +28,7 @@ fn settled() -> Outstanding {
 type Condition = (fn(&mut Outstanding), Holdup);
 
 /// Every condition, in the order [`Outstanding::first`] checks them, with what it names.
-fn conditions() -> [Condition; 9] {
+fn conditions() -> [Condition; 10] {
     [
         (
             |outstanding| outstanding.paused = Some(PauseReason::IoFailure),
@@ -36,6 +37,10 @@ fn conditions() -> [Condition; 9] {
         (
             |outstanding| outstanding.writeback = Some(Halt::ProtectedBody),
             Holdup::Writeback(Halt::ProtectedBody),
+        ),
+        (
+            |outstanding| outstanding.rejected_writeback = true,
+            Holdup::SourceChanging,
         ),
         (
             |outstanding| outstanding.tree = TreeSide::Changing,

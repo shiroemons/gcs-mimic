@@ -9,12 +9,13 @@
 )]
 use super::baseline::exists;
 use super::missing_bucket::{
-    BODY, BUCKET, Live, TRACKED, reject_control, tracked_pair, wait_control,
+    BODY, BUCKET, Live, TRACKED, reject_control, released, tracked_pair, wait_control,
 };
 use super::*;
 use crate::storage::fault::{Fault, Step};
 use crate::storage::sync_state::deletions::DeletionSet;
 use crate::sync::control::WaitReason;
+use crate::sync::outstanding::{Holdup, Outstanding};
 use crate::sync::test_support::restore_tree;
 
 /// What a user writes at a member's path behind the write-back.
@@ -135,6 +136,74 @@ async fn a_write_back_that_fails_part_way_resumes_on_rescan_and_deletes_nothing(
     );
     written_back(&running.catalog, &tree.0, &bucket).await;
     running.finish().await;
+}
+
+/// A write-back that keeps failing stops deletion detection, so it has to show: the status
+/// counts the files it has left and reads the pause it left, whose reason and remedy name what
+/// to correct, and a wait ends on that pause instead of reading the root as ready. Once the
+/// cause is gone the rescan the remedy names writes the rest back and the count reaches zero.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wait() {
+    let (data, tree, bucket) = tracked_pair().await;
+    let running = Running::awaiting(&data.0, &tree.0).await;
+    running.reject_failing_at(1).await;
+    // The paused mirror answers a wait once it recorded the pause, which status then reads.
+    let waited = wait_control(&running.task.rescan).await;
+    assert_eq!(waited.reason, WaitReason::Paused);
+    let observation = running.root().observation().await.unwrap();
+    assert_eq!(observation.rejected_writeback, 1);
+    assert_eq!(observation.paused_reason, Some(PauseReason::IoFailure));
+    let remedy = waited.remedy(Default::default()).unwrap();
+    assert!(
+        remedy.starts_with("Restore access to the directory or free disk space"),
+        "{remedy}"
+    );
+    assert!(
+        remedy.ends_with("gcs-mimic sync rescan --endpoint URL"),
+        "{remedy}"
+    );
+    running.task.rescan().await.unwrap();
+    written_back(&running.catalog, &tree.0, &bucket).await;
+    assert_eq!(
+        running
+            .root()
+            .observation()
+            .await
+            .unwrap()
+            .rejected_writeback,
+        0
+    );
+    assert_eq!(
+        wait_control(&running.task.rescan).await.reason,
+        WaitReason::Ready
+    );
+    running.finish().await;
+}
+
+/// While the files of a rejected set are being written back, the status reads the directory
+/// as changing, not as ready, and counts the files left; a wait answers once all are back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_status_counts_the_files_a_write_back_has_left() {
+    let hook = member_hook();
+    let (_data, tree, bucket, live) = awaiting_pair(Some(hook.clone())).await;
+    reject_control(&live.commands, &live.root).await;
+    reach_member(&hook).await;
+    let observation = live.root.observation().await.unwrap();
+    assert_eq!(observation.rejected_writeback, 2);
+    assert_eq!(
+        Outstanding::of_status(
+            &observation,
+            live.root.deletion_set().await.unwrap().as_ref()
+        )
+        .first(),
+        Holdup::SourceChanging
+    );
+    hook.release.notify_one();
+    let waited = released(&hook, wait_control(&live.commands)).await;
+    assert_eq!(waited.reason, WaitReason::Ready);
+    assert_eq!(live.root.observation().await.unwrap().rejected_writeback, 0);
+    written_back(&live.catalog, &tree.0, &bucket).await;
+    live.stop().await;
 }
 
 /// The mirror stops between two members of the write-back. The next start resumes it before

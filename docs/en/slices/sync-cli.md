@@ -43,6 +43,10 @@ revision. It closes the set, so nothing approves or runs it, and writes each
 member's file back from its object through the ordinary write-back, recreating a
 missing bucket directory; no object is deleted, and the next inventory finds
 nothing to delete. A file that already sits at a member's path stays as it is.
+`gcs-mimic sync wait` answers once every file is back, and the status counts
+the files left as `observation.rejected_writeback`; a write-back stopped part
+way, by a stop or a failure, resumes at the next start, retry or rescan before
+deletions are looked for again.
 A stale or already used revision fails with 409, as approval does.
 
 The command and the server must come from the same release. Since 0.20.0 the

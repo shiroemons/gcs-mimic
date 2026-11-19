@@ -227,7 +227,7 @@ impl RootLease {
                 if !complete {
                     return Err(CatalogError::PreconditionFailed);
                 }
-                if rejection_pending(&transaction, root)? {
+                if rejected_remaining(&transaction, root)? > 0 {
                     return Ok(None);
                 }
                 let current = fence(&transaction)?;

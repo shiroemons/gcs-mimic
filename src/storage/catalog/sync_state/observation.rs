@@ -80,6 +80,11 @@ pub(crate) struct Summary {
     /// whose names the tree cannot.
     pub unmapped_findings: u64,
     pub pending_writeback: u64,
+    /// The files of a rejected deletion set not written back yet. The mirror writes them back
+    /// right after the rejection, and after a stop or a failure before it looks for deleted
+    /// files again, so a count that stays names a write-back that keeps failing, which the
+    /// pause it leaves explains.
+    pub rejected_writeback: u64,
     pub path_stops: u64,
     pub unresolved_conflicts: u64,
     pub paused_reason: Option<PauseReason>,
@@ -320,6 +325,7 @@ fn read_summary(
         blocking_findings: effects.blocking,
         unmapped_findings: effects.unmapped,
         pending_writeback: totals.pending_writeback,
+        rejected_writeback: super::deletions::rejected_remaining(connection, root)?,
         path_stops: totals.path_stops,
         unresolved_conflicts: totals.unresolved_conflicts,
         paused_reason: totals.paused_reason,
