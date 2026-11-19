@@ -104,12 +104,14 @@ impl std::borrow::Borrow<File> for PinnedSource {
 fn open_source(
     root: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     path: &std::path::Path,
     expected: FileIdentity,
 ) -> Result<(File, FileIdentity), AdminError> {
     let directory = parent(
         root,
         naming,
+        lookup,
         path.parent().ok_or(AdminError::Precondition)?,
         ParentOpen::Existing,
     )
@@ -117,7 +119,7 @@ fn open_source(
         ParentError::Io(error) => AdminError::from(error),
         ParentError::Finding(_) | ParentError::Missing => AdminError::Precondition,
     })?;
-    let fsutil::RegularChild::File(file) = fsutil::child_regular(
+    let fsutil::RegularChild::File(file) = lookup.regular(
         &directory,
         path.file_name().ok_or(AdminError::Precondition)?,
     )?
@@ -137,11 +139,12 @@ fn open_source(
 fn recheck_source(
     root: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     path: &std::path::Path,
     expected: FileIdentity,
     parent: FileIdentity,
 ) -> Result<(), AdminError> {
-    let (_, current) = open_source(root, naming, path, expected)?;
+    let (_, current) = open_source(root, naming, lookup, path, expected)?;
     if current.node() == parent.node() {
         Ok(())
     } else {
@@ -218,13 +221,14 @@ pub(super) async fn rescan_with(
         catalog,
         root,
         naming: root.naming()?,
+        lookup: root.lookup()?,
         config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
         synced: SyncedDirectories::default(),
     };
     forget_missing_directories(root, interrupt).await?;
-    let mut scan = Scan::new(root.tree_limits());
+    let mut scan = Scan::new(root.tree_limits(), root.lookup()?);
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, entries) = root.file_job(move |root| scan.page(root)).await?;
         scan = next;
@@ -354,6 +358,7 @@ async fn holds_entries(
     bucket: BucketName,
     naming: RootNaming,
 ) -> Result<bool, SyncError> {
+    let lookup = root.lookup()?;
     Ok(root
         .file_job(move |root| {
             let directory = match fsutil::directory_at(
@@ -368,7 +373,7 @@ async fn holds_entries(
             let mut names = fsutil::DirectoryNames::default();
             loop {
                 match names.next_name(&directory, usize::MAX) {
-                    Ok(Some(name)) if passed_over(&directory, &bucket, &name, naming) => {}
+                    Ok(Some(name)) if passed_over(&directory, &bucket, &name, naming, &lookup) => {}
                     Ok(Some(_)) | Err(_) => return Ok(true),
                     Ok(None) => return Ok(false),
                 }
@@ -385,8 +390,9 @@ fn passed_over(
     bucket: &BucketName,
     name: &std::ffi::OsStr,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
 ) -> bool {
-    let file = match fsutil::child_regular(directory, name) {
+    let file = match lookup.regular(directory, name) {
         Ok(fsutil::RegularChild::File(file)) => file,
         // Removed since the listing: it holds nothing any more.
         Ok(fsutil::RegularChild::Missing) => return true,
@@ -412,6 +418,8 @@ struct Ingest<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
     naming: RootNaming,
+    /// The lookups that reopen what the scan listed.
+    lookup: fsutil::Lookup,
     config: &'a Config,
     admin: Admin,
     /// The counts of this rescan; `rescan_with` returns them.
@@ -562,12 +570,13 @@ impl Ingest<'_> {
     ) -> Result<HashCheck, SyncError> {
         let selected = PathBuf::from(path.as_str());
         let naming = self.naming;
+        let lookup = self.lookup.clone();
         let observed = self
             .root
             .file_job(move |root| {
-                let (file, parent) = open_source(root, naming, &selected, expected)?;
+                let (file, parent) = open_source(root, naming, &lookup, &selected, expected)?;
                 let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
-                recheck_source(root, naming, &selected, expected, parent)?;
+                recheck_source(root, naming, &lookup, &selected, expected, parent)?;
                 Ok(hashes)
             })
             .await;
@@ -608,9 +617,11 @@ impl Ingest<'_> {
     ) -> Result<StagedObject, RootError> {
         let path = selected.clone();
         let naming = self.naming;
+        let lookup = self.lookup.clone();
+        let opening = self.lookup.clone();
         let (file, directory) = self
             .root
-            .file_job(move |root| open_source(root, naming, &path, identity))
+            .file_job(move |root| open_source(root, naming, &opening, &path, identity))
             .await?;
         #[cfg(test)]
         checkpoint("stage").await;
@@ -626,7 +637,9 @@ impl Ingest<'_> {
         checkpoint("staged").await;
         let checked = self
             .root
-            .file_job(move |root| recheck_source(root, naming, &selected, identity, directory))
+            .file_job(move |root| {
+                recheck_source(root, naming, &lookup, &selected, identity, directory)
+            })
             .await;
         if let Err(error) = checked {
             if let Err(cleanup) = staged.discard().await {
@@ -713,11 +726,13 @@ impl Ingest<'_> {
             crate::storage::fault::Step::SyncSourceSync,
         )?;
         let selected = path.clone();
+        let lookup = self.lookup.clone();
         let mut synced = std::mem::take(&mut self.synced);
         let (synced, outcome) = self
             .root
             .file_job(move |root| {
-                let outcome = durable::make_durable(root, &selected, identity, &mut synced);
+                let outcome =
+                    durable::make_durable(root, &lookup, &selected, identity, &mut synced);
                 Ok((synced, outcome))
             })
             .await?;

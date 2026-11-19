@@ -89,6 +89,7 @@ impl RootLease {
         }
         let bucket = request.binding.bucket.clone();
         let naming = self.naming()?;
+        let lookup = self.lookup()?;
         let crate::sync::mapping::PathMapping::File(path) =
             crate::sync::mapping::name_to_path(&bucket, &request.name, naming)
         else {
@@ -103,10 +104,11 @@ impl RootLease {
                     let directory = crate::sync::tree::parent(
                         root,
                         naming,
+                        &lookup,
                         std::path::Path::new(parents),
                         crate::sync::tree::ParentOpen::Existing,
                     )?;
-                    match fsutil::child_regular(&directory, name.as_ref())? {
+                    match lookup.regular(&directory, name.as_ref())? {
                         fsutil::RegularChild::File(file) => Ok(file),
                         fsutil::RegularChild::Alias | fsutil::RegularChild::Missing => {
                             Err(Error::TargetChanged)

@@ -166,6 +166,7 @@ pub(in crate::sync) async fn presence(
 ) -> Result<Presence, SyncError> {
     let limits = root.tree_limits();
     let naming = root.naming()?;
+    let lookup = root.lookup()?;
     root.file_job(move |root| {
         let path = Path::new(&path);
         if !limits.admits_file(path) {
@@ -181,15 +182,15 @@ pub(in crate::sync) async fn presence(
         let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
             return Ok(Presence::Unobservable(Unobservable::InvalidPath));
         };
-        let directory = match tree::parent(root, naming, parent, ParentOpen::Existing) {
+        let directory = match tree::parent(root, naming, &lookup, parent, ParentOpen::Existing) {
             Ok(directory) => directory,
-            Err(ParentError::Missing) => return Ok(missing_above(root, path)),
+            Err(ParentError::Missing) => return Ok(missing_above(root, &lookup, path)),
             Err(ParentError::Finding(_)) => {
                 return Ok(Presence::Unobservable(Unobservable::ParentBlocked));
             }
             Err(ParentError::Io(error)) => return Ok(lookup_failure(error)),
         };
-        Ok(match fsutil::child_regular(&directory, name) {
+        Ok(match lookup.regular(&directory, name) {
             Ok(fsutil::RegularChild::File(_)) => Presence::Present,
             Ok(fsutil::RegularChild::Missing) => Presence::Absent(Removal::Files),
             Ok(fsutil::RegularChild::Alias) => Presence::Unobservable(Unobservable::Alias),
@@ -202,11 +203,11 @@ pub(in crate::sync) async fn presence(
 
 /// The absence of `path`, a directory above which is missing: whether its bucket's whole
 /// directory is gone, or only directories inside it.
-fn missing_above(root: &File, path: &Path) -> Presence {
+fn missing_above(root: &File, lookup: &fsutil::Lookup, path: &Path) -> Presence {
     let Some(bucket) = path.iter().next() else {
         return Presence::Unobservable(Unobservable::InvalidPath);
     };
-    match fsutil::child_directory(root, bucket, fsutil::DirectoryOpen::Existing) {
+    match lookup.directory(root, bucket, fsutil::DirectoryOpen::Existing) {
         Ok(fsutil::Child::Missing) => Presence::Absent(Removal::Bucket(BucketGone::Missing)),
         Ok(fsutil::Child::Directory { .. }) => Presence::Absent(Removal::Files),
         Ok(fsutil::Child::Alias) => Presence::Unobservable(Unobservable::ParentBlocked),

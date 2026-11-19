@@ -200,7 +200,7 @@ fn root_files(directory: &File) -> io::Result<Option<usize>> {
             Err(error) if error.kind() == io::ErrorKind::InvalidData => return Ok(None),
             Err(error) => return Err(error),
         };
-        match fsutil::child_regular(directory, &name) {
+        match fsutil::Lookup::unprobed().regular(directory, &name) {
             Ok(fsutil::RegularChild::File(_)) => files += 1,
             // Gone since the listing.
             Ok(fsutil::RegularChild::Missing) => {}

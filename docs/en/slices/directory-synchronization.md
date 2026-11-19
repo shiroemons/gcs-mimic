@@ -526,6 +526,21 @@ lists and deletes what it finds, and never removes its subdirectory; none of its
 names has the 32-digit hexadecimal form of a write-back operation, so recovery
 never takes a leftover for an interrupted operation.
 
+A lookup below the root opens a name without following a symlink and confirms
+that the entry it reached has that exact spelling; an entry reached under
+another letter case or normalization is an alias. macOS reports the name of an
+open file and a Linux directory reports its casefold flag; where neither
+answers, the lookup lists the parent. The recorded rules decide where that
+listing is unneeded and where the platform's answer is not believed. On a root
+that folds neither letter case nor normalization, a name that opens on the
+root's device is spelled that way, so a mount whose casefold flag query fails
+with `ENOTTY` is not listed; a directory whose casefold flag is set, which ext4
+sets per directory, is still listed, and so is a directory on another device.
+On a root that folds either, a clear casefold flag is not believed, because a
+mount that folds without that flag reports the same, and the parent is listed.
+A Docker Desktop bind mount from a macOS host folds case and answers the flag
+query with `ENOTTY`, so its lookups list the parent.
+
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses
 with `paused_reason` `observer-failure` before its first scan, so nothing is
@@ -617,13 +632,12 @@ went with it (`metadata_removed`).
 Catalog references compare names
 byte for byte, so a reference under another letter case on a root that folds
 case does not keep the directory; the removal itself still refuses one that
-holds an entry. On a root that the probe found to fold letter case, the parent
-must also list the target's exact spelling within its first 4096 names before
-the directory goes: a Linux mount that folds case without the casefold flag,
-such as a Docker Desktop bind mount, reports any spelling as exact, and removing
-`photos/` for an object `Photos` would put a file where the parent of a tracked
-`photos/a.jpg` was. This check runs only where letter case folds, so it does not
-cover a mount that equates names only by Unicode normalization.
+holds an entry. On a root that the probe found to fold letter case or
+normalization, the parent must also list the target's exact spelling before the
+directory goes, as for any lookup there: a Docker Desktop bind mount cannot
+report the spelling, and a Linux mount that folds case without the casefold flag
+reports any spelling as exact; removing `photos/` for an object `Photos` would
+put a file where the parent of a tracked `photos/a.jpg` was.
 
 For every `File(p)`, decoding that exact relative path must reproduce the same
 bucket and object bytes. Filesystem normalization must preserve this property;

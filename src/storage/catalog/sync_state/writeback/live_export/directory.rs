@@ -21,8 +21,8 @@
 //! follows a symlink and refuses a directory that holds an entry that arrived after that listing,
 //! which is left as a collision, with one exception no check can close: on macOS, an AppleDouble
 //! `._*` file created between that listing and `rmdir` goes with the directory. No ancestor that
-//! a removal empties is removed after it. On a root that folds letter case the directory that
-//! holds the target is listed too, to confirm the spelling.
+//! a removal empties is removed after it. On a root that folds names the directory that holds the
+//! target is listed too, to confirm the spelling ([`fsutil::Lookup`]).
 
 use super::*;
 use crate::storage::catalog::sync_state::empty::{self, Contents, MetadataFile};
@@ -273,12 +273,16 @@ impl RemovableDirectory {
     /// decode to an object below its bucket's directory, which rules out the bucket's directory
     /// itself as well as the workspace and the marker: a removed bucket directory would let a
     /// directory created later under that name bring a deleted bucket back. The entry must open
-    /// as a directory under its exact spelling without following a symlink, and on a root that
-    /// folds letter case the directory that holds it must also list that spelling. The
-    /// directory must hold nothing but Finder metadata files ([`metadata_only`]).
+    /// as a directory under its exact spelling without following a symlink: on a root that folds
+    /// names, `lookup` lists the directory that holds it to confirm that spelling, because a
+    /// Linux mount that folds case without the casefold flag, such as a Docker Desktop bind
+    /// mount, cannot report it, and removing `photos/` for an object `Photos` would put a file
+    /// where the parent of a tracked `photos/a.jpg` was. The directory must hold nothing but
+    /// Finder metadata files ([`metadata_only`]).
     pub(super) fn prove(
         root: &File,
         naming: RootNaming,
+        lookup: &fsutil::Lookup,
         catalog: Unreferenced,
     ) -> Result<Result<Self, Kept>, Error> {
         let Unreferenced { path } = catalog;
@@ -289,15 +293,10 @@ impl RemovableDirectory {
         let Some(name) = relative.file_name().map(std::ffi::OsStr::to_owned) else {
             return Ok(Err(Kept::NotAnObject));
         };
-        let parent = parent(root, naming, &path, ParentSync::Skip)?.ok_or_else(stale)?;
-        match fsutil::child_directory(&parent, &name, fsutil::DirectoryOpen::Existing) {
-            Ok(fsutil::Child::Directory { .. })
-                if naming.folds_case() && !listed(&parent, &name)? =>
-            {
-                Ok(Err(Kept::NotDirectory))
-            }
+        let parent = parent(root, naming, lookup, &path, ParentSync::Skip)?.ok_or_else(stale)?;
+        match lookup.directory(&parent, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { file, .. }) => {
-                Ok(metadata_only(&file)?.map(|metadata| Self {
+                Ok(metadata_only(&file, lookup)?.map(|metadata| Self {
                     path,
                     parent,
                     name,
@@ -316,8 +315,11 @@ impl RemovableDirectory {
 
 /// The Finder metadata files that `directory` holds when they are all it holds. A listing that
 /// fails keeps the directory: what it holds is unknown until a later pass reads it.
-fn metadata_only(directory: &File) -> Result<Result<Vec<MetadataFile>, Kept>, Error> {
-    Ok(match empty::contents(directory)? {
+fn metadata_only(
+    directory: &File,
+    lookup: &fsutil::Lookup,
+) -> Result<Result<Vec<MetadataFile>, Kept>, Error> {
+    Ok(match empty::contents(directory, lookup)? {
         Contents::Empty(metadata) => Ok(metadata),
         Contents::Holds => Err(Kept::Holds),
         Contents::Unlisted(error) => Err(Kept::Unlisted {
@@ -325,31 +327,6 @@ fn metadata_only(directory: &File) -> Result<Result<Vec<MetadataFile>, Kept>, Er
             os: error.raw_os_error(),
         }),
     })
-}
-
-/// The most names [`listed`] reads from the directory that holds the target. A directory with
-/// more leaves the spelling unconfirmed, which keeps the target's directory.
-const SPELLING_LIST_LIMIT: usize = 4096;
-
-/// Whether `parent` lists `name` under exactly that spelling. On a root that folds letter case,
-/// opening a name can reach an entry spelled otherwise, and the filesystem need not say so: a
-/// Linux mount that folds case without the casefold flag, as Docker Desktop's bind mounts do,
-/// reports every spelling as exact. Removing `photos/` for an object `Photos` would then put a
-/// file where the parent of a tracked `photos/a.jpg` was, and stop that file's deletion. The
-/// root probe cannot find a mount that equates names only by Unicode normalization, so this
-/// check never runs on one.
-fn listed(parent: &File, name: &std::ffi::OsStr) -> Result<bool, Error> {
-    let mut names = fsutil::DirectoryNames::default();
-    loop {
-        match names.next_name(parent, SPELLING_LIST_LIMIT) {
-            Ok(Some(listed)) if listed == name => return Ok(true),
-            Ok(Some(_)) => {}
-            Ok(None) => return Ok(false),
-            // More names than the limit: the spelling stays unconfirmed.
-            Err(error) if error.kind() == io::ErrorKind::InvalidData => return Ok(false),
-            Err(error) => return Err(error.into()),
-        }
-    }
 }
 
 /// Unlinks the Finder metadata files of `metadata` from `directory` while each name still
@@ -366,7 +343,7 @@ fn remove_metadata(
     for file in metadata {
         #[cfg(test)]
         install.faults.hit_io(Step::SyncDirectoryMetadataUnlink)?;
-        let current = match fsutil::child_regular(directory, file.name.as_ref()) {
+        let current = match install.lookup.regular(directory, file.name.as_ref()) {
             Ok(fsutil::RegularChild::File(current)) => current,
             Ok(fsutil::RegularChild::Missing | fsutil::RegularChild::Alias) => continue,
             Err(error) if crate::sync::tree::structural_entry_error(&error) => continue,
@@ -400,8 +377,9 @@ fn unchanged(
     parent: &File,
     name: &std::ffi::OsStr,
     directory: &File,
+    lookup: &fsutil::Lookup,
 ) -> Result<Result<(), Kept>, Error> {
-    match fsutil::child_directory(parent, name, fsutil::DirectoryOpen::Existing) {
+    match lookup.directory(parent, name, fsutil::DirectoryOpen::Existing) {
         Ok(fsutil::Child::Directory { file, .. }) => {
             if fsutil::stat_identity(&file)?.node() != fsutil::stat_identity(directory)?.node() {
                 return Err(stale());
@@ -414,7 +392,7 @@ fn unchanged(
         }
         Err(error) => return Err(error.into()),
     }
-    Ok(metadata_only(directory)?.map(drop))
+    Ok(metadata_only(directory, lookup)?.map(drop))
 }
 
 /// Removes the directory `proof` names once its Finder metadata files are unlinked, if it is
@@ -439,7 +417,7 @@ pub(super) fn remove(
         return Err(stale());
     }
     let unlinked = remove_metadata(&directory, &metadata, install)?;
-    if let Err(kept) = unchanged(&parent, &name, &directory)? {
+    if let Err(kept) = unchanged(&parent, &name, &directory, &install.lookup)? {
         return Ok(Err(kept));
     }
     #[cfg(test)]

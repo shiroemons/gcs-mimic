@@ -1,7 +1,7 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
 use super::{mapping::Reason, naming::RootNaming};
-use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, NodeId};
+use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, Lookup, NodeId};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
 use crate::{config::MAX_TREE_DEPTH, fsutil::FileIdentity, storage::admin::AdminError};
@@ -69,6 +69,7 @@ pub(crate) struct TreeScan {
     limits: TreeLimits,
     frames: Vec<Frame>,
     pub(crate) visited: usize,
+    lookup: Lookup,
 }
 struct Frame {
     path: PathBuf,
@@ -110,11 +111,12 @@ impl Frame {
     }
 }
 impl TreeScan {
-    pub(crate) fn new(limits: TreeLimits) -> Self {
+    pub(crate) fn new(limits: TreeLimits, lookup: Lookup) -> Self {
         Self {
             limits,
             frames: vec![Frame::new(PathBuf::new(), None)],
             visited: 0,
+            lookup,
         }
     }
     pub(crate) fn is_empty(&self) -> bool {
@@ -132,7 +134,7 @@ impl TreeScan {
                 root.try_clone()
             } else {
                 let directory = directories.last().ok_or(AdminError::Precondition)?;
-                match fsutil::child_directory(
+                match self.lookup.directory(
                     directory,
                     frame.path.file_name().ok_or(AdminError::Precondition)?,
                     DirectoryOpen::Existing,
@@ -222,7 +224,10 @@ impl TreeScan {
                 directory: false,
                 error: None,
             };
-            match fsutil::child_directory(directory, &name, DirectoryOpen::Existing) {
+            match self
+                .lookup
+                .directory(directory, &name, DirectoryOpen::Existing)
+            {
                 Ok(Child::Directory { file, .. }) => {
                     // The root's frame is level 0, so this count is the level of the child.
                     if self.frames.len() > self.limits.deepest_directory() {
@@ -236,7 +241,7 @@ impl TreeScan {
                 Ok(Child::Missing) => continue,
                 Ok(Child::Alias) => {}
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
-                Err(_) => match fsutil::child_regular(directory, &name) {
+                Err(_) => match self.lookup.regular(directory, &name) {
                     Ok(fsutil::RegularChild::File(file)) => {
                         entry.identity = Some(fsutil::stat_identity(&file)?)
                     }
@@ -284,6 +289,7 @@ pub(crate) fn structural_entry_error(error: &io::Error) -> bool {
 pub(crate) fn parent(
     root: &File,
     naming: RootNaming,
+    lookup: &Lookup,
     path: &Path,
     open: ParentOpen,
 ) -> Result<File, ParentError> {
@@ -314,7 +320,7 @@ pub(crate) fn parent(
             ParentOpen::Existing => DirectoryOpen::Existing,
             ParentOpen::Create => DirectoryOpen::CreateIfMissing,
         };
-        match fsutil::child_directory(&directory, component, mode) {
+        match lookup.directory(&directory, component, mode) {
             Ok(Child::Directory {
                 file,
                 created: _created,

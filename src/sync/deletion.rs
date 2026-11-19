@@ -375,10 +375,11 @@ pub(super) async fn bucket_directory_held(
     bucket: &BucketName,
 ) -> Result<bool, SyncError> {
     let selected = bucket.clone();
+    let lookup = root.lookup()?;
     let missing = root
         .file_job(move |root| {
             Ok(matches!(
-                fsutil::child_directory(
+                lookup.directory(
                     root,
                     selected.as_str().as_ref(),
                     fsutil::DirectoryOpen::Existing,

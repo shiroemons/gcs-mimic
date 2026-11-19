@@ -3,6 +3,7 @@
 
 use std::{collections::VecDeque, ffi::OsString, fs::File, io};
 mod hash;
+mod lookup;
 pub(crate) use hash::{HashOutcome, hash_exact};
 
 #[cfg(unix)]
@@ -16,7 +17,6 @@ use unsupported as imp;
 
 use imp::directory_names_within;
 pub(crate) use imp::remove_empty_directory_at;
-pub(crate) use imp::{child_directory, child_regular};
 pub(crate) use imp::{
     create_regular_at, directory_at, name_max, open_regular_writable_at, sole_regular_link,
     unlink_file_at,
@@ -24,6 +24,7 @@ pub(crate) use imp::{
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
+pub(crate) use lookup::{Lookup, Matching};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CopyMethod {
@@ -1018,11 +1019,12 @@ pub(crate) fn durable_replace(
 pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Vec<(u64, u64)>> =
     std::sync::Mutex::new(Vec::new());
 
-/// The directories, by device and inode number, whose entries tests take as spelled the way they
-/// were opened without asking the filesystem. On a test filesystem that folds letter case, such a
-/// directory stands in for a Linux mount that folds case without the casefold flag, where the
-/// spelling check cannot tell another spelling apart. Tests run in parallel, so each adds its own
-/// directory and removes only that one again.
+/// The directories, by device and inode number, for which tests take the platform's answer to be
+/// that an opened entry is spelled the way it was opened, as a clear Linux casefold flag says. On
+/// a test filesystem that folds letter case, such a directory stands in for a Linux mount that
+/// folds case without the casefold flag; a lookup below a root the probe found to fold names
+/// does not believe that answer. Tests run in parallel, so each adds its own directory and
+/// removes only that one again.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) static UNCHECKED_SPELLING: std::sync::Mutex<Vec<(u64, u64)>> =
     std::sync::Mutex::new(Vec::new());

@@ -136,7 +136,7 @@ fn kind(class: &EntryClass) -> &'static str {
 /// Every entry of the tree and what it is, sorted by path.
 async fn classified(root: &RootLease) -> Vec<(PathBuf, &'static str)> {
     let naming = root.naming().unwrap();
-    let mut scan = crate::sync::tree::TreeScan::new(root.tree_limits());
+    let mut scan = crate::sync::tree::TreeScan::new(root.tree_limits(), root.lookup().unwrap());
     let mut classified = Vec::new();
     while !scan.is_empty() {
         let (next, page) = root.file_job(move |root| scan.page(root)).await.unwrap();

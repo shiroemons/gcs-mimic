@@ -43,7 +43,7 @@ pub(super) enum Contents {
 /// [`FINDER_METADATA`] name without following a symlink. A symlink, a directory or a special
 /// file under such a name is content like any other entry, and a listing that fails leaves what
 /// the directory holds unknown.
-pub(super) fn contents(directory: &File) -> io::Result<Contents> {
+pub(super) fn contents(directory: &File, lookup: &fsutil::Lookup) -> io::Result<Contents> {
     let mut names = fsutil::DirectoryNames::default();
     let mut metadata = Vec::new();
     loop {
@@ -62,7 +62,7 @@ pub(super) fn contents(directory: &File) -> io::Result<Contents> {
         else {
             return Ok(Contents::Holds);
         };
-        match fsutil::child_regular(directory, name.as_ref()) {
+        match lookup.regular(directory, name.as_ref()) {
             Ok(fsutil::RegularChild::File(file)) => metadata.push(MetadataFile {
                 name,
                 identity: fsutil::stat_identity(&file)?,

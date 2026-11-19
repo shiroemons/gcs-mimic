@@ -643,6 +643,13 @@ impl RootLease {
             AdminError::Backend("synchronization root naming rules were not probed".into())
         })
     }
+    /// Lookups below the pinned root under its probed naming rules.
+    pub(crate) fn lookup(&self) -> Result<crate::fsutil::Lookup, AdminError> {
+        Ok(crate::fsutil::Lookup::probed(
+            self.ownership.identity.device,
+            self.naming()?.matching(),
+        ))
+    }
     /// Records the probed naming rules. A later probe of the same pinned root that observes other
     /// rules means its filesystem changed underneath it.
     pub(crate) fn record_naming(&self, naming: RootNaming) -> Result<(), RootError> {

@@ -75,6 +75,7 @@ async fn staging_finishes_while_another_file_worker_is_occupied() {
         catalog: &catalog,
         root: &root,
         naming: root.naming().unwrap(),
+        lookup: root.lookup().unwrap(),
         config: &config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
@@ -103,6 +104,7 @@ async fn source_recheck_preserves_precondition_when_staging_cleanup_also_fails()
         catalog: &catalog,
         root: &root,
         naming: root.naming().unwrap(),
+        lookup: root.lookup().unwrap(),
         config: &config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
@@ -575,10 +577,13 @@ async fn scan_entry_limit_fails_before_an_inventory_can_be_declared_complete() {
     fs::write(tree.0.join("b"), b"b").unwrap();
     let result = root
         .file_job(|root| {
-            let mut scan = Scan::new(super::super::tree::TreeLimits {
-                entries: std::num::NonZeroUsize::new(10_000),
-                ..Default::default()
-            });
+            let mut scan = Scan::new(
+                super::super::tree::TreeLimits {
+                    entries: std::num::NonZeroUsize::new(10_000),
+                    ..Default::default()
+                },
+                crate::fsutil::Lookup::unprobed(),
+            );
             scan.visited = 9999;
             scan.page(root)
         })

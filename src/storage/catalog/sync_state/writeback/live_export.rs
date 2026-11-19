@@ -274,6 +274,7 @@ struct LiveOperation {
 struct Install {
     item: Pending,
     naming: RootNaming,
+    lookup: fsutil::Lookup,
     tracked: Option<SyncRecord>,
     /// The staged copy's identity; installation replaces it with the one it confirmed.
     staged: Option<fsutil::FileIdentity>,
@@ -506,8 +507,13 @@ fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> 
 }
 
 /// Whether the target already holds the live body an observation expects.
-fn observe_target(root: &File, naming: RootNaming, item: &Pending) -> Result<bool, Error> {
-    match target(root, naming, &item.path)? {
+fn observe_target(
+    root: &File,
+    naming: RootNaming,
+    lookup: &fsutil::Lookup,
+    item: &Pending,
+) -> Result<bool, Error> {
+    match target(root, naming, lookup, &item.path)? {
         Some(file) => content_matches(&file, item.size, item.md5, item.crc32c),
         None => Ok(false),
     }
@@ -519,6 +525,7 @@ fn observe_target(root: &File, naming: RootNaming, item: &Pending) -> Result<boo
 fn target_directory(
     root: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     item: &Pending,
 ) -> Result<Option<File>, Error> {
     match item.kind {
@@ -527,11 +534,12 @@ fn target_directory(
             Ok(Some(crate::sync::tree::parent(
                 root,
                 naming,
+                lookup,
                 std::path::Path::new(parents),
                 crate::sync::tree::ParentOpen::Create,
             )?))
         }
-        Kind::Remove => parent(root, naming, &item.path, ParentSync::Skip),
+        Kind::Remove => parent(root, naming, lookup, &item.path, ParentSync::Skip),
     }
 }
 
@@ -561,9 +569,9 @@ fn current_target(
 ) -> Result<ControlFlow<Installed, Current>, Error> {
     let selected = &install.item;
     let file = if selected.kind == Kind::Remove {
-        target(root, install.naming, &selected.path)?
+        target(root, install.naming, &install.lookup, &selected.path)?
     } else {
-        match target_entry(root, install.naming, &selected.path)? {
+        match target_entry(root, install.naming, &install.lookup, &selected.path)? {
             TargetEntry::File(file) => Some(file),
             TargetEntry::Missing => None,
             TargetEntry::Directory => {
@@ -571,7 +579,12 @@ fn current_target(
                     return Ok(ControlFlow::Break(Installed::Directory));
                 };
                 return Ok(
-                    match directory::RemovableDirectory::prove(root, install.naming, removal)? {
+                    match directory::RemovableDirectory::prove(
+                        root,
+                        install.naming,
+                        &install.lookup,
+                        removal,
+                    )? {
                         Ok(proof) => ControlFlow::Continue(Current::Directory(proof)),
                         Err(kept) => ControlFlow::Break(Installed::Kept(kept)),
                     },
@@ -579,7 +592,7 @@ fn current_target(
             }
         }
     };
-    let directory = target_directory(root, install.naming, selected)?;
+    let directory = target_directory(root, install.naming, &install.lookup, selected)?;
     Ok(ControlFlow::Continue(Current::File { file, directory }))
 }
 
@@ -1077,6 +1090,7 @@ impl Writeback {
         let install = Install {
             item: item.clone(),
             naming: self.lease.naming()?,
+            lookup: self.lease.lookup()?,
             tracked: operation.tracked.clone(),
             staged,
             purpose: operation.purpose.clone(),
@@ -1090,13 +1104,15 @@ impl Writeback {
                 #[cfg(test)]
                 failure(install.item.token.root, "install")?;
                 let installed = if observing {
-                    observe_target(root, install.naming, &install.item).map(|holds| {
-                        if holds {
-                            Installed::Done
-                        } else {
-                            Installed::Changed
-                        }
-                    })
+                    observe_target(root, install.naming, &install.lookup, &install.item).map(
+                        |holds| {
+                            if holds {
+                                Installed::Done
+                            } else {
+                                Installed::Changed
+                            }
+                        },
+                    )
                 } else {
                     install_target(root, workspace, &mut install, removal)
                 };
@@ -1142,6 +1158,7 @@ impl Writeback {
         staged: Option<fsutil::FileIdentity>,
     ) -> Result<bool, Error> {
         let naming = self.lease.naming()?;
+        let lookup = self.lease.lookup()?;
         self.fs(move |root, workspace| {
             if let Some(staged) = staged {
                 // Another file in the private copy's entry means the namespace already changed.
@@ -1158,7 +1175,7 @@ impl Writeback {
                 }
                 // A directory still at the target holds no installed copy. Failing on it, as
                 // opening a file there does, replaced the error that ended the attempt.
-                let current = match target_entry(root, naming, &item.path)? {
+                let current = match target_entry(root, naming, &lookup, &item.path)? {
                     TargetEntry::File(file) => Some(fsutil::stat_identity(&file)?),
                     TargetEntry::Directory | TargetEntry::Missing => None,
                 };
@@ -1184,8 +1201,11 @@ impl Writeback {
         let selected = item.clone();
         let observed_ns = self.lease.observation_time_ns()?;
         let naming = self.lease.naming()?;
+        let lookup = self.lease.lookup()?;
         let fp = match self
-            .fs(move |root, workspace| fingerprint(root, workspace, naming, &selected, observed_ns))
+            .fs(move |root, workspace| {
+                fingerprint(root, workspace, naming, &lookup, &selected, observed_ns)
+            })
             .await
         {
             Ok(fp) => fp,
@@ -1241,9 +1261,17 @@ impl Writeback {
         let selected = item.clone();
         let expected = fp.clone();
         let naming = self.lease.naming()?;
+        let lookup = self.lease.lookup()?;
         let verified = self
             .fs(move |root, workspace| {
-                verify_fingerprint(root, workspace, naming, &selected, expected.as_ref())
+                verify_fingerprint(
+                    root,
+                    workspace,
+                    naming,
+                    &lookup,
+                    &selected,
+                    expected.as_ref(),
+                )
             })
             .await;
         let durable = match verified {
@@ -1319,13 +1347,15 @@ impl Writeback {
         let selected = item.clone();
         let staged = operation.progress.staged();
         let naming = self.lease.naming()?;
+        let lookup = self.lease.lookup()?;
         #[cfg(test)]
         let faults = self.fault_paths();
         let cancelled = self
             .fs(move |root, workspace| {
                 // A directory that a cancelled export left at its target is not its copy.
                 if let Some(staged) = staged
-                    && let TargetEntry::File(file) = target_entry(root, naming, &selected.path)?
+                    && let TargetEntry::File(file) =
+                        target_entry(root, naming, &lookup, &selected.path)?
                     && fsutil::stat_identity(&file)?.node() == staged.node()
                 {
                     return Err(Error::Protected);

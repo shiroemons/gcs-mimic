@@ -15,6 +15,7 @@ pub(crate) use probe::run as probe;
 
 use crate::{
     diagnostics::{self, LogLevel},
+    fsutil,
     storage::{
         failure::{Link, TypedSource},
         sync_state::{observation::PauseReason, writeback::Writeback},
@@ -139,14 +140,49 @@ impl RootNaming {
         }
     }
 
-    /// Whether the probe found that two names differing only in letter case name one file
-    /// here. Where it did, opening a name may reach an entry under another spelling, and only a
-    /// listing of the parent shows the spelling for certain: a Linux mount that folds case
-    /// without the casefold flag, such as a Docker Desktop bind mount, says nothing when asked.
-    pub(crate) fn folds_case(self) -> bool {
-        match self.case {
-            Case::Sensitive => false,
-            Case::Insensitive => true,
+    /// The [`posix`](Self::posix) rules with the letter case and normalization folding of the
+    /// filesystem that holds the test directories, for fixtures below the mirror that do not
+    /// probe a root but look names up on that filesystem. Lookups trust a name that opens under
+    /// rules that fold nothing, so claiming them on APFS, which folds both, would hide the aliases
+    /// such a fixture creates.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn host() -> Self {
+        static HOST: std::sync::OnceLock<RootNaming> = std::sync::OnceLock::new();
+        *HOST.get_or_init(|| {
+            let directory = crate::test_support::TestDir::new();
+            let created = |name: &str| {
+                std::fs::write(directory.0.join(name), b"")
+                    .unwrap_or_else(|error| panic!("cannot create {name}: {error}"));
+            };
+            created("Case-Check");
+            created("nfc-\u{e9}");
+            let case = if directory.0.join("case-check").exists() {
+                Case::Insensitive
+            } else {
+                Case::Sensitive
+            };
+            let normalization = if directory.0.join("nfc-e\u{301}").exists() {
+                Normalization::Insensitive
+            } else {
+                Normalization::Sensitive
+            };
+            Self {
+                case,
+                normalization,
+                ..Self::posix()
+            }
+        })
+    }
+
+    /// How the root's filesystem matches names: exactly only where the probe found that it folds
+    /// neither letter case nor Unicode normalization. Elsewhere opening a name may reach an entry
+    /// under another spelling, and only a listing of the parent shows the spelling for certain
+    /// where the platform cannot: a Docker Desktop bind mount folds case and answers the Linux
+    /// casefold flag query with `ENOTTY`.
+    pub(crate) fn matching(self) -> fsutil::Matching {
+        match (self.case, self.normalization) {
+            (Case::Sensitive, Normalization::Sensitive) => fsutil::Matching::Exact,
+            (Case::Insensitive, _) | (_, Normalization::Insensitive) => fsutil::Matching::Folding,
         }
     }
 

@@ -613,6 +613,7 @@ pub(super) enum ParentSync {
 fn parent(
     root: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     path: &str,
     sync: ParentSync,
 ) -> Result<Option<File>, Error> {
@@ -621,6 +622,7 @@ fn parent(
     let directory = match crate::sync::tree::parent(
         root,
         naming,
+        lookup,
         std::path::Path::new(parents),
         ParentOpen::Existing,
     ) {
@@ -633,12 +635,17 @@ fn parent(
     }
     Ok(Some(directory))
 }
-fn target(root: &File, naming: RootNaming, path: &str) -> Result<Option<File>, Error> {
-    let Some(directory) = parent(root, naming, path, ParentSync::Skip)? else {
+fn target(
+    root: &File,
+    naming: RootNaming,
+    lookup: &fsutil::Lookup,
+    path: &str,
+) -> Result<Option<File>, Error> {
+    let Some(directory) = parent(root, naming, lookup, path, ParentSync::Skip)? else {
         return Ok(None);
     };
     let name = path.rsplit('/').next().ok_or_else(stale)?;
-    match fsutil::child_regular(&directory, name.as_ref()) {
+    match lookup.regular(&directory, name.as_ref()) {
         Ok(fsutil::RegularChild::File(file)) => Ok(Some(file)),
         Ok(fsutil::RegularChild::Missing) => Ok(None),
         Ok(fsutil::RegularChild::Alias) => Err(stale()),
@@ -656,17 +663,22 @@ enum TargetEntry {
 
 /// Like [`target`], but tells a directory at the target apart instead of failing on it. Any other
 /// entry that is no regular file, such as a symlink, fails as it does there.
-fn target_entry(root: &File, naming: RootNaming, path: &str) -> Result<TargetEntry, Error> {
-    let Some(directory) = parent(root, naming, path, ParentSync::Skip)? else {
+fn target_entry(
+    root: &File,
+    naming: RootNaming,
+    lookup: &fsutil::Lookup,
+    path: &str,
+) -> Result<TargetEntry, Error> {
+    let Some(directory) = parent(root, naming, lookup, path, ParentSync::Skip)? else {
         return Ok(TargetEntry::Missing);
     };
     let name: &std::ffi::OsStr = path.rsplit('/').next().ok_or_else(stale)?.as_ref();
-    match fsutil::child_regular(&directory, name) {
+    match lookup.regular(&directory, name) {
         Ok(fsutil::RegularChild::File(file)) => Ok(TargetEntry::File(file)),
         Ok(fsutil::RegularChild::Missing) => Ok(TargetEntry::Missing),
         Ok(fsutil::RegularChild::Alias) => Err(stale()),
         Err(error) if crate::sync::tree::structural_entry_error(&error) => {
-            match fsutil::child_directory(&directory, name, fsutil::DirectoryOpen::Existing) {
+            match lookup.directory(&directory, name, fsutil::DirectoryOpen::Existing) {
                 Ok(fsutil::Child::Directory { .. } | fsutil::Child::Alias) => {
                     Ok(TargetEntry::Directory)
                 }
@@ -794,13 +806,14 @@ fn fingerprint(
     root: &File,
     workspace: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     item: &Pending,
     observed_ns: i128,
 ) -> Result<Option<SyncFingerprint>, Error> {
     if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
-    let file = target(root, naming, &item.path)?;
+    let file = target(root, naming, lookup, &item.path)?;
     let result = match (item.kind, file) {
         (Kind::Remove, None) => None,
         (Kind::Publish, Some(file)) => {
@@ -824,7 +837,7 @@ fn fingerprint(
         }
         _ => return Err(stale()),
     };
-    parent(root, naming, &item.path, ParentSync::Sync)?;
+    parent(root, naming, lookup, &item.path, ParentSync::Sync)?;
     workspace.sync_all()?;
     root.sync_all()?;
     Ok(result)
@@ -839,15 +852,20 @@ fn verify_fingerprint(
     root: &File,
     workspace: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     item: &Pending,
     expected: Option<&SyncFingerprint>,
 ) -> Result<Option<Durable>, Error> {
     if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
-    let durable = match (item.kind, expected, target(root, naming, &item.path)?) {
+    let durable = match (
+        item.kind,
+        expected,
+        target(root, naming, lookup, &item.path)?,
+    ) {
         (Kind::Remove, None, None) => {
-            parent(root, naming, &item.path, ParentSync::Sync)?;
+            parent(root, naming, lookup, &item.path, ParentSync::Sync)?;
             None
         }
         (Kind::Publish, Some(expected), Some(file)) => {
@@ -858,7 +876,13 @@ fn verify_fingerprint(
                 return Err(stale());
             }
             let path = SyncPath::try_from(item.path.clone())?;
-            match durable::make_durable(root, &path, identity, &mut SyncedDirectories::default()) {
+            match durable::make_durable(
+                root,
+                lookup,
+                &path,
+                identity,
+                &mut SyncedDirectories::default(),
+            ) {
                 Ok(durable) => Some(durable),
                 Err(NotDurable::Changed) => return Err(stale()),
                 Err(NotDurable::Io(error)) => return Err(error.into()),

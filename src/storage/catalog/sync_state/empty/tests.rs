@@ -39,7 +39,7 @@ fn only_nothing_or_regular_finder_metadata_counts_as_empty() {
     let contents_of = |setup: &dyn Fn(&std::path::Path)| {
         let tree = TestDir::new();
         setup(&tree.0);
-        contents(&File::open(&tree.0).unwrap()).unwrap()
+        contents(&File::open(&tree.0).unwrap(), &fsutil::Lookup::unprobed()).unwrap()
     };
     assert!(matches!(contents_of(&|_| {}), Contents::Empty(found) if found.is_empty()));
     let finder = contents_of(&|path| fs::write(path.join(".DS_Store"), b"finder").unwrap());

@@ -24,6 +24,7 @@ fn created_parents_survive_crash_and_power_loss_only_after_directory_sync() {
                 parent(
                     &root,
                     RootNaming::posix(),
+                    &Lookup::unprobed(),
                     Path::new("bucket/nested"),
                     ParentOpen::Create
                 )
@@ -47,6 +48,7 @@ fn created_parents_survive_crash_and_power_loss_only_after_directory_sync() {
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("bucket"),
             ParentOpen::Create
         ),
@@ -76,6 +78,7 @@ fn parent_sync_failure_retries_existing_ancestors_while_reads_never_sync() {
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("bucket/nested"),
             ParentOpen::Create
         ),
@@ -85,6 +88,7 @@ fn parent_sync_failure_retries_existing_ancestors_while_reads_never_sync() {
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("bucket/nested"),
             ParentOpen::Create
         )
@@ -101,6 +105,7 @@ fn parent_sync_failure_retries_existing_ancestors_while_reads_never_sync() {
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("bucket/nested"),
             ParentOpen::Existing
         )
@@ -110,6 +115,7 @@ fn parent_sync_failure_retries_existing_ancestors_while_reads_never_sync() {
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("bucket/nested"),
             ParentOpen::Create
         ),
@@ -125,6 +131,7 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("bucket/nested"),
             ParentOpen::Existing
         ),
@@ -137,6 +144,7 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
             parent(
                 &root,
                 RootNaming::posix(),
+                &Lookup::unprobed(),
                 Path::new("dir"),
                 ParentOpen::Existing
             ),
@@ -148,6 +156,7 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
         parent(
             &root,
             RootNaming::posix(),
+            &Lookup::unprobed(),
             Path::new("link"),
             ParentOpen::Existing
         ),
@@ -157,7 +166,7 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
     fs::hard_link(tree.0.join("first"), tree.0.join("second")).unwrap();
     for name in ["first", "second"] {
         assert!(matches!(
-            fsutil::child_regular(&root, name.as_ref()).unwrap(),
+            Lookup::unprobed().regular(&root, name.as_ref()).unwrap(),
             fsutil::RegularChild::File(_)
         ));
     }
@@ -171,7 +180,7 @@ fn scans_cross_pages_once_and_reject_replaced_directories() {
         fs::write(tree.0.join(format!("bucket/{index:04}")), b"body").unwrap();
     }
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
-    let mut scan = TreeScan::new(TreeLimits::default());
+    let mut scan = TreeScan::new(TreeLimits::default(), Lookup::unprobed());
     let mut paths = BTreeSet::new();
     let mut pages = 0;
     while !scan.is_empty() {
@@ -187,7 +196,9 @@ fn scans_cross_pages_once_and_reject_replaced_directories() {
     }
     assert_eq!(paths.len(), 600);
     assert_eq!(pages, 3);
-    let (scan, _) = TreeScan::new(TreeLimits::default()).page(&root).unwrap();
+    let (scan, _) = TreeScan::new(TreeLimits::default(), Lookup::unprobed())
+        .page(&root)
+        .unwrap();
     fs::rename(tree.0.join("bucket"), tree.0.join("old")).unwrap();
     fs::create_dir(tree.0.join("bucket")).unwrap();
     let (_, page) = scan.page(&root).unwrap();
@@ -198,7 +209,7 @@ fn scans_cross_pages_once_and_reject_replaced_directories() {
 /// Walks a whole tree, also proving that no page holds more than its bound.
 fn scan_tree(tree: &TestDir, limits: TreeLimits) -> Result<usize, AdminError> {
     let root = fsutil::open_directory_nofollow(&tree.0)?;
-    let mut scan = TreeScan::new(limits);
+    let mut scan = TreeScan::new(limits, Lookup::unprobed());
     let mut entries = 0;
     while !scan.is_empty() {
         let (next, page) = scan.page(&root)?;
@@ -263,7 +274,7 @@ fn one_directory_may_hold_as_many_entries_as_the_tree_limit_allows() {
     assert!(failure.contains("max_sync_entries"), "{failure}");
     assert_eq!(scan_tree(&tree, named(FILES + 1)).unwrap(), FILES + 1);
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
-    let first_page = TreeScan::new(named(100)).page(&root);
+    let first_page = TreeScan::new(named(100), Lookup::unprobed()).page(&root);
     let failure = reason(first_page.err().unwrap());
     assert!(failure.contains("exceeds 100 inspected"), "{failure}");
 }
@@ -295,7 +306,16 @@ fn no_depth_limit_accepts_what_export_can_create_past_the_former_default() {
     let tree = TestDir::new();
     let path = std::iter::repeat_n("d", LEVELS).collect::<PathBuf>();
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
-    assert!(parent(&root, RootNaming::posix(), &path, ParentOpen::Create).is_ok());
+    assert!(
+        parent(
+            &root,
+            RootNaming::posix(),
+            &Lookup::unprobed(),
+            &path,
+            ParentOpen::Create
+        )
+        .is_ok()
+    );
     assert!(TreeLimits::default().admits_file(&path));
     assert_eq!(scan_tree(&tree, TreeLimits::default()).unwrap(), LEVELS);
     let named = TreeLimits {
@@ -324,12 +344,36 @@ fn parent_walks_past_the_former_128_levels_and_refuses_only_what_no_limit_allows
     let tree = TestDir::new();
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
     let deep = std::iter::repeat_n("d", 200).collect::<PathBuf>();
-    assert!(parent(&root, RootNaming::posix(), &deep, ParentOpen::Create).is_ok());
-    assert!(parent(&root, RootNaming::posix(), &deep, ParentOpen::Existing).is_ok());
+    assert!(
+        parent(
+            &root,
+            RootNaming::posix(),
+            &Lookup::unprobed(),
+            &deep,
+            ParentOpen::Create
+        )
+        .is_ok()
+    );
+    assert!(
+        parent(
+            &root,
+            RootNaming::posix(),
+            &Lookup::unprobed(),
+            &deep,
+            ParentOpen::Existing
+        )
+        .is_ok()
+    );
     let too_deep = std::iter::repeat_n("d", crate::config::MAX_TREE_DEPTH + 1).collect::<PathBuf>();
     for open in [ParentOpen::Existing, ParentOpen::Create] {
         assert!(matches!(
-            parent(&root, RootNaming::posix(), &too_deep, open),
+            parent(
+                &root,
+                RootNaming::posix(),
+                &Lookup::unprobed(),
+                &too_deep,
+                open
+            ),
             Err(ParentError::Finding(Reason::HostRestriction))
         ));
     }
@@ -356,7 +400,7 @@ fn parent_refuses_what_the_root_rules_refuse_before_creating_any_level() {
     ] {
         for open in [ParentOpen::Existing, ParentOpen::Create] {
             assert!(matches!(
-                parent(&root, naming, Path::new(path), open),
+                parent(&root, naming, &Lookup::unprobed(), Path::new(path), open),
                 Err(ParentError::Finding(Reason::HostRestriction))
             ));
         }
@@ -366,6 +410,7 @@ fn parent_refuses_what_the_root_rules_refuse_before_creating_any_level() {
         parent(
             &root,
             rules(Colon::Accepted, 255),
+            &Lookup::unprobed(),
             Path::new("bucket/a:b"),
             ParentOpen::Create
         )

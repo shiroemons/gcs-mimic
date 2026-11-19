@@ -404,7 +404,7 @@ pub(super) fn build(root: &File, path: &Path, limits: TreeLimits) -> Result<Nati
         )
         .into());
     }
-    let mut scan = crate::sync::tree::TreeScan::new(limits);
+    let mut scan = crate::sync::tree::TreeScan::new(limits, crate::fsutil::Lookup::unprobed());
     while !scan.is_empty() {
         let (next, page) = scan.page(root).map_err(Error::Tree)?;
         scan = next;

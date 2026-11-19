@@ -572,7 +572,7 @@ async fn a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power
                 .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
                 .await
                 .unwrap()
-                .assume_naming(crate::sync::naming::RootNaming::posix());
+                .assume_naming(crate::sync::naming::RootNaming::host());
             let writeback = root.writeback(limits()).await.unwrap();
             assert_eq!(
                 writeback.recover_pending().await.unwrap().stop(),
@@ -629,7 +629,7 @@ async fn protected_read_copy_crash_and_power_loss_preserve_api_bytes_and_stop_un
                 .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
                 .await
                 .unwrap()
-                .assume_naming(crate::sync::naming::RootNaming::posix());
+                .assume_naming(crate::sync::naming::RootNaming::host());
             let writeback = root.writeback(limits()).await.unwrap();
             if step == Step::SyncCopyCommit {
                 assert_eq!(

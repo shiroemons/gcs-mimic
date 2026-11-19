@@ -68,7 +68,7 @@ impl From<io::Error> for NotDurable {
 /// The result of looking up an entry on the path. What took the place of an expected file or
 /// directory, such as a symlink or a file where a directory was, is a change of the path rather
 /// than a failure to read it, whose remedy would wrongly advise restoring permissions.
-fn lookup<T>(result: io::Result<T>) -> Result<T, NotDurable> {
+fn opened<T>(result: io::Result<T>) -> Result<T, NotDurable> {
     result.map_err(|error| {
         if crate::sync::tree::structural_entry_error(&error) {
             NotDurable::Changed
@@ -106,6 +106,7 @@ impl std::error::Error for NotDurable {
 /// then each directory from its parent up to the root that `synced` does not hold yet.
 pub(crate) fn make_durable(
     root: &File,
+    lookup: &fsutil::Lookup,
     path: &SyncPath,
     expected: FileIdentity,
     synced: &mut SyncedDirectories,
@@ -119,11 +120,8 @@ pub(crate) fn make_durable(
         let Some((above, directory)) = directories.last() else {
             return Err(NotDurable::Changed);
         };
-        let fsutil::Child::Directory { file, .. } = lookup(fsutil::child_directory(
-            directory,
-            component,
-            fsutil::DirectoryOpen::Existing,
-        ))?
+        let fsutil::Child::Directory { file, .. } =
+            opened(lookup.directory(directory, component, fsutil::DirectoryOpen::Existing))?
         else {
             return Err(NotDurable::Changed);
         };
@@ -133,7 +131,7 @@ pub(crate) fn make_durable(
     let Some((_, directory)) = directories.last() else {
         return Err(NotDurable::Changed);
     };
-    let fsutil::RegularChild::File(file) = lookup(fsutil::child_regular(directory, name))? else {
+    let fsutil::RegularChild::File(file) = opened(lookup.regular(directory, name))? else {
         return Err(NotDurable::Changed);
     };
     if fsutil::stat_identity(&file)? != expected {

@@ -9,7 +9,7 @@
 //! any entry under such a spelling for proof that the filesystem folds it.
 
 use super::{Case, Colon, NameMax, Normalization, Observation, ProbeError, Spelling};
-use crate::fsutil::{self, DirectoryNames, DirectoryOpen, RegularChild};
+use crate::fsutil::{self, DirectoryNames, DirectoryOpen, Lookup, RegularChild};
 use std::{fs::File, io};
 
 /// The workspace subdirectory that holds the probe's entries.
@@ -137,14 +137,14 @@ impl Probe {
     /// its spelling. Neither inode numbers nor the spelling check decide: Docker Desktop's shared
     /// folders can report a new inode number for an unchanged file, and each probe unlinks and
     /// creates its names again, so a second probe of the same root could see two numbers for one
-    /// file; and on Linux the spelling check trusts a directory's casefold flag when it is clear,
-    /// which a filesystem that folds names without that flag also reports.
+    /// file; and on Linux a lookup that knows no probe trusts a directory's casefold flag when it is
+    /// clear, which a filesystem that folds names without that flag also reports.
     fn folded(&self, created: &str, folded: &str) -> Result<(Folded, Spelling), ProbeError> {
         let file = fsutil::create_regular_at(&self.directory, created.as_ref())?;
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         self.faults.created(created)?;
         let spelling = self.listed(created)?;
-        let folds = match fsutil::child_regular(&self.directory, folded.as_ref())? {
+        let folds = match Lookup::unprobed().regular(&self.directory, folded.as_ref())? {
             // The probe unlinked `folded` and never creates it, so opening that spelling at all
             // proves the filesystem folds it onto `created`.
             RegularChild::File(_) | RegularChild::Alias => Folded::Together,

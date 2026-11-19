@@ -26,6 +26,7 @@ fn prove(tree: &TestDir, path: &str) -> Result<RemovableDirectory, Kept> {
     RemovableDirectory::prove(
         &File::open(&tree.0).unwrap(),
         RootNaming::posix(),
+        &crate::fsutil::Lookup::unprobed(),
         Unreferenced { path: path.into() },
     )
     .unwrap()

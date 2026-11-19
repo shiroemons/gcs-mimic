@@ -45,7 +45,11 @@ pub(super) fn build(root: &File, limits: TreeLimits) -> Result<Native, Error> {
         if depth == 1 && crate::sync::mapping::is_reserved_root_entry(&name) {
             continue;
         }
-        match fsutil::child_directory(&frame.directory, &name, fsutil::DirectoryOpen::Existing) {
+        match fsutil::Lookup::unprobed().directory(
+            &frame.directory,
+            &name,
+            fsutil::DirectoryOpen::Existing,
+        ) {
             Ok(fsutil::Child::Directory { file, .. }) => {
                 if depth > limits.deepest_directory() {
                     return Err(Error::Tree(limits.too_deep()));

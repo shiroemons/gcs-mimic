@@ -88,7 +88,7 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        Self::with_naming(crate::sync::naming::RootNaming::posix()).await
+        Self::with_naming(crate::sync::naming::RootNaming::host()).await
     }
 
     /// A fixture whose root assumes `naming` instead of probing its filesystem.
@@ -969,7 +969,7 @@ async fn live_export_rejects_forgotten_handles_and_obsoletes_a_changed_api_gener
         .activate_root(&other_tree.0, super::super::super::root::Activation::Open)
         .await
         .unwrap()
-        .assume_naming(crate::sync::naming::RootNaming::posix());
+        .assume_naming(crate::sync::naming::RootNaming::host());
     let other = other_root.default_writeback().await.unwrap();
     assert!(matches!(
         other.advance_live_export(pending.clone()).await,
@@ -1179,7 +1179,7 @@ async fn live_export_failed_operation_is_forgotten_by_a_switch() {
         .activate_root(&tree.0, super::super::super::root::Activation::Open)
         .await
         .unwrap()
-        .assume_naming(crate::sync::naming::RootNaming::posix());
+        .assume_naming(crate::sync::naming::RootNaming::host());
     let other = root.default_writeback().await.unwrap();
     let name = ObjectName::new("object").unwrap();
     let (_, reader) = fixture

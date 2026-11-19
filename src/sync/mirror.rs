@@ -1764,8 +1764,9 @@ impl LiveObject<'_> {
         }
         let observed = record.clone();
         let naming = self.root.naming()?;
+        let lookup = self.root.lookup()?;
         match file_job_retry(self.root, move |root| {
-            inspect(root, naming, &path, &observed)
+            inspect(root, naming, &lookup, &path, &observed)
         })
         .await?
         {
@@ -2088,8 +2089,9 @@ pub(super) async fn create_directory(
     directory: PathBuf,
 ) -> Result<bool, SyncError> {
     let naming = root.naming()?;
+    let lookup = root.lookup()?;
     file_job_retry(root, move |root| {
-        match parent(root, naming, &directory, ParentOpen::Create) {
+        match parent(root, naming, &lookup, &directory, ParentOpen::Create) {
             Ok(_) => Ok(true),
             Err(ParentError::Finding(_) | ParentError::Missing) => Ok(false),
             Err(ParentError::Io(error)) => Err(error.into()),
@@ -2148,6 +2150,7 @@ enum Target {
 fn inspect(
     root: &File,
     naming: RootNaming,
+    lookup: &fsutil::Lookup,
     path: &Path,
     record: &ObjectRecord,
 ) -> Result<Target, AdminError> {
@@ -2160,6 +2163,7 @@ fn inspect(
     let directory = match parent(
         root,
         naming,
+        lookup,
         path.parent()
             .ok_or_else(|| AdminError::Invalid("missing parent".into()))?,
         ParentOpen::Existing,
@@ -2169,7 +2173,7 @@ fn inspect(
         Err(ParentError::Finding(reason)) => return Ok(Target::Finding(reason)),
         Err(ParentError::Io(error)) => return Err(error.into()),
     };
-    let file = match fsutil::child_regular(&directory, name) {
+    let file = match lookup.regular(&directory, name) {
         Ok(fsutil::RegularChild::File(file)) => file,
         Ok(fsutil::RegularChild::Alias) => return Ok(Target::Finding(Reason::Collision)),
         Ok(fsutil::RegularChild::Missing) => return Ok(Target::Absent),
@@ -2195,6 +2199,7 @@ fn inspect(
     let current_parent = parent(
         root,
         naming,
+        lookup,
         path.parent().ok_or(AdminError::Precondition)?,
         ParentOpen::Existing,
     )
@@ -2513,7 +2518,7 @@ async fn external_files(
     counts: &mut Reconciliation,
 ) -> Result<(), SyncError> {
     let naming = root.naming()?;
-    let mut scan = super::tree::TreeScan::new(root.tree_limits());
+    let mut scan = super::tree::TreeScan::new(root.tree_limits(), root.lookup()?);
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, page) = root.file_job(move |root| scan.page(root)).await?;
         scan = next;
