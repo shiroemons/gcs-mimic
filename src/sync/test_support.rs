@@ -11,11 +11,19 @@ use crate::{
     storage::{
         Catalog,
         admin::{BucketDefinition, BucketName, Origin},
+        fault::copy_with_times,
         sync_state::{SyncFingerprint, SyncPath, SyncUpdate},
     },
     test_support::TestDir,
 };
-use std::{fs::File, future::Future, path::Path, sync::Arc, time::Duration};
+use std::{
+    fs::{self, File},
+    future::Future,
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 /// How [`retrack`] records a file's tracked fingerprint.
 #[derive(Clone, Copy, Debug)]
@@ -133,4 +141,49 @@ where
         .await
         .unwrap();
     (hook, worker)
+}
+
+/// The entries of `workspace` that write-back operations own, without the directory the root's
+/// naming probe keeps there.
+pub(crate) fn operation_entries(workspace: &Path) -> Vec<PathBuf> {
+    fs::read_dir(workspace)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name() != super::naming::PROBE_DIRECTORY)
+        .map(|entry| entry.path())
+        .collect()
+}
+
+/// Puts back into `tree` what a crash or power-loss `snapshot` of it holds of the workspace's
+/// operation entries and of each path in `targets`: a file, an empty directory or nothing. The
+/// root and workspace directories stay, because the catalog binds their identities. Files keep
+/// their times, which tracked fingerprints and recovery's ownership rule compare, so only their
+/// inode numbers and change times differ from the snapshot's.
+pub(crate) fn restore_tree(snapshot: &Path, tree: &Path, targets: &[&str]) {
+    let workspace = tree.join(super::mapping::WORKSPACE);
+    for entry in operation_entries(&workspace) {
+        fs::remove_file(entry).unwrap();
+    }
+    for entry in operation_entries(&snapshot.join(super::mapping::WORKSPACE)) {
+        copy_with_times(&entry, &workspace.join(entry.file_name().unwrap())).unwrap();
+    }
+    for target in targets {
+        let current = tree.join(target);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir(&current).unwrap(),
+            Ok(_) => fs::remove_file(&current).unwrap(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => panic!("{}: {error}", current.display()),
+        }
+        let kept = snapshot.join(target);
+        match fs::symlink_metadata(&kept) {
+            Ok(metadata) if metadata.is_dir() => fs::create_dir(&current).unwrap(),
+            Ok(_) => {
+                fs::create_dir_all(current.parent().unwrap()).unwrap();
+                copy_with_times(&kept, &current).unwrap();
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => panic!("{}: {error}", kept.display()),
+        }
+    }
 }

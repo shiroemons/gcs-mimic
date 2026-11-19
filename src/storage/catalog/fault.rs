@@ -906,7 +906,7 @@ impl Ledger {
             std::io::Write::write_all(&mut target, &buffer[..count])?;
             offset += count as u64;
         }
-        Ok(())
+        target.set_times(times(&file.metadata()?)?)
     }
 
     /// Cuts each copied file in `target` back to the durable length of its source.
@@ -928,8 +928,9 @@ impl Ledger {
                     }
                     fs::OpenOptions::new()
                         .write(true)
-                        .open(path)?
+                        .open(&path)?
                         .set_len(durable)?;
+                    keep_times(&path, &metadata)?;
                 }
             }
         }
@@ -985,8 +986,28 @@ fn copy_tree(source: &Path, target: &Path) -> io::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_tree(&entry.path(), &path)?;
         } else {
-            fs::copy(entry.path(), path)?;
+            copy_with_times(&entry.path(), &path)?;
         }
     }
     Ok(())
+}
+
+/// Copies the file at `source` to `target` with its access and modification times. A snapshot
+/// stands for the same file, and a tracked fingerprint records the modification time, which a
+/// plain copy replaces on Linux; only the inode number and the change time differ.
+pub(crate) fn copy_with_times(source: &Path, target: &Path) -> io::Result<()> {
+    fs::copy(source, target)?;
+    keep_times(target, &fs::metadata(source)?)
+}
+
+/// Gives the file at `target` the access and modification times `source` records. Opening it for
+/// reading is enough to set them, so a read-only copy needs no write permission.
+fn keep_times(target: &Path, source: &fs::Metadata) -> io::Result<()> {
+    fs::File::open(target)?.set_times(times(source)?)
+}
+
+fn times(source: &fs::Metadata) -> io::Result<fs::FileTimes> {
+    Ok(fs::FileTimes::new()
+        .set_accessed(source.accessed()?)
+        .set_modified(source.modified()?))
 }

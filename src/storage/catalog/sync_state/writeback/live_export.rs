@@ -254,20 +254,74 @@ struct Install {
     faults: faults::Paths,
 }
 
-/// Whether `file` still holds the tracked body. Size and mtime rule out an edit cheaply; the
-/// hashes decide the rest.
-fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<bool, Error> {
+/// The identity of `file` when it still holds the tracked body. Size and mtime rule out an edit
+/// cheaply; the hashes decide the rest. Installation and restart recovery both decide with this,
+/// so recovery removes no tracked body that installation would have kept.
+fn matches_tracked(
+    file: &File,
+    tracked: &SyncRecord,
+) -> Result<Option<fsutil::FileIdentity>, Error> {
     let before = fsutil::stat_identity(file)?;
     let fp = &tracked.fingerprint;
     if before.size != fp.size || before.modified_ns != fp.mtime_ns {
-        return Ok(false);
+        return Ok(None);
     }
     // Permission repair changes ctime, and Docker Desktop's shared folders can report a new
     // inode number for an unchanged file; stable hashes still prove the tracked body.
-    Ok(
-        content_matches(file, fp.size, fp.md5, fp.crc32c)?
-            && before == fsutil::stat_identity(file)?,
-    )
+    Ok(verified_identity(file, fp.size, fp.md5, fp.crc32c)?.filter(|hashed| *hashed == before))
+}
+
+/// Proof that an operation's private entry holds a body whose removal loses nothing: the
+/// operation's own API copy, which the API still holds, the tracked body that the API change
+/// replaced, or the copy of an operation not yet armed. Installation and restart recovery unlink
+/// an entry only through [`OwnedBody::unlink`]; the constructors are the only rules.
+pub(super) struct OwnedBody(fsutil::FileIdentity);
+
+impl OwnedBody {
+    /// `file` when it holds exactly `item`'s API copy. Only a publication has one: a removal's
+    /// row records the tracked body it removes, which only [`Self::tracked`] may prove.
+    pub(super) fn api_copy(file: &File, item: &Pending) -> Result<Option<Self>, Error> {
+        if item.kind != Kind::Publish {
+            return Ok(None);
+        }
+        Ok(verified_identity(file, item.size, item.md5, item.crc32c)?.map(Self))
+    }
+
+    /// `file` when it still holds the tracked body, by [`matches_tracked`].
+    pub(super) fn tracked(file: &File, tracked: &SyncRecord) -> Result<Option<Self>, Error> {
+        Ok(matches_tracked(file, tracked)?.map(Self))
+    }
+
+    /// `file` as the private copy of `item` before it is armed. Only the copy step wrote it and
+    /// no target has been replaced yet, so whatever it holds, even a partial copy, is the
+    /// emulator's.
+    pub(super) fn unarmed(file: &File, item: &Pending) -> Result<Option<Self>, Error> {
+        if item.phase != Phase::Prepared || item.kind != Kind::Publish {
+            return Ok(None);
+        }
+        Ok(Some(Self(fsutil::stat_identity(file)?)))
+    }
+
+    /// Unlinks `item`'s private entry if its name still holds the body this proof names, and
+    /// returns whether it did. A name that holds anything else by now keeps it, for the caller
+    /// to protect.
+    pub(super) fn unlink(
+        self,
+        workspace: &File,
+        item: &Pending,
+        #[cfg(test)] faults: &faults::Paths,
+    ) -> Result<bool, Error> {
+        let Some(current) = entry(workspace, item.token.id)? else {
+            return Ok(false);
+        };
+        if fsutil::stat_identity(&current)? != self.0 {
+            return Ok(false);
+        }
+        #[cfg(test)]
+        faults.unlinking(item, &current)?;
+        fsutil::unlink_file_at(workspace, item.token.id.to_hex().as_ref())?;
+        Ok(true)
+    }
 }
 
 fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result<bool, Error> {
@@ -276,7 +330,7 @@ fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result
 
 /// The identity of `file` when it holds exactly `size` bytes with these hashes and did not change
 /// while they were read; `None` otherwise.
-pub(super) fn verified_identity(
+fn verified_identity(
     file: &File,
     size: u64,
     md5: [u8; 16],
@@ -414,7 +468,7 @@ fn matches_source(
     expected: &SyncRecord,
     device: Option<u64>,
     stage: IdentityStage,
-) -> Result<bool, Error> {
+) -> Result<Option<fsutil::FileIdentity>, Error> {
     if let Some(device) = device {
         let identity = fsutil::stat_identity(file)?;
         // Rename changes ctime; the pre-exchange capture must still match every original observation.
@@ -422,7 +476,7 @@ fn matches_source(
             || (stage == IdentityStage::BeforeExchange
                 && identity.changed_ns != expected.fingerprint.ctime_ns)
         {
-            return Ok(false);
+            return Ok(None);
         }
     }
     matches_tracked(file, expected)
@@ -585,17 +639,15 @@ fn install_target(
         }
         let identity = match (&current, expected) {
             (None, _) => None,
-            (Some(file), Some(expected))
-                if matches_source(
-                    file,
-                    expected,
-                    source_device,
-                    IdentityStage::BeforeExchange,
-                )? =>
-            {
-                Some(fsutil::stat_identity(file)?)
+            (Some(file), Some(expected)) => {
+                let Some(identity) =
+                    matches_source(file, expected, source_device, IdentityStage::BeforeExchange)?
+                else {
+                    return Ok(Installed::Changed);
+                };
+                Some(identity)
             }
-            _ => return Ok(Installed::Changed),
+            (Some(_), None) => return Ok(Installed::Changed),
         };
         if let Some(proof) = removable
             && let Err(kept) = directory::remove(proof, install)?
@@ -634,20 +686,25 @@ fn install_target(
     #[cfg(test)]
     failure(selected.token.root, "installed")?;
     if let Some(file) = entry(workspace, selected.token.id)? {
-        let matches = match expected {
+        let displaced = match expected {
             Some(expected) => {
                 matches_source(&file, expected, source_device, IdentityStage::Displaced)?
             }
-            None => false,
+            None => None,
         };
-        if !matches {
+        let Some(displaced) = displaced else {
             return Err(Error::Protected);
-        }
+        };
         #[cfg(test)]
         failure(selected.token.root, "displaced-unlink")?;
-        #[cfg(test)]
-        install.faults.unlinking(selected, &file)?;
-        fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
+        if !OwnedBody(displaced).unlink(
+            workspace,
+            selected,
+            #[cfg(test)]
+            &install.faults,
+        )? {
+            return Err(Error::Protected);
+        }
     }
     #[cfg(test)]
     failure(selected.token.root, "displaced-parent-sync")?;

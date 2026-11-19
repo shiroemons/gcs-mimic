@@ -163,10 +163,10 @@ impl Paths {
 }
 
 /// Rewrites the stored identity of each tracked file that a snapshot restore copied into `tree`
-/// with its tracked bytes. The copy has a new inode number and new times, so ingestion would
-/// otherwise take an unchanged file, such as the old target a power loss brought back, for an
-/// external edit. A file whose bytes differ keeps its stored identity, so ingestion still sees
-/// the difference.
+/// with its tracked bytes. The copy keeps its times but has a new inode number and change time,
+/// so ingestion would otherwise take an unchanged file, such as the old target a power loss
+/// brought back, for an external edit. A file whose bytes differ keeps its stored identity, so
+/// ingestion still sees the difference.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) async fn retrack_restored(
     catalog: &crate::storage::Catalog,

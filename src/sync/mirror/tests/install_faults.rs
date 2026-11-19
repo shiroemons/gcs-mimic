@@ -4,6 +4,7 @@
 use super::*;
 use crate::storage::fault::{Crash, Fault, Step};
 use crate::sync::control::{WaitReason, WaitResult};
+use crate::sync::test_support::{operation_entries, restore_tree};
 
 const BEFORE: &[u8] = b"before\0api";
 const AFTER: &[u8] = b"after\0\xffapi";
@@ -69,42 +70,11 @@ impl Change {
     }
 }
 
-/// Copies what a snapshot holds of the workspace and the target back into the tree. The root and
-/// workspace directories stay, because the catalog binds their identities.
-fn restore_tree(snapshot: &Path, tree: &Path) {
-    let workspace = tree.join(mapping::WORKSPACE);
-    for entry in operation_entries(&workspace) {
-        fs::remove_file(entry).unwrap();
-    }
-    for entry in operation_entries(&snapshot.join(mapping::WORKSPACE)) {
-        let name = entry.file_name().unwrap();
-        fs::copy(&entry, workspace.join(name)).unwrap();
-    }
-    let target = tree.join(TARGET);
-    if target.exists() {
-        fs::remove_file(&target).unwrap();
-    }
-    if snapshot.join(TARGET).exists() {
-        fs::copy(snapshot.join(TARGET), target).unwrap();
-    }
-}
-
 /// The bytes of each private workspace entry.
 pub(super) fn workspace_bodies(tree: &Path) -> Vec<Vec<u8>> {
     operation_entries(&tree.join(mapping::WORKSPACE))
         .into_iter()
         .map(|entry| fs::read(entry).unwrap())
-        .collect()
-}
-
-/// The entries of `workspace` that write-back operations own, without the directory the root's
-/// naming probe keeps there.
-pub(super) fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
-    fs::read_dir(workspace)
-        .unwrap()
-        .map(|entry| entry.unwrap())
-        .filter(|entry| entry.file_name() != crate::sync::naming::PROBE_DIRECTORY)
-        .map(|entry| entry.path())
         .collect()
 }
 
@@ -284,7 +254,7 @@ impl Crashed {
         assert_eq!(started.catalog.pending_faults(), 0, "{case}");
         started.close().await;
 
-        restore_tree(&snapshot_tree, &tree.0);
+        restore_tree(&snapshot_tree, &tree.0, &[TARGET]);
         let (copy, target) = change.snapshot(step, crash);
         assert_eq!(
             workspace_bodies(&tree.0),
@@ -387,6 +357,37 @@ async fn a_private_entry_one_byte_off_stays_protected_through_restart() {
     }
 }
 
+/// Recovery reclaims a tracked body by the rule installation unlinks a displaced one by, which
+/// compares the modification time as well as the bytes. The body an overwrite displaced or a
+/// removal moved aside, with its bytes unchanged and only its modification time moved, stays
+/// protected through the restart, as installation would have kept it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tracked_body_with_another_modification_time_stays_protected_through_restart() {
+    for change in [Change::Overwrite, Change::Remove] {
+        let case = format!("{change:?}");
+        let crashed = Crashed::at(change, Step::SyncCopyRenamed, Crash::Abort).await;
+        let entry = operation_entries(&crashed.tree.0.join(mapping::WORKSPACE))
+            .into_iter()
+            .next()
+            .unwrap();
+        let modified = fs::metadata(&entry).unwrap().modified().unwrap();
+        fs::File::open(&entry)
+            .unwrap()
+            .set_modified(modified + Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(fs::read(&entry).unwrap(), BEFORE, "{case}");
+        let mut started = crashed.start(crashed.open().await).await;
+        assert_eq!(
+            started.wait().await.unwrap().reason,
+            WaitReason::FindingsPending,
+            "{case}"
+        );
+        assert_eq!(conflict_bodies(&crashed.data), [BEFORE], "{case}");
+        assert_converged(&started, &crashed.bucket, crashed.api.as_ref()).await;
+        started.close().await;
+    }
+}
+
 /// A crash or power loss while recovery reclaims a private entry, at each of its unlink, sync and
 /// completion boundaries, leaves a state the next restart reclaims the same way: no conflict,
 /// `sync wait` succeeds and the target converges. The two cases reclaim the API copy that a power
@@ -419,7 +420,7 @@ async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() 
                 assert_eq!(started.catalog.pending_faults(), 0, "{case}");
                 started.close().await;
 
-                restore_tree(&snapshot_tree, &crashed.tree.0);
+                restore_tree(&snapshot_tree, &crashed.tree.0, &[TARGET]);
                 let restored = Crashed {
                     data: snapshot_data,
                     _owned: vec![snapshots],

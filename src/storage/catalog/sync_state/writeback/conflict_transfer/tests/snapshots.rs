@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     hashing::Hasher,
     storage::catalog::fault::{self, Crash, Step},
+    sync::test_support::restore_tree,
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -18,17 +19,6 @@ struct SnapshotObservation {
 struct SnapshotHashes {
     md5: [u8; 16],
     crc32c: u32,
-}
-
-fn restore_tree(snapshot: &std::path::Path, tree: &std::path::Path) {
-    let workspace = tree.join(mapping::WORKSPACE);
-    for entry in fs::read_dir(&workspace).unwrap() {
-        fs::remove_file(entry.unwrap().path()).unwrap();
-    }
-    for entry in fs::read_dir(snapshot.join(mapping::WORKSPACE)).unwrap() {
-        let entry = entry.unwrap();
-        fs::copy(entry.path(), workspace.join(entry.file_name())).unwrap();
-    }
 }
 
 #[track_caller]
@@ -150,7 +140,7 @@ async fn preserved_live_export_crash_and_power_loss_keep_the_external_copy_befor
             );
             drop(operation);
             let (original_data, original_tree, bucket, record) = fixture.shut_down().await;
-            restore_tree(&tree, &original_tree.0);
+            restore_tree(&tree, &original_tree.0, &[]);
             let catalog = Catalog::open(&data).await.unwrap();
             let retained_path = data.join("sync-conflicts").join(&id);
             let selected = id.clone();
@@ -241,7 +231,7 @@ async fn protected_transfer_paired_crash_and_power_loss_reopen_catalog_api_and_f
                 "{step:?}"
             );
             let (original_data, original_tree, bucket, record) = fixture.shut_down().await;
-            restore_tree(&tree, &original_tree.0);
+            restore_tree(&tree, &original_tree.0, &[]);
             let catalog = Catalog::open(&data).await.unwrap();
             translate_snapshot(
                 &catalog,

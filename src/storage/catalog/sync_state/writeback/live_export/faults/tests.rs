@@ -4,6 +4,7 @@ use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::{
     object::{ObjectMetadataUpdate, ObjectRecord},
     storage::{Catalog, admin::Origin},
+    sync::test_support::{operation_entries, restore_tree},
     test_support::TestDir,
 };
 use std::{fs, io::Read, path::Path, time::SystemTime};
@@ -300,17 +301,6 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
     fixture.shut_down().await;
 }
 
-/// The entries of `workspace` that write-back operations own, without the directory the root's
-/// naming probe keeps there.
-fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
-    fs::read_dir(workspace)
-        .unwrap()
-        .map(|entry| entry.unwrap())
-        .filter(|entry| entry.file_name() != crate::sync::naming::PROBE_DIRECTORY)
-        .map(|entry| entry.path())
-        .collect()
-}
-
 /// The one operation entry of `workspace`.
 fn only_entry(workspace: &Path) -> std::path::PathBuf {
     let entries = operation_entries(workspace);
@@ -575,7 +565,7 @@ async fn a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power
                 "{step:?} {crash:?}"
             );
             let (_data, tree, record) = fixture.shut_down().await;
-            restore_tree(&tree_snapshot, &tree.0);
+            restore_tree(&tree_snapshot, &tree.0, &RESTORED);
             let recovered = Catalog::open(&data_snapshot).await.unwrap();
             let root = recovered
                 .sync_state()
@@ -605,23 +595,8 @@ async fn a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power
     }
 }
 
-fn restore_tree(snapshot: &Path, tree: &Path) {
-    for relative in [mapping::MARKER, "test-bucket/object"] {
-        let target = tree.join(relative);
-        if snapshot.join(relative).exists() {
-            fs::copy(snapshot.join(relative), target).unwrap();
-        } else if target.exists() {
-            fs::remove_file(target).unwrap();
-        }
-    }
-    let workspace = tree.join(mapping::WORKSPACE);
-    for entry in operation_entries(&workspace) {
-        fs::remove_file(entry).unwrap();
-    }
-    for entry in operation_entries(&snapshot.join(mapping::WORKSPACE)) {
-        fs::copy(&entry, workspace.join(entry.file_name().unwrap())).unwrap();
-    }
-}
+/// The tree paths a snapshot restore puts back besides the workspace.
+const RESTORED: [&str; 2] = [mapping::MARKER, "test-bucket/object"];
 
 #[tokio::test]
 async fn protected_read_copy_crash_and_power_loss_preserve_api_bytes_and_stop_unfinished_recovery()
@@ -646,7 +621,7 @@ async fn protected_read_copy_crash_and_power_loss_preserve_api_bytes_and_stop_un
             assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
             unchanged_api(&fixture.catalog, &fixture.record).await;
             let (_data, tree, record) = fixture.shut_down().await;
-            restore_tree(&tree_snapshot, &tree.0);
+            restore_tree(&tree_snapshot, &tree.0, &RESTORED);
             let recovered = Catalog::open(&data_snapshot).await.unwrap();
             unchanged_api(&recovered, &record).await;
             let root = recovered

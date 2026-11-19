@@ -1,10 +1,11 @@
 //! A live mirror exporting an object whose target name an empty directory holds, including
 //! crashes and power losses around the directory's removal.
 
-use super::install_faults::{Started, conflict_bodies, operation_entries, workspace_bodies};
+use super::install_faults::{Started, conflict_bodies, workspace_bodies};
 use super::*;
 use crate::storage::fault::{self, Crash, Fault, Step};
 use crate::sync::control::WaitReason;
+use crate::sync::test_support::restore_tree;
 
 const BODY: &[u8] = b"api\0body";
 /// The target of the object `a`.
@@ -169,30 +170,6 @@ impl Held {
     }
 }
 
-/// Puts what `snapshot` holds of the workspace and the target back into `tree`.
-fn restore(snapshot: &Path, tree: &Path) {
-    let workspace = tree.join(mapping::WORKSPACE);
-    for entry in operation_entries(&workspace) {
-        fs::remove_file(entry).unwrap();
-    }
-    for entry in operation_entries(&snapshot.join(mapping::WORKSPACE)) {
-        fs::copy(&entry, workspace.join(entry.file_name().unwrap())).unwrap();
-    }
-    let target = tree.join(TARGET);
-    match Held::at(&target) {
-        Held::Directory => fs::remove_dir(&target).unwrap(),
-        Held::Object => fs::remove_file(&target).unwrap(),
-        Held::Missing => {}
-    }
-    match Held::at(&snapshot.join(TARGET)) {
-        Held::Directory => fs::create_dir(&target).unwrap(),
-        Held::Object => {
-            fs::copy(snapshot.join(TARGET), &target).unwrap();
-        }
-        Held::Missing => {}
-    }
-}
-
 /// A crash or power loss before the removal, between the removal and its parent's sync, after
 /// the rename that installs the object and after installation recovers to the API state on
 /// restart: no conflict, `sync wait` succeeds and the object stands where the directory was. A
@@ -230,7 +207,7 @@ async fn crashes_and_power_losses_around_the_removal_recover_to_the_api_state() 
             assert_eq!(started.catalog.pending_faults(), 0, "{case}");
             started.close().await;
 
-            restore(&snapshot_tree, &tree.0);
+            restore_tree(&snapshot_tree, &tree.0, &[TARGET]);
             let (copies, held) = Held::expected(step, crash);
             assert_eq!(workspace_bodies(&tree.0).len(), copies, "{case}");
             assert_eq!(Held::at(&tree.0.join(TARGET)), held, "{case}");

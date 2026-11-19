@@ -4,52 +4,53 @@ use super::super::SyncRecord;
 use super::*;
 #[cfg(test)]
 use crate::storage::catalog::fault::Step;
+use live_export::OwnedBody;
 #[cfg(test)]
 use live_export::faults::Paths;
 
-/// The identity of `body`, the private entry of the armed operation `item`, when recovery may
-/// remove it: a regular file that no other name links and that, unchanged while it was hashed,
-/// holds exactly the operation's API copy or the tracked body. A link elsewhere would make the
-/// unlink keep bytes at that other name, and any other bytes may be an external edit.
+/// The proof that recovery may remove `body`, the private entry of the armed operation `item`:
+/// a regular file that no other name links and that holds exactly the operation's API copy or,
+/// by the rule installation unlinks a displaced body by, the tracked body. A link elsewhere would
+/// make the unlink keep bytes at that other name, and any other bytes or modification time may be
+/// an external edit.
 fn owned_body(
     body: &File,
     item: &Pending,
     tracked: Option<&SyncRecord>,
-) -> Result<Option<fsutil::FileIdentity>, Error> {
+) -> Result<Option<OwnedBody>, Error> {
     if !fsutil::sole_regular_link(body)? {
         return Ok(None);
     }
-    if let Some(identity) = live_export::verified_identity(body, item.size, item.md5, item.crc32c)?
-    {
-        return Ok(Some(identity));
+    if let Some(owned) = OwnedBody::api_copy(body, item)? {
+        return Ok(Some(owned));
     }
-    let Some(tracked) = tracked else {
-        return Ok(None);
-    };
-    let fingerprint = &tracked.fingerprint;
-    live_export::verified_identity(body, fingerprint.size, fingerprint.md5, fingerprint.crc32c)
+    tracked.map_or(Ok(None), |tracked| OwnedBody::tracked(body, tracked))
 }
 
-/// Unlinks `body`, the private entry of `item`, if there is one, then syncs the workspace and
-/// the root. The unlink, the syncs and the caller's catalog completion are separate durable
-/// boundaries; a restart after any of them reaches the same cancellation.
+/// Unlinks the private entry of `item` that `owned` proves, if there is one, then syncs the
+/// workspace and the root. The unlink, the syncs and the caller's catalog completion are separate
+/// durable boundaries; a restart after any of them reaches the same cancellation. `false` means
+/// the entry no longer held the proved body, and nothing was unlinked or synced.
 fn remove_owned(
     root: &File,
     workspace: &File,
     item: &Pending,
-    body: Option<File>,
+    owned: Option<OwnedBody>,
     #[cfg(test)] faults: &Paths,
-) -> Result<(), Error> {
-    if let Some(body) = body {
+) -> Result<bool, Error> {
+    if let Some(owned) = owned {
         #[cfg(test)]
         faults.hit(Step::SyncRecoveryUnlink)?;
-        #[cfg(test)]
-        faults.unlinking(item, &body)?;
-        fsutil::unlink_file_at(workspace, item.token.id.to_hex().as_ref())?;
+        if !owned.unlink(
+            workspace,
+            item,
+            #[cfg(test)]
+            faults,
+        )? {
+            return Ok(false);
+        }
         #[cfg(test)]
         faults.hit(Step::SyncRecoveryUnlinked)?;
-        #[cfg(not(test))]
-        drop(body);
     }
     #[cfg(test)]
     faults.hit(Step::SyncRecoveryParentSync)?;
@@ -61,7 +62,7 @@ fn remove_owned(
         faults.tree_synced();
         faults.hit(Step::SyncRecoveryParentDurable)?;
     }
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
@@ -157,24 +158,19 @@ impl Writeback {
                 let Some(body) = entry(workspace, selected.token.id)? else {
                     return Ok(());
                 };
-                let Some(identity) = owned_body(&body, &selected, tracked.as_ref())? else {
+                let Some(owned) = owned_body(&body, &selected, tracked.as_ref())? else {
                     return Ok(());
                 };
-                // The name must still hold the body just hashed when it is unlinked.
-                let current = entry(workspace, selected.token.id)?
-                    .map(|current| fsutil::stat_identity(&current))
-                    .transpose()?;
-                if current != Some(identity) {
-                    return Ok(());
-                }
+                // An entry that changed after its proof stays for `inspect_inner` to protect.
                 remove_owned(
                     root,
                     workspace,
                     &selected,
-                    Some(body),
+                    Some(owned),
                     #[cfg(test)]
                     &faults,
-                )
+                )?;
+                Ok(())
             })
             .await;
         if let Err(error) = result {
@@ -190,21 +186,23 @@ impl Writeback {
         let faults = self.fault_paths();
         let result = self
             .fs(move |root, workspace| {
-                let body = entry(workspace, selected.token.id)?;
-                if body.is_some()
-                    && (selected.phase != Phase::Prepared || selected.kind != Kind::Publish)
-                {
-                    return Err(Error::Protected);
-                }
-                // Before arming, this opaque intent can contain only its private API copy.
-                remove_owned(
+                // Before arming, this opaque intent can contain only its private API copy; any
+                // other operation's surviving body is protected.
+                let owned = entry(workspace, selected.token.id)?
+                    .map(|body| OwnedBody::unarmed(&body, &selected)?.ok_or(Error::Protected))
+                    .transpose()?;
+                if remove_owned(
                     root,
                     workspace,
                     &selected,
-                    body,
+                    owned,
                     #[cfg(test)]
                     &faults,
-                )
+                )? {
+                    Ok(())
+                } else {
+                    Err(Error::Protected)
+                }
             })
             .await;
         if let Err(error) = result {

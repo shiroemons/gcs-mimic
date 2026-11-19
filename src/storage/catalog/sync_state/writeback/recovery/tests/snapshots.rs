@@ -1,23 +1,9 @@
 use super::*;
 use crate::storage::catalog::fault::{self, Crash, Fault, Step};
+use crate::sync::test_support::restore_tree;
 
-fn restore_tree(snapshot: &std::path::Path, tree: &std::path::Path) {
-    let workspace = tree.join(mapping::WORKSPACE);
-    for entry in fs::read_dir(&workspace).unwrap() {
-        fs::remove_file(entry.unwrap().path()).unwrap();
-    }
-    for entry in fs::read_dir(snapshot.join(mapping::WORKSPACE)).unwrap() {
-        let entry = entry.unwrap();
-        fs::copy(entry.path(), workspace.join(entry.file_name())).unwrap();
-    }
-    let target = tree.join("test-bucket/object");
-    if snapshot.join("test-bucket/object").exists() {
-        fs::create_dir_all(target.parent().unwrap()).unwrap();
-        fs::copy(snapshot.join("test-bucket/object"), target).unwrap();
-    } else if target.exists() {
-        fs::remove_file(target).unwrap();
-    }
-}
+/// The target a snapshot restore puts back besides the workspace.
+const TARGET: [&str; 1] = ["test-bucket/object"];
 
 #[tokio::test]
 async fn recovery_failures_keep_intents_and_retry_without_double_quota_release() {
@@ -173,7 +159,7 @@ async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancel
             assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
             assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
             let (original_data, original_tree, _, record) = fixture.shut_down().await;
-            restore_tree(&tree, &original_tree.0);
+            restore_tree(&tree, &original_tree.0, &TARGET);
             let recovered = Catalog::open(&data).await.unwrap();
             assert_api(&recovered, &record).await;
             let lease = recovered
@@ -249,7 +235,7 @@ async fn live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack() {
             assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
             assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
             let (original_data, original_tree, _, record) = fixture.shut_down().await;
-            restore_tree(&tree, &original_tree.0);
+            restore_tree(&tree, &original_tree.0, &TARGET);
             let recovered = Catalog::open(&data).await.unwrap();
             assert_api(&recovered, &record).await;
             let lease = recovered
@@ -316,7 +302,7 @@ async fn protection_snapshots_keep_full_charge_until_confirmed_discard_and_resca
         assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
         assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
         let (original_data, original_tree, _, record) = fixture.shut_down().await;
-        restore_tree(&tree, &original_tree.0);
+        restore_tree(&tree, &original_tree.0, &TARGET);
         let recovered = Catalog::open(&data).await.unwrap();
         assert_api(&recovered, &record).await;
         let lease = recovered
