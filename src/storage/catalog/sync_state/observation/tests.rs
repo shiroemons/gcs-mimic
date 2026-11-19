@@ -147,10 +147,30 @@ async fn mapping_updates_deletes_and_restart_keep_a_monotonic_revision() {
 
 /// The summary counts each stored finding by what its kind does to a wait, as the Rust kind
 /// decides it, so the statement and `FindingKind::effect` cannot disagree. Every finding still
-/// counts in `mapping_findings`.
+/// counts in `mapping_findings`. A name the tree cannot hold counts only while the API holds
+/// the object, since a deletion the mirror has not replayed yet leaves its finding behind; an
+/// export conflict counts whether or not its object remains.
 #[tokio::test]
 async fn findings_count_by_what_each_does_to_a_wait() {
+    use crate::storage::{
+        admin::{ObjectName, Origin},
+        test_fixtures::{body, publication, seed_bucket},
+    };
     let (_data, _tree, catalog, root) = fixture().await;
+    seed_bucket(&catalog).await;
+    let bucket = crate::storage::admin::BucketName::new("bucket").unwrap();
+    for name in ["a", r"dir\file"] {
+        catalog
+            .admin(Origin::Api)
+            .publish_object(
+                &bucket,
+                &ObjectName::new(name).unwrap(),
+                publication(1024),
+                body(vec![bytes::Bytes::from_static(b"live")]),
+            )
+            .await
+            .unwrap();
+    }
     let id = root.status().root_id;
     catalog
         .run_admin(move |connection| {
@@ -159,6 +179,7 @@ async fn findings_count_by_what_each_does_to_a_wait() {
                 ("deleted", "export-conflict"),
                 ("a", "collision"),
                 (r"dir\file", "host-restriction"),
+                ("gone", "host-restriction"),
                 ("x/.DS_Store", "ignored"),
             ] {
                 connection
@@ -174,10 +195,12 @@ async fn findings_count_by_what_each_does_to_a_wait() {
         .unwrap();
     let summary = root.observation().await.unwrap();
     let listed = root.findings_page(0, 256).await.unwrap();
+    // The object of `gone` was never there, as after a deletion the mirror has not replayed.
     let counted = |effect| {
         listed
             .iter()
             .filter(|finding| finding.reason.effect() == effect)
+            .filter(|finding| effect != FindingEffect::Reports || finding.name.as_str() != "gone")
             .count() as u64
     };
     assert_eq!(
@@ -198,7 +221,7 @@ async fn findings_count_by_what_each_does_to_a_wait() {
             summary.blocking_findings,
             summary.unmapped_findings
         ),
-        (5, 2, 2)
+        (6, 2, 2)
     );
     drop(root);
     catalog.close().await.unwrap();

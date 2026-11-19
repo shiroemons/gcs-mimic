@@ -818,6 +818,67 @@ async fn deleted_objects_lose_their_name_findings_and_keep_export_conflicts() {
     catalog.close().await.unwrap();
 }
 
+/// An object deleted through the API stops counting as a name the tree cannot hold at once,
+/// before the mirror replays the deletion and removes its finding, so a wait and the status do
+/// not report an object that is gone; an export conflict on a deleted object still stops a wait.
+#[tokio::test]
+async fn a_deleted_object_stops_counting_before_its_deletion_is_replayed() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let unmapped = ObjectName::new("unmapped").unwrap();
+    let conflicted = ObjectName::new("conflicted").unwrap();
+    let unmapped_generation = publish(&catalog, &data, &bucket, unmapped.as_str()).await;
+    let conflicted_generation = publish(&catalog, &data, &bucket, conflicted.as_str()).await;
+    lease
+        .record_finding(
+            binding.clone(),
+            unmapped.clone(),
+            unmapped_generation,
+            Reason::HostRestriction,
+        )
+        .await
+        .unwrap();
+    lease
+        .record_export_conflict(binding.clone(), conflicted.clone(), conflicted_generation)
+        .await
+        .unwrap();
+    let counts = async || {
+        let observation = lease.observation().await.unwrap();
+        (
+            observation.mapping_findings,
+            observation.blocking_findings,
+            observation.unmapped_findings,
+        )
+    };
+    assert_eq!(counts().await, (2, 1, 1));
+    for (name, generation) in [
+        (&unmapped, unmapped_generation),
+        (&conflicted, conflicted_generation),
+    ] {
+        catalog
+            .admin(Origin::Api)
+            .delete_object(&bucket, name, GenerationCondition::Is(generation))
+            .await
+            .unwrap();
+    }
+    assert_eq!(counts().await, (2, 1, 0));
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() {
     assert_eq!(FindingKind::ExportConflict.effect(), FindingEffect::Blocks);

@@ -239,26 +239,36 @@ struct EffectCounts {
 }
 
 impl EffectCounts {
-    const SELECT: &str =
-        "SELECT reason,count(*) FROM sync_findings WHERE root_id=?1 GROUP BY reason";
+    /// Each group with its count and how many of its findings name an object the API still
+    /// holds. The API deletes objects in many transactions, and the mirror removes a name finding
+    /// only when it replays the deletion, so a finding can outlive its object until then.
+    const SELECT: &str = "SELECT f.reason,count(*),sum(EXISTS(SELECT 1 FROM objects o WHERE o.bucket=f.bucket AND o.name=f.name AND o.time_deleted IS NULL)) FROM sync_findings f WHERE f.root_id=?1 GROUP BY f.reason";
 
     fn read(connection: &Connection, root: RootId) -> Result<Self, CatalogError> {
         let mut counts = Self::default();
         let mut statement = connection.prepare_cached(Self::SELECT)?;
         let groups = statement.query_map([root], |row| {
-            Ok((row.get::<_, FindingKind>(0)?, row.get::<_, u64>(1)?))
+            Ok((
+                row.get::<_, FindingKind>(0)?,
+                row.get::<_, u64>(1)?,
+                row.get::<_, u64>(2)?,
+            ))
         })?;
         for group in groups {
-            let (kind, count) = group.map_err(unavailable)?;
-            counts.add(kind.effect(), count);
+            let (kind, total, live) = group.map_err(unavailable)?;
+            counts.add(kind.effect(), total, live);
         }
         Ok(counts)
     }
 
-    fn add(&mut self, effect: FindingEffect, count: u64) {
+    /// Adds a group of `total` findings, `live` of which name an object the API holds. A finding
+    /// that stops a wait counts until it is resolved, whether or not its object remains; one
+    /// that reports a name the tree cannot hold counts only while the object it names remains,
+    /// since a deleted object is not one the API keeps out of the tree.
+    fn add(&mut self, effect: FindingEffect, total: u64, live: u64) {
         match effect {
-            FindingEffect::Blocks => self.blocking += count,
-            FindingEffect::Reports => self.unmapped += count,
+            FindingEffect::Blocks => self.blocking += total,
+            FindingEffect::Reports => self.unmapped += live,
             FindingEffect::Silent => {}
         }
     }
