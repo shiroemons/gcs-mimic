@@ -551,7 +551,11 @@ pass makes the next lookup read it again. A listing is kept only when the
 directory's last change lies at least two seconds before the read, the coarsest
 timestamp tick the mirror supports, so that a later change cannot leave the
 timestamps as they were; a directory that just changed, or that holds more
-names, is read for each lookup.
+names, is read for each lookup. The scan itself confirms no spelling of the
+names it lists, since each comes from its directory's listing: ingestion opens
+a changed file again under its exact spelling before it reads it, so an entry
+renamed between the listing and that open is deferred as a changing source,
+and the next scan takes it in under its new name.
 
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses

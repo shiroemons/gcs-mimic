@@ -69,6 +69,9 @@ pub(crate) struct TreeScan {
     limits: TreeLimits,
     frames: Vec<Frame>,
     pub(crate) visited: usize,
+    /// Reopens the directories of the frames on each page. A directory renamed under another
+    /// spelling since an earlier page listed it is lost there; the names a page lists itself
+    /// need no such lookup.
     lookup: Lookup,
 }
 struct Frame {
@@ -224,11 +227,15 @@ impl TreeScan {
                 directory: false,
                 error: None,
             };
-            match self
-                .lookup
-                .directory(directory, &name, DirectoryOpen::Existing)
-            {
-                Ok(Child::Directory { file, .. }) => {
+            // The name comes from this directory's listing, so it is spelled that way, and the
+            // open confirms nothing more: where the filesystem cannot report a spelling, that
+            // confirmation read the whole directory again for each entry. An entry renamed under
+            // another spelling between the listing and the open is reported under the listed
+            // name, as one renamed just after the scan would be: ingest reopens a file under its
+            // exact spelling before it reads it (`open_source`), and the next scan lists the new
+            // name.
+            match fsutil::directory_at(directory, &name, DirectoryOpen::Existing) {
+                Ok(file) => {
                     // The root's frame is level 0, so this count is the level of the child.
                     if self.frames.len() > self.limits.deepest_directory() {
                         return Err(self.limits.too_deep());
@@ -238,18 +245,15 @@ impl TreeScan {
                     directories.push(file);
                     entry.directory = true;
                 }
-                Ok(Child::Missing) => continue,
-                Ok(Child::Alias) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
-                Err(_) => match self.lookup.regular(directory, &name) {
-                    Ok(fsutil::RegularChild::File(file)) => {
-                        entry.identity = Some(fsutil::stat_identity(&file)?)
-                    }
-                    Ok(fsutil::RegularChild::Missing) => continue,
+                Err(_) => match fsutil::open_regular_at(directory, &name) {
+                    Ok(file) => entry.identity = Some(fsutil::stat_identity(&file)?),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                     Err(error) if !structural_entry_error(&error) => {
                         entry.error = Some(error.kind())
                     }
-                    Ok(fsutil::RegularChild::Alias) | Err(_) => {}
+                    Err(_) => {}
                 },
             }
             entries.push(entry);

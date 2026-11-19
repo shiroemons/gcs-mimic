@@ -206,6 +206,42 @@ fn scans_cross_pages_once_and_reject_replaced_directories() {
         && entry.error == Some(io::ErrorKind::ResourceBusy)));
 }
 
+/// A scan opens each entry under the name its directory just listed and confirms no spelling
+/// for it: where the platform cannot report one, confirming read the directory again for each
+/// entry. Only a directory of an earlier page is confirmed when a page reopens it, from a listing
+/// of its parent that the pass reads once.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_scan_confirms_no_spelling_of_the_names_it_lists() {
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("bucket")).unwrap();
+    for index in 0..600 {
+        fs::write(tree.0.join(format!("bucket/File-{index:04}")), b"body").unwrap();
+    }
+    let _root_listed = fsutil::UncheckedSpelling::of(&tree.0);
+    let _bucket_listed = fsutil::UncheckedSpelling::of(&tree.0.join("bucket"));
+    let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
+    let clock = crate::clock::ManualClock::new(
+        std::time::SystemTime::now() + std::time::Duration::from_secs(3600),
+    );
+    let lookup = Lookup::probed(
+        fsutil::stat_identity(&root).unwrap().device,
+        fsutil::Matching::Folding,
+        std::sync::Arc::new(clock),
+    );
+    let mut scan = TreeScan::new(TreeLimits::default(), lookup.clone());
+    let mut files = 0;
+    let mut pages = 0;
+    while !scan.is_empty() {
+        let (next, page) = scan.page(&root).unwrap();
+        scan = next;
+        pages += 1;
+        files += page.iter().filter(|entry| entry.identity.is_some()).count();
+    }
+    assert_eq!((files, pages), (600, 3));
+    assert_eq!(lookup.reads(), 1);
+}
+
 /// Walks a whole tree, also proving that no page holds more than its bound.
 fn scan_tree(tree: &TestDir, limits: TreeLimits) -> Result<usize, AdminError> {
     let root = fsutil::open_directory_nofollow(&tree.0)?;
