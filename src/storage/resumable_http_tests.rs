@@ -2026,7 +2026,7 @@ async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadl
     );
     assert_eq!(
         cancelled.headers["cache-control"],
-        crate::json::NO_STORE_CACHE_CONTROL
+        crate::object::media_headers::NO_STORE_CACHE_CONTROL
     );
     assert!(!session.blob_id.staging_path(&h.dir.0).exists());
     for method in ["PUT", "POST", "DELETE"] {

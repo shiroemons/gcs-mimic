@@ -1,7 +1,6 @@
 use super::{
     FieldSelection, JsonError, Projection, ResponseCache, Schema, WriteMode,
     buckets::{PredefinedAclTarget, encode_segment},
-    checksum::{self, each_declared_hash},
     integer::take_long,
     query::{BUCKET_PATH, BucketCheck, MAX_OBJECT_SEGMENT_BYTES, boolean, path_bucket, projection},
 };
@@ -12,11 +11,9 @@ use crate::time_format::timestamp;
 use crate::{
     auth,
     config::CompatProfile,
-    object::{
-        ExpectedHashes, ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride,
-    },
+    object::{ObjectConditions, ObjectRecord, ObjectTarget, retention::UnlockedOverride},
 };
-use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
+use hyper::{HeaderMap, Method, StatusCode, Uri};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
@@ -841,7 +838,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
             mime.parse()
                 .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
         );
-        upload_content_type(&advisory)?;
+        crate::object::upload_headers::upload_content_type(&advisory)?;
     }
     // `Content-MD5` is not examined: Cloud Storage stored a JSON upload whose header named the
     // wrong digest (recorded 200 with the computed hashes).
@@ -854,57 +851,10 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
             return Err(JsonError::unsupported_object(name));
         }
     }
-    if headers.get_all("content-type").iter().count() > 1 {
-        return Err(JsonError::invalid_parameter(
-            "Duplicate Content-Type header",
-        ));
-    }
-    let content_type = headers
-        .get("content-type")
-        .map(|value| {
-            value
-                .to_str()
-                .map_err(|_| JsonError::invalid_parameter("Invalid Content-Type header"))
-        })
-        .transpose()?
-        // An upload without a type stores none (recorded: the resource omits `contentType`).
-        .unwrap_or_default();
-    let mime = content_type.split(';').next().unwrap_or_default().trim();
-    let token = |value: &str| {
-        !value.is_empty()
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
-    };
-    if headers.contains_key("content-type")
-        && !mime
-            .split_once('/')
-            .is_some_and(|(kind, subtype)| token(kind) && token(subtype))
-    {
-        return Err(JsonError::invalid_parameter("Invalid Content-Type header"));
-    }
     // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
     // malformed or unknown-algorithm hash all stored the computed hashes with 200, so only a
     // multipart metadata `crc32c`/`md5Hash` is verified on this route.
-    Ok(content_type.to_owned())
-}
-
-/// The hashes an XML PUT declares with `X-Goog-Hash`. The JSON upload routes do not read the
-/// header this way: recorded media and multipart uploads and resumable initiations ignored it,
-/// and only the requests on a resumable session URI declare hashes with it.
-pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, JsonError> {
-    let mut hashes = ExpectedHashes::default();
-    // A repeated algorithm is refused even with an equal value, before it is decoded.
-    each_declared_hash(headers, "Invalid x-goog-hash header", |algorithm, value| {
-        if hashes.declares(algorithm) {
-            return Err(JsonError::invalid_parameter(
-                "Duplicate x-goog-hash algorithm",
-            ));
-        }
-        hashes.set(checksum::decode(algorithm, value)?);
-        Ok(())
-    })?;
-    Ok(hashes)
+    crate::object::upload_headers::upload_content_type(headers)
 }
 
 /// Reject unsupported encryption headers explicitly. `If-Range` is not one: Cloud Storage
@@ -1232,66 +1182,6 @@ pub(crate) fn object_resource(
     }
     super::csek::render(object, &mut value);
     Ok(Value::Object(value))
-}
-
-/// Representation headers for an untranscoded media download.
-pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
-    let mut headers = HeaderMap::new();
-    for (key, value) in [
-        // The transport substitutes stored/default cache metadata only for an allUsers read grant.
-        ("cache-control", super::NO_STORE_CACHE_CONTROL.to_owned()),
-        (
-            "content-type",
-            if object.content_type.is_empty() {
-                "application/octet-stream".into()
-            } else {
-                object.content_type.clone()
-            },
-        ),
-        ("content-length", object.size.to_string()),
-        ("x-goog-generation", object.generation.to_string()),
-        ("x-goog-metageneration", object.metageneration.to_string()),
-        (
-            "x-goog-hash",
-            if object.has_md5() {
-                format!(
-                    "crc32c={},md5={}",
-                    base64(&object.crc32c.to_be_bytes()),
-                    base64(&object.md5)
-                )
-            } else {
-                format!("crc32c={}", base64(&object.crc32c.to_be_bytes()))
-            },
-        ),
-        ("x-goog-stored-content-length", object.size.to_string()),
-        (
-            "x-goog-stored-content-encoding",
-            object
-                .content_encoding
-                .as_deref()
-                .unwrap_or("identity")
-                .to_owned(),
-        ),
-        ("etag", object_etag(object)),
-    ] {
-        headers.insert(
-            key,
-            HeaderValue::from_str(&value).map_err(|_| JsonError::invalid_stored_header())?,
-        );
-    }
-    for (key, value) in [
-        ("content-encoding", &object.content_encoding),
-        ("content-disposition", &object.content_disposition),
-        ("content-language", &object.content_language),
-    ] {
-        if let Some(value) = value {
-            headers.insert(
-                key,
-                HeaderValue::from_str(value).map_err(|_| JsonError::invalid_stored_header())?,
-            );
-        }
-    }
-    Ok(headers)
 }
 
 /// Whether the served representation of the object depends on `Accept-Encoding`: stored gzip

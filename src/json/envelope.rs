@@ -6,7 +6,8 @@
 //! handler from re-deriving them and keeps errors, mutations and reads consistent. Media
 //! downloads and the XML API carry their own headers and are left alone.
 
-use super::{NO_STORE_CACHE_CONTROL, error::MEDIA_ERROR_CACHE_CONTROL};
+use super::error::MEDIA_ERROR_CACHE_CONTROL;
+use crate::object::media_headers::NO_STORE_CACHE_CONTROL;
 use crate::time_format::http_date;
 use hyper::{
     Method, Response, StatusCode,

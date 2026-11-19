@@ -1,7 +1,7 @@
 use super::*;
 use crate::config::ApiBaseSource;
 use crate::etag::{object_etag, revision_etag};
-use crate::object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
+use crate::object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget};
 use crate::time_format::timestamp;
 use hyper::{HeaderMap, Method, StatusCode, header::HeaderName};
 use serde_json::{Value, json};
@@ -122,7 +122,7 @@ fn header_map<'a>(entries: impl IntoIterator<Item = (&'static str, &'a str)>) ->
     headers
 }
 
-pub(super) fn record() -> ObjectRecord {
+pub(crate) fn record() -> ObjectRecord {
     ObjectRecord {
         bucket: "test-bucket".to_owned(),
         name: "dir/猫 %2F?#".to_owned(),
@@ -165,8 +165,6 @@ fn absent_md5_has_crc32c_and_opaque_etag_without_composite_metadata() {
     assert!(resource.get("md5Hash").is_none());
     assert!(resource.get("componentCount").is_none());
     assert!(resource.get("md5_availability").is_none());
-    let headers = object_media_headers(&object).unwrap();
-    assert_eq!(headers["x-goog-hash"], "crc32c=AQIDBA==");
     assert!(!object_etag(&object).contains(&base64(&object.md5)));
     let key = crate::csek::CustomerKey::from_sha256([3; 32]);
     object.customer_key_sha256 = Some(key.sha256());
@@ -798,23 +796,7 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
             "text/plain; charset=utf-8",
             "combined: {combined}"
         );
-        assert_eq!(
-            declared_hashes(&headers).unwrap(),
-            ExpectedHashes {
-                md5: Some([0; 16]),
-                crc32c: Some(0x01020304)
-            },
-            "combined: {combined}"
-        );
     }
-    let headers = header_map([("x-goog-hash", "md5=1B2M2Y8AsgTpgAmY7PhCfg==")]);
-    assert_eq!(
-        declared_hashes(&headers).unwrap().md5.unwrap(),
-        [
-            0xd4, 0x1d, 0x8c, 0xd9, 0x8f, 0x00, 0xb2, 0x04, 0xe9, 0x80, 0x09, 0x98, 0xec, 0xf8,
-            0x42, 0x7e
-        ]
-    );
 }
 
 #[test]
@@ -834,11 +816,6 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         "md5=AAAAAAAAAAAAAAAAAAAAAB==",
     ] {
         let headers = header_map([("x-goog-hash", value)]);
-        assert_eq!(
-            declared_hashes(&headers).unwrap_err().status,
-            StatusCode::BAD_REQUEST,
-            "{value}"
-        );
         // The media-upload parser never looks at the header.
         assert!(upload_content_type(&headers).is_ok(), "{value}");
     }
@@ -910,11 +887,6 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         ("content-type", "text/html"),
     ]);
     assert!(upload_content_type(&headers).is_err());
-    let headers = header_map([
-        ("x-goog-hash", "crc32c=AQIDBA=="),
-        ("x-goog-hash", "crc32c=AQIDBA=="),
-    ]);
-    assert!(declared_hashes(&headers).is_err());
 }
 
 #[test]
@@ -968,45 +940,6 @@ fn obj_render_001_exact_resource_and_encoded_generation_links() {
     assert_eq!(
         object_resource(&changed, "http://localhost", Projection::NoAcl).unwrap()["timeCreated"],
         "1969-12-31T23:59:59.999Z"
-    );
-}
-
-#[test]
-fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
-    let object = record();
-    let headers = object_media_headers(&object).unwrap();
-    for (name, value) in [
-        ("content-type", "text/plain; charset=utf-8"),
-        ("content-length", "5"),
-        ("x-goog-generation", "9007199254740993"),
-        ("x-goog-metageneration", "2"),
-        (
-            "x-goog-hash",
-            "crc32c=AQIDBA==,md5=AAAAAAAAAAAAAAAAAAAAAA==",
-        ),
-        ("x-goog-stored-content-length", "5"),
-        ("x-goog-stored-content-encoding", "identity"),
-        ("etag", "CIGAgICAgIAQEAI="),
-    ] {
-        assert_eq!(headers[name], value);
-    }
-    // Cloud Storage sends no accept-ranges on a JSON media response (observed 2026-10-31).
-    assert!(!headers.contains_key("accept-ranges"));
-    assert_eq!(
-        headers["cache-control"],
-        "no-cache, no-store, max-age=0, must-revalidate"
-    );
-    assert_eq!(headers.len(), 9);
-    let mut object = object;
-    object.size = u64::MAX;
-    assert_eq!(
-        object_media_headers(&object).unwrap()["content-length"],
-        u64::MAX.to_string()
-    );
-    object.content_type = "text/plain\r\nx-injected: yes".to_owned();
-    assert_eq!(
-        object_media_headers(&object).unwrap_err().status,
-        StatusCode::SERVICE_UNAVAILABLE
     );
 }
 

@@ -23,7 +23,7 @@ async fn cancelled_sessions_repeat_the_json_499_envelope() {
         );
         assert_eq!(
             reply.headers["cache-control"],
-            crate::json::NO_STORE_CACHE_CONTROL
+            crate::object::media_headers::NO_STORE_CACHE_CONTROL
         );
         assert_eq!(reply.headers["expires"], "Mon, 01 Jan 1990 00:00:00 GMT");
         assert_eq!(reply.headers["pragma"], "no-cache");

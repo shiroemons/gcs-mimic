@@ -2155,7 +2155,9 @@ fn json_response_cached(
         json::ResponseCache::NoStore => {
             headers.insert(
                 "cache-control",
-                hyper::header::HeaderValue::from_static(json::NO_STORE_CACHE_CONTROL),
+                hyper::header::HeaderValue::from_static(
+                    crate::object::media_headers::NO_STORE_CACHE_CONTROL,
+                ),
             );
             headers.insert(
                 "pragma",

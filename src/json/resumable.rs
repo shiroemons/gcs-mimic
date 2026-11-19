@@ -1,12 +1,12 @@
 use super::{
-    JsonError, ObjectInsertParams, checksum, multipart::MultipartMetadata, multipart_metadata_of,
+    JsonError, ObjectInsertParams, multipart::MultipartMetadata, multipart_metadata_of,
     upload_content_type,
 };
 use crate::{
     bucket::BucketAccess,
     config::CompatProfile,
     decimal::Grammar,
-    object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectError},
+    object::{ChecksumConflict, ExpectedHashes, MapPatch, ObjectError, upload_headers},
     storage::ResumableOptions,
 };
 use hyper::{HeaderMap, Method, Uri};
@@ -309,10 +309,10 @@ pub(crate) fn final_options(
     upload_content_type(&clean)?;
     // An equal value agrees with the metadata's or an earlier chunk's declaration; a different
     // one conflicts.
-    checksum::each_declared_hash(headers, "Invalid x-goog-hash", |algorithm, value| {
+    upload_headers::each_declared_hash(headers, "Invalid x-goog-hash", |algorithm, value| {
         options
             .expected
-            .agree(checksum::decode(algorithm, value)?)
+            .agree(upload_headers::decode(algorithm, value)?)
             .map_err(|ChecksumConflict(algorithm)| {
                 JsonError::invalid_parameter(format!(
                     "Conflicting {} declarations",

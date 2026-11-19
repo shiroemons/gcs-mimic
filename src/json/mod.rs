@@ -61,9 +61,7 @@ pub(crate) use envelope::{
     etag_header, forbid_caching,
 };
 pub use error::JsonError;
-pub(crate) use error::{
-    ErrorKind, MEDIA_ERROR_CACHE_CONTROL, NO_STORE_CACHE_CONTROL, safe_backend_cause,
-};
+pub(crate) use error::{ErrorKind, MEDIA_ERROR_CACHE_CONTROL, safe_backend_cause};
 pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
@@ -90,10 +88,9 @@ pub(crate) use objects::{
 };
 pub(crate) use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, ObjectUpdateParams, RangeRequest,
-    UnsatisfiableRange, UploadRequest, add_derived_owner, declared_hashes, object_media_headers,
-    object_resource, range_request, rebase_object_links, route_object_with_profile,
-    unsupported_upload_type, upload_content_type, validate_keyed_object_headers,
-    validate_object_get_headers, validate_object_name,
+    UnsatisfiableRange, UploadRequest, add_derived_owner, object_resource, range_request,
+    rebase_object_links, route_object_with_profile, unsupported_upload_type, upload_content_type,
+    validate_keyed_object_headers, validate_object_get_headers, validate_object_name,
 };
 pub(crate) use projects::{
     ProjectRequest, hmac_key_list, hmac_key_metadata, hmac_key_resource, parse_hmac_key_update,
@@ -111,4 +108,4 @@ pub(crate) use query::{
 mod tests;
 
 #[cfg(test)]
-mod object_tests;
+pub(crate) mod object_tests;

@@ -875,7 +875,7 @@ async fn validation_sees_same_name_source_before_retirement_and_completion_sees_
     assert_eq!(value["componentCount"], 2);
     assert!(value.get("md5Hash").is_none());
     assert!(
-        !crate::json::object_media_headers(&record).unwrap()["x-goog-hash"]
+        !crate::object::media_headers::object_media_headers(&record).unwrap()["x-goog-hash"]
             .to_str()
             .unwrap()
             .contains("md5=")

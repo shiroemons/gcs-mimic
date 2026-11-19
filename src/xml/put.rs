@@ -237,7 +237,7 @@ pub(super) fn content_type_and_hashes(
         single(headers, "content-type")?;
         selected.insert("content-type", content_type.clone());
     }
-    let content_type = json::upload_content_type(&selected)?;
+    let content_type = crate::object::upload_headers::upload_content_type(&selected)?;
     // The JSON parser stores no type for an upload without one; XML objects default it.
     let content_type = if content_type.is_empty() {
         "application/octet-stream".to_owned()
@@ -249,12 +249,13 @@ pub(super) fn content_type_and_hashes(
         selected.append("x-goog-hash", value.clone());
     }
     // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
-    let mut expected = json::declared_hashes(&selected).map_err(|error| {
-        if error.kind == json::ErrorKind::Unsupported {
-            return Error::from(error);
-        }
-        Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
-    })?;
+    let mut expected =
+        crate::object::upload_headers::declared_hashes(&selected).map_err(|error| {
+            if error.kind == json::ErrorKind::Unsupported {
+                return Error::from(error);
+            }
+            Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
+        })?;
     if let Some(md5) = single(headers, "content-md5")? {
         let content_md5 = crate::hashing::decode_hash::<16>(md5)
             .map_err(|_| Error::new(XmlCode::InvalidDigest, "Invalid Content-MD5."))?;

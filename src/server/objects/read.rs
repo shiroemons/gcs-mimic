@@ -79,7 +79,7 @@ async fn media(
         .await?;
     json::validate_read_condition_headers(request.headers(), json::EtagConditions::MediaRead)?;
     json::validate_keyed_object_headers(request.headers(), &[crate::csek::DESTINATION_PREFIX])?;
-    let mut headers = json::object_media_headers(&record)?;
+    let mut headers = crate::object::media_headers::object_media_headers(&record)?;
     insert_provider_headers(&record, &mut headers)?;
     crate::csek::insert_response_headers(&record, &mut headers);
     if reader.publicly_readable {
@@ -277,7 +277,7 @@ fn plain_media_failure(
     // for a public object whose 200 is cacheable (recorded: no-store, no-cache).
     headers.insert(
         "cache-control",
-        HeaderValue::from_static(crate::json::NO_STORE_CACHE_CONTROL),
+        HeaderValue::from_static(crate::object::media_headers::NO_STORE_CACHE_CONTROL),
     );
     headers.insert("pragma", HeaderValue::from_static("no-cache"));
     response

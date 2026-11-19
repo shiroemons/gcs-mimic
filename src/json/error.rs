@@ -1,3 +1,4 @@
+use crate::object::media_headers::NO_STORE_CACHE_CONTROL;
 use crate::{
     auth::{AuthFailure, Denied},
     bucket::CatalogError,
@@ -15,9 +16,6 @@ use std::fmt;
 pub(crate) use crate::storage::failure::wording::{
     BUCKET_NOT_FOUND, PRECONDITION_NOT_HELD, safe_backend_cause,
 };
-
-/// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
-pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
 
 /// The `Cache-Control` of a media download that Cloud Storage answers with a plain error; its
 /// `Expires` is the response time.

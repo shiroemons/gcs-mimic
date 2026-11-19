@@ -1109,7 +1109,7 @@ pub(crate) fn object_etag(record: &ObjectRecord) -> String {
 }
 
 pub(crate) fn media_headers(record: &ObjectRecord, scope: CacheScope) -> Result<HeaderMap, Error> {
-    let mut headers = json::object_media_headers(record)?;
+    let mut headers = crate::object::media_headers::object_media_headers(record)?;
     insert_hashes(&mut headers, record);
     // Only the XML API advertises ranges; the JSON media response omits the field.
     headers.insert("accept-ranges", HeaderValue::from_static("bytes"));
