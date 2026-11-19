@@ -76,6 +76,60 @@ async fn recovery_failures_keep_intents_and_retry_without_double_quota_release()
     }
 }
 
+/// A failed unlink, sync or completion while recovery reclaims the API copy of an armed export
+/// keeps the export, and the next restart reclaims the copy without releasing its reservation
+/// twice.
+#[tokio::test]
+async fn reclaim_failures_keep_the_armed_export_and_retry_on_restart() {
+    for step in [
+        Step::SyncRecoveryUnlink,
+        Step::SyncRecoveryUnlinked,
+        Step::SyncRecoveryParentSync,
+        Step::SyncRecoveryParentDurable,
+        Step::SyncRecoveryComplete,
+        Step::SyncRecoveryCompleted,
+    ] {
+        let fixture = Fixture::new().await;
+        let item = fixture.armed_copy().await;
+        let copy = fixture.workspace_entry(&item);
+        let fixture = fixture.restart(Journal::Disabled).await;
+        fixture
+            .catalog
+            .inject(step, 0, Fault::Io(io::ErrorKind::StorageFull));
+        assert!(
+            fixture.writeback.recover_pending().await.is_err(),
+            "{step:?}"
+        );
+        assert_eq!(fixture.catalog.pending_faults(), 0);
+        if step != Step::SyncRecoveryCompleted {
+            assert_eq!(
+                fixture.writeback.status().await.unwrap().entries,
+                1,
+                "{step:?}"
+            );
+        }
+        if step == Step::SyncRecoveryUnlink {
+            assert_eq!(fs::read(&copy).unwrap(), API);
+        }
+        let fixture = fixture.restart(Journal::Disabled).await;
+        let usage = fixture.writeback.recover_pending().await.unwrap();
+        assert_eq!(
+            (
+                usage.entries,
+                usage.reserved_bytes,
+                usage.retained_bytes,
+                usage.stop()
+            ),
+            (0, 0, 0, Stop::Ready),
+            "{step:?}"
+        );
+        assert!(!copy.exists(), "{step:?}");
+        assert!(!fixture.tree.0.join("test-bucket/object").exists());
+        fixture.api().await;
+        fixture.close().await;
+    }
+}
+
 #[tokio::test]
 async fn recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancellation() {
     for step in [

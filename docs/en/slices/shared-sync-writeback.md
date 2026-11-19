@@ -97,10 +97,13 @@ workspace, root and catalog leases until file and SQL jobs drain, even if the
 calling future is cancelled. SQLite transactions never wait for file I/O.
 Administrative API reads remain available while a writeback job drains.
 
-Restart cancels only unarmed private API copies. Armed/Durable operations inspect
-their owned workspace names; unexpected bodies become Protected. Recovery never
-changes a live target. Unlink, directory sync and completion are separate durable
-boundaries, validated through process-crash and `Fault::PowerLoss` snapshots.
+Restart cancels unarmed private API copies. Armed/Durable operations inspect
+their owned workspace names. An Armed entry that no other name links and that
+holds exactly the operation's API copy or the tracked body its rename displaced
+or removed is unlinked and the operation cancelled; other bodies become
+Protected. Recovery never changes a live target. Unlink, directory sync and
+completion are separate durable boundaries, validated through process-crash and
+`Fault::PowerLoss` snapshots.
 
 Workspace replacement or disappearance persists an identity/recovery stop.
 Other open failures retain their I/O cause and leave those flags unchanged;

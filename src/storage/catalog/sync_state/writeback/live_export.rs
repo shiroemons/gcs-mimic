@@ -258,7 +258,7 @@ fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result
 
 /// The identity of `file` when it holds exactly `size` bytes with these hashes and did not change
 /// while they were read; `None` otherwise.
-fn verified_identity(
+pub(super) fn verified_identity(
     file: &File,
     size: u64,
     md5: [u8; 16],

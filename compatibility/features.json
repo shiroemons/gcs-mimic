@@ -60244,7 +60244,7 @@
         },
         {
           "id": "sync-native-writeback-restart",
-          "description": "Native storage restart recovery pages at most 256 pending operations, cancels only verified private unarmed copies or synced absence, protects surviving armed/durable bodies with full quota, and retains original owners through API/bucket changes. Runtime mirror, control shutdown and final platform integration remain separate.",
+          "description": "Native storage restart recovery pages at most 256 pending operations, cancels verified private unarmed copies or synced absence, reclaims an armed private entry only when it holds exactly the API copy or the tracked body its rename displaced or removed (DESIGN-074 sync-native-writeback-fault-recovery), protects every other surviving armed/durable body with full quota, and retains original owners through API/bucket changes. Runtime mirror, control shutdown and final platform integration remain separate.",
           "result": "PASS",
           "test_ids": ["restart_cancels_only_unarmed_owned_copies_including_short_and_zero_bytes", "restart_protects_actual_armed_and_durable_bodies_without_quota_eviction", "recovery_keyset_pages_drain_more_than_one_page_without_skipping_cancelled_rows", "recovery_keeps_the_original_owner_after_api_change_delete_and_bucket_recreation"]
         },
@@ -60381,7 +60381,7 @@
         },
         {
           "id": "sync-unpublished-cancellation",
-          "description": "Production live export cancels only an unchanged unpublished API copy. A modified workspace body becomes Protected and remains fully charged; installed copies cannot use cancellation. API overwrite/delete races defer or complete the installed observation, while divergent external bytes are retained in the conflict store before API-priority replacement. Restart recovery cancels only owned unarmed copies and preserves Armed/Durable bodies. Scope: docs/en/slices/shared-sync-writeback.md and docs/en/slices/directory-synchronization.md.",
+          "description": "Production live export cancels only an unchanged unpublished API copy. A modified workspace body becomes Protected and remains fully charged; installed copies cannot use cancellation. API overwrite/delete races defer or complete the installed observation, while divergent external bytes are retained in the conflict store before API-priority replacement. Restart recovery cancels owned unarmed copies, reclaims an Armed private entry that holds exactly its API copy or the tracked body its rename displaced or removed, and preserves other Armed/Durable bodies. Scope: docs/en/slices/shared-sync-writeback.md and docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
           "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "live_export_observed_external_change_cancels_the_unpublished_copy_and_releases_its_reservation", "live_export_obsolete_copy_never_cancels_a_modified_workspace_body"]
         },
@@ -61891,9 +61891,9 @@
         },
         {
           "id": "sync-native-writeback-fault-recovery",
-          "description": "Native storage paired catalog/tree Snapshot and PowerLoss seams verify retry through exact owned cancellation or retained protection, unchanged API body/checksums, original directory identities and full charge until explicitly confirmed discard. Installation's move or exchange stays volatile in the power-loss model until both directories are synced; create, overwrite and removal crashes at each installation checkpoint recover through startup to the API state. This does not complete runtime mirror, control shutdown, Linux checked-exchange or physical host-power-loss acceptance.",
+          "description": "Native storage paired catalog/tree Snapshot and PowerLoss seams verify retry through exact owned cancellation or retained protection, unchanged API body/checksums, original directory identities and full charge until explicitly confirmed discard. Installation's move or exchange stays volatile in the power-loss model until both directories are synced; create, overwrite and removal crashes at each installation checkpoint recover through startup to the API state without a conflict, because startup recovery reclaims an armed private entry that a single name links and that holds exactly the API copy or the tracked body its rename displaced or removed. One changed byte or another link keeps the entry protected, and crashes, power losses and failures while recovery reclaims it recover on the next restart. Entries already protected stay protected. This does not complete runtime mirror, control shutdown, Linux checked-exchange or physical host-power-loss acceptance.",
           "result": "PASS",
-          "test_ids": ["recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancellation", "live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack", "protection_snapshots_keep_full_charge_until_confirmed_discard_and_rescan", "exchanges_and_moves_between_directories_need_both_directory_syncs", "undoing_an_exchange_with_a_missing_name_fails_the_snapshot", "undoing_a_move_onto_a_taken_name_fails_the_snapshot", "replacement_between_directories_is_durable_when_it_returns", "installation_crashes_and_power_losses_recover_to_the_api_state", "a_parent_sync_failing_after_the_rename_recovers_on_restart", "restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing"]
+          "test_ids": ["recovery_paired_crash_and_power_loss_snapshots_finish_only_owned_cancellation", "live_copy_snapshots_recover_from_synced_copy_install_and_sql_ack", "protection_snapshots_keep_full_charge_until_confirmed_discard_and_rescan", "exchanges_and_moves_between_directories_need_both_directory_syncs", "undoing_an_exchange_with_a_missing_name_fails_the_snapshot", "undoing_a_move_onto_a_taken_name_fails_the_snapshot", "replacement_between_directories_is_durable_when_it_returns", "installation_crashes_and_power_losses_recover_to_the_api_state", "a_parent_sync_failing_after_the_rename_recovers_on_restart", "restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing", "restart_after_arming_a_live_copy_reclaims_the_uninstalled_copy", "restart_protects_an_armed_copy_that_is_not_exactly_the_api_copy", "reclaim_failures_keep_the_armed_export_and_retry_on_restart", "a_private_entry_one_byte_off_stays_protected_through_restart", "crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart"]
         },
         {
           "id": "sync-conflict-storage-recovery",
@@ -62228,6 +62228,11 @@
         "installation_crashes_and_power_losses_recover_to_the_api_state",
         "a_parent_sync_failing_after_the_rename_recovers_on_restart",
         "restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing",
+        "restart_after_arming_a_live_copy_reclaims_the_uninstalled_copy",
+        "restart_protects_an_armed_copy_that_is_not_exactly_the_api_copy",
+        "reclaim_failures_keep_the_armed_export_and_retry_on_restart",
+        "a_private_entry_one_byte_off_stays_protected_through_restart",
+        "crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart",
         "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
         "sync_root_activation_failure_boundaries_never_publish_partial_markers",
@@ -62410,6 +62415,13 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/native-writeback-recovery.md",
           "test_ids": ["exchanges_and_moves_between_directories_need_both_directory_syncs","undoing_an_exchange_with_a_missing_name_fails_the_snapshot","undoing_a_move_onto_a_taken_name_fails_the_snapshot","replacement_between_directories_is_durable_when_it_returns","installation_crashes_and_power_losses_recover_to_the_api_state","a_parent_sync_failing_after_the_rename_recovers_on_restart","restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::fault sync_state::writeback sync:: fsutil::",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/native-writeback-recovery.md",
+          "test_ids": ["installation_crashes_and_power_losses_recover_to_the_api_state","restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing","restart_after_arming_a_live_copy_reclaims_the_uninstalled_copy","restart_protects_an_armed_copy_that_is_not_exactly_the_api_copy","reclaim_failures_keep_the_armed_export_and_retry_on_restart","a_private_entry_one_byte_off_stays_protected_through_restart","crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",

@@ -128,6 +128,30 @@ impl Fixture {
             .await
             .unwrap()
     }
+    /// A live export whose API copy is complete and armed, stopped by an injected failure before
+    /// installation renamed it, as a process killed there leaves it.
+    async fn armed_copy(&self) -> Pending {
+        fs::create_dir(self.tree.0.join("test-bucket")).unwrap();
+        let operation = self.live().await;
+        self.writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+        super::super::live_export::inject_failure(self.lease.status().root_id, "install", 1);
+        assert!(
+            self.writeback
+                .advance_live_export(operation.clone())
+                .await
+                .is_err()
+        );
+        live_pending(&operation).await
+    }
+    fn workspace_entry(&self, item: &Pending) -> std::path::PathBuf {
+        self.tree
+            .0
+            .join(mapping::WORKSPACE)
+            .join(item.token.id().to_string())
+    }
     async fn restart(self, journal: Journal) -> Self {
         let (data, tree, bucket, record) = self.shut_down().await;
         let catalog = Catalog::open(&data.0).await.unwrap();
@@ -489,28 +513,8 @@ async fn recovery_protects_unexpected_unarmed_remove_bodies_and_rejects_workspac
 #[tokio::test]
 async fn restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing() {
     let fixture = Fixture::new().await;
-    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
-    let operation = fixture.live().await;
-    fixture
-        .writeback
-        .advance_live_export(operation.clone())
-        .await
-        .unwrap();
-    super::super::live_export::inject_failure(fixture.lease.status().root_id, "install", 1);
-    assert!(
-        fixture
-            .writeback
-            .advance_live_export(operation.clone())
-            .await
-            .is_err()
-    );
-    let item = live_pending(&operation).await;
-    drop(operation);
-    let copy = fixture
-        .tree
-        .0
-        .join(mapping::WORKSPACE)
-        .join(item.token.id().to_string());
+    let item = fixture.armed_copy().await;
+    let copy = fixture.workspace_entry(&item);
     let target = fixture.tree.0.join("test-bucket/object");
     fs::hard_link(&copy, &target).unwrap();
     let fixture = fixture.restart(Journal::Disabled).await;
@@ -544,32 +548,72 @@ async fn restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_no
     fixture.close().await;
 }
 
+/// The uninstalled API copy of an armed export holds only bytes the API keeps, so recovery
+/// unlinks it and cancels the export instead of protecting it. The target stays absent for the
+/// next export to install.
 #[tokio::test]
-async fn restart_after_arming_a_live_copy_retains_the_uninstalled_body() {
+async fn restart_after_arming_a_live_copy_reclaims_the_uninstalled_copy() {
     let fixture = Fixture::new().await;
-    fs::create_dir(fixture.tree.0.join("test-bucket")).unwrap();
-    let operation = fixture.live().await;
-    fixture
-        .writeback
-        .advance_live_export(operation.clone())
-        .await
-        .unwrap();
-    super::super::live_export::inject_failure(fixture.lease.status().root_id, "install", 1);
-    assert!(
-        fixture
-            .writeback
-            .advance_live_export(operation.clone())
-            .await
-            .is_err()
-    );
-    drop(operation);
+    let item = fixture.armed_copy().await;
+    let copy = fixture.workspace_entry(&item);
     let fixture = fixture.restart(Journal::Disabled).await;
     let usage = fixture.writeback.recover_pending().await.unwrap();
     assert_eq!(
-        (usage.stop(), usage.retained_bytes),
-        (Stop::ProtectedBody, API.len() as u128)
+        (
+            usage.stop(),
+            usage.entries,
+            usage.reserved_bytes,
+            usage.retained_bytes
+        ),
+        (Stop::Ready, 0, 0, 0)
     );
+    assert!(!copy.exists());
     assert!(!fixture.tree.0.join("test-bucket/object").exists());
     fixture.api().await;
     fixture.close().await;
+}
+
+/// One changed byte, a link from another name, or a copy that differs in size keeps an armed
+/// export's private copy protected with its bytes intact: only an exact API copy that no other
+/// name shows is reclaimed.
+#[tokio::test]
+async fn restart_protects_an_armed_copy_that_is_not_exactly_the_api_copy() {
+    #[derive(Clone, Copy, Debug)]
+    enum Edit {
+        FirstByte,
+        LastByte,
+        AppendedByte,
+        LinkedElsewhere,
+    }
+    for edit in [
+        Edit::FirstByte,
+        Edit::LastByte,
+        Edit::AppendedByte,
+        Edit::LinkedElsewhere,
+    ] {
+        let fixture = Fixture::new().await;
+        let item = fixture.armed_copy().await;
+        let copy = fixture.workspace_entry(&item);
+        let mut body = API.to_vec();
+        match edit {
+            Edit::FirstByte => body[0] ^= 1,
+            Edit::LastByte => *body.last_mut().unwrap() ^= 1,
+            Edit::AppendedByte => body.push(0),
+            Edit::LinkedElsewhere => {
+                fs::hard_link(&copy, fixture.tree.0.join("elsewhere")).unwrap();
+            }
+        }
+        fs::write(&copy, &body).unwrap();
+        let fixture = fixture.restart(Journal::Disabled).await;
+        let usage = fixture.writeback.recover_pending().await.unwrap();
+        assert_eq!(
+            (usage.stop(), usage.protected_entries, usage.retained_bytes),
+            (Stop::ProtectedBody, 1, body.len() as u128),
+            "{edit:?}"
+        );
+        assert_eq!(fs::read(&copy).unwrap(), body, "{edit:?}");
+        assert!(!fixture.tree.0.join("test-bucket/object").exists());
+        fixture.api().await;
+        fixture.close().await;
+    }
 }
