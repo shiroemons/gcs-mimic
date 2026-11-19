@@ -216,7 +216,8 @@ CORSやバージョニングの設定付きでバケットを作るには[バケ
 
 `GCS_MIMIC_SYNC_DIR`（`--sync-dir`、JSONでは`sync_dir`）を指定すると、既存の書き込み可能な
 ディレクトリへ、すべてのバケットと現行オブジェクトを`BUCKET/OBJECT`のファイルとして書き出します。
-READMEのサービスへ次の項目を追加します。既存の環境変数と永続ボリュームは残してください。
+リポジトリの[`compose.sync.yaml`](../../compose.sync.yaml)を使うと、同期を有効にして`./sync`をマウントできます。
+自分のサービスに加える場合は、既存の環境変数と永続ボリュームを残したまま、次の項目を追加します。
 
 ```yaml
     environment:
@@ -225,21 +226,24 @@ READMEのサービスへ次の項目を追加します。既存の環境変数�
       - ./sync:/sync
 ```
 
-起動前に`./sync`を作り、あとは通常どおりAPIを使います。
+あとは通常どおりAPIを使います。fake-gcs-serverのfilesystemバックエンドから移る場合は、
+同じ手順と違いを[オブジェクトをファイルとして使い続ける](migrate-from-fake-gcs-server.md#オブジェクトをファイルとして使い続ける)にまとめています。
 
 ```sh
 mkdir -p sync
-docker compose up -d --wait
+export COMPOSE_FILE=compose.yaml:compose.sync.yaml
+docker compose up --wait
 curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --fail --data-binary 'hello' \
   'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
+docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
 cat sync/demo-bucket/docs/hello.txt
 ```
 
 readinessの成功後、既存のバケット（空のバケットを含む）とオブジェクトを書き出します。
 以後はAPIでの作成・上書き・コピー・compose・削除が、応答の少し後にファイルへ反映されます。
-応答した時点でファイルがあるとは限らないため、必要ならポーリングしてください。
+応答した時点でファイルがあるとは限らないため、ファイルを読む前に`gcs-mimic sync wait`で待ってください。
 保存状態の本体はSQLiteのカタログと内部ファイルで、このディレクトリは写しです。
 データの永続化には、引き続き`/var/lib/gcs-mimic`のボリュームが必要です。
 
@@ -303,6 +307,8 @@ Composeの`healthcheck:`で`start_period`を短く上書きすると、大きな
 Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。
 Linuxのホストでは、イメージのUID `10001`の所有になります。コンテナを自分のユーザーで実行し、
 データディレクトリも同じユーザーが所有するbind mountにしてください。
+Linuxで`compose.sync.yaml`を使う場合は、`sudo chown 10001:10001 sync`で既定のユーザーが書き込めるようになりますが、
+ファイルはUID `10001`だけが読めるままです。読むには`sudo`を使うか、次の手順にします。
 
 ```sh
 mkdir -p data sync

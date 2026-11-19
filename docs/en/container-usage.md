@@ -233,9 +233,10 @@ source directory.
 ## Mirror objects to a host directory
 
 `GCS_MIMIC_SYNC_DIR` (`--sync-dir`, JSON `sync_dir`) writes every bucket and live
-object to `BUCKET/OBJECT` files under an existing writable directory. Add these
-entries to the README's service, retaining its other environment variables and
-persistent volume:
+object to `BUCKET/OBJECT` files under an existing writable directory. The
+repository's [`compose.sync.yaml`](../../compose.sync.yaml) turns it on and
+mounts `./sync`. To add it to your own service instead, keep its other
+environment variables and persistent volume and add these entries:
 
 ```yaml
     environment:
@@ -244,21 +245,26 @@ persistent volume:
       - ./sync:/sync
 ```
 
-Create `./sync` before starting, then use the API as usual:
+Then use the API as usual. Coming from fake-gcs-server's filesystem backend?
+[Keep objects as files](migrate-from-fake-gcs-server.md#keep-objects-as-files)
+walks through the same steps with what differs.
 
 ```sh
 mkdir -p sync
-docker compose up -d --wait
+export COMPOSE_FILE=compose.yaml:compose.sync.yaml
+docker compose up --wait
 curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
   'http://localhost:4443/storage/v1/b?project=demo-project'
 curl --fail --data-binary 'hello' \
   'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
+docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
 cat sync/demo-bucket/docs/hello.txt
 ```
 
 After readiness, the server exports existing buckets and objects, including empty
 buckets. API create, overwrite, copy, compose and delete then update the files
-shortly after each response; poll rather than expecting the file at response time.
+shortly after each response, so wait with `gcs-mimic sync wait` before reading
+a file instead of expecting it at response time.
 The SQLite catalog and internal blobs remain the stored state, so the directory
 is a mirror. Data persistence still requires the `/var/lib/gcs-mimic` volume.
 
@@ -343,7 +349,9 @@ Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable
 on macOS hosts. On a Linux host, the image's UID `10001` would own them; run the
 container as your user and keep the data directory on a bind mount owned by the
-same user:
+same user. With `compose.sync.yaml` on Linux, `sudo chown 10001:10001 sync`
+lets the default user write to the directory, but the files stay readable only
+by UID `10001`, so read them with `sudo` or use this recipe:
 
 ```sh
 mkdir -p data sync

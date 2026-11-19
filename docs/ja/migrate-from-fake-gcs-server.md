@@ -79,6 +79,71 @@ Content-Typeはファイルの拡張子から決め直します。世代、カ�
 初期ファイルは起動のたびに反映され、同じ名前のオブジェクトへのAPIでの変更を置き換えます。
 オブジェクトがデータボリュームに入ったあと、この動きが不要ならマウントを外します。
 
+## オブジェクトをファイルとして使い続ける
+
+fake-gcs-serverのfilesystemバックエンドは、オブジェクトを`<root>/<bucket>/<object>`のファイルとして保存します。
+同期ディレクトリを使うと、gcs-mimicでも同じ見え方になります。
+すべてのバケットと現行オブジェクトが、ホストのディレクトリに`BUCKET/OBJECT`のファイルとして現れ、
+そこへ置いたファイルはオブジェクトになります。
+
+まず、リポジトリの[`compose.sync.yaml`](../../compose.sync.yaml)を使います。
+`compose.yaml`に、`GCS_MIMIC_SYNC_DIR`の設定と`./sync`のマウントを足すファイルです。
+自分のサービスに加える場合の2項目は、[リファレンス](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)にあります。
+サーバーを起動し、オブジェクトを書いて、ファイルを読みます。
+
+```sh
+mkdir -p sync
+export COMPOSE_FILE=compose.yaml:compose.sync.yaml
+docker compose up --wait
+curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
+  'http://localhost:4443/storage/v1/b?project=local-project'
+curl --fail --data-binary 'hello' \
+  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
+docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
+cat sync/demo-bucket/docs/hello.txt
+```
+
+`docker compose up --wait`は、最初の照合でディレクトリにあるファイルを取り込み、既存のオブジェクトをすべて書き出した後に戻ります。
+フラグやヘルスチェックの上書きは要りません。`depends_on`の`condition: service_healthy`でこのサーバーを待つサービスも、その後に始まります。
+
+fake-gcs-serverとの違いは次のとおりです。
+
+- **ファイルは応答の後に書かれます。** fake-gcs-serverは応答の前にファイルを書きますが、
+  gcs-mimicは先に応答するので、少しの間ファイルが無いことがあります。
+  読む前に`gcs-mimic sync wait --endpoint …`で待ってください。反映できる変更を反映し終えると戻ります。
+  手でファイルを置いたり編集したりした後も、同じコマンドでサーバーが取り込むまで待てます。
+- **置いたり編集したりしたファイルはオブジェクトになります。** 再起動は要りません。
+  fake-gcs-serverのmacOSでの調査では、メタデータを持たない普通のファイルは404でした
+  （[比較（英語）](../en/fake-gcs-server-storage.md#external-edits-do-not-reconcile-metadata)）。
+- **`:`を含む名前はそのまま使えます。** `logs/2026-10-28T12:00:00.log`は、ファイルシステムが`:`を保存できれば同じ名前のファイルになります。
+  保存できるかは起動時にサーバーが確かめます。macOSのFinderは`:`を`/`と表示しますが、ディスク上の名前は`:`のままです。
+  `\`を含む名前はファイルに書き出しません。APIからは使えます。
+- **resetとreseedとpurgeは拒否されます。** `sync_dir`を設定している間、同期の対象のバケットでは、外部のファイルをリセットや消去しないためです。
+  やり直すときは、サーバーを止め、ディレクトリとデータボリュームを一緒に空にしてから起動し直します。
+- **ライフサイクルのルールは既定では動きません。** ホストのファイルを消してしまうためです。
+  動かすには`GCS_MIMIC_LIFECYCLE_EXECUTION=enabled`を設定します。
+- **まとめてファイルを消すと削除ガードで止まります。** 追跡中のファイルのうち100件以上で、かつツリーの半数を超える数
+  （例えばバケットのディレクトリへの`rm -r`）を消すと、一覧を承認するまで反映しません。APIは使えたままです。
+  `pending_deletion_revision`のrevisionを取り出し、一覧を確認してから承認します（`DELETION_REVISION`は自分の値に置き換えます）。
+
+  ```sh
+  docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443
+  docker compose exec gcs gcs-mimic sync status --view deletions \
+    --endpoint http://127.0.0.1:4443 --revision DELETION_REVISION
+  docker compose exec gcs gcs-mimic sync approve \
+    --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
+  ```
+
+  ほかのオプションは[同期CLIの使い方](sync-cli.md)にあります。
+- **ディレクトリは先に作り、データボリュームと対にします。** ディレクトリが無いと起動しません。
+  別のデータボリュームに属していたディレクトリも、`docker compose down --volumes`の後などに`ForeignMarker`で拒否します。
+  そのディレクトリは退避し、新しく作り直してください。
+- **Linuxのホストでは所有者が問題になります。** サーバーはUID 10001で動き、そのユーザーだけが読めるファイルを書きます。
+  [自分のユーザーで実行する方法](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)を参照してください。
+
+サーバーのマーカーファイルも入るので、`/sync/`（選んだディレクトリ）を`.gitignore`に追加してください。
+競合・復旧・残る制限は[リファレンス](container-usage.md#オブジェクトをホストのディレクトリへ書き出す)にあります。
+
 ## 設定の対応表
 
 0.18.0以降は、移行元と意味が変わるフラグを起動前にまとめて拒否します。

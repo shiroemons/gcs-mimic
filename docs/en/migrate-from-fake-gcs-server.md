@@ -84,6 +84,84 @@ extensions. Generations, custom metadata and ACLs do not come across.
 Seeding runs on every startup and replaces API changes to the same names. Once
 the objects are in the data volume, remove the mount if you do not want that.
 
+## Keep objects as files
+
+fake-gcs-server's filesystem backend stores each object as the file
+`<root>/<bucket>/<object>`. A sync directory gives gcs-mimic the same view:
+every bucket and live object appears as `BUCKET/OBJECT` under a host directory,
+and files you add there become objects.
+
+Start with the repository's [`compose.sync.yaml`](../../compose.sync.yaml). It
+adds a `GCS_MIMIC_SYNC_DIR` setting and a `./sync` mount to `compose.yaml`; the
+[reference](container-usage.md#mirror-objects-to-a-host-directory) shows the
+same two entries for your own service. Start the server, write an object and
+read the file:
+
+```sh
+mkdir -p sync
+export COMPOSE_FILE=compose.yaml:compose.sync.yaml
+docker compose up --wait
+curl --fail -H 'Content-Type: application/json' -d '{"name":"demo-bucket"}' \
+  'http://localhost:4443/storage/v1/b?project=local-project'
+curl --fail --data-binary 'hello' \
+  'http://localhost:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=docs%2Fhello.txt'
+docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
+cat sync/demo-bucket/docs/hello.txt
+```
+
+`docker compose up --wait` returns only after the first pass has taken in the
+files already in the directory and written every existing object, so no flag or
+healthcheck override is needed. A service that lists the server under
+`depends_on` with `condition: service_healthy` starts after that pass too.
+
+What differs from fake-gcs-server:
+
+- **Files are written after the response.** fake-gcs-server writes the file
+  before it answers; gcs-mimic answers first, so the file can be missing for a
+  moment. Read it after `gcs-mimic sync wait --endpoint …`, which returns once
+  the changes it can apply have been applied. The same command, run after you
+  add or edit a file by hand, waits until the server has taken the change in.
+- **Files you add or edit become objects.** No restart is needed. In
+  fake-gcs-server's macOS probe, a plain file with no stored metadata answered
+  404 ([comparison](fake-gcs-server-storage.md#external-edits-do-not-reconcile-metadata)).
+- **A name with `:` is kept.** `logs/2026-10-28T12:00:00.log` becomes a file of
+  that name where the filesystem stores colons, which the server checks at
+  startup. macOS Finder shows the `:` as `/`; the name on disk keeps the colon.
+  A name containing `\` is not written as a file; the API still serves it.
+- **Reset, reseed and purge are refused** for synchronized buckets while
+  `sync_dir` is set: external files are never reset or purged. To start over,
+  stop the server, empty the directory and the data volume together, and start
+  again.
+- **Lifecycle rules do not run by default** with a sync directory, because they
+  would delete host files. `GCS_MIMIC_LIFECYCLE_EXECUTION=enabled` turns them on.
+- **Deleting many files at once stops at a guard.** Removing at least 100
+  tracked files that are more than half of the tree, for example `rm -r` on a
+  bucket directory, is not applied until you approve the exact list. The API
+  keeps answering. Take the
+  revision from `pending_deletion_revision`, look at the list, then approve it
+  (use your own value for `DELETION_REVISION`):
+
+  ```sh
+  docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443
+  docker compose exec gcs gcs-mimic sync status --view deletions \
+    --endpoint http://127.0.0.1:4443 --revision DELETION_REVISION
+  docker compose exec gcs gcs-mimic sync approve \
+    --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
+  ```
+
+  [Sync CLI usage](slices/sync-cli.md) lists the other options.
+- **The directory must exist and match the data volume.** The server refuses to
+  start without it, and refuses a directory that belonged to another data
+  volume (`ForeignMarker`), as after `docker compose down --volumes`. Move that
+  directory aside and let Compose create a fresh one.
+- **On a Linux host, ownership matters.** The server runs as UID 10001 and
+  writes files readable only by that user. See
+  [running as your own user](container-usage.md#mirror-objects-to-a-host-directory).
+
+Add `/sync/`, or the directory you chose, to `.gitignore`: it also holds the
+server's marker files. The [reference](container-usage.md#mirror-objects-to-a-host-directory)
+covers conflicts, recovery and the remaining limits.
+
 ## Setting equivalents
 
 Since 0.18.0, source flags that change meaning are refused before startup,
