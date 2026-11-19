@@ -69,11 +69,11 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
         ),
         (
             vec!["stop"],
-            "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+            "Use sync status, findings, deletions, conflicts, rescan, approve, reject, resolve or wait with their documented options",
         ),
         (
             vec!["stop", "--endpoint", "http://127.0.0.1:1"],
-            "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+            "Use sync status, findings, deletions, conflicts, rescan, approve, reject, resolve or wait with their documented options",
         ),
         (
             vec!["stop", "--endpoint", endpoint, "--revision", "x"],
@@ -120,7 +120,7 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
         ),
         (
             vec!["status", "--endpoint", endpoint, "--revision", revision],
-            "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+            "Use sync status, findings, deletions, conflicts, rescan, approve, reject, resolve or wait with their documented options",
         ),
         (
             vec!["findings", "--endpoint", endpoint, "--revision", revision],

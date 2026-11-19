@@ -36,6 +36,8 @@ pub enum Advised<'a> {
     Deletions(Option<&'a str>),
     /// The approval of the deletion set at this revision.
     Approve(&'a str),
+    /// The rejection of the deletion set at this revision, which writes its files back.
+    Reject(&'a str),
 }
 
 impl fmt::Display for Advised<'_> {
@@ -53,6 +55,7 @@ impl fmt::Display for Advised<'_> {
             Self::Findings(revision) => view(f, "findings", *revision)?,
             Self::Deletions(revision) => view(f, "deletions", *revision)?,
             Self::Approve(revision) => write!(f, "approve --deletion-set {revision}")?,
+            Self::Reject(revision) => write!(f, "reject --deletion-set {revision}")?,
         }
         write!(f, " {ENDPOINT}")
     }
@@ -137,6 +140,7 @@ pub fn commands() -> Vec<String> {
         Advised::Deletions(Some(SAMPLE_DELETION_REVISION)),
         Advised::Deletions(None),
         Advised::Approve(SAMPLE_DELETION_REVISION),
+        Advised::Reject(SAMPLE_DELETION_REVISION),
     ];
     // Naming every variant makes a new one fail to compile here, beside the list it must join.
     let listed = |command: Advised<'_>| match command {
@@ -146,7 +150,8 @@ pub fn commands() -> Vec<String> {
         | Advised::Conflicts
         | Advised::Findings(_)
         | Advised::Deletions(_)
-        | Advised::Approve(_) => command.to_string(),
+        | Advised::Approve(_)
+        | Advised::Reject(_) => command.to_string(),
     };
     all.into_iter().map(listed).collect()
 }

@@ -1,7 +1,8 @@
 //! Exports into a bucket whose whole directory is missing while the tree tracks files in it.
 //! Creating the directory for one export would turn the missing files into deletions counted one
 //! by one, which the guard lets through below its threshold, so every export into the bucket
-//! waits until the deletion is approved or the directory is back.
+//! waits until the deletion is approved or rejected, or the directory is back. A bucket emptied
+//! while the server was stopped waits for the same decision.
 #![expect(
     clippy::unwrap_used,
     reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
@@ -106,6 +107,30 @@ async fn approve_control(commands: &tokio::sync::mpsc::Sender<Command>, root: &R
         .unwrap()
         .unwrap()
         .unwrap();
+}
+
+/// Rejects the root's pending set, and returns the set the rejection answered with.
+async fn reject_control(
+    commands: &tokio::sync::mpsc::Sender<Command>,
+    root: &RootLease,
+) -> DeletionSet {
+    let revision = root.deletion_set().await.unwrap().unwrap().revision;
+    let (reply, rejected) = tokio::sync::oneshot::channel();
+    commands
+        .send(Command::Reject {
+            revision,
+            reply,
+            identity: None,
+        })
+        .await
+        .unwrap();
+    let rejected = tokio::time::timeout(HANG_GUARD, rejected)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(rejected.revision, revision);
+    rejected
 }
 
 /// A mirror that runs over the tree and answers the controls sent to `commands`, as the server's
@@ -323,4 +348,56 @@ async fn a_bucket_emptied_while_running_needs_no_approval() {
         assert!(!exists(&started.catalog, &bucket, name).await, "{name}");
     }
     started.close().await;
+}
+
+/// Rejecting the set that holds the files of a bucket emptied while the server was stopped
+/// writes them back from their objects, deletes nothing, and leaves nothing to wait for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejecting_a_bucket_emptied_while_stopped_writes_its_files_back() {
+    let (data, tree, bucket) = tracked_pair().await;
+    for name in TRACKED {
+        fs::remove_file(tree.0.join(BUCKET).join(name)).unwrap();
+    }
+    let live = Live::start(&data.0, &tree.0).await;
+    let (catalog, root, commands) = (&live.catalog, &live.root, &live.commands);
+    rescan_control(commands).await;
+    let rejected = reject_control(commands, root).await;
+    assert_eq!((rejected.candidate_count, rejected.guarded), (2, true));
+    // The wait runs after the rejection's write-back, which the mirror finishes first.
+    assert_eq!(wait_control(commands).await.reason, WaitReason::Ready);
+    for name in TRACKED {
+        assert_eq!(fs::read(tree.0.join(BUCKET).join(name)).unwrap(), BODY);
+    }
+    let set = root.deletion_set().await.unwrap();
+    assert_eq!(set.map_or(0, |set| set.candidate_count), 0);
+    for name in TRACKED {
+        assert!(exists(catalog, &bucket, name).await, "{name}");
+    }
+    live.stop().await;
+}
+
+/// Rejecting the set that a missing bucket directory holds brings the directory back with the
+/// files, and then runs the export of an API write that waited for the directory.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejecting_a_set_held_for_a_missing_bucket_directory_brings_the_directory_back() {
+    let (data, tree, bucket) = tracked_pair().await;
+    let live = Live::start(&data.0, &tree.0).await;
+    let (catalog, root, commands) = (&live.catalog, &live.root, &live.commands);
+    fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
+    rescan_control(commands).await;
+    publish_named(catalog, &bucket, "third", BODY, Origin::Api).await;
+    assert_eq!(
+        wait_control(commands).await.reason,
+        WaitReason::DeletionApproval
+    );
+    assert!(!tree.0.join(BUCKET).exists());
+
+    let rejected = reject_control(commands, root).await;
+    assert_eq!((rejected.candidate_count, rejected.guarded), (2, true));
+    assert_eq!(wait_control(commands).await.reason, WaitReason::Ready);
+    for name in ALL {
+        assert_eq!(fs::read(tree.0.join(BUCKET).join(name)).unwrap(), BODY);
+    }
+    all_exist(catalog, &bucket).await;
+    live.stop().await;
 }

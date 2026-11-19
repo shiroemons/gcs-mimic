@@ -19,6 +19,7 @@ gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
+gcs-mimic sync reject --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
@@ -36,6 +37,13 @@ the `--revision` of the page that returned it, and
 `--limit 1..256`; the client encodes the cursor once and prints only one page.
 A changed revision or stale approval fails; the CLI never substitutes a fresh
 revision for one given or automatically retries a mutation.
+
+`reject` is the opposite of approval and takes the same `--deletion-set`
+revision. It closes the set, so nothing approves or runs it, and writes each
+member's file back from its object through the ordinary write-back, recreating a
+missing bucket directory; no object is deleted, and the next inventory finds
+nothing to delete. A file that already sits at a member's path stays as it is.
+A stale or already used revision fails with 409, as approval does.
 
 The command and the server must come from the same release. Since 0.20.0 the
 command sends its version in `x-gcs-mimic-version` and the server answers every

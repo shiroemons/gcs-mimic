@@ -408,6 +408,7 @@ async fn a_client_of_another_release_is_refused_before_authorization_or_any_wait
             ("GET", "/_internal/sync", &b""[..]),
             ("POST", "/_internal/sync/wait", b"{}"),
             ("POST", "/_internal/sync/approve", b"{}"),
+            ("POST", "/_internal/sync/reject", b"{}"),
         ] {
             let refused = AUTHORIZATION_WAIT_HOOK.scope(
                 hook.clone(),
@@ -513,6 +514,8 @@ struct Fixture {
 enum Tree {
     Empty,
     EmptyBucket,
+    /// The bucket directory holds `first` and `second`.
+    Pair,
     LongNames,
 }
 
@@ -530,8 +533,13 @@ impl Fixture {
     async fn new(shape: Tree) -> Self {
         let data = TestDir::new();
         let tree = TestDir::new();
-        if matches!(shape, Tree::EmptyBucket) {
+        if matches!(shape, Tree::EmptyBucket | Tree::Pair) {
             fs::create_dir(tree.0.join("test-bucket")).unwrap();
+        }
+        if matches!(shape, Tree::Pair) {
+            for name in PAIR {
+                fs::write(tree.0.join("test-bucket").join(name), b"body").unwrap();
+            }
         }
         if matches!(shape, Tree::LongNames) {
             let component = format!("{}{}", "a".repeat(100), "\"".repeat(100));
@@ -2258,5 +2266,86 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
     })
     .await;
     assert!(fixture.tree.0.join("test-bucket").is_dir());
+    fixture.finish().await;
+}
+
+/// The files of [`Tree::Pair`].
+const PAIR: [&str; 2] = ["first", "second"];
+
+/// Rejecting the set that the missing bucket directory holds for approval brings the directory
+/// and its files back from the objects and deletes nothing. A revision that is stale, or that
+/// was already rejected, is refused with 409 by a rejection and by an approval alike.
+#[tokio::test]
+async fn rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_revision() {
+    let fixture = Fixture::new(Tree::Pair).await;
+    fs::remove_dir_all(fixture.tree.0.join("test-bucket")).unwrap();
+    fixture.task.rescan().await.unwrap();
+    let status = fixture.status().await;
+    assert_eq!(status["state"], "DeletionApproval");
+    assert_eq!(status["pending_deletion_count"], 2);
+    let revision = status["pending_deletion_revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let remedy = status["pending_deletion_remedy"].as_str().unwrap();
+    for command in ["approve", "reject"] {
+        let advised = format!("gcs-mimic sync {command} --deletion-set {revision}");
+        assert!(remedy.contains(&advised), "{remedy}");
+    }
+    let stale = serde_json::to_vec(&json!({"deletion_set":"0".repeat(32)})).unwrap();
+    assert_eq!(
+        status_of(
+            fixture
+                .request("POST", "/_internal/sync/reject", &stale, None)
+                .await
+        ),
+        StatusCode::CONFLICT
+    );
+    let payload = serde_json::to_vec(&json!({"deletion_set":revision})).unwrap();
+    // A delayed native event of the removal withdraws the set until its own scan confirms it
+    // under the same revision, so only that refusal is retried; a revision that changed would
+    // never be accepted.
+    let accepted = eventually_some_async("the rejection to be accepted", || async {
+        fixture
+            .request("POST", "/_internal/sync/reject", &payload, None)
+            .await
+            .ok()
+    })
+    .await;
+    assert_eq!(accepted.status(), StatusCode::ACCEPTED);
+    let accepted = body(accepted).await;
+    assert_eq!(accepted["operation_id"], revision.as_str());
+    assert_eq!(accepted["candidate_count"], 2);
+    for route in ["/_internal/sync/reject", "/_internal/sync/approve"] {
+        assert_eq!(
+            status_of(fixture.request("POST", route, &payload, None).await),
+            StatusCode::CONFLICT,
+            "{route}"
+        );
+    }
+    let waited = body(
+        fixture
+            .request("POST", "/_internal/sync/wait", b"{}", None)
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(waited["reason"], "Ready", "{waited}");
+    for name in PAIR {
+        let path = fixture.tree.0.join("test-bucket").join(name);
+        assert_eq!(fs::read(&path).unwrap(), b"body", "{name}");
+    }
+    let status = fixture.status().await;
+    assert_eq!(status["pending_deletion_count"], 0);
+    assert!(status["pending_deletion_remedy"].is_null(), "{status}");
+    let admin = fixture.state.catalog.admin(Origin::Api);
+    let bucket = BucketName::new("test-bucket").unwrap();
+    for name in PAIR {
+        let name = ObjectName::new(name).unwrap();
+        assert!(
+            admin.get_object(&bucket, &name, None).await.is_ok(),
+            "{name:?}"
+        );
+    }
     fixture.finish().await;
 }

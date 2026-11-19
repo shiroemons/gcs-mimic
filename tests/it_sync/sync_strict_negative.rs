@@ -22,10 +22,11 @@ const OBJECT: &str = "probe";
 const BODY_LIMIT: usize = 64 * 1024;
 
 /// Every synchronization control with the method it is documented with.
-const CONTROLS: [(&str, &str); 6] = [
+const CONTROLS: [(&str, &str); 7] = [
     ("GET", "/_internal/sync"),
     ("GET", "/_internal/sync/conflicts"),
     ("POST", "/_internal/sync/approve"),
+    ("POST", "/_internal/sync/reject"),
     ("POST", "/_internal/sync/rescan"),
     ("POST", "/_internal/sync/resolve"),
     ("POST", "/_internal/sync/wait"),
@@ -431,6 +432,12 @@ fn a_declared_project_admin_still_reaches_every_control() {
         (
             "POST",
             "/_internal/sync/approve",
+            br#"{"deletion_set":"00000000000000000000000000000000"}"#,
+            409,
+        ),
+        (
+            "POST",
+            "/_internal/sync/reject",
             br#"{"deletion_set":"00000000000000000000000000000000"}"#,
             409,
         ),

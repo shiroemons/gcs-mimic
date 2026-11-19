@@ -605,7 +605,7 @@ async fn await_resume(
                         Err(error)=>{let _=reply.send(Err(error.into()));}
                     }
                 }
-                Command::Approve {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
+                Command::Approve {reply,..}|Command::Reject {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
                 Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::held(super::outstanding::Holdup::Paused(paused_for),None,None)));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
@@ -1111,6 +1111,7 @@ impl LiveControl<'_> {
             let identity = match &request {
                 Command::Rescan { identity, .. }
                 | Command::Approve { identity, .. }
+                | Command::Reject { identity, .. }
                 | Command::Wait { identity, .. }
                 | Command::Resolve { identity, .. } => identity.clone(),
             };
@@ -1228,8 +1229,49 @@ impl LiveControl<'_> {
                 reply,
                 identity,
             } => self.approve(revision, reply, identity).await?,
+            Command::Reject {
+                revision,
+                reply,
+                identity,
+            } => self.reject(revision, reply, identity).await?,
         }
         Ok(())
+    }
+
+    /// Rejects the deletion set `revision`, answers, and writes its files back from their objects.
+    async fn reject(
+        &mut self,
+        revision: crate::storage::sync_state::OpaqueId,
+        reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
+        identity: Option<crate::auth::Identity>,
+    ) -> Result<(), SyncError> {
+        let rejected = match self
+            .scope
+            .root
+            .authorize_controls(self.scope.config.seed_project.clone(), identity)
+            .await
+        {
+            Ok(()) => self
+                .scope
+                .root
+                .reject_deletions(revision)
+                .await
+                .map_err(ControlError::from),
+            Err(error) => Err(error.into()),
+        };
+        let set = rejected.as_ref().ok().cloned();
+        let _ = reply.send(rejected);
+        let Some(set) = set else {
+            return Ok(());
+        };
+        let interrupt = Interrupt::new(self.scope.stopping);
+        super::deletion::write_back_rejected(self.scope.catalog, self.scope.root, &set, interrupt)
+            .await?;
+        // The members held back the exports into their bucket's missing directory, which the
+        // write-back brought back.
+        Box::pin(self.state.skipped.retry(self.scope, interrupt))
+            .await
+            .map(drop)
     }
 
     /// Approves the deletion set `revision`, answers, and runs it.

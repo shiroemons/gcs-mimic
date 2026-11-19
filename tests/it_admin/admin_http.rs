@@ -45,6 +45,7 @@ fn management_routes_refuse_page_initiated_requests_without_mutation() {
         ("DELETE", "/_internal/buckets/test-bucket", b""),
         ("POST", "/_internal/lifecycle/run", b""),
         ("POST", "/_internal/sync/approve", b"{}"),
+        ("POST", "/_internal/sync/reject", b"{}"),
     ] {
         for headers in [
             "Origin: https://evil.example\r\n",

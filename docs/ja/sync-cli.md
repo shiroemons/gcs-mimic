@@ -16,6 +16,7 @@ gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
+gcs-mimic sync reject --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
@@ -27,6 +28,10 @@ gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID 
 ページを取得する前にrevisionが変わった場合は、statusをもう一度だけ読み直します。
 findingsは48文字、削除一覧と承認は32文字の小文字16進数です。
 削除対象の全ページを確認してから、同じrevisionを承認してください。
+削除しない場合は、同じrevisionを`reject`の`--deletion-set`に渡します。セットを閉じて承認も実行もできなくし、
+各ファイルをオブジェクトから通常の書き戻しで作業ツリーへ戻します。バケットのディレクトリがなければ作り直します。
+オブジェクトは削除せず、次の削除の棚卸しでは削除するものが見つかりません。対象のパスにすでにあるファイルは上書きしません。
+古いrevisionや使用済みのrevisionは、承認と同じく409で失敗します。
 `--cursor`は返された値を変更せず、そのページの`--revision`と一緒に渡します。`--limit`には1～256を指定します。
 
 コマンドとサーバーは同じリリースのものを使います。0.20.0からは、コマンドが`x-gcs-mimic-version`で自分のバージョンを送り、

@@ -31,7 +31,7 @@ const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait [--endpoint http(s)
        gcs-mimic sync wait [--endpoint URL] [--timeout DURATION] [--require-no-findings]
        gcs-mimic sync status [--endpoint URL] --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
        gcs-mimic sync deletions|findings [--endpoint URL] [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
-       gcs-mimic sync approve [--endpoint URL] --deletion-set REVISION [OPTIONS]
+       gcs-mimic sync approve|reject [--endpoint URL] --deletion-set REVISION [OPTIONS]
        gcs-mimic sync conflicts [--endpoint URL] [--revision REVISION] [--cursor CURSOR] [--limit N]
        gcs-mimic sync resolve [--endpoint URL] --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
        gcs-mimic sync resolve [--endpoint URL] --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
@@ -278,6 +278,7 @@ enum Command {
     Rescan,
     Wait,
     Approve,
+    Reject,
     Resolve,
     List(Listing),
 }
@@ -403,9 +404,21 @@ impl Command {
             "rescan" => Some(Self::Rescan),
             "wait" => Some(Self::Wait),
             "approve" => Some(Self::Approve),
+            "reject" => Some(Self::Reject),
             "resolve" => Some(Self::Resolve),
             "conflicts" => Some(Self::List(Listing::Conflicts)),
             name => View::parse(name).map(|view| Self::List(Listing::View(view))),
+        }
+    }
+
+    /// The name of a command that decides a deletion set. Such a command names the set with
+    /// `--deletion-set`; `--revision` belongs to the pages it was read from, so accepting it
+    /// too would give the decision two spellings.
+    const fn decision(self) -> Option<&'static str> {
+        match self {
+            Self::Approve => Some("approve"),
+            Self::Reject => Some("reject"),
+            Self::Status | Self::Rescan | Self::Wait | Self::Resolve | Self::List(_) => None,
         }
     }
 }
@@ -418,9 +431,14 @@ fn default_timeout_ms(command: Option<Command>) -> u64 {
     match command {
         Some(Command::Rescan) => 30_000,
         Some(Command::Wait) => 120_000,
-        Some(Command::Status | Command::Approve | Command::Resolve | Command::List(_)) | None => {
-            10_000
-        }
+        Some(
+            Command::Status
+            | Command::Approve
+            | Command::Reject
+            | Command::Resolve
+            | Command::List(_),
+        )
+        | None => 10_000,
     }
 }
 
@@ -1150,10 +1168,14 @@ impl Options {
             },
             command => command,
         };
-        // Approval names the deletion set it approves; --revision belongs to the pages it was
-        // read from, so accepting it here too would give approval two spellings.
-        if command == Some(Command::Approve) && flags.contains(Flag::Revision) {
-            return Err(fail("sync approve takes --deletion-set REVISION, not --revision").into());
+        let decision = command.and_then(Command::decision);
+        if let Some(name) = decision
+            && flags.contains(Flag::Revision)
+        {
+            return Err(fail(format!(
+                "sync {name} takes --deletion-set REVISION, not --revision"
+            ))
+            .into());
         }
         let ca_cert = flags.take(Flag::CaCert).map(Path::new);
         let endpoint = match flags.take(Flag::Endpoint) {
@@ -1176,9 +1198,9 @@ impl Options {
         };
         let token_file = flags.take(Flag::TokenFile);
         let token = token_file.map(read_token).transpose()?;
-        // Approval reads its revision from --deletion-set; anywhere else that option is left
+        // A decision reads its revision from --deletion-set; anywhere else that option is left
         // over and refused below.
-        let revision = flags.take(if command == Some(Command::Approve) {
+        let revision = flags.take(if decision.is_some() {
             Flag::DeletionSet
         } else {
             Flag::Revision
@@ -1483,6 +1505,12 @@ fn request(
                 json!({"deletion_set":revision.ok_or_else(|| fail("Approval requires --deletion-set REVISION from an inspected deletion set"))?}),
             ),
         ),
+        (Some(Command::Reject), revision) => Plan::once(
+            "/_internal/sync/reject",
+            Some(
+                json!({"deletion_set":revision.ok_or_else(|| fail("Rejection requires --deletion-set REVISION from an inspected deletion set"))?}),
+            ),
+        ),
         (Some(Command::List(Listing::View(view))), None) => {
             let paging = Paging::read(flags)?;
             // A cursor belongs to the revision of the page that returned it, which the status
@@ -1499,7 +1527,7 @@ fn request(
         }
         (Some(Command::Status | Command::Rescan | Command::Wait), Some(_)) | (None, _) => {
             return Err(fail(
-                "Use sync status, findings, deletions, conflicts, rescan, approve, resolve or wait with their documented options",
+                "Use sync status, findings, deletions, conflicts, rescan, approve, reject, resolve or wait with their documented options",
             ));
         }
     })

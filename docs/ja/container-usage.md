@@ -261,7 +261,7 @@ readyは最初の照合より前に出るため、同期の完了を示す合図
 ファイルを消すと、holdやretentionで保護されていないliveオブジェクトも削除します。
 削除数が100件以上かつツリーの半数を超える場合は、削除ガード（`GCS_MIMIC_SYNC_DELETE_GUARD`、既定`true`）で停止し、
 revisionを固定した削除一覧を[`gcs-mimic sync`](sync-cli.md)で確認して承認するまで削除しません。
-こうして止めた削除一覧は、ログに`sync_deletion_approval_required`として1回だけ、revisionと確認・承認のコマンドを添えて出します。
+こうして止めた削除一覧は、ログに`sync_deletion_approval_required`として1回だけ、revisionと確認・承認・却下（`gcs-mimic sync reject`。ファイルをオブジェクトから書き戻します）のコマンドを添えて出します。
 実行した削除は、件数と最初の10件のパスを`sync_deletions_applied`としてログに出します。
 起動後や再試行後の最初の照合で実行した削除は警告（warn）、それ以外はinfoで出します。
 分割された走査でも、直前までの自動削除数を累積してこの閾値に数えます。

@@ -92,8 +92,8 @@ pub(super) async fn inventory_with(
     }
 }
 
-/// Warns that `set` waits for approval, with the commands that inspect and approve it, which a
-/// wait gives too. Nothing else reports a guarded set until someone asks for the status.
+/// Warns that `set` waits for approval, with the commands that inspect, approve and reject it,
+/// which a wait gives too. Nothing else reports a guarded set until someone asks for the status.
 fn warn_awaiting_approval(set: &DeletionSet) {
     match set.authorization {
         DeletionAuthorization::Granted => {}
@@ -319,12 +319,12 @@ fn warn_bucket_gone(bucket: &BucketName, gone: BucketGone) {
         BucketGone::Missing => (
             "sync_bucket_directory_missing",
             "The directory of a bucket with synchronized files is missing",
-            "Put the directory, or the mount that holds it, back to keep the objects; to delete them, approve the pending deletion set",
+            "To keep the objects, put the directory, or the mount that holds it, back, or reject the pending deletion set, which writes the files back from the objects; to delete the objects, approve the set",
         ),
         BucketGone::Emptied => (
             "sync_bucket_directory_emptied",
             "The directory of a bucket holds none of its synchronized files, which went while the server was stopped",
-            "Put the files, or the mount that holds them, back to keep the objects; to delete them, approve the pending deletion set",
+            "To keep the objects, put the files, or the mount that holds them, back, or reject the pending deletion set, which writes the files back from the objects; to delete the objects, approve the set",
         ),
     };
     diagnostics::emit(
@@ -553,6 +553,49 @@ pub(super) async fn execute_with(
         }
     }
     Ok(applied)
+}
+
+/// Writes the files of the rejected `set` back from their objects, the way the restore after a
+/// protected deletion does: through the ordinary write-back, and only into a path that is still
+/// empty, so a file put there meanwhile stays as it is and is ingested as any file is. A bucket
+/// directory that went with the files is created again first.
+pub(super) async fn write_back_rejected(
+    catalog: &Catalog,
+    root: &RootLease,
+    set: &DeletionSet,
+    interrupt: Interrupt<'_>,
+) -> Result<(), SyncError> {
+    let mut after = Ordinal::START;
+    let mut buckets = BTreeSet::new();
+    loop {
+        let page = root
+            .rejected_page(set.revision, after, PageLimit::LARGEST)
+            .await?;
+        let Some(last) = page.last() else {
+            break;
+        };
+        after = last.ordinal;
+        for candidate in page {
+            if interrupt.check() != Interrupted::No {
+                return Ok(());
+            }
+            if buckets.insert(candidate.bucket.clone()) {
+                super::mirror::create_directory(
+                    root,
+                    std::path::PathBuf::from(candidate.bucket.as_str()),
+                )
+                .await?;
+            }
+            super::mirror::restore_from_catalog(catalog, root, &candidate.bucket, &candidate.name)
+                .await?;
+        }
+    }
+    diagnostics::emit(
+        LogLevel::Info,
+        "sync_deletions_rejected",
+        serde_json::json!({"revision":set.revision.to_hex(),"candidates":set.candidate_count}),
+    );
+    Ok(())
 }
 
 /// Deletes the object of a member whose path was just seen empty.

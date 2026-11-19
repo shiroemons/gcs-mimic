@@ -293,7 +293,8 @@ least 100 objects would go and they are more than half of the tree, the deletion
 guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
 set is approved with `gcs-mimic sync approve`; the log names such a set once,
 as `sync_deletion_approval_required`, with its revision and the commands that
-inspect and approve it. Deletions that run are logged as
+inspect, approve and reject it; rejecting it with `gcs-mimic sync reject`
+writes the files back from the objects. Deletions that run are logged as
 `sync_deletions_applied` with their count and first ten paths, as a warning
 when the first pass after a start or a retry runs them and at the info level
 otherwise. Recent automatic deletions also

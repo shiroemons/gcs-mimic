@@ -10,7 +10,7 @@ use crate::{
     storage::sync_state::{
         MAX_PAGE, OpaqueId, Ordinal, PageLimit,
         authority::ControlAuthority,
-        deletions::{Candidate, DeletionFence, DeletionSet},
+        deletions::{Candidate, DeletionAuthorization, DeletionFence, DeletionSet},
         observation::{ObservationCursor, PauseReason, Summary},
         root::{RootChange, RootError, RootLease, RootStatus},
     },
@@ -18,7 +18,8 @@ use crate::{
         Cause, MirrorState, Reconciliation, UnmappedObjects,
         advice::AtHand,
         control::{
-            Command, ControlError, PauseChange, Registration, Unfinished, WaitReason, WaitResult,
+            Command, ControlError, PauseChange, Registration, Reply, Unfinished, WaitReason,
+            WaitResult,
         },
         entries::EntryListing,
         handshake,
@@ -75,6 +76,7 @@ enum Control {
     Status,
     Conflicts,
     Approve,
+    Reject,
     Rescan,
     Resolve,
     Wait,
@@ -86,6 +88,7 @@ impl Control {
             "/_internal/sync" => Some(Self::Status),
             "/_internal/sync/conflicts" => Some(Self::Conflicts),
             "/_internal/sync/approve" => Some(Self::Approve),
+            "/_internal/sync/reject" => Some(Self::Reject),
             "/_internal/sync/rescan" => Some(Self::Rescan),
             "/_internal/sync/resolve" => Some(Self::Resolve),
             "/_internal/sync/wait" => Some(Self::Wait),
@@ -97,16 +100,49 @@ impl Control {
     fn method(self) -> Method {
         match self {
             Self::Status | Self::Conflicts => Method::GET,
-            Self::Approve | Self::Rescan | Self::Resolve | Self::Wait => Method::POST,
+            Self::Approve | Self::Reject | Self::Rescan | Self::Resolve | Self::Wait => {
+                Method::POST
+            }
         }
     }
 }
 
-/// The two controls that change synchronization state with a JSON command body.
+/// The controls that change synchronization state with a JSON command body.
 #[derive(Clone, Copy)]
 enum Mutation {
-    Approve,
+    Decide(Decision),
     Rescan,
+}
+
+/// What a decision does with the deletion set its body names.
+#[derive(Clone, Copy)]
+enum Decision {
+    /// Delete the set's objects.
+    Approve,
+    /// Keep the objects and write the set's files back from them.
+    Reject,
+}
+
+impl Decision {
+    fn command(
+        self,
+        revision: OpaqueId,
+        reply: Reply<DeletionSet>,
+        identity: Option<Identity>,
+    ) -> Command {
+        match self {
+            Self::Approve => Command::Approve {
+                revision,
+                reply,
+                identity,
+            },
+            Self::Reject => Command::Reject {
+                revision,
+                reply,
+                identity,
+            },
+        }
+    }
 }
 
 async fn authorize_controls(
@@ -134,9 +170,10 @@ async fn authorize_controls(
     Ok(deadline)
 }
 
+/// The body of an approval or a rejection: the deletion set it decides.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Approve {
+struct DecisionBody {
     deletion_set: String,
 }
 
@@ -288,7 +325,14 @@ async fn control(
             )
             .await
         }
-        Control::Approve => mutate(request, Mutation::Approve, registration, identity, ctx).await,
+        Control::Approve => {
+            let mutation = Mutation::Decide(Decision::Approve);
+            mutate(request, mutation, registration, identity, ctx).await
+        }
+        Control::Reject => {
+            let mutation = Mutation::Decide(Decision::Reject);
+            mutate(request, mutation, registration, identity, ctx).await
+        }
         Control::Rescan => mutate(request, Mutation::Rescan, registration, identity, ctx).await,
         Control::Wait => {
             wait(
@@ -393,9 +437,9 @@ async fn wait(
     Ok(response)
 }
 
-/// The answer to an accepted deletion approval.
+/// The answer to an accepted approval or rejection of a deletion set.
 #[derive(Serialize)]
-struct ApproveAccepted {
+struct DecisionAccepted {
     operation_id: OpaqueId,
     candidate_count: u64,
 }
@@ -423,7 +467,9 @@ async fn mutate(
     }
     let bytes = crate::bounded_body::read_body(request.into_body(), 64 * 1024).await?;
     let value = match mutation {
-        Mutation::Approve => approve(&bytes, &registration, identity, ctx).await?,
+        Mutation::Decide(decision) => {
+            decide(&bytes, decision, &registration, identity, ctx).await?
+        }
         Mutation::Rescan => rescan(&bytes, &registration, identity, ctx).await?,
     };
     let mut response = bounded(&value)?;
@@ -431,13 +477,14 @@ async fn mutate(
     Ok(response)
 }
 
-async fn approve(
+async fn decide(
     bytes: &[u8],
+    decision: Decision,
     registration: &Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
 ) -> Result<Value, ApiError> {
-    let body: Approve = serde_json::from_slice(bytes)
+    let body: DecisionBody = serde_json::from_slice(bytes)
         .map_err(|_| ApiError::invalid_argument("Send exactly one string deletion_set revision"))?;
     let Ok(revision) = body.deletion_set.parse::<OpaqueId>() else {
         return Err(ApiError::invalid_argument(
@@ -445,15 +492,11 @@ async fn approve(
         ));
     };
     let (reply, receive) = tokio::sync::oneshot::channel();
-    let command = Command::Approve {
-        revision,
-        reply,
-        identity,
-    };
+    let command = decision.command(revision, reply, identity);
     let set = observe(ctx, registration, command, receive)
         .await?
         .map_err(|error| control_error(&error))?;
-    super::encode(&ApproveAccepted {
+    super::encode(&DecisionAccepted {
         operation_id: set.revision,
         candidate_count: set.candidate_count,
     })
@@ -664,6 +707,9 @@ struct StatusSummary<'a> {
     observation: &'a Summary,
     pending_deletion_revision: Option<OpaqueId>,
     pending_deletion_count: u64,
+    /// While the pending set waits for approval, the commands that inspect, approve and reject
+    /// it, as a wait and the log give them.
+    pending_deletion_remedy: Option<String>,
     deletion_set: Option<&'a DeletionSet>,
     writeback_safety: &'static str,
     conflict_resolution_available: bool,
@@ -747,6 +793,19 @@ async fn status(
             let mirror = registration.status.state();
             let set = published_set.as_ref();
             let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
+            let awaiting = set
+                .filter(|set| {
+                    pending > 0
+                        && set.guarded
+                        && set.authorization == DeletionAuthorization::Withheld
+                })
+                .map(|set| set.revision.to_hex());
+            let remedy = awaiting.as_deref().map(|revision| {
+                crate::sync::control::deletion_approval_remedy(AtHand {
+                    deletion_revision: Some(revision),
+                    ..AtHand::default()
+                })
+            });
             let summary = StatusSummary {
                 auth_mode: state.auth.mode().as_str(),
                 state: ControlState::of(mirror, &observation, set),
@@ -758,6 +817,7 @@ async fn status(
                 observation: &observation,
                 pending_deletion_revision: set.filter(|_| pending > 0).map(|set| set.revision),
                 pending_deletion_count: pending,
+                pending_deletion_remedy: remedy,
                 deletion_set: set,
                 writeback_safety: "preserve-pending-work",
                 conflict_resolution_available: true,

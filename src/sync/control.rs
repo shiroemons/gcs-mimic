@@ -238,18 +238,20 @@ pub(crate) fn unclassified_collision_remedy() -> String {
     )
 }
 
-/// What lets external deletions go on: an approval of the deletion set at the revision at
-/// hand, or files put back.
+/// What lets external deletions go on: a decision on the deletion set at the revision at hand,
+/// which approves deleting the objects or rejects it and writes the files back from them, or
+/// files put back.
 pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
     match at_hand.deletion_revision {
         Some(revision) => format!(
-            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it: {}; or restore the files and wait again: {}",
+            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it to delete the objects: {}; reject it to write the files back from the objects: {}; or restore the files and wait again: {}",
             Advised::Deletions(Some(revision)),
             Advised::Approve(revision),
+            Advised::Reject(revision),
             Advised::Wait
         ),
         None => format!(
-            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set, whose revision the approve subcommand takes as --deletion-set: {}; or restore the files and wait again: {}",
+            "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set, whose revision the approve and reject subcommands take as --deletion-set: {}; approve it to delete the objects, or reject it to write the files back from the objects; or restore the files and wait again: {}",
             Advised::Deletions(None),
             Advised::Wait
         ),
@@ -376,6 +378,12 @@ pub(crate) enum Command {
         identity: Option<Identity>,
     },
     Approve {
+        revision: OpaqueId,
+        reply: Reply<DeletionSet>,
+        identity: Option<Identity>,
+    },
+    /// Rejects the deletion set `revision`: its files are written back from their objects.
+    Reject {
         revision: OpaqueId,
         reply: Reply<DeletionSet>,
         identity: Option<Identity>,

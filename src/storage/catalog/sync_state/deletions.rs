@@ -350,6 +350,48 @@ impl RootLease {
         }).await?)
     }
 
+    /// Rejects the set `revision` that waits for approval, and returns it as it was. Once this
+    /// commits nothing approves or runs the set, and [`Self::rejected_page`] reads its members
+    /// for the write-back that follows. A stale revision, or one already approved or rejected,
+    /// fails as a failed precondition, as an approval does.
+    pub(crate) async fn reject_deletions(
+        &self,
+        revision: OpaqueId,
+    ) -> Result<DeletionSet, RootError> {
+        self.revalidate().await?;
+        let root = self.status().root_id;
+        let scope = self.control_scope();
+        Ok(self.catalog().run_admin(move |connection| {
+            let transaction=connection.transaction()?;
+            scope.authorize(&transaction)?;
+            matching(&transaction,root,revision)?;
+            let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
+            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
+            if count!=1 {return Err(CatalogError::PreconditionFailed)}
+            transaction.commit()?;
+            Ok(snapshot)
+        }).await?)
+    }
+
+    /// The members after `after` of the set `revision` that [`Self::reject_deletions`] rejected.
+    /// The set is no longer valid, so neither its journal fence nor its validity is checked;
+    /// only that it is still the root's set and was never approved.
+    pub(crate) async fn rejected_page(
+        &self,
+        revision: OpaqueId,
+        after: Ordinal,
+        limit: PageLimit<256>,
+    ) -> Result<Vec<Candidate>, RootError> {
+        let root = self.status().root_id;
+        let authority = self.authority();
+        Ok(self.catalog().run_admin(move |connection| {
+            let tx=connection.transaction()?;
+            authority.authorize(&tx,root)?;
+            tx.prepare_cached("SELECT m.bucket,m.name,m.owner_project,m.incarnation,m.generation,m.path,m.ordinal FROM sync_deletion_members m JOIN sync_deletion_sets d ON d.root_id=m.root_id WHERE m.root_id=?1 AND d.revision=?2 AND d.authorization=0 AND m.ordinal>?3 ORDER BY m.ordinal LIMIT ?4")
+                .and_then(|mut statement|statement.query_map(params![root,revision,after,limit],read_candidate)?.collect()).map_err(unavailable)
+        }).await?)
+    }
+
     pub(crate) fn deletion_binding(
         &self,
         binding: SyncBinding,

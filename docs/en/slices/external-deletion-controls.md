@@ -100,8 +100,20 @@ A bucket emptied while the server runs, or one with any of those files back, is
 left to the counts. One decision covers both reasons. A disabled
 guard changes only these decisions.
 
+Rejecting the set instead (`gcs-mimic sync reject --deletion-set REVISION`)
+keeps its objects. It closes the set, so nothing approves or runs it, and
+writes each member's file back from its object through the ordinary
+write-back, the way a protected deletion is restored: into a path that is still
+empty, recreating a missing bucket directory first, and then runs the exports
+that waited for that directory. A file put at a member's path meanwhile is not
+overwritten, and is ingested as any file is. Once the write-back finished, the
+next inventory finds nothing to delete. A rejection logs
+`sync_deletions_rejected`, and a stale, approved or already rejected revision
+returns 409, as approval does.
+
 A new set that waits for approval logs `sync_deletion_approval_required` once,
-with its revision, its counts and the commands that inspect and approve it; an
+with its revision, its counts and the commands that inspect, approve and reject
+it, which the status also gives as `pending_deletion_remedy`; an
 inventory that confirms it under the same revision does not log it again, and
 a restart, which never confirms an earlier set, logs the new one. Deletions that
 run log `sync_deletions_applied` with their count and their first ten paths in
@@ -156,6 +168,7 @@ answer 503 once the mirror is closed or the wait gives up, cap JSON inputs at
 | `GET /_internal/sync/conflicts` | Original-owner retained revisions, metadata and combined quota with bounded listing and revision-bound continuation. |
 | `POST /_internal/sync/rescan` | Empty JSON object; serialized complete observation with operation ID and reconciliation result. It grants no deletion override. A rescan that fails and leaves synchronization paused answers 409 with the `paused_reason`, the cause and the commands that resume it. |
 | `POST /_internal/sync/approve` | Exact `deletion_set` revision, one-shot acceptance and count. Observer disconnect does not cancel the accepted operation. While synchronization is paused it answers 409 and asks for `gcs-mimic sync rescan` first. |
+| `POST /_internal/sync/reject` | The same body and answer as approval; closes the set and writes its files back instead of deleting its objects. The same 409 answers apply. |
 | `POST /_internal/sync/wait` | Empty object or explicit `timeout_ms`; captured source scan and finite journal fence, completed/timeout/stop result without cancelling owned side effects. |
 | `POST /_internal/sync/resolve` | Exact registered-conflict restore/discard, or exact recovery identity with an explicit backup/disposal confirmation; durable operation-ID retries. |
 

@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 
 const USAGE: &str = "gcs-mimic — local Google Cloud Storage emulator
 Usage: gcs-mimic [serve] [--config PATH] [OPTIONS] (serve is implied when the first argument is an option)
-       gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|resolve|wait --endpoint URL [OPTIONS]
+       gcs-mimic sync status|findings|deletions|conflicts|rescan|approve|reject|resolve|wait --endpoint URL [OPTIONS]
        gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [OPTIONS] (see import fake-gcs-server --help)
        gcs-mimic buckets new [--name NAME [SETTINGS]]... [--format json|env|compose] (writes a buckets document; see buckets new --help)
@@ -522,7 +522,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "df3c3e3a46f70da7caf7786155a73ab4a4bb775b8de6d72f7684347065b17803"
+            "bf9fd68f780ae5da917a57039b5eb00e16ff493548fa6e830fd9ad738393a3c9"
         );
     }
 }
