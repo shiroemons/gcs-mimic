@@ -1498,16 +1498,39 @@ pub(super) enum Restored {
     /// entry that keeps the object out of the tree as a finding.
     Kept,
     /// Nothing was written: the object, its bucket or its tracked file changed or went
-    /// meanwhile, and the export of that change takes over.
+    /// meanwhile, and the export of that change takes over; or the tree changed under every
+    /// attempt, and the next inventory takes in what it holds then.
     Skipped,
 }
 
+/// How many times a restore plans again from the tree when the tree changed under its
+/// installation ([`LiveResult::Raced`]). Each attempt reads the tree afresh and runs every check
+/// of an export, so a retry never writes over what the user put at the path meanwhile.
+const RESTORE_ATTEMPTS: usize = 3;
+
+/// Writes the object's file back from the catalog where its path is still empty, as the restore
+/// after a protected or rejected deletion does.
 pub(super) async fn restore_from_catalog(
     catalog: &Catalog,
     root: &RootLease,
     bucket: &BucketName,
     name: &ObjectName,
 ) -> Result<Restored, SyncError> {
+    for _ in 0..RESTORE_ATTEMPTS {
+        if let Some(restored) = restore_once(catalog, root, bucket, name).await? {
+            return Ok(restored);
+        }
+    }
+    Ok(Restored::Skipped)
+}
+
+/// One restore attempt; `None` when the tree changed under its installation.
+async fn restore_once(
+    catalog: &Catalog,
+    root: &RootLease,
+    bucket: &BucketName,
+    name: &ObjectName,
+) -> Result<Option<Restored>, SyncError> {
     let fence = catalog.current_fence().await?;
     let writeback = root.default_writeback().await?;
     // A restore reports no counts of its own.
@@ -1522,10 +1545,10 @@ pub(super) async fn restore_from_catalog(
         occasion: Occasion::Change,
     };
     let Some(plan) = object.plan().await? else {
-        return Ok(Restored::Skipped);
+        return Ok(Some(Restored::Skipped));
     };
     let Some(source) = plan.source else {
-        return Ok(Restored::Skipped);
+        return Ok(Some(Restored::Skipped));
     };
     let operation = match writeback
         .begin_live_export(
@@ -1539,15 +1562,16 @@ pub(super) async fn restore_from_catalog(
         .await
     {
         Ok(operation) => operation,
-        Err(error) if concurrent_change(&error) => return Ok(Restored::Skipped),
+        Err(error) if concurrent_change(&error) => return Ok(Some(Restored::Skipped)),
         Err(error) => return Err(error.into()),
     };
     loop {
         match advance_with_retry(&writeback, operation.clone()).await? {
             LiveResult::Pending => {}
-            LiveResult::Complete => return Ok(Restored::Written),
-            LiveResult::Conflict | LiveResult::Collision(_) => return Ok(Restored::Kept),
-            LiveResult::Obsolete => return Ok(Restored::Skipped),
+            LiveResult::Complete => return Ok(Some(Restored::Written)),
+            LiveResult::Conflict | LiveResult::Collision(_) => return Ok(Some(Restored::Kept)),
+            LiveResult::Obsolete => return Ok(Some(Restored::Skipped)),
+            LiveResult::Raced => return Ok(None),
         }
     }
 }
@@ -2029,6 +2053,14 @@ impl LiveObject<'_> {
                 LiveResult::Obsolete => {
                     self.defer();
                     break;
+                }
+                // A user's change to the tree overtook the installation, which cancelled. No API
+                // change brings this export back, so it is kept as skipped, and the end of the
+                // pass plans it again from what the tree holds then; the rest of the root keeps
+                // synchronizing meanwhile.
+                LiveResult::Raced => {
+                    self.defer();
+                    return Ok(plan.skipped());
                 }
                 LiveResult::Collision(reason) => {
                     self.root

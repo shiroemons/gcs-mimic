@@ -26,6 +26,7 @@ mod decision_race;
 mod empty_directory;
 mod ingest_durability;
 mod install_faults;
+mod install_race;
 mod missing_bucket;
 mod reevaluation;
 mod rejection;

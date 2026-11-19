@@ -500,8 +500,9 @@ async fn an_apple_double_file_that_arrives_after_the_proof_keeps_the_directory()
 }
 
 /// A directory that another one replaced after the proof is not the directory the proof read:
-/// the attempt fails rather than remove the new one, and the retry proves the new directory,
-/// which keeps it with its AppleDouble file.
+/// the export cancels as raced rather than remove the new one, leaving the new directory as it
+/// is and no private copy or unfinished operation behind. A new export proves the new
+/// directory, which keeps it with its AppleDouble file.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_directory_replaced_after_the_proof_is_proved_again() {
     let fixture = Fixture::new().await;
@@ -519,10 +520,11 @@ async fn a_directory_replaced_after_the_proof_is_proved_again() {
         },
     )
     .await;
-    assert!(
-        matches!(result, Err(Error::Admin(AdminError::Precondition))),
-        "{result:?}"
-    );
+    assert!(matches!(result, Ok(LiveResult::Raced)), "{result:?}");
+    assert_eq!(names(&directory), ["._a"]);
+    assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
+    drop(operation);
+    let operation = fixture.begin("a").await;
     let result = finish(&fixture, &operation).await.unwrap();
     assert_kept(&fixture, result, &["._a"]).await;
     assert_eq!(fs::read(directory.join("._a")).unwrap(), b"apple double");

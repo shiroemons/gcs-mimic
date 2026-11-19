@@ -129,10 +129,43 @@ pub(crate) enum LiveResult {
     Complete,
     Conflict,
     Obsolete,
+    /// The tree changed under an installation attempt in a way the attempt checks for, such as
+    /// a directory replaced at the target or on the path to it after the attempt read it.
+    /// Nothing was installed, and the operation is cancelled with its private copy: a new export
+    /// plans again from what the tree holds then, through every check this one ran.
+    Raced,
     /// A directory holds the target's name and stays: it holds an entry, the catalog refers to
     /// it or to a path below it, or the export had a body there to replace. The reason is the
     /// finding that keeps the object out of the tree.
     Collision(mapping::Reason),
+}
+
+/// Whether an installation attempt failed because the tree changed under it. Its checks fail
+/// with [`stale`] where they find the tree other than the attempt read it moments before: the
+/// directory at the target replaced, the path to the target no longer resolving, or an alias in
+/// the place of an entry. That is a user's concurrent change, which a new export plans around,
+/// not a failure of the root; pausing the whole root over it would leave every other path
+/// unsynchronized until an operator rescans.
+fn raced(error: &Error) -> bool {
+    matches!(error, Error::Admin(AdminError::Precondition))
+}
+
+/// The regular file at an export's target, where a failed or cancelled attempt may have left its
+/// copy. A directory at the target holds no copy, and a path that no longer resolves
+/// ([`raced`]) holds nothing the export can reach: a copy installed before the user changed the
+/// path went with the directory they moved, as any file of theirs does.
+fn target_file(
+    root: &File,
+    naming: RootNaming,
+    lookup: &fsutil::Lookup,
+    path: &str,
+) -> Result<Option<File>, Error> {
+    match target_entry(root, naming, lookup, path) {
+        Ok(TargetEntry::File(file)) => Ok(Some(file)),
+        Ok(TargetEntry::Directory | TargetEntry::Missing) => Ok(None),
+        Err(error) if raced(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// How one installation attempt ended.
@@ -1041,6 +1074,12 @@ impl Writeback {
                     // Recovery owns displaced bytes; an automatic retry must not unlink them.
                     return Err(Error::Displaced(Box::new(error)));
                 }
+                if raced(&error) {
+                    // The copy is not at the target, so cancelling unlinks only the private copy.
+                    operation.progress = operation.progress.cancel(LiveResult::Raced);
+                    self.cancel_live_copy(operation).await?;
+                    return Ok(LiveResult::Raced);
+                }
                 return Err(error);
             }
         }
@@ -1199,12 +1238,11 @@ impl Writeback {
                 {
                     return Ok(true);
                 }
-                // A directory still at the target holds no installed copy. Failing on it, as
-                // opening a file there does, replaced the error that ended the attempt.
-                let current = match target_entry(root, naming, &lookup, &item.path)? {
-                    TargetEntry::File(file) => Some(fsutil::stat_identity(&file)?),
-                    TargetEntry::Directory | TargetEntry::Missing => None,
-                };
+                // Failing on what holds no installed copy, as opening a file there does, would
+                // replace the error that ended the attempt.
+                let current = target_file(root, naming, &lookup, &item.path)?
+                    .map(|file| fsutil::stat_identity(&file))
+                    .transpose()?;
                 Ok(current.is_some_and(|current| current.node() == staged.node()))
             } else {
                 Ok(item.kind == Kind::Remove && entry(workspace, item.token.id)?.is_some())
@@ -1378,10 +1416,10 @@ impl Writeback {
         let faults = self.fault_paths();
         let cancelled = self
             .fs(move |root, workspace| {
-                // A directory that a cancelled export left at its target is not its copy.
+                // A directory that a cancelled export left at its target is not its copy, and
+                // neither is anything at a path that no longer resolves.
                 if let Some(staged) = staged
-                    && let TargetEntry::File(file) =
-                        target_entry(root, naming, &lookup, &selected.path)?
+                    && let Some(file) = target_file(root, naming, &lookup, &selected.path)?
                     && fsutil::stat_identity(&file)?.node() == staged.node()
                 {
                     return Err(Error::Protected);
