@@ -65,8 +65,9 @@ and each directory above it up to the root first: ingestion, including a file
 whose bytes it only confirms, and write-back, including a file the user wrote
 that an export only observes as identical. The row takes the proof of those
 syncs, so a power loss never keeps a tracking row whose file it lost. A failed
-sync records nothing; ingestion counts the file as deferred and retries on the
-next scan. Restoring the synchronization
+sync records nothing; ingestion counts the file as deferred, or as unreadable
+when the failure is one that waiting does not clear, such as a missing
+permission, and retries on the next scan. Restoring the synchronization
 directory to an earlier state, for example from a backup, makes the files
 ingested after that state count as deleted; the delete guard stops a mass
 deletion.
