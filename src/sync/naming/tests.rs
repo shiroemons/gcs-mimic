@@ -4,7 +4,7 @@
 )]
 
 #[cfg(target_os = "linux")]
-use super::probe::FOLDED;
+use super::probe::{COMPOSED_FOLDED, FOLDED};
 use super::probe::{DIRECTORY, UNLINKED, inject};
 use super::*;
 use crate::{
@@ -34,6 +34,7 @@ fn observed(colon: Colon, case: Case, spelling: Spelling) -> Observation {
     Observation {
         colon,
         case,
+        normalization: Normalization::Sensitive,
         spelling,
         name_max: NameMax::from(Some(255)),
     }
@@ -151,6 +152,14 @@ async fn host_probe_reports_the_filesystem_of_the_root() {
     };
     fs::remove_file(tree.0.join("Folding-Check")).unwrap();
     assert_eq!(observed.case, case);
+    fs::write(tree.0.join("Norm-\u{e9}"), b"").unwrap();
+    let normalization = if tree.0.join("Norm-e\u{301}").exists() {
+        Normalization::Insensitive
+    } else {
+        Normalization::Sensitive
+    };
+    fs::remove_file(tree.0.join("Norm-\u{e9}")).unwrap();
+    assert_eq!(observed.normalization, normalization);
     assert_eq!(observed.colon, Colon::Accepted);
     assert_eq!(observed.name_max, NameMax::from(Some(255)));
     // APFS, unlike HFS+, stores both Unicode normalizations as they were created, even though it
@@ -181,9 +190,10 @@ async fn probing_the_same_root_again_records_the_same_rules() {
     catalog.close().await.unwrap();
 }
 
-/// The case check takes anything it can open under the folded spelling for proof that the root
-/// folds case, so an entry someone put there under that spelling must not survive into the
-/// check: on a root that tells case apart, the probe unlinks it first and still reports that.
+/// The case and normalization checks take anything they can open under a folded spelling for
+/// proof that the root folds it, so an entry someone put there under such a spelling must not
+/// survive into the checks: on a root that tells both apart, the probe unlinks them first and
+/// still reports that.
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_folded_name_left_in_the_probe_directory_is_no_proof_of_folding() {
@@ -192,8 +202,10 @@ async fn a_folded_name_left_in_the_probe_directory_is_no_proof_of_folding() {
     let directory = tree.0.join(mapping::WORKSPACE).join(DIRECTORY);
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join(FOLDED), b"leftover").unwrap();
+    fs::write(directory.join(COMPOSED_FOLDED), b"leftover").unwrap();
     let observed = writeback.probe_naming().await.unwrap().unwrap();
     assert_eq!(observed.case, Case::Sensitive);
+    assert_eq!(observed.normalization, Normalization::Sensitive);
     assert!(probe_entries(&tree.0).is_empty());
     drop((writeback, root));
     catalog.close().await.unwrap();
@@ -216,8 +228,8 @@ fn a_naming_change_reports_the_recorded_and_the_observed_rules() {
     assert_eq!(
         serde_json::to_value(change).unwrap(),
         serde_json::json!({
-            "recorded": {"colon": "accepted", "case": "sensitive", "name_max": 255},
-            "observed": {"colon": "rejected", "case": "insensitive", "name_max": 255},
+            "recorded": {"colon": "accepted", "case": "sensitive", "normalization": "sensitive", "name_max": 255},
+            "observed": {"colon": "rejected", "case": "insensitive", "normalization": "sensitive", "name_max": 255},
         })
     );
 }
@@ -441,7 +453,7 @@ async fn case_folding_roots_are_recorded_and_still_map_colons() {
     let naming = serde_json::to_value(root.naming().unwrap()).unwrap();
     assert_eq!(
         naming,
-        serde_json::json!({"colon":"accepted","case":"insensitive","name_max":255})
+        serde_json::json!({"colon":"accepted","case":"insensitive","normalization":"sensitive","name_max":255})
     );
     publish(&catalog, "a:b").await;
     assert_eq!(

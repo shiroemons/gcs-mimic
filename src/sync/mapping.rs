@@ -134,12 +134,13 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    use crate::sync::naming::{Case, Colon, NameMax, Observation, Spelling};
+    use crate::sync::naming::{Case, Colon, NameMax, Normalization, Observation, Spelling};
 
     fn naming(colon: Colon, name_max: Option<usize>) -> RootNaming {
         RootNaming::try_from(Observation {
             colon,
             case: Case::Sensitive,
+            normalization: Normalization::Sensitive,
             spelling: Spelling::Preserved,
             name_max: NameMax::from(name_max),
         })
@@ -354,6 +355,7 @@ mod tests {
             .prop_map(|(colon, case, name_max)| Observation {
                 colon,
                 case,
+                normalization: Normalization::Sensitive,
                 spelling: Spelling::Preserved,
                 name_max: NameMax::from(name_max),
             })

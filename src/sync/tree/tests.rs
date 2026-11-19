@@ -337,11 +337,12 @@ fn parent_walks_past_the_former_128_levels_and_refuses_only_what_no_limit_allows
 
 #[test]
 fn parent_refuses_what_the_root_rules_refuse_before_creating_any_level() {
-    use crate::sync::naming::{Case, Colon, NameMax, Observation, Spelling};
+    use crate::sync::naming::{Case, Colon, NameMax, Normalization, Observation, Spelling};
     let rules = |colon, name_max| {
         RootNaming::try_from(Observation {
             colon,
             case: Case::Sensitive,
+            normalization: Normalization::Sensitive,
             spelling: Spelling::Preserved,
             name_max: NameMax::from(Some(name_max)),
         })

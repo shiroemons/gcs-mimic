@@ -506,19 +506,22 @@ A colon is mapped literally where the root's filesystem stores it. Each time the
 mirror activates the root, after write-back recovery and before its first scan,
 it probes the filesystem with fixed names in the fixed `naming-probe`
 subdirectory of `.gcs-mimic-sync-work` and records one set of naming rules for
-the root: whether `:` is stored as created, whether letter case folds, and the
-component byte limit that `fpathconf(_PC_NAME_MAX)` reports, capped at 255. An
-info-level `sync_root_naming` log event reports them (`colon`, `case`,
+the root: whether `:` is stored as created, whether letter case folds, whether
+Unicode normalization folds, and the component byte limit that
+`fpathconf(_PC_NAME_MAX)` reports, capped at 255. An info-level
+`sync_root_naming` log event reports them (`colon`, `case`, `normalization`,
 `name_max`). Letter case folds when the lower-case spelling of a name the probe
-created opens anything: the probe unlinks that spelling first and never creates
-it. Neither inode numbers, which Docker Desktop shared folders can report anew
-for a name the probe creates again, nor a clear casefold flag decide. A later probe of the same root
+created opens anything, and normalization folds when the decomposed (NFD)
+spelling of a precomposed (NFC) name it created does: the probe unlinks those
+spellings first and never creates them. Neither inode numbers, which Docker
+Desktop shared folders can report anew for a name the probe creates again, nor a
+clear casefold flag decide. A later probe of the same root
 that observes other rules stops it as changed and logs `sync_root_naming_changed`
 with the `recorded` and `observed` rules. No setting chooses or overrides these rules. Both mapping directions, parent walks,
 target checks and deletion checks read that one value, and each rule is decided
 on its own: a filesystem that refuses `:` makes only colon components
 `HostRestriction`. A colon `HostRestriction` finding that an earlier start
-recorded clears when a later start exports the object. The probe starts by unlinking its own fixed names, the lower-case spelling included, never
+recorded clears when a later start exports the object. The probe starts by unlinking its own fixed names, the folded spellings included, never
 lists and deletes what it finds, and never removes its subdirectory; none of its
 names has the 32-digit hexadecimal form of a write-back operation, so recovery
 never takes a leftover for an interrupted operation.
@@ -619,8 +622,8 @@ must also list the target's exact spelling within its first 4096 names before
 the directory goes: a Linux mount that folds case without the casefold flag,
 such as a Docker Desktop bind mount, reports any spelling as exact, and removing
 `photos/` for an object `Photos` would put a file where the parent of a tracked
-`photos/a.jpg` was. The probe cannot find a mount that equates names only by
-Unicode normalization, so this check does not cover one.
+`photos/a.jpg` was. This check runs only where letter case folds, so it does not
+cover a mount that equates names only by Unicode normalization.
 
 For every `File(p)`, decoding that exact relative path must reproduce the same
 bucket and object bytes. Filesystem normalization must preserve this property;

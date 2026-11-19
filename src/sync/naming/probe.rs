@@ -5,10 +5,10 @@
 //! an entry a crash leaves in it can be taken for an interrupted operation. Each probe starts by
 //! unlinking every fixed name rather than listing and removing what it finds, so it never deletes
 //! an entry outside its own fixed names, and it never removes the subdirectory. The fixed names
-//! include the folded spelling it never creates, because the case check takes any entry under
-//! that spelling for proof that the filesystem folds letter case.
+//! include the folded spellings it never creates, because the case and normalization checks take
+//! any entry under such a spelling for proof that the filesystem folds it.
 
-use super::{Case, Colon, NameMax, Observation, ProbeError, Spelling};
+use super::{Case, Colon, NameMax, Normalization, Observation, ProbeError, Spelling};
 use crate::fsutil::{self, DirectoryNames, DirectoryOpen, RegularChild};
 use std::{fs::File, io};
 
@@ -18,16 +18,21 @@ pub(crate) const DIRECTORY: &str = "naming-probe";
 const CASED: &str = "Case-Probe";
 /// [`CASED`] in lower case. The probe only unlinks and looks it up, and never creates it.
 pub(super) const FOLDED: &str = "case-probe";
-/// Created to see whether the filesystem keeps a precomposed (NFC) spelling.
+/// Created to see whether the filesystem keeps a precomposed (NFC) spelling, then looked up as
+/// [`COMPOSED_FOLDED`].
 const COMPOSED: &str = "nfc-\u{e9}";
+/// [`COMPOSED`] decomposed (NFD). The probe only unlinks and looks it up, and never creates it.
+pub(super) const COMPOSED_FOLDED: &str = "nfc-e\u{301}";
 /// Created to see whether the filesystem keeps a decomposed (NFD) spelling.
 const DECOMPOSED: &str = "nfd-e\u{301}";
 /// Created to see whether the filesystem stores a colon.
 const COLON: &str = "colon:probe";
-/// Every name each probe unlinks before it starts: the names it creates, and [`FOLDED`], which a
-/// leftover or another writer could have put there. On a root that folds case, [`FOLDED`] and
-/// [`CASED`] are one entry; on one that does not, they are two, so both are unlinked.
-pub(super) const UNLINKED: [&str; 5] = [CASED, FOLDED, COMPOSED, DECOMPOSED, COLON];
+/// Every name each probe unlinks before it starts: the names it creates, and the folded spellings
+/// [`FOLDED`] and [`COMPOSED_FOLDED`], which a leftover or another writer could have put there. On
+/// a root that folds case or normalization, a folded spelling and the one it folds onto are one
+/// entry; on one that does not, they are two, so both are unlinked.
+pub(super) const UNLINKED: [&str; 6] =
+    [CASED, FOLDED, COMPOSED, COMPOSED_FOLDED, DECOMPOSED, COLON];
 /// The probe directory holds only the probe's own names. The bound keeps a directory that
 /// someone filled from turning one activation into an unbounded listing.
 const LISTED: usize = DirectoryNames::PAGE;
@@ -44,8 +49,8 @@ pub(crate) fn run(root: &File, workspace: &File) -> Result<Observation, ProbeErr
         probe.remove(name)?;
     }
     let name_max = NameMax::from(fsutil::name_max(&probe.directory)?);
-    let (case, cased) = probe.case()?;
-    let composed = probe.spelling(COMPOSED)?;
+    let (case, cased) = probe.folded(CASED, FOLDED)?;
+    let (normalization, composed) = probe.folded(COMPOSED, COMPOSED_FOLDED)?;
     let decomposed = probe.spelling(DECOMPOSED)?;
     let colon = probe.colon()?;
     let spelling = if [cased, composed, decomposed].contains(&Spelling::Rewritten) {
@@ -55,10 +60,23 @@ pub(crate) fn run(root: &File, workspace: &File) -> Result<Observation, ProbeErr
     };
     Ok(Observation {
         colon,
-        case,
+        case: match case {
+            Folded::Apart => Case::Sensitive,
+            Folded::Together => Case::Insensitive,
+        },
+        normalization: match normalization {
+            Folded::Apart => Normalization::Sensitive,
+            Folded::Together => Normalization::Insensitive,
+        },
         spelling,
         name_max,
     })
+}
+
+/// Whether a spelling the probe never created opens the entry it created under another one.
+enum Folded {
+    Apart,
+    Together,
 }
 
 struct Probe {
@@ -115,26 +133,26 @@ impl Probe {
         Ok(Spelling::Rewritten)
     }
 
-    /// Whether [`FOLDED`] opens anything once only [`CASED`] was created, and whether that one kept
+    /// Whether `folded` opens anything once only `created` was created, and whether `created` kept
     /// its spelling. Neither inode numbers nor the spelling check decide: Docker Desktop's shared
     /// folders can report a new inode number for an unchanged file, and each probe unlinks and
     /// creates its names again, so a second probe of the same root could see two numbers for one
     /// file; and on Linux the spelling check trusts a directory's casefold flag when it is clear,
-    /// which a filesystem that folds case without that flag also reports.
-    fn case(&self) -> Result<(Case, Spelling), ProbeError> {
-        let cased = fsutil::create_regular_at(&self.directory, CASED.as_ref())?;
+    /// which a filesystem that folds names without that flag also reports.
+    fn folded(&self, created: &str, folded: &str) -> Result<(Folded, Spelling), ProbeError> {
+        let file = fsutil::create_regular_at(&self.directory, created.as_ref())?;
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-        self.faults.created(CASED)?;
-        let spelling = self.listed(CASED)?;
-        let case = match fsutil::child_regular(&self.directory, FOLDED.as_ref())? {
-            // The probe unlinked FOLDED and never creates it, so opening that spelling at all proves
-            // the filesystem folds it onto CASED.
-            RegularChild::File(_) | RegularChild::Alias => Case::Insensitive,
-            RegularChild::Missing => Case::Sensitive,
+        self.faults.created(created)?;
+        let spelling = self.listed(created)?;
+        let folds = match fsutil::child_regular(&self.directory, folded.as_ref())? {
+            // The probe unlinked `folded` and never creates it, so opening that spelling at all
+            // proves the filesystem folds it onto `created`.
+            RegularChild::File(_) | RegularChild::Alias => Folded::Together,
+            RegularChild::Missing => Folded::Apart,
         };
-        drop(cased);
-        self.remove(CASED)?;
-        Ok((case, spelling))
+        drop(file);
+        self.remove(created)?;
+        Ok((folds, spelling))
     }
 
     /// A colon the filesystem refuses, or stores under another spelling, is not mapped. That

@@ -45,6 +45,14 @@ pub(crate) enum Case {
     Insensitive,
 }
 
+/// Whether two names that differ only in Unicode normalization (NFC and NFD) name different files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Normalization {
+    Sensitive,
+    Insensitive,
+}
+
 /// Whether the filesystem lists a created name exactly as it was created.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Spelling {
@@ -69,6 +77,7 @@ impl From<Option<usize>> for NameMax {
 pub(crate) struct Observation {
     pub(crate) colon: Colon,
     pub(crate) case: Case,
+    pub(crate) normalization: Normalization,
     pub(crate) spelling: Spelling,
     pub(crate) name_max: NameMax,
 }
@@ -80,6 +89,7 @@ pub(crate) struct Observation {
 pub(crate) struct RootNaming {
     colon: Colon,
     case: Case,
+    normalization: Normalization,
     name_max: NameMax,
 }
 
@@ -90,6 +100,7 @@ impl TryFrom<Observation> for RootNaming {
         let Observation {
             colon,
             case,
+            normalization,
             spelling,
             name_max,
         } = observed;
@@ -97,6 +108,7 @@ impl TryFrom<Observation> for RootNaming {
             Spelling::Preserved => Ok(Self {
                 colon,
                 case,
+                normalization,
                 name_max,
             }),
             Spelling::Rewritten => Err(ProbeError::RewritesNames),
@@ -112,6 +124,7 @@ impl RootNaming {
         Self {
             colon: Colon::Accepted,
             case: Case::Sensitive,
+            normalization: Normalization::Sensitive,
             name_max: NameMax(Some(PORTABLE_NAME_MAX)),
         }
     }
