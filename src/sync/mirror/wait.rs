@@ -1,24 +1,36 @@
 use super::gate::Hold;
 use super::*;
 use crate::sync::control::{WaitFindings, WaitReason, WaitResult};
-use crate::sync::outstanding::{Outstanding, TreeSide};
+use crate::sync::outstanding::{Holdup, Outstanding, TreeSide};
 
 impl LiveControl<'_> {
+    /// Waits until a pass leaves nothing in progress or `deadline` passes. A wait that runs out
+    /// of time answers with its last finished pass and what that pass was still waiting for, so
+    /// that its answer names what remained.
     pub(super) async fn wait(
         &mut self,
         deadline: tokio::time::Instant,
     ) -> Result<WaitResult, SyncError> {
+        let mut last: Option<WaitResult> = None;
         loop {
             let result = self.wait_barrier(deadline).await?;
+            // A pass the deadline cut short knows less than the finished one before it.
+            let result = match (result.reason, last.take()) {
+                (WaitReason::Timeout, Some(previous)) => {
+                    return Ok(previous.with_reason(WaitReason::Timeout));
+                }
+                (_, _) => result,
+            };
             if result.reason != WaitReason::SourceChanging {
                 return Ok(result);
             }
             let mut stopping = self.scope.stopping.clone();
             tokio::select! {
-                _=tokio::time::sleep_until(deadline)=>return Ok(WaitResult::timeout()),
-                _=stopping.changed()=>return Ok(WaitResult::result(WaitReason::Stopped,result.journal_fence,result.reconciliation)),
+                _=tokio::time::sleep_until(deadline)=>return Ok(result.with_reason(WaitReason::Timeout)),
+                _=stopping.changed()=>return Ok(result.with_reason(WaitReason::Stopped)),
                 ()=tokio::time::sleep(Duration::from_millis(super::super::SETTLE_MS))=>{},
             }
+            last = Some(result);
         }
     }
 
@@ -92,7 +104,7 @@ impl LiveControl<'_> {
             summary.exported += replay.exported;
             summary.identical += replay.identical;
             summary.conflicting += replay.conflicting;
-            summary.deferred += replay.deferred;
+            summary.absorb_deferred(&replay);
             if replay.interrupted {
                 return Ok(WaitResult::result(
                     self.interruption(),
@@ -102,13 +114,22 @@ impl LiveControl<'_> {
             }
             self.state.cursor = next;
         }
-        let (reason, findings) = if reason == WaitReason::Ready {
-            let (reason, findings) = self.observed_wait_reason(&summary, deadline).await?;
-            (reason, Some(findings))
-        } else {
-            (reason, None)
+        if reason != WaitReason::Ready {
+            return Ok(WaitResult::result(
+                reason,
+                Some(fence.into()),
+                Some(summary),
+            ));
+        }
+        let (decided, findings) = self.observed_wait_reason(&summary, deadline).await?;
+        let result = match decided {
+            Decided::Holdup(holdup) => {
+                WaitResult::result(WaitReason::from(holdup), Some(fence.into()), Some(summary))
+                    .with_holdup(holdup)
+            }
+            Decided::Ended(reason) => WaitResult::result(reason, Some(fence.into()), Some(summary)),
         };
-        Ok(WaitResult::result(reason, Some(fence.into()), Some(summary)).with_findings(findings))
+        Ok(result.with_findings(Some(findings)))
     }
 
     /// Decides a wait whose scan and replay finished, from `summary`, this pass's counts, and
@@ -121,7 +142,7 @@ impl LiveControl<'_> {
         &self,
         summary: &Reconciliation,
         deadline: tokio::time::Instant,
-    ) -> Result<(WaitReason, WaitFindings), SyncError> {
+    ) -> Result<(Decided, WaitFindings), SyncError> {
         let observation = self.scope.root.observation().await?;
         let deletion = self.scope.root.deletion_set().await?;
         let findings = WaitFindings {
@@ -129,23 +150,28 @@ impl LiveControl<'_> {
             observation_revision: observation.revision,
         };
         if tokio::time::Instant::now() >= deadline {
-            return Ok((WaitReason::Timeout, findings));
+            return Ok((Decided::Ended(WaitReason::Timeout), findings));
         }
-        let tree = match summary.gate().hold() {
-            Hold::Interrupted => return Ok((self.interruption(), findings)),
-            Hold::Deferred => TreeSide::Changing,
-            Hold::Conflicting => TreeSide::Conflicting,
-            Hold::TreeEntries | Hold::Unimported => TreeSide::Unrepresentable,
-            Hold::BaselineOpen => TreeSide::Observing,
+        let hold = summary.gate().hold();
+        let tree = match (hold, hold.tree_side()) {
+            (_, None) => return Ok((Decided::Ended(self.interruption()), findings)),
             // A skipped export runs again only once the tree settles, and one that a retry in
-            // this pass skipped again counts nothing.
-            Hold::Clear if !self.state.skipped.is_empty() => TreeSide::Changing,
-            // Exports held for approval stay queued, but the tree owes nothing else: the guarded
-            // set the inventory offered, which the judgment reads as a deletion approval, is
-            // what they wait for.
-            Hold::AwaitingApproval | Hold::Clear => TreeSide::Settled,
+            // this pass skipped again counts nothing. Exports held for approval stay queued too,
+            // but they wait for the approval, not for the tree.
+            (Hold::Clear, Some(TreeSide::Settled)) if !self.state.skipped.is_empty() => {
+                TreeSide::Changing
+            }
+            (_, Some(side)) => side,
         };
         let outstanding = Outstanding::new(&observation, deletion.as_ref(), tree);
-        Ok((WaitReason::from(outstanding.first()), findings))
+        Ok((Decided::Holdup(outstanding.first()), findings))
     }
+}
+
+/// How a wait whose pass finished decided: by the first condition that holds, or because it
+/// ran out of time or the server is stopping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Decided {
+    Holdup(Holdup),
+    Ended(WaitReason),
 }

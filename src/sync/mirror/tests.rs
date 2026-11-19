@@ -136,11 +136,7 @@ async fn external_inventory_defers_unreadable_children_without_stopping_other_fi
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
     counted.unwrap();
     assert_eq!(
-        (
-            counts.external_only,
-            counts.ignored,
-            counts.unrepresentable_entries().get()
-        ),
+        (counts.external_only, counts.ignored, counts.unreadable),
         (1, 0, 1)
     );
     assert_eq!(

@@ -9,7 +9,7 @@
 use super::baseline::{COMPLETE, exists, ingest};
 use super::*;
 use crate::storage::sync_state::root::Baseline;
-use crate::sync::entries::{EntryClass, Skip, classify};
+use crate::sync::entries::{EntryClass, EntryProblem, Skip, classify};
 
 const ROOT_FILES: [&str; 3] = [".DS_Store", "README.md", ".gitkeep"];
 

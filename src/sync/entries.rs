@@ -187,6 +187,14 @@ impl EntryReport {
             .collect()
     }
 
+    /// Adds the entries of another report of the same pass, within the same bound.
+    pub(crate) fn extend(&mut self, other: &Self) {
+        let room = Self::LIMIT.saturating_sub(self.entries.len());
+        self.entries
+            .extend(other.entries.iter().take(room).cloned());
+        self.total = self.total.saturating_add(other.total);
+    }
+
     #[cfg(test)]
     pub(crate) fn entries(&self) -> &[UnrepresentableEntry] {
         &self.entries

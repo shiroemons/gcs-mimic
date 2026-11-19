@@ -324,7 +324,8 @@ async fn a_file_observed_after_a_failed_ingestion_sync_survives_a_power_loss() {
 
 /// A failed sync of the file, of its new directory, of the bucket directory above that or of
 /// the root records nothing for the file: no API object, no tracking row, and the file is
-/// counted as deferred, which holds deletion detection back. The next scan syncs and ingests it.
+/// counted as unreadable, since the injected permission failure does not pass by waiting, which
+/// holds deletion detection back. The next scan syncs and ingests it.
 #[tokio::test]
 async fn a_failed_sync_before_ingestion_records_nothing_and_the_next_scan_retries() {
     for skip in 0..4 {
@@ -347,7 +348,11 @@ async fn a_failed_sync_before_ingestion_records_nothing_and_the_next_scan_retrie
             .await
             .unwrap();
         assert_eq!(fault::pending(&tree.0), 0, "{skip}");
-        assert_eq!((failed.ingested, failed.deferred), (0, 1), "{skip}");
+        assert_eq!(
+            (failed.ingested, failed.deferred, failed.unreadable),
+            (0, 0, 1),
+            "{skip}"
+        );
         assert!(!failed.gate().hold().infers_deletions(), "{skip}");
         assert_eq!(api_body(&catalog, &bucket, OBJECT).await, None, "{skip}");
         assert!(!tracked(&catalog, &root, &bucket, FILE).await, "{skip}");
@@ -393,7 +398,11 @@ async fn a_failed_sync_before_an_identical_file_is_tracked_records_nothing() {
             .await
             .unwrap();
         assert_eq!(fault::pending(&tree.0), 0, "{skip}");
-        assert_eq!((failed.identical, failed.deferred), (0, 1), "{skip}");
+        assert_eq!(
+            (failed.identical, failed.deferred, failed.unreadable),
+            (0, 0, 1),
+            "{skip}"
+        );
         assert!(!failed.gate().hold().infers_deletions(), "{skip}");
         assert!(!tracked(&catalog, &root, &bucket, FILE).await, "{skip}");
 

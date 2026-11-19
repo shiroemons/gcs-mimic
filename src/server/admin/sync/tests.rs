@@ -185,7 +185,7 @@ fn controls_answer_with_what_resumes_synchronization() {
     assert!(
         paused
             .message
-            .contains("run gcs-mimic sync rescan --endpoint URL first"),
+            .ends_with("then resume synchronization: gcs-mimic sync rescan --endpoint URL"),
         "{}",
         paused.message
     );
@@ -248,8 +248,8 @@ fn controls_answer_with_what_resumes_synchronization() {
     }
     for reason in PauseReason::ALL {
         assert!(
-            crate::sync::control::pause_remedy(reason)
-                .contains("then run gcs-mimic sync rescan --endpoint URL"),
+            crate::sync::control::pause_remedy(reason, crate::sync::advice::AtHand::default())
+                .ends_with(": gcs-mimic sync rescan --endpoint URL"),
             "{reason:?}"
         );
     }

@@ -110,7 +110,7 @@ impl ControlState {
             Holdup::Paused(reason) => Self::paused(reason),
             Holdup::Writeback(stop) => Self::writeback(stop),
             Holdup::SourceChanging => Self::SourceChanging,
-            Holdup::SourceUnrepresentable => Self::SourceUnrepresentable,
+            Holdup::SourceUnrepresentable | Holdup::SourceUnreadable => Self::SourceUnrepresentable,
             Holdup::Observing => Self::Observing,
             Holdup::DeletionApproval => Self::DeletionApproval,
             Holdup::FindingsPending => Self::FindingsPending,

@@ -2,7 +2,7 @@
 use super::MirrorState;
 use super::control::PauseChange;
 use super::control::{Command, ControlError, Reply};
-use super::entries::{EntryClass, EntryProblem, classify};
+use super::entries::{EntryClass, classify};
 use super::error::StoppedRescan;
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
@@ -82,17 +82,25 @@ pub struct Reconciliation {
     /// working-tree entries it could not take in.
     pub unrepresentable: u64,
     pub baseline_complete: bool,
+    /// Files left for a later pass because they were still changing or raced an API write.
     pub deferred: u64,
+    /// Entries this pass could not read for a reason waiting does not clear, such as a missing
+    /// permission. They hold back the baseline and deletions until an operator restores them.
+    pub unreadable: u64,
     /// The objects and buckets among `unrepresentable` that the API holds and the tree cannot.
     /// They are reported only; the tree's entries alone hold back the baseline and deletions.
     pub unmapped_objects: u64,
-    /// The working-tree entries among `unrepresentable`, by path, up to a bound.
+    /// The working-tree entries among `unrepresentable` and the `unreadable` ones, by path, up
+    /// to a bound.
     #[serde(skip)]
     pub(crate) entries: super::entries::EntryReport,
     /// The exports among `deferred` that wait for a deletion approval, because they would
     /// recreate a bucket directory the inventory takes to approval.
     #[serde(skip)]
     pub(crate) held_for_approval: u64,
+    /// The first of the `deferred` files that this pass names.
+    #[serde(skip)]
+    pub(crate) deferred_files: gate::DeferredFiles,
 }
 
 pub struct Task {
@@ -606,7 +614,7 @@ async fn await_resume(
                     }
                 }
                 Command::Approve {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
-                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::result(super::control::WaitReason::Paused,None,None)));}
+                Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::result(super::control::WaitReason::Paused,None,None).with_holdup(super::outstanding::Holdup::Paused(paused_for))));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
                     let result=root.resolve_conflict(request,authority,config.max_object_bytes).await;
@@ -808,7 +816,7 @@ async fn replay_page_with(
             skipped.record((bucket, name), outcome);
         } else {
             if !root.remember_sync_bucket(&bucket).await? {
-                summary.deferred += 1;
+                summary.count_deferred(Path::new(bucket.as_str()));
                 continue;
             }
             if !super::deletion::bucket_directory_held(root, &bucket).await? {
@@ -846,7 +854,7 @@ async fn initialize_live(
     let mut writeback = recover_writeback(operation_root).await?;
     super::naming::activate(&writeback).await?;
     root.invalidate_deletions().await?;
-    let mut ingested = super::ingest::rescan_with(
+    let ingested = super::ingest::rescan_with(
         catalog,
         operation_root,
         config,
@@ -855,7 +863,7 @@ async fn initialize_live(
     )
     .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    gate::report_entries(status.entries(), &mut ingested);
+    gate::report_entries(status.entries(), &ingested);
     let ingest_complete = BaselineGate::after_ingest(ingested.gate());
     let mut skipped = SkippedExports::default();
     let mut summary = reconcile_with(
@@ -941,7 +949,7 @@ async fn ingest_external_with(
     let _publication = root.begin_observation_publication().await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
-    gate::report_entries(entries, &mut summary);
+    gate::report_entries(entries, &summary);
     baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
         && baseline.gate == BaselineGate::Allowed
@@ -958,7 +966,9 @@ async fn ingest_external_with(
         ))
         .await?;
         baseline.complete = merged.baseline_complete;
-        summary.interrupted |= merged.interrupted;
+        // What kept the reconciliation from completing the baseline is this pass's hold too, so
+        // a wait names it; with nothing of its own, only an API change during it remains.
+        summary.absorb_hold(&merged);
     }
     root.revalidate().await?;
     summary.baseline_complete = baseline.complete;
@@ -1429,6 +1439,13 @@ impl LivePlan {
 }
 
 impl LiveObject<'_> {
+    /// Counts this export as left for a later pass, named by the path the object maps to most
+    /// plainly, which a wait that ends meanwhile names.
+    fn defer(&mut self) {
+        let path = Path::new(self.bucket.as_str()).join(self.name.as_str());
+        self.summary.count_deferred(&path);
+    }
+
     /// Records why this object stays out of the working tree and counts it.
     async fn finding(&mut self, record: &ObjectRecord, reason: Reason) -> Result<(), SyncError> {
         let binding = self.catalog.sync_state().binding(self.bucket).await?;
@@ -1500,7 +1517,7 @@ impl LiveObject<'_> {
         {
             Ok(tracked) => tracked,
             Err(AdminError::Precondition | AdminError::NotFound) => {
-                self.summary.deferred += 1;
+                self.defer();
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -1548,7 +1565,7 @@ impl LiveObject<'_> {
             Ok(Some(reader)) => Some(reader.into_file()?),
             Ok(None) => None,
             Err(AdminError::NotFound | AdminError::Precondition) => {
-                self.summary.deferred += 1;
+                self.defer();
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -1612,7 +1629,7 @@ impl LiveObject<'_> {
         let collision = match hierarchy_collision(admin, self.bucket, self.name).await {
             Ok(collision) => collision,
             Err(AdminError::Precondition | AdminError::NotFound) => {
-                self.summary.deferred += 1;
+                self.defer();
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -1661,7 +1678,7 @@ impl LiveObject<'_> {
         #[cfg(test)]
         export_checkpoint("after-get-path").await;
         let Some(mut operation) = self.begin_export(writeback, fence, &plan, None).await? else {
-            self.summary.deferred += 1;
+            self.defer();
             return Ok(None);
         };
         #[cfg(test)]
@@ -1698,7 +1715,7 @@ impl LiveObject<'_> {
                     break;
                 }
                 LiveResult::Obsolete => {
-                    self.summary.deferred += 1;
+                    self.defer();
                     break;
                 }
                 LiveResult::Collision => {
@@ -1718,7 +1735,7 @@ impl LiveObject<'_> {
                     if !preserved {
                         let Some(retry) = self.preserve_export(writeback, fence, &mut plan).await?
                         else {
-                            self.summary.deferred += 1;
+                            self.defer();
                             return Ok(plan.skipped());
                         };
                         operation = retry;
@@ -2277,7 +2294,7 @@ impl Reconciler<'_> {
                 };
                 let directory = PathBuf::from(bucket.as_str());
                 if !self.root.remember_sync_bucket(&bucket).await? {
-                    self.summary.deferred += 1;
+                    self.summary.count_deferred(&directory);
                     continue;
                 }
                 // What occupies the directory's place is a tree entry, which the scans count. A
@@ -2385,9 +2402,7 @@ async fn external_files(
                 EntryClass::Unreadable(io::ErrorKind::ResourceBusy) => {
                     return Err(io::Error::from(io::ErrorKind::ResourceBusy).into());
                 }
-                EntryClass::Unreadable(_) => {
-                    counts.count_unrepresentable_entry(&entry.path, EntryProblem::Unreadable);
-                }
+                EntryClass::Unreadable(kind) => counts.count_read_failure(&entry.path, kind),
                 EntryClass::Bucket(_) | EntryClass::Directory => {}
                 EntryClass::Skipped(skip) => counts.count_skipped(&entry.path, skip),
                 EntryClass::Unrepresentable(problem) => {

@@ -65,11 +65,15 @@ impl PauseChange {
     }
 }
 
+// Advice says what to do and then names the command, at the end of a sentence or before a
+// semicolon, so that the command can be copied whole: nothing but `;` or the end of the text
+// follows one, which the command's tests check for every piece of advice.
+
 /// What to do after a rescan that was to resume a pause failed transiently: the
 /// `sync_resume_failed` event and the rescan's answer both say it.
 pub(crate) fn resume_retry_remedy() -> String {
     format!(
-        "Synchronization stays paused for the reason it recorded; run {} again",
+        "Synchronization stays paused for the reason it recorded, and the failure may pass; run the rescan again: {}",
         Advised::Rescan
     )
 }
@@ -77,40 +81,110 @@ pub(crate) fn resume_retry_remedy() -> String {
 /// What a control that a pause refuses answers, and how the refusal reads in a log.
 pub(crate) fn paused_control_remedy() -> String {
     format!(
-        "Synchronization is paused, so it cannot act on this control yet; find the reason with {}, correct it and run {} first",
+        "Synchronization is paused, so it cannot act on this control yet. Find the reason: {}; correct it, then resume synchronization: {}",
         Advised::Status,
         Advised::Rescan
     )
 }
 
+/// Where the findings that the advice `at_hand` refers to are listed: the findings view at the
+/// revision at hand, or the status, which reports the revision.
+fn findings_listing(at_hand: AtHand<'_>) -> String {
+    match at_hand.findings_revision {
+        Some(revision) => format!(
+            "the findings view lists them: {}",
+            Advised::Findings(revision)
+        ),
+        None => format!(
+            "the findings view lists them at the findings_revision that status reports: {}",
+            Advised::Status
+        ),
+    }
+}
+
 /// What resumes synchronization after a pause for `reason`. The `sync_paused` event, the root-stop
-/// finding and a failed rescan give the same advice, naming the commands to run. It names only
-/// commands complete without a revision, since a log has none at hand: the findings view takes
-/// the `findings_revision` that status reports.
-pub(crate) fn pause_remedy(reason: PauseReason) -> String {
+/// finding and a failed rescan give the same advice, naming the commands to run with the
+/// revisions `at_hand`; a log has none, so its advice names the status, which reports them.
+pub(crate) fn pause_remedy(reason: PauseReason, at_hand: AtHand<'_>) -> String {
     let rescan = Advised::Rescan;
     match reason {
         PauseReason::ConflictCapacity => format!(
-            "Resolve or discard, within the quota, the retained conflicts that {} lists, each with the resolve subcommand, then run {rescan}",
+            "More conflicts are retained than the quota allows. Resolve or discard them with the resolve subcommand, as the listing describes each: {}; then resume synchronization: {rescan}",
             Advised::Conflicts
         ),
         PauseReason::IoFailure => format!(
-            "Restore access to the directory or free disk space without deleting pending data, then run {rescan}"
+            "Restore access to the directory or free disk space without deleting pending data; then resume synchronization: {rescan}"
         ),
         PauseReason::RecoveryRequired => format!(
-            "Preserve the protected workspace entries that the findings view lists at the findings_revision {} reports, and settle each with the resolve subcommand, as an exact confirmed recovery discard or a registered conflict, then run {rescan}",
-            Advised::Status
+            "Protected workspace entries wait for recovery. Preserve them, and settle each with the resolve subcommand as an exact confirmed recovery discard or a registered conflict; {}; then resume synchronization: {rescan}",
+            findings_listing(at_hand)
         ),
         PauseReason::SourceChanging => format!(
-            "Let the programs writing in the directory finish, restore access to it, then run {rescan}"
+            "Let the programs writing in the directory finish and restore access to it; then resume synchronization: {rescan}"
         ),
         PauseReason::SourceUnrepresentable => format!(
-            "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API; then run {rescan}"
+            "Rename, replace or move out of the directory the entries no object can take: symbolic links and special files, each logged as sync_unsafe_entry, names the API cannot hold, a file where an object needs a directory, and files left in the directory of a bucket deleted through the API. Restore read access to entries that could not be read. Then resume synchronization: {rescan}"
         ),
         PauseReason::ObserverFailure => format!(
-            "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names, then run {rescan}; a changed server setting, such as max_sync_entries, needs a restart instead"
+            "Preserve pending data and correct the condition that the failure, also logged as sync_paused, names. A changed server setting, such as max_sync_entries, needs a restart instead; anything else, a rescan: {rescan}"
         ),
     }
+}
+
+/// What a wait that ended while work was still under way leaves, and what to run: the same for
+/// a wait whose deadline passed and for one the server answered after its minute, so that the
+/// two read alike. `holdup` is what the wait's last pass ended on, and `pass` that pass.
+pub(crate) fn unsettled_remedy(holdup: Option<Holdup>, pass: Option<&Reconciliation>) -> String {
+    let files = |count: u64| {
+        if count == 1 {
+            "1 file was"
+        } else {
+            "files were"
+        }
+    };
+    let still = match (holdup, pass) {
+        (_, Some(pass)) if pass.still_changing() > 0 => {
+            let changing = pass.still_changing();
+            let names = pass.deferred_files.first();
+            let first = if names.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<String> = names
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect();
+                format!(", the first {}", names.join(", "))
+            };
+            let count = if changing == 1 {
+                String::new()
+            } else {
+                format!("{changing} ")
+            };
+            format!(
+                "{count}{} still changing or racing an API write when the wait ended{first}",
+                files(changing)
+            )
+        }
+        (_, Some(pass)) if pass.external_only > 0 => {
+            let count = if pass.external_only == 1 {
+                String::new()
+            } else {
+                format!("{} ", pass.external_only)
+            };
+            format!(
+                "{count}{} written after the wait's pass took the tree in",
+                files(pass.external_only)
+            )
+        }
+        (Some(Holdup::Observing), _) => {
+            "The API changed during each pass, so synchronization has not completed its first full comparison yet".to_owned()
+        }
+        _ => "The directory was still changing when the wait ended".to_owned(),
+    };
+    format!(
+        "{still}. Let the programs writing in the directory or through the API finish and wait again, with a longer --timeout if they need more time: {}",
+        Advised::Wait
+    )
 }
 
 impl From<SyncError> for ControlError {
@@ -192,6 +266,10 @@ pub(crate) struct WaitResult {
     /// the wait renders them.
     #[serde(skip)]
     pub findings: Option<WaitFindings>,
+    /// What the wait's last pass ended on: the pause its remedy follows, or, for a wait that
+    /// ended while work was under way, what it was still waiting for.
+    #[serde(skip)]
+    pub holdup: Option<Holdup>,
 }
 
 /// The findings a wait leaves behind without stopping, read with the observation it decided on.
@@ -226,7 +304,7 @@ impl From<Holdup> for WaitReason {
         match holdup {
             Holdup::Paused(_) => Self::Paused,
             Holdup::SourceChanging | Holdup::Observing => Self::SourceChanging,
-            Holdup::SourceUnrepresentable => Self::SourceUnrepresentable,
+            Holdup::SourceUnrepresentable | Holdup::SourceUnreadable => Self::SourceUnrepresentable,
             Holdup::DeletionApproval => Self::DeletionApproval,
             Holdup::Writeback(_) | Holdup::FindingsPending => Self::FindingsPending,
             Holdup::Ready => Self::Ready,
@@ -278,43 +356,38 @@ impl WaitReason {
 
     /// What lets a later wait succeed after this one ended for this reason, naming the commands
     /// to run with the revisions `at_hand`; `paused` is the reason a paused root recorded. A
-    /// reason that needs nothing but time or a restart has none. The pause reasons reuse the
-    /// advice of the pause itself.
+    /// reason that needs nothing but a restart has none. The pause reasons reuse the advice of
+    /// the pause itself, and work still under way the advice of [`unsettled_remedy`], which a
+    /// wait's answer gives with what its last pass found.
     pub(crate) fn remedy(self, paused: Option<PauseReason>, at_hand: AtHand<'_>) -> Option<String> {
-        let rescan = Advised::Rescan;
         match self {
-            Self::Ready | Self::Timeout | Self::Stopped | Self::JournalChanged => None,
-            Self::Paused => Some(pause_remedy(paused.unwrap_or(PauseReason::ObserverFailure))),
-            // The directory was still changing when the wait's own deadline passed; nothing is
-            // paused, so waiting again once the writers finish is enough.
-            Self::SourceChanging => Some(format!(
-                "Let the programs writing in the directory finish, then run {} again, with a longer --timeout if they need more time",
-                Advised::Wait
+            Self::Ready | Self::Stopped | Self::JournalChanged => None,
+            Self::Paused => Some(pause_remedy(
+                paused.unwrap_or(PauseReason::ObserverFailure),
+                at_hand,
             )),
-            Self::SourceUnrepresentable => Some(pause_remedy(PauseReason::SourceUnrepresentable)),
+            Self::Timeout | Self::SourceChanging => Some(unsettled_remedy(None, None)),
+            Self::SourceUnrepresentable => {
+                Some(pause_remedy(PauseReason::SourceUnrepresentable, at_hand))
+            }
             Self::DeletionApproval => Some(match at_hand.deletion_revision {
                 Some(revision) => format!(
-                    "Inspect the deletion set that {} lists, and approve it with {}, or restore the files and run {rescan}; changed candidates require fresh approval",
+                    "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set: {}; approve it: {}; or restore the files and wait again: {}",
                     Advised::Deletions(revision),
-                    Advised::Approve(revision)
+                    Advised::Approve(revision),
+                    Advised::Wait
                 ),
                 None => format!(
-                    "Inspect the deletion set at the pending_deletion_revision {} reports, through the deletions view, and approve it with sync approve, or restore the files and run {rescan}; changed candidates require fresh approval",
-                    Advised::Status
-                ),
-            }),
-            Self::FindingsPending => Some(match at_hand.findings_revision {
-                Some(revision) => format!(
-                    "List the findings with {}, and the retained conflicts with {}, and follow each one's remedy; other paths continue",
-                    Advised::Findings(revision),
-                    Advised::Conflicts
-                ),
-                None => format!(
-                    "List the findings through the findings view at the findings_revision {} reports, and the retained conflicts with {}, and follow each one's remedy; other paths continue",
+                    "Files that synchronization tracked are missing, and deleting their objects waits for approval. Inspect the deletion set at the pending_deletion_revision that status reports, and approve it by that revision: {}; or restore the files and wait again: {}",
                     Advised::Status,
-                    Advised::Conflicts
+                    Advised::Wait
                 ),
             }),
+            Self::FindingsPending => Some(format!(
+                "Findings or retained conflicts stop synchronization of some paths, and other paths continue. Follow the remedy of each; {}; the conflicts listing names the retained conflicts: {}",
+                findings_listing(at_hand),
+                Advised::Conflicts
+            )),
         }
     }
 }
@@ -375,6 +448,7 @@ impl WaitResult {
             reconciliation,
             reason,
             findings: None,
+            holdup: None,
         }
     }
     pub(crate) fn timeout() -> Self {
@@ -384,6 +458,49 @@ impl WaitResult {
     /// This result with the findings the wait read.
     pub(crate) fn with_findings(self, findings: Option<WaitFindings>) -> Self {
         Self { findings, ..self }
+    }
+
+    /// This result with what the wait's last pass ended on.
+    pub(crate) fn with_holdup(self, holdup: Holdup) -> Self {
+        Self {
+            holdup: Some(holdup),
+            ..self
+        }
+    }
+
+    /// The reason the pause this wait met recorded, as the mirror knew it when it answered.
+    pub(crate) const fn paused_reason(&self) -> Option<PauseReason> {
+        match self.holdup {
+            Some(Holdup::Paused(reason)) => Some(reason),
+            Some(
+                Holdup::Writeback(_)
+                | Holdup::SourceChanging
+                | Holdup::SourceUnrepresentable
+                | Holdup::SourceUnreadable
+                | Holdup::Observing
+                | Holdup::DeletionApproval
+                | Holdup::FindingsPending
+                | Holdup::Ready,
+            )
+            | None => None,
+        }
+    }
+
+    /// What lets a later wait succeed, with the revisions `at_hand`. A wait that ended while
+    /// work was under way names what its last pass was still waiting for.
+    pub(crate) fn remedy(&self, at_hand: AtHand<'_>) -> Option<String> {
+        match self.reason {
+            WaitReason::Timeout | WaitReason::SourceChanging => {
+                Some(unsettled_remedy(self.holdup, self.reconciliation.as_ref()))
+            }
+            WaitReason::Ready
+            | WaitReason::Stopped
+            | WaitReason::Paused
+            | WaitReason::JournalChanged
+            | WaitReason::SourceUnrepresentable
+            | WaitReason::DeletionApproval
+            | WaitReason::FindingsPending => self.reason.remedy(self.paused_reason(), at_hand),
+        }
     }
 
     /// The same wait ending for `reason` instead, as a control that applies a stricter
@@ -416,7 +533,9 @@ mod tests {
     }
 
     /// Only the reasons a wait meets while work is still under way are worth waiting again
-    /// for; each other one has a remedy that names what to run, with the endpoint to fill in.
+    /// for; each reason but a success, a shutdown and a rebuilt journal has a remedy that names
+    /// what to run, with the endpoint to fill in. One that ran out of time and one the server
+    /// answered after its minute read alike.
     #[test]
     fn only_work_in_progress_is_waited_for_again_and_the_rest_name_a_remedy() {
         use WaitReason::{JournalChanged, Ready, SourceChanging, Stopped, Timeout};
@@ -427,7 +546,7 @@ mod tests {
                 "{reason}"
             );
             let remedy = reason.remedy(None, AtHand::default());
-            if matches!(reason, Ready | Timeout | Stopped | JournalChanged) {
+            if matches!(reason, Ready | Stopped | JournalChanged) {
                 assert!(remedy.is_none(), "{reason}");
             } else {
                 assert!(
@@ -438,16 +557,72 @@ mod tests {
         }
         assert_eq!(
             WaitReason::Paused.remedy(Some(PauseReason::IoFailure), AtHand::default()),
-            Some(pause_remedy(PauseReason::IoFailure))
+            Some(pause_remedy(PauseReason::IoFailure, AtHand::default()))
         );
         assert_eq!(
             WaitReason::Paused.remedy(None, AtHand::default()),
-            Some(pause_remedy(PauseReason::ObserverFailure))
+            Some(pause_remedy(
+                PauseReason::ObserverFailure,
+                AtHand::default()
+            ))
+        );
+        assert_eq!(
+            Timeout.remedy(None, AtHand::default()),
+            SourceChanging.remedy(None, AtHand::default())
         );
         assert!(
             SourceChanging
                 .remedy(None, AtHand::default())
-                .is_some_and(|remedy| remedy.contains("gcs-mimic sync wait --endpoint URL again"))
+                .is_some_and(|remedy| remedy.ends_with(": gcs-mimic sync wait --endpoint URL"))
+        );
+    }
+
+    /// A wait that ran out of time names what its last pass was still waiting for: how many
+    /// files were still changing and the first of them, the files written after the pass took
+    /// the tree in, or an API that kept changing; and the pause a paused wait met is the one the
+    /// mirror answered with.
+    #[test]
+    fn a_wait_that_runs_out_of_time_names_what_remained() {
+        let mut pass = Reconciliation::default();
+        for name in ["bucket/a", "bucket/b", "bucket/c", "bucket/d"] {
+            pass.count_deferred(std::path::Path::new(name));
+        }
+        let remedy = WaitResult::result(WaitReason::SourceChanging, None, Some(pass))
+            .with_holdup(Holdup::SourceChanging)
+            .with_reason(WaitReason::Timeout)
+            .remedy(AtHand::default())
+            .unwrap();
+        assert!(
+            remedy.starts_with(
+                "4 files were still changing or racing an API write when the wait ended, the first bucket/a, bucket/b, bucket/c. "
+            ),
+            "{remedy}"
+        );
+        let written = Reconciliation {
+            external_only: 1,
+            ..Reconciliation::default()
+        };
+        let remedy = WaitResult::result(WaitReason::Timeout, None, Some(written))
+            .remedy(AtHand::default())
+            .unwrap();
+        assert!(
+            remedy.starts_with("1 file was written after the wait's pass took the tree in. "),
+            "{remedy}"
+        );
+        let remedy = WaitResult::result(WaitReason::SourceChanging, None, None)
+            .with_holdup(Holdup::Observing)
+            .remedy(AtHand::default())
+            .unwrap();
+        assert!(
+            remedy.starts_with("The API changed during each pass"),
+            "{remedy}"
+        );
+        let paused = WaitResult::result(WaitReason::Paused, None, None)
+            .with_holdup(Holdup::Paused(PauseReason::IoFailure));
+        assert_eq!(paused.paused_reason(), Some(PauseReason::IoFailure));
+        assert_eq!(
+            paused.remedy(AtHand::default()),
+            Some(pause_remedy(PauseReason::IoFailure, AtHand::default()))
         );
     }
 }

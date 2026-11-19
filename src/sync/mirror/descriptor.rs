@@ -10,7 +10,7 @@ pub(super) fn paused(error: &SyncError, pause: PauseReason) {
         "sync_paused",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":crate::sync::control::pause_remedy(pause)}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":crate::sync::control::pause_remedy(pause,crate::sync::advice::AtHand::default())}),
         ),
     );
 }

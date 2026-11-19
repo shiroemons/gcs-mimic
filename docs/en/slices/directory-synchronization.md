@@ -334,8 +334,13 @@ take, which stops inferred deletions; an empty one holds nothing back and stays
 in place. Observing
 the directory absent clears only that observation, permitting deliberate later
 directory recreation; it never deletes a bucket or object and never runs `rmdir`.
-Per-path read/access failures are likewise deferred with a relative path and
-permission/space/rescan remedy, leaving other candidates runnable.
+Per-path read/access failures are logged with a relative path and a
+permission/space remedy, leaving other candidates runnable. One that passes by
+itself, such as an entry that went away or was busy while the pass read it, is
+deferred to a later pass. One that waiting does not clear, such as a missing
+permission, a full disk or a kind the mirror does not know, holds back the
+baseline and deletions like an entry no object can take, until an operator
+restores the entry.
 
 ### External create/edit verification
 
@@ -1162,10 +1167,12 @@ and a name finding of a later generation in the same bucket incarnation does not
 replace it, since the external edit it holds is still unresolved. With
 `require_no_findings: true`, a `Ready` wait that counts any becomes
 `FindingsPending`; the decision is the control's, and the mirror's barrier is the
-same either way. Every answer other than `Ready`, `Timeout`, `Stopped` and
+same either way. Every answer other than `Ready`, `Stopped` and
 `JournalChanged` carries the `remedy` for its reason, with `--endpoint URL` for
 the client to fill in and the findings revision or the deletion set revision the
-answer read filled in already. A writer that never settles yields timeout. A successful
+answer read filled in already; a `Timeout` or `SourceChanging` remedy names what
+the wait's last finished pass was still waiting for. A writer that never
+settles yields timeout. A successful
 wait is not a permanent quiescence claim. Shutdown wakes waiters and drains
 accepted side effects before releasing locks. CLI users can write a file, wait,
 then read through the API.
@@ -1219,18 +1226,24 @@ Each kind of stop has its own exhaustive type; no single type covers them all:
 | `running` | The first that holds: a recorded pause, named as for `paused`; the write-back state other than `Ready`; the scan stop; `Observing` without a complete baseline; `DeletionApproval` while a guarded deletion set waits for an approval no operator has given; `FindingsPending` while findings that stop a wait (`blocking_findings`), path stops, pending write-back or unresolved conflicts remain; otherwise `Ready`, also while `unmapped_findings` counts objects the tree cannot hold. |
 
 A wait that finished its own pass ends by the same judgment, in the same
-order. Only the working tree's side differs: the wait reads it from what held
-back its own pass, the same answer that decides whether missing files become
-deletion candidates, instead of the stop an earlier scan recorded. Files still
-changing, exports skipped for a busy file and a baseline still open are work
-in progress, which the wait asks about again until its deadline; tree entries
-no object can take, files no object accounts for yet, and the non-empty
-directory of a bucket deleted through the API end it with
-`SourceUnrepresentable`, since they hold back every deletion too; files that
-wait for a conflict decision end it with `FindingsPending`. Objects the tree
-cannot hold never decide it. A deletion set ends a wait with
-`DeletionApproval` only while it is guarded and unapproved, as in status; a
-granted set runs in the pass that completes it.
+order. Both take the working tree's side from what held back a pass, the same
+answer that decides whether missing files become deletion candidates: each scan
+records it when it ends, and status reads that record, while a wait reads it
+from its own pass, which also counts the exports it replayed. The two can
+differ only for the length of a pass. What waiting cannot change comes first:
+tree entries no object can take, the non-empty directory of a bucket deleted
+through the API, and entries a pass could not read for a reason waiting does
+not clear end a wait at once with `SourceUnrepresentable`, since they hold back
+every deletion too, and status shows `SourceUnrepresentable` for them; files
+that wait for a conflict decision end it with `FindingsPending`. Files still
+changing or racing an API write, files written after the pass took the tree in,
+exports skipped for a busy file and a baseline still open are work in progress,
+which the wait asks about again until its deadline. A wait that runs out of
+time answers with its last finished pass and names what that pass was still
+waiting for: how many files, and the first of them. Objects the tree cannot hold
+never decide a wait. A deletion set ends a wait with `DeletionApproval` only
+while it is guarded and unapproved, as in status; a granted set runs in the
+pass that completes it.
 
 Distinguish a whole-root pause, a blocked path and a nonblocking finding. Emit
 structured stderr events on transitions, not on every repeated observation.

@@ -1,5 +1,9 @@
 //! What still holds synchronization back. A wait's answer and the status `state` of a running
-//! mirror both come from [`Outstanding::first`], so the two cannot judge one condition apart.
+//! mirror both come from [`Outstanding::first`], and the tree side of both from the hold of a
+//! pass, so the two judge one condition alike. They read it at different times: the status
+//! reads what the last scan recorded, and a wait what its own pass found, which also counts the
+//! exports it replayed and the reconciliation it ran, so they can differ for the length of a
+//! pass.
 
 use crate::storage::sync_state::{
     deletions::{DeletionAuthorization, DeletionSet},
@@ -7,22 +11,23 @@ use crate::storage::sync_state::{
     writeback::Stop,
 };
 
-/// What the working tree's side leaves undone. The status reads it from the stop and the baseline
-/// the last scan recorded; a wait from what holds back its own pass, the gate that also decides
-/// deletion detection, so that objects the tree cannot hold never stop a wait and an entry that
-/// stops deletions never lets one succeed.
+/// What the working tree's side leaves undone, from the hold of a pass: the one that also
+/// decides deletion detection, so that objects the tree cannot hold never stop a wait and an
+/// entry that stops deletions never lets one succeed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TreeSide {
     /// Every entry of the tree was taken in.
     Settled,
-    /// Files still changing or racing an API write, or exports skipped for a busy file that
-    /// wait for their retry.
+    /// Files still changing, racing an API write or written after the pass took the tree in, or
+    /// exports skipped for a busy file that wait for their retry. A later pass takes them in.
     Changing,
     /// Files that differ from their objects and wait for a conflict decision.
     Conflicting,
-    /// Entries that no object can take, where a missing file may have gone, or files that no
-    /// object accounts for yet.
+    /// Entries that no object can take, where a missing file may have gone.
     Unrepresentable,
+    /// Entries a pass could not read for a reason waiting does not clear, such as a missing
+    /// permission.
+    Unreadable,
     /// Nothing holds the tree back, but the baseline is not complete.
     Observing,
 }
@@ -35,6 +40,17 @@ impl TreeSide {
             Some(ScanStop::SourceUnrepresentable) => Self::Unrepresentable,
             None if !observation.baseline_complete => Self::Observing,
             None => Self::Settled,
+        }
+    }
+
+    /// What a scan records for this side, which [`TreeSide::recorded`] reads back. A conflict
+    /// is counted on its own and the baseline recorded on its own, and an unreadable entry
+    /// records as an unrepresentable one, which the status names alike.
+    pub(crate) const fn scan_stop(self) -> Option<ScanStop> {
+        match self {
+            Self::Changing => Some(ScanStop::SourceChanging),
+            Self::Unrepresentable | Self::Unreadable => Some(ScanStop::SourceUnrepresentable),
+            Self::Settled | Self::Conflicting | Self::Observing => None,
         }
     }
 }
@@ -60,6 +76,8 @@ pub(crate) enum Holdup {
     Writeback(Stop),
     SourceChanging,
     SourceUnrepresentable,
+    /// Entries a pass could not read for a reason waiting does not clear.
+    SourceUnreadable,
     /// Nothing that needs an operator holds, but the baseline is not complete, so no deletion is
     /// inferred yet.
     Observing,
@@ -115,6 +133,7 @@ impl Outstanding {
         match self.tree {
             TreeSide::Changing => Holdup::SourceChanging,
             TreeSide::Unrepresentable => Holdup::SourceUnrepresentable,
+            TreeSide::Unreadable => Holdup::SourceUnreadable,
             TreeSide::Observing => Holdup::Observing,
             TreeSide::Settled | TreeSide::Conflicting if self.deletion_approval => {
                 Holdup::DeletionApproval

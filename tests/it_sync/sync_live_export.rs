@@ -157,7 +157,9 @@ fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_st
     assert_eq!(approve["error"]["code"], 409, "{approve}");
     let message = approve["error"]["message"].as_str().unwrap();
     assert!(
-        message.contains("run gcs-mimic sync rescan --endpoint URL first"),
+        message.contains(
+            "correct it, then resume synchronization: gcs-mimic sync rescan --endpoint URL"
+        ),
         "{message}"
     );
     assert_eq!(server.sync_state(), "paused");
@@ -204,8 +206,11 @@ fn the_healthcheck_waits_only_while_synchronization_starts() {
     starting.join().unwrap();
     assert!(!status.success());
     assert!(stderr.contains("sync.state is starting"), "{stderr}");
+    // The command ends the advice, after what to add under strict authentication.
     assert!(
-        stderr.contains(&format!("gcs-mimic sync status --endpoint {origin} ")),
+        stderr.contains(&format!(
+            "under strict authentication: gcs-mimic sync status --endpoint {origin}"
+        )),
         "{stderr}"
     );
     let data = TestDir::new();

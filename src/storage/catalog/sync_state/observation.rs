@@ -395,18 +395,8 @@ impl RootLease {
         }).await.map_err(RootError::from)
     }
 
-    pub(crate) async fn observation_scan(
-        &self,
-        unrepresentable: u64,
-        deferred: u64,
-    ) -> Result<(), RootError> {
-        let reason = if unrepresentable > 0 {
-            Some(ScanStop::SourceUnrepresentable)
-        } else if deferred > 0 {
-            Some(ScanStop::SourceChanging)
-        } else {
-            None
-        };
+    /// Records why the scan that just finished left the tree unsettled, or that nothing did.
+    pub(crate) async fn observation_scan(&self, reason: Option<ScanStop>) -> Result<(), RootError> {
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {

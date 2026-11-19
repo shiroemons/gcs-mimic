@@ -30,7 +30,7 @@ pub(super) fn value(
                 | PauseReason::SourceChanging
                 | PauseReason::SourceUnrepresentable => pause.as_str(),
             },
-            crate::sync::control::pause_remedy(*pause).into(),
+            crate::sync::control::pause_remedy(*pause, crate::sync::advice::AtHand::default()).into(),
         ),
         FindingReason::Mapping(FindingKind::ExportConflict) => (
             "Conflict",

@@ -1162,7 +1162,12 @@ async fn ingest_unreadable_file_is_deferred_while_other_files_progress() {
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
     let summary = scan(&catalog, &root, &config).await;
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o600)).unwrap();
-    assert_eq!((summary.ingested, summary.deferred), (1, 1));
+    // A missing permission does not pass by waiting, so the file is held as unreadable, which
+    // a wait reports at once, rather than deferred for a later pass.
+    assert_eq!(
+        (summary.ingested, summary.deferred, summary.unreadable),
+        (1, 0, 1)
+    );
     assert_eq!(object(&catalog, "test-bucket/working").await.size, 7);
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
     drop(root);

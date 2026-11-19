@@ -367,16 +367,9 @@ async fn wait(
         }
         Err(_) => WaitResult::timeout(),
     });
-    // The mirror answers a paused wait without the reason, which the root recorded, and a wait
-    // for approval without the deletion set its remedy names.
-    let paused_reason = if result.reason == WaitReason::Paused {
-        root.observation_for(authority.clone())
-            .await
-            .map_err(|error| root_error(&error))?
-            .paused_reason
-    } else {
-        None
-    };
+    // The mirror answers a paused wait with the reason it paused for, which the catalog may not
+    // have recorded, and a wait for approval without the deletion set its remedy names.
+    let paused_reason = result.paused_reason();
     let deletion_revision = if result.reason == WaitReason::DeletionApproval {
         root.deletion_set_for(authority)
             .await
@@ -394,7 +387,7 @@ async fn wait(
         deletion_revision: deletion_revision.as_deref(),
     };
     let answer = WaitAnswer {
-        remedy: result.reason.remedy(paused_reason, at_hand),
+        remedy: result.remedy(at_hand),
         findings,
         paused_reason,
         result: &result,
@@ -998,7 +991,10 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
                     // `sync_resume_failed` event says the same.
                     PauseChange::Kept => crate::sync::control::resume_retry_remedy(),
                     PauseChange::Began | PauseChange::Recorded => {
-                        crate::sync::control::pause_remedy(*reason)
+                        crate::sync::control::pause_remedy(
+                            *reason,
+                            crate::sync::advice::AtHand::default(),
+                        )
                     }
                 },
             ),

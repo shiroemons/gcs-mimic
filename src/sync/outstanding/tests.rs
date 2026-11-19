@@ -26,7 +26,7 @@ fn settled() -> Outstanding {
 type Condition = (fn(&mut Outstanding), Holdup);
 
 /// Every condition, in the order [`Outstanding::first`] checks them, with what it names.
-fn conditions() -> [Condition; 8] {
+fn conditions() -> [Condition; 9] {
     [
         (
             |outstanding| outstanding.paused = Some(PauseReason::IoFailure),
@@ -43,6 +43,10 @@ fn conditions() -> [Condition; 8] {
         (
             |outstanding| outstanding.tree = TreeSide::Unrepresentable,
             Holdup::SourceUnrepresentable,
+        ),
+        (
+            |outstanding| outstanding.tree = TreeSide::Unreadable,
+            Holdup::SourceUnreadable,
         ),
         (
             |outstanding| outstanding.tree = TreeSide::Observing,
@@ -143,6 +147,31 @@ fn only_a_withheld_guarded_deletion_set_waits_for_approval() {
             WaitReason::from(expected),
             "{set:?}"
         );
+    }
+}
+
+/// What a scan records for the tree side of its pass reads back, for the status, as a side that
+/// names the reason a wait from the same pass gives, so the two put the same condition first. A
+/// conflict a pass counts is one the catalog retains, which the status counts.
+#[test]
+fn the_status_names_what_a_wait_from_the_same_pass_names() {
+    for tree in [
+        TreeSide::Settled,
+        TreeSide::Changing,
+        TreeSide::Conflicting,
+        TreeSide::Unrepresentable,
+        TreeSide::Unreadable,
+        TreeSide::Observing,
+    ] {
+        let observation = Summary {
+            scan_stop: tree.scan_stop(),
+            baseline_complete: tree != TreeSide::Observing,
+            unresolved_conflicts: u64::from(tree == TreeSide::Conflicting),
+            ..summary()
+        };
+        let status = Outstanding::of_status(&observation, None).first();
+        let wait = Outstanding::new(&observation, None, tree).first();
+        assert_eq!(WaitReason::from(status), WaitReason::from(wait), "{tree:?}");
     }
 }
 

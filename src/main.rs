@@ -834,7 +834,7 @@ fn synchronization_started(
             ),
         ) => return Ok(()),
         Ok(Some(MirrorState::Starting)) => format!(
-            "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. Follow it with {} (add --token-file PATH under strict authentication); the healthcheck passes once the state leaves starting.",
+            "Healthcheck {url} found the API ready, but sync.state is starting: directory synchronization has not finished this process's first pass, which exports existing objects into the sync directory. The healthcheck passes once the state leaves starting. Follow it, adding --token-file PATH under strict authentication: {}",
             advice::with_connection(
                 &advice::Advised::Status.to_string(),
                 &probe_connection(url, ca_cert)
@@ -1149,8 +1149,8 @@ mod tests {
             "{starting}"
         );
         assert!(
-            starting.contains(
-                "Follow it with gcs-mimic sync status --endpoint http://127.0.0.1:4443 (add"
+            starting.ends_with(
+                "under strict authentication: gcs-mimic sync status --endpoint http://127.0.0.1:4443"
             ),
             "{starting}"
         );
@@ -1161,8 +1161,8 @@ mod tests {
         )
         .unwrap();
         assert!(
-            trusted.contains(
-                "gcs-mimic sync status --endpoint https://[::1]:4443 --ca-cert tls/ca.pem (add"
+            trusted.ends_with(
+                ": gcs-mimic sync status --endpoint https://[::1]:4443 --ca-cert tls/ca.pem"
             ),
             "{trusted}"
         );

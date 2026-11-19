@@ -113,7 +113,11 @@ pub fn catalog() -> Vec<String> {
     });
     PauseReason::ALL
         .into_iter()
-        .map(pause_remedy)
+        .flat_map(|reason| {
+            at_hand
+                .into_iter()
+                .map(move |at_hand| pause_remedy(reason, at_hand))
+        })
         .chain(waits)
         .chain([resume_retry_remedy(), paused_control_remedy()])
         .collect()

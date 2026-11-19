@@ -7,6 +7,7 @@ use super::{
     mapping,
     mirror::Reconciliation,
     naming::RootNaming,
+    outstanding::TreeSide,
     tree::{ParentError, ParentOpen, parent},
 };
 use crate::{
@@ -286,7 +287,10 @@ pub(super) async fn rescan_with(
         summary.interrupted = interrupt.check() != Interrupted::No;
     }
     if !summary.interrupted {
-        root.observation_scan(summary.unrepresentable_entries().get(), summary.deferred)
+        // The status reads the tree side from this record, which the same hold as a wait's
+        // decides, so the two put the same condition first.
+        let side = summary.gate().hold().tree_side();
+        root.observation_scan(side.and_then(TreeSide::scan_stop))
             .await?;
     }
     Ok(summary)
@@ -421,18 +425,19 @@ impl Ingest<'_> {
     }
 
     /// Counts a file or directory that could not be read this time and says how to restore it.
-    fn defer(&mut self, path: &std::path::Path, reason: impl std::fmt::Display) {
+    /// The gate decides from `kind` whether a later pass may read it or an operator must act.
+    fn defer(&mut self, path: &std::path::Path, kind: io::ErrorKind) {
         let path = if path.as_os_str().is_empty() {
             std::path::Path::new(".")
         } else {
             path
         };
-        self.summary.deferred += 1;
+        self.summary.count_read_failure(path, kind);
         diagnostics::emit(
             LogLevel::Warn,
             "sync_source_deferred",
             serde_json::json!({
-                "path":path,"reason":reason.to_string(),
+                "path":path,"reason":kind.to_string(),
                 "remedy":"Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), free disk space if needed, then request another rescan"
             }),
         );
@@ -497,7 +502,7 @@ impl Ingest<'_> {
         let binding = match self.root.sync_binding(&bucket).await {
             Ok(binding) => binding,
             Err(AdminError::NotFound | AdminError::Precondition) => {
-                self.summary.deferred += 1;
+                self.summary.count_deferred(&path);
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -511,7 +516,7 @@ impl Ingest<'_> {
         let tracked = match state.get_path(binding.clone(), text).await {
             Ok(tracked) => tracked,
             Err(AdminError::NotFound | AdminError::Precondition) => {
-                self.summary.deferred += 1;
+                self.summary.count_deferred(&path);
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -674,7 +679,7 @@ impl Ingest<'_> {
                         | AdminError::SourceChanged { .. }
                 ) || matches!(&error, AdminError::Io(cause) if cause.kind() == io::ErrorKind::NotFound) =>
             {
-                self.summary.deferred += 1;
+                self.summary.count_deferred(&candidate.path);
                 self.record_observation(
                     &candidate.binding,
                     &candidate.name,
@@ -746,7 +751,7 @@ impl Ingest<'_> {
         match outcome {
             Ok(durable) => Ok(Some(durable)),
             Err(NotDurable::Changed) => {
-                self.summary.deferred += 1;
+                self.summary.count_deferred(path.as_ref());
                 self.record_observation(binding, name, PathStop::SourceChanging)
                     .await?;
                 Ok(None)
@@ -805,7 +810,7 @@ impl Ingest<'_> {
                 && tracked.fingerprint.crc32c == hashes.crc32c
             {
                 // A native notification can race API deletion before its unchanged output is removed.
-                self.summary.deferred += 1;
+                self.summary.count_deferred(&candidate.path);
                 return Ok(());
             }
             self.root
@@ -847,7 +852,9 @@ impl Ingest<'_> {
                 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
                 self.recorded().await?;
             }
-            Err(AdminError::Precondition | AdminError::NotFound) => self.summary.deferred += 1,
+            Err(AdminError::Precondition | AdminError::NotFound) => {
+                self.summary.count_deferred(&candidate.path);
+            }
             Err(error) => return Err(error.into()),
         }
         Ok(())
@@ -916,7 +923,7 @@ impl Ingest<'_> {
                     self.recorded().await?;
                 }
                 Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
-                    self.summary.deferred += 1
+                    self.summary.count_deferred(&path)
                 }
                 Err(error) => return Err(error.into()),
             }

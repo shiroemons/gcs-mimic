@@ -763,21 +763,54 @@ fn every_advised_command_parses_as_this_command_line() {
             .iter()
             .map(|command| advice::with_connection(command, connection))
             .collect();
-        let named = advice.match_indices("gcs-mimic sync ").map(|(at, _)| {
-            let text = &advice[at..];
-            // A rendered command followed by another argument would be one it does not parse.
-            rendered.iter().any(|command| {
-                text.strip_prefix(command.as_str()).is_some_and(|rest| {
-                    !rest.starts_with(" -") && !rest.starts_with(char::is_alphanumeric)
+        let named = named_commands(advice);
+        assert!(!named.is_empty(), "{advice}");
+        for at in named {
+            // Only `;` or the end of the text may follow a command: an argument, a word or a
+            // comma after it reads as part of the line a reader copies.
+            let whole = advice[at..].strip_prefix("gcs-mimic ").is_some_and(|_| {
+                rendered.iter().any(|command| {
+                    advice[at..]
+                        .strip_prefix(command.as_str())
+                        .is_some_and(|rest| rest.is_empty() || rest.starts_with(';'))
                 })
+            });
+            assert!(whole, "{advice}");
+        }
+    }
+}
+
+/// Where `advice` names a command: each `gcs-mimic sync`, and each subcommand named after
+/// `sync` without it, such as `sync approve,`, which a reader would run without the
+/// connection. A subcommand that a sentence goes on from, as in `sync wait ended`, is prose.
+fn named_commands(advice: &str) -> Vec<usize> {
+    const SUBCOMMANDS: [&str; 6] = [
+        "status",
+        "rescan",
+        "wait",
+        "approve",
+        "resolve",
+        "conflicts",
+    ];
+    let mut named: Vec<usize> = advice
+        .match_indices("gcs-mimic sync ")
+        .map(|(at, _)| at)
+        .collect();
+    for (at, _) in advice.match_indices("sync ") {
+        let after = &advice[at + "sync ".len()..];
+        let bare = !advice[..at].ends_with("gcs-mimic ");
+        let command = SUBCOMMANDS.iter().any(|sub| {
+            after.strip_prefix(sub).is_some_and(|rest| {
+                rest.is_empty()
+                    || rest.starts_with(" -")
+                    || rest.starts_with(|c: char| c.is_ascii_punctuation())
             })
         });
-        let named: Vec<bool> = named.collect();
-        assert!(
-            !named.is_empty() && named.iter().all(|rendered| *rendered),
-            "{advice}"
-        );
+        if bare && command {
+            named.push(at);
+        }
     }
+    named
 }
 
 #[test]

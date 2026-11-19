@@ -121,8 +121,10 @@ again only while the answer says the work is still in progress: `Timeout` for
 that request, `SourceChanging`, or `JournalChanged` after a one-second pause.
 Each repeat is an `info` diagnostic on standard error, and standard output keeps
 only the last JSON answer. A pause, findings or conflicts that need action,
-deletions awaiting approval, unrepresentable source entries and stopped work end
-it with the first answer.
+deletions awaiting approval, source entries no object can take or that the
+server cannot read, such as a file without read permission, and stopped work
+end it with the first answer. A wait that runs out of time names what was still
+in progress: how many files were still changing, and the first of them.
 
 A wait succeeds once every change it can reflect is reflected. Objects whose
 names the directory cannot hold stay reachable through the API and do not fail

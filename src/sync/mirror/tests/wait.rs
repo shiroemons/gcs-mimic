@@ -82,6 +82,44 @@ async fn wait_stops_for_an_unrepresentable_entry_added_after_the_baseline() {
     }
 }
 
+/// A file without read permission does not become readable by waiting, so a wait stops on it at
+/// once instead of spending its timeout on passes that defer it, and names it; the status, which
+/// reads the tree side the scan recorded, names the same condition.
+#[tokio::test]
+async fn wait_and_status_stop_at_once_for_a_file_without_read_permission() {
+    use crate::sync::outstanding::{Holdup, Outstanding};
+    use std::os::unix::fs::PermissionsExt;
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    let cursor = catalog.current_fence().await.unwrap();
+    let locked = tree.0.join("test-bucket/locked");
+    fs::write(&locked, b"locked").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = wait_from(&catalog, &root, cursor).await;
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(result.reason, WaitReason::SourceUnrepresentable);
+    assert!(!result.reason.is_in_progress());
+    assert_eq!(result.holdup, Some(Holdup::SourceUnreadable));
+    let pass = result.reconciliation.as_ref().unwrap();
+    assert_eq!((pass.unreadable, pass.deferred), (1, 0));
+    assert_eq!(
+        pass.entries.entries(),
+        [crate::sync::entries::UnrepresentableEntry {
+            path: "test-bucket/locked".into(),
+            problem: crate::sync::entries::EntryProblem::Unreadable,
+        }]
+    );
+    let observation = root.observation().await.unwrap();
+    let deletion = root.deletion_set().await.unwrap();
+    let status = Outstanding::of_status(&observation, deletion.as_ref()).first();
+    assert_eq!(status, Holdup::SourceUnrepresentable);
+    assert_eq!(WaitReason::from(status), result.reason);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// An export skipped because the file it would replace kept changing runs again only once the
 /// tree settles, so until then an API change is not in the tree. A retry that skips again during
 /// the wait's own pass counts nothing, so the wait checks the skipped exports themselves; only a
@@ -113,7 +151,10 @@ async fn wait_stops_while_a_skipped_export_waits_for_its_retry() {
             .0
     })
     .await;
-    assert_eq!(reason, WaitReason::SourceChanging);
+    assert_eq!(
+        reason,
+        super::super::wait::Decided::Holdup(crate::sync::outstanding::Holdup::SourceChanging)
+    );
     drop(root);
     catalog.close().await.unwrap();
 }
