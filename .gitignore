@@ -5,3 +5,4 @@ __pycache__/
 /sdk-scorecard/node/node_modules/
 /sdk-scorecard/php/vendor/
 /sdk-scorecard/python/.venv/
+/sync/

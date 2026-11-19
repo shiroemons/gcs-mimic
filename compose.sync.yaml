@@ -1,0 +1,18 @@
+# Directory synchronization override for compose.yaml:
+#   mkdir -p sync
+#   docker compose -f compose.yaml -f compose.sync.yaml up --wait
+# Objects appear as BUCKET/OBJECT files under ./sync, and files you add there become objects.
+# Set GCSM_SYNC_DIR to use another host directory. Create it first: Docker does not make a missing
+# bind source on the host, and the server refuses to start without the directory.
+# The image's healthcheck stays in charge: `up --wait`, and a service that depends_on this one with
+# condition: service_healthy, wait until the first pass has exported the existing objects.
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_SYNC_DIR: /sync
+    volumes:
+      - type: bind
+        source: ${GCSM_SYNC_DIR:-./sync}
+        target: /sync
+        bind:
+          create_host_path: false
