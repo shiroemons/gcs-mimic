@@ -18,13 +18,17 @@
 //! its directory reports the identity, size and timestamps it had before the listing was read.
 //! Creating, removing or renaming an entry changes the directory's modification and change
 //! times, so a directory that changed during the pass is read again rather than judged by its
-//! old names. A listing is kept only when the directory reported the same before and after it was
-//! read, and only once the directory's last change is old enough that a later one cannot fall in
-//! the same timestamp tick ([`FileIdentity::settled_at`]); a directory that just changed is read
-//! again for each lookup. Each lookup opens its entry before it asks, so a kept listing that
-//! still answers was read from the namespace the entry was opened in.
+//! old names. The directory is asked past the attribute cache a Linux FUSE or NFS mount keeps
+//! ([`imp::uncached_identity`]), which a rename made on the host does not invalidate. A listing
+//! is kept only when the directory reported the same before and after it was read, and only once
+//! the directory's last change is old enough that a later one cannot fall in the same timestamp
+//! tick ([`FileIdentity::settled_at`]); a directory that just changed is read again for each
+//! lookup. That age compares this host's clock with timestamps the filesystem's own host wrote,
+//! so a clock running ahead of the file server's keeps a listing sooner. Each lookup opens its
+//! entry before it asks, so a kept listing that still answers was read from the namespace the
+//! entry was opened in.
 
-use super::{Child, DirectoryOpen, FileIdentity, RegularChild, imp, stat_identity};
+use super::{Child, DirectoryOpen, FileIdentity, RegularChild, imp};
 use crate::clock::{Clock, SystemClock, signed_nanos};
 use std::{
     collections::{HashSet, VecDeque},
@@ -166,7 +170,7 @@ impl Lookup {
     )]
     pub(super) fn listed(&self, parent: &File, name: &OsStr) -> io::Result<bool> {
         let read_ns = signed_nanos(self.clock.now());
-        let state = stat_identity(parent)?;
+        let state = imp::uncached_identity(parent)?;
         if let Some(listing) = self.listings().find(state) {
             return Ok(listing.names.contains(name));
         }
@@ -195,7 +199,7 @@ impl Lookup {
         })?;
         if let Some(names) = names
             && state.settled_at(read_ns)
-            && stat_identity(parent)? == state
+            && imp::uncached_identity(parent)? == state
         {
             self.listings().keep(Listing { state, names });
         }
@@ -333,6 +337,21 @@ mod listing_tests {
         fs::write(listed.dir.0.join("Added"), b"").unwrap();
         assert!(listed.opens(&lookup, "Added"));
         assert_eq!(lookup.reads(), 4);
+    }
+
+    /// On a local filesystem, which keeps no attribute cache to bypass, the identity a listing is
+    /// checked against is the one `fstat` reports, device number included, and a rename in the
+    /// directory changes it.
+    #[test]
+    fn a_directory_reports_its_uncached_identity_as_fstat_does() {
+        let listed = Listed::new(&["Actual"]);
+        listed.settle();
+        let before = imp::uncached_identity(&listed.parent).unwrap();
+        assert_eq!(before, super::super::stat_identity(&listed.parent).unwrap());
+        fs::rename(listed.dir.0.join("Actual"), listed.dir.0.join("actual")).unwrap();
+        let after = imp::uncached_identity(&listed.parent).unwrap();
+        assert_eq!(after, super::super::stat_identity(&listed.parent).unwrap());
+        assert_ne!(after, before);
     }
 
     /// A directory with more names than a kept listing holds is read for each lookup, and still

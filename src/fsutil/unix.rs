@@ -160,6 +160,64 @@ pub(crate) fn name_max(directory: &File) -> io::Result<Option<usize>> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
+/// The identity of `file` as its filesystem reports it now. A Linux FUSE mount, virtiofs and
+/// therefore Docker Desktop's bind mounts included, and an NFS mount answer `fstat` from an
+/// attribute cache for a while, which a rename made on the host or another client does not
+/// invalidate; `AT_STATX_FORCE_SYNC` asks the filesystem instead, at the cost of one attribute
+/// request. A kernel or seccomp profile without `statx` (`ENOSYS`, `EPERM`), or a filesystem
+/// that leaves a field out of its answer, is answered by `fstat` as before.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "statx with AT_STATX_FORCE_SYNC has no safe std equivalent"
+)]
+pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
+    const NEEDED: libc::c_uint =
+        libc::STATX_INO | libc::STATX_SIZE | libc::STATX_MTIME | libc::STATX_CTIME;
+    let mut buffer = std::mem::MaybeUninit::<libc::statx>::zeroed();
+    // SAFETY: the live descriptor, the terminated empty path that AT_EMPTY_PATH names it by, and
+    // the writable buffer are valid for the call, which keeps none of them.
+    let result = unsafe {
+        libc::statx(
+            file.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH | libc::AT_STATX_FORCE_SYNC,
+            libc::STATX_BASIC_STATS,
+            buffer.as_mut_ptr(),
+        )
+    };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::ENOSYS | libc::EPERM) => Ok(super::stat_identity(file)?),
+            Some(_) | None => Err(error),
+        };
+    }
+    // SAFETY: statx succeeded, and the zeroed buffer was valid for every field before it wrote.
+    let status = unsafe { buffer.assume_init() };
+    if status.stx_mask & NEEDED != NEEDED {
+        return Ok(super::stat_identity(file)?);
+    }
+    let nanos = |time: libc::statx_timestamp| {
+        i128::from(time.tv_sec) * 1_000_000_000 + i128::from(time.tv_nsec)
+    };
+    Ok(super::FileIdentity {
+        device: libc::makedev(status.stx_dev_major, status.stx_dev_minor),
+        inode: status.stx_ino,
+        size: status.stx_size,
+        modified_ns: nanos(status.stx_mtime),
+        changed_ns: nanos(status.stx_ctime),
+    })
+}
+
+/// The identity of `file` as `fstat` reports it. macOS has no request past a network mount's
+/// attribute cache and needs none: its directory observer accepts only a root on a local
+/// filesystem, which answers `fstat` from the filesystem itself.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn uncached_identity(file: &File) -> io::Result<super::FileIdentity> {
+    Ok(super::stat_identity(file)?)
+}
+
 /// Removes one descriptor-relative name without following a symlink destination.
 #[expect(
     unsafe_code,

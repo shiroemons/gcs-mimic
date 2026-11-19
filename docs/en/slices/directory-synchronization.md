@@ -548,11 +548,21 @@ export: up to 4 directories of at most 4096 names each, and nothing of the
 files' contents. A kept listing answers only while the directory reports the
 identity, size, modification time and change time it had before the listing
 was read, so an entry created, removed or renamed in the directory during the
-pass makes the next lookup read it again. A listing is kept only when the
-directory's last change lies at least two seconds before the read, the coarsest
-timestamp tick the mirror supports, so that a later change cannot leave the
-timestamps as they were; a directory that just changed, or that holds more
-names, is read for each lookup. The scan itself confirms no spelling of the
+pass makes the next lookup read it again. On Linux the mirror asks for those
+attributes with `statx` and `AT_STATX_FORCE_SYNC`, because a FUSE mount,
+including the virtiofs mounts behind Docker Desktop bind mounts, and an NFS
+mount otherwise answer from an attribute cache that a rename made on the host
+does not invalidate; a kernel or seccomp profile without `statx` falls back to
+`fstat` and its cache. macOS has no such request, and needs none: its observer
+accepts only a root on a local filesystem, whose `fstat` answers from the
+filesystem itself. A listing is
+kept only when the directory's last change lies at least two seconds before the
+read, the coarsest timestamp tick the mirror supports, so that a later change
+cannot leave the timestamps as they were; a directory that just changed, or
+that holds more names, is read for each lookup. That age compares the mirror's
+clock with timestamps the file server wrote: where the mirror's clock runs
+ahead of the host's, as a container VM's clock can, a listing is kept sooner
+after a change by that much. The scan itself confirms no spelling of the
 names it lists, since each comes from its directory's listing: ingestion opens
 a changed file again under its exact spelling before it reads it, so an entry
 renamed between the listing and that open is deferred as a changing source,

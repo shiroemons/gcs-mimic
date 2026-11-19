@@ -48,6 +48,10 @@ pub(crate) fn each_name(
     Err(io::ErrorKind::Unsupported.into())
 }
 
+pub(crate) fn uncached_identity(_: &File) -> io::Result<super::FileIdentity> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 pub fn directory_writable(_: &File) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
