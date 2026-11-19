@@ -306,6 +306,15 @@ Never describe a project with an unresolved freshness exception as “all depend
 
 A real incompatibility is not a reason to fake a passing test, remove a permission check or weaken persistence semantics. A temporary pin is a documented deviation from the user's freshness target, not satisfaction of it.
 
+### A pin is adopted only where it can be run
+
+Detecting a new release and adopting it are separate steps. Detection stays immediate, as the daily check requires. Adoption waits until the suite that uses the pin has run on that exact version on every place the pin is used, including the development host.
+
+- Do not commit a toolchain or dependency version that the development host cannot install and run yet, for example a release that has no archive for the host's platform. A run in a container or on another platform is useful evidence for the exception record, but it does not replace the local run: the committed pin would be unverified where it is used, and the local suite would stay broken until upstream publishes the missing build.
+- Do not bypass an installer's release-age gate, such as mise's `minimum_release_age`, or any similar supply-chain guard, to install a release sooner. The delay is set on purpose so that a compromised or withdrawn release is caught before it runs on the host. Wait until the gate lets the release through.
+
+While adoption waits, record the temporary exception described above in `compatibility/dependency-status.json`, with the availability gap as the reason, the evidence gathered so far, and a review date. The full freshness check keeps reporting `UPDATE_AVAILABLE` for that input until it is adopted.
+
 ## Docker base images and released artifacts
 
 Verify the newest suitable supported builder/runtime image from its official publisher. Pin actual digests in Dockerfiles; tags alone are mutable. For a multi-architecture image, record an appropriate manifest-list/index digest or separately verified platform digests and ensure both amd64 and arm64 resolve correctly.

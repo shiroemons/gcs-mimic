@@ -16,6 +16,8 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 - Adopt breaking major library updates through deliberate migrations. A normal `cargo update` within old manifest ranges is not proof that every direct dependency is current.
 - Record the verified exact Rust toolchain, committed application and example lockfiles, and actual Docker digests. Reproducible pins must advance through tested updates.
 - Implement daily update detection for the actual dependency ecosystems, compiler and container inputs. A temporary upstream incompatibility requires visible failing evidence and a review deadline; it does not satisfy the freshness requirement.
+- Adopt a pin only after its suite has run on it where the pin is used, including the development host: do not commit a toolchain or dependency version that the host cannot install and run yet, such as a release without an archive for the host's platform. A pin nobody can run locally is unverified, and it breaks the local suite for everyone until upstream catches up. Discovery stays immediate; adoption waits, under a recorded exception with a review date.
+- Never bypass an installer's release-age gate (for example mise's `minimum_release_age`) or a similar supply-chain guard to adopt a release sooner. The owner set the delay on purpose so that a compromised or withdrawn release is caught before it runs here; wait for the gate, and record the exception meanwhile.
 - Use pinned release CI plus a current-stable lane. Do not add a nightly requirement just to use an unstable update command. Follow `docs/en/dependency-policy.md`.
 
 ## Compatibility and evidence
