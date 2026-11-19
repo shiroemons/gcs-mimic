@@ -13,7 +13,7 @@ use super::{
     },
 };
 use crate::storage::sync_state::{
-    deletions::{DeletionAuthorization, DeletionSet},
+    deletions::DeletionSet,
     observation::{PauseReason, ScanStop, Summary},
     writeback::Halt,
 };
@@ -174,9 +174,7 @@ impl Outstanding {
             tree,
             // A guarded set waits only until an operator grants it. A granted set runs in the
             // pass that completes it, so it waits for nobody.
-            deletion_approval: deletion.is_some_and(|set| {
-                set.guarded && set.authorization == DeletionAuthorization::Withheld
-            }),
+            deletion_approval: deletion.is_some_and(DeletionSet::awaits_decision),
             findings_pending: observation.blocking_findings
                 + observation.path_stops
                 + observation.pending_writeback

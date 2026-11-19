@@ -10,7 +10,7 @@ use crate::{
     storage::sync_state::{
         MAX_PAGE, OpaqueId, Ordinal, PageLimit,
         authority::ControlAuthority,
-        deletions::{Candidate, DeletionAuthorization, DeletionFence, DeletionSet},
+        deletions::{Candidate, DeletionFence, DeletionSet},
         observation::{ObservationCursor, PauseReason, Summary},
         root::{RootChange, RootError, RootLease, RootStatus},
     },
@@ -762,11 +762,7 @@ async fn status(
             let set = published_set.as_ref();
             let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
             let awaiting = set
-                .filter(|set| {
-                    pending > 0
-                        && set.guarded
-                        && set.authorization == DeletionAuthorization::Withheld
-                })
+                .filter(|set| set.awaits_decision())
                 .map(|set| set.revision.to_hex());
             let remedy = awaiting.as_deref().map(|revision| {
                 crate::sync::control::deletion_approval_remedy(AtHand {

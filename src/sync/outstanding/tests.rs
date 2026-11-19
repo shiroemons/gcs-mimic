@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::sync_state::deletions::DeletionAuthorization;
 use crate::sync::WaitReason;
 
 fn summary() -> Summary {

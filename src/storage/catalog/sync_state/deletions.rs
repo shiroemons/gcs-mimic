@@ -19,7 +19,8 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 /// The set `d` waits for an approval or rejection: complete, valid, guarded and neither
-/// approved nor rejected.
+/// approved nor rejected. [`DeletionSet::awaits_decision`] says the same of a set read back,
+/// which is complete and valid; every statement that asks it of a stored set uses this.
 macro_rules! awaiting {
     () => {
         "d.complete=1 AND d.valid=1 AND d.guarded=1 AND d.authorization=0"
@@ -113,6 +114,15 @@ pub(crate) struct DeletionSet {
     pub journal_fence: DeletionFence,
     #[serde(skip)]
     pub(crate) authorization: DeletionAuthorization,
+}
+
+impl DeletionSet {
+    /// The set waits for an operator to approve or reject it, as [`awaiting!`] says of a
+    /// stored set: it is guarded and neither approved nor rejected. Only a complete and valid
+    /// set is read back.
+    pub(crate) fn awaits_decision(&self) -> bool {
+        self.guarded && self.authorization == DeletionAuthorization::Withheld
+    }
 }
 
 /// Whether a completed deletion set may run, as stored in `sync_deletion_sets.authorization`.
@@ -354,8 +364,12 @@ impl RootLease {
     /// about some other path arrived. Every other set is withdrawn as by
     /// [`Self::invalidate_deletions`].
     pub(crate) async fn unsettle_deletions(&self) -> Result<(), RootError> {
-        self.withdraw_deletions("UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1 AND (guarded=0 OR authorization!=0)")
-            .await
+        self.withdraw_deletions(concat!(
+            "UPDATE sync_deletion_sets AS d SET valid=0 WHERE d.root_id=?1 AND d.valid=1 AND NOT (",
+            awaiting!(),
+            ")"
+        ))
+        .await
     }
 
     async fn withdraw_deletions(&self, statement: &'static str) -> Result<(), RootError> {
@@ -450,7 +464,7 @@ impl RootLease {
             let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
             matching(&transaction,root,revision)?;
-            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
+            let count=sql::exec(&transaction, concat!("UPDATE sync_deletion_sets AS d SET authorization=1 WHERE d.root_id=?1 AND d.revision=?2 AND ", awaiting!()), params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
             held::release(&transaction,root)?;
             sql::exec(&transaction,"UPDATE sync_deletion_history SET automatic_count=0 WHERE root_id=?1",[root])?;
@@ -477,7 +491,7 @@ impl RootLease {
             scope.authorize(&transaction)?;
             matching(&transaction,root,revision)?;
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
-            let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=0,authorization=2 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
+            let count=sql::exec(&transaction, concat!("UPDATE sync_deletion_sets AS d SET valid=0,authorization=2 WHERE d.root_id=?1 AND d.revision=?2 AND ", awaiting!()), params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
             held::release(&transaction,root)?;
             transaction.commit()?;
