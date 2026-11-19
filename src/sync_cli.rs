@@ -738,10 +738,10 @@ impl Endpoint {
             std::iter::successors(std::error::Error::source(&failure), |cause| cause.source())
                 .map(|cause| format!(" ({cause})"))
                 .collect::<String>();
-        let advice = fail(printable(&format!(
+        let advice = fail(format!(
             "Cannot use the synchronization server at {}: {failure}{causes}; {check}{accepted}",
             self.origin()
-        )));
+        ));
         CliError::Unreachable(advice, failure)
     }
 
@@ -772,8 +772,7 @@ fn configured_endpoint(
     const SUPPLY: &str = "supply --endpoint http(s)://HOST:PORT";
     let origin = local_server::origin(server_args, environment).map_err(|unreliable| {
         let mut errors = unreliable.diagnostics.errors;
-        errors.push(Diagnostic::new(
-            DiagnosticSource::Cli,
+        errors.push(diagnostic(
             "sync",
             format!(
                 "The server configuration has errors, so sync cannot rely on the endpoint it gives ({}); correct them or {SUPPLY}",
@@ -853,11 +852,8 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     }
     let (endpoint, reply) = options.reply(environment)?;
     // The JSON document is printed whatever the outcome, as the command always has.
-    let bytes = serde_json::to_vec(&reply.body).map_err(io::Error::other)?;
-    let mut output = io::stdout().lock();
-    output
-        .write_all(&bytes)
-        .and_then(|()| output.write_all(b"\n"))?;
+    let line = json_line(&reply.body).map_err(io::Error::other)?;
+    io::stdout().lock().write_all(&line)?;
     // A server of another release is the cause of whatever else went wrong, so it comes first.
     if let Err(mismatch) = handshake::check(&reply.headers, handshake::Peer::Server) {
         return Err(fail(mismatch).into());
@@ -884,7 +880,7 @@ fn http_failure(status: StatusCode, message: Option<&str>, connection: &str) -> 
     fail(match message {
         Some(message) => format!(
             "Synchronization control returned HTTP {status}: {}",
-            printable(&advice::with_connection(message, connection))
+            advice::with_connection(message, connection)
         ),
         None => format!(
             "Synchronization control returned HTTP {status}; inspect its JSON response and preserve pending work."
@@ -971,16 +967,15 @@ impl<'a> WaitOutcome<'a> {
                 } else {
                     ("objects", "their names", "stay", "them")
                 };
-                Diagnostic::new(
-                    DiagnosticSource::Cli,
+                diagnostic(
                     "sync-findings",
-                    printable(&format!(
+                    format!(
                         "{count} {objects} in the API cannot be written to the sync directory because of {names} and {stay} reachable only through the API; list {them} with {}",
                         advice::with_connection(
                             &advice::Advised::Findings(Some(revision)).to_string(),
                             connection
                         )
-                    )),
+                    ),
                 )
             })
             .into_iter()
@@ -999,12 +994,9 @@ impl<'a> WaitOutcome<'a> {
                 let remedy = self.remedy.map_or_else(String::new, |remedy| {
                     format!(": {}", advice::with_connection(remedy, connection))
                 });
-                Diagnostic::new(
-                    DiagnosticSource::Cli,
+                diagnostic(
                     "sync",
-                    printable(&format!(
-                        "sync wait ended with {reason}{paused}{entries}{remedy}"
-                    )),
+                    format!("sync wait ended with {reason}{paused}{entries}{remedy}"),
                 )
             })
             .into_iter()
@@ -1036,12 +1028,13 @@ struct Reply {
     body: Value,
 }
 
-/// `text` with each control character written as its escape, such as `\u{1b}` for ESC, for a
-/// line that repeats what a server answered: the names of files anyone can put in the sync
-/// directory, and remedies and messages that embed them. Unescaped, such a name could move the
-/// cursor, recolor or rewrite the terminal that shows the line. The JSON envelope the diagnostics
-/// are written in escapes only U+0000 through U+001F; DEL and the C1 controls, such as U+009B
-/// (CSI), would pass through it.
+/// `text` with each control character written as its escape, such as `\u{1b}` for ESC. A line
+/// can repeat what a server answered or what the environment and the command line hold: the
+/// names of files anyone can put in the sync directory, remedies and messages that embed them,
+/// and the version a server reports. Unescaped, such text could move the cursor, recolor or
+/// rewrite the terminal that shows the line. The JSON envelope the diagnostics are written in
+/// escapes only U+0000 through U+001F; DEL and the C1 controls, such as U+009B (CSI), would pass
+/// through it.
 fn printable(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for character in text.chars() {
@@ -1054,15 +1047,62 @@ fn printable(text: &str) -> String {
     escaped
 }
 
+/// One diagnostic of the command under `key`, with its text escaped by [`printable`]: every line
+/// the command writes to standard error is made here, so that none repeats a control character.
+fn diagnostic(key: &str, fix: impl std::fmt::Display) -> Diagnostic {
+    Diagnostic::new(DiagnosticSource::Cli, key, printable(&fix.to_string()))
+}
+
 /// The command's single diagnostic: what went wrong is rendered once, here, for the user.
 fn fail(fix: impl std::fmt::Display) -> Diagnostics {
-    Diagnostics::error(DiagnosticSource::Cli, "sync", fix.to_string())
+    diagnostic("sync", fix).into()
+}
+
+/// Writes JSON as serde_json's compact form does, and escapes DEL and the C1 controls as
+/// `\u007f` through `\u009f` as well, which serde_json writes as they are. The answer the command
+/// prints repeats names anyone can give a file or an object, which could otherwise drive the
+/// terminal that shows it; a JSON reader reads the same string either way.
+struct TerminalSafe;
+
+impl serde_json::ser::Formatter for TerminalSafe {
+    fn write_string_fragment<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        fragment: &str,
+    ) -> io::Result<()> {
+        let unsafe_control = |character: char| matches!(character, '\u{7f}'..='\u{9f}');
+        for piece in fragment.split_inclusive(unsafe_control) {
+            let mut characters = piece.chars();
+            match characters.next_back() {
+                Some(last) if unsafe_control(last) => {
+                    writer.write_all(characters.as_str().as_bytes())?;
+                    write!(writer, "\\u{:04x}", u32::from(last))?;
+                }
+                Some(_) | None => writer.write_all(piece.as_bytes())?,
+            }
+        }
+        Ok(())
+    }
+}
+
+/// `value` as one line of JSON that a terminal shows as it is.
+fn json_line(value: &Value) -> Result<Vec<u8>, serde_json::Error> {
+    let mut line = Vec::new();
+    serde::Serialize::serialize(
+        value,
+        &mut serde_json::Serializer::with_formatter(&mut line, TerminalSafe),
+    )?;
+    line.push(b'\n');
+    Ok(line)
 }
 
 impl Options {
     /// The options of `args`, finding the server in `environment` when no endpoint is given.
     fn parse(args: &[String], environment: Vec<(OsString, OsString)>) -> Result<Self, CliError> {
-        let (name, args) = args.split_first().ok_or_else(|| fail(HELP))?;
+        // The help is the command's own text, so its lines stay as they are, unescaped.
+        let (name, args) = args
+            .split_first()
+            .ok_or_else(|| Diagnostics::error(DiagnosticSource::Cli, "sync", HELP))?;
         let mut flags = Flags::read(args)?;
         let command = match Command::from_name(name) {
             Some(Command::Status) => match flags.take(Flag::View) {
@@ -1209,8 +1249,7 @@ impl Options {
                 return Ok(reply);
             }
             let mut progress = Diagnostics::default();
-            progress.info.push(Diagnostic::new(
-                DiagnosticSource::Cli,
+            progress.info.push(diagnostic(
                 "sync-wait",
                 format!(
                     "sync wait is still waiting ({reason}); asking the server again with {:.1}s of --timeout left",

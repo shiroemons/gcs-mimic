@@ -1009,6 +1009,32 @@ fn names_from_the_server_reach_the_terminal_with_their_control_characters_escape
         failure.errors[0].fix,
         format!("Synchronization control returned HTTP 409: Cannot export {escaped}")
     );
+    // The version a server of another release reports is repeated escaped as well.
+    let mut headers = hyper::HeaderMap::new();
+    headers.insert(
+        handshake::VERSION_HEADER,
+        hyper::header::HeaderValue::from_bytes("0.0.1\u{9b}31m".as_bytes()).unwrap(),
+    );
+    let mismatch = fail(handshake::check(&headers, handshake::Peer::Server).unwrap_err());
+    assert_eq!(raw(&mismatch), "");
+    assert!(
+        mismatch.errors[0].fix.contains(r"0.0.1\u{9b}31m"),
+        "{mismatch:?}"
+    );
+}
+
+/// The answer the command prints escapes DEL and the C1 controls, which serde_json writes as
+/// they are, and reads back as the same JSON.
+#[test]
+fn the_printed_answer_escapes_every_control_character() {
+    let answer = json!({"path":"a\u{1b}[2J\u{7f}\u{9b}31m\u{9f}\u{a0}é","n":1});
+    let line = json_line(&answer).unwrap();
+    let text = String::from_utf8(line.clone()).unwrap();
+    assert_eq!(
+        text,
+        "{\"path\":\"a\\u001b[2J\\u007f\\u009b31m\\u009f\u{a0}é\",\"n\":1}\n"
+    );
+    assert_eq!(serde_json::from_slice::<Value>(&line).unwrap(), answer);
 }
 
 /// A reason that only someone acting can change ends the wait with the first answer.
