@@ -747,6 +747,77 @@ async fn an_unclassified_collision_gives_way_to_the_finding_that_classifies_it()
     catalog.close().await.unwrap();
 }
 
+/// A name finding goes once the API no longer holds its object, while an export conflict stays
+/// after the deletion and a live object keeps its finding; removing nothing writes nothing.
+#[tokio::test]
+async fn deleted_objects_lose_their_name_findings_and_keep_export_conflicts() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let unmapped = ObjectName::new("unmapped").unwrap();
+    let conflicted = ObjectName::new("conflicted").unwrap();
+    let unmapped_generation = publish(&catalog, &data, &bucket, unmapped.as_str()).await;
+    let conflicted_generation = publish(&catalog, &data, &bucket, conflicted.as_str()).await;
+    lease
+        .record_finding(
+            binding.clone(),
+            unmapped.clone(),
+            unmapped_generation,
+            Reason::HostRestriction,
+        )
+        .await
+        .unwrap();
+    lease
+        .record_export_conflict(binding.clone(), conflicted.clone(), conflicted_generation)
+        .await
+        .unwrap();
+    let recorded = revisions(&lease).await;
+    lease
+        .remove_deleted_finding(binding.clone(), unmapped.clone())
+        .await
+        .unwrap();
+    assert_eq!(lease.findings_page(0, 256).await.unwrap().len(), 2);
+    assert_eq!(revisions(&lease).await, recorded);
+
+    for (name, generation) in [
+        (&unmapped, unmapped_generation),
+        (&conflicted, conflicted_generation),
+    ] {
+        catalog
+            .admin(Origin::Api)
+            .delete_object(&bucket, name, GenerationCondition::Is(generation))
+            .await
+            .unwrap();
+        lease
+            .remove_deleted_finding(binding.clone(), name.clone())
+            .await
+            .unwrap();
+    }
+    let findings = lease.findings_page(0, 256).await.unwrap();
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| (finding.name.as_str(), finding.reason))
+            .collect::<Vec<_>>(),
+        [("conflicted", FindingKind::ExportConflict)]
+    );
+    assert_eq!(revisions(&lease).await.0, recorded.0 + 1);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() {
     assert_eq!(FindingKind::ExportConflict.effect(), FindingEffect::Blocks);

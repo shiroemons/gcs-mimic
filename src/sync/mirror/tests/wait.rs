@@ -259,6 +259,59 @@ async fn wait_keeps_stopping_for_an_export_conflict_a_later_name_collision_meets
     catalog.close().await.unwrap();
 }
 
+/// An object a name kept out of the tree stops counting once the API deletes it: the replay of
+/// the deletion removes its finding, whether no path could hold the name or the path collides
+/// with another object, so the next wait counts only the objects that remain.
+#[tokio::test]
+async fn wait_stops_counting_objects_the_api_deleted() {
+    let long = "l".repeat(256);
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    let cursor = catalog.current_fence().await.unwrap();
+    let mut published = Vec::new();
+    for name in [r"dir\file", "a", "a/b", long.as_str()] {
+        let record = publish_named(&catalog, &bucket, name, b"api", Origin::Api).await;
+        published.push((name, record.generation));
+    }
+    let first = wait_from(&catalog, &root, cursor).await;
+    assert_eq!(
+        (first.reason, first.findings.map(|counted| counted.unmapped)),
+        (WaitReason::Ready, Some(4))
+    );
+    let cursor = catalog.current_fence().await.unwrap();
+    for (name, generation) in &published[..3] {
+        catalog
+            .admin(Origin::Api)
+            .delete_object(
+                &bucket,
+                &ObjectName::new(*name).unwrap(),
+                GenerationCondition::Is(Generation::new(*generation).unwrap()),
+            )
+            .await
+            .unwrap();
+    }
+    let second = wait_from(&catalog, &root, cursor).await;
+    assert_eq!(
+        (
+            second.reason,
+            second.findings.map(|counted| counted.unmapped)
+        ),
+        (WaitReason::Ready, Some(1))
+    );
+    let findings = root.findings_page(0, 256).await.unwrap();
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| finding.name.as_str())
+            .collect::<Vec<_>>(),
+        [long.as_str()]
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// The external edit a scan meets, against an API change that the journal cursor has already
 /// passed, so that only the export conflict the scan records stands between the wait and Ready.
 #[derive(Clone, Copy, Debug)]

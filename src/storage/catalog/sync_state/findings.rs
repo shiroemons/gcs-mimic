@@ -255,6 +255,35 @@ impl RootLease {
         Ok(())
     }
 
+    /// Removes the name finding of `name` once the API no longer holds the object, checked in
+    /// the same transaction: a name finding describes a live generation, and one left behind
+    /// would keep counting an object that is gone. With no live object, every generation the
+    /// row can name is a deleted one. An export conflict stays, since the deletion does not
+    /// settle the external edit it holds, and so does a row of another incarnation. A live
+    /// object, written again since the caller read it, keeps its row for the replay of that
+    /// generation. Removing nothing writes nothing, so findings keep their revision.
+    pub(crate) async fn remove_deleted_finding(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+    ) -> Result<(), RootError> {
+        self.revalidate().await?;
+        let lease = self.clone();
+        let root = self.status().root_id;
+        self.catalog().run_admin_with_error(move |c| {
+            let tx = c.transaction().map_err(unavailable)?;
+            lease.control_scope().authorize(&tx)?;
+            matching(&tx, &binding, binding.bucket.as_str())?;
+            if objects::lookup(&tx, binding.bucket.as_str(), name.as_str())?.is_some() {
+                return Ok(());
+            }
+            sql::exec(&tx, "DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason!=?5", params![root,binding.bucket,name,binding.incarnation,FindingKind::ExportConflict]).map_err(unavailable)?;
+            tx.commit().map_err(unavailable)?;
+            Ok::<_, AdminError>(())
+        }).await?;
+        Ok(())
+    }
+
     /// Continue after the last ordinal; pages are bounded observations, not frozen snapshots.
     pub async fn findings_page(&self, after: i64, limit: usize) -> Result<Vec<Finding>, RootError> {
         let (Ok(after), Ok(limit)) = (

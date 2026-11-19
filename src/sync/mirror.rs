@@ -1397,8 +1397,13 @@ impl LiveObject<'_> {
         let path = match mapped {
             Ok(path) => path,
             Err(reason) => {
-                if let Some(record) = record {
-                    self.finding(&record, reason).await?;
+                match record {
+                    Some(record) => self.finding(&record, reason).await?,
+                    None => {
+                        self.root
+                            .remove_deleted_finding(binding, name.clone())
+                            .await?
+                    }
                 }
                 return Ok(None);
             }
@@ -1422,6 +1427,11 @@ impl LiveObject<'_> {
         };
         let Some(record) = record else {
             let Some(tracked) = tracked else {
+                // Nothing to remove from the tree, but a finding that kept the deleted object
+                // out of it would still count it.
+                self.root
+                    .remove_deleted_finding(binding, name.clone())
+                    .await?;
                 return Ok(None);
             };
             if self.replaced(path).await? {
