@@ -1002,10 +1002,22 @@ pub(crate) fn copy_with_times(source: &Path, target: &Path) -> io::Result<()> {
     keep_times(target, &fs::metadata(source)?)
 }
 
-/// Gives the file at `target` the access and modification times `source` records. Opening it for
-/// reading is enough to set them, so a read-only copy needs no write permission.
+/// Gives the file at `target` the access and modification times `source` records. The handle asks
+/// only for what setting them needs, so a read-only copy needs no write permission: reading on
+/// Unix, and the attribute-writing right on Windows, where a handle opened for reading is
+/// refused.
 fn keep_times(target: &Path, source: &fs::Metadata) -> io::Result<()> {
-    fs::File::open(target)?.set_times(times(source)?)
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_WRITE_ATTRIBUTES;
+        fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .open(target)?
+    };
+    #[cfg(not(windows))]
+    let file = fs::File::open(target)?;
+    file.set_times(times(source)?)
 }
 
 fn times(source: &fs::Metadata) -> io::Result<fs::FileTimes> {
