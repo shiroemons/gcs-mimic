@@ -925,7 +925,7 @@ fn stale() -> ApiError {
     ApiError::new(
         StatusCode::CONFLICT,
         "conflict",
-        "Synchronization revision changed; rescan, fetch status and inspect the new revision before approval",
+        "Synchronization revision changed; rescan, fetch status and inspect the new revision before approving or rejecting it",
     )
 }
 /// A findings page leads to no approval, so its stale answer names only the status to read
@@ -1050,5 +1050,17 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
             crate::sync::control::paused_control_remedy(),
         ),
         ControlError::Shutdown => busy(),
+        // The caller holds sync control authority, so the answer may say what became of the
+        // set, which tells a used revision from a replaced one.
+        ControlError::Stale {
+            decision,
+            revision,
+            refusal,
+            ..
+        } => ApiError::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            crate::sync::control::stale_decision_remedy(*decision, *revision, *refusal),
+        ),
     }
 }

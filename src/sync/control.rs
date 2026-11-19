@@ -12,7 +12,7 @@ use crate::{
         change_journal::JournalFence,
         sync_state::{
             OpaqueId,
-            deletions::DeletionSet,
+            deletions::{DeletionSet, Refusal},
             observation::PauseReason,
             root::{RootError, RootLease},
         },
@@ -41,6 +41,14 @@ pub(crate) enum ControlError {
     Paused,
     /// The mirror stopped before running the control.
     Shutdown,
+    /// A decision on the deletion set `revision` failed its precondition, `error`, because the
+    /// set no longer waits for it, as `refusal` says.
+    Stale {
+        decision: Decision,
+        revision: OpaqueId,
+        refusal: Refusal,
+        error: SyncError,
+    },
 }
 
 /// What a failed rescan did to the pause, which its answer names.
@@ -346,6 +354,12 @@ impl fmt::Display for ControlError {
             ),
             Self::Paused => f.write_str(&paused_control_remedy()),
             Self::Shutdown => f.write_str("synchronization stopped before the control ran"),
+            Self::Stale {
+                decision,
+                revision,
+                refusal,
+                ..
+            } => f.write_str(&stale_decision_remedy(*decision, *revision, *refusal)),
         }
     }
 }
@@ -353,7 +367,9 @@ impl fmt::Display for ControlError {
 impl Error for ControlError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Failed(error) | Self::RescanFailed { error, .. } => Some(error),
+            Self::Failed(error) | Self::RescanFailed { error, .. } | Self::Stale { error, .. } => {
+                Some(error)
+            }
             Self::Paused | Self::Shutdown => None,
         }
     }
@@ -390,6 +406,70 @@ impl Decision {
             Self::Approve => "/_internal/sync/approve",
             Self::Reject => "/_internal/sync/reject",
         }
+    }
+
+    /// The decision as a set that took it is described.
+    const fn past(self) -> &'static str {
+        match self {
+            Self::Approve => "approved",
+            Self::Reject => "rejected",
+        }
+    }
+
+    /// What the decision does, as advice describes it beside the command.
+    const fn effect(self) -> &'static str {
+        match self {
+            Self::Approve => "delete the objects",
+            Self::Reject => "write the files back from the objects",
+        }
+    }
+
+    /// The command that takes the decision on the set `revision`.
+    const fn advised(self, revision: &str) -> Advised<'_> {
+        match self {
+            Self::Approve => Advised::Approve(revision),
+            Self::Reject => Advised::Reject(revision),
+        }
+    }
+}
+
+/// The refusal of `decision` on the deletion set `revision`, which `refusal` says what became
+/// of, and what to do instead: a decided set names the status or the wait that follows its
+/// decision, a replaced one the new set and the same decision on it, and one an API write
+/// raced the same decision again.
+pub(crate) fn stale_decision_remedy(
+    decision: Decision,
+    revision: OpaqueId,
+    refusal: Refusal,
+) -> String {
+    let past = decision.past();
+    let revision = revision.to_hex();
+    match refusal {
+        Refusal::Approved => format!(
+            "Deletion set {revision} was already approved, and a deletion set is decided once, so it was not {past} now. The status names any deletion set that waits for a decision: {}",
+            Advised::Status
+        ),
+        Refusal::Rejected => format!(
+            "Deletion set {revision} was already rejected, and a deletion set is decided once, so it was not {past} now. Its files are written back from their objects; wait for that to finish: {}",
+            Advised::Wait
+        ),
+        Refusal::Replaced(current) => {
+            let current = current.to_hex();
+            format!(
+                "Deletion set {revision} was not {past}: what it holds changed after it was taken, as files came back or went or an API change reached its objects or their bucket, and deletion set {current} replaced it and waits for a decision. Inspect the new set: {}; then, to {}: {}",
+                Advised::Deletions(Some(&current)),
+                decision.effect(),
+                decision.advised(&current)
+            )
+        }
+        Refusal::Moved => format!(
+            "Deletion set {revision} was not {past}: an API write arrived while the decision compared the set with the directory. The set still waits for a decision; send it again: {}",
+            decision.advised(&revision)
+        ),
+        Refusal::Settled => format!(
+            "Deletion set {revision} was not {past}: no deletion set waits for a decision now, because the missing files came back or a later pass found nothing that needs one. The status shows what synchronization does now: {}",
+            Advised::Status
+        ),
     }
 }
 
@@ -737,6 +817,75 @@ impl WaitResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refused decision names what became of its set and the command that follows: the
+    /// status or the wait for a set decided already, the new set's view and the same decision
+    /// on it for a replaced one, the same decision again for one an API write raced, and the
+    /// status when nothing waits. It names only the decision that was refused, never the
+    /// other one. The sample identifier advice renders is the revision the command samples.
+    #[test]
+    fn a_refused_decision_names_what_became_of_its_set() {
+        assert_eq!(
+            OpaqueId::SAMPLE.to_hex(),
+            super::super::advice::SAMPLE_DELETION_REVISION
+        );
+        let revision: OpaqueId = "0123456789abcdef0123456789abcdef".parse().unwrap();
+        let current: OpaqueId = "fedcba9876543210fedcba9876543210".parse().unwrap();
+        for decision in Decision::ALL {
+            let (name, past) = (decision.as_str(), decision.past());
+            let same = |set: OpaqueId| format!("gcs-mimic sync {name} --deletion-set {set}");
+            for (refusal, parts) in [
+                (
+                    Refusal::Approved,
+                    vec![
+                        "was already approved".to_owned(),
+                        format!("it was not {past} now"),
+                        "gcs-mimic sync status --endpoint URL".to_owned(),
+                    ],
+                ),
+                (
+                    Refusal::Rejected,
+                    vec![
+                        "was already rejected".to_owned(),
+                        format!("it was not {past} now"),
+                        "gcs-mimic sync wait --endpoint URL".to_owned(),
+                    ],
+                ),
+                (
+                    Refusal::Replaced(current),
+                    vec![
+                        format!("deletion set {current} replaced it"),
+                        format!("gcs-mimic sync status --view deletions --revision {current}"),
+                        same(current),
+                    ],
+                ),
+                (Refusal::Moved, vec![same(revision)]),
+                (
+                    Refusal::Settled,
+                    vec![
+                        "no deletion set waits for a decision now".to_owned(),
+                        "gcs-mimic sync status --endpoint URL".to_owned(),
+                    ],
+                ),
+            ] {
+                let remedy = stale_decision_remedy(decision, revision, refusal);
+                assert!(
+                    remedy.starts_with(&format!("Deletion set {revision} ")),
+                    "{remedy}"
+                );
+                for part in parts {
+                    assert!(remedy.contains(&part), "{decision:?} {refusal:?}: {remedy}");
+                }
+                for other in Decision::ALL.into_iter().filter(|other| *other != decision) {
+                    let command = format!("gcs-mimic sync {}", other.as_str());
+                    assert!(
+                        !remedy.contains(&command),
+                        "{decision:?} {refusal:?}: {remedy}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn wait_reasons_parse_from_the_names_they_serialize_as() {

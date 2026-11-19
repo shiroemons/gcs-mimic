@@ -150,6 +150,25 @@ pub(crate) struct PendingRejection {
     pub remaining: u64,
 }
 
+/// What became of a deletion set that a decision on it found no longer waiting, which the
+/// refusal names so that the operator knows what to do instead of trying again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// The set was approved already, by an operator or, below the guard's threshold, when it
+    /// was taken: a set is decided once.
+    Approved,
+    /// An operator rejected the set already, and its files are written back.
+    Rejected,
+    /// The set `0` replaced it, because what it held changed, and waits for a decision now.
+    Replaced(OpaqueId),
+    /// The set still waits under its revision: an API write moved the journal while the
+    /// decision compared the set with the tree, so the same decision may be sent again.
+    Moved,
+    /// No set waits for a decision: the files came back, or a later inventory took a set that
+    /// needs none.
+    Settled,
+}
+
 impl DeletionAuthorization {
     /// A guarded set waits for approval; an unguarded one is authorized when it completes.
     #[expect(
@@ -497,6 +516,46 @@ impl RootLease {
             transaction.commit()?;
             Ok(snapshot)
         }).await?)
+    }
+
+    /// What became of the set `revision` when a decision on it failed its precondition: how it
+    /// was decided, while the root still holds it, and otherwise the set that waits for a
+    /// decision now, if one does. A root holds one set, so a set that another replaced reads as
+    /// replaced or settled whether or not it was decided first.
+    pub(crate) async fn refusal(&self, revision: OpaqueId) -> Result<Refusal, RootError> {
+        let root = self.status().root_id;
+        let authority = self.authority();
+        Ok(self
+            .catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                authority.authorize(&tx, root)?;
+                let decided: Option<DeletionAuthorization> = sql::row(
+                    &tx,
+                    "SELECT authorization FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2",
+                    params![root, revision],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(unavailable)?;
+                let waiting = read_set(&tx, root)?
+                    .filter(DeletionSet::awaits_decision)
+                    .map(|set| set.revision);
+                Ok(match (decided, waiting) {
+                    (Some(DeletionAuthorization::Granted), _) => Refusal::Approved,
+                    (Some(DeletionAuthorization::Rejected), _) => Refusal::Rejected,
+                    (Some(DeletionAuthorization::Withheld) | None, Some(current))
+                        if current == revision =>
+                    {
+                        Refusal::Moved
+                    }
+                    (Some(DeletionAuthorization::Withheld) | None, Some(current)) => {
+                        Refusal::Replaced(current)
+                    }
+                    (Some(DeletionAuthorization::Withheld) | None, None) => Refusal::Settled,
+                })
+            })
+            .await?)
     }
 
     /// The write-back the root's rejected set has left, if any of its members is not done.

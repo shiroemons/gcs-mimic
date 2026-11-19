@@ -5,14 +5,16 @@
 
 use super::{
     control::{
-        Correction, export_retry_remedy, newer_edit_remedy, occupied_directory_remedy,
-        paused_control_remedy, resume_retry_remedy, unclassified_collision_remedy,
-        unsettled_remedy,
+        Correction, Decision, export_retry_remedy, newer_edit_remedy, occupied_directory_remedy,
+        paused_control_remedy, resume_retry_remedy, stale_decision_remedy,
+        unclassified_collision_remedy, unsettled_remedy,
     },
     entries::EntryProblem,
     outstanding::Holdup,
 };
-use crate::storage::sync_state::{observation::PauseReason, writeback::Halt};
+use crate::storage::sync_state::{
+    OpaqueId, deletions::Refusal, observation::PauseReason, writeback::Halt,
+};
 use std::fmt;
 
 /// The endpoint option every advised command ends with: the one placeholder advice keeps, since
@@ -160,9 +162,10 @@ pub fn commands() -> Vec<String> {
 /// remedy of every holdup with and without the revisions at hand, which a wait's answer gives,
 /// and for a pause also the `sync_paused` event, the root-stop finding and a failed rescan; of
 /// a wait that ran out of time; of every correction outside a pause, which findings and events
-/// give; of the export events and the finding carried over from an older release; of a failed
-/// resume, which the `sync_resume_failed` event also gives; of a control a pause refuses; and of
-/// a directory that holds an object's file name.
+/// give; of every refusal of each decision on a deletion set that no longer waits for it; of
+/// the export events and the finding carried over from an older release; of a failed resume,
+/// which the `sync_resume_failed` event also gives; of a control a pause refuses; and of a
+/// directory that holds an object's file name.
 #[doc(hidden)]
 pub fn catalog() -> Vec<String> {
     let at_hand = [
@@ -233,6 +236,20 @@ pub fn catalog() -> Vec<String> {
         | Correction::AliasedName
         | Correction::UnreadablePath => correction.remedy(),
     };
+    let refusals = [
+        Refusal::Approved,
+        Refusal::Rejected,
+        Refusal::Replaced(OpaqueId::SAMPLE),
+        Refusal::Moved,
+        Refusal::Settled,
+    ];
+    let refusal_listed = |refusal: Refusal| match refusal {
+        Refusal::Approved
+        | Refusal::Rejected
+        | Refusal::Replaced(_)
+        | Refusal::Moved
+        | Refusal::Settled => refusal,
+    };
     holdups
         .map(listed)
         .flat_map(|holdup| {
@@ -241,6 +258,15 @@ pub fn catalog() -> Vec<String> {
                 .filter_map(move |at_hand| holdup.remedy(at_hand))
         })
         .chain(corrections.map(correction_listed))
+        .chain(
+            refusals
+                .map(refusal_listed)
+                .into_iter()
+                .flat_map(|refusal| {
+                    Decision::ALL
+                        .map(|decision| stale_decision_remedy(decision, OpaqueId::SAMPLE, refusal))
+                }),
+        )
         .chain([
             unsettled_remedy(None, None),
             newer_edit_remedy(),

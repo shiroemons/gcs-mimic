@@ -138,7 +138,11 @@ revision is never confirmed, approved or rejected again. The write-back logs
 kept because something was put there meanwhile, and how many it skipped because
 the object changed or went; a write-back that stopped or failed part way logs
 it as a warning with the number of files remaining. A stale, approved or
-already rejected revision returns 409, as approval does.
+already rejected revision returns 409, as approval does. The 409 of a decision
+says what became of the set: approved or rejected already; replaced by the set
+it names, because files came back or went or an API change reached its objects
+or their bucket, with the same decision on that set; still waiting after an
+API write raced the decision, which may be sent again; or no set waiting.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,
 with its revision, its counts and the commands that inspect, approve and reject

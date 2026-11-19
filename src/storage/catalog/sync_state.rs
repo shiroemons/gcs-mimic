@@ -77,6 +77,10 @@ crate::storage::opaque_id::opaque_id! {
     column = text;
 }
 impl OpaqueId {
+    /// The identifier advice renders where an answer would name a real one, as the revision
+    /// [`crate::sync::advice::SAMPLE_DELETION_REVISION`] spells it.
+    pub(crate) const SAMPLE: Self = Self([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+
     pub(crate) fn generate() -> Result<Self, getrandom::Error> {
         crate::storage::opaque_id::random().map(Self)
     }

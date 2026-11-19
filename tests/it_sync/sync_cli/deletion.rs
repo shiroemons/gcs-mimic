@@ -116,3 +116,65 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
             .is_none_or(Vec::is_empty)
     );
 }
+
+/// An API write to a member's object after the status named the set waiting for a decision
+/// makes a decision on that set fail with 409, which names the set that replaced it and the
+/// same decision on it, never the other one. That decision is accepted, and the rejection
+/// writes the file back beside the new object.
+#[test]
+fn live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let bucket = tree.0.join("test-bucket");
+    fs::create_dir(&bucket).unwrap();
+    for name in ["first", "second"] {
+        fs::write(bucket.join(name), b"body").unwrap();
+    }
+    let server = Server::start(&data, Some(&tree));
+    server.cli("rescan", &["--timeout", "60s"], true);
+    assert_eq!(
+        server.cli("wait", &["--timeout", "10s"], true)["completed"],
+        true
+    );
+    fs::remove_dir_all(&bucket).unwrap();
+    server.cli("rescan", &[], true);
+    let status = server.cli("status", &[], true);
+    assert_eq!(status["state"], "DeletionApproval", "{status}");
+    let old = status["pending_deletion_revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=first",
+            None,
+            b"written",
+        )
+        .expect(200);
+    let refused = server.cli("reject", &["--deletion-set", &old], false);
+    assert_eq!(refused["error"]["code"], 409, "{refused}");
+    let status = server.cli("status", &[], true);
+    assert_eq!(status["pending_deletion_count"], 1, "{status}");
+    let new = status["pending_deletion_revision"].as_str().unwrap();
+    assert_ne!(new, old);
+    let message = refused["error"]["message"].as_str().unwrap();
+    for part in [
+        format!("Deletion set {old} was not rejected"),
+        format!("deletion set {new} replaced it"),
+        format!("gcs-mimic sync reject --deletion-set {new}"),
+    ] {
+        assert!(message.contains(&part), "{message}");
+    }
+    assert!(!message.contains("gcs-mimic sync approve"), "{message}");
+    let accepted = server.cli("reject", &["--deletion-set", new], true);
+    assert_eq!(accepted["operation_id"], new);
+    assert_eq!(
+        server.cli("wait", &["--timeout", "10s"], true)["completed"],
+        true
+    );
+    assert_eq!(fs::read(bucket.join("second")).unwrap(), b"body");
+    assert_eq!(fs::read(bucket.join("first")).unwrap(), b"written");
+    let replay = server.cli("reject", &["--deletion-set", new], false);
+    assert_eq!(replay["error"]["code"], 409, "{replay}");
+}

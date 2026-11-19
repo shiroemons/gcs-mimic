@@ -113,10 +113,14 @@ While deletion candidates are being recomputed, status retains their last comple
 membership while refreshing current safety findings and revisions. Every read
 rechecks authority and the journal fence; revision-bound
 pages and approval reject an invalidated revision with 409. Approval and
-rejection first inventory again a set that waits for them, so a native
-notification that left its members as they were does not make the revision the
-status named stale. After an API write, they answer 409 until the next pass,
-which keeps the revision when the members are the same.
+rejection first inventory again a set that waits for them, at the current
+journal fence, so neither a native notification nor an API write that left its
+members as they were makes the revision the status named stale. An API write
+that replaced or deleted a member's object, or updated a member's bucket, does:
+the decision answers 409 and names the set that replaced it. A refused decision
+says what became of the set: approved or rejected already; replaced by the set
+it names, with the same command for that set; still waiting after an API write
+raced the decision, which may be sent again; or no set waiting.
 During native quiet settling, wait and rescan remain queued inside the actor.
 A wait request observes its original deadline; if quiet has not been established
 at that deadline it reports SourceChanging with HTTP 409, and the CLI asks again

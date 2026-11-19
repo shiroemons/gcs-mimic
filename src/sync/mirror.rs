@@ -1270,6 +1270,34 @@ impl LiveControl<'_> {
         }
     }
 
+    /// Records `decision` on the set `revision`. A set that no longer waits for it is refused
+    /// with what became of it, read right after on this worker, which alone takes inventories,
+    /// so that the answer can say what to do instead of trying again.
+    async fn apply(
+        &self,
+        decision: Decision,
+        revision: crate::storage::sync_state::OpaqueId,
+    ) -> Result<crate::storage::sync_state::deletions::DeletionSet, ControlError> {
+        let root = self.scope.root;
+        let applied = match decision {
+            Decision::Approve => root.approve_deletions(revision).await,
+            Decision::Reject => root.reject_deletions(revision).await,
+        };
+        let error = match applied {
+            Ok(set) => return Ok(set),
+            Err(error) => error,
+        };
+        if !matches!(error, RootError::Admin(AdminError::Precondition)) {
+            return Err(error.into());
+        }
+        Err(ControlError::Stale {
+            decision,
+            revision,
+            refusal: root.refusal(revision).await?,
+            error: error.into(),
+        })
+    }
+
     /// Approves or rejects the deletion set `revision`, as `decision` says, answers, and then
     /// runs the approved set or writes the rejected set's files back from their objects.
     async fn decide(
@@ -1281,11 +1309,7 @@ impl LiveControl<'_> {
     ) -> Result<(), SyncError> {
         let root = self.scope.root;
         let decided = match self.decidable(revision, identity).await {
-            Ok(()) => match decision {
-                Decision::Approve => root.approve_deletions(revision).await,
-                Decision::Reject => root.reject_deletions(revision).await,
-            }
-            .map_err(ControlError::from),
+            Ok(()) => self.apply(decision, revision).await,
             Err(error) => Err(error),
         };
         let set = decided.as_ref().ok().cloned();

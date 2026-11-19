@@ -10,7 +10,7 @@
 use super::baseline::exists;
 use super::ingest_durability::Started;
 use super::*;
-use crate::storage::sync_state::deletions::{DeletionAuthorization, DeletionSet};
+use crate::storage::sync_state::deletions::{DeletionAuthorization, DeletionSet, Refusal};
 use crate::sync::control::{WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding};
 
@@ -761,22 +761,30 @@ impl Decided<'_> {
         }
     }
 
-    /// The decision was refused as stale and changed nothing: a new set of `remaining` members
-    /// replaced the named one and waits, every object remains, and nothing wrote the missing
-    /// file back.
+    /// The decision was refused as stale, naming the set that replaced the named one, and
+    /// changed nothing: that set of `remaining` members waits, every object remains, and
+    /// nothing wrote the missing file back.
     async fn refused_as_stale(&self, answer: Result<DeletionSet, ControlError>, remaining: u64) {
         let decision = self.decision;
-        assert!(
-            matches!(
-                answer,
-                Err(ControlError::Failed(SyncError::Root(RootError::Admin(
-                    AdminError::Precondition
-                ))))
-            ),
-            "{decision:?}: {answer:?}"
-        );
         let replaced = self.live.root.deletion_set().await.unwrap().unwrap();
         assert_ne!(replaced.revision, self.revision, "{decision:?}");
+        let Err(ControlError::Stale {
+            decision: refused,
+            revision,
+            refusal,
+            error: SyncError::Root(RootError::Admin(AdminError::Precondition)),
+        }) = answer
+        else {
+            panic!("{decision:?}: {answer:?}");
+        };
+        assert_eq!(
+            (refused, revision, refusal),
+            (
+                decision,
+                self.revision,
+                Refusal::Replaced(replaced.revision)
+            )
+        );
         assert_eq!(
             (replaced.candidate_count, replaced.guarded),
             (remaining, true),

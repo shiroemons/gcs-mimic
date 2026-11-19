@@ -394,7 +394,7 @@ mod tests {
     const SYNC_STALE: Answer = (
         StatusCode::CONFLICT,
         "conflict",
-        "Synchronization revision changed; rescan, fetch status and inspect the new revision before approval",
+        "Synchronization revision changed; rescan, fetch status and inspect the new revision before approving or rejecting it",
     );
     const SYNC_DISK_FULL: Answer = (
         StatusCode::SERVICE_UNAVAILABLE,

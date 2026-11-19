@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::storage::admin::{BucketName, ObjectName};
+use crate::storage::sync_state::deletions::Refusal;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
 use crate::sync::Reconciliation;
 use crate::{
@@ -791,6 +792,77 @@ async fn an_api_write_keeps_the_revision_only_while_the_members_stay_the_same() 
     assert_eq!(changed.candidate_count, 1);
     assert!(root.approve_deletions(first.revision).await.is_err());
     assert!(object_exists(&catalog, "0000").await);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// A decision that finds its set no longer waiting reads what became of the set, which the
+/// refusal names: decided already, and how; replaced by the set that waits now; still waiting
+/// under its revision, which only an API write racing the decision leaves; or no set waiting.
+#[tokio::test]
+async fn a_refused_decision_reads_what_became_of_its_set() {
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    for decided in [Refusal::Approved, Refusal::Rejected] {
+        let (_data, tree, catalog, root, config) = fixture(2).await;
+        fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+        let set = inventory(&root, &config, summary.gate(), &stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(root.refusal(set.revision).await.unwrap(), Refusal::Moved);
+        if decided == Refusal::Approved {
+            root.approve_deletions(set.revision).await.unwrap();
+        } else {
+            root.reject_deletions(set.revision).await.unwrap();
+        }
+        assert_eq!(root.refusal(set.revision).await.unwrap(), decided);
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+
+    let (_data, tree, catalog, root, config) = fixture(2).await;
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let first = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let name = ObjectName::new("0001").unwrap();
+    let admin = catalog.admin(Origin::Api);
+    let generation = admin
+        .get_object(&bucket, &name, None)
+        .await
+        .unwrap()
+        .generation;
+    admin
+        .delete_object(
+            &bucket,
+            &name,
+            GenerationCondition::Is(generation.try_into().unwrap()),
+        )
+        .await
+        .unwrap();
+    let changed = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(changed.revision, first.revision);
+    assert_eq!(
+        root.refusal(first.revision).await.unwrap(),
+        Refusal::Replaced(changed.revision)
+    );
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/0000"), b"immutable").unwrap();
+    inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap();
+    for revision in [first.revision, changed.revision] {
+        assert_eq!(root.refusal(revision).await.unwrap(), Refusal::Settled);
+    }
     drop(root);
     catalog.close().await.unwrap();
 }
