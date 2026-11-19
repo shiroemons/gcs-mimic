@@ -107,10 +107,10 @@ impl MirrorStatus {
     /// The working-tree entries the latest complete scan could not take in, which hold back
     /// the baseline and deletion detection until they are renamed, replaced or moved away.
     #[cfg_attr(
-        not(test),
+        not(all(test, any(target_os = "linux", target_os = "macos"))),
         expect(
             dead_code,
-            reason = "the status control has yet to list these entries; until it does only tests read them"
+            reason = "the status control has yet to list these entries; until it does only the mirror's tests, which run where synchronization does, read them"
         )
     )]
     pub(crate) fn unrepresentable_entries(&self) -> Arc<EntryReport> {
