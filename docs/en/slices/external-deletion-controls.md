@@ -74,8 +74,10 @@ ingested after that state count as deleted; the delete guard stops a mass
 deletion.
 
 Schema 40 persists one fixed root-bound deletion revision and its members.
-Candidates are paged in batches of at most 256. The denominator, count, captured
-journal fence and thresholds stay fixed across pages. The guard stops deletion
+Candidates are paged in batches of at most 256. The denominator, count and
+thresholds stay fixed across pages, and so does the captured journal fence until
+an inventory confirms the same members after an API write, described below. The
+guard stops deletion
 when enabled, the candidate count is at least 100, and the fraction is strictly
 greater than one half. It also stops it, whatever the counts, when a bucket's
 whole directory is missing while the tree tracks files in it: a mount that did
@@ -124,7 +126,11 @@ and an approved set log them at the info level. The rescan result and the
 `sync_ingested` and `sync_reconciled` events do not count deletions.
 
 Observed tree changes, root/marker failures, API journal changes and restart
-invalidate unused revisions. An API or bucket change during an inventory makes
+invalidate unused revisions, except that an observed tree change leaves a set
+that waits for approval in place: approving or rejecting it first inventories
+the tree again, so the decision applies to what the tree shows then, and a
+notification about another path that arrives just before it does not make it
+fail as stale. An API or bucket change during an inventory makes
 it stale: it stops, logs `sync_deletion_inventory_superseded` at the info
 level, and the next pass inventories again. A change that writes the
 tree brings that pass through the native events of its own writes, which the
@@ -132,9 +138,12 @@ mirror does not filter out; a change to object metadata alone writes nothing, so
 the missing files wait for the next change to the directory, a rescan or a wait.
 Invalidating a set that is already invalid changes
 nothing, so it starts no new observation revision. An inventory that finds
-exactly the members of the root's unapproved set again, at the same journal
-fence and guard setting, confirms that set under its revision instead of
-replacing it, also after an observed change invalidated it. It never confirms an
+exactly the members of the root's unapproved set again, under the same guard
+setting and decision, confirms that set under its revision instead of replacing
+it, also after an observed change invalidated it or an API write moved the
+journal past it, which only the members decide: their objects, generations,
+incarnations and paths. The confirmed set moves to the inventory's journal fence
+and keeps the denominator it was taken with. It never confirms an
 approved set or one from before a restart. Approval consumes exactly one
 revision, and replay or stale inspection returns 409. Each actual delete rechecks no-follow absence,
 root identity, membership, generation and incarnation. Member completion and the

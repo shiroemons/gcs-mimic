@@ -169,10 +169,11 @@ impl Unsettled {
         Ok(Publishing::Started)
     }
 
-    /// Holds the publication and invalidates deletion candidates the change may have made stale.
+    /// Holds the publication and invalidates deletion candidates the change may have made stale,
+    /// except a set that waits for a decision, which the decision inventories again itself.
     pub(super) async fn unsettle(&mut self, root: &RootLease) -> Result<(), SyncError> {
         self.publish(root).await?;
-        root.invalidate_deletions().await?;
+        root.unsettle_deletions().await?;
         Ok(())
     }
 
@@ -196,7 +197,7 @@ pub(super) async fn refresh(
         controls.changing();
         let started = unsettled.publish(root).await? == Publishing::Started;
         if changed || started {
-            root.invalidate_deletions().await?;
+            root.unsettle_deletions().await?;
             #[cfg(test)]
             if started {
                 export_checkpoint("observation-invalidated").await;

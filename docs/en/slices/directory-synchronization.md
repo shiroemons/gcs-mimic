@@ -901,12 +901,17 @@ Any observed tree change, root/marker change, relevant API change or restart
 invalidates unused approval and requires rescan and fresh approval. Replays and
 foreign/stale revisions return 409 without broadening the set. A later inventory
 that finds exactly the members of an unapproved set again confirms it under the
-same revision instead of replacing it; an approved set or one from before a
-restart is never confirmed again.
+same revision instead of replacing it, also after an API write moved the journal;
+an approved set or one from before a restart is never confirmed again. An
+observed tree change leaves a set that waits for approval in place, and
+approving or rejecting it first inventories the tree again, so the decision
+applies to the members the tree shows then and a late notification about another
+path does not make the named revision stale.
 
 Inspect candidates with `GET /_internal/sync?view=deletions&revision=REVISION`,
 following its cursors to completion. Every page belongs to that exact frozen set,
-with the same denominator, count and fence; `approve` executes the whole inspected
+with the same denominator, count and fence, which only an inventory that confirms
+the same members after an API write moves; `approve` executes the whole inspected
 revision, never only the last page or a recomputed current set. Any invalidation
 also makes its remaining page requests return 409 until an inventory confirms the
 same members again. Restart invalidates both the

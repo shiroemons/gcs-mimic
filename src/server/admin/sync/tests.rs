@@ -2082,7 +2082,8 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
     let revision = before["pending_deletion_revision"].as_str().unwrap();
     let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
 
-    // Inject the exact interval between a delayed native event's invalidation and its completed scan.
+    // Inject a withdrawn set while an observation is unsettled, as a pass that holds back
+    // deletions leaves it. A native event alone no longer withdraws a set that waits for approval.
     let publication = root.begin_observation_publication().await.unwrap();
     root.invalidate_deletions().await.unwrap();
     let during = tokio::time::timeout(Duration::from_secs(1), fixture.status())
@@ -2097,9 +2098,8 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
         during["pending_deletion_count"],
         before["pending_deletion_count"]
     );
-    // A delayed native event of the removal may have withdrawn the set before the injection
-    // did, which then changes nothing more; either way the set is withdrawn now, and the
-    // status shows the latest observation.
+    // The set is withdrawn, which an approval does not undo, and the status shows the latest
+    // observation.
     assert!(root.deletion_set().await.unwrap().is_none());
     assert!(
         during["observation"]["revision"].as_i64().unwrap()
@@ -2136,19 +2136,18 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
         completed["pending_deletion_count"],
         before["pending_deletion_count"]
     );
-    // A delayed native event may withdraw the set again until its own scan confirms it.
-    eventually_async("the confirmed revision reads again", || async {
-        fixture
-            .request(
-                "GET",
-                &format!("/_internal/sync?view=deletions&revision={revision}"),
-                b"",
-                None,
-            )
-            .await
-            .is_ok_and(|response| response.status() == StatusCode::OK)
-    })
-    .await;
+    // A late native event of the removal no longer withdraws the confirmed set, so its revision
+    // reads at once.
+    let confirmed = fixture
+        .request(
+            "GET",
+            &format!("/_internal/sync?view=deletions&revision={revision}"),
+            b"",
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(confirmed.status(), StatusCode::OK);
     assert_eq!(
         root.deletion_set().await.unwrap().unwrap().authorization,
         crate::storage::sync_state::deletions::DeletionAuthorization::Withheld
@@ -2302,16 +2301,10 @@ async fn rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_
         StatusCode::CONFLICT
     );
     let payload = serde_json::to_vec(&json!({"deletion_set":revision})).unwrap();
-    // A delayed native event of the removal withdraws the set until its own scan confirms it
-    // under the same revision, so only that refusal is retried; a revision that changed would
-    // never be accepted.
-    let accepted = eventually_some_async("the rejection to be accepted", || async {
-        fixture
-            .request("POST", "/_internal/sync/reject", &payload, None)
-            .await
-            .ok()
-    })
-    .await;
+    let accepted = fixture
+        .request("POST", "/_internal/sync/reject", &payload, None)
+        .await
+        .unwrap();
     assert_eq!(accepted.status(), StatusCode::ACCEPTED);
     let accepted = body(accepted).await;
     assert_eq!(accepted["operation_id"], revision.as_str());

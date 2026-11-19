@@ -145,6 +145,11 @@ struct Live {
 
 impl Live {
     async fn start(data: &Path, tree: &Path) -> Self {
+        Self::start_with(data, tree, None).await
+    }
+
+    /// Starts the mirror, stopped by `hook`, when there is one, at each checkpoint it names.
+    async fn start_with(data: &Path, tree: &Path, hook: Option<std::sync::Arc<Hook>>) -> Self {
         let catalog = Catalog::open(data).await.unwrap();
         let config = Config {
             data_dir: data.to_owned(),
@@ -159,9 +164,13 @@ impl Live {
         let (commands, mut requests) = tokio::sync::mpsc::channel(1);
         let worker_catalog = catalog.clone();
         let worker_root = root.clone();
-        let worker = tokio::spawn(async move {
+        let run = async move {
             run_live_controlled(&worker_catalog, &worker_root, &mut stopping, &mut requests).await
-        });
+        };
+        let worker = match hook {
+            Some(hook) => tokio::spawn(EXPORT_HOOK.scope(hook, run)),
+            None => tokio::spawn(run),
+        };
         Self {
             catalog,
             root,
@@ -205,10 +214,11 @@ async fn an_api_write_into_a_missing_bucket_directory_waits_for_the_approval() {
     );
     assert_eq!(status.first(), Holdup::DeletionApproval);
     assert!(!tree.0.join(BUCKET).exists());
-    // The API write moved the journal, so the inventory offers the same members under a new
-    // revision.
+    // The API write moved the journal, and the inventory found the same members, so the set
+    // keeps the revision the user may already be about to approve.
     let held = root.deletion_set().await.unwrap().unwrap();
     assert_eq!((held.candidate_count, held.guarded), (2, true));
+    assert_eq!(held.revision, set.revision);
     assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
     all_exist(catalog, &bucket).await;
 
@@ -400,4 +410,147 @@ async fn rejecting_a_set_held_for_a_missing_bucket_directory_brings_the_director
     }
     all_exist(catalog, &bucket).await;
     live.stop().await;
+}
+
+/// What the user decides about the set that waits.
+#[derive(Clone, Copy, Debug)]
+enum Decision {
+    Approve,
+    Reject,
+}
+
+impl Decision {
+    fn command(
+        self,
+        revision: crate::storage::sync_state::OpaqueId,
+        reply: Reply<DeletionSet>,
+    ) -> Command {
+        match self {
+            Self::Approve => Command::Approve {
+                revision,
+                reply,
+                identity: None,
+            },
+            Self::Reject => Command::Reject {
+                revision,
+                reply,
+                identity: None,
+            },
+        }
+    }
+}
+
+/// A change to the tree that touches no member of the set that waits.
+#[derive(Clone, Copy, Debug)]
+enum Unrelated {
+    /// A file directly in the directory, which belongs to no bucket.
+    RootFile,
+    /// A late notification about the directory that the export of an object written through
+    /// the API into another bucket created, after the pass that took the export in. The write
+    /// moved the journal past the set, which that pass confirmed under the same revision.
+    ExportedDirectory,
+}
+
+/// Runs `work` while letting the mirror past every checkpoint `hook` stops it at.
+async fn released<F: std::future::Future>(hook: &Hook, work: F) -> F::Output {
+    tokio::pin!(work);
+    loop {
+        tokio::select! {
+            biased;
+            output = &mut work => return output,
+            () = hook.entered.notified() => hook.release.notify_one(),
+        }
+    }
+}
+
+/// A decision sent right after a native event about another path, before any pass looked at
+/// the tree again, is accepted the first time under the revision the status named. The event
+/// once withdrew the set until that pass confirmed it, so the command the guidance names failed
+/// with 409 whenever a late notification arrived first. The hook stops the mirror right after the
+/// event took effect, so the decision is the next thing it handles.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_decision_right_after_a_change_to_another_path_is_accepted_the_first_time() {
+    for unrelated in [Unrelated::RootFile, Unrelated::ExportedDirectory] {
+        for decision in [Decision::Reject, Decision::Approve] {
+            decide_after_a_change_to_another_path(unrelated, decision).await;
+        }
+    }
+}
+
+async fn decide_after_a_change_to_another_path(unrelated: Unrelated, decision: Decision) {
+    let (data, tree, bucket) = tracked_pair().await;
+    fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
+    let hook = std::sync::Arc::new(Hook {
+        phase: "observation-invalidated",
+        entered: Default::default(),
+        release: Default::default(),
+    });
+    let live = Live::start_with(&data.0, &tree.0, Some(hook.clone())).await;
+    let (catalog, root, commands) = (&live.catalog, &live.root, &live.commands);
+    let waited = released(&hook, wait_control(commands)).await;
+    assert_eq!(waited.reason, WaitReason::DeletionApproval);
+    let set = root.deletion_set().await.unwrap().unwrap();
+    assert_eq!((set.candidate_count, set.guarded), (2, true));
+
+    match unrelated {
+        Unrelated::RootFile => fs::write(tree.0.join("README.md"), b"notes").unwrap(),
+        Unrelated::ExportedDirectory => {
+            let other = BucketName::new("other-bucket").unwrap();
+            catalog
+                .admin(Origin::Api)
+                .ensure_bucket(
+                    BucketDefinition::default_for(&other, "owner", &SystemClock).unwrap(),
+                )
+                .await
+                .unwrap();
+            publish_named(catalog, &other, "dir/file", BODY, Origin::Api).await;
+            let waited = released(&hook, wait_control(commands)).await;
+            assert_eq!(waited.reason, WaitReason::DeletionApproval);
+            let exported = tree.0.join("other-bucket/dir");
+            assert_eq!(fs::read(exported.join("file")).unwrap(), BODY);
+            let confirmed = root.deletion_set().await.unwrap().unwrap();
+            assert_eq!(confirmed.revision, set.revision);
+            // A notification about the exported directory that leaves nothing to take in.
+            fs::write(exported.join("transient"), b"gone").unwrap();
+            fs::remove_file(exported.join("transient")).unwrap();
+        }
+    }
+    tokio::time::timeout(HANG_GUARD, hook.entered.notified())
+        .await
+        .unwrap();
+    let (reply, answer) = tokio::sync::oneshot::channel();
+    commands
+        .send(decision.command(set.revision, reply))
+        .await
+        .unwrap();
+    let releasing = hook.clone();
+    let releaser = tokio::spawn(async move {
+        loop {
+            releasing.release.notify_one();
+            releasing.entered.notified().await;
+        }
+    });
+    let decided = tokio::time::timeout(HANG_GUARD, answer)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_or_else(|error| panic!("{decision:?} after {unrelated:?}: {error:?}"));
+    assert_eq!(
+        decided.revision, set.revision,
+        "{decision:?} after {unrelated:?}"
+    );
+
+    assert_eq!(wait_control(commands).await.reason, WaitReason::Ready);
+    for name in TRACKED {
+        let kept = exists(catalog, &bucket, name).await;
+        match decision {
+            Decision::Approve => assert!(!kept, "{name}"),
+            Decision::Reject => {
+                assert!(kept, "{name}");
+                assert_eq!(fs::read(tree.0.join(BUCKET).join(name)).unwrap(), BODY);
+            }
+        }
+    }
+    live.stop().await;
+    releaser.abort();
 }

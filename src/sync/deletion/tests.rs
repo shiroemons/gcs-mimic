@@ -720,6 +720,75 @@ async fn an_identical_inventory_keeps_an_unapproved_revision_and_never_reuses_an
     catalog.close().await.unwrap();
 }
 
+/// An API write since the set was taken moves the journal past it, which keeps the set from
+/// being approved until an inventory looks again. That inventory keeps the revision while the
+/// members are the same, as after a metadata write that leaves every generation as it was, and
+/// replaces the set once a member changed, here deleted through the API, so the approval the
+/// earlier revision named never applies to other members.
+#[tokio::test]
+async fn an_api_write_keeps_the_revision_only_while_the_members_stay_the_same() {
+    let (_data, tree, catalog, root, config) = fixture(2).await;
+    fs::remove_dir_all(tree.0.join("test-bucket")).unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let summary = Reconciliation {
+        baseline_complete: true,
+        ..Default::default()
+    };
+    let first = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((first.candidate_count, first.guarded), (2, true));
+
+    catalog
+        .update_object_metadata(
+            live("test-bucket", "0000"),
+            Default::default(),
+            crate::object::ObjectMetadataUpdate {
+                content_type: crate::object::Patch::Set("text/plain".into()),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    assert!(root.approve_deletions(first.revision).await.is_err());
+    let again = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.revision, first.revision);
+    assert_eq!(again.candidate_count, 2);
+
+    let bucket = BucketName::new("test-bucket").unwrap();
+    let name = ObjectName::new("0001").unwrap();
+    let admin = catalog.admin(Origin::Api);
+    let generation = admin
+        .get_object(&bucket, &name, None)
+        .await
+        .unwrap()
+        .generation;
+    admin
+        .delete_object(
+            &bucket,
+            &name,
+            GenerationCondition::Is(generation.try_into().unwrap()),
+        )
+        .await
+        .unwrap();
+    let changed = inventory(&root, &config, summary.gate(), &stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(changed.revision, first.revision);
+    assert_eq!(changed.candidate_count, 1);
+    assert!(root.approve_deletions(first.revision).await.is_err());
+    assert!(object_exists(&catalog, "0000").await);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A bucket's whole directory gone takes its files to approval however few they are, because a
 /// missing mount looks the same; approving deletes them. The same files deleted inside a
 /// directory that is still there are deleted at once, and a disabled guard approves nothing.

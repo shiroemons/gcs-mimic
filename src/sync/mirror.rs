@@ -1238,6 +1238,28 @@ impl LiveControl<'_> {
         Ok(())
     }
 
+    /// Authorizes a decision on the deletion set `revision` for `identity`, then inventories the
+    /// tree again if the set still waits for the decision, so that a native notification since
+    /// the last pass that left its members as they were does not make it stale.
+    async fn decidable(
+        &self,
+        revision: crate::storage::sync_state::OpaqueId,
+        identity: Option<crate::auth::Identity>,
+    ) -> Result<(), ControlError> {
+        self.scope
+            .root
+            .authorize_controls(self.scope.config.seed_project.clone(), identity)
+            .await?;
+        super::deletion::recheck(
+            self.scope.root,
+            self.scope.config,
+            revision,
+            Interrupt::new(self.scope.stopping),
+        )
+        .await
+        .map_err(ControlError::Failed)
+    }
+
     /// Rejects the deletion set `revision`, answers, and writes its files back from their objects.
     async fn reject(
         &mut self,
@@ -1245,19 +1267,14 @@ impl LiveControl<'_> {
         reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), SyncError> {
-        let rejected = match self
-            .scope
-            .root
-            .authorize_controls(self.scope.config.seed_project.clone(), identity)
-            .await
-        {
+        let rejected = match self.decidable(revision, identity).await {
             Ok(()) => self
                 .scope
                 .root
                 .reject_deletions(revision)
                 .await
                 .map_err(ControlError::from),
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         };
         let set = rejected.as_ref().ok().cloned();
         let _ = reply.send(rejected);
@@ -1281,19 +1298,14 @@ impl LiveControl<'_> {
         reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), SyncError> {
-        let approved = match self
-            .scope
-            .root
-            .authorize_controls(self.scope.config.seed_project.clone(), identity)
-            .await
-        {
+        let approved = match self.decidable(revision, identity).await {
             Ok(()) => self
                 .scope
                 .root
                 .approve_deletions(revision)
                 .await
                 .map_err(ControlError::from),
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         };
         let set = approved.as_ref().ok().cloned();
         let _ = reply.send(approved);

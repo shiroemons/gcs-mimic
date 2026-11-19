@@ -37,6 +37,20 @@ impl Inventory {
     pub(crate) fn saw_gone(&mut self, removal: Removal) {
         self.removal = self.removal.and(removal);
     }
+
+    /// An inventory at `fence` that confirms the root's earlier set `revision`.
+    fn confirming(revision: OpaqueId, root: RootId, fence: JournalFence) -> Self {
+        Self {
+            revision,
+            root,
+            fence,
+            draft: Draft::Confirming {
+                baseline: 0,
+                candidates: 0,
+            },
+            removal: Removal::Files,
+        }
+    }
 }
 
 /// What an inventory writes: a new set, or nothing while it confirms the root's earlier one.
@@ -58,8 +72,12 @@ pub(crate) enum Confirmed {
 }
 
 /// Reads the root's set when an inventory at `current` may confirm it instead of replacing it:
-/// complete, taken at the same journal fence, never executed from, under the same guard setting,
-/// and not approved. An approved revision is never handed out again, so approval stays one-shot.
+/// complete, taken in the same journal epoch at or before `current`, never executed from, under
+/// the same guard setting, and not approved. An approved revision is never handed out again, so
+/// approval stays one-shot, and a restart starts a new epoch. A journal that moved since does not
+/// rule the set out: the inventory compares every member, generation and incarnation included,
+/// so a write that changed none of them, such as one to an unrelated object, keeps the revision
+/// someone may be about to approve or reject.
 fn reusable(
     connection: &Connection,
     root: RootId,
@@ -68,7 +86,7 @@ fn reusable(
 ) -> Result<Option<OpaqueId>, CatalogError> {
     sql::optional_scalar(
         connection,
-        "SELECT revision FROM sync_deletion_sets WHERE root_id=?1 AND complete=1 AND epoch=?2 AND sequence=?3 AND execution_sequence=sequence AND guard_enabled=?4 AND (guarded=0 OR authorization=0)",
+        "SELECT revision FROM sync_deletion_sets WHERE root_id=?1 AND complete=1 AND epoch=?2 AND sequence<=?3 AND execution_sequence=sequence AND guard_enabled=?4 AND (guarded=0 OR authorization=0)",
         params![root, current.revision, current.sequence, matches!(guard, Guard::Enabled)],
     )
     .map_err(unavailable)
@@ -124,6 +142,38 @@ impl RootLease {
         self.start_deletion_inventory(guard, Start::New).await
     }
 
+    /// Starts an inventory that confirms the set `revision` before an approval or rejection of
+    /// it, when that set still waits for one: valid, guarded, confirmable and taken at the
+    /// current journal fence. `None` leaves the root's set as it is, for the decision to refuse:
+    /// a set that something withdrew, or one that an API write since moved the journal past, is
+    /// confirmed only by the next pass, so a decision never follows an API change unseen.
+    pub(crate) async fn begin_deletion_recheck(
+        &self,
+        guard: Guard,
+        revision: OpaqueId,
+    ) -> Result<Option<Inventory>, RootError> {
+        self.revalidate().await?;
+        let root = self.status().root_id;
+        let scope = self.control_scope();
+        Ok(self
+            .catalog()
+            .run_admin(move |connection| {
+                let transaction = connection.transaction()?;
+                scope.authorize(&transaction)?;
+                let current = fence(&transaction)?;
+                if reusable(&transaction, root, &current, guard)? != Some(revision) {
+                    return Ok(None);
+                }
+                let waiting: bool = sql::scalar(
+                    &transaction,
+                    "SELECT valid=1 AND guarded=1 AND sequence=?2 FROM sync_deletion_sets WHERE root_id=?1",
+                    params![root, current.sequence],
+                )?;
+                Ok(waiting.then(|| Inventory::confirming(revision, root, current)))
+            })
+            .await?)
+    }
+
     async fn start_deletion_inventory(
         &self,
         guard: Guard,
@@ -149,16 +199,7 @@ impl RootLease {
                 if start == Start::ConfirmEarlier
                     && let Some(revision) = reusable(&transaction, root, &current, guard)?
                 {
-                    return Ok(Inventory {
-                        revision,
-                        root,
-                        fence: current,
-                        draft: Draft::Confirming {
-                            baseline: 0,
-                            candidates: 0,
-                        },
-                        removal: Removal::Files,
-                    });
+                    return Ok(Inventory::confirming(revision, root, current));
                 }
                 let revision = OpaqueId::generate().map_err(unavailable)?;
                 let scan_revision = OpaqueId::generate().map_err(unavailable)?;
@@ -321,7 +362,10 @@ impl RootLease {
 
     /// Completes the inventory and returns its set. A new set takes its guard decision now. A
     /// confirming inventory returns the earlier set, made valid again when a change invalidated
-    /// it meanwhile, or `None` when its totals or guard decision differ from the earlier set's.
+    /// it meanwhile and carried to this inventory's journal fence, or `None` when its member
+    /// count or guard decision differs from the earlier set's. The members themselves were
+    /// compared page by page; the denominator may differ, as when a file the set does not hold
+    /// was added, and the set keeps the one it was taken with.
     pub(crate) async fn finish_deletion_inventory(
         &self,
         inventory: Inventory,
@@ -333,7 +377,13 @@ impl RootLease {
             scope.authorize(&transaction)?;
             if fence(&transaction)?!=inventory.fence {return Err(CatalogError::PreconditionFailed)}
             let complete = match inventory.draft { Draft::New => 0, Draft::Confirming { .. } => 1 };
-            let (baseline,candidates,enabled,stored):(u64,u64,bool,bool)=sql::row(&transaction, "SELECT baseline_count,candidate_count,guard_enabled,guarded FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=?3", params![inventory.root,inventory.revision,complete],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)))?;
+            let (stored_baseline,stored_candidates,enabled,stored):(u64,u64,bool,bool)=sql::row(&transaction, "SELECT baseline_count,candidate_count,guard_enabled,guarded FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=?3", params![inventory.root,inventory.revision,complete],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)))?;
+            // The guard decides on what this inventory counted, so that a confirmation whose
+            // decision would differ replaces the set instead.
+            let (baseline,candidates) = match inventory.draft {
+                Draft::New => (stored_baseline,stored_candidates),
+                Draft::Confirming { baseline, candidates } => (baseline,candidates),
+            };
             let automatic=history::automatic_count(&transaction,inventory.root)?;
             let guard=guarded(Guard::from(enabled),baseline+automatic,candidates+automatic)
                 || inventory.removal.guarded(Guard::from(enabled));
@@ -341,12 +391,13 @@ impl RootLease {
                 Draft::New => {
                     sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,DeletionAuthorization::on_completion(guard)])?;
                 }
-                Draft::Confirming { baseline: counted_baseline, candidates: counted } => {
-                    if (counted_baseline,counted)!=(baseline,candidates) || guard!=stored {
+                Draft::Confirming { .. } => {
+                    if candidates!=stored_candidates || guard!=stored {
                         return Ok(None);
                     }
-                    // Only a set that a change invalidated is written; an unchanged one stays as it was.
-                    sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=1 WHERE root_id=?1 AND revision=?2 AND valid=0", params![inventory.root,inventory.revision])?;
+                    // Only a set that a change invalidated, or that the journal moved past, is
+                    // written; an unchanged one stays as it was.
+                    sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=1,sequence=?3,execution_sequence=?3 WHERE root_id=?1 AND revision=?2 AND (valid=0 OR sequence!=?3)", params![inventory.root,inventory.revision,inventory.fence.sequence])?;
                 }
             }
             let snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;

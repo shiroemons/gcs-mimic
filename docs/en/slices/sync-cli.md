@@ -112,7 +112,11 @@ loopback to protect bearer tokens in transit.
 While deletion candidates are being recomputed, status retains their last complete
 membership while refreshing current safety findings and revisions. Every read
 rechecks authority and the journal fence; revision-bound
-pages and approval reject an invalidated revision with 409.
+pages and approval reject an invalidated revision with 409. Approval and
+rejection first inventory again a set that waits for them, so a native
+notification that left its members as they were does not make the revision the
+status named stale. After an API write, they answer 409 until the next pass,
+which keeps the revision when the members are the same.
 During native quiet settling, wait and rescan remain queued inside the actor.
 A wait request observes its original deadline; if quiet has not been established
 at that deadline it reports SourceChanging with HTTP 409, and the CLI asks again

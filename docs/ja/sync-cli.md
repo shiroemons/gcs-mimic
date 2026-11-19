@@ -128,6 +128,9 @@ statusのwritebackから、常にnullだった`journal_sequence`と`journal_epoc
 実際に待つjournal fenceは、wait応答の`journal_fence`で確認できます。
 削除候補を再計算している間、statusは最後に確定した削除候補を返し、安全上のfindingとrevisionは現在の状態に更新します。
 権限とjournal fenceは読み取りごとに再確認し、古いrevisionでのページ取得や承認は409になります。
+承認と却下は、承認待ちの削除候補をその場で棚卸しし直してから適用します。
+そのため、メンバーが変わらないnative通知では、statusが示したrevisionは古くなりません。
+APIの書き込みの後は、次のpassまで409を返します。そのpassでメンバーが同じなら、revisionは変わりません。
 native通知の後は1秒の静穏を待ち、追加通知で待ち直します。上限は10秒です。
 静穏待ちのwaitとrescanはアクター内の有界キューで待ちます。
 waitの要求は元の指定期限を保ち、その期限でも静穏が成立していない場合に初めてSourceChangingで409を返します。

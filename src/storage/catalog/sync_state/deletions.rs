@@ -246,17 +246,32 @@ impl RootLease {
     /// was approved: an inventory that finds the same members may restore an unapproved set, but
     /// never an approved one, which would let its approval be used twice.
     pub(crate) async fn invalidate_deletions(&self) -> Result<(), RootError> {
+        self.withdraw_deletions(
+            "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1",
+        )
+        .await
+    }
+
+    /// Withdraws the root's set because the tree changed, unless the set waits for an approval
+    /// or rejection. Such a set stays inspectable and decidable: a decision inventories the tree
+    /// again before it applies ([`Self::begin_deletion_recheck`]), and the pass the change brings
+    /// keeps the revision when it finds the same members. Withdrawing it made the command that
+    /// the status had just named fail as stale until that pass, whenever a late notification
+    /// about some other path arrived. Every other set is withdrawn as by
+    /// [`Self::invalidate_deletions`].
+    pub(crate) async fn unsettle_deletions(&self) -> Result<(), RootError> {
+        self.withdraw_deletions("UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1 AND (guarded=0 OR authorization!=0)")
+            .await
+    }
+
+    async fn withdraw_deletions(&self, statement: &'static str) -> Result<(), RootError> {
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
                 scope.authorize(&tx)?;
-                sql::exec(
-                    &tx,
-                    "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1",
-                    [root],
-                )?;
+                sql::exec(&tx, statement, [root])?;
                 tx.commit().map_err(unavailable)
             })
             .await?;

@@ -310,7 +310,10 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
     tokio::time::timeout(HANG_GUARD, hook.entered.notified())
         .await
         .unwrap();
-    assert!(root.deletion_set().await.unwrap().is_none());
+    assert_eq!(
+        root.deletion_set().await.unwrap().unwrap().revision,
+        before.revision
+    );
     let (summary, during) = root
         .published_observation_for(
             crate::storage::sync_state::authority::ControlAuthority::Permissive,

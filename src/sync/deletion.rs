@@ -67,7 +67,43 @@ pub(super) async fn inventory_with(
         return Ok(None);
     }
     let guard = Guard::from(config.sync_delete_guard);
-    let mut inventory = root.begin_deletion_inventory(guard).await?;
+    let inventory = root.begin_deletion_inventory(guard).await?;
+    take_inventory(root, guard, inventory, interrupt).await
+}
+
+/// Inventories the tree again before an approval or rejection of the set `revision`, when that
+/// set still waits for one, so that the decision applies to what the tree shows now: a native
+/// notification no longer withdraws such a set. Finding the same members keeps the revision,
+/// whatever notification arrived since the last pass; finding others replaces the set, and the
+/// decision then fails as stale, naming the new one. Only the members decide, as in every
+/// inventory. A valid waiting set means the last pass let deletions be inferred, so no gate is
+/// consulted. A set that an API write moved the journal past is left to the next pass, and a
+/// change of the journal during this inventory leaves the decision to refuse the set as stale.
+pub(super) async fn recheck(
+    root: &RootLease,
+    config: &Config,
+    revision: OpaqueId,
+    interrupt: Interrupt<'_>,
+) -> Result<(), SyncError> {
+    let guard = Guard::from(config.sync_delete_guard);
+    let Some(inventory) = root.begin_deletion_recheck(guard, revision).await? else {
+        return Ok(());
+    };
+    match take_inventory(root, guard, inventory, interrupt).await {
+        Ok(_) => Ok(()),
+        Err(error) if error.is_stale_deletion() => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Counts `inventory` to its end and returns its set, starting a new one whenever the earlier set
+/// it confirms turns out to differ. `None` means the pass was interrupted.
+async fn take_inventory(
+    root: &RootLease,
+    guard: Guard,
+    mut inventory: Inventory,
+    interrupt: Interrupt<'_>,
+) -> Result<Option<DeletionSet>, SyncError> {
     loop {
         let mut unobserved = Unobserved::default();
         let Some(counted) =
