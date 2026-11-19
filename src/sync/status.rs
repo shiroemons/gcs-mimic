@@ -2,9 +2,9 @@
 //! control read it without a catalog query. A probe runs every two seconds in the container image
 //! and must answer while the catalog is busy.
 
-use super::entries::EntryReport;
 #[cfg(test)]
 use super::entries::UnrepresentableEntry;
+use super::{Reconciliation, entries::EntryReport};
 use std::{fmt, str::FromStr, sync::Arc};
 use tokio::sync::watch;
 
@@ -194,10 +194,20 @@ impl Default for EntryReportSender {
 }
 
 impl EntryReportSender {
+    /// Hands the entries `pass` could not take in to the status, replacing those of the previous
+    /// complete pass. An interrupted pass saw only part of the tree, so the last complete list
+    /// stays. The status gets a copy: the pass's own report is its count of those entries, which
+    /// still decides what the pass holds back.
+    pub(crate) fn report_pass(&self, pass: &Reconciliation) {
+        if !pass.interrupted {
+            self.report(pass.entries().clone());
+        }
+    }
+
     /// Replaces the entries of the previous complete scan with those of `report`, and warns
     /// about each entry no object can take and each file skipped directly in the root that the
     /// previous complete scan did not name, so an entry that stays is warned about once.
-    pub(crate) fn report(&self, report: EntryReport) {
+    fn report(&self, report: EntryReport) {
         let mut found = Vec::new();
         let mut found_entries = Vec::new();
         self.report.send_if_modified(|current| {

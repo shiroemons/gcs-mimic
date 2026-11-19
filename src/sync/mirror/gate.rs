@@ -456,7 +456,7 @@ mod tests {
         };
         pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
         let status = crate::sync::status::MirrorStatusSender::default();
-        super::super::report_entries(status.entries(), &pass);
+        status.entries().report_pass(&pass);
         assert_eq!(status.subscribe().unrepresentable_entries().total(), 1);
         assert_eq!(pass.gate().hold(), Hold::TreeEntries);
         assert_eq!(

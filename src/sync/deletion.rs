@@ -150,7 +150,7 @@ async fn take_inventory(
         }
         let new_set = inventory.writes_new_set();
         if counted == Confirmed::Same
-            && let Some(set) = root.finish_deletion_inventory(inventory.clone()).await?
+            && let Some(set) = root.finish_deletion_inventory(inventory).await?
         {
             if new_set {
                 warn_awaiting_approval(&set);

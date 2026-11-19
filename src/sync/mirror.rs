@@ -860,7 +860,7 @@ async fn initialize_live(
     )
     .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    report_entries(status.entries(), &ingested);
+    status.entries().report_pass(&ingested);
     let ingest_complete = BaselineGate::after_ingest(ingested.gate());
     let mut skipped = SkippedExports::default();
     let mut summary = reconcile_with(
@@ -949,7 +949,7 @@ async fn ingest_external_with(
     super::deletion::write_back_rejected(catalog, root, interrupt).await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
-    report_entries(entries, &summary);
+    entries.report_pass(&summary);
     baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
         && baseline.gate == BaselineGate::Allowed
@@ -990,16 +990,6 @@ async fn ingest_external_with(
     summary.carry_held(&retried);
     summary.interrupted |= interrupt.check() != Interrupted::No;
     Ok(summary)
-}
-
-/// Hands the entries an ingestion could not take in to the mirror's status, replacing those of
-/// the previous one. An interrupted ingestion saw only part of the tree, so it keeps the last
-/// complete list. The status gets a copy: the pass's own report is its count of those entries,
-/// which still decides what the pass holds back.
-fn report_entries(entries: &EntryReportSender, ingested: &Reconciliation) {
-    if !ingested.interrupted {
-        entries.report(ingested.entries().clone());
-    }
 }
 
 /// Which inventory of a run deletes objects, which decides how loudly the log names them.
