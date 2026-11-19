@@ -44,7 +44,15 @@ pub(in crate::storage) const REASON_SCHEMA_VERSION: i64 = 58;
 /// from the export conflicts schema 58 records until the object is observed again.
 pub(in crate::storage) const REASON_SCHEMA: &str = include_str!("findings/reason_schema.sql");
 
-/// Counts the rows schema 58 rebuilds; the migration commits only if they all come back.
+/// Schema 60 admits `directory-occupied`, the finding reason of an object whose file name a
+/// directory with entries holds, apart from the name collisions an API name causes.
+pub(in crate::storage) const OCCUPIED_SCHEMA_VERSION: i64 = 60;
+/// Rebuilds `sync_findings` under the same name for the wider check, keeping its rows, its owners
+/// and its `sqlite_sequence` row aside first for the same reasons schema 58 does. Every row keeps
+/// its reason.
+pub(in crate::storage) const OCCUPIED_SCHEMA: &str = include_str!("findings/occupied_schema.sql");
+
+/// Counts the rows schemas 58 and 60 rebuild; a migration commits only if they all come back.
 const REBUILT_ROWS: &str = "SELECT (SELECT count(*) FROM sync_findings),(SELECT count(*) FROM sync_finding_owners),(SELECT count(*) FROM sync_path_stops)";
 /// Whether a rebuilt table, or the owners that refer to one, now breaks a foreign key.
 const REBUILT_FOREIGN_KEYS: &str = "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check('sync_findings') UNION ALL SELECT 1 FROM pragma_foreign_key_check('sync_finding_owners') UNION ALL SELECT 1 FROM pragma_foreign_key_check('sync_path_stops'))";
@@ -59,26 +67,61 @@ fn rebuilt_rows(transaction: &Transaction<'_>) -> Result<[i64; 3], CatalogError>
     })?)
 }
 
-/// Upgrades to schema 58 in one transaction with foreign keys left on. The checks after the
-/// rebuild catch a row the statements failed to restore before anything commits.
+/// Upgrades to schema 58 in one transaction with foreign keys left on.
+pub(in crate::storage) fn migrate_reasons(connection: &mut Connection) -> Result<(), CatalogError> {
+    rebuild(
+        connection,
+        REASON_SCHEMA,
+        Rebuild {
+            lost: "schema 58 migration did not restore every finding, owner and path stop",
+            orphaned: "schema 58 migration left a finding, owner or path stop without its parent row",
+        },
+    )
+}
+
+/// Upgrades to schema 60 in one transaction with foreign keys left on.
+pub(in crate::storage) fn migrate_occupied(
+    connection: &mut Connection,
+) -> Result<(), CatalogError> {
+    rebuild(
+        connection,
+        OCCUPIED_SCHEMA,
+        Rebuild {
+            lost: "schema 60 migration did not restore every finding, owner and path stop",
+            orphaned: "schema 60 migration left a finding, owner or path stop without its parent row",
+        },
+    )
+}
+
+/// What a table rebuild reports when its checks fail.
+#[derive(Clone, Copy)]
+struct Rebuild {
+    /// A row did not come back.
+    lost: &'static str,
+    /// A row came back without the row it refers to.
+    orphaned: &'static str,
+}
+
+/// Runs `schema`, which rebuilds finding tables, in one transaction. The checks after the rebuild
+/// catch a row the statements failed to restore before anything commits.
 #[expect(
     clippy::disallowed_methods,
     reason = "a one-time schema migration at open"
 )]
-pub(in crate::storage) fn migrate_reasons(connection: &mut Connection) -> Result<(), CatalogError> {
+fn rebuild(
+    connection: &mut Connection,
+    schema: &str,
+    failures: Rebuild,
+) -> Result<(), CatalogError> {
     let transaction = connection.transaction()?;
     let before = rebuilt_rows(&transaction)?;
-    transaction.execute_batch(REASON_SCHEMA)?;
+    transaction.execute_batch(schema)?;
     if rebuilt_rows(&transaction)? != before {
-        return Err(unavailable(
-            "schema 58 migration did not restore every finding, owner and path stop",
-        ));
+        return Err(unavailable(failures.lost));
     }
     let broken: bool = transaction.query_row(REBUILT_FOREIGN_KEYS, [], |row| row.get(0))?;
     if broken {
-        return Err(unavailable(
-            "schema 58 migration left a finding, owner or path stop without its parent row",
-        ));
+        return Err(unavailable(failures.orphaned));
     }
     transaction.commit().map_err(unavailable)
 }
@@ -98,7 +141,7 @@ pub struct Finding {
 sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
     InvalidName => "invalid-name", HostRestriction => "host-restriction",
     Reserved => "reserved", Ignored => "ignored", Collision => "collision",
-    UnsafeEntry => "unsafe-entry",
+    UnsafeEntry => "unsafe-entry", DirectoryOccupied => "directory-occupied",
 });
 
 /// Why a `sync_findings` row keeps its object out of the working tree. A name the tree cannot
@@ -145,7 +188,8 @@ impl FindingKind {
                 | Reason::HostRestriction
                 | Reason::Reserved
                 | Reason::Collision
-                | Reason::UnsafeEntry,
+                | Reason::UnsafeEntry
+                | Reason::DirectoryOccupied,
             ) => FindingEffect::Reports,
         }
     }

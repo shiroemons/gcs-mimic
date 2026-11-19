@@ -102,7 +102,8 @@ fn regular_file(path: &Path, identity: FileIdentity, naming: RootNaming) -> Entr
             | mapping::Reason::HostRestriction
             | mapping::Reason::Reserved
             | mapping::Reason::Collision
-            | mapping::Reason::UnsafeEntry,
+            | mapping::Reason::UnsafeEntry
+            | mapping::Reason::DirectoryOccupied,
         ) => EntryClass::Unrepresentable(EntryProblem::UnmappableName),
     }
 }

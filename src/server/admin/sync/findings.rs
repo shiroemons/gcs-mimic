@@ -55,6 +55,11 @@ pub(super) fn value(
             "Unrepresentable",
             "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes".into(),
         ),
+        // The API name is fine here: only the entries in the directory keep the file out.
+        FindingReason::Mapping(FindingKind::Unmapped(Reason::DirectoryOccupied)) => (
+            "Unrepresentable",
+            crate::sync::control::occupied_directory_remedy().into(),
+        ),
         FindingReason::PathStop(PathStop::ProtectedDeletion) => (
             "ProtectedDeletion",
             "Release the API hold or retention through a supported operation, then delete the restored file again".into(),
@@ -245,5 +250,25 @@ mod tests {
         let remedy = value["remedy"].as_str().unwrap();
         assert!(remedy.contains("observed again and classified"), "{remedy}");
         assert!(!remedy.contains("edited file"), "{remedy}");
+    }
+
+    /// A directory with entries at the object's file name has its own detail code, and its
+    /// remedy asks to empty the directory rather than to rename the object.
+    #[test]
+    fn an_occupied_directory_renders_its_own_detail_and_asks_to_empty_it() {
+        let value = value(
+            &mapping_finding(FindingKind::Unmapped(Reason::DirectoryOccupied)),
+            "prefix",
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            (&value["reason"], &value["detail_code"]),
+            (&json!("Unrepresentable"), &json!("directory-occupied"))
+        );
+        let remedy = value["remedy"].as_str().unwrap();
+        assert!(remedy.contains("Move everything in it out"), "{remedy}");
+        assert!(remedy.contains("gcs-mimic sync rescan"), "{remedy}");
+        assert!(!remedy.contains("API name"), "{remedy}");
     }
 }

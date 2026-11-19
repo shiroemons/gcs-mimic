@@ -3,7 +3,9 @@
 //! check every piece of advice in [`catalog`], so advice cannot name a command, an option or a
 //! value the command would refuse.
 
-use super::control::{WaitReason, pause_remedy, paused_control_remedy, resume_retry_remedy};
+use super::control::{
+    WaitReason, occupied_directory_remedy, pause_remedy, paused_control_remedy, resume_retry_remedy,
+};
 use crate::storage::sync_state::observation::PauseReason;
 use std::fmt;
 
@@ -96,7 +98,8 @@ pub fn commands() -> Vec<String> {
 /// Every piece of advice the server gives that names a command, with [`ENDPOINT`] left in: the
 /// remedy of every pause, which the `sync_paused` event, the root-stop finding and a failed
 /// rescan give; of every wait reason with and without the revisions at hand; of a failed resume,
-/// which the `sync_resume_failed` event also gives; and of a control a pause refuses.
+/// which the `sync_resume_failed` event also gives; of a control a pause refuses; and of a
+/// directory that holds an object's file name.
 #[doc(hidden)]
 pub fn catalog() -> Vec<String> {
     let at_hand = [
@@ -119,6 +122,10 @@ pub fn catalog() -> Vec<String> {
                 .map(move |at_hand| pause_remedy(reason, at_hand))
         })
         .chain(waits)
-        .chain([resume_retry_remedy(), paused_control_remedy()])
+        .chain([
+            resume_retry_remedy(),
+            paused_control_remedy(),
+            occupied_directory_remedy(),
+        ])
         .collect()
 }

@@ -571,11 +571,15 @@ API after `a/x` was deleted there reaches the tree without operator action.
 Nothing lists the directory or removes what it holds, no ancestor that the
 removal empties is removed, and neither a bucket's own directory nor a reserved
 name is ever removed. A directory that holds anything, even a file that scans
-ignore such as `.DS_Store`, a directory under another spelling, a symlink at the
-name, a directory the catalog still refers to, an export that would replace a
-tracked file, and a removal the filesystem refuses (`ENOTEMPTY`, `EEXIST`,
-`EBUSY`, `EACCES` or `EPERM`) all stay as they are and leave a `Collision`
-finding for that object alone; other objects continue. The `sync_directory_kept`
+ignore such as `.DS_Store`, a directory the catalog still refers to, and a
+removal the filesystem refuses (`ENOTEMPTY`, `EEXIST`, `EBUSY`, `EACCES` or
+`EPERM`) all stay as they are and leave a `directory-occupied` finding (catalog
+schema 60) for that object alone, whose remedy asks to move the directory's
+entries out rather than to rename the object; other objects continue. A
+directory under another spelling stays and leaves a `collision` finding, as any
+alias does. A symlink at the name is never followed or removed and leaves an
+`unsafe-entry` finding. A directory where a tracked file was is no export
+target: it stops that path as `EntryReplaced`. The `sync_directory_kept`
 event names the check that kept the directory. Catalog references compare names
 byte for byte, so a reference under another letter case on a root that folds
 case does not keep the directory; the removal itself still refuses one that

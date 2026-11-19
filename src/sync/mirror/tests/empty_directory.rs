@@ -57,8 +57,8 @@ async fn an_api_object_replaces_the_directory_an_api_delete_emptied() {
 }
 
 /// A removal that the filesystem refuses, because the directory holds an entry or may not be
-/// removed, records a collision for that object alone: the root keeps running and the other
-/// object of the same pass is exported.
+/// removed, records an occupied directory for that object alone: the root keeps running and the
+/// other object of the same pass is exported.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_refused_removal_is_one_collision_and_other_exports_continue() {
     for kind in [
@@ -85,7 +85,10 @@ async fn a_refused_removal_is_one_collision_and_other_exports_continue() {
         let findings = started.root.findings_page(0, 256).await.unwrap();
         assert_eq!(findings.len(), 1, "{kind:?}");
         assert_eq!(findings[0].name.as_str(), "a");
-        assert_eq!(findings[0].reason, FindingKind::Unmapped(Reason::Collision));
+        assert_eq!(
+            findings[0].reason,
+            FindingKind::Unmapped(Reason::DirectoryOccupied)
+        );
         assert!(workspace_bodies(&tree.0).is_empty());
         started.close().await;
     }

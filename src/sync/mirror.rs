@@ -1423,7 +1423,7 @@ pub(super) async fn restore_from_catalog(
             LiveResult::Complete
             | LiveResult::Conflict
             | LiveResult::Obsolete
-            | LiveResult::Collision => return Ok(()),
+            | LiveResult::Collision(_) => return Ok(()),
         }
     }
 }
@@ -1775,14 +1775,9 @@ impl LiveObject<'_> {
                     self.defer();
                     break;
                 }
-                LiveResult::Collision => {
+                LiveResult::Collision(reason) => {
                     self.root
-                        .record_finding(
-                            plan.binding.clone(),
-                            name.clone(),
-                            plan.generation,
-                            Reason::Collision,
-                        )
+                        .record_finding(plan.binding.clone(), name.clone(), plan.generation, reason)
                         .await?;
                     // The object is what the tree cannot hold, as for the collision a target
                     // check finds: the directory's own entries are scanned like any other, and

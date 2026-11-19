@@ -78,6 +78,15 @@ pub(crate) fn resume_retry_remedy() -> String {
     )
 }
 
+/// What frees the file name of an object that a directory with entries holds, as its finding
+/// gives it.
+pub(crate) fn occupied_directory_remedy() -> String {
+    format!(
+        "A directory holds this object's file name. Move everything in it out of the tree, including hidden files such as .DS_Store, then run {}; the empty directory is then replaced by the file",
+        Advised::Rescan
+    )
+}
+
 /// What a control that a pause refuses answers, and how the refusal reads in a log.
 pub(crate) fn paused_control_remedy() -> String {
     format!(

@@ -538,6 +538,7 @@ mod tests {
             (Reason::Ignored, "ignored"),
             (Reason::Collision, "collision"),
             (Reason::UnsafeEntry, "unsafe-entry"),
+            (Reason::DirectoryOccupied, "directory-occupied"),
         ]);
         text_values(&[
             (PathStop::ProtectedDeletion, "ProtectedDeletion"),

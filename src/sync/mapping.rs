@@ -21,6 +21,10 @@ pub enum Reason {
     Ignored,
     Collision,
     UnsafeEntry,
+    /// A directory that holds entries has the object's file name, and export left it in place.
+    /// Unlike a [`Self::Collision`], only moving those entries out frees the name: no API name
+    /// is at fault.
+    DirectoryOccupied,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

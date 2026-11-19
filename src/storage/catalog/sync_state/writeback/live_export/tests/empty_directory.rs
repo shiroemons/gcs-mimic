@@ -38,10 +38,13 @@ fn names(directory: &std::path::Path) -> Vec<String> {
     names
 }
 
-/// Checks that the export of `a` ended as a collision that left the directory holding `holds`,
-/// and that it finished, with no private copy left behind.
+/// Checks that the export of `a` ended as an occupied directory that left the directory holding
+/// `holds`, and that it finished, with no private copy left behind.
 async fn assert_kept(fixture: &Fixture, result: LiveResult, holds: &[&str]) {
-    assert_eq!(result, LiveResult::Collision);
+    assert_eq!(
+        result,
+        LiveResult::Collision(mapping::Reason::DirectoryOccupied)
+    );
     assert!(fixture.tree.0.join(DIRECTORY).is_dir());
     assert_eq!(names(&fixture.tree.0.join(DIRECTORY)), holds);
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);

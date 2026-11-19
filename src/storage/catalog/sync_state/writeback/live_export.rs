@@ -76,8 +76,9 @@ pub(crate) enum LiveResult {
     Conflict,
     Obsolete,
     /// A directory holds the target's name and stays: it holds an entry, the catalog refers to
-    /// it or to a path below it, or the export had a body there to replace.
-    Collision,
+    /// it or to a path below it, or the export had a body there to replace. The reason is the
+    /// finding that keeps the object out of the tree.
+    Collision(mapping::Reason),
 }
 
 /// How one installation attempt ended.
@@ -921,13 +922,14 @@ impl Writeback {
                 self.cancel_live_copy(operation).await?;
                 return Ok(LiveResult::Conflict);
             }
-            Ok(ended @ (Installed::Directory | Installed::Kept(_))) => {
-                if let Installed::Kept(kept) = ended {
-                    kept.report(&item);
-                }
-                operation.progress = operation.progress.cancel(LiveResult::Collision);
-                self.cancel_live_copy(operation).await?;
-                return Ok(LiveResult::Collision);
+            Ok(Installed::Kept(kept)) => {
+                kept.report(&item);
+                return self.collide(operation, kept.finding()).await;
+            }
+            Ok(Installed::Directory) => {
+                return self
+                    .collide(operation, mapping::Reason::DirectoryOccupied)
+                    .await;
             }
             Ok(Installed::Done) => operation.progress = Progress::Installed(staged),
             Err(Error::Protected) => {
@@ -951,6 +953,19 @@ impl Writeback {
             }
         }
         Ok(LiveResult::Pending)
+    }
+
+    /// Cancels `operation`, whose target a directory holds, with `reason` as the finding that
+    /// keeps its object out of the tree.
+    async fn collide(
+        &self,
+        operation: &mut LiveOperation,
+        reason: mapping::Reason,
+    ) -> Result<LiveResult, Error> {
+        let collision = LiveResult::Collision(reason);
+        operation.progress = operation.progress.cancel(collision);
+        self.cancel_live_copy(operation).await?;
+        Ok(collision)
     }
 
     /// Arms `operation` unless it is armed already, and returns its row. `None` means the API

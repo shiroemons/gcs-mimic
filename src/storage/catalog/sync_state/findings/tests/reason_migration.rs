@@ -1,4 +1,5 @@
-//! Schema 58 rebuilds the finding and path-stop tables while foreign keys stay on.
+//! Schema 58 rebuilds the finding and path-stop tables, and schema 60 the finding table, while
+//! foreign keys stay on.
 use super::*;
 use crate::storage::catalog::{
     CATALOG_SCHEMA_VERSION, Migration, test_support::downgrade_finding_reason_schema,
@@ -461,12 +462,61 @@ async fn schema_58_migration_rolls_back_failed_attempts_and_then_upgrades() {
     assert_eq!(user_version(&connection), 58);
     validate_schema(&connection, 58).unwrap();
     assert_eq!(rows(&connection), expected);
-    let leftovers: i64 = connection
+    assert_eq!(temp_tables(&connection), 0);
+}
+
+fn temp_tables(connection: &Connection) -> i64 {
+    connection
         .query_row(
             "SELECT count(*) FROM sqlite_temp_schema WHERE type='table'",
             [],
             |row| row.get(0),
         )
+        .unwrap()
+}
+
+/// Gives the first finding the reason only schema 60 admits.
+fn occupy(connection: &Connection) -> rusqlite::Result<usize> {
+    connection.execute(
+        "UPDATE sync_findings SET reason='directory-occupied' WHERE ordinal=(SELECT min(ordinal) FROM sync_findings)",
+        [],
+    )
+}
+
+/// Schema 60 widens the reasons a finding may have and keeps every row, owner, ordinal and the
+/// observation revision; a failed attempt leaves schema 59 as it was.
+#[tokio::test]
+async fn schema_60_admits_occupied_directories_and_keeps_every_finding() {
+    let (data, _tree) = schema_57_fixture().await;
+    let mut connection = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+    Migration::Function(super::super::migrate_reasons)
+        .apply(&mut connection)
         .unwrap();
-    assert_eq!(leftovers, 0);
+    Migration::Statements(crate::storage::catalog::sync_state::observation::REVISION_SCHEMA)
+        .apply(&mut connection)
+        .unwrap();
+    let before = rows(&connection);
+    assert!(!before.findings.is_empty() && !before.owners.is_empty());
+    assert!(occupy(&connection).is_err());
+    let attempt = |connection: &mut Connection| {
+        Migration::Function(super::super::migrate_occupied).apply(connection)
+    };
+    connection
+        .execute_batch("CREATE TEMP TRIGGER injected AFTER INSERT ON sync_finding_owners BEGIN SELECT RAISE(ABORT,'injected owner restore failure'); END;")
+        .unwrap();
+    assert!(attempt(&mut connection).is_err());
+    assert_eq!(user_version(&connection), 59);
+    validate_schema(&connection, 59).unwrap();
+    assert_eq!(rows(&connection), before);
+    connection
+        .execute_batch("DROP TRIGGER temp.injected;")
+        .unwrap();
+
+    attempt(&mut connection).unwrap();
+    assert_eq!(user_version(&connection), 60);
+    validate_schema(&connection, 60).unwrap();
+    assert_eq!(rows(&connection), before);
+    assert_eq!(temp_tables(&connection), 0);
+    assert_eq!(occupy(&connection).unwrap(), 1);
 }
