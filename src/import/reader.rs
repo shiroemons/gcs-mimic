@@ -23,7 +23,6 @@ use std::{
     fs::{self, File, Metadata, OpenOptions},
     io::{self, Read},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
 };
 
 pub(super) type XattrReader = for<'a> fn(
@@ -170,10 +169,7 @@ pub struct Fingerprint {
 }
 impl Fingerprint {
     pub fn of(metadata: &Metadata) -> io::Result<Self> {
-        let mtime_ns = match metadata.modified()?.duration_since(UNIX_EPOCH) {
-            Ok(d) => d.as_nanos() as i128,
-            Err(e) => -(e.duration().as_nanos() as i128),
-        };
+        let mtime_ns = crate::clock::signed_nanos(metadata.modified()?);
         #[cfg(unix)]
         let (ctime_ns, inode, device) = {
             use std::os::unix::fs::MetadataExt;

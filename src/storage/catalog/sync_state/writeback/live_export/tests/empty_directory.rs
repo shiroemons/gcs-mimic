@@ -582,26 +582,6 @@ fn test_filesystem_folds_case() -> bool {
     probe.0.join("FOLD").is_dir()
 }
 
-/// Takes the entries of a directory as spelled the way they were opened while it lives.
-struct UncheckedSpelling((u64, u64));
-
-impl UncheckedSpelling {
-    fn of(directory: &std::path::Path) -> Self {
-        let identity = fsutil::stat_identity(&fs::File::open(directory).unwrap()).unwrap();
-        let unchecked = (identity.device, identity.inode);
-        fsutil::UNCHECKED_SPELLING.lock().unwrap().push(unchecked);
-        Self(unchecked)
-    }
-}
-
-impl Drop for UncheckedSpelling {
-    fn drop(&mut self) {
-        if let Ok(mut unchecked) = fsutil::UNCHECKED_SPELLING.lock() {
-            unchecked.retain(|directory| *directory != self.0);
-        }
-    }
-}
-
 /// On a root that folds letter case, an empty directory whose parent lists it under the target's
 /// exact spelling still gives way.
 #[tokio::test]
@@ -628,7 +608,7 @@ async fn a_folding_root_keeps_a_directory_whose_spelling_it_cannot_list() {
     let fixture = Fixture::with_naming(crate::sync::naming::RootNaming::folding()).await;
     Reference::Tracked.record(&fixture, "photos/a.jpg").await;
     let bucket = fixture.tree.0.join("test-bucket");
-    let _unchecked = UncheckedSpelling::of(&bucket);
+    let _unchecked = fsutil::UncheckedSpelling::of(&bucket);
     fixture.publish("Photos", b"api").await;
     let operation = fixture.begin("Photos").await;
     let result = finish(&fixture, &operation).await.unwrap();

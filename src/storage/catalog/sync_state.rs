@@ -116,9 +116,7 @@ impl SyncFingerprint {
         hashes: crate::hashing::Hashes,
         observed_ns: i128,
     ) -> Self {
-        // Two seconds covers the coarsest supported HFS+/FAT timestamp granularity.
-        let racy = observed_ns.saturating_sub(identity.modified_ns.max(identity.changed_ns))
-            < 2_000_000_000;
+        let racy = !identity.settled_at(observed_ns);
         Self {
             size: identity.size,
             mtime_ns: identity.modified_ns,

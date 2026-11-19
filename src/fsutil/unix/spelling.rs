@@ -1,5 +1,5 @@
 use super::*;
-use crate::fsutil::{Child, Created, DirectoryNames, Lookup, RegularChild, lookup::Known};
+use crate::fsutil::{Child, Created, Lookup, RegularChild, lookup::Known};
 
 pub(crate) fn child_directory(
     parent: &File,
@@ -72,7 +72,6 @@ fn spelled_as_opened(
     file: &File,
     lookup: &Lookup,
 ) -> io::Result<bool> {
-    let known = lookup.known(parent)?;
     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     {
         let identity = crate::fsutil::stat_identity(parent)?;
@@ -81,20 +80,10 @@ fn spelled_as_opened(
             .map_err(|_| io::Error::other("spelling injection poisoned"))?
             .contains(&(identity.device, identity.inode))
         {
-            return flags_spelling(parent, name, Some(0), known);
+            return flags_spelling(parent, name, Some(0), lookup);
         }
     }
-    exact_spelling(parent, name, file, known)
-}
-
-fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<bool> {
-    let mut names = DirectoryNames::default();
-    while let Some(entry) = names.next_name(parent, usize::MAX)? {
-        if entry == name {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    exact_spelling(parent, name, file, lookup)
 }
 
 /// APFS and HFS+ are case- and normalization-insensitive or sensitive per volume, and the name
@@ -105,15 +94,15 @@ fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<bool> {
     unsafe_code,
     reason = "fgetattrlist returns the descriptor's actual name without scanning its parent"
 )]
-fn exact_spelling(parent: &File, name: &OsStr, file: &File, known: Known) -> io::Result<bool> {
+fn exact_spelling(parent: &File, name: &OsStr, file: &File, lookup: &Lookup) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
-    match known {
+    match lookup.known(parent)? {
         Known::Exact => return Ok(true),
         Known::Nothing | Known::Folding => {}
     }
     let metadata = file.metadata()?;
     if metadata.is_file() && metadata.nlink() > 1 {
-        return listed_spelling(parent, name);
+        return lookup.listed(parent, name);
     }
     let mut attributes = libc::attrlist {
         bitmapcount: libc::ATTR_BIT_MAP_COUNT,
@@ -157,11 +146,11 @@ fn exact_spelling(parent: &File, name: &OsStr, file: &File, known: Known) -> io:
     unsafe_code,
     reason = "the parent casefold flag is available only through FS_IOC_GETFLAGS"
 )]
-fn exact_spelling(parent: &File, name: &OsStr, _: &File, known: Known) -> io::Result<bool> {
+fn exact_spelling(parent: &File, name: &OsStr, _: &File, lookup: &Lookup) -> io::Result<bool> {
     let mut flags: libc::c_int = 0;
     // SAFETY: the live descriptor and writable flags word satisfy the ioctl contract.
     let result = unsafe { libc::ioctl(parent.as_raw_fd(), libc::FS_IOC_GETFLAGS, &mut flags) };
-    flags_spelling(parent, name, (result == 0).then_some(flags), known)
+    flags_spelling(parent, name, (result == 0).then_some(flags), lookup)
 }
 
 /// Decides a spelling from the parent's casefold flag, `None` where the filesystem does not
@@ -173,29 +162,31 @@ fn flags_spelling(
     parent: &File,
     name: &OsStr,
     flags: Option<libc::c_int>,
-    known: Known,
+    lookup: &Lookup,
 ) -> io::Result<bool> {
     const CASEFOLD: libc::c_int = 0x4000_0000;
     let casefolded = flags.map(|flags| flags & CASEFOLD != 0);
-    match (casefolded, known) {
+    match (casefolded, lookup.known(parent)?) {
         (Some(true), Known::Nothing | Known::Exact | Known::Folding)
         | (None, Known::Nothing | Known::Folding)
-        | (Some(false), Known::Folding) => listed_spelling(parent, name),
+        | (Some(false), Known::Folding) => lookup.listed(parent, name),
         (None | Some(false), Known::Exact) | (Some(false), Known::Nothing) => Ok(true),
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn exact_spelling(parent: &File, name: &OsStr, _: &File, known: Known) -> io::Result<bool> {
-    match known {
+fn exact_spelling(parent: &File, name: &OsStr, _: &File, lookup: &Lookup) -> io::Result<bool> {
+    match lookup.known(parent)? {
         Known::Exact => Ok(true),
-        Known::Nothing | Known::Folding => listed_spelling(parent, name),
+        Known::Nothing | Known::Folding => lookup.listed(parent, name),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{clock::SystemClock, fsutil::Matching};
+    use std::sync::Arc;
 
     /// A flag answer that does not settle the spelling falls back to the parent's listing, which
     /// tells the exact spelling apart from another one.
@@ -205,8 +196,9 @@ mod tests {
         std::fs::write(dir.0.join("Actual"), b"bytes").unwrap();
         let parent = File::open(&dir.0).unwrap();
         for flags in [None, Some(0x4000_0000)] {
-            assert!(flags_spelling(&parent, "Actual".as_ref(), flags, Known::Nothing).unwrap());
-            assert!(!flags_spelling(&parent, "actual".as_ref(), flags, Known::Nothing).unwrap());
+            let lookup = Lookup::unprobed();
+            assert!(flags_spelling(&parent, "Actual".as_ref(), flags, &lookup).unwrap());
+            assert!(!flags_spelling(&parent, "actual".as_ref(), flags, &lookup).unwrap());
         }
     }
 
@@ -219,13 +211,16 @@ mod tests {
         let dir = crate::test_support::TestDir::new();
         std::fs::write(dir.0.join("Actual"), b"bytes").unwrap();
         let parent = File::open(&dir.0).unwrap();
-        let spelled = |flags, known| flags_spelling(&parent, "actual".as_ref(), flags, known);
-        assert!(!spelled(Some(0), Known::Folding).unwrap());
-        assert!(!spelled(None, Known::Folding).unwrap());
-        assert!(!spelled(Some(0x4000_0000), Known::Folding).unwrap());
-        assert!(!spelled(Some(0x4000_0000), Known::Exact).unwrap());
-        assert!(spelled(None, Known::Exact).unwrap());
-        assert!(spelled(Some(0), Known::Exact).unwrap());
-        assert!(spelled(Some(0), Known::Nothing).unwrap());
+        let device = crate::fsutil::stat_identity(&parent).unwrap().device;
+        let probed = |matching| Lookup::probed(device, matching, Arc::new(SystemClock));
+        let spelled =
+            |flags, lookup: Lookup| flags_spelling(&parent, "actual".as_ref(), flags, &lookup);
+        assert!(!spelled(Some(0), probed(Matching::Folding)).unwrap());
+        assert!(!spelled(None, probed(Matching::Folding)).unwrap());
+        assert!(!spelled(Some(0x4000_0000), probed(Matching::Folding)).unwrap());
+        assert!(!spelled(Some(0x4000_0000), probed(Matching::Exact)).unwrap());
+        assert!(spelled(None, probed(Matching::Exact)).unwrap());
+        assert!(spelled(Some(0), probed(Matching::Exact)).unwrap());
+        assert!(spelled(Some(0), Lookup::unprobed()).unwrap());
     }
 }

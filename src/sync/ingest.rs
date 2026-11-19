@@ -228,7 +228,7 @@ pub(super) async fn rescan_with(
         synced: SyncedDirectories::default(),
     };
     forget_missing_directories(root, interrupt).await?;
-    let mut scan = Scan::new(root.tree_limits(), root.lookup()?);
+    let mut scan = Scan::new(root.tree_limits(), ingest.lookup.clone());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, entries) = root.file_job(move |root| scan.page(root)).await?;
         scan = next;
@@ -316,6 +316,7 @@ async fn clear_missing_observations(
     interrupt: Interrupt<'_>,
 ) -> Result<(), SyncError> {
     let naming = root.naming()?;
+    let lookup = root.lookup()?;
     let mut after = Ordinal::START;
     while interrupt.check() == Interrupted::No {
         let page = root.transient_stop_page(after).await?;
@@ -333,7 +334,7 @@ async fn clear_missing_observations(
                 mapping::name_to_path(binding.bucket(), &name, naming)
                 && let Some(path) = path.to_str()
                 && let Presence::Absent(_) =
-                    super::deletion::presence(root, path.to_owned()).await?
+                    super::deletion::presence(root, &lookup, path.to_owned()).await?
             {
                 root.clear_path_stops(binding, name, &TREE_STOPS).await?;
             }
@@ -591,7 +592,7 @@ impl Ingest<'_> {
             return Ok(HashCheck::Differs);
         }
         let fingerprint =
-            SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns()?);
+            SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns());
         let Some(durable) = self.make_durable(path, expected, binding, name).await? else {
             return Ok(HashCheck::Deferred);
         };
@@ -691,7 +692,7 @@ impl Ingest<'_> {
         self.clear_observation(candidate.binding.clone(), candidate.name.clone())
             .await?;
         let fingerprint =
-            SyncFingerprint::observed(candidate.identity, hashes, self.root.observation_time_ns()?);
+            SyncFingerprint::observed(candidate.identity, hashes, self.root.observation_time_ns());
         Ok(Some((staged, fingerprint)))
     }
 

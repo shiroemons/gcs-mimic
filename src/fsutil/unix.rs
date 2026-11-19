@@ -5,6 +5,7 @@ use std::{
     ffi::{CStr, OsStr, OsString},
     fs::File,
     io,
+    ops::ControlFlow,
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::OpenOptionsExt},
@@ -24,10 +25,6 @@ pub fn directory_names_after(
 /// Like [`directory_names_after`], but fails with `InvalidData` past `max_inspected` names. Each
 /// page reads the whole directory, so a tree limit stops an oversized directory on its first page
 /// instead of after all the pages the limit admits.
-#[expect(
-    unsafe_code,
-    reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
-)]
 pub(crate) fn directory_names_within(
     directory: &File,
     after: Option<&OsStr>,
@@ -37,6 +34,34 @@ pub(crate) fn directory_names_within(
     if !(1..=256).contains(&limit) {
         return Err(io::ErrorKind::InvalidInput.into());
     }
+    let mut names = std::collections::BTreeSet::new();
+    let mut inspected = 0;
+    each_name(directory, |name| {
+        inspected += 1;
+        if inspected > max_inspected || name.len() > 4096 {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        if after.is_none_or(|after| name > after) {
+            names.insert(OsString::from(name));
+            if names.len() > limit {
+                names.pop_last();
+            }
+        }
+        Ok(ControlFlow::Continue(()))
+    })?;
+    Ok(names.into_iter().collect())
+}
+
+/// Reads the names of `directory` in one pass, in the order the filesystem returns them, without
+/// `.` and `..`, and hands each to `visit` until it breaks or fails.
+#[expect(
+    unsafe_code,
+    reason = "openat, fdopendir and readdir have no safe std equivalent for a pinned descriptor"
+)]
+pub(crate) fn each_name(
+    directory: &File,
+    mut visit: impl FnMut(&OsStr) -> io::Result<ControlFlow<()>>,
+) -> io::Result<()> {
     // SAFETY: the descriptor is live and the literal is a terminated relative directory name.
     let fd = unsafe {
         libc::openat(
@@ -68,8 +93,6 @@ pub(crate) fn directory_names_within(
         }
     }
     let stream = Directory(stream);
-    let mut names = std::collections::BTreeSet::new();
-    let mut inspected = 0;
     loop {
         clear_errno();
         // SAFETY: stream remains live and iteration is confined to this thread.
@@ -79,26 +102,18 @@ pub(crate) fn directory_names_within(
             if error.raw_os_error().is_some_and(|code| code != 0) {
                 return Err(error);
             }
-            break;
+            return Ok(());
         }
         // SAFETY: readdir returned a live entry with a NUL-terminated name until the next call.
         let bytes = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
         if matches!(bytes, b"." | b"..") {
             continue;
         }
-        inspected += 1;
-        if inspected > max_inspected || bytes.len() > 4096 {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        let name = OsStr::from_bytes(bytes);
-        if after.is_none_or(|after| name > after) {
-            names.insert(OsString::from(name));
-            if names.len() > limit {
-                names.pop_last();
-            }
+        match visit(OsStr::from_bytes(bytes))? {
+            ControlFlow::Continue(()) => {}
+            ControlFlow::Break(()) => return Ok(()),
         }
     }
-    Ok(names.into_iter().collect())
 }
 
 /// Checks effective write access to the pinned directory without creating an entry.

@@ -541,6 +541,18 @@ mount that folds without that flag reports the same, and the parent is listed.
 A Docker Desktop bind mount from a macOS host folds case and answers the flag
 query with `ENOTTY`, so its lookups list the parent.
 
+A listing is read in one pass over the directory and kept for the rest of one
+pass of the mirror, such as one ingestion scan, one deletion inventory or one
+export: up to 4 directories of at most 4096 names each, and nothing of the
+files' contents. A kept listing answers only while the directory reports the
+identity, size, modification time and change time it had before the listing
+was read, so an entry created, removed or renamed in the directory during the
+pass makes the next lookup read it again. A listing is kept only when the
+directory's last change lies at least two seconds before the read, the coarsest
+timestamp tick the mirror supports, so that a later change cannot leave the
+timestamps as they were; a directory that just changed, or that holds more
+names, is read for each lookup.
+
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses
 with `paused_reason` `observer-failure` before its first scan, so nothing is

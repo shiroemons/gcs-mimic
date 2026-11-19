@@ -214,6 +214,7 @@ async fn count_candidates(
     unobserved: &mut Unobserved,
 ) -> Result<Option<Confirmed>, SyncError> {
     let naming = root.naming()?;
+    let lookup = root.lookup()?;
     let mut after = String::new();
     let mut gone = GoneBuckets::new(root);
     loop {
@@ -236,7 +237,7 @@ async fn count_candidates(
             after.clone_from(&candidate.path);
             let observed = match mapping::path_to_name(Path::new(&candidate.path), naming) {
                 Ok((bucket, name)) if bucket == candidate.bucket && name == candidate.name => {
-                    observe(root, candidate).await?
+                    observe(root, &lookup, candidate).await?
                 }
                 Ok(_) | Err(_) => Observed::Unobservable(candidate, Unobservable::NameMismatch),
             };
@@ -505,6 +506,7 @@ pub(super) async fn execute_with(
     }
     let mut after = Ordinal::START;
     let mut applied = Applied::of(&set);
+    let lookup = root.lookup()?;
     let mut restored_buckets = std::collections::BTreeSet::new();
     loop {
         if interrupt.check() != Interrupted::No {
@@ -531,7 +533,7 @@ pub(super) async fn execute_with(
             after = candidate.ordinal;
             // A file that came back, or a path that no longer tells, ends this set; the next
             // inventory leaves that member out and keeps the others.
-            let missing = match observe(root, candidate).await? {
+            let missing = match observe(root, &lookup, candidate).await? {
                 Observed::Absent(missing) => missing,
                 Observed::Present(_) | Observed::Unobservable(..) => {
                     root.invalidate_deletions().await?;

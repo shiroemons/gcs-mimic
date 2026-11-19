@@ -1199,7 +1199,7 @@ impl Writeback {
         #[cfg(test)]
         failure(item.token.root, "durable")?;
         let selected = item.clone();
-        let observed_ns = self.lease.observation_time_ns()?;
+        let observed_ns = self.lease.observation_time_ns();
         let naming = self.lease.naming()?;
         let lookup = self.lease.lookup()?;
         let fp = match self

@@ -146,27 +146,33 @@ impl fmt::Display for Unobservable {
     }
 }
 
-/// Looks at the path of `candidate`, and returns what it holds with the candidate.
+/// Looks at the path of `candidate` through the lookups of the pass that asks, and returns what
+/// it holds with the candidate.
 pub(in crate::sync) async fn observe(
     root: &RootLease,
+    lookup: &fsutil::Lookup,
     candidate: Candidate,
 ) -> Result<Observed, SyncError> {
-    Ok(match presence(root, candidate.path.clone()).await? {
-        Presence::Absent(removal) => Observed::Absent(Missing { candidate, removal }),
-        Presence::Present => Observed::Present(candidate),
-        Presence::Unobservable(reason) => Observed::Unobservable(candidate, reason),
-    })
+    Ok(
+        match presence(root, lookup, candidate.path.clone()).await? {
+            Presence::Absent(removal) => Observed::Absent(Missing { candidate, removal }),
+            Presence::Present => Observed::Present(candidate),
+            Presence::Unobservable(reason) => Observed::Unobservable(candidate, reason),
+        },
+    )
 }
 
-/// Looks at `path` below the root without following any link. Only a failure of the root or
-/// the catalog is an error; whatever the path itself holds is a [`Presence`].
+/// Looks at `path` below the root without following any link, through the lookups of the pass
+/// that asks. Only a failure of the root or the catalog is an error; whatever the path itself
+/// holds is a [`Presence`].
 pub(in crate::sync) async fn presence(
     root: &RootLease,
+    lookup: &fsutil::Lookup,
     path: String,
 ) -> Result<Presence, SyncError> {
     let limits = root.tree_limits();
     let naming = root.naming()?;
-    let lookup = root.lookup()?;
+    let lookup = lookup.clone();
     root.file_job(move |root| {
         let path = Path::new(&path);
         if !limits.admits_file(path) {

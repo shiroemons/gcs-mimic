@@ -17,7 +17,7 @@ const MAX_SUB_MICRO_NANOS: u16 = 999;
 /// A bucket time split into stored whole microseconds and the nanoseconds past them. Flooring
 /// to the microsecond leaves at most 999 nanoseconds, so no remainder needs a check.
 fn split(time: SystemTime) -> Result<(i64, u16), CatalogError> {
-    let nanos = super::signed_nanos(time);
+    let nanos = crate::clock::signed_nanos(time);
     let micros = i64::try_from(nanos.div_euclid(1000)).map_err(unavailable)?;
     #[expect(
         clippy::cast_possible_truncation,

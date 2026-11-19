@@ -41,6 +41,13 @@ pub(crate) fn directory_names_within(
     directory_names_after(directory, after, limit)
 }
 
+pub(crate) fn each_name(
+    _: &File,
+    _: impl FnMut(&OsStr) -> io::Result<std::ops::ControlFlow<()>>,
+) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 pub fn directory_writable(_: &File) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }

@@ -239,6 +239,14 @@ pub(crate) struct FileIdentity {
 }
 
 impl FileIdentity {
+    /// Whether these timestamps, observed at `observed_ns`, would show any later change: the last
+    /// change lies two seconds or more before the observation, which covers the coarsest supported
+    /// HFS+/FAT timestamp granularity. Closer to it, a change in the same tick can leave every
+    /// timestamp as it was, so the observation is racy.
+    pub(crate) fn settled_at(&self, observed_ns: i128) -> bool {
+        observed_ns.saturating_sub(self.modified_ns.max(self.changed_ns)) >= 2_000_000_000
+    }
+
     /// The fields that differ in `after`.
     pub(crate) fn changed_fields(&self, after: &Self) -> IdentityChanges {
         IdentityField::ALL
@@ -1028,6 +1036,32 @@ pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Vec<(u64, u64)>> =
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) static UNCHECKED_SPELLING: std::sync::Mutex<Vec<(u64, u64)>> =
     std::sync::Mutex::new(Vec::new());
+
+/// Takes the entries of a directory as spelled the way they were opened while it lives
+/// ([`UNCHECKED_SPELLING`]).
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) struct UncheckedSpelling((u64, u64));
+
+// A separate `cfg(test)` lets Clippy see test code here and allow its unwraps.
+#[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl UncheckedSpelling {
+    pub(crate) fn of(directory: &std::path::Path) -> Self {
+        let identity = stat_identity(&File::open(directory).unwrap()).unwrap();
+        let unchecked = (identity.device, identity.inode);
+        UNCHECKED_SPELLING.lock().unwrap().push(unchecked);
+        Self(unchecked)
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+impl Drop for UncheckedSpelling {
+    fn drop(&mut self) {
+        if let Ok(mut unchecked) = UNCHECKED_SPELLING.lock() {
+            unchecked.retain(|directory| *directory != self.0);
+        }
+    }
+}
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn sync_replace_parent(directory: &File) -> io::Result<()> {

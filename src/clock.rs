@@ -12,6 +12,14 @@ impl Clock for SystemClock {
     }
 }
 
+/// `time` as signed nanoseconds since the Unix epoch.
+pub(crate) fn signed_nanos(time: SystemTime) -> i128 {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos() as i128,
+        Err(error) => -(error.duration().as_nanos() as i128),
+    }
+}
+
 pub(crate) fn system_time_from_unix_seconds(seconds: i64) -> Option<SystemTime> {
     let duration = std::time::Duration::from_secs(seconds.unsigned_abs());
     if seconds < 0 {

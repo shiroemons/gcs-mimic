@@ -194,7 +194,9 @@ pub(crate) fn restore_tree(snapshot: &Path, tree: &Path, targets: &[&str]) {
 
 /// `candidate`, whose path the test emptied, as the inventory sees it missing.
 pub(crate) async fn seen_missing(root: &RootLease, candidate: Candidate) -> Missing {
-    let observed = super::deletion::observe(root, candidate).await.unwrap();
+    let observed = super::deletion::observe(root, &root.lookup().unwrap(), candidate)
+        .await
+        .unwrap();
     let super::deletion::Observed::Absent(missing) = observed else {
         panic!("the path is not seen empty: {observed:?}");
     };

@@ -599,15 +599,8 @@ impl RootLease {
     pub(crate) fn change(&self) -> Option<&RootChange> {
         self.change.as_deref()
     }
-    pub(crate) fn observation_time_ns(&self) -> Result<i128, RootError> {
-        let now = self.catalog().0.clock.now();
-        match now.duration_since(std::time::UNIX_EPOCH) {
-            Ok(duration) => i128::try_from(duration.as_nanos())
-                .map_err(|error| AdminError::backend(error).into()),
-            Err(error) => i128::try_from(error.duration().as_nanos())
-                .map(|nanos| -nanos)
-                .map_err(|error| AdminError::backend(error).into()),
-        }
+    pub(crate) fn observation_time_ns(&self) -> i128 {
+        crate::clock::signed_nanos(self.catalog().0.clock.now())
     }
 }
 
@@ -643,11 +636,13 @@ impl RootLease {
             AdminError::Backend("synchronization root naming rules were not probed".into())
         })
     }
-    /// Lookups below the pinned root under its probed naming rules.
+    /// Lookups below the pinned root under its probed naming rules, for one pass: they keep the
+    /// directory listings they read until the pass drops them.
     pub(crate) fn lookup(&self) -> Result<crate::fsutil::Lookup, AdminError> {
         Ok(crate::fsutil::Lookup::probed(
             self.ownership.identity.device,
             self.naming()?.matching(),
+            Arc::clone(&self.catalog().0.clock),
         ))
     }
     /// Records the probed naming rules. A later probe of the same pinned root that observes other
