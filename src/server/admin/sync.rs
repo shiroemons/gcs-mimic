@@ -15,11 +15,10 @@ use crate::{
         root::{RootChange, RootError, RootLease, RootStatus},
     },
     sync::{
-        Cause, MirrorState, Reconciliation, UnmappedObjects,
+        Cause, Decision, MirrorState, Reconciliation, UnmappedObjects,
         advice::AtHand,
         control::{
-            Command, ControlError, PauseChange, Registration, Reply, Unfinished, WaitReason,
-            WaitResult,
+            Command, ControlError, PauseChange, Registration, Unfinished, WaitReason, WaitResult,
         },
         entries::EntryListing,
         handshake,
@@ -75,8 +74,8 @@ impl Drop for ControlActivity<'_> {
 enum Control {
     Status,
     Conflicts,
-    Approve,
-    Reject,
+    /// Approves or rejects the deletion set the body names, at the route the decision names.
+    Decide(Decision),
     Rescan,
     Resolve,
     Wait,
@@ -87,12 +86,13 @@ impl Control {
         match path {
             "/_internal/sync" => Some(Self::Status),
             "/_internal/sync/conflicts" => Some(Self::Conflicts),
-            "/_internal/sync/approve" => Some(Self::Approve),
-            "/_internal/sync/reject" => Some(Self::Reject),
             "/_internal/sync/rescan" => Some(Self::Rescan),
             "/_internal/sync/resolve" => Some(Self::Resolve),
             "/_internal/sync/wait" => Some(Self::Wait),
-            _ => None,
+            path => Decision::ALL
+                .into_iter()
+                .find(|decision| decision.path() == path)
+                .map(Self::Decide),
         }
     }
 
@@ -100,9 +100,7 @@ impl Control {
     fn method(self) -> Method {
         match self {
             Self::Status | Self::Conflicts => Method::GET,
-            Self::Approve | Self::Reject | Self::Rescan | Self::Resolve | Self::Wait => {
-                Method::POST
-            }
+            Self::Decide(_) | Self::Rescan | Self::Resolve | Self::Wait => Method::POST,
         }
     }
 }
@@ -112,37 +110,6 @@ impl Control {
 enum Mutation {
     Decide(Decision),
     Rescan,
-}
-
-/// What a decision does with the deletion set its body names.
-#[derive(Clone, Copy)]
-enum Decision {
-    /// Delete the set's objects.
-    Approve,
-    /// Keep the objects and write the set's files back from them.
-    Reject,
-}
-
-impl Decision {
-    fn command(
-        self,
-        revision: OpaqueId,
-        reply: Reply<DeletionSet>,
-        identity: Option<Identity>,
-    ) -> Command {
-        match self {
-            Self::Approve => Command::Approve {
-                revision,
-                reply,
-                identity,
-            },
-            Self::Reject => Command::Reject {
-                revision,
-                reply,
-                identity,
-            },
-        }
-    }
 }
 
 async fn authorize_controls(
@@ -325,12 +292,8 @@ async fn control(
             )
             .await
         }
-        Control::Approve => {
-            let mutation = Mutation::Decide(Decision::Approve);
-            mutate(request, mutation, registration, identity, ctx).await
-        }
-        Control::Reject => {
-            let mutation = Mutation::Decide(Decision::Reject);
+        Control::Decide(decision) => {
+            let mutation = Mutation::Decide(decision);
             mutate(request, mutation, registration, identity, ctx).await
         }
         Control::Rescan => mutate(request, Mutation::Rescan, registration, identity, ctx).await,
@@ -492,7 +455,12 @@ async fn decide(
         ));
     };
     let (reply, receive) = tokio::sync::oneshot::channel();
-    let command = decision.command(revision, reply, identity);
+    let command = Command::Decide {
+        decision,
+        revision,
+        reply,
+        identity,
+    };
     let set = observe(ctx, registration, command, receive)
         .await?
         .map_err(|error| control_error(&error))?;

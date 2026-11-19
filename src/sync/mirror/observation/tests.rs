@@ -103,7 +103,8 @@ async fn quiet_waits_hold_their_original_deadline_without_blocking_other_control
     let (reply, _receive) = tokio::sync::oneshot::channel();
     assert!(matches!(
         controls.admit(
-            Command::Approve {
+            Command::Decide {
+                decision: crate::sync::Decision::Approve,
                 revision: "0".repeat(32).parse().unwrap(),
                 reply,
                 identity: None
@@ -111,7 +112,7 @@ async fn quiet_waits_hold_their_original_deadline_without_blocking_other_control
             &watcher,
             Quiet::Unverified
         ),
-        Some(Command::Approve { .. })
+        Some(Command::Decide { .. })
     ));
     controls.expired().await;
     controls.expire(&root, &config).await.unwrap();

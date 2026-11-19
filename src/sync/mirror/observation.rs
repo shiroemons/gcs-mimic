@@ -242,7 +242,7 @@ impl Controls {
                 Command::Rescan { reply, .. } => {
                     let _ = reply.send(Err(ControlError::Shutdown));
                 }
-                Command::Approve { reply, .. } | Command::Reject { reply, .. } => {
+                Command::Decide { reply, .. } => {
                     let _ = reply.send(Err(ControlError::Shutdown));
                 }
                 Command::Resolve { reply, .. } => {
@@ -277,10 +277,9 @@ impl Controls {
     pub(super) fn ready(&mut self, watcher: &DirectoryWatch, quiet: Quiet) -> Option<Command> {
         let index = self.0.iter().position(|request| match request {
             Command::Wait { .. } => watcher.pending.is_none() && quiet == Quiet::Established,
-            Command::Rescan { .. }
-            | Command::Approve { .. }
-            | Command::Reject { .. }
-            | Command::Resolve { .. } => watcher.pending.is_none() || quiet == Quiet::Capped,
+            Command::Rescan { .. } | Command::Decide { .. } | Command::Resolve { .. } => {
+                watcher.pending.is_none() || quiet == Quiet::Capped
+            }
         })?;
         self.0.remove(index)
     }
@@ -293,7 +292,7 @@ impl Controls {
         let waits = match &request {
             Command::Wait { .. } => true,
             Command::Rescan { .. } => quiet != Quiet::Capped,
-            Command::Approve { .. } | Command::Reject { .. } | Command::Resolve { .. } => false,
+            Command::Decide { .. } | Command::Resolve { .. } => false,
         };
         if watcher.pending.is_some() && waits {
             if let Command::Wait { settling, .. } = &request {
@@ -311,10 +310,7 @@ impl Controls {
             .iter()
             .filter_map(|request| match request {
                 Command::Wait { deadline, .. } => Some(*deadline),
-                Command::Rescan { .. }
-                | Command::Approve { .. }
-                | Command::Reject { .. }
-                | Command::Resolve { .. } => None,
+                Command::Rescan { .. } | Command::Decide { .. } | Command::Resolve { .. } => None,
             })
             .min();
         let Some(deadline) = deadline else {
@@ -351,8 +347,7 @@ impl Controls {
                 }
                 request @ (Command::Wait { .. }
                 | Command::Rescan { .. }
-                | Command::Approve { .. }
-                | Command::Reject { .. }
+                | Command::Decide { .. }
                 | Command::Resolve { .. }) => retained.push_back(request),
             }
         }

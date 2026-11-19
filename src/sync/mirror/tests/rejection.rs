@@ -260,7 +260,8 @@ async fn a_rejected_revision_is_never_approved_after_a_failed_write_back() {
     running
         .task
         .rescan
-        .send(Command::Approve {
+        .send(Command::Decide {
+            decision: Decision::Approve,
             revision: rejected.revision,
             reply,
             identity: None,

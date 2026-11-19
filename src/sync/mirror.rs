@@ -1,7 +1,9 @@
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use super::MirrorState;
 use super::control::PauseChange;
-use super::control::{Command, ControlError, Reply, export_retry_remedy, newer_edit_remedy};
+use super::control::{
+    Command, ControlError, Decision, Reply, export_retry_remedy, newer_edit_remedy,
+};
 use super::entries::{EntryClass, classify};
 use super::error::{Recorded, StoppedRescan, unless_superseded};
 use super::interrupt::{Interrupt, Interrupted};
@@ -605,7 +607,7 @@ async fn await_resume(
                         Err(error)=>{let _=reply.send(Err(error.into()));}
                     }
                 }
-                Command::Approve {reply,..}|Command::Reject {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
+                Command::Decide {reply,..}=>{let _=reply.send(Err(ControlError::Paused));}
                 Command::Wait {reply,..}=>{let _=reply.send(Ok(super::control::WaitResult::held(super::outstanding::Holdup::Paused(paused_for),None,None)));}
                 Command::Resolve {request,reply,identity}=> {
                     let authority=crate::storage::sync_state::authority::ControlAuthority::new(config.seed_project.clone(),identity);
@@ -1115,8 +1117,7 @@ impl LiveControl<'_> {
                 .then(|| watcher.history_scan(quiet));
             let identity = match &request {
                 Command::Rescan { identity, .. }
-                | Command::Approve { identity, .. }
-                | Command::Reject { identity, .. }
+                | Command::Decide { identity, .. }
                 | Command::Wait { identity, .. }
                 | Command::Resolve { identity, .. } => identity.clone(),
             };
@@ -1229,16 +1230,12 @@ impl LiveControl<'_> {
                     }
                 }
             }
-            Command::Approve {
+            Command::Decide {
+                decision,
                 revision,
                 reply,
                 identity,
-            } => self.approve(revision, reply, identity).await?,
-            Command::Reject {
-                revision,
-                reply,
-                identity,
-            } => self.reject(revision, reply, identity).await?,
+            } => self.decide(decision, revision, reply, identity).await?,
         }
         Ok(())
     }
@@ -1273,64 +1270,42 @@ impl LiveControl<'_> {
         }
     }
 
-    /// Rejects the deletion set `revision`, answers, and writes its files back from their objects.
-    async fn reject(
+    /// Approves or rejects the deletion set `revision`, as `decision` says, answers, and then
+    /// runs the approved set or writes the rejected set's files back from their objects.
+    async fn decide(
         &mut self,
+        decision: Decision,
         revision: crate::storage::sync_state::OpaqueId,
         reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), SyncError> {
-        let rejected = match self.decidable(revision, identity).await {
-            Ok(()) => self
-                .scope
-                .root
-                .reject_deletions(revision)
-                .await
-                .map_err(ControlError::from),
+        let root = self.scope.root;
+        let decided = match self.decidable(revision, identity).await {
+            Ok(()) => match decision {
+                Decision::Approve => root.approve_deletions(revision).await,
+                Decision::Reject => root.reject_deletions(revision).await,
+            }
+            .map_err(ControlError::from),
             Err(error) => Err(error),
         };
-        let accepted = rejected.is_ok();
-        let _ = reply.send(rejected);
-        if !accepted {
-            return Ok(());
-        }
-        let interrupt = Interrupt::new(self.scope.stopping);
-        super::deletion::write_back_rejected(self.scope.catalog, self.scope.root, interrupt)
-            .await?;
-        // The members held back the exports into their bucket's missing directory, which the
-        // write-back brought back.
-        Box::pin(self.state.skipped.retry(self.scope, interrupt))
-            .await
-            .map(drop)
-    }
-
-    /// Approves the deletion set `revision`, answers, and runs it.
-    async fn approve(
-        &mut self,
-        revision: crate::storage::sync_state::OpaqueId,
-        reply: Reply<crate::storage::sync_state::deletions::DeletionSet>,
-        identity: Option<crate::auth::Identity>,
-    ) -> Result<(), SyncError> {
-        let approved = match self.decidable(revision, identity).await {
-            Ok(()) => self
-                .scope
-                .root
-                .approve_deletions(revision)
-                .await
-                .map_err(ControlError::from),
-            Err(error) => Err(error),
-        };
-        let set = approved.as_ref().ok().cloned();
-        let _ = reply.send(approved);
+        let set = decided.as_ref().ok().cloned();
+        let _ = reply.send(decided);
         let Some(set) = set else {
             return Ok(());
         };
         let interrupt = Interrupt::new(self.scope.stopping);
-        super::deletion::execute_with(self.scope.catalog, self.scope.root, set, interrupt)
-            .await?
-            .report(LogLevel::Info);
-        // The deleted members held back the exports into their bucket's missing directory,
-        // which no tree change would otherwise run again.
+        match decision {
+            Decision::Approve => {
+                super::deletion::execute_with(self.scope.catalog, root, set, interrupt)
+                    .await?
+                    .report(LogLevel::Info);
+            }
+            Decision::Reject => {
+                super::deletion::write_back_rejected(self.scope.catalog, root, interrupt).await?;
+            }
+        }
+        // The members held back the exports into their bucket's missing directory, which the
+        // deletions or the write-back brought back and no tree change would run again.
         Box::pin(self.state.skipped.retry(self.scope, interrupt))
             .await
             .map(drop)

@@ -136,7 +136,7 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
         ),
         (
             vec!["approve", "--endpoint", endpoint],
-            "Approval requires --deletion-set REVISION from an inspected deletion set",
+            "sync approve requires --deletion-set REVISION from an inspected deletion set",
         ),
         (
             vec!["resolve", "--endpoint", endpoint],

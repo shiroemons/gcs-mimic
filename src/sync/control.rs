@@ -362,6 +362,37 @@ impl Error for ControlError {
 /// Answers a queued rescan, approval or wait.
 pub(crate) type Reply<T> = oneshot::Sender<Result<T, ControlError>>;
 
+/// What an operator decides about the deletion set that waits for a decision. The control
+/// routes, the mirror and the CLI carry it end to end, so the two decisions share every step
+/// but the ones that differ, and a route or a command can name only one of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decision {
+    /// Delete the set's objects.
+    Approve,
+    /// Keep the objects and write the set's files back from them.
+    Reject,
+}
+
+impl Decision {
+    pub const ALL: [Self; 2] = [Self::Approve, Self::Reject];
+
+    /// The CLI command, which answers and advice name the decision by.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+        }
+    }
+
+    /// The control route that takes the decision.
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::Approve => "/_internal/sync/approve",
+            Self::Reject => "/_internal/sync/reject",
+        }
+    }
+}
+
 pub(crate) enum Command {
     Resolve {
         request: crate::storage::sync_state::conflicts::ResolveRequest,
@@ -377,13 +408,9 @@ pub(crate) enum Command {
         reply: Reply<Reconciliation>,
         identity: Option<Identity>,
     },
-    Approve {
-        revision: OpaqueId,
-        reply: Reply<DeletionSet>,
-        identity: Option<Identity>,
-    },
-    /// Rejects the deletion set `revision`: its files are written back from their objects.
-    Reject {
+    /// Approves or rejects the deletion set `revision`, as `decision` says.
+    Decide {
+        decision: Decision,
         revision: OpaqueId,
         reply: Reply<DeletionSet>,
         identity: Option<Identity>,

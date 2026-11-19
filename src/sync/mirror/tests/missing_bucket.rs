@@ -91,22 +91,43 @@ pub(super) async fn wait_control(commands: &tokio::sync::mpsc::Sender<Command>) 
         .unwrap()
 }
 
-async fn approve_control(commands: &tokio::sync::mpsc::Sender<Command>, root: &RootLease) {
+/// The command that takes `decision` on the set `revision` without an identity.
+fn decide(
+    decision: Decision,
+    revision: crate::storage::sync_state::OpaqueId,
+    reply: Reply<DeletionSet>,
+) -> Command {
+    Command::Decide {
+        decision,
+        revision,
+        reply,
+        identity: None,
+    }
+}
+
+/// Takes `decision` on the root's pending set, and returns the set the decision answered with.
+async fn decide_control(
+    commands: &tokio::sync::mpsc::Sender<Command>,
+    root: &RootLease,
+    decision: Decision,
+) -> DeletionSet {
     let revision = root.deletion_set().await.unwrap().unwrap().revision;
-    let (reply, approved) = tokio::sync::oneshot::channel();
+    let (reply, decided) = tokio::sync::oneshot::channel();
     commands
-        .send(Command::Approve {
-            revision,
-            reply,
-            identity: None,
-        })
+        .send(decide(decision, revision, reply))
         .await
         .unwrap();
-    tokio::time::timeout(HANG_GUARD, approved)
+    let decided = tokio::time::timeout(HANG_GUARD, decided)
         .await
         .unwrap()
         .unwrap()
         .unwrap();
+    assert_eq!(decided.revision, revision);
+    decided
+}
+
+async fn approve_control(commands: &tokio::sync::mpsc::Sender<Command>, root: &RootLease) {
+    decide_control(commands, root, Decision::Approve).await;
 }
 
 /// Rejects the root's pending set, and returns the set the rejection answered with.
@@ -114,23 +135,7 @@ pub(super) async fn reject_control(
     commands: &tokio::sync::mpsc::Sender<Command>,
     root: &RootLease,
 ) -> DeletionSet {
-    let revision = root.deletion_set().await.unwrap().unwrap().revision;
-    let (reply, rejected) = tokio::sync::oneshot::channel();
-    commands
-        .send(Command::Reject {
-            revision,
-            reply,
-            identity: None,
-        })
-        .await
-        .unwrap();
-    let rejected = tokio::time::timeout(HANG_GUARD, rejected)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(rejected.revision, revision);
-    rejected
+    decide_control(commands, root, Decision::Reject).await
 }
 
 /// A mirror that runs over the tree and answers the controls sent to `commands`, as the server's
@@ -417,34 +422,6 @@ async fn rejecting_a_set_held_for_a_missing_bucket_directory_brings_the_director
     live.stop().await;
 }
 
-/// What the user decides about the set that waits.
-#[derive(Clone, Copy, Debug)]
-enum Decision {
-    Approve,
-    Reject,
-}
-
-impl Decision {
-    fn command(
-        self,
-        revision: crate::storage::sync_state::OpaqueId,
-        reply: Reply<DeletionSet>,
-    ) -> Command {
-        match self {
-            Self::Approve => Command::Approve {
-                revision,
-                reply,
-                identity: None,
-            },
-            Self::Reject => Command::Reject {
-                revision,
-                reply,
-                identity: None,
-            },
-        }
-    }
-}
-
 /// A change to the tree while the set waits, which a decision follows before any pass.
 #[derive(Clone, Copy, Debug)]
 enum Change {
@@ -516,7 +493,7 @@ async fn a_decision_whose_inventory_a_stop_ended_is_refused() {
         let set = live.root.deletion_set().await.unwrap().unwrap();
         let (reply, answer) = tokio::sync::oneshot::channel();
         live.commands
-            .send(decision.command(set.revision, reply))
+            .send(decide(decision, set.revision, reply))
             .await
             .unwrap();
         tokio::time::timeout(HANG_GUARD, hook.entered.notified())
@@ -593,7 +570,7 @@ async fn decide_after_a_change(change: Change, decision: Decision) {
         .unwrap();
     let (reply, answer) = tokio::sync::oneshot::channel();
     commands
-        .send(decision.command(set.revision, reply))
+        .send(decide(decision, set.revision, reply))
         .await
         .unwrap();
     let releasing = hook.clone();
@@ -726,7 +703,7 @@ async fn decide_after_an_api_write(write: ApiWrite, decision: Decision) {
     assert_eq!(named, Some(set.revision), "{decision:?} after {write:?}");
     let (reply, answer) = tokio::sync::oneshot::channel();
     live.commands
-        .send(decision.command(set.revision, reply))
+        .send(decide(decision, set.revision, reply))
         .await
         .unwrap();
     let answer = tokio::time::timeout(HANG_GUARD, answer)

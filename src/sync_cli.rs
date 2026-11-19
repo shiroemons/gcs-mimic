@@ -6,7 +6,7 @@ use gcs_mimic::{
     config_input::{DurationError, RenamedEnvironmentVariable, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
-    sync::{UnmappedObjects, WaitReason, advice, handshake},
+    sync::{Decision, UnmappedObjects, WaitReason, advice, handshake},
     tls,
 };
 use http_body_util::{BodyExt, Full};
@@ -277,8 +277,8 @@ enum Command {
     Status,
     Rescan,
     Wait,
-    Approve,
-    Reject,
+    /// `approve` or `reject`, which share every step but the route.
+    Decide(Decision),
     Resolve,
     List(Listing),
 }
@@ -403,21 +403,22 @@ impl Command {
             "status" => Some(Self::Status),
             "rescan" => Some(Self::Rescan),
             "wait" => Some(Self::Wait),
-            "approve" => Some(Self::Approve),
-            "reject" => Some(Self::Reject),
             "resolve" => Some(Self::Resolve),
             "conflicts" => Some(Self::List(Listing::Conflicts)),
-            name => View::parse(name).map(|view| Self::List(Listing::View(view))),
+            name => Decision::ALL
+                .into_iter()
+                .find(|decision| decision.as_str() == name)
+                .map(Self::Decide)
+                .or_else(|| View::parse(name).map(|view| Self::List(Listing::View(view)))),
         }
     }
 
-    /// The name of a command that decides a deletion set. Such a command names the set with
+    /// The decision a command takes on a deletion set. Such a command names the set with
     /// `--deletion-set`; `--revision` belongs to the pages it was read from, so accepting it
     /// too would give the decision two spellings.
-    const fn decision(self) -> Option<&'static str> {
+    const fn decision(self) -> Option<Decision> {
         match self {
-            Self::Approve => Some("approve"),
-            Self::Reject => Some("reject"),
+            Self::Decide(decision) => Some(decision),
             Self::Status | Self::Rescan | Self::Wait | Self::Resolve | Self::List(_) => None,
         }
     }
@@ -431,14 +432,9 @@ fn default_timeout_ms(command: Option<Command>) -> u64 {
     match command {
         Some(Command::Rescan) => 30_000,
         Some(Command::Wait) => 120_000,
-        Some(
-            Command::Status
-            | Command::Approve
-            | Command::Reject
-            | Command::Resolve
-            | Command::List(_),
-        )
-        | None => 10_000,
+        Some(Command::Status | Command::Decide(_) | Command::Resolve | Command::List(_)) | None => {
+            10_000
+        }
     }
 }
 
@@ -1169,11 +1165,12 @@ impl Options {
             command => command,
         };
         let decision = command.and_then(Command::decision);
-        if let Some(name) = decision
+        if let Some(decision) = decision
             && flags.contains(Flag::Revision)
         {
             return Err(fail(format!(
-                "sync {name} takes --deletion-set REVISION, not --revision"
+                "sync {} takes --deletion-set REVISION, not --revision",
+                decision.as_str()
             ))
             .into());
         }
@@ -1499,18 +1496,15 @@ fn request(
             "/_internal/sync/resolve",
             Some(resolve_body(revision, flags)?),
         ),
-        (Some(Command::Approve), revision) => Plan::once(
-            "/_internal/sync/approve",
-            Some(
-                json!({"deletion_set":revision.ok_or_else(|| fail("Approval requires --deletion-set REVISION from an inspected deletion set"))?}),
-            ),
-        ),
-        (Some(Command::Reject), revision) => Plan::once(
-            "/_internal/sync/reject",
-            Some(
-                json!({"deletion_set":revision.ok_or_else(|| fail("Rejection requires --deletion-set REVISION from an inspected deletion set"))?}),
-            ),
-        ),
+        (Some(Command::Decide(decision)), revision) => {
+            let revision = revision.ok_or_else(|| {
+                fail(format!(
+                    "sync {} requires --deletion-set REVISION from an inspected deletion set",
+                    decision.as_str()
+                ))
+            })?;
+            Plan::once(decision.path(), Some(json!({ "deletion_set": revision })))
+        }
         (Some(Command::List(Listing::View(view))), None) => {
             let paging = Paging::read(flags)?;
             // A cursor belongs to the revision of the page that returned it, which the status

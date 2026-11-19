@@ -213,7 +213,8 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
         .unwrap();
     let (reply, approved) = tokio::sync::oneshot::channel();
     commands
-        .send(Command::Approve {
+        .send(Command::Decide {
+            decision: crate::sync::Decision::Approve,
             revision: "00000000000000000000000000000000".parse().unwrap(),
             reply,
             identity: None,
