@@ -245,6 +245,7 @@ const INSTANCE_WIDE: &[&str] = &[
     "sync_conflict_operations",
     "sync_conflict_roots",
     "sync_conflicts",
+    "sync_deletion_held",
     "sync_deletion_history",
     "sync_deletion_members",
     "sync_deletion_sets",

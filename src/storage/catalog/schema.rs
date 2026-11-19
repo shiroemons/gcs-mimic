@@ -289,6 +289,12 @@ pub(super) const STEPS: &[Step] = &[
         None,
         sync_state::findings::migrate_occupied,
     ),
+    Step::migrated(
+        sync_state::deletions::held::SCHEMA_VERSION,
+        sync_state::deletions::held::SCHEMA,
+        None,
+        sync_state::deletions::held::migrate,
+    ),
 ];
 
 #[expect(

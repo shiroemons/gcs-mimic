@@ -167,6 +167,22 @@ pub(crate) async fn downgraded<T>(
     downgrade(&connection)
 }
 
+/// Closes the catalog and takes it back to the schema before the files of a set waiting for a
+/// decision were kept apart from it, so that the next open runs that migration.
+pub(crate) async fn before_held_files(dir: &TestDir, catalog: &Catalog) {
+    downgraded(dir, catalog, |connection| {
+        super::test_support::downgrade_held_schema(connection);
+        connection
+            .pragma_update(
+                None,
+                "user_version",
+                super::sync_state::deletions::held::SCHEMA_VERSION - 1,
+            )
+            .unwrap();
+    })
+    .await;
+}
+
 pub(crate) async fn migrated(
     dir: &TestDir,
     record: BucketRecord,

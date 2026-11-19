@@ -108,6 +108,18 @@ A bucket emptied while the server runs, or one with any of those files back, is
 left to the counts. One decision covers both reasons. A disabled
 guard changes only these decisions.
 
+Once a set waits for approval, it keeps waiting until it is approved or
+rejected, or until every file it holds is back. An inventory that finds other
+members, because some files came back, others went, or files added to the tree
+made the missing ones fewer than half, replaces the set under a new revision,
+but the new set waits whenever it holds a file of the set that waited, whatever
+its counts; finding the same members keeps the revision and the wait. The
+catalog keeps the files of the waiting set apart from it, so a restart, which
+replaces the revision, keeps the wait too, and a catalog upgraded while a set
+waits takes that set's files. Before, putting part of the files back by hand, or
+adding files, could leave a set below the threshold that ran without anyone
+deciding.
+
 Rejecting the set instead (`gcs-mimic sync reject --deletion-set REVISION`)
 keeps its objects. It closes the set, so nothing approves or runs it, and
 writes each member's file back from its object through the ordinary

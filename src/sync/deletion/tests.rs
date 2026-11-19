@@ -13,6 +13,8 @@ use crate::{
 };
 use std::fs;
 
+mod awaiting;
+
 async fn fixture(count: usize) -> (TestDir, TestDir, Catalog, RootLease, Config) {
     let data = TestDir::new();
     let tree = TestDir::new();

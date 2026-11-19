@@ -907,9 +907,13 @@ an approved or rejected set, or one from before a restart, is never confirmed
 again. An observed tree change leaves a set that waits for approval in place, and
 approving or rejecting it first inventories the tree again, so the decision
 applies to the members the tree shows then and a late notification about another
-path does not make the named revision stale. A rejection is durable: the
-write-back of the rejected files resumes at the next start, retry or rescan,
-and no inventory runs until it has finished.
+path does not make the named revision stale. A set that waits keeps waiting
+until it is approved or rejected or every file it holds is back: a set that
+replaces it, because some files came back, others went or the tree gained
+files, waits whenever it holds one of those files, across a restart and an
+upgrade too. A rejection is durable: the write-back of the rejected files
+resumes at the next start, retry or rescan, and no inventory runs until it has
+finished.
 
 Inspect candidates with `GET /_internal/sync?view=deletions&revision=REVISION`,
 following its cursors to completion. Every page belongs to that exact frozen set,

@@ -376,12 +376,14 @@ impl RootLease {
         Ok(confirmed)
     }
 
-    /// Completes the inventory and returns its set. A new set takes its guard decision now. A
-    /// confirming inventory returns the earlier set, made valid again when a change invalidated
-    /// it meanwhile and carried to this inventory's journal fence, or `None` when its member
-    /// count or guard decision differs from the earlier set's. The members themselves were
-    /// compared page by page; the denominator may differ, as when a file the set does not hold
-    /// was added, and the set keeps the one it was taken with.
+    /// Completes the inventory and returns its set. A new set takes its guard decision now: by
+    /// the counts, by a bucket gone at once, or because it holds a file of the set that waited
+    /// before it ([`held`]), which keeps a wait going until someone decides or every file of
+    /// it is back. A confirming inventory returns the earlier set, made valid again when a
+    /// change invalidated it meanwhile and carried to this inventory's journal fence, or `None`
+    /// when its member count or guard decision differs from the earlier set's. The members
+    /// themselves were compared page by page; the denominator may differ, as when a file the
+    /// set does not hold was added, and the set keeps the one it was taken with.
     pub(crate) async fn finish_deletion_inventory(
         &self,
         inventory: Inventory,
@@ -401,11 +403,14 @@ impl RootLease {
                 Draft::Confirming { baseline, candidates } => (baseline,candidates),
             };
             let automatic=history::automatic_count(&transaction,inventory.root)?;
-            let guard=guarded(Guard::from(enabled),baseline+automatic,candidates+automatic)
-                || inventory.removal.guarded(Guard::from(enabled));
+            let setting=Guard::from(enabled);
+            let guard=guarded(setting,baseline+automatic,candidates+automatic)
+                || inventory.removal.guarded(setting)
+                || (matches!(setting,Guard::Enabled) && held::holds_waiting(&transaction,inventory.root)?);
             match inventory.draft {
                 Draft::New => {
                     sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,DeletionAuthorization::on_completion(guard)])?;
+                    held::keep(&transaction,inventory.root,guard)?;
                 }
                 Draft::Confirming { .. } => {
                     if candidates!=stored_candidates || guard!=stored {

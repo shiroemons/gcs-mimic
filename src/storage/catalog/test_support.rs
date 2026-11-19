@@ -136,9 +136,18 @@ DROP TABLE temp.downgrade_occupied_findings;
 DROP TABLE temp.downgrade_occupied_owners;
 DROP TABLE temp.downgrade_occupied_sequences;";
 
+/// Restores the schema before the files of a set waiting for a decision were kept apart from it.
+pub(super) fn downgrade_held_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch("DROP TABLE IF EXISTS sync_deletion_held;")
+        .unwrap();
+}
+
 /// Restores schema 59, before an occupied directory had a finding reason of its own, when the
-/// findings table admits one.
+/// findings table admits one. A catalog that keeps the files of a waiting set apart drops
+/// them first.
 fn downgrade_occupied_schema(connection: &rusqlite::Connection) {
+    downgrade_held_schema(connection);
     let occupied: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_findings' AND sql LIKE '%directory-occupied%')",

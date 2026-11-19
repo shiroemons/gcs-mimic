@@ -312,9 +312,10 @@ async fn a_bucket_emptied_while_stopped_waits_for_approval() {
 }
 
 /// One of the files a bucket lost while the server was stopped comes back, so the bucket is no
-/// longer emptied, and the other file is left to the counts.
+/// longer emptied. The other file was part of the set that waits, so it keeps waiting instead
+/// of being left to the counts, which would delete it unasked.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_file_back_in_a_bucket_emptied_while_stopped_leaves_the_rest_to_the_counts() {
+async fn a_file_back_in_a_bucket_emptied_while_stopped_keeps_the_rest_waiting() {
     let (data, tree, _) = tracked_pair().await;
     for name in TRACKED {
         fs::remove_file(tree.0.join(BUCKET).join(name)).unwrap();
@@ -324,7 +325,7 @@ async fn a_file_back_in_a_bucket_emptied_while_stopped_leaves_the_rest_to_the_co
     assert_eq!((set.candidate_count, set.guarded), (2, true));
     fs::write(tree.0.join(BUCKET).join("first"), BODY).unwrap();
     let again = inventory_again(&started, &data.0, &tree.0).await;
-    assert_eq!((again.candidate_count, again.guarded), (1, false));
+    assert_eq!((again.candidate_count, again.guarded), (1, true));
     started.close().await;
 }
 

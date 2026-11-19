@@ -454,6 +454,7 @@ pub(super) const CASCADED: &[&str] = &[
     "sync_deletion_members",
     "sync_observations",
     "sync_deletion_history",
+    "sync_deletion_held",
 ];
 
 /// Deletes the rows that belong to `root` and the root itself, and adds what they held to

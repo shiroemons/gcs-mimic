@@ -18,6 +18,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+pub(in crate::storage) mod held;
 pub(in crate::storage) mod history;
 mod scan;
 pub(crate) use scan::{Confirmed, Inventory};
@@ -380,6 +381,7 @@ impl RootLease {
             matching(&transaction,root,revision)?;
             let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET authorization=1 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
+            held::release(&transaction,root)?;
             sql::exec(&transaction,"UPDATE sync_deletion_history SET automatic_count=0 WHERE root_id=?1",[root])?;
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit()?;
@@ -406,6 +408,7 @@ impl RootLease {
             let snapshot=read_set(&transaction,root)?.ok_or(CatalogError::PreconditionFailed)?;
             let count=sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=0,authorization=2 WHERE root_id=?1 AND revision=?2 AND authorization=0 AND guarded=1", params![root,revision])?;
             if count!=1 {return Err(CatalogError::PreconditionFailed)}
+            held::release(&transaction,root)?;
             transaction.commit()?;
             Ok(snapshot)
         }).await?)
