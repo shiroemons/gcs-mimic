@@ -232,13 +232,16 @@ struct Install {
     purpose: Purpose,
 }
 
+/// Whether `file` still holds the tracked body. Size and mtime rule out an edit cheaply; the
+/// hashes decide the rest.
 fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<bool, Error> {
     let before = fsutil::stat_identity(file)?;
     let fp = &tracked.fingerprint;
-    if before.inode != fp.inode || before.size != fp.size || before.modified_ns != fp.mtime_ns {
+    if before.size != fp.size || before.modified_ns != fp.mtime_ns {
         return Ok(false);
     }
-    // Permission repair changes ctime; stable hashes still prove the tracked body.
+    // Permission repair changes ctime, and Docker Desktop's shared folders can report a new
+    // inode number for an unchanged file; stable hashes still prove the tracked body.
     Ok(
         content_matches(file, fp.size, fp.md5, fp.crc32c)?
             && before == fsutil::stat_identity(file)?,

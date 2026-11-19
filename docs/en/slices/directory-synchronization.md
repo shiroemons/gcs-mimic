@@ -91,8 +91,10 @@ cursor remains at the pre-scan fence so writes during the scan are replayed.
 No debounce timer or idle polling is used. API bucket deletion leaves its
 directory in place; deleting directories is PENDING.
 
-Updates compare the tracked inode, size, nanosecond mtime and stable MD5/CRC32C
-before replacement; ctime must remain stable during verification. Checked
+Updates compare the tracked size, nanosecond mtime and stable MD5/CRC32C before
+replacement; ctime must remain stable during verification. The inode number is
+not compared, because Docker Desktop shared folders can report a new number for
+an unchanged file. Checked
 exchange retains the displaced body until
 its identity and hashes are confirmed. API deletion first moves the checked
 file into the reserved workspace, validates it again and only then unlinks it.
@@ -133,8 +135,8 @@ intent and lets other buckets progress; observations do not require that parent
 to remain present for a replacement they never perform. File/ancestor
 permission and transient I/O failures retry inspection without recording a
 permanent mapping finding or advancing the journal cursor. Permission repair
-may change ctime; matching inode, size, mtime and stable MD5/CRC32C still prove
-the tracked body before checked replacement. Symlinks, special files and type
+may change ctime; matching size, mtime and stable MD5/CRC32C still prove the
+tracked body before checked replacement. Symlinks, special files and type
 collisions retain their structural findings.
 
 Bucket disappearance or incarnation changes between binding, tracked-path lookup
@@ -587,7 +589,8 @@ observations, never catalog timestamps or imported object identities.
 Compare divergent files with the current live hash before declaring a conflict.
 If they already match, update only sync state: this is recovery after write-back
 but before its state commit. Suppress self notifications only when path, size,
-mtime, inode and hash match recorded output. Journal origin `sync-ingest` skips
+mtime and ctime match recorded output, together with either the inode on a
+stable observation or the hash. Journal origin `sync-ingest` skips
 body write-back, while still advancing state/cursors. Origin alone cannot mask
 an independent later API mutation.
 
@@ -1110,7 +1113,9 @@ admission for reads/publication and short keyset transactions interleaved with
 API work, never the API's immediate-failure admission/upload slots.
 
 Compare size/mtime-ns/ctime-ns/inode before reading bodies; hash changed and racy
-files. Unknown/coarse timestamp precision is conservatively racy. Skip staging
+files. A file whose inode number alone changed is hashed too, and the tracked
+hashes keep it unchanged, because Docker Desktop shared folders can report a new
+number for an unchanged file. Unknown/coarse timestamp precision is conservatively racy. Skip staging
 when a size comparison already decides an unchanged case. Read journal pages
 by sequence, coalesce repeated object changes to the final state, and rescan
 when history is unavailable. Use event wakeups and next due quiet/retry deadlines;

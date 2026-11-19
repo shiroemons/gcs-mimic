@@ -52,6 +52,11 @@ two seconds of the latest mtime/ctime remains racy. Ingest hashes a matching rac
 file in place before considering staging; equal hashes acknowledge the same
 generation without copying it back to storage. A later stable observation clears
 the racy flag. This interval conservatively covers filesystem timestamp granularity.
+A file that differs from its fingerprint only in the inode number is hashed the
+same way, because Docker Desktop shared folders can report a new number for an
+unchanged file; equal hashes record the observed number. When the API generation
+moved on before that acknowledgement, equal hashes still show no external edit:
+the pass defers the file to the pending export instead of reporting a conflict.
 
 ## Conflict, cancellation and recovery
 
@@ -106,6 +111,12 @@ failed write keeps the private copy's inode, and crash and power-loss snapshots
 taken while it refills the copy keep only synced bytes and recover to Ready.
 With cloning disabled, the copy uses the entry created for the clone, and no
 unlink runs.
+
+Ingest and export tests record a tracked fingerprint under another inode number.
+Unchanged bytes are hashed without staging and are not reported as a conflict
+while a newer API generation awaits export, and that export replaces them.
+Different bytes with the same size and mtime are still ingested, and the export
+still reports them as a conflict.
 
 These are cooperative fault-model tests, not physical host-power-loss evidence.
 `durable_rehash_rejects_same_inode_edits_with_restored_mtime` fails when private

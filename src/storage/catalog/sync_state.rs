@@ -97,6 +97,21 @@ impl SyncFingerprint {
             && self.mtime_ns == identity.modified_ns
             && self.ctime_ns == identity.changed_ns
     }
+    /// The stat fields of `identity` that differ from this observation. A fingerprint records
+    /// no device, so the device never differs.
+    pub(crate) fn changed_fields(
+        &self,
+        identity: crate::fsutil::FileIdentity,
+    ) -> crate::fsutil::IdentityChanges {
+        crate::fsutil::FileIdentity {
+            device: identity.device,
+            inode: self.inode,
+            size: self.size,
+            modified_ns: self.mtime_ns,
+            changed_ns: self.ctime_ns,
+        }
+        .changed_fields(&identity)
+    }
     pub(crate) fn observed(
         identity: crate::fsutil::FileIdentity,
         hashes: crate::hashing::Hashes,

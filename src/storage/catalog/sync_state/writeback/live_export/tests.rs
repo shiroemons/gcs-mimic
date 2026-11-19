@@ -576,6 +576,127 @@ async fn live_export_protects_a_private_copy_whose_bytes_changed_after_staging()
     }
 }
 
+/// A target whose tracked record names another inode number, as Docker Desktop's shared folders
+/// can report for an unchanged file, still holds the tracked body: its size, mtime and hashes
+/// match, so a newer API generation replaces it instead of becoming a conflict. A target with the
+/// same size and mtime but other bytes is still a conflict.
+#[tokio::test]
+async fn live_export_replaces_a_tracked_target_whose_inode_number_alone_changed() {
+    use crate::storage::sync_state::{SyncFingerprint, SyncPath, SyncUpdate};
+    for edited in [false, true] {
+        let fixture = Fixture::new().await;
+        let record = fixture.publish("object", b"api").await;
+        drain(&fixture.writeback, fixture.begin("object").await).await;
+        let name = ObjectName::new("object").unwrap();
+        let path = fixture.tree.0.join("test-bucket/object");
+        let binding = fixture
+            .catalog
+            .sync_state()
+            .binding(&fixture.bucket)
+            .await
+            .unwrap();
+        let tracked = fixture
+            .catalog
+            .sync_state()
+            .get_path(binding.clone(), "test-bucket/object".into())
+            .await
+            .unwrap()
+            .unwrap();
+        fixture
+            .catalog
+            .sync_state()
+            .acknowledge(
+                &name,
+                Generation::new(record.generation).unwrap(),
+                SyncUpdate::new(
+                    binding.clone(),
+                    SyncPath::try_from(tracked.path.clone()).unwrap(),
+                    SyncFingerprint {
+                        inode: !tracked.fingerprint.inode,
+                        ..tracked.fingerprint.clone()
+                    },
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        if edited {
+            let modified = fs::metadata(&path).unwrap().modified().unwrap();
+            fs::write(&path, b"API").unwrap();
+            File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(modified)
+                .unwrap();
+        }
+        let tracked = fixture
+            .catalog
+            .sync_state()
+            .get_path(binding.clone(), "test-bucket/object".into())
+            .await
+            .unwrap();
+        let later = fixture.publish("object", b"later api").await;
+        let (_, reader) = fixture
+            .catalog
+            .admin(Origin::Api)
+            .open_object(&fixture.bucket, &name, None)
+            .await
+            .unwrap();
+        let operation = fixture
+            .writeback
+            .begin_live_export(
+                binding.clone(),
+                name,
+                Generation::new(later.generation).unwrap(),
+                tracked,
+                fixture.catalog.current_fence().await.unwrap(),
+                LiveSource::ApiCopy(reader.into_file().unwrap()),
+            )
+            .await
+            .unwrap();
+        let expected: (LiveResult, &[u8]) = if edited {
+            (LiveResult::Conflict, b"API")
+        } else {
+            (LiveResult::Complete, b"later api")
+        };
+        assert_eq!(
+            (
+                settle(&fixture.writeback, operation).await,
+                fs::read(&path).unwrap().as_slice()
+            ),
+            expected,
+            "edited: {edited}"
+        );
+        let usage = fixture.writeback.status().await.unwrap();
+        assert_eq!(
+            (usage.entries, usage.stop()),
+            (0, Stop::Ready),
+            "edited: {edited}"
+        );
+        fixture.close().await;
+    }
+}
+
+/// Advances `operation` until it stops being pending, and returns how it finished.
+async fn settle(writeback: &Writeback, operation: LiveExport) -> LiveResult {
+    for _ in 0..8 {
+        let result = writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap();
+        if result != LiveResult::Pending {
+            return result;
+        }
+    }
+    panic!("the live export did not finish")
+}
+
+/// Advances `operation` to completion.
+async fn drain(writeback: &Writeback, operation: LiveExport) {
+    assert_eq!(settle(writeback, operation).await, LiveResult::Complete);
+}
+
 #[tokio::test]
 async fn live_export_installed_copy_is_never_cancelled_after_arming() {
     let fixture = Fixture::new().await;

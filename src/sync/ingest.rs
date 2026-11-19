@@ -39,6 +39,45 @@ struct Candidate {
     live: Option<crate::object::ObjectRecord>,
 }
 
+/// What a file's stat observation shows about the body its tracked fingerprint recorded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrackedCheck {
+    /// Size, inode, mtime and ctime match a stable fingerprint: the body is unchanged.
+    Unchanged,
+    /// Only hashing the file can tell: the fingerprint is racy, or the inode number alone
+    /// differs. Docker Desktop's shared folders can report a new number for an unchanged
+    /// file, so that difference alone does not show an edit.
+    Hash,
+    /// Size, mtime or ctime differ: the file is an ingestion candidate.
+    Changed,
+}
+
+impl TrackedCheck {
+    fn new(fingerprint: &SyncFingerprint, identity: FileIdentity) -> Self {
+        let changes = fingerprint.changed_fields(identity);
+        if changes.is_empty() && !fingerprint.racy {
+            Self::Unchanged
+        } else if changes.is_empty() || changes.is_inode_only() {
+            Self::Hash
+        } else {
+            Self::Changed
+        }
+    }
+}
+
+/// What hashing a file showed about its tracked body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HashCheck {
+    /// The file holds the tracked body, and its observed identity is now recorded.
+    Recorded,
+    /// The file holds the tracked body, but the API generation moved on or the object is gone.
+    /// The file is no external edit: the export or removal of the API change replaces it, so
+    /// ingesting it would report that change as a conflict.
+    Superseded,
+    /// The bytes differ, or the file changed while it was read.
+    Differs,
+}
+
 struct PinnedSource {
     file: File,
     _lease: RootLease,
@@ -382,19 +421,26 @@ impl Ingest<'_> {
             }
             Err(error) => return Err(error.into()),
         };
-        if let Some(tracked) = tracked
-            .as_ref()
-            .filter(|record| record.fingerprint.matches_identity(identity))
-        {
-            if !tracked.fingerprint.racy {
-                self.clear_observation(binding, name).await?;
-                return Ok(None);
-            }
-            if self
-                .racy_clean(&entry.path, identity, tracked, &binding, &name)
-                .await?
-            {
-                self.summary.identical += 1;
+        if let Some(tracked) = &tracked {
+            let unchanged = match TrackedCheck::new(&tracked.fingerprint, identity) {
+                TrackedCheck::Unchanged => true,
+                TrackedCheck::Hash => match self
+                    .hash_tracked(&entry.path, identity, tracked, &binding, &name)
+                    .await?
+                {
+                    HashCheck::Recorded => {
+                        self.summary.identical += 1;
+                        true
+                    }
+                    HashCheck::Superseded => {
+                        self.summary.deferred += 1;
+                        true
+                    }
+                    HashCheck::Differs => false,
+                },
+                TrackedCheck::Changed => false,
+            };
+            if unchanged {
                 self.clear_observation(binding, name).await?;
                 return Ok(None);
             }
@@ -425,14 +471,16 @@ impl Ingest<'_> {
         }))
     }
 
-    async fn racy_clean(
+    /// Hashes the file at `path`, observed as `expected`, and compares it with the tracked body.
+    /// A match records the observed identity, so a later stable pass skips the hash.
+    async fn hash_tracked(
         &self,
         path: &std::path::Path,
         expected: FileIdentity,
         tracked: &SyncRecord,
         binding: &SyncBinding,
         name: &ObjectName,
-    ) -> Result<bool, SyncError> {
+    ) -> Result<HashCheck, SyncError> {
         let selected = path.to_owned();
         let observed = self
             .root
@@ -446,12 +494,12 @@ impl Ingest<'_> {
         let hashes = match observed {
             Ok(fsutil::HashOutcome::Complete(hashes)) => hashes,
             Ok(_) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => {
-                return Ok(false);
+                return Ok(HashCheck::Differs);
             }
             Err(error) => return Err(error.into()),
         };
         if hashes.md5 != tracked.fingerprint.md5 || hashes.crc32c != tracked.fingerprint.crc32c {
-            return Ok(false);
+            return Ok(HashCheck::Differs);
         }
         let fingerprint =
             SyncFingerprint::observed(expected, hashes, self.root.observation_time_ns()?);
@@ -466,8 +514,8 @@ impl Ingest<'_> {
             .acknowledge(name, tracked.generation, update)
             .await
         {
-            Ok(()) => Ok(true),
-            Err(AdminError::Precondition | AdminError::NotFound) => Ok(false),
+            Ok(()) => Ok(HashCheck::Recorded),
+            Err(AdminError::Precondition | AdminError::NotFound) => Ok(HashCheck::Superseded),
             Err(error) => Err(error.into()),
         }
     }

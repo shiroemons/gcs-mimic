@@ -199,6 +199,115 @@ async fn racy_exported_bytes_are_verified_without_staging_again() {
     catalog.close().await.unwrap();
 }
 
+/// Records the current size and times of `test-bucket/<name>` as its stable tracked fingerprint
+/// under another inode number, keeping the tracked hashes and generation: what a later scan sees
+/// when Docker Desktop's shared folders report a new number for the file.
+async fn renumber(catalog: &Catalog, root: &RootLease, tree: &std::path::Path, name: &str) {
+    let path = format!("test-bucket/{name}");
+    let binding = root
+        .sync_binding(&BucketName::new("test-bucket").unwrap())
+        .await
+        .unwrap();
+    let state = catalog.sync_state();
+    let tracked = state
+        .get_path(binding.clone(), path.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    let identity = fsutil::stat_identity(&File::open(tree.join(&path)).unwrap()).unwrap();
+    let fingerprint = SyncFingerprint {
+        size: identity.size,
+        mtime_ns: identity.modified_ns,
+        ctime_ns: identity.changed_ns,
+        inode: !identity.inode,
+        racy: false,
+        ..tracked.fingerprint
+    };
+    state
+        .acknowledge(
+            &ObjectName::new(name).unwrap(),
+            tracked.generation,
+            SyncUpdate::new(binding, SyncPath::try_from(path).unwrap(), fingerprint).unwrap(),
+        )
+        .await
+        .unwrap();
+}
+
+/// A file whose stable tracked fingerprint differs only in its inode number is hashed, not
+/// staged. The tracked bytes count as identical and record the observed number. While a newer
+/// API generation awaits export, they are deferred rather than reported as a conflict.
+/// Different bytes with the same size and times are still ingested.
+#[tokio::test]
+async fn a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested() {
+    let (_data, tree, catalog, root, config, clock) = clocked_fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/body"), b"original").unwrap();
+    fs::write(tree.0.join("test-bucket/edited"), b"original").unwrap();
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    assert_eq!(scan(&catalog, &root, &config).await.ingested, 2);
+    let edited = object(&catalog, "test-bucket/edited").await;
+    renumber(&catalog, &root, &tree.0, "body").await;
+    fs::write(tree.0.join("test-bucket/edited"), b"ORIGINAL").unwrap();
+    renumber(&catalog, &root, &tree.0, "edited").await;
+    // Both files then record stable fingerprints, so the next pass reads neither.
+    clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
+    let stages = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stats = STAGES
+        .scope(stages.clone(), scan(&catalog, &root, &config))
+        .await;
+    assert_eq!(
+        (stats.identical, stats.ingested, stats.conflicting),
+        (1, 1, 0)
+    );
+    assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let ingested = object(&catalog, "test-bucket/edited").await;
+    assert_ne!(ingested.generation, edited.generation);
+    assert_ne!(ingested.md5, edited.md5);
+    let binding = root
+        .sync_binding(&BucketName::new("test-bucket").unwrap())
+        .await
+        .unwrap();
+    let tracked = catalog
+        .sync_state()
+        .get_path(binding, "test-bucket/body".into())
+        .await
+        .unwrap()
+        .unwrap();
+    let observed =
+        fsutil::stat_identity(&File::open(tree.0.join("test-bucket/body")).unwrap()).unwrap();
+    assert!(tracked.fingerprint.matches_identity(observed));
+    let stats = STAGES
+        .scope(stages.clone(), scan(&catalog, &root, &config))
+        .await;
+    assert_eq!((stats.identical, stats.ingested), (0, 0));
+    assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    renumber(&catalog, &root, &tree.0, "body").await;
+    api_put(&catalog, "test-bucket/body", b"api newer").await;
+    let api = object(&catalog, "test-bucket/body").await.generation;
+    let stats = STAGES
+        .scope(stages.clone(), scan(&catalog, &root, &config))
+        .await;
+    assert_eq!(
+        (
+            stats.identical,
+            stats.ingested,
+            stats.conflicting,
+            stats.deferred
+        ),
+        (0, 0, 0, 1)
+    );
+    assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(root.findings_page(0, 256).await.unwrap().is_empty());
+    assert_eq!(object(&catalog, "test-bucket/body").await.generation, api);
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/body")).unwrap(),
+        b"original"
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn complete_scan_clears_a_changing_source_finding_after_that_source_disappears() {
     let (_data, tree, catalog, root, config) = fixture().await;

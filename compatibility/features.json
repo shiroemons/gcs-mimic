@@ -60367,7 +60367,7 @@
           "id": "sync-owned-filesystem-observation",
           "description": "Production sync uses 256-entry descriptor-relative scans with read-only inspection, stages sources outside their opening file job, hashes matching racy files in place, preserves workspace I/O causes, and observes more than 1000 files through macOS FSEvents without one descriptor per file. Cooperative wait deadlines interrupt settling and bound new work between owned steps; explicit failed rescans record an inspectable pause. Parent rows remain PARTIAL and Linux runtime/physical power-loss parity are not claimed. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying"]
+          "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying", "a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested"]
         },
         {
           "id": "sync-cumulative-deletion-guard",
@@ -60433,7 +60433,7 @@
           "id": "sync-live-api-export",
           "description": "PASS local-development subset: post-ready journal replay exports API create/overwrite/delete/copy/compose and empty bucket creation; tracked fingerprints and hashes guard update/delete, externally edited files remain intact with findings, and API bucket deletion retains directories. Backslash/colon names are recorded as HostRestriction findings without stopping later exports. The container smoke repeats export, skipped colon names and restart ingestion on linux/amd64 and linux/arm64. Ingestion, conflict transfer and bucket-directory deletion remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_skips_colon_and_backslash_names_and_keeps_exporting", "scripts/smoke-containers.sh:linux/amd64", "scripts/smoke-containers.sh:linux/arm64"]
+          "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_skips_colon_and_backslash_names_and_keeps_exporting", "scripts/smoke-containers.sh:linux/amd64", "scripts/smoke-containers.sh:linux/arm64", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed"]
         },
         {
           "id": "sync-live-export-observation",
@@ -60760,6 +60760,8 @@
         "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync",
         "staging_finishes_while_another_file_worker_is_occupied",
         "racy_exported_bytes_are_verified_without_staging_again",
+        "a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested",
+        "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed",
         "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors",
         "durable_rehash_rejects_same_inode_edits_with_restored_mtime",
         "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors",
@@ -61057,6 +61059,13 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/continuous-directory-observation.md",
           "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- --test-threads=4 sync:: sync_state::",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_watch -- --test-threads=4",
