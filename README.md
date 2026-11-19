@@ -97,7 +97,8 @@ The examples connect from the host to the HTTP server above. From a Compose serv
 `http://gcs:4443`. Clients are anonymous and never contact Google.
 [SDK setup](docs/en/sdk-setup.md) has the tested versions, gRPC, signed URLs and
 strict authentication, and [examples/](examples/README.md) has a runnable
-program for every client below.
+program for every client below. The optional gRPC port serves plaintext h2c and
+[gRPC over TLS](docs/en/slices/grpc-tls.md) alike, with no extra setting.
 
 <details>
 <summary>Go</summary>

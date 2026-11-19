@@ -79,6 +79,7 @@ curl 'http://localhost:4443/storage/v1/b/demo-bucket/o/hello.txt?alt=media'
 例は上のHTTPサーバーにホストから接続する場合です。Composeのサービスからは、エミュレーターのサービス名を使って`http://サービス名:4443`（例: `http://gcs:4443`）に接続します。
 クライアントは匿名で接続し、Googleには接続しません。
 検証したバージョン、gRPC、署名付きURL、strict認証は[SDKの設定](sdk-setup.md)を、下の各クライアントの実行可能なプログラムは[examples/（英語）](../../examples/README.md)を参照してください。
+任意で有効にするgRPCのポートは、追加の設定なしで平文のh2cと[gRPC over TLS（英語）](../en/slices/grpc-tls.md)の両方を受け付けます。
 
 <details>
 <summary>Go</summary>
