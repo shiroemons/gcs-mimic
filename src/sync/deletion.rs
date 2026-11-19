@@ -76,6 +76,21 @@ pub(super) async fn inventory_with(
     take_inventory(root, guard, inventory, interrupt).await
 }
 
+/// What the inventory before a decision found about the set the decision names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Rechecked {
+    /// The tree shows the set's members as they were, so the revision stands.
+    Confirmed,
+    /// The tree shows other members, and a new set under a new revision replaced it.
+    Replaced,
+    /// The set did not wait for a decision, or a change of the journal during the inventory
+    /// withdrew it; the set stays as stored.
+    NotAwaiting,
+    /// A stop ended the inventory before it compared every member, so nothing is known about
+    /// the set.
+    Interrupted,
+}
+
 /// Inventories the tree again before an approval or rejection of the set `revision`, when that
 /// set still waits for one, so that the decision applies to what the tree shows now: a native
 /// notification no longer withdraws such a set. Finding the same members keeps the revision,
@@ -89,14 +104,16 @@ pub(super) async fn recheck(
     config: &Config,
     revision: OpaqueId,
     interrupt: Interrupt<'_>,
-) -> Result<(), SyncError> {
+) -> Result<Rechecked, SyncError> {
     let guard = Guard::from(config.sync_delete_guard);
     let Some(inventory) = root.begin_deletion_recheck(guard, revision).await? else {
-        return Ok(());
+        return Ok(Rechecked::NotAwaiting);
     };
     match take_inventory(root, guard, inventory, interrupt).await {
-        Ok(_) => Ok(()),
-        Err(error) if error.is_stale_deletion() => Ok(()),
+        Ok(Some(set)) if set.revision == revision => Ok(Rechecked::Confirmed),
+        Ok(Some(_)) => Ok(Rechecked::Replaced),
+        Ok(None) => Ok(Rechecked::Interrupted),
+        Err(error) if error.is_stale_deletion() => Ok(Rechecked::NotAwaiting),
         Err(error) => Err(error),
     }
 }
@@ -231,6 +248,8 @@ async fn count_candidates(
         let baseline = page.len() as u64;
         let mut missing = Vec::new();
         for candidate in page {
+            #[cfg(test)]
+            super::mirror::export_checkpoint("deletion-candidate").await;
             if interrupt.check() != Interrupted::No {
                 return Ok(None);
             }

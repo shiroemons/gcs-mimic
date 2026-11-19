@@ -1245,24 +1245,32 @@ impl LiveControl<'_> {
 
     /// Authorizes a decision on the deletion set `revision` for `identity`, then inventories the
     /// tree again if the set still waits for the decision, so that a native notification since
-    /// the last pass that left its members as they were does not make it stale.
+    /// the last pass that left its members as they were does not make it stale. A stop during
+    /// that inventory refuses the decision: the set was not compared with the tree, so
+    /// recording a decision on it would apply to members nobody confirmed.
     async fn decidable(
         &self,
         revision: crate::storage::sync_state::OpaqueId,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), ControlError> {
+        use super::deletion::Rechecked;
         self.scope
             .root
             .authorize_controls(self.scope.config.seed_project.clone(), identity)
             .await?;
-        super::deletion::recheck(
+        match super::deletion::recheck(
             self.scope.root,
             self.scope.config,
             revision,
             Interrupt::new(self.scope.stopping),
         )
         .await
-        .map_err(ControlError::Failed)
+        .map_err(ControlError::Failed)?
+        {
+            Rechecked::Interrupted => Err(ControlError::Shutdown),
+            // The decision itself refuses a set that is no longer the one waiting.
+            Rechecked::Confirmed | Rechecked::Replaced | Rechecked::NotAwaiting => Ok(()),
+        }
     }
 
     /// Rejects the deletion set `revision`, answers, and writes its files back from their objects.

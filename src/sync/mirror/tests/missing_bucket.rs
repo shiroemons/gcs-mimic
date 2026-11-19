@@ -10,7 +10,7 @@
 use super::baseline::exists;
 use super::ingest_durability::Started;
 use super::*;
-use crate::storage::sync_state::deletions::DeletionSet;
+use crate::storage::sync_state::deletions::{DeletionAuthorization, DeletionSet};
 use crate::sync::control::{WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding};
 
@@ -493,6 +493,56 @@ async fn a_decision_right_after_a_change_to_another_path_is_accepted_the_first_t
 async fn a_decision_right_after_a_member_came_back_is_refused_as_stale() {
     for decision in [Decision::Reject, Decision::Approve] {
         decide_after_a_change(Change::MemberBack, decision).await;
+    }
+}
+
+/// A stop that ends the inventory before a decision, before it compared every member, refuses
+/// the decision as a shutdown: nothing confirmed the set against the tree, so it keeps waiting
+/// under its revision and every object remains. The decision was once recorded and answered
+/// as accepted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_decision_whose_inventory_a_stop_ended_is_refused() {
+    for decision in [Decision::Approve, Decision::Reject] {
+        let (data, tree, bucket) = tracked_pair().await;
+        fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
+        let hook = std::sync::Arc::new(Hook {
+            phase: "deletion-candidate",
+            entered: Default::default(),
+            release: Default::default(),
+        });
+        let live = Live::start_with(&data.0, &tree.0, Some(hook.clone())).await;
+        let waited = released(&hook, wait_control(&live.commands)).await;
+        assert_eq!(waited.reason, WaitReason::DeletionApproval);
+        let set = live.root.deletion_set().await.unwrap().unwrap();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        live.commands
+            .send(decision.command(set.revision, reply))
+            .await
+            .unwrap();
+        tokio::time::timeout(HANG_GUARD, hook.entered.notified())
+            .await
+            .unwrap();
+        live.stop.send_replace(true);
+        hook.release.notify_one();
+        let answer = released(&hook, async {
+            tokio::time::timeout(HANG_GUARD, answer).await.unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(
+            matches!(answer, Err(ControlError::Shutdown)),
+            "{decision:?}: {answer:?}"
+        );
+        let kept = live.root.deletion_set().await.unwrap().unwrap();
+        assert_eq!(
+            (kept.revision, kept.authorization),
+            (set.revision, DeletionAuthorization::Withheld),
+            "{decision:?}"
+        );
+        for name in TRACKED {
+            assert!(exists(&live.catalog, &bucket, name).await, "{decision:?}");
+        }
+        live.stop().await;
     }
 }
 
