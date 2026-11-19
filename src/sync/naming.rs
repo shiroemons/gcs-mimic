@@ -179,8 +179,10 @@ impl fmt::Display for ProbeError {
             Self::Io(_) => {
                 "Cannot probe the file naming rules of sync_dir in its .gcs-mimic-sync-work directory; make sync_dir writable with free space, then request a rescan"
             }
+            // The status reports the generic pause remedy, which asks for a rescan; this text has
+            // to say that a rescan cannot help and name the step that does.
             Self::RewritesNames => {
-                "The filesystem of sync_dir lists file names under another spelling than they were created with (letter case or Unicode normalization), so exported objects would be ingested again under other names; select a sync_dir on a filesystem that preserves file names"
+                "sync_dir cannot be a synchronization root: its filesystem lists file names under another spelling than they were created with (letter case or Unicode normalization), so exported objects would come back as second objects. A rescan pauses again; set sync_dir to a directory on a filesystem that keeps file names as created and restart"
             }
         })
     }

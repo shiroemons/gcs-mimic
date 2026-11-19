@@ -422,11 +422,19 @@ async fn rewriting_roots_are_refused_before_any_scan_and_pause_the_mirror() {
         observed(Colon::Accepted, Case::Insensitive, Spelling::Rewritten),
     );
     publish(&catalog, "object").await;
+    // A file the scan would ingest stays out of the catalog while the root is refused.
+    fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/external"), b"external").unwrap();
     let failure = crate::sync::reconcile(&catalog, &root).await.unwrap_err();
-    assert!(
-        failure.to_string().contains("preserves file names"),
-        "{failure}"
-    );
+    // The generic pause remedy asks for a rescan, so the reason itself names the next step.
+    let reason = failure.to_string();
+    for step in [
+        "sync_dir cannot be a synchronization root",
+        "A rescan pauses again",
+        "set sync_dir to a directory on a filesystem that keeps file names as created and restart",
+    ] {
+        assert!(reason.contains(step), "{reason}");
+    }
     assert!(root.naming().is_err());
     assert!(!tree.0.join("test-bucket/object").exists());
     let task = crate::sync::start(catalog.clone(), root, &config).unwrap();
@@ -442,6 +450,13 @@ async fn rewriting_roots_are_refused_before_any_scan_and_pause_the_mirror() {
     })
     .await;
     assert!(!tree.0.join("test-bucket/object").exists());
+    assert!(matches!(
+        catalog
+            .admin(Origin::Api)
+            .get_object(&bucket(), &ObjectName::new("external").unwrap(), None)
+            .await,
+        Err(crate::storage::admin::AdminError::NotFound)
+    ));
     drop(root);
     tokio::time::timeout(Duration::from_secs(10), task.finish())
         .await

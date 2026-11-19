@@ -508,9 +508,12 @@ never takes a leftover for an interrupted operation.
 
 A filesystem that stores a created name under another spelling, in letter case
 or Unicode normalization, cannot keep the mapping reversible. The mirror pauses
-with reason `observer-failure` and a `sync_paused` remedy naming the cause
-instead of scanning it. A probe that cannot write its workspace pauses with
-`io-failure`. The Storage API stays ready in both cases.
+with `paused_reason` `observer-failure` before its first scan, so nothing is
+ingested from that tree. The `sync_paused` reason says that the directory cannot
+be a synchronization root, that a rescan pauses again, and to set `sync_dir` to a
+directory on a filesystem that keeps file names as created and restart. A probe
+that cannot write its workspace pauses with `io-failure`. The Storage API stays
+ready in both cases.
 
 A file created outside the API with `:` in its name is ingested as a new object
 with that literal name. macOS Finder displays a `:` in a file name as `/`, a
