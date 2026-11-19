@@ -43,9 +43,9 @@ acknowledgement retain their existing hold checks.
 ## Available controls
 
 Controls use the live server outside Google API namespaces. They use a bounded
-single-slot command queue and at most 32 active observers, fail immediately with
-503 when busy/closed, cap JSON inputs at 64 KiB and responses at 256 KiB, and
-reject unknown fields, methods and query keys.
+single-slot command queue behind which callers wait for their turn,
+answer 503 once the mirror is closed or the wait gives up, cap JSON inputs at
+64 KiB and responses at 256 KiB, and reject unknown fields, methods and query keys.
 
 | Route | Current subset |
 | --- | --- |

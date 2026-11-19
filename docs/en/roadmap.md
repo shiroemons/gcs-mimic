@@ -72,7 +72,7 @@ blocks another track; a higher-priority row does not make every later row wait.
 
 | Priority | User outcome | Prerequisite | Can run alongside |
 | --- | --- | --- | --- |
-| First | Complete safe bidirectional synchronization | Conflict/recovery controls, strict authorization and final platform evidence | Independent client/protocol work |
+| First | Complete safe bidirectional synchronization | Final platform, SDK and container evidence, and the remaining recovery cases | Independent client/protocol work |
 | Next | Verify migration and local adapters together | Quiesced source, explicit cutover and final SDK/container runs | Directory sync |
 | Then | Close reference behavior and ordinary Rails setup | Scoped API/profile and credential contracts | Independent reference capabilities |
 | Every release | Reconcile evidence and pass distribution gates | Platform, dependency and artifact verification | All implementation tracks |
@@ -84,9 +84,9 @@ The recorded migration checkpoint does not validate subsequent XML, ACL or
 authentication changes; final combined verification remains an integration gate.
 Continuous observation and guarded deletion are scoped
 implementations, not merely future proposals. Findings/status paging, bounded
-waits have native scoped checks; conflict/recovery controls, supported strict
-startup and the combined final runs still require their own acceptance.
-DESIGN-062, DESIGN-072 and DESIGN-074 remain `PARTIAL`.
+waits, conflict resolution and strict-profile controls have native scoped
+checks; the combined final platform, SDK and container runs still require their
+own acceptance. DESIGN-062, DESIGN-072 and DESIGN-074 remain `PARTIAL`.
 
 The [sync contract](slices/directory-synchronization.md) and
 [deletion controls](slices/external-deletion-controls.md) separate tested
@@ -168,11 +168,11 @@ missed events and recovery. 0.8.0 includes bounded conflict retention,
 revision-bound resolution and guarded deletion. Both authentication profiles
 support startup; strict controls require explicit project administrator grants
 covering current buckets and retained original owners. Background filesystem
-work uses separate startup administrative authority. Scoped native, SDK,
-container and browser checks pass; remaining platform and broader workflow
-acceptance stays explicit in the feature ledger. A permanent
-write-back I/O error can delay graceful shutdown until space or permissions
-are repaired.
+work uses separate startup administrative authority. Scoped native and
+container checks pass; the SDK suites do not yet drive a synchronized server,
+and remaining platform and broader workflow acceptance stays explicit in the
+feature ledger. A permanent write-back I/O error pauses synchronization and
+does not delay graceful shutdown, which releases the root.
 SQLite remains the catalog; monitoring files and updating only their sizes is
 not sufficient. See the [filesystem requirements](fake-gcs-server-storage.md#required-gcs-mimic-follow-up).
 

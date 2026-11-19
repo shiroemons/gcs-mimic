@@ -33,13 +33,13 @@ MD5/CRC32C describe immutable object bytes, rather than a new hash algorithm.
 Nanoseconds/inodes use fixed-width big-endian blobs to avoid SQLite integer loss.
 
 Root association/ownership and explicit activation-baseline transitions are
-provided by [shared-sync-root](shared-sync-root.md); they are not connected to
-runtime startup. [Shared write-back APIs](shared-sync-writeback.md) now provide
+provided by [shared-sync-root](shared-sync-root.md); the runtime connects them
+at startup. [Shared write-back APIs](shared-sync-writeback.md) provide
 durable pending phases, protected workspace accounting, private durability
 receipts, atomic fingerprint/progress acknowledgments and opened ObjectReader
 descriptor transfer. Target replacement, conflict registration/discard, watching,
-initial merge, mirror orchestration and HTTP controls remain pending in the
-directory synchronization contract.
+initial merge, mirror orchestration and HTTP controls are connected in the
+runtime; the directory synchronization contract lists what remains pending.
 
 Schema 17 introduced these records; schema 19 adds root associations and
 schema 20 adds durable write-back state. All are forward-only. Back up the

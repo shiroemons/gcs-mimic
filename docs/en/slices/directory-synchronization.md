@@ -18,9 +18,9 @@ waits and registered conflict resolution; see
 [continuous observation and runtime controls](continuous-directory-observation.md).
 The [conflict backend](sync-conflict-recovery.md) and
 [native restart recovery](native-writeback-recovery.md) describe owned-state
-boundaries. Protected workspace transfer and the final combined platform/SDK
-checks are still being integrated; component test success alone does not
-complete the parent features.
+boundaries. Protected workspace transfer is integrated and exercised through the
+live CLI. The final combined platform/SDK checks remain open; component test
+success alone does not complete the parent features.
 
 ## Local-development scope
 
@@ -35,7 +35,7 @@ availability. The later acceptance sections remain the safety contract.
 | sync-initial-activation | Export all owners, empty buckets and immutable live bodies; ingest external-only files/default buckets, preserve/count divergent files and finish a complete baseline. Resume interrupted ingestion from atomic fingerprints without duplicate generations or deletion. | Conflict transfer and exhaustive crash boundaries. |
 | sync-name-mapping | Exact lexical mapping, actual directory spelling, host component limits, prefix/type collisions and no-follow checks. | Exhaustive case/Unicode alias groups and non-Linux platform conflict guarantees. |
 | sync-lexical-name-mapping | Existing exact round-trip/property coverage remains implemented. | Runtime concerns belong to sync-name-mapping. |
-| sync-bidirectional-mutations | API create/overwrite/delete/copy/compose, external create/edit and rename's create side across buckets, binary/empty bodies, and fingerprint-checked updates/deletes that preserve externally edited files. | External deletion/rename's delete side and bucket-directory deletion on API bucket deletion. |
+| sync-bidirectional-mutations | API create/overwrite/delete/copy/compose, external create/edit and rename's create side across buckets, binary/empty bodies, and fingerprint-checked updates/deletes that preserve externally edited files. | Bucket-directory deletion on API bucket deletion: the directory is kept. External deletion and rename's delete side are implemented behind the approval guard. |
 | sync-api-writeback | Post-ready all-owner export followed by fenced journal replay; coalesce bounded pages against current live state, replace tracked files only, and reconcile journal retention/epoch gaps through the same bounded keyset scans. | Conflict transfer and ingestion. |
 | sync-metadata-and-loops | Conditional ingestion inherits commit-time metadata/PATCH, applies seed MIME/default holds to new files, adopts equal live hashes without generations, and suppresses recorded output and sync-ingest journal echoes. | Exhaustive watcher/platform races. |
 | sync-conflict-preservation | Leave divergent files untouched; ambiguous publication retains its pending intent/workspace. | Conflict transfer/registration, ordinary quota recovery and 1 TiB sparse-body cases. |
@@ -937,10 +937,11 @@ not prescribe tables or an internal transaction design.
 
 Reserve the following emulator-only routes outside Google API namespaces.
 `gcs-mimic sync status|approve|conflicts|resolve|rescan|wait` calls them through
-the live server and never opens the data directory. CLI accepts `--url` and
-`--ca-cert`, verifies TLS using the shared connector and accepts a bearer token
-from `GCSM_SYNC_TOKEN` without printing it. It must not follow redirects
-carrying credentials. These commands are future interfaces, not runnable today.
+the live server and never opens the data directory. CLI accepts `--endpoint`
+and `--ca-cert`, verifies TLS using the shared connector and accepts a bearer token
+from `--token-file` or `GCSM_SYNC_TOKEN` without printing it. It must not follow
+redirects carrying credentials. These commands are runnable; see
+[the CLI reference](sync-cli.md).
 
 In strict mode **all** routes below, including reads/wait, require a registered
 bearer identity with an explicit project-level `roles/storage.admin` binding
@@ -964,7 +965,7 @@ without authentication and must be identified as such in status.
 
 | Method and path | Request and response |
 | --- | --- |
-| `GET /_internal/sync` | Default summary: state, stop counts, catalog/root IDs, applied/current journal sequences, pending-work count, scan revision, pending-deletion revision/count, findings revision, conflict quota usage (including workspace bytes/entries and over-limit state) and `writeback_safety`. `view=deletions` or `view=findings` selects the fixed-revision pages defined below. No object bodies or raw filesystem paths. |
+| `GET /_internal/sync` | Default summary: authentication mode, state, session ID, findings revision, the observation summary (revision, baseline completeness, tracked objects, mapping findings, pending write-back, path stops, unresolved conflicts, pause and scan-stop reasons, conflict quota usage including workspace bytes/entries and over-limit state), pending-deletion revision/count with the frozen deletion set, `writeback_safety`, and whether conflict resolution and stable waits are available. `view=deletions` or `view=findings` selects the fixed-revision pages defined below. No object bodies or raw filesystem paths. |
 | `GET /_internal/sync/conflicts` | `limit` default/max 256, opaque cursor bound to catalog/root and listing revision. Return IDs, logical names, original owner project/incarnation, revisions, generations, reason, size/hashes; no retained-body path. Stale cursor returns 409. |
 | `POST /_internal/sync/approve` | JSON `deletion_set` revision; return accepted operation ID and exact count, or 409 for stale/foreign/replayed revision. |
 | `POST /_internal/sync/resolve` | Registered conflict: JSON `conflict_id`, `revision`, `action` (`restore` or `discard`), `expected_generation` (zero means absent) and `operation_id`; generation/incarnation recheck as above. Unregistered recovery: exclusive `recovery_id`, `revision`, `target_identity`, `action: "discard"`, `confirmation` and `operation_id` as defined above; original-owner authority and explicit confirmation precede deletion. |
@@ -1046,16 +1047,18 @@ logical target/key, scope and remedy; paginate details and aggregate counts.
 | Reason | Scope and discovery | Complete recovery path |
 | --- | --- | --- |
 | `DeletionApproval` | External deletions paused; status/ready summary/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
-| `MarkerMismatch` | Pre-bind failure, or whole-root pause if discovered later | Repair mount/root; for intentional missing-marker reactivation back up and use the one-shot option; preserve foreign/malformed trees and choose a fresh directory. |
 | `Conflict` | Path finding after successful preservation; `conflicts`, status/event | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. Other paths continue. |
 | `ConflictCapacity` | Root ingestion and destructive write-back paused; status/ready/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
 | `Unrepresentable` | Path finding; paged status findings/event | Rename/copy-delete through API into a representable name, remove the collision/unsafe external entry without following it and rescan, or retain API-only access. Never silently normalize. |
 | `ProtectedDeletion` | Path restored and blocked; paged status findings/event | Release hold/retention through a supported API, then delete the file again. If protection cannot be released, retain the restored file/API object. |
 | `SourceChanging` | Path deferred until quiet deadline; status | Finish/stop the writer then rescan/wait. Continuously changing input times out wait without publishing partial bytes. |
 | `IoFailure` | Affected path; whole-root pause for unavailable root, incomplete scan or failed displaced-body preservation; status/ready/event and paged recovery findings | Restore mount/permissions/free space, preserve source/conflicts and any displaced workspace body, then rescan under the displaced-body recovery rules; typed disk-full is not swallowed or tight-looped. |
-| `ObservationGap` | Whole scan required; status/event | Rescan after journal gap/notification overflow; bounded recovery proceeds automatically when resources permit. Watch setup failure requires fixing the mount or approved platform support and restart; no silent periodic polling. |
-| `StateCorrupt` | Root pause or pre-bind failure if preflight detects it | Stop service, retain catalog/tree/conflicts and restore a coherent stopped-data backup or repair through the owning recovery tooling; never reset state to turn missing files into deletions. |
 | `Closed` | Shutdown; status while available, waiting requests wake | Restart after fixing the reported shutdown/storage error; reopen only after old jobs release ownership. |
+
+A marker mismatch is a startup failure, reported through the root error before
+bind; it has no stop reason of its own. A journal gap
+or notification overflow is not a stop: the mirror recovers with a bounded full
+rescan. Catalog corruption surfaces as the catalog's own open or I/O failure.
 
 `/_internal/ready` keeps its existing API-readiness HTTP status. Its optional
 `sync` summary contains only enabled/state, aggregate pending/conflict/stop counts
@@ -1098,16 +1101,15 @@ benchmark thresholds. The first name-mapping consumer implements the rules
 above outside `storage`; source import retains its separate upstream bucket
 escape codec. No runtime interface is added by this contract.
 
-**File-notification dependency selection is deferred to `sync-watcher` and
-requires owner approval.** Review current stable version, license, package/
-binary-size impact, maintenance and native platform behavior before asking.
-The current [native observer](continuous-directory-observation.md) reuses the
-existing libc dependency without adding a notification crate.
-Linux/macOS/Windows and Docker bind
-mount notifications require their own evidence, including unavailable/missed
-events and overflow fallback. Windows watcher support is pending; unsupported
-watch setup must report failure, never false synchronized success. Reusing
-`fsutil`, MIME and TLS components does not authorize a new dependency.
+**File-notification dependency selection is closed.** The
+[native observer](continuous-directory-observation.md) calls inotify (Linux) and
+FSEvents (macOS) through the existing libc dependency and adds no notification
+crate. Docker bind mount notifications require their own evidence, including
+unavailable/missed events and overflow fallback. Native Windows synchronization
+is considered separately and is not part of this contract; synchronization is
+rejected there at configuration, startup and in the HTTP controls (501), and
+unsupported watch setup must report failure, never false synchronized success.
+Reusing `fsutil`, MIME and TLS components does not authorize a new dependency.
 
 ## Sources and verification boundary
 
