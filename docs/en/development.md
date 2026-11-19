@@ -347,6 +347,8 @@ It prints every rejected occurrence in server production code. Rules are zero
 tolerance unless the [Rules](#rules) table marks them "per-file ratchet"; those
 use per-file baseline counts, and no new finding may increase them. Text rules share
 `xtask/lint-baseline.txt`; Clippy uses `xtask/lint-baseline.<triple>.txt`.
+No rule is ratcheted at present and every baseline file is empty; the mechanism
+stays for a rule that has to be introduced over existing findings.
 The other exceptions are:
 
 - a reasoned `#[expect(<lint>, reason = "...")]` for a Clippy or rustc lint

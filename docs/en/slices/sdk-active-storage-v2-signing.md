@@ -43,7 +43,7 @@ Checked 2026-10-27: [official V2 signing process](https://docs.cloud.google.com/
 The retrieved V2 page SHA-256 is `81697542744cf91201634db04faaaaf1e3d6d574ec6f5313b0a8f07219564ff5`.
 RSA-SHA256, literal encoded paths and unbound response overrides follow that contract;
 extension headers are lowercase, sorted, whitespace-normalized and joined in wire order.
-Pinned Go 1.27.3 / Storage 1.70.0 and Ruby 4.0.9 / Storage 1.62.1 are the SDK contracts.
+Pinned Go 1.27.3 / Storage 1.70.0 and Ruby 4.0.9 / Storage 1.62.1 were the SDK contracts at that check.
 
 ## Verification
 

@@ -156,7 +156,7 @@ billing, customPlacementConfig, encryption, hierarchicalNamespace, ipFilter,
 logging, rpo (in the native profile a regional bucket refuses `DEFAULT` and
 `ASYNC_TURBO` with Cloud Storage's 400 invalid naming the location type, recorded
 2026-11-17, and a dual- or multi-region bucket accepts a restated `DEFAULT`) and website
-(`UNSUPPORTED_FIELDS` in `src/json/buckets.rs`). `acl` and `defaultObjectAcl`
+(`UNSUPPORTED_FIELDS` in `src/bucket/resource.rs`). `acl` and `defaultObjectAcl`
 replace the stored entries, and `autoclass` and `objectRetention` follow their
 own contracts. The native
 profile emits `satisfiesPZI: true` after `locationType`, as Cloud Storage

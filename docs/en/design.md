@@ -52,7 +52,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml`, `grpc` and `storage`. `main` owns startup/shutdown and offline `url public` / `url sign` helpers. JSON parsing/rendering remains separate from shared records/catalog. The server routes bucket CRUD/IAM, object media/multipart/resumable/list/get/update/delete and probes; unknown routes return 404 without reading bodies. XML serves path-style and configured bucket-host GET/HEAD/PUT using shared permissions, generation selection and publication. Virtual hosts route only XML before reserved namespaces; signing retains the original object-only path. Read overrides apply after selected-record response construction without metadata mutation. `auth::signature` owns bounded RSA query verification; `xml::put` reuses the two-slot streaming bridge and withholds EOF until optional SHA256 validation succeeds. The server registry contains public keys only. The optional plaintext h2c listener serves scoped Storage v2 bucket CRUD/updates/IAM/retention locking, object metadata/media/list/delete/restore, resumable writes, rewrite/compose/move and bidirectional ranged reads through shared state and authorization. CancelResumableWrite discards shared resumable sessions. Rapid appendable objects use a separate state machine (`storage::appendable`, adapter `grpc::v2::append`): unfinalized generations live in their own table and data files until finalization publishes them through shared publication; see `docs/en/slices/grpc-v2-rapid-append.md`. Unsupported fields and unknown RPCs return ErrorInfo-bearing UNIMPLEMENTED. An independent legacy Storage v1 adapter serves the reference emulator's twelve inventoried RPCs on that listener through the same catalog, publication and strict permissions; unsupported v1 methods return the same immediate rejection. This retired protocol is a limited migration profile, not Google GA/EXACT fidelity. `xtask` owns ledger validation/rendering and online freshness checks; existing `serde_json` handles bounded JSON inputs.
+One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml`, `grpc` and `storage`. `main` owns startup/shutdown and offline `url public` / `url sign` helpers. JSON parsing/rendering remains separate from shared records/catalog. The server routes bucket CRUD/IAM, object media/multipart/resumable/list/get/update/delete and probes; unknown routes return 404 without reading bodies. XML serves path-style and configured bucket-host GET/HEAD/PUT using shared permissions, generation selection and publication. Virtual hosts route only XML before reserved namespaces; signing retains the original object-only path. Read overrides apply after selected-record response construction without metadata mutation. `auth::signature` owns bounded RSA query verification; `xml::put` reuses the two-slot streaming bridge and withholds EOF until optional SHA256 validation succeeds. The server registry contains public keys only. The optional gRPC listener (h2c or TLS) serves scoped Storage v2 bucket CRUD/updates/IAM/retention locking, object metadata/media/list/delete/restore, resumable writes, rewrite/compose/move and bidirectional ranged reads through shared state and authorization. CancelResumableWrite discards shared resumable sessions. Rapid appendable objects use a separate state machine (`storage::appendable`, adapter `grpc::v2::append`): unfinalized generations live in their own table and data files until finalization publishes them through shared publication; see `docs/en/slices/grpc-v2-rapid-append.md`. Unsupported fields and unknown RPCs return ErrorInfo-bearing UNIMPLEMENTED. An independent legacy Storage v1 adapter serves the reference emulator's twelve inventoried RPCs on that listener through the same catalog, publication and strict permissions; unsupported v1 methods return the same immediate rejection. This retired protocol is a limited migration profile, not Google GA/EXACT fidelity. `xtask` owns ledger validation/rendering and online freshness checks; existing `serde_json` handles bounded JSON inputs.
 
 Storage v2 bucket/object updates construct shared `BucketMetadataUpdate` and
 `ObjectMetadataUpdate` values directly from protobuf fields. JSON adapters parse
@@ -62,13 +62,18 @@ Logic that more than one adapter needs lives outside the JSON adapter: percent-d
 (`percent`), listing page tokens (`page_token`), stored-time rendering (`time_format`),
 entity tags (`etag`), bounded request bodies (`bounded_body`), bucket names and CORS
 (`bucket::name`, `bucket::cors`), testable IAM permissions (`auth::testable`) and digest
-decoding (`hashing::decode_hash`). The XML adapter maps domain errors to its own answers
-(`src/xml/error_mapping.rs`) but still converts the JSON error in its server helpers,
-upload header checks and form parser; the gRPC adapter maps catalog, object and authentication
-failures to statuses directly, with a few references to the JSON error left in
-`src/grpc/v2/status.rs`, the bucket handlers and the legacy v1 service. `cargo xtask lint` keeps `src/grpc` and `src/xml` from
-gaining references to the `json` module, and the references that remain are a per-file
-ratchet (`xtask/lint-baseline.txt`).
+decoding (`hashing::decode_hash`), bucket creation from resource members
+(`bucket::resource`), media and upload headers (`object::media_headers`,
+`object::upload_headers`), the streaming multipart parser (`multipart`) and the error the
+shared server logic and request parsers return (`api_error::ApiError`). Each adapter
+answers that error in its own protocol: the JSON adapter renders the envelope through
+`json::JsonErrorResponse`, the XML adapter maps it and the domain errors to its codes
+(`src/xml/error_mapping.rs`), and the gRPC adapter maps them to statuses
+(`src/grpc/v2/status.rs`). `ApiError` still carries an HTTP status and Cloud Storage's
+JSON `reason`, which the XML and gRPC conversions read; it is shared, not yet
+protocol-neutral. Production code under `src/grpc` and `src/xml` has no reference to the
+`json` module, and `cargo xtask lint` rejects a new one (`text::json_adapter_dependency`,
+zero tolerance).
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |

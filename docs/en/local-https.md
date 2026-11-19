@@ -39,6 +39,9 @@ PEM chain (leaf first) and private key are loaded and checked before recovery,
 seeding, binding or readiness. Each is capped at 1 MiB. TLS 1.2/1.3 and HTTP/1.1
 are supported; handshakes share `max_connections` and have a separate
 `--tls-handshake-timeout-ms` deadline (default 5000, 0 disables it, no upper limit).
+The optional gRPC listener (`--grpc-listen`) uses the same certificate and key: under the
+default `--grpc-scheme auto` it serves gRPC over TLS with ALPN `h2` beside plaintext h2c,
+and the same handshake deadline applies. See [gRPC over TLS](slices/grpc-tls.md).
 Configuration precedence is CLI > `GCS_MIMIC_` environment > JSON > defaults.
 For example, use JSON `scheme`, `tls_cert`, `tls_key`, `tls_handshake_timeout_ms`
 or environment `GCS_MIMIC_SCHEME`, `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY`.

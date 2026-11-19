@@ -42,7 +42,7 @@ The pinned [reference server](https://github.com/fsouza/fake-gcs-server/blob/896
 | RPC-LEGACY-011 | ComposeObject | 1–32 same-bucket source names, source generations/conditions, destination metadata and atomic destination conditions; bounded shared composition. |
 | RPC-LEGACY-012 | ListObjects | Prefix, delimiter, trailing delimiter, versions, maximum 1000 per page and query-bound tokens. |
 
-The reference's first-message-only upload and incomplete responses are not safety contracts. InsertObject consumes all messages with bounded staging and requires finish_write plus transport EOF. No new configuration, dependency, storage interface or startup phase is introduced. The existing explicit grpc_listen h2c endpoint serves both services.
+The reference's first-message-only upload and incomplete responses are not safety contracts. InsertObject consumes all messages with bounded staging and requires finish_write plus transport EOF. No new configuration, dependency, storage interface or startup phase is introduced. The existing explicit `grpc_listen` endpoint serves both services; it was h2c only when this slice landed and now also serves gRPC over TLS ([gRPC over TLS](grpc-tls.md)).
 
 Storage v1 and v2 share typed single-shot intake for offsets, chunk CRC32C,
 whole-object hashes, size limits and staging. Legacy requests reject overlapping

@@ -29,7 +29,7 @@ v1の重複offset拒否と16進MD5、v2の重複部分の読み飛ばしとバ�
 | RPC-LEGACY-011 | ComposeObject | 同一バケットの1〜32ソース、ソース世代・条件、宛先条件、上限付き合成 |
 | RPC-LEGACY-012 | ListObjects | prefix、delimiter、trailing delimiter、versions、最大1000件のページと継続トークン |
 
-既存のgrpc_listenを設定したh2cポートにv1とv2を載せます。例は`--grpc-listen 127.0.0.1:4444`です。新しい設定や依存はありません。認可とカタログ・公開処理はJSONと共用し、strictの権限を迂回しません。JSONで作ったバケット・オブジェクトをv1で参照でき、v1の書き込みや更新はJSONで参照できます。
+既存の`grpc_listen`のポートにv1とv2を載せます。このスライスの時点ではh2cだけでしたが、現在は同じポートがgRPC over TLSも受け付けます（[gRPC over TLS（英語）](../en/slices/grpc-tls.md)）。例は`--grpc-listen 127.0.0.1:4444`です。新しい設定や依存はありません。認可とカタログ・公開処理はJSONと共用し、strictの権限を迂回しません。JSONで作ったバケット・オブジェクトをv1で参照でき、v1の書き込みや更新はJSONで参照できます。
 
 本文のメッセージ上限は4 MiBです。メタデータには8 KiBの上限を設けず、JSONにエンコードした大きさで40 KiBというローカル上限をJSONと共有し、超えるとINVALID_ARGUMENTを返します。Cloud StorageはJSON・XML・Storage v2のどれでも8 KiBの上限を適用しませんでした（2026-11-15に記録。旧APIそのものは記録していません）。共有の書き込みには64 KiBを2枠で渡し、総量には既存のmax_object_bytesを適用します。finish_writeとEOFを確認するまで公開しません。誤ったoffsetやチェックサム、finish不足は公開せず失敗します。前提条件と権限は共有処理が公開と同じトランザクションで再確認します。通信中にSQLiteのトランザクションを保持しません。
 
