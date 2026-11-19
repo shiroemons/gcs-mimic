@@ -43,7 +43,7 @@ use crate::{
         failure::BackendCause,
         sync_state::{
             CatalogId,
-            root::{Activation, RootLease},
+            root::{Activation, RootError, RootLease},
         },
     },
 };
@@ -100,7 +100,33 @@ pub async fn preflight(catalog: &Catalog, config: &Config) -> io::Result<Option<
         entries: config.max_sync_entries,
         depth: config.max_sync_depth,
     };
-    state.activate_root(root, activation).await.map(|lease| Some(lease.with_tree_limits(limits))).map_err(|error| io::Error::other(BackendCause::with_source(format!(
-        "{error}; restore the intended mount/root and stop other writers. For an associated root with a missing marker only, back up the tree and restart with --sync-reinitialize {id}. Preserve foreign/malformed markers and select a fresh unassociated directory; never overwrite them. A foreign .gcs-mimic-sync.json may have been committed to Git or copied from another environment: add it to .gitignore, preserve the tree and select a fresh directory, or select the intended data_dir."
-    ), error)))
+    state
+        .activate_root(root, activation)
+        .await
+        .map(|lease| Some(lease.with_tree_limits(limits)))
+        .map_err(|error| {
+            let remedy = activation_remedy(&error, id);
+            io::Error::other(BackendCause::with_source(
+                format!("{error}; {remedy}"),
+                error,
+            ))
+        })
+}
+
+/// What an operator does about a root that startup refused. A directory in the synchronized
+/// one's place is refused only when it holds something, so its remedy names the switch to an
+/// empty directory.
+fn activation_remedy(error: &RootError, catalog: CatalogId) -> String {
+    match error {
+        RootError::RootChanged => "sync_dir is not the directory this data directory synchronizes with, and it holds something or could not be listed. Restore the intended mount/root, or switch to another directory by selecting an empty one (nothing in it but .DS_Store) without --sync-reinitialize: startup then registers it in place of the previous directory and writes every object into it, deletes no object and leaves the previous directory as it is.".to_owned(),
+        RootError::Admin(_)
+        | RootError::InUse
+        | RootError::Unsupported
+        | RootError::MissingMarker
+        | RootError::InvalidMarker
+        | RootError::ForeignMarker
+        | RootError::ReinitializeDenied => format!(
+            "restore the intended mount/root and stop other writers. For an associated root with a missing marker only, back up the tree and restart with --sync-reinitialize {catalog}. Preserve foreign/malformed markers and select a fresh unassociated directory; never overwrite them. A foreign .gcs-mimic-sync.json may have been committed to Git or copied from another environment: add it to .gitignore, preserve the tree and select a fresh directory, or select the intended data_dir."
+        ),
+    }
 }

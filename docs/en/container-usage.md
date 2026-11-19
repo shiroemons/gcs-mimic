@@ -361,7 +361,21 @@ catalog/root; foreign or malformed published markers still fail closed. After
 `docker compose down --volumes` or another new data volume, startup rejects the
 old directory with a `ForeignMarker` diagnostic. Move it aside and create a fresh
 empty directory instead. The directory must not overlap the data or seed
-directory. In strict mode, sync controls require project-owner authority through
+directory.
+
+To keep the data volume and switch to another directory, mount an empty
+directory, or one that holds only `.DS_Store`, at the same container path.
+Startup takes it in place of the previous one, logs a `sync_root_switched`
+warning with both roots' identities, and writes every object into it as on a
+first start. The catalog forgets what it tracked for the previous directory, its
+findings and the deletions waiting for approval there, so no object is deleted.
+The previous directory is never opened; its files stay as they were, including
+conflict copies in its `.gcs-mimic-sync-work`. A directory that holds anything
+else is refused with a `RootChanged` diagnostic, and so is the previous directory
+mounted back after a switch: select an empty directory, or move what it holds
+out of it.
+
+In strict mode, sync controls require project-owner authority through
 the local identity registry. Sync runs on Linux and macOS; on other platforms the
 directory cannot be watched, so the server reports the failure and does not
 become ready.

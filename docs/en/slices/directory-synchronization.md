@@ -693,8 +693,24 @@ First activation behaves as follows:
   exported, identical, conflicting, ignored and unrepresentable counts separately.
 
 A previously associated root with a missing marker, or any foreign/malformed
-marker, stops startup before bind. A wrong mount is never an empty baseline.
-First repair the mount/root. For intentional reactivation, stop other writers,
+marker, stops startup before bind. A wrong mount is never an empty baseline:
+a directory in a registered root's place, at its path with another identity or
+with its identity at another path, stops startup with `RootChanged` when it
+holds anything. An empty one is a switch instead, so that a changed bind mount
+needs no reinitialization; empty means what it means for a directory that live
+export replaces: no entry, or only a regular `.DS_Store`. Startup lists the
+directory once for the proof, stages a marker for a new root, then in one
+transaction forgets the previous root's rows (findings, path stops, deletion
+set, conflicts and write-back state) and every tracked file, marks every other
+root's baseline incomplete because tracked files carry no root, and registers
+the new root with an incomplete baseline; publishing the marker follows, and the
+first pass exports every object as on a first activation. A crash before that
+transaction commits keeps the previous registration, and the next start removes
+the staged marker no root owns and switches again; after it, the next start
+publishes the staged marker. The `sync_root_switched` warning names both roots
+and what was forgotten. The previous directory is never opened, so its files and
+the conflict bytes in its workspace stay, and no object changes.
+`--sync-reinitialize` never switches. First repair the mount/root. For intentional reactivation, stop other writers,
 back up the tree and use `--sync-reinitialize CATALOG_ID`: require a missing
 marker, exact local catalog ID, unchanged selected root identity and exclusive
 ownership. A foreign/malformed marker cannot be overwritten with this option;

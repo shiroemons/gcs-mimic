@@ -80,6 +80,12 @@ pub(crate) enum Step {
     SyncMarkerRename,
     SyncMarkerParentSync,
     SyncMarkerPublished,
+    /// After startup staged the marker of an empty directory it switches to, in the tree, and
+    /// before the switch commits, in the catalog.
+    SyncRootSwitchStaged,
+    /// After the switch to an empty directory committed, in the catalog, and before its marker
+    /// is published, in the tree.
+    SyncRootSwitched,
     /// Before probing a failed or rolled-back publication's reference.
     DiscardProbe,
     /// Before committing an expired soft-deleted batch and its deletion journal rows together.
@@ -131,7 +137,7 @@ pub(crate) enum Step {
     SyncCopySync,
     /// After the copied file and workspace are synced, before installation.
     SyncCopyDurable,
-    /// After installation unlinked the removable metadata files, such as `.DS_Store`, from the
+    /// After installation unlinked the Finder metadata files, such as `.DS_Store`, from the
     /// directory that holds its target's name, and each unlink synced that directory, before the
     /// directory's removal.
     SyncDirectoryMetadataRemoved,

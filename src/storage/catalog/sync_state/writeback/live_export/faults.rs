@@ -28,7 +28,7 @@ impl Paths {
         fault::hit_io(&self.tree, step)?;
         fault::hit_io(&self.data, step)
     }
-    /// Records that installation unlinks `file`, the removable metadata file `name` in the
+    /// Records that installation unlinks `file`, the Finder metadata file `name` in the
     /// directory at `item`'s target, before the unlink.
     #[cfg_attr(
         not(unix),

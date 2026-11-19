@@ -171,6 +171,14 @@ struct Marker {
 }
 
 impl Marker {
+    fn new(status: RootStatus) -> Self {
+        Self {
+            version: 1,
+            catalog_id: status.catalog_id,
+            root_id: status.root_id,
+        }
+    }
+
     fn owned_by(&self, status: RootStatus) -> bool {
         self.catalog_id == status.catalog_id && self.root_id == status.root_id
     }
@@ -249,6 +257,37 @@ fn remove_staging(directory: &File) -> Result<(), RootError> {
     }
 }
 
+/// Writes `marker` under the staging name and syncs it and the root, so that a crash from here
+/// on leaves a complete staged marker, which a restart publishes while the catalog registers
+/// its root at this directory and removes otherwise.
+fn stage_marker(owns: &Ownership, marker: Marker) -> Result<(), RootError> {
+    let root = owns.lock.file();
+    remove_staging(root)?;
+    let bytes = serde_json::to_vec(&marker).map_err(AdminError::backend)?;
+    let mut file = fsutil::create_regular_at(root, MARKER_STAGING.as_ref())?;
+    #[cfg(test)]
+    {
+        #[cfg(unix)]
+        super::super::fault::file_created(&owns.path.join(MARKER_STAGING));
+        failure_boundary(&owns.path, "created")?;
+        super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerWrite)?;
+    }
+    file.write_all(&bytes)?;
+    #[cfg(test)]
+    super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerSync)?;
+    file.sync_all()?;
+    root.sync_all()?;
+    #[cfg(test)]
+    {
+        super::super::fault::file_synced(&owns.path, &file.metadata()?);
+        #[cfg(unix)]
+        super::super::fault::dir_synced(&owns.path);
+        failure_boundary(&owns.path, "file_synced")?;
+        super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerPrepared)?;
+    }
+    Ok(())
+}
+
 fn publish_marker(
     owns: &Ownership,
     status: RootStatus,
@@ -259,34 +298,7 @@ fn publish_marker(
     #[cfg(test)]
     failure_boundary(&owns.path, "reserved")?;
     if matches!(marker, MarkerState::Absent) {
-        remove_staging(root)?;
-        let bytes = serde_json::to_vec(&Marker {
-            version: 1,
-            catalog_id: status.catalog_id,
-            root_id: status.root_id,
-        })
-        .map_err(AdminError::backend)?;
-        let mut file = fsutil::create_regular_at(root, MARKER_STAGING.as_ref())?;
-        #[cfg(test)]
-        {
-            #[cfg(unix)]
-            super::super::fault::file_created(&owns.path.join(MARKER_STAGING));
-            failure_boundary(&owns.path, "created")?;
-            super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerWrite)?;
-        }
-        file.write_all(&bytes)?;
-        #[cfg(test)]
-        super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerSync)?;
-        file.sync_all()?;
-        root.sync_all()?;
-        #[cfg(test)]
-        {
-            super::super::fault::file_synced(&owns.path, &file.metadata()?);
-            #[cfg(unix)]
-            super::super::fault::dir_synced(&owns.path);
-            failure_boundary(&owns.path, "file_synced")?;
-            super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerPrepared)?;
-        }
+        stage_marker(owns, Marker::new(status))?;
     }
     if !matches!(marker, MarkerState::Published(..)) {
         #[cfg(test)]
@@ -344,6 +356,15 @@ struct Ownership {
     _catalog_permit: OwnedSemaphorePermit,
 }
 
+/// What startup registers for the selected directory.
+enum Reservation {
+    /// The directory is the registered root, a reinitialized one or a new one.
+    Reserved(RootStatus),
+    /// Another directory now has a registered root's path, or a registered root's directory has
+    /// another path. Startup switches to the selected directory only when it is empty.
+    Replaced(switch::Replaced),
+}
+
 fn reserve(
     connection: &mut Connection,
     location: &[u8],
@@ -351,7 +372,7 @@ fn reserve(
     marker: Option<Marker>,
     catalog: CatalogId,
     activation: Activation,
-) -> Result<RootStatus, RootError> {
+) -> Result<Reservation, RootError> {
     let transaction = connection
         .transaction()
         .map_err(super::super::unavailable)?;
@@ -378,7 +399,14 @@ fn reserve(
     .map_err(super::super::unavailable)?;
     let status = if let Some((id, stored_node, complete, stored_location)) = found {
         if stored_node != node || stored_location != location {
-            return Err(RootError::RootChanged);
+            return match activation {
+                Activation::Open => Ok(Reservation::Replaced(switch::Replaced {
+                    root_id: id,
+                    location: stored_location,
+                    node: stored_node,
+                })),
+                Activation::Reinitialize { .. } => Err(RootError::RootChanged),
+            };
         }
         let baseline = match (activation, marker) {
             (Activation::Open, Some(marker))
@@ -430,7 +458,7 @@ fn reserve(
         }
     };
     transaction.commit().map_err(super::super::unavailable)?;
-    Ok(status)
+    Ok(Reservation::Reserved(status))
 }
 impl Ownership {
     fn validate(&self) -> Result<(), RootError> {
@@ -719,7 +747,7 @@ impl SyncState {
     ) -> Result<RootLease, RootError> {
         let location = ownership.path.as_os_str().as_encoded_bytes().to_vec();
         let identity = ownership.identity;
-        let (status,staging_valid) = self
+        let (reservation,staging_valid) = self
             .0
             .run_admin_with_error(move |connection| {
                 let valid=match marker {
@@ -743,7 +771,12 @@ impl SyncState {
         } else {
             marker
         };
-        let status = status?;
+        let (status, marker) = match reservation? {
+            Reservation::Reserved(status) => (status, marker),
+            Reservation::Replaced(replaced) => {
+                self.switch_root(&ownership, catalog, replaced).await?
+            }
+        };
         let owns = ownership.clone();
         let marker_identity = self
             .0
@@ -763,6 +796,8 @@ impl SyncState {
         })
     }
 }
+
+mod switch;
 
 #[cfg(test)]
 #[cfg(unix)]

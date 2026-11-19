@@ -54,6 +54,7 @@ pub(crate) mod durable;
 
 pub(crate) mod authority;
 pub(crate) mod conflicts;
+mod empty;
 pub(crate) mod observation;
 
 crate::storage::opaque_id::opaque_id! {

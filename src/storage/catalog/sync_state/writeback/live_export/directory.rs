@@ -9,29 +9,19 @@
 //! is the last check, because an entry can arrive after every other one: `rmdir` never follows a
 //! symlink and refuses a directory that holds anything else, which is left as a collision.
 //!
-//! Only [`REMOVABLE_METADATA`] is ever removed from the directory: a regular file that Finder
-//! writes into every directory it shows, which would otherwise keep a directory holding nothing
-//! of the user's. The proof lists the directory, never below it and at most
-//! [`CONTENT_LIST_LIMIT`] names, only to find whether that is all it holds; any other entry, or a
-//! listing that fails, keeps the directory with everything in it. The listing is also what keeps
-//! AppleDouble `._*` files: macOS's `rmdir` removes a directory that holds only `._*` files of
-//! names it does not hold, and those files with it, so `rmdir` alone would not refuse one. No
-//! ancestor that a removal empties is removed after it. On a root that folds letter case the
-//! directory that holds the target is listed too, to confirm the spelling.
+//! Only Finder's metadata files ([`empty::FINDER_METADATA`]) are ever removed from the directory:
+//! a regular `.DS_Store` that Finder writes into every directory it shows, which would otherwise
+//! keep a directory holding nothing of the user's. The proof lists the directory, never below it
+//! and only a few names, to find whether that is all it holds ([`empty::contents`]); any other
+//! entry, or a listing that fails, keeps the directory with everything in it. The listing is also
+//! what keeps AppleDouble `._*` files: macOS's `rmdir` removes a directory that holds only `._*`
+//! files of names it does not hold, and those files with it, so `rmdir` alone would not refuse
+//! one. No ancestor that a removal empties is removed after it. On a root that folds letter case
+//! the directory that holds the target is listed too, to confirm the spelling.
 
 use super::*;
+use crate::storage::catalog::sync_state::empty::{self, Contents, MetadataFile};
 use std::ffi::OsString;
-
-/// The names of the only entries a removal takes out of a directory before removing it, when
-/// they are regular files: Finder's `.DS_Store`. Each is a name that scans ignore, so its
-/// removal loses nothing the tree would publish; other names scans ignore, such as `._*` or an
-/// editor's swap file, may still hold a user's data and keep the directory.
-pub(super) const REMOVABLE_METADATA: [&str; 1] = [".DS_Store"];
-
-/// The most names a proof reads from the directory at the target. Any name but a removable
-/// metadata file keeps the directory, so a directory that lists more is never removed, and the
-/// bound keeps a large directory from costing a full listing on every pass.
-const CONTENT_LIST_LIMIT: usize = 8;
 
 /// Why an export leaves the directory at its target in place, which keeps it a collision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,7 +41,7 @@ pub(super) enum Kept {
     NotAnObject,
     /// The entry is no directory under its exact spelling: a symlink, a file or an alias.
     NotDirectory,
-    /// The directory lists an entry other than a regular removable metadata file, or more names
+    /// The directory lists an entry other than a regular Finder metadata file, or more names
     /// than a proof reads.
     Holds,
     /// Listing the directory failed with this error, so what it holds is unknown.
@@ -260,16 +250,9 @@ pub(super) struct RemovableDirectory {
     /// The directory itself, opened without following a symlink, which its metadata files are
     /// unlinked from.
     directory: File,
-    /// The removable metadata files the directory held, and nothing else.
+    /// The Finder metadata files the directory held, and nothing else. The removal unlinks each
+    /// name only while it still holds the file the proof opened.
     metadata: Vec<MetadataFile>,
-}
-
-/// A removable metadata file that a proof found in the directory at the target.
-struct MetadataFile {
-    /// Its name, one of [`REMOVABLE_METADATA`].
-    name: &'static str,
-    /// The file the proof opened; the removal unlinks the name only while it still holds it.
-    identity: fsutil::FileIdentity,
 }
 
 impl RemovableDirectory {
@@ -279,7 +262,7 @@ impl RemovableDirectory {
     /// directory created later under that name bring a deleted bucket back. The entry must open
     /// as a directory under its exact spelling without following a symlink, and on a root that
     /// folds letter case the directory that holds it must also list that spelling. The
-    /// directory must hold nothing but removable metadata files ([`metadata_only`]).
+    /// directory must hold nothing but Finder metadata files ([`metadata_only`]).
     pub(super) fn prove(
         root: &File,
         naming: RootNaming,
@@ -318,43 +301,14 @@ impl RemovableDirectory {
     }
 }
 
-/// The removable metadata files that `directory` holds, when its first [`CONTENT_LIST_LIMIT`]
-/// names are all it holds and each is one of [`REMOVABLE_METADATA`] on a regular file. A
-/// symlink, a directory or a special file under such a name is content like any other entry. A
-/// listing that fails keeps the directory: what it holds is unknown until a later pass reads it.
+/// The Finder metadata files that `directory` holds when they are all it holds. A listing that
+/// fails keeps the directory: what it holds is unknown until a later pass reads it.
 fn metadata_only(directory: &File) -> Result<Result<Vec<MetadataFile>, Kept>, Error> {
-    let mut names = fsutil::DirectoryNames::default();
-    let mut metadata = Vec::new();
-    loop {
-        let listed = match names.next_name(directory, CONTENT_LIST_LIMIT) {
-            Ok(Some(listed)) => listed,
-            Ok(None) => return Ok(Ok(metadata)),
-            // More names than a proof reads.
-            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
-                return Ok(Err(Kept::Holds));
-            }
-            Err(error) => return Ok(Err(Kept::Unlisted(error.kind()))),
-        };
-        let Some(name) = REMOVABLE_METADATA
-            .into_iter()
-            .find(|removable| listed == **removable)
-        else {
-            return Ok(Err(Kept::Holds));
-        };
-        match fsutil::child_regular(directory, name.as_ref()) {
-            Ok(fsutil::RegularChild::File(file)) => metadata.push(MetadataFile {
-                name,
-                identity: fsutil::stat_identity(&file)?,
-            }),
-            // Gone since the listing: nothing of it is left to remove.
-            Ok(fsutil::RegularChild::Missing) => {}
-            Ok(fsutil::RegularChild::Alias) => return Ok(Err(Kept::Holds)),
-            Err(error) if crate::sync::tree::structural_entry_error(&error) => {
-                return Ok(Err(Kept::Holds));
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
+    Ok(match empty::contents(directory)? {
+        Contents::Empty(metadata) => Ok(metadata),
+        Contents::Holds => Err(Kept::Holds),
+        Contents::Unlisted(kind) => Err(Kept::Unlisted(kind)),
+    })
 }
 
 /// The most names [`listed`] reads from the directory that holds the target. A directory with
@@ -382,7 +336,7 @@ fn listed(parent: &File, name: &std::ffi::OsStr) -> Result<bool, Error> {
     }
 }
 
-/// Unlinks the removable metadata files of `metadata` from `directory` while each name still
+/// Unlinks the Finder metadata files of `metadata` from `directory` while each name still
 /// holds the file the proof opened, without following a symlink, and returns how many it
 /// unlinked. A name that holds anything else by now, such as a file Finder wrote again, keeps
 /// it, and the removal then finds the directory not empty. Each unlink syncs `directory`, so it
@@ -419,7 +373,7 @@ fn remove_metadata(
     Ok(unlinked)
 }
 
-/// Removes the directory `proof` names once its removable metadata files are unlinked, if it is
+/// Removes the directory `proof` names once its Finder metadata files are unlinked, if it is
 /// empty then, and syncs the directory that held it, so the removal is durable before
 /// installation takes the name; returns that directory for installation to rename into. A
 /// refused removal leaves the directory with whatever it holds; a metadata file already unlinked

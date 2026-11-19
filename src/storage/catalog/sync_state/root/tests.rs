@@ -2,6 +2,8 @@ use super::*;
 use crate::{storage::Catalog, test_support::TestDir};
 use std::{fs, os::unix::fs::symlink, time::Duration};
 
+mod switch;
+
 /// A marker written by any release reads back the same, so its bytes keep the field order and
 /// the lowercase hexadecimal identities, and an uppercase identity is still not a marker.
 #[test]
@@ -213,6 +215,8 @@ async fn sync_root_replacement_symlinks_and_marker_changes_fail_closed() {
     let saved = root.0.with_extension("saved");
     fs::rename(&root.0, &saved).unwrap();
     fs::create_dir(&root.0).unwrap();
+    // Only an empty replacement is switched to; this one holds a file.
+    fs::write(root.0.join("held"), b"").unwrap();
     assert_eq!(
         lease.file_job(|_| Ok(())).await,
         Err(RootError::RootChanged)
@@ -228,6 +232,7 @@ async fn sync_root_replacement_symlinks_and_marker_changes_fail_closed() {
             .await,
         Err(RootError::RootChanged)
     ));
+    fs::remove_file(root.0.join("held")).unwrap();
     fs::remove_dir(&root.0).unwrap();
     symlink(&saved, &root.0).unwrap();
     assert!(
