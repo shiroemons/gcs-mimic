@@ -50,7 +50,7 @@ pages and stops at named depth and entry limits instead of retaining a whole tre
 The operating system's actual descriptor limit still applies; the application
 does not raise it. Exceeding capacity, unsupported watch setup or a permanently
 unwatched subtree fails visibly and pauses synchronization. The Storage API stays
-ready; `/_internal/ready` reports the mirror apart as `sync.state`.
+ready; `/_internal/ready` reports synchronization separately as `sync.state`.
 
 Permission loss during re-registration preserves the old watches and retries
 twice with exponential backoff, while `sync.state` is `retrying`. Persistent

@@ -269,7 +269,8 @@ approval controls through `gcs-mimic sync`; 0.7.0 imported files only at
 startup and never deleted objects. Use the
 [synchronization contract](slices/directory-synchronization.md) for the exact
 supported platform/auth/recovery subset. Ready precedes initial reconciliation
-and is not a synchronization-complete signal; `gcs-mimic sync wait` waits for it.
+and is not a synchronization-complete signal; `sync.state`, below, reports that
+pass, and `gcs-mimic sync wait` waits for later changes.
 
 Files created or edited outside the server are imported as new object
 generations, with hashes, shortly after the change; no restart is needed.
@@ -304,19 +305,34 @@ become ready.
 
 Directory metadata, ownership and extended-attribute changes revalidate read and
 search access. An inaccessible subtree pauses synchronization until access is
-repaired and an explicit rescan (`gcs-mimic sync rescan`) succeeds. The Storage API
-stays ready meanwhile; `/_internal/ready` reports the mirror apart as `sync.state`
+repaired and an explicit rescan succeeds. The Storage API stays ready meanwhile;
+`/_internal/ready` reports synchronization separately as `sync.state`
 (`starting`, `running`, `retrying`, `paused` or `stopped`), a field outside the
-public contract until synchronization is complete.
+public contract until the directory synchronization feature is complete.
+`running` means the first pass has reconciled the directory and the server is
+watching it; it does not mean that a later change is already applied, which
+`gcs-mimic sync wait` waits for. In Compose, run the sync commands in the
+server's container, as in this rescan after repairing access:
+
+```sh
+docker compose exec gcs gcs-mimic sync rescan --endpoint http://127.0.0.1:4443
+```
+
+Use `https://` when the server serves HTTPS, and add `--token-file` under strict
+authentication.
 
 `gcs-mimic healthcheck`, which the image runs as its healthcheck, also fails
 while `sync.state` is `starting`: from startup until the first pass has ingested
 the directory and exported every existing object. `docker compose up --wait`
-therefore waits for that pass. The image allows it a 5-minute start period, so
-a Compose `healthcheck:` override with a shorter `start_period` can mark the
-server unhealthy while a large tree is still exporting. The other states pass:
-waiting would not end a pause or a stop, and `gcs-mimic sync status` reports
-why the mirror stopped.
+therefore returns, and a service that `depends_on` the server with
+`condition: service_healthy` starts, only after that pass. The condition orders
+startup only: Compose does
+not stop or restart that service when synchronization later pauses. The image
+allows the first pass a 5-minute start period, so a Compose `healthcheck:`
+override with a shorter `start_period` can mark the server unhealthy while a
+large tree is still exporting. The other states pass: waiting would not end a
+pause or a stop, and `gcs-mimic sync status` reports why synchronization paused
+or stopped.
 
 Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable

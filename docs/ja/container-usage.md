@@ -247,6 +247,7 @@ readinessの成功後、既存のバケット（空のバケットを含む）�
 0.8.0以降は、LinuxのinotifyとmacOSのFSEventsでディレクトリを[継続して監視（英語）](../en/slices/continuous-directory-observation.md)し、
 再起動しなくても編集を反映します。0.7.0以前は起動時だけ取り込んでいました。
 readyは最初の照合より前に出るため、同期の完了を示す合図ではありません。
+最初の照合が終わったかは後述の`sync.state`で分かり、その後の変更は`gcs-mimic sync wait`で待てます。
 ファイルを消すと、holdやretentionで保護されていないliveオブジェクトも削除します。
 削除数が100件以上かつツリーの半数を超える場合は、削除ガード（`GCS_MIMIC_SYNC_DELETE_GUARD`、既定`true`）で停止し、
 revisionを固定した削除一覧を[`gcs-mimic sync`](sync-cli.md)で確認して承認するまで削除しません。
@@ -272,16 +273,26 @@ APIでバケットを削除してもディレクトリは残ります。同じ�
 同期はLinuxとmacOSで動作し、Windowsでは拒否します。
 0.8.0以降はstrictでも使え、起動にはローカルのID登録が、同期の操作にはプロジェクト所有者の権限が必要です。
 ディレクトリのメタデータ・所有者・拡張属性が変わると、読み取り・検索権限を検査し直します。
-アクセスできないサブツリーがあると同期を一時停止し、権限を直して明示的な再走査（`gcs-mimic sync rescan`）が成功するまで再開しません。
-その間もStorage APIはreadyのままです。`/_internal/ready`は同期の状態を別に`sync.state`（`starting`、`running`、`retrying`、`paused`、`stopped`）で返します。
-この項目は、同期が完成するまで公開契約の対象外です。
+アクセスできないサブツリーがあると同期を一時停止し、権限を直して明示的な再走査が成功するまで再開しません。
+その間もStorage APIはreadyのままです。`/_internal/ready`は同期の状態をAPIの状態とは別に`sync.state`（`starting`、`running`、`retrying`、`paused`、`stopped`）で返します。
+この項目は、ディレクトリ同期の機能が完成するまで公開契約の対象外です。
+`running`は、最初の照合でディレクトリを突き合わせ終え、監視している状態です。
+その後の変更が反映済みであることまでは示さないため、それは`gcs-mimic sync wait`で待ちます。
+Composeでは、同期のコマンドをサーバーのコンテナの中で実行します。例えば権限を直した後の再走査は次のとおりです。
+
+```sh
+docker compose exec gcs gcs-mimic sync rescan --endpoint http://127.0.0.1:4443
+```
+
+HTTPSで待ち受けている場合は`https://`を使い、strictの認証では`--token-file`も付けます。
 
 イメージのヘルスチェックが実行する`gcs-mimic healthcheck`は、`sync.state`が`starting`の間も失敗します。
 `starting`は、起動してから最初の照合でディレクトリを取り込み、既存のオブジェクトをすべて書き出し終えるまでです。
-そのため`docker compose up --wait`は、この照合が終わるまで待ちます。
-イメージはこの照合のために5分の開始猶予（start period）を取っています。
+そのため`docker compose up --wait`はこの照合の後に戻り、`depends_on`の`condition: service_healthy`でサーバーを待つサービスもこの照合の後に始まります。
+この条件は起動の順序を決めるだけです。後で同期が一時停止しても、Composeはそのサービスを止めたり再起動したりしません。
+イメージは最初の照合のために5分の開始猶予（start period）を取っています。
 Composeの`healthcheck:`で`start_period`を短く上書きすると、大きなツリーを書き出している途中でunhealthyになることがあります。
-ほかの状態では成功します。待っても一時停止や停止は終わらないためです。止まった理由は`gcs-mimic sync status`で確認できます。
+ほかの状態では成功します。待っても一時停止や停止は終わらないためです。同期が一時停止・停止した理由は`gcs-mimic sync status`で確認できます。
 
 書き出したファイルとディレクトリは、サーバーのユーザーだけが読めるモード（`0600`・`0700`）です。
 Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。

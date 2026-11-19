@@ -443,7 +443,7 @@ Changing any of these changes behavior for everyone who left the setting unset, 
   | `/_internal/lifecycle/run` | Empty body | `aborted`, `enabled`, `scanned`, `deleted`, `archived`, `transitioned`, `blocked`, `skipped` (`LifecycleResponse` in `src/storage/catalog/lifecycle.rs`) |
 
   The frozen keys therefore keep both styles: `unix_time` is snake_case, and `externalUrl`, `publicHost` and `cleanupPending` are camelCase.
-  A ready answer later gained a `sync` object while directory synchronization is enabled; it is not frozen and stays outside the contract until synchronization is complete ([release policy](release-policy.md)).
+  A ready answer later gained a `sync` object while directory synchronization is enabled; it is not frozen and stays outside the contract until the directory synchronization feature is complete ([release policy](release-policy.md)).
 - **Required change:** None in code; the decision keeps every key and the current limits.
   - [Release policy](release-policy.md): names the contract routes and the sync exclusion. That statement is true today.
   - Documents: `docs/en/slices/runtime-admin-endpoints.md` and `docs/en/slices/local-instance-reset.md` call 64 KiB a bound or cap; they must call it the guaranteed size, without promising that larger bodies are refused or accepted ([disagreement 16](#disagreements-between-code-and-documents)). `docs/en/slices/sync-cli.md`, `docs/ja/sync-cli.md` and `docs/en/slices/external-deletion-controls.md` say the sync routes are an internal protocol tied to the server's version, and direct users to `gcs-mimic sync`.
