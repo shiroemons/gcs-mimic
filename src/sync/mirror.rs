@@ -347,7 +347,7 @@ impl Mirror {
         let result = crate::task::catch_job("sync-mirror", || {
             #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
             tests::injected_live_failure(&self.config)?;
-            self.runtime.block_on(run_live_config(
+            let run = run_live_config(
                 LiveRun {
                     catalog: &self.catalog,
                     root: &self.root,
@@ -358,7 +358,10 @@ impl Mirror {
                 &mut self.stopping,
                 &mut self.requests,
                 &mut self.controls,
-            ))
+            );
+            #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+            let run = tests::failing_on_signal(&self.config, run);
+            self.runtime.block_on(run)
         });
         result.unwrap_or_else(|panicked| Err(SyncError::Panicked(panicked)))
     }

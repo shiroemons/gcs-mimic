@@ -2131,6 +2131,43 @@ pub(super) fn injected_live_failure(config: &Config) -> Result<(), SyncError> {
     }
 }
 
+/// A transient failure that ends the next run of a mirror once the test fires it, armed per
+/// working tree like `LIVE_FAILURES`.
+static RUN_FAILURES: std::sync::Mutex<Vec<(PathBuf, tokio::sync::oneshot::Receiver<()>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Arms a transient failure of the next run of the mirror on `tree`, which ends that run when the
+/// returned sender fires. Dropping the sender disarms it.
+fn fail_run_on_signal(tree: &Path) -> tokio::sync::oneshot::Sender<()> {
+    let (fire, signal) = tokio::sync::oneshot::channel();
+    RUN_FAILURES.lock().unwrap().push((tree.to_owned(), signal));
+    fire
+}
+
+/// Runs `run`, or ends it with a transient failure when a signal armed for the mirror `config`
+/// runs fires first.
+pub(super) async fn failing_on_signal(
+    config: &Config,
+    run: impl Future<Output = Result<(), SyncError>>,
+) -> Result<(), SyncError> {
+    let signal = {
+        let mut armed = RUN_FAILURES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        armed
+            .iter()
+            .position(|(tree, _)| config.sync_dir.as_ref() == Some(tree))
+            .map(|index| armed.remove(index).1)
+    };
+    let Some(signal) = signal else {
+        return run.await;
+    };
+    tokio::select! {
+        result = run => result,
+        Ok(()) = signal => Err(SyncError::Admin(busy())),
+    }
+}
+
 /// A failure of the next explicit rescan of a running mirror, armed per working tree like
 /// `LIVE_FAILURES`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2456,6 +2493,42 @@ async fn a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds() 
     let status = task.status();
     task.finish().await.unwrap();
     assert_eq!(status.entered(), [Starting, Paused, Running, Stopped]);
+    catalog.close().await.unwrap();
+}
+
+/// A started mirror whose run fails transiently reports retrying until the next run has
+/// reconciled the tree, and running again after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_started_mirror_retries_after_a_transient_failure_and_runs_again() {
+    use MirrorState::{Retrying, Running, Starting, Stopped};
+    let (data, tree, catalog, _, root) = live_fixture().await;
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        ..Default::default()
+    };
+    let fail = fail_run_on_signal(&tree.0);
+    let task = start(catalog.clone(), root, &config).unwrap();
+    mirror_reaches(&task, Running).await;
+    fail.send(()).unwrap();
+    let status = task.status();
+    eventually_async("the mirror to run again after retrying", || async {
+        status.entered().contains(&Retrying) && status.state() == Running
+    })
+    .await;
+    // The run after the retry answers controls.
+    assert!(
+        tokio::time::timeout(HANG_GUARD, task.rescan())
+            .await
+            .unwrap()
+            .unwrap()
+            .baseline_complete
+    );
+    task.finish().await.unwrap();
+    assert_eq!(
+        status.entered(),
+        [Starting, Running, Retrying, Running, Stopped]
+    );
     catalog.close().await.unwrap();
 }
 
