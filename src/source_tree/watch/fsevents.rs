@@ -241,6 +241,29 @@ fn directory_ownership_changes_require_access_revalidation() {
     assert!(!needs_access_check(0x20000 | 0x1000));
 }
 
+/// Each way FSEvents says it lost events, or that the root moved, makes the next pass rebuild
+/// the stream and rescan the tree. Treated as a file event instead, a change the stream dropped
+/// would go unnoticed until something else changed.
+#[test]
+fn every_lost_history_or_root_change_rebuilds_the_watch() {
+    let root = b"/watched/root";
+    for flag in [
+        EVENT_MUST_SCAN_SUB_DIRS,
+        EVENT_USER_DROPPED,
+        EVENT_KERNEL_DROPPED,
+        EVENT_IDS_WRAPPED,
+        EVENT_ROOT_CHANGED,
+    ] {
+        assert!(needs_access_check(flag), "{flag:#x}");
+        assert!(needs_access_check(flag | EVENT_ITEM_IS_FILE), "{flag:#x}");
+    }
+    // A dropped or wrapped event names "/" or the root rather than a file below it, and only an
+    // entry the root reserves for synchronization is skipped.
+    assert!(!ignored(root, b"/"));
+    assert!(!ignored(root, root));
+    assert!(!ignored(root, b"/watched/root/bucket"));
+}
+
 #[test]
 fn only_a_clone_of_an_unchanged_file_reports_no_change() {
     use std::os::unix::fs::PermissionsExt;
