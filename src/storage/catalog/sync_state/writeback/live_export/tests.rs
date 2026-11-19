@@ -33,7 +33,9 @@ pub(crate) async fn observation(
         .binding(bucket)
         .await
         .unwrap();
-    let PathMapping::File(path) = mapping::name_to_path(bucket, name) else {
+    let PathMapping::File(path) =
+        mapping::name_to_path(bucket, name, writeback.lease.naming().unwrap())
+    else {
         panic!("fixture path must be representable")
     };
     let tracked = writeback
@@ -98,7 +100,8 @@ impl Fixture {
             .sync_state()
             .activate_root(&tree.0, super::super::super::root::Activation::Open)
             .await
-            .unwrap();
+            .unwrap()
+            .assume_naming(crate::sync::naming::RootNaming::posix());
         let writeback = root.default_writeback().await.unwrap();
         Self {
             data,
@@ -165,7 +168,9 @@ impl Fixture {
             .binding(&self.bucket)
             .await
             .unwrap();
-        let PathMapping::File(path) = mapping::name_to_path(&self.bucket, &name) else {
+        let PathMapping::File(path) =
+            mapping::name_to_path(&self.bucket, &name, self.writeback.lease.naming().unwrap())
+        else {
             panic!("fixture path must be representable")
         };
         let tracked = self
@@ -921,7 +926,8 @@ async fn live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generat
         .sync_state()
         .activate_root(&other_tree.0, super::super::super::root::Activation::Open)
         .await
-        .unwrap();
+        .unwrap()
+        .assume_naming(crate::sync::naming::RootNaming::posix());
     let other = other_root.default_writeback().await.unwrap();
     assert!(matches!(
         other.advance_live_export(operation.clone()).await,
@@ -1142,7 +1148,8 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
         .sync_state()
         .activate_root(&tree.0, super::super::super::root::Activation::Open)
         .await
-        .unwrap();
+        .unwrap()
+        .assume_naming(crate::sync::naming::RootNaming::posix());
     let other = root.default_writeback().await.unwrap();
     let name = ObjectName::new("object").unwrap();
     let (_, reader) = fixture

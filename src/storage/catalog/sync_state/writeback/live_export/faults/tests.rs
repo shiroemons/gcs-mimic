@@ -300,12 +300,22 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
     fixture.shut_down().await;
 }
 
-/// The one entry of `directory`.
-fn only_entry(directory: &Path) -> std::path::PathBuf {
-    let mut entries = fs::read_dir(directory).unwrap();
-    let entry = entries.next().unwrap().unwrap().path();
-    assert!(entries.next().is_none(), "{}", directory.display());
-    entry
+/// The entries of `workspace` that write-back operations own, without the directory the root's
+/// naming probe keeps there.
+fn operation_entries(workspace: &Path) -> Vec<std::path::PathBuf> {
+    fs::read_dir(workspace)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name() != crate::sync::naming::PROBE_DIRECTORY)
+        .map(|entry| entry.path())
+        .collect()
+}
+
+/// The one operation entry of `workspace`.
+fn only_entry(workspace: &Path) -> std::path::PathBuf {
+    let entries = operation_entries(workspace);
+    assert_eq!(entries.len(), 1, "{}", workspace.display());
+    entries[0].clone()
 }
 
 /// A retry refills the private copy that a failed attempt left, in place: the workspace entry
@@ -571,7 +581,8 @@ async fn a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power
                 .sync_state()
                 .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
                 .await
-                .unwrap();
+                .unwrap()
+                .assume_naming(crate::sync::naming::RootNaming::posix());
             let writeback = root.writeback(limits()).await.unwrap();
             assert_eq!(
                 writeback.recover_pending().await.unwrap().stop(),
@@ -579,10 +590,7 @@ async fn a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power
                 "{step:?} {crash:?}"
             );
             assert!(
-                fs::read_dir(tree.0.join(mapping::WORKSPACE))
-                    .unwrap()
-                    .next()
-                    .is_none(),
+                operation_entries(&tree.0.join(mapping::WORKSPACE)).is_empty(),
                 "{step:?} {crash:?}"
             );
             assert!(
@@ -607,12 +615,11 @@ fn restore_tree(snapshot: &Path, tree: &Path) {
         }
     }
     let workspace = tree.join(mapping::WORKSPACE);
-    for entry in fs::read_dir(&workspace).unwrap() {
-        fs::remove_file(entry.unwrap().path()).unwrap();
+    for entry in operation_entries(&workspace) {
+        fs::remove_file(entry).unwrap();
     }
-    for entry in fs::read_dir(snapshot.join(mapping::WORKSPACE)).unwrap() {
-        let entry = entry.unwrap();
-        fs::copy(entry.path(), workspace.join(entry.file_name())).unwrap();
+    for entry in operation_entries(&snapshot.join(mapping::WORKSPACE)) {
+        fs::copy(&entry, workspace.join(entry.file_name().unwrap())).unwrap();
     }
 }
 
@@ -646,7 +653,8 @@ async fn protected_read_copy_crash_and_power_loss_preserve_api_bytes_and_stop_un
                 .sync_state()
                 .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
                 .await
-                .unwrap();
+                .unwrap()
+                .assume_naming(crate::sync::naming::RootNaming::posix());
             let writeback = root.writeback(limits()).await.unwrap();
             if step == Step::SyncCopyCommit {
                 assert_eq!(

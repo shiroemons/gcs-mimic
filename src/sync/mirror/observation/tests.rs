@@ -242,6 +242,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 .activate_root(&tree.0, crate::storage::sync_state::root::Activation::Open)
                 .await
                 .unwrap();
+            root = crate::sync::test_support::probed(root).await;
             writeback = root.default_writeback().await.unwrap();
         }
     }

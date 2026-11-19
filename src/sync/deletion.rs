@@ -29,19 +29,21 @@ enum Deleted {
 
 pub(super) async fn absent(root: &RootLease, path: String) -> Result<bool, SyncError> {
     let limits = root.tree_limits();
+    let naming = root.naming()?;
     root.file_job(move |root| {
         let path = Path::new(&path);
         if path.is_absolute()
             || !limits.admits_file(path)
             || path
                 .iter()
-                .any(|part| part == "." || part == ".." || part.as_encoded_bytes().len() > 255)
+                .any(|part| part == "." || part == ".." || !naming.admits(part))
         {
             return Err(AdminError::Precondition);
         }
         let parent_path = path.parent().ok_or(AdminError::Precondition)?;
         let directory =
-            match super::tree::parent(root, parent_path, super::tree::ParentOpen::Existing) {
+            match super::tree::parent(root, naming, parent_path, super::tree::ParentOpen::Existing)
+            {
                 Ok(directory) => directory,
                 Err(super::tree::ParentError::Missing) => return Ok(true),
                 Err(super::tree::ParentError::Finding(_)) => return Err(AdminError::Precondition),
@@ -78,6 +80,7 @@ pub(super) async fn inventory_with(
         return Ok(None);
     }
     root.invalidate_deletions().await?;
+    let naming = root.naming()?;
     if !summary.baseline_complete
         || summary.deferred != 0
         || summary.unrepresentable != 0
@@ -107,7 +110,8 @@ pub(super) async fn inventory_with(
                 return Ok(None);
             }
             after = candidate.path.clone();
-            let Ok((bucket, name)) = mapping::path_to_name(Path::new(&candidate.path)) else {
+            let Ok((bucket, name)) = mapping::path_to_name(Path::new(&candidate.path), naming)
+            else {
                 return Ok(None);
             };
             if bucket != candidate.bucket || name != candidate.name {

@@ -226,6 +226,7 @@ struct LiveOperation {
 /// What the installation job needs; it runs on a file worker, so it owns its inputs.
 struct Install {
     item: Pending,
+    naming: RootNaming,
     tracked: Option<SyncRecord>,
     /// The staged copy's identity; installation replaces it with the one it confirmed.
     staged: Option<fsutil::FileIdentity>,
@@ -454,8 +455,8 @@ fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> 
 }
 
 /// Whether the target already holds the live body an observation expects.
-fn observe_target(root: &File, item: &Pending) -> Result<bool, Error> {
-    match target(root, &item.path)? {
+fn observe_target(root: &File, naming: RootNaming, item: &Pending) -> Result<bool, Error> {
+    match target(root, naming, &item.path)? {
         Some(file) => content_matches(&file, item.size, item.md5, item.crc32c),
         None => Ok(false),
     }
@@ -468,10 +469,11 @@ fn install_target(root: &File, workspace: &File, install: &mut Install) -> Resul
     let expected = install.tracked.as_ref();
     let staged = install.staged;
     let source_device = install.purpose.source_device();
-    let current = target(root, &selected.path)?;
+    let current = target(root, install.naming, &selected.path)?;
     let parents = selected.path.rsplit_once('/').ok_or_else(stale)?.0;
     let directory = crate::sync::tree::parent(
         root,
+        install.naming,
         std::path::Path::new(parents),
         crate::sync::tree::ParentOpen::Create,
     )?;
@@ -571,7 +573,7 @@ impl Writeback {
                 conflict.verify_owned(&this.lease).await?;
             }
             let bucket = binding.bucket.clone();
-            let path = match mapping::name_to_path(&bucket, &name) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), PathMapping::Unrepresentable(_) => return Err(stale()) };
+            let path = match mapping::name_to_path(&bucket, &name, this.lease.naming()?) { PathMapping::File(p) => p.to_str().ok_or_else(stale)?.to_owned(), PathMapping::Unrepresentable(_) => return Err(stale()) };
             let (catalog, root) = this.identities();
             let selected = tracked.clone();
             let checked_purpose = purpose.clone();
@@ -773,6 +775,7 @@ impl Writeback {
         let staged = operation.progress.staged();
         let install = Install {
             item: item.clone(),
+            naming: self.lease.naming()?,
             tracked: operation.tracked.clone(),
             staged,
             purpose: operation.purpose.clone(),
@@ -788,7 +791,7 @@ impl Writeback {
                 #[cfg(test)]
                 failure(install.item.token.root, "install")?;
                 let installed = if observing {
-                    observe_target(root, &install.item)
+                    observe_target(root, install.naming, &install.item)
                 } else {
                     install_target(root, workspace, &mut install)
                 };
@@ -838,6 +841,7 @@ impl Writeback {
         item: Pending,
         staged: Option<fsutil::FileIdentity>,
     ) -> Result<bool, Error> {
+        let naming = self.lease.naming()?;
         self.fs(move |root, workspace| {
             if let Some(staged) = staged {
                 // Another file in the private copy's entry means the namespace already changed.
@@ -852,7 +856,7 @@ impl Writeback {
                 {
                     return Ok(true);
                 }
-                let current = target(root, &item.path)?
+                let current = target(root, naming, &item.path)?
                     .as_ref()
                     .map(fsutil::stat_identity)
                     .transpose()?;
@@ -877,8 +881,9 @@ impl Writeback {
         failure(item.token.root, "durable")?;
         let selected = item.clone();
         let observed_ns = self.lease.observation_time_ns()?;
+        let naming = self.lease.naming()?;
         let fp = match self
-            .fs(move |root, workspace| fingerprint(root, workspace, &selected, observed_ns))
+            .fs(move |root, workspace| fingerprint(root, workspace, naming, &selected, observed_ns))
             .await
         {
             Ok(fp) => fp,
@@ -933,9 +938,10 @@ impl Writeback {
         let item = operation.item.clone();
         let selected = item.clone();
         let expected = fp.clone();
+        let naming = self.lease.naming()?;
         let verified = self
             .fs(move |root, workspace| {
-                verify_fingerprint(root, workspace, &selected, expected.as_ref())
+                verify_fingerprint(root, workspace, naming, &selected, expected.as_ref())
             })
             .await;
         match verified {
@@ -1006,10 +1012,11 @@ impl Writeback {
         let item = operation.item.clone();
         let selected = item.clone();
         let staged = operation.progress.staged();
+        let naming = self.lease.naming()?;
         let cancelled = self
             .fs(move |root, workspace| {
                 if let Some(staged) = staged
-                    && target(root, &selected.path)?
+                    && target(root, naming, &selected.path)?
                         .as_ref()
                         .map(fsutil::stat_identity)
                         .transpose()?

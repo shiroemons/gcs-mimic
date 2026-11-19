@@ -20,7 +20,15 @@ fn created_parents_survive_crash_and_power_loss_only_after_directory_sync() {
                     Fault::Snapshot(snapshot.0.clone())
                 },
             );
-            assert!(parent(&root, Path::new("bucket/nested"), ParentOpen::Create).is_ok());
+            assert!(
+                parent(
+                    &root,
+                    RootNaming::posix(),
+                    Path::new("bucket/nested"),
+                    ParentOpen::Create
+                )
+                .is_ok()
+            );
             assert_eq!(
                 snapshot.0.join("bucket/nested").is_dir(),
                 !power_loss || step == Step::SyncDirectoryDurable
@@ -36,7 +44,12 @@ fn created_parents_survive_crash_and_power_loss_only_after_directory_sync() {
         Fault::Io(io::ErrorKind::PermissionDenied),
     );
     assert!(matches!(
-        parent(&root, Path::new("bucket"), ParentOpen::Create),
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("bucket"),
+            ParentOpen::Create
+        ),
         Err(ParentError::Io(_))
     ));
 }
@@ -60,10 +73,23 @@ fn parent_sync_failure_retries_existing_ancestors_while_reads_never_sync() {
         Fault::PowerLoss(snapshot.0.clone()),
     );
     assert!(matches!(
-        parent(&root, Path::new("bucket/nested"), ParentOpen::Create),
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("bucket/nested"),
+            ParentOpen::Create
+        ),
         Err(ParentError::Io(_))
     ));
-    assert!(parent(&root, Path::new("bucket/nested"), ParentOpen::Create).is_ok());
+    assert!(
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("bucket/nested"),
+            ParentOpen::Create
+        )
+        .is_ok()
+    );
     assert!(snapshot.0.join("bucket/nested").is_dir());
     fault::arm(
         &tree.0,
@@ -71,9 +97,22 @@ fn parent_sync_failure_retries_existing_ancestors_while_reads_never_sync() {
         0,
         Fault::Io(io::ErrorKind::PermissionDenied),
     );
-    assert!(parent(&root, Path::new("bucket/nested"), ParentOpen::Existing).is_ok());
+    assert!(
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("bucket/nested"),
+            ParentOpen::Existing
+        )
+        .is_ok()
+    );
     assert!(matches!(
-        parent(&root, Path::new("bucket/nested"), ParentOpen::Create),
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("bucket/nested"),
+            ParentOpen::Create
+        ),
         Err(ParentError::Io(_))
     ));
 }
@@ -83,20 +122,35 @@ fn existing_parents_never_create_missing_directories_and_reject_aliases_and_syml
     let tree = TestDir::new();
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
     assert!(matches!(
-        parent(&root, Path::new("bucket/nested"), ParentOpen::Existing),
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("bucket/nested"),
+            ParentOpen::Existing
+        ),
         Err(ParentError::Missing)
     ));
     assert!(!tree.0.join("bucket").exists());
     fs::create_dir(tree.0.join("Dir")).unwrap();
     if tree.0.join("dir").exists() {
         assert!(matches!(
-            parent(&root, Path::new("dir"), ParentOpen::Existing),
+            parent(
+                &root,
+                RootNaming::posix(),
+                Path::new("dir"),
+                ParentOpen::Existing
+            ),
             Err(ParentError::Finding(Reason::Collision))
         ));
     }
     std::os::unix::fs::symlink(tree.0.join("Dir"), tree.0.join("link")).unwrap();
     assert!(matches!(
-        parent(&root, Path::new("link"), ParentOpen::Existing),
+        parent(
+            &root,
+            RootNaming::posix(),
+            Path::new("link"),
+            ParentOpen::Existing
+        ),
         Err(ParentError::Finding(Reason::UnsafeEntry))
     ));
     fs::write(tree.0.join("first"), b"hardlinked").unwrap();
@@ -241,7 +295,7 @@ fn no_depth_limit_accepts_what_export_can_create_past_the_former_default() {
     let tree = TestDir::new();
     let path = std::iter::repeat_n("d", LEVELS).collect::<PathBuf>();
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
-    assert!(parent(&root, &path, ParentOpen::Create).is_ok());
+    assert!(parent(&root, RootNaming::posix(), &path, ParentOpen::Create).is_ok());
     assert!(TreeLimits::default().admits_file(&path));
     assert_eq!(scan_tree(&tree, TreeLimits::default()).unwrap(), LEVELS);
     let named = TreeLimits {
@@ -270,13 +324,51 @@ fn parent_walks_past_the_former_128_levels_and_refuses_only_what_no_limit_allows
     let tree = TestDir::new();
     let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
     let deep = std::iter::repeat_n("d", 200).collect::<PathBuf>();
-    assert!(parent(&root, &deep, ParentOpen::Create).is_ok());
-    assert!(parent(&root, &deep, ParentOpen::Existing).is_ok());
+    assert!(parent(&root, RootNaming::posix(), &deep, ParentOpen::Create).is_ok());
+    assert!(parent(&root, RootNaming::posix(), &deep, ParentOpen::Existing).is_ok());
     let too_deep = std::iter::repeat_n("d", crate::config::MAX_TREE_DEPTH + 1).collect::<PathBuf>();
     for open in [ParentOpen::Existing, ParentOpen::Create] {
         assert!(matches!(
-            parent(&root, &too_deep, open),
+            parent(&root, RootNaming::posix(), &too_deep, open),
             Err(ParentError::Finding(Reason::HostRestriction))
         ));
     }
+}
+
+#[test]
+fn parent_refuses_what_the_root_rules_refuse_before_creating_any_level() {
+    use crate::sync::naming::{Case, Colon, NameMax, Observation, Spelling};
+    let rules = |colon, name_max| {
+        RootNaming::try_from(Observation {
+            colon,
+            case: Case::Sensitive,
+            spelling: Spelling::Preserved,
+            name_max: NameMax::from(Some(name_max)),
+        })
+        .unwrap()
+    };
+    let tree = TestDir::new();
+    let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
+    for (naming, path) in [
+        (rules(Colon::Rejected, 255), "bucket/a:b"),
+        (rules(Colon::Accepted, 8), "bucket/123456789"),
+    ] {
+        for open in [ParentOpen::Existing, ParentOpen::Create] {
+            assert!(matches!(
+                parent(&root, naming, Path::new(path), open),
+                Err(ParentError::Finding(Reason::HostRestriction))
+            ));
+        }
+        assert!(!tree.0.join("bucket").exists(), "{path}");
+    }
+    assert!(
+        parent(
+            &root,
+            rules(Colon::Accepted, 255),
+            Path::new("bucket/a:b"),
+            ParentOpen::Create
+        )
+        .is_ok()
+    );
+    assert!(tree.0.join("bucket/a:b").is_dir());
 }

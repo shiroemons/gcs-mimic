@@ -4,7 +4,10 @@
 )]
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::sync::test_support::{Retrack, hooked_worker, retrack};
+use crate::sync::{
+    naming::RootNaming,
+    test_support::{Retrack, hooked_worker, retrack},
+};
 use crate::{
     object::{MapPatch, ObjectMetadataUpdate, Patch, UploadChunk},
     storage::admin::Origin,
@@ -39,6 +42,7 @@ async fn clocked_fixture() -> (
         .await
         .unwrap()
         .unwrap();
+    let root = crate::sync::test_support::probed(root).await;
     (data, tree, catalog, root, config, clock)
 }
 
@@ -70,6 +74,7 @@ async fn staging_finishes_while_another_file_worker_is_occupied() {
     let ingest = Ingest {
         catalog: &catalog,
         root: &root,
+        naming: root.naming().unwrap(),
         config: &config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
@@ -96,6 +101,7 @@ async fn source_recheck_preserves_precondition_when_staging_cleanup_also_fails()
     let ingest = Ingest {
         catalog: &catalog,
         root: &root,
+        naming: root.naming().unwrap(),
         config: &config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
@@ -490,7 +496,8 @@ async fn publication_rechecks_a_project_added_after_source_staging() {
 }
 
 async fn object(catalog: &Catalog, path: &str) -> crate::object::ObjectRecord {
-    let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
+    let (bucket, name) =
+        mapping::path_to_name(std::path::Path::new(path), RootNaming::posix()).unwrap();
     catalog
         .admin(Origin::Api)
         .get_object(&bucket, &name, None)
@@ -499,7 +506,8 @@ async fn object(catalog: &Catalog, path: &str) -> crate::object::ObjectRecord {
 }
 
 async fn api_put(catalog: &Catalog, path: &str, bytes: &'static [u8]) {
-    let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
+    let (bucket, name) =
+        mapping::path_to_name(std::path::Path::new(path), RootNaming::posix()).unwrap();
     let (sender, receiver) = tokio::sync::mpsc::channel(2);
     sender
         .send(Ok(UploadChunk::Data(bytes::Bytes::from_static(bytes))))
@@ -526,7 +534,8 @@ async fn api_put(catalog: &Catalog, path: &str, bytes: &'static [u8]) {
 }
 
 async fn wait_observed(catalog: &Catalog, path: &str, bytes: &[u8]) -> crate::object::ObjectRecord {
-    let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
+    let (bucket, name) =
+        mapping::path_to_name(std::path::Path::new(path), RootNaming::posix()).unwrap();
     eventually_some_async(&format!("{path} to be observed"), || async {
         catalog
             .admin(Origin::Api)
@@ -541,7 +550,8 @@ async fn wait_observed(catalog: &Catalog, path: &str, bytes: &[u8]) -> crate::ob
 }
 
 async fn wait_absent(catalog: &Catalog, path: &str) {
-    let (bucket, name) = mapping::path_to_name(std::path::Path::new(path)).unwrap();
+    let (bucket, name) =
+        mapping::path_to_name(std::path::Path::new(path), RootNaming::posix()).unwrap();
     eventually_async(&format!("{path} to be removed"), || async {
         match catalog
             .admin(Origin::Api)
@@ -667,6 +677,7 @@ async fn ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations
         .await
         .unwrap()
         .unwrap();
+    let root = crate::sync::test_support::probed(root).await;
     assert!(root.status().permits_external_deletions());
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 0);
     wait_absent(&catalog, "second-bucket/body").await;
@@ -874,6 +885,7 @@ async fn ingest_defers_partial_and_replacement_saves_then_resumes_activation() {
         .await
         .unwrap()
         .unwrap();
+    let root = crate::sync::test_support::probed(root).await;
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 1);
     assert_eq!(object(&catalog, "test-bucket/object").await.size, 9);
     drop(root);

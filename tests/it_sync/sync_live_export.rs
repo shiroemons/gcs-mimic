@@ -507,32 +507,52 @@ async fn live_export_creates_replaces_deletes_and_preserves_edited_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn live_export_skips_colon_and_backslash_names_and_keeps_exporting() {
+async fn live_export_exports_colon_names_and_skips_backslash_names() {
     let (_data, tree, catalog, bucket, config) = setup().await;
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
     let worker = sync::start(catalog.clone(), root.clone(), &config).unwrap();
-    publish(&catalog, &bucket, "logs/2026-10-28T12:00:00.log", b"colon").await;
+    // Linux and macOS local filesystems store a colon, so the probe maps it into the file name.
+    let colon = publish(&catalog, &bucket, "logs/2026-10-28T12:00:00.log", b"colon").await;
     publish(&catalog, &bucket, r"dir\file", b"backslash").await;
     let after = publish(&catalog, &bucket, "after", b"after").await;
-    wait_generation(&catalog, &bucket, "test-bucket/after", after).await;
-    wait_body(&tree.0.join("test-bucket/after"), Some(b"after")).await;
-    // One change page is exported in name order, so "after" can land before the skipped names
-    // are recorded; stopping at that point would drop their findings.
-    let findings = &root;
-    common::input_fixtures::eventually_async(
-        "both skipped names recorded as findings",
-        || async move { findings.findings_page(0, 256).await.unwrap().len() >= 2 },
+    wait_generation(
+        &catalog,
+        &bucket,
+        "test-bucket/logs/2026-10-28T12:00:00.log",
+        colon,
     )
     .await;
-    worker.finish().await.unwrap();
-    assert!(
-        !tree
+    wait_generation(&catalog, &bucket, "test-bucket/after", after).await;
+    wait_body(&tree.0.join("test-bucket/after"), Some(b"after")).await;
+    // One change page is exported in name order, so "after" can land before the skipped name
+    // is recorded; stopping at that point would drop its finding.
+    let findings = &root;
+    common::input_fixtures::eventually_async(
+        "the backslash name recorded as a finding",
+        || async move { !findings.findings_page(0, 256).await.unwrap().is_empty() },
+    )
+    .await;
+    // A colon file made outside the API becomes an object with that name.
+    fs::write(tree.0.join("test-bucket/notes:1.txt"), b"external colon").unwrap();
+    let ingested = (&catalog, &bucket);
+    common::input_fixtures::eventually_async("the external colon file ingested", || async move {
+        ingested
             .0
-            .join("test-bucket/logs/2026-10-28T12:00:00.log")
-            .exists()
+            .admin(Origin::Api)
+            .get_object(ingested.1, &ObjectName::new("notes:1.txt").unwrap(), None)
+            .await
+            .is_ok_and(|record| record.size == 14)
+    })
+    .await;
+    worker.finish().await.unwrap();
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/logs/2026-10-28T12:00:00.log")).unwrap(),
+        b"colon"
     );
     assert!(!tree.0.join(r"test-bucket/dir\file").exists());
-    assert_eq!(root.findings_page(0, 256).await.unwrap().len(), 2);
+    let findings = root.findings_page(0, 256).await.unwrap();
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].name, r"dir\file");
     drop(root);
     catalog.close().await.unwrap();
 }
@@ -705,9 +725,11 @@ async fn live_export_sigterm_during_api_writes_restarts_to_the_committed_live_bo
     wait_body(&tree.0.join("test-bucket/body"), Some(&body)).await;
     restarted.stop();
     assert_eq!(fs::read(tree.0.join("test-bucket/body")).unwrap(), body);
+    // The naming probe keeps its own directory in the workspace; no write-back may leave more.
     assert_eq!(
         fs::read_dir(tree.0.join(".gcs-mimic-sync-work"))
             .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != "naming-probe")
             .count(),
         0
     );

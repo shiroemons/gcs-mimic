@@ -3,6 +3,7 @@ use super::tree::{TreeEntry as Entry, TreeScan as Scan};
 use super::{
     Pass, SyncError, mapping,
     mirror::Reconciliation,
+    naming::RootNaming,
     tree::{ParentError, ParentOpen, parent},
 };
 use crate::{
@@ -93,11 +94,13 @@ impl std::borrow::Borrow<File> for PinnedSource {
 
 fn open_source(
     root: &File,
+    naming: RootNaming,
     path: &std::path::Path,
     expected: FileIdentity,
 ) -> Result<(File, FileIdentity), AdminError> {
     let directory = parent(
         root,
+        naming,
         path.parent().ok_or(AdminError::Precondition)?,
         ParentOpen::Existing,
     )
@@ -124,11 +127,12 @@ fn open_source(
 /// replaced or renamed while it was read is detected.
 fn recheck_source(
     root: &File,
+    naming: RootNaming,
     path: &std::path::Path,
     expected: FileIdentity,
     parent: FileIdentity,
 ) -> Result<(), AdminError> {
-    let (_, current) = open_source(root, path, expected)?;
+    let (_, current) = open_source(root, naming, path, expected)?;
     if current.node() == parent.node() {
         Ok(())
     } else {
@@ -204,6 +208,7 @@ pub(super) async fn rescan_with(
     let mut ingest = Ingest {
         catalog,
         root,
+        naming: root.naming()?,
         config,
         admin: root.sync_admin(),
         summary: Reconciliation::default(),
@@ -273,6 +278,7 @@ async fn clear_missing_observations(
     root: &RootLease,
     interrupt: Interrupt<'_>,
 ) -> Result<(), SyncError> {
+    let naming = root.naming()?;
     let mut after = Ordinal::START;
     while interrupt.check() == Interrupted::No {
         let page = root.transient_stop_page(after).await?;
@@ -286,7 +292,8 @@ async fn clear_missing_observations(
         } in page
         {
             after = ordinal;
-            if let mapping::PathMapping::File(path) = mapping::name_to_path(binding.bucket(), &name)
+            if let mapping::PathMapping::File(path) =
+                mapping::name_to_path(binding.bucket(), &name, naming)
                 && let Some(path) = path.to_str()
                 && super::deletion::absent(root, path.to_owned()).await?
             {
@@ -314,6 +321,7 @@ enum BucketDirectory {
 struct Ingest<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
+    naming: RootNaming,
     config: &'a Config,
     admin: Admin,
     /// The counts of this rescan; `rescan_with` returns them.
@@ -380,7 +388,7 @@ impl Ingest<'_> {
     /// Selects a regular file whose observed state differs from its tracked fingerprint;
     /// `None` means it is unchanged or was counted as ignored, unrepresentable or deferred.
     async fn candidate(&mut self, entry: Entry) -> Result<Option<Candidate>, SyncError> {
-        let (bucket, name) = match mapping::path_to_name(&entry.path) {
+        let (bucket, name) = match mapping::path_to_name(&entry.path, self.naming) {
             Ok(mapped) => mapped,
             Err(mapping::Reason::Ignored) => {
                 self.summary.ignored += 1;
@@ -482,12 +490,13 @@ impl Ingest<'_> {
         name: &ObjectName,
     ) -> Result<HashCheck, SyncError> {
         let selected = path.to_owned();
+        let naming = self.naming;
         let observed = self
             .root
             .file_job(move |root| {
-                let (file, parent) = open_source(root, &selected, expected)?;
+                let (file, parent) = open_source(root, naming, &selected, expected)?;
                 let hashes = fsutil::hash_exact(&file, expected.size, |_| Ok::<_, io::Error>(()))?;
-                recheck_source(root, &selected, expected, parent)?;
+                recheck_source(root, naming, &selected, expected, parent)?;
                 Ok(hashes)
             })
             .await;
@@ -528,9 +537,10 @@ impl Ingest<'_> {
         identity: FileIdentity,
     ) -> Result<StagedObject, RootError> {
         let path = selected.clone();
+        let naming = self.naming;
         let (file, directory) = self
             .root
-            .file_job(move |root| open_source(root, &path, identity))
+            .file_job(move |root| open_source(root, naming, &path, identity))
             .await?;
         #[cfg(test)]
         checkpoint("stage").await;
@@ -546,7 +556,7 @@ impl Ingest<'_> {
         checkpoint("staged").await;
         let checked = self
             .root
-            .file_job(move |root| recheck_source(root, &selected, identity, directory))
+            .file_job(move |root| recheck_source(root, naming, &selected, identity, directory))
             .await;
         if let Err(error) = checked {
             if let Err(cleanup) = staged.discard().await {

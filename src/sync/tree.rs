@@ -1,6 +1,6 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
-use super::mapping::Reason;
+use super::{mapping::Reason, naming::RootNaming};
 use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, NodeId};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
@@ -281,7 +281,12 @@ pub(crate) fn structural_entry_error(error: &io::Error) -> bool {
     )
 }
 
-pub(crate) fn parent(root: &File, path: &Path, open: ParentOpen) -> Result<File, ParentError> {
+pub(crate) fn parent(
+    root: &File,
+    naming: RootNaming,
+    path: &Path,
+    open: ParentOpen,
+) -> Result<File, ParentError> {
     let mut directory = root.try_clone()?;
     let bytes = path.as_os_str().as_encoded_bytes();
     if path.is_absolute()
@@ -297,10 +302,11 @@ pub(crate) fn parent(root: &File, path: &Path, open: ParentOpen) -> Result<File,
     if path.iter().count() > MAX_TREE_DEPTH {
         return Err(ParentError::Finding(Reason::HostRestriction));
     }
+    // What the root's filesystem cannot hold is refused before any level is created.
+    if path.iter().any(|component| !naming.admits(component)) {
+        return Err(ParentError::Finding(Reason::HostRestriction));
+    }
     for component in path {
-        if component.as_encoded_bytes().len() > 255 {
-            return Err(ParentError::Finding(Reason::HostRestriction));
-        }
         if matches!(component.to_str(), Some("." | "..")) {
             return Err(ParentError::Finding(Reason::InvalidName));
         }

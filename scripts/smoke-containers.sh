@@ -379,14 +379,19 @@ for platform in "$@"; do
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -H 'Content-Type: application/json' --data '{"name":"sync-bucket"}' \
     "http://$address/storage/v1/b?project=local-project" >/dev/null
-  # A name outside the sync path contract is skipped without stopping later exports.
-  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary colon \
+  # The volume's filesystem stores a colon, so the startup probe maps it into the file name. A
+  # backslash name is outside the sync path contract and is skipped without stopping later exports.
+  printf colon >"$work/sync-colon"
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary @"$work/sync-colon" \
     "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=logs%2F2026-10-28T12%3A00%3A00.log" >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 --data-binary backslash \
+    "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%5Cfile.bin" >/dev/null
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
     "http://$address/upload/storage/v1/b/sync-bucket/o?uploadType=media&name=dir%2Ffile.bin" >/dev/null
   expect_sync_file sync-bucket/dir/file.bin "$work/expected"
-  expect_sync_file sync-bucket/logs/2026-10-28T12:00:00.log absent
+  expect_sync_file sync-bucket/logs/2026-10-28T12:00:00.log "$work/sync-colon"
+  expect_sync_file 'sync-bucket/dir\file.bin' absent
   printf 'replaced' >"$work/sync-replaced"
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     --data-binary @"$work/sync-replaced" \
@@ -407,6 +412,7 @@ for platform in "$@"; do
   wait_sync_ready
   printf external >"$work/sync-external"
   expect_ingested_object external.txt "$work/sync-external"
+  expect_ingested_object a%3Ab.txt "$work/sync-colon"
   expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
   # The data directory has moved off the image's path, on a read-only root that names no SQLite
   # temporary directory. Concurrent uploads share group commits, and once a commit's journal
@@ -426,7 +432,7 @@ for platform in "$@"; do
   container=
   docker volume rm "$volume" >/dev/null
   volume=
-  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, skipped colon names, external create ingestion at restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
+  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, colon names exported and ingested, skipped backslash names, external create ingestion at restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
 
   # The strict local recipe must work as written: application servers on the unpublished trusted
   # listener, the host and browsers on the published main listener, URLs signed by the test signer.

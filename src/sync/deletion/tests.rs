@@ -26,6 +26,7 @@ async fn fixture(count: usize) -> (TestDir, TestDir, Catalog, RootLease, Config)
         .activate_root(&tree.0, Activation::Open)
         .await
         .unwrap();
+    let root = crate::sync::test_support::probed(root).await;
     let config = Config {
         data_dir: data.0.clone(),
         sync_dir: Some(tree.0.clone()),
@@ -78,6 +79,7 @@ async fn cumulative_deletions_require_approval_after_split_scans_rescan_and_rest
         .activate_root(&tree.0, Activation::Open)
         .await
         .unwrap();
+    let root = crate::sync::test_support::probed(root).await;
     let set = inventory(&root, &config, &summary, &stopping)
         .await
         .unwrap()

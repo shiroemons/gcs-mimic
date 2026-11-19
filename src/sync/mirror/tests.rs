@@ -1859,9 +1859,13 @@ async fn live_export_retries_write_failures_at_copy_install_sync_and_catalog_ack
             .await
             .unwrap();
         assert_eq!(writeback.status().await.unwrap().stop(), Stop::Ready);
+        // The naming probe keeps its directory; no operation may leave anything else.
         assert_eq!(
             std::fs::read_dir(tree.0.join(mapping::WORKSPACE))
                 .unwrap()
+                .filter(|entry| {
+                    entry.as_ref().unwrap().file_name() != crate::sync::naming::PROBE_DIRECTORY
+                })
                 .count(),
             0
         );
@@ -1918,6 +1922,7 @@ async fn export_concurrent_api_and_external_changes_never_strand_unpublished_ope
             .await
             .unwrap()
             .unwrap();
+        let root = crate::sync::test_support::probed(root).await;
         catalog.enable_change_journal().await.unwrap();
         let fence = catalog.current_fence().await.unwrap();
         let writeback = root

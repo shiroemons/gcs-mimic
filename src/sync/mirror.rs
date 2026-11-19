@@ -1,6 +1,7 @@
 use super::control::{Command, ControlError, Reply};
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
+use super::naming::RootNaming;
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
 use super::{MirrorState, MirrorStatus, MirrorStatusSender, Pass, SyncError};
 use crate::{
@@ -759,6 +760,7 @@ async fn initialize_live(
     let cursor = catalog.current_fence().await?;
     let watcher = DirectoryWatch::new(root).await?;
     let mut writeback = recover_writeback(operation_root).await?;
+    super::naming::activate(&writeback).await?;
     root.invalidate_deletions().await?;
     let ingested = super::ingest::rescan_with(
         catalog,
@@ -1330,7 +1332,7 @@ impl LiveObject<'_> {
             Err(AdminError::NotFound) => None,
             Err(error) => return Err(error.into()),
         };
-        let mapped = match mapping::name_to_path(bucket, name) {
+        let mapped = match mapping::name_to_path(bucket, name, self.root.naming()?) {
             PathMapping::File(path) if self.root.tree_limits().admits_file(&path) => Ok(path),
             // Exporting a level the scans refuse would stop the whole root, so this object alone
             // stays out of the tree.
@@ -1430,7 +1432,12 @@ impl LiveObject<'_> {
             return Ok(None);
         }
         let observed = record.clone();
-        match file_job_retry(self.root, move |root| inspect(root, &path, &observed)).await? {
+        let naming = self.root.naming()?;
+        match file_job_retry(self.root, move |root| {
+            inspect(root, naming, &path, &observed)
+        })
+        .await?
+        {
             Target::Finding(reason) => {
                 self.finding(record, reason).await?;
                 Ok(None)
@@ -1726,8 +1733,9 @@ pub(super) async fn create_directory(
     root: &RootLease,
     directory: PathBuf,
 ) -> Result<bool, SyncError> {
+    let naming = root.naming()?;
     file_job_retry(root, move |root| {
-        match parent(root, &directory, ParentOpen::Create) {
+        match parent(root, naming, &directory, ParentOpen::Create) {
             Ok(_) => Ok(true),
             Err(ParentError::Finding(_) | ParentError::Missing) => Ok(false),
             Err(ParentError::Io(error)) => Err(error.into()),
@@ -1778,15 +1786,21 @@ enum Target {
     Finding(Reason),
 }
 
-fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, AdminError> {
+fn inspect(
+    root: &File,
+    naming: RootNaming,
+    path: &Path,
+    record: &ObjectRecord,
+) -> Result<Target, AdminError> {
     let Some(name) = path.file_name() else {
         return Ok(Target::Finding(Reason::InvalidName));
     };
-    if name.as_encoded_bytes().len() > 255 {
+    if !naming.admits(name) {
         return Ok(Target::Finding(Reason::HostRestriction));
     }
     let directory = match parent(
         root,
+        naming,
         path.parent()
             .ok_or_else(|| AdminError::Invalid("missing parent".into()))?,
         ParentOpen::Existing,
@@ -1821,6 +1835,7 @@ fn inspect(root: &File, path: &Path, record: &ObjectRecord) -> Result<Target, Ad
     let reopened = fsutil::open_regular_at(&directory, name)?;
     let current_parent = parent(
         root,
+        naming,
         path.parent().ok_or(AdminError::Precondition)?,
         ParentOpen::Existing,
     )
@@ -1971,6 +1986,7 @@ async fn reconcile_until(
     baseline: BaselineGate,
 ) -> Result<Reconciliation, SyncError> {
     let writeback = root.default_writeback().await?;
+    super::naming::activate(&writeback).await?;
     // A single reconciliation has no later pass to run a skipped export in.
     reconcile_with(
         catalog,
@@ -2165,6 +2181,7 @@ async fn external_files(
     interrupt: Interrupt<'_>,
 ) -> Result<ExternalFiles, SyncError> {
     let mut counts = ExternalFiles::default();
+    let naming = root.naming()?;
     let mut scan = super::tree::TreeScan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
         let (next, page) = root.file_job(move |root| scan.page(root)).await?;
@@ -2184,7 +2201,7 @@ async fn external_files(
                 continue;
             }
             if entry.identity.is_some() {
-                let known = match mapping::path_to_name(&entry.path) {
+                let known = match mapping::path_to_name(&entry.path, naming) {
                     Ok((bucket, object)) => match admin.get_object(&bucket, &object, None).await {
                         Ok(_) => true,
                         Err(AdminError::NotFound) => false,

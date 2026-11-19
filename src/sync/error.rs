@@ -12,6 +12,7 @@ use crate::{
             writeback::{self, Stop},
         },
     },
+    sync::naming::ProbeError,
     task::JobPanicked,
 };
 use std::{error::Error, fmt, io};
@@ -31,6 +32,8 @@ pub(crate) enum SyncError {
     Io(io::Error),
     /// Write-back recovery left this stop in place, so no pass may start.
     Recovery(Stop),
+    /// The root's naming rules could not be established, so no name may be mapped.
+    RootNaming(ProbeError),
     /// An explicit rescan failed and paused synchronization for this reason.
     RescanStopped(PauseReason),
     /// Unfinished write-back blocks this pass until an operator resolves it.
@@ -216,6 +219,9 @@ impl SyncError {
         if let Self::RescanStopped(reason) = self {
             return *reason;
         }
+        if let Self::RootNaming(error) = self {
+            return error.pause_reason();
+        }
         self.causes()
             .find_map(Cause::pause_reason)
             .unwrap_or(PauseReason::ObserverFailure)
@@ -268,6 +274,7 @@ impl fmt::Display for SyncError {
             Self::Conflict(error) => fmt::Display::fmt(error, f),
             Self::Io(error) => fmt::Display::fmt(error, f),
             Self::Recovery(stop) => fmt::Display::fmt(stop, f),
+            Self::RootNaming(error) => fmt::Display::fmt(error, f),
             Self::RescanStopped(reason) => {
                 write!(f, "Explicit rescan stopped synchronization: {reason:?}")
             }
@@ -298,6 +305,8 @@ impl TypedSource for SyncError {
             Self::Conflict(error) => Some(Link::Conflict(error)),
             Self::Io(error) => Some(Link::Io(error)),
             Self::Recovery(stop) => Some(Link::Stop(stop)),
+            // The probe's own text is this error's; its I/O failure is the next link.
+            Self::RootNaming(error) => error.typed_source(),
             Self::Panicked(error) => Some(Link::Leaf(error)),
             Self::RescanStopped(_) | Self::WritebackUnfinished(_) | Self::Invariant(_) => None,
         }
@@ -334,6 +343,12 @@ impl From<io::Error> for SyncError {
     }
 }
 
+impl From<ProbeError> for SyncError {
+    fn from(error: ProbeError) -> Self {
+        Self::RootNaming(error)
+    }
+}
+
 impl From<JobPanicked> for SyncError {
     fn from(error: JobPanicked) -> Self {
         Self::Panicked(error)
@@ -351,6 +366,7 @@ impl From<SyncError> for io::Error {
             | SyncError::Writeback(_)
             | SyncError::Conflict(_)
             | SyncError::Recovery(_)
+            | SyncError::RootNaming(_)
             | SyncError::RescanStopped(_)
             | SyncError::WritebackUnfinished(_)
             | SyncError::Panicked(_)

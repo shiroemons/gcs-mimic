@@ -17,7 +17,10 @@ use crate::{
     bucket::CatalogError,
     fsutil::{self, NodeId},
     object::ObjectError,
-    sync::mapping::{self, PathMapping},
+    sync::{
+        mapping::{self, PathMapping},
+        naming::{Observation, ProbeError, RootNaming},
+    },
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{fs::File, io, sync::Arc};
@@ -580,11 +583,17 @@ pub(super) enum ParentSync {
     Skip,
 }
 
-fn parent(root: &File, path: &str, sync: ParentSync) -> Result<Option<File>, Error> {
+fn parent(
+    root: &File,
+    naming: RootNaming,
+    path: &str,
+    sync: ParentSync,
+) -> Result<Option<File>, Error> {
     let (parents, _) = path.rsplit_once('/').ok_or_else(stale)?;
     use crate::sync::tree::{ParentError, ParentOpen};
     let directory = match crate::sync::tree::parent(
         root,
+        naming,
         std::path::Path::new(parents),
         ParentOpen::Existing,
     ) {
@@ -597,8 +606,8 @@ fn parent(root: &File, path: &str, sync: ParentSync) -> Result<Option<File>, Err
     }
     Ok(Some(directory))
 }
-fn target(root: &File, path: &str) -> Result<Option<File>, Error> {
-    let Some(directory) = parent(root, path, ParentSync::Skip)? else {
+fn target(root: &File, naming: RootNaming, path: &str) -> Result<Option<File>, Error> {
+    let Some(directory) = parent(root, naming, path, ParentSync::Skip)? else {
         return Ok(None);
     };
     let name = path.rsplit('/').next().ok_or_else(stale)?;
@@ -725,13 +734,14 @@ fn workspace_failure(root: &File) -> Result<(), Error> {
 fn fingerprint(
     root: &File,
     workspace: &File,
+    naming: RootNaming,
     item: &Pending,
     observed_ns: i128,
 ) -> Result<Option<SyncFingerprint>, Error> {
     if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
-    let file = target(root, &item.path)?;
+    let file = target(root, naming, &item.path)?;
     let result = match (item.kind, file) {
         (Kind::Remove, None) => None,
         (Kind::Publish, Some(file)) => {
@@ -755,7 +765,7 @@ fn fingerprint(
         }
         _ => return Err(stale()),
     };
-    parent(root, &item.path, ParentSync::Sync)?;
+    parent(root, naming, &item.path, ParentSync::Sync)?;
     workspace.sync_all()?;
     root.sync_all()?;
     Ok(result)
@@ -764,13 +774,14 @@ fn fingerprint(
 fn verify_fingerprint(
     root: &File,
     workspace: &File,
+    naming: RootNaming,
     item: &Pending,
     expected: Option<&SyncFingerprint>,
 ) -> Result<(), Error> {
     if entry(workspace, item.token.id)?.is_some() {
         return Err(Error::Protected);
     }
-    match (item.kind, expected, target(root, &item.path)?) {
+    match (item.kind, expected, target(root, naming, &item.path)?) {
         (Kind::Remove, None, None) => {}
         (Kind::Publish, Some(expected), Some(file)) => {
             let identity = fsutil::stat_identity(&file)?;
@@ -782,7 +793,7 @@ fn verify_fingerprint(
         }
         _ => return Err(stale()),
     }
-    parent(root, &item.path, ParentSync::Sync)?;
+    parent(root, naming, &item.path, ParentSync::Sync)?;
     workspace.sync_all()?;
     root.sync_all()?;
     Ok(())
@@ -800,6 +811,12 @@ impl Writeback {
     }
     async fn revalidate(&self) -> Result<(), Error> {
         self.fs(|_, _| Ok(())).await
+    }
+    /// Probes the root's naming rules in a fixed subdirectory of this verified workspace. The
+    /// outer error is the workspace check; the inner one is the probe's own.
+    pub(crate) async fn probe_naming(&self) -> Result<Result<Observation, ProbeError>, Error> {
+        self.fs(|root, workspace| Ok(crate::sync::naming::probe(root, workspace)))
+            .await
     }
     pub(crate) fn root_lease(&self) -> &RootLease {
         &self.lease

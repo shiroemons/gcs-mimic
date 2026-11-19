@@ -8,7 +8,10 @@ use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError, NodeId},
     storage::{admin::AdminError, lock},
-    sync::mapping::{MARKER, MARKER_STAGING},
+    sync::{
+        mapping::{MARKER, MARKER_STAGING},
+        naming::RootNaming,
+    },
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -16,7 +19,7 @@ use std::{
     fs::File,
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 use tokio::sync::OwnedSemaphorePermit;
 
@@ -333,6 +336,8 @@ struct Ownership {
     path: PathBuf,
     selected_path: PathBuf,
     identity: FileIdentity,
+    /// Set once the mirror has probed the pinned root, and shared by every clone of its lease.
+    naming: OnceLock<RootNaming>,
     _catalog_permit: OwnedSemaphorePermit,
 }
 
@@ -488,6 +493,28 @@ impl RootLease {
     pub(crate) fn tree_limits(&self) -> crate::sync::tree::TreeLimits {
         self.tree_limits
     }
+    /// The naming rules probed for this root. Mapping names before the probe is a bug, so it
+    /// fails instead of assuming rules.
+    pub(crate) fn naming(&self) -> Result<RootNaming, AdminError> {
+        self.ownership.naming.get().copied().ok_or_else(|| {
+            AdminError::Backend("synchronization root naming rules were not probed".into())
+        })
+    }
+    /// Records the probed naming rules. A later probe of the same pinned root that observes other
+    /// rules means its filesystem changed underneath it.
+    pub(crate) fn record_naming(&self, naming: RootNaming) -> Result<(), RootError> {
+        if *self.ownership.naming.get_or_init(|| naming) != naming {
+            return Err(RootError::RootChanged);
+        }
+        Ok(())
+    }
+    /// Records rules without a probe, for tests that drive the catalog below the mirror.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn assume_naming(self, naming: RootNaming) -> Self {
+        self.record_naming(naming)
+            .unwrap_or_else(|error| panic!("conflicting assumed naming rules: {error}"));
+        self
+    }
     pub(crate) fn stop_signal(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
         self.stopping.clone()
     }
@@ -642,6 +669,7 @@ impl SyncState {
                         path: canonical,
                         selected_path,
                         identity,
+                        naming: OnceLock::new(),
                         _catalog_permit: permit,
                     };
                     ownership.validate()?;

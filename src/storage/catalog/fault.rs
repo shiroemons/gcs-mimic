@@ -50,6 +50,10 @@ pub(crate) enum Step {
     SyncDirectorySync,
     #[cfg(unix)]
     SyncDirectoryDurable,
+    /// At each boundary of the root naming probe: after it opens its directory, and after each
+    /// entry it creates or removes.
+    #[cfg(unix)]
+    SyncNamingProbe,
     SyncMarkerWrite,
     SyncMarkerSync,
     SyncMarkerPrepared,

@@ -38,7 +38,8 @@ pub(super) async fn retrack(
     path: &str,
     record: Retrack,
 ) {
-    let (bucket, name) = super::mapping::path_to_name(Path::new(path)).unwrap();
+    let (bucket, name) =
+        super::mapping::path_to_name(Path::new(path), root.naming().unwrap()).unwrap();
     let binding = root.sync_binding(&bucket).await.unwrap();
     let state = catalog.sync_state();
     let tracked = state
@@ -78,6 +79,14 @@ pub(super) async fn retrack(
 pub(super) async fn fixture(
     bucket: Option<&BucketName>,
 ) -> (TestDir, TestDir, Catalog, RootLease, Config) {
+    let (data, tree, catalog, root, config) = unprobed_fixture(bucket).await;
+    (data, tree, catalog, probed(root).await, config)
+}
+
+/// An activated root whose naming rules nobody has probed yet, as the mirror receives it.
+pub(super) async fn unprobed_fixture(
+    bucket: Option<&BucketName>,
+) -> (TestDir, TestDir, Catalog, RootLease, Config) {
     let data = TestDir::new();
     let tree = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
@@ -95,6 +104,14 @@ pub(super) async fn fixture(
     };
     let root = super::preflight(&catalog, &config).await.unwrap().unwrap();
     (data, tree, catalog, root, config)
+}
+
+/// Probes and records the root's naming rules as the mirror does when it activates the root, for
+/// tests that drive a pass without starting the mirror.
+pub(super) async fn probed(root: RootLease) -> RootLease {
+    let writeback = root.default_writeback().await.unwrap();
+    super::naming::activate(&writeback).await.unwrap();
+    root
 }
 
 pub(super) async fn hooked_worker<F>(

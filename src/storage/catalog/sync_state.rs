@@ -169,7 +169,8 @@ impl SyncBinding {
 }
 
 /// A tree-relative path the catalog may track: at most 4096 bytes, no empty, `.` or `..`
-/// component, and no `\`, NUL or `:`.
+/// component, and no `\` or NUL. A `:` is the root filesystem's to refuse, so the mirror's naming
+/// rules decide it before a path gets here.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct SyncPath(String);
 
@@ -235,7 +236,7 @@ fn bucket_paths(bucket: &str) -> (String, String) {
 fn valid_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= 4096
-        && !path.contains(['\\', '\0', ':'])
+        && !path.contains(['\\', '\0'])
         && path.split('/').all(|part| !matches!(part, "" | "." | ".."))
 }
 

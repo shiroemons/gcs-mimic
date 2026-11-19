@@ -122,6 +122,29 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
     Ok(())
 }
 
+/// The longest file name, in bytes, that the filesystem holding `directory` accepts, or `None`
+/// when it reports no limit.
+#[expect(
+    unsafe_code,
+    reason = "fpathconf on a pinned descriptor has no safe std equivalent"
+)]
+pub(crate) fn name_max(directory: &File) -> io::Result<Option<usize>> {
+    // fpathconf reports both "no limit" and a failure as -1 and sets errno only on failure.
+    clear_errno();
+    // SAFETY: the live descriptor is only queried; fpathconf neither keeps nor writes through it.
+    let value = unsafe { libc::fpathconf(directory.as_raw_fd(), libc::_PC_NAME_MAX) };
+    if value < 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(0) | None => Ok(None),
+            Some(_) => Err(error),
+        };
+    }
+    usize::try_from(value)
+        .map(Some)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
 /// Removes one descriptor-relative name without following a symlink destination.
 #[expect(
     unsafe_code,

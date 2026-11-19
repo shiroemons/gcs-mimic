@@ -60327,7 +60327,7 @@
         },
         {
           "id": "sync-lexical-name-mapping",
-          "description": "Shared lexical mapping validates native bucket/object names and preserves exact UTF-8 components without decoding, cleaning, folding or normalization; rejects traversal, empty/dot/NUL components, reserved workspace names, ignored regular-file leaves, backslash/colon components refused by the catalog sync-path validator on every OS, and Windows-invalid components. Property tests cover exact inverse mapping or explicit rejection. Filesystem alias/collision/identity checks remain pending under sync-name-mapping.",
+          "description": "Shared lexical mapping validates native bucket/object names and preserves exact UTF-8 components without decoding, cleaning, folding or normalization; rejects traversal, empty/dot/NUL components, reserved workspace names, ignored regular-file leaves, backslash components refused by the catalog sync-path validator on every OS, colon components and components over the probed byte limit (at most 255) according to the root's probed naming rules, and Windows-invalid components. Both directions take the same rules value and judge each rule separately. Property tests cover exact inverse mapping or explicit rejection, and that a name accepted under a rules value is accepted by the catalog path validator. Filesystem alias/collision/identity checks remain pending under sync-name-mapping.",
           "result": "PASS",
           "test_ids": [
             "literal_names_round_trip_without_normalization",
@@ -60336,7 +60336,29 @@
             "arbitrary_names_round_trip_or_are_explicitly_rejected",
             "arbitrary_paths_never_clean_into_another_name",
             "mapping_preserves_the_api_name_byte_limit",
-            "non_utf8_paths_are_rejected_without_lossy_conversion"
+            "non_utf8_paths_are_rejected_without_lossy_conversion",
+            "colon_names_follow_the_root_rules_in_both_directions",
+            "one_rules_value_decides_names_in_both_directions_and_the_catalog",
+            "parent_refuses_what_the_root_rules_refuse_before_creating_any_level"
+          ]
+        },
+        {
+          "id": "sync-root-naming-probe",
+          "description": "PASS local-development subset: each activation probes the root's filesystem after write-back recovery and before the first scan, in the fixed naming-probe workspace subdirectory with fixed names outside the 32-hex operation-ID form, unlinking those names first and never listing-and-deleting or removing the subdirectory. It records whether ':' is stored as created (refused with EINVAL/EILSEQ or rewritten means rejected), whether case folds, and fpathconf(_PC_NAME_MAX) capped at 255, once per root lease; a later probe with other rules is RootChanged. A root that rewrites the spelling of created names pauses with observer-failure and a remedy; probe I/O failure pauses with io-failure and keeps its cause. Colon-rejecting, case-folding and rewriting roots are covered by injected observations; a colon finding left by an earlier start clears once a later start exports the object; a crash or power loss at every probe boundary leaves nothing recovery or scans take for data. No setting exists; the schema version is unchanged. Linux and Docker bind-mount runs of the probe remain unverified.",
+          "result": "PASS",
+          "test_ids": [
+            "probe_names_never_take_the_operation_id_form",
+            "observations_become_rules_only_when_names_keep_their_spelling",
+            "host_probe_reports_the_filesystem_of_the_root",
+            "probe_leftovers_are_removed_by_name_and_other_entries_are_kept",
+            "a_crash_at_any_probe_boundary_leaves_nothing_recovery_or_scans_take_for_data",
+            "unwritable_roots_pause_as_io_failures_with_the_cause_kept",
+            "colon_rejecting_roots_record_findings_and_skip_colon_files_without_other_restrictions",
+            "colon_findings_clear_at_the_next_start_once_the_root_stores_colons",
+            "case_folding_roots_are_recorded_and_still_map_colons",
+            "external_colon_files_are_ingested_as_new_objects",
+            "rewriting_roots_are_refused_before_any_scan_and_pause_the_mirror",
+            "other_rules_on_the_same_root_mean_the_root_changed"
           ]
         },
         {
@@ -60347,7 +60369,7 @@
         },
         {
           "id": "sync-name-mapping",
-          "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent, backslash/colon HostRestriction on every OS versus other Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive alias groups and non-Linux conflict guarantees remain PENDING.",
+          "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent, backslash HostRestriction on every OS, colon HostRestriction only where the root's probed filesystem refuses or rewrites it, versus other Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive alias groups and non-Linux conflict guarantees remain PENDING.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -60443,9 +60465,9 @@
         },
         {
           "id": "sync-live-api-export",
-          "description": "PASS local-development subset: post-ready journal replay exports API create/overwrite/delete/copy/compose and empty bucket creation; tracked fingerprints and hashes guard update/delete, externally edited files remain intact with findings, and API bucket deletion retains directories. Backslash/colon names are recorded as HostRestriction findings without stopping later exports. The container smoke repeats export, skipped colon names and restart ingestion on linux/amd64 and linux/arm64. Ingestion, conflict transfer and bucket-directory deletion remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "description": "PASS local-development subset: post-ready journal replay exports API create/overwrite/delete/copy/compose and empty bucket creation; tracked fingerprints and hashes guard update/delete, externally edited files remain intact with findings, and API bucket deletion retains directories. Backslash names are recorded as HostRestriction findings without stopping later exports; where the root's probed filesystem stores ':', colon names export and external colon files are ingested under the same name. The container smoke repeated export, skipped colon names and restart ingestion on linux/amd64 and linux/arm64 on 2026-10-28; its updated colon export and ingestion checks have not run in containers yet. Ingestion, conflict transfer and bucket-directory deletion remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_skips_colon_and_backslash_names_and_keeps_exporting", "scripts/smoke-containers.sh:linux/amd64", "scripts/smoke-containers.sh:linux/arm64", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed"]
+          "test_ids": ["live_export_creates_replaces_deletes_and_preserves_edited_files", "live_export_http_copy_compose_and_bucket_creation_keep_deleted_bucket_directories", "live_export_exports_colon_names_and_skips_backslash_names", "scripts/smoke-containers.sh:linux/amd64", "scripts/smoke-containers.sh:linux/arm64", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed"]
         },
         {
           "id": "sync-live-export-observation",
@@ -60765,7 +60787,7 @@
         "live_export_coalesces_pages_recovers_retention_gaps_and_sleeps_without_polling",
         "live_export_bucket_incarnation_races_keep_other_buckets_progressing",
         "live_export_recovers_a_changed_journal_fence_with_paged_reconciliation",
-        "live_export_skips_colon_and_backslash_names_and_keeps_exporting",
+        "live_export_exports_colon_names_and_skips_backslash_names",
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "scans_cross_pages_once_and_reject_replaced_directories",
@@ -60941,6 +60963,21 @@
         "arbitrary_paths_never_clean_into_another_name",
         "mapping_preserves_the_api_name_byte_limit",
         "non_utf8_paths_are_rejected_without_lossy_conversion",
+        "colon_names_follow_the_root_rules_in_both_directions",
+        "one_rules_value_decides_names_in_both_directions_and_the_catalog",
+        "parent_refuses_what_the_root_rules_refuse_before_creating_any_level",
+        "probe_names_never_take_the_operation_id_form",
+        "observations_become_rules_only_when_names_keep_their_spelling",
+        "host_probe_reports_the_filesystem_of_the_root",
+        "probe_leftovers_are_removed_by_name_and_other_entries_are_kept",
+        "a_crash_at_any_probe_boundary_leaves_nothing_recovery_or_scans_take_for_data",
+        "unwritable_roots_pause_as_io_failures_with_the_cause_kept",
+        "colon_rejecting_roots_record_findings_and_skip_colon_files_without_other_restrictions",
+        "colon_findings_clear_at_the_next_start_once_the_root_stores_colons",
+        "case_folding_roots_are_recorded_and_still_map_colons",
+        "external_colon_files_are_ingested_as_new_objects",
+        "rewriting_roots_are_refused_before_any_scan_and_pause_the_mirror",
+        "other_rules_on_the_same_root_mean_the_root_changed",
         "imported_identity_rejects_lossy_precision",
         "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
         "imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks",
@@ -61011,10 +61048,10 @@
           "result": "PASS",
           "verified_at": "2026-10-28",
           "artifact": "docs/en/slices/directory-synchronization.md",
+          "description": "This historical run also checked live_export_skips_colon_and_backslash_names_and_keeps_exporting, which expected colon names to be skipped; live_export_exports_colon_names_and_skips_backslash_names replaces that retired test now that colons map where the root's filesystem stores them.",
           "test_ids": [
             "literal_names_round_trip_without_normalization",
-            "live_export_creates_replaces_deletes_and_preserves_edited_files",
-            "live_export_skips_colon_and_backslash_names_and_keeps_exporting"
+            "live_export_creates_replaces_deletes_and_preserves_edited_files"
           ]
         },
         {
@@ -61499,6 +61536,38 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names", "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again"]
+        },
+        {
+          "command": "macOS ARM64 (APFS): cargo test --locked --offline --lib -- sync:: storage::catalog::sync_state storage::catalog::lifecycle server::admin::sync fsutil source_tree; cargo test --locked --offline --test it_sync -- sync_live_export",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "description": "Linux, Docker bind mounts and the container smoke were not run for this change.",
+          "test_ids": [
+            "literal_names_round_trip_without_normalization",
+            "arbitrary_names_round_trip_or_are_explicitly_rejected",
+            "arbitrary_paths_never_clean_into_another_name",
+            "mapping_preserves_the_api_name_byte_limit",
+            "non_utf8_paths_are_rejected_without_lossy_conversion",
+            "colon_names_follow_the_root_rules_in_both_directions",
+            "one_rules_value_decides_names_in_both_directions_and_the_catalog",
+            "parent_refuses_what_the_root_rules_refuse_before_creating_any_level",
+            "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
+            "probe_names_never_take_the_operation_id_form",
+            "observations_become_rules_only_when_names_keep_their_spelling",
+            "host_probe_reports_the_filesystem_of_the_root",
+            "probe_leftovers_are_removed_by_name_and_other_entries_are_kept",
+            "a_crash_at_any_probe_boundary_leaves_nothing_recovery_or_scans_take_for_data",
+            "unwritable_roots_pause_as_io_failures_with_the_cause_kept",
+            "colon_rejecting_roots_record_findings_and_skip_colon_files_without_other_restrictions",
+            "colon_findings_clear_at_the_next_start_once_the_root_stores_colons",
+            "case_folding_roots_are_recorded_and_still_map_colons",
+            "external_colon_files_are_ingested_as_new_objects",
+            "rewriting_roots_are_refused_before_any_scan_and_pause_the_mirror",
+            "other_rules_on_the_same_root_mean_the_root_changed",
+            "live_export_creates_replaces_deletes_and_preserves_edited_files",
+            "live_export_exports_colon_names_and_skips_backslash_names"
+          ]
         }
       ],
       "sdk_evidence": [],

@@ -62,7 +62,8 @@ impl Fixture {
             .sync_state()
             .activate_root(&tree.0, Activation::Open)
             .await
-            .unwrap();
+            .unwrap()
+            .assume_naming(crate::sync::naming::RootNaming::posix());
         fs::write(tree.0.join("external"), b"external\0\xff").unwrap();
         Self {
             data,
@@ -154,7 +155,8 @@ impl Fixture {
             .sync_state()
             .activate_root(&tree.0, Activation::Open)
             .await
-            .unwrap();
+            .unwrap()
+            .assume_naming(crate::sync::naming::RootNaming::posix());
         Self {
             data,
             tree,

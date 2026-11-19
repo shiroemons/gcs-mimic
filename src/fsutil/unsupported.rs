@@ -36,6 +36,10 @@ pub fn directory_writable(_: &File) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+pub(crate) fn name_max(_: &File) -> io::Result<Option<usize>> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 pub(crate) fn unlink_file_at(_: &File, name: &OsStr) -> io::Result<()> {
     validate_name(name)?;
     Err(io::ErrorKind::Unsupported.into())

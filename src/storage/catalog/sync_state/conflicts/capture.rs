@@ -88,8 +88,9 @@ impl RootLease {
             return Err(Error::InvalidResolution);
         }
         let bucket = request.binding.bucket.clone();
+        let naming = self.naming()?;
         let crate::sync::mapping::PathMapping::File(path) =
-            crate::sync::mapping::name_to_path(&bucket, &request.name)
+            crate::sync::mapping::name_to_path(&bucket, &request.name, naming)
         else {
             return Err(Error::InvalidResolution);
         };
@@ -101,6 +102,7 @@ impl RootLease {
                     let (parents, name) = path.rsplit_once('/').ok_or(Error::InvalidResolution)?;
                     let directory = crate::sync::tree::parent(
                         root,
+                        naming,
                         std::path::Path::new(parents),
                         crate::sync::tree::ParentOpen::Existing,
                     )?;

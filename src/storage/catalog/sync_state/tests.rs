@@ -128,12 +128,16 @@ async fn sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen()
     // The listing takes only a checked page size, so 0 and 257 cannot reach it.
     assert!(PageLimit::<MAX_PAGE>::try_from(0).is_err());
     assert!(PageLimit::<MAX_PAGE>::try_from(257).is_err());
-    for path in ["", "/a", "a//b", "a/../b", "a/./b", "a\\b", "C:/a", "a\0b"] {
+    for path in ["", "/a", "a//b", "a/../b", "a/./b", "a\\b", "a\0b"] {
         assert_eq!(
             SyncPath::try_from(path.to_owned()),
             Err(AdminError::Invalid("invalid synchronization path".into())),
             "{path:?}"
         );
+    }
+    // A colon is the root filesystem's to refuse, which the mirror decides before a path gets here.
+    for path in ["C:/a", "logs/2026-10-28T12:00:00.log"] {
+        assert!(SyncPath::try_from(path.to_owned()).is_ok(), "{path:?}");
     }
     let longest = format!("a/{}", "b".repeat(4094));
     assert_eq!(
