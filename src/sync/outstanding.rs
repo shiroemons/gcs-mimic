@@ -115,7 +115,7 @@ impl UnmappedObjects {
         clippy::fn_params_excessive_bools,
         reason = "forwards the wire boolean require_no_findings of a wait request's body"
     )]
-    pub const fn from_require_no_findings(required: bool) -> Self {
+    pub(crate) const fn from_require_no_findings(required: bool) -> Self {
         if required { Self::Refuse } else { Self::Report }
     }
 }
