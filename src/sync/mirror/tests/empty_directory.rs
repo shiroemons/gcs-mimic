@@ -121,6 +121,35 @@ async fn a_collision_at_installation_counts_the_object_and_holds_back_nothing() 
     catalog.close().await.unwrap();
 }
 
+/// A directory that holds only a file scans ignore keeps the object out of the tree as one the
+/// tree cannot hold: the wait is ready, the baseline completes and a file deleted from the tree
+/// still deletes its object.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_directory_holding_an_ignored_file_holds_back_neither_the_wait_nor_deletions() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    drop(root);
+    publish_named(&catalog, &bucket, "a", BODY, Origin::Api).await;
+    publish_named(&catalog, &bucket, "gone", BODY, Origin::Api).await;
+    fs::create_dir_all(tree.0.join(TARGET)).unwrap();
+    fs::write(tree.0.join(TARGET).join(".DS_Store"), b"finder").unwrap();
+    let mut started = Started::start(catalog, &data.0, &tree.0).await;
+    let waited = started.wait().await.unwrap();
+    assert_eq!(waited.reason, WaitReason::Ready);
+    assert_eq!(waited.findings.map(|found| found.unmapped), Some(1));
+    // Only a complete baseline and a pass that holds nothing back turn a missing file into a
+    // deletion.
+    fs::remove_file(tree.0.join("test-bucket/gone")).unwrap();
+    assert_eq!(started.wait().await.unwrap().reason, WaitReason::Ready);
+    let gone = started
+        .catalog
+        .admin(Origin::Api)
+        .get_object(&bucket, &ObjectName::new("gone").unwrap(), None)
+        .await;
+    assert!(matches!(gone, Err(AdminError::NotFound)), "{gone:?}");
+    assert!(tree.0.join(TARGET).join(".DS_Store").is_file());
+    started.close().await;
+}
+
 /// A symlink at the target, to an empty directory or to nothing, is never followed or removed:
 /// the export records it as an unsafe entry, as before empty directories gave way, and the
 /// directory it points to stays. Only the export runs, because a scan stops at the symlinks.

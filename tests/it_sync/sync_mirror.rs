@@ -324,9 +324,34 @@ async fn runtime_mapping_reports_length_file_and_symlink_conflicts_without_follo
     catalog.close().await.unwrap();
 }
 
+/// The names of the objects `root` reports, sorted.
+async fn reported(root: &gcs_mimic::storage::sync_state::root::RootLease) -> Vec<String> {
+    let mut names = root
+        .findings_page(0, 256)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|finding| finding.name)
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+/// What `summary` could not map on each side, as its log event gives it: the objects the API
+/// holds that the tree cannot, and the tree's entries the pass could not take in.
+fn sides(summary: &sync::Reconciliation) -> (u64, u64) {
+    let counts = serde_json::to_value(summary).unwrap();
+    (
+        counts["unmapped_objects"].as_u64().unwrap(),
+        counts["unrepresentable_entries"].as_u64().unwrap(),
+    )
+}
+
 /// An object whose target name an empty directory holds is exported in its place. A directory
 /// that holds anything stays with what it holds and reports the object, even when all it holds is
-/// a file that scans ignore.
+/// a file that scans ignore. Such an object is one the tree cannot hold, not a tree entry the pass
+/// could not take in: once the external file is gone, the baseline completes while the directory
+/// that holds only an ignored file stays, and the emptied directory gives way to its object.
 #[cfg(unix)]
 #[tokio::test]
 async fn runtime_mapping_exports_over_an_empty_directory_and_keeps_one_that_holds_anything() {
@@ -346,16 +371,12 @@ async fn runtime_mapping_exports_over_an_empty_directory_and_keeps_one_that_hold
     let root = sync::preflight(&catalog, &config).await.unwrap().unwrap();
     let summary = sync::reconcile(&catalog, &root).await.unwrap();
     assert_eq!(summary.exported, 1);
+    assert_eq!(sides(&summary), (2, 0));
+    // Only the external file, which a reconciliation does not import, keeps the baseline open.
+    assert_eq!(summary.external_only, 1);
+    assert!(!summary.baseline_complete);
     assert_eq!(fs::read(tree.0.join("test-bucket/empty")).unwrap(), b"api");
-    let mut reported = root
-        .findings_page(0, 256)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|finding| finding.name)
-        .collect::<Vec<_>>();
-    reported.sort();
-    assert_eq!(reported, ["full", "ignored"]);
+    assert_eq!(reported(&root).await, ["full", "ignored"]);
     assert_eq!(
         fs::read(tree.0.join("test-bucket/full/file")).unwrap(),
         b"external"
@@ -364,6 +385,21 @@ async fn runtime_mapping_exports_over_an_empty_directory_and_keeps_one_that_hold
         fs::read(tree.0.join("test-bucket/ignored/.DS_Store")).unwrap(),
         b"finder"
     );
+
+    fs::remove_file(tree.0.join("test-bucket/full/file")).unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
+    assert_eq!(summary.exported, 1);
+    assert_eq!(sides(&summary), (1, 0));
+    assert!(summary.baseline_complete);
+    assert_eq!(fs::read(tree.0.join("test-bucket/full")).unwrap(), b"api");
+    assert_eq!(reported(&root).await, ["ignored"]);
+    drop(root);
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, Activation::Open)
+        .await
+        .unwrap();
+    assert_eq!(root.status().baseline, Baseline::Complete);
     drop(root);
     catalog.close().await.unwrap();
 }
