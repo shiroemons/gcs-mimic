@@ -4,6 +4,9 @@
 //! wait for the writer anyway. They queue their commits instead, and the next holder of the
 //! execution permit publishes the whole queue in one transaction, so one sync makes all of them
 //! durable. Nothing waits for a batch to fill: a lone upload commits as soon as the writer is free.
+//! An upload whose failure ends the whole transaction, as SQLite may after an I/O, full-disk or
+//! out-of-memory error, would fail the others with it; since nothing was committed, each upload of
+//! that batch is published again in its own transaction, and only the failing one fails.
 
 use super::*;
 use crate::storage::failure::StorageCause;
@@ -21,20 +24,14 @@ const MAX_BATCH: usize = 64;
 /// One upload's own result inside a batch that committed.
 type UploadOutcome = Result<CommitOutcome, ObjectError>;
 
-/// The whole batch failed: nothing was committed, or the outcome is unknown and each upload's
-/// cleanup checks for a reference.
-struct BatchFailure(ObjectError);
-
-impl From<rusqlite::Error> for BatchFailure {
-    fn from(error: rusqlite::Error) -> Self {
-        Self(error.into())
-    }
-}
-
-impl From<ObjectError> for BatchFailure {
-    fn from(error: ObjectError) -> Self {
-        Self(error)
-    }
+/// Why a batch did not answer each upload on its own.
+enum BatchFailure {
+    /// The transaction did not start, or its commit failed and may have published every upload.
+    /// No upload caused it, and publishing one again could publish it twice, so every upload
+    /// shares the failure and its cleanup checks for a reference.
+    Shared(ObjectError),
+    /// Publishing one upload ended the transaction before its commit, so nothing was published.
+    Interrupted(ObjectError),
 }
 
 /// Uploads whose blobs are durable and whose commits wait for the writer.
@@ -159,9 +156,9 @@ impl Catalog {
                     .map(|queued| (queued.commit, queued.reply))
                     .unzip();
                 let outcomes =
-                    match inner.with_connection(|connection| publish_all(connection, &commits)) {
+                    match inner.with_connection(|connection| publish_batch(connection, &commits)) {
                         Ok(Ok(outcomes)) => outcomes,
-                        Ok(Err(BatchFailure(failure))) => shared(failure, commits.len()),
+                        Ok(Err(failure)) => shared(failure, commits.len()),
                         Err(connection) => shared(connection.into(), commits.len()),
                     };
                 for (reply, outcome) in replies.into_iter().zip(outcomes) {
@@ -174,27 +171,63 @@ impl Catalog {
     }
 }
 
+/// Answers every commit of the batch. `Err` is a failure they all share.
+fn publish_batch(
+    connection: &mut Connection,
+    commits: &[UploadCommit],
+) -> Result<Vec<UploadOutcome>, ObjectError> {
+    match publish_all(connection, commits) {
+        Ok(outcomes) => Ok(outcomes),
+        Err(BatchFailure::Shared(failure)) => Err(failure),
+        Err(BatchFailure::Interrupted(failure)) if commits.len() == 1 => Ok(vec![Err(failure)]),
+        // Nothing was published. The upload that caused the failure meets it again on its own
+        // and reports it there.
+        Err(BatchFailure::Interrupted(_)) => Ok(publish_each(connection, commits)),
+    }
+}
+
+/// Publishes each commit in its own transaction, in queue order, so each precondition sees the
+/// uploads published before it as it would have in the batch. A failure that no upload caused
+/// ends the attempt, and the commits not yet tried share it.
+fn publish_each(connection: &mut Connection, commits: &[UploadCommit]) -> Vec<UploadOutcome> {
+    let mut outcomes = Vec::with_capacity(commits.len());
+    for commit in commits {
+        match publish_all(connection, std::slice::from_ref(commit)) {
+            Ok(published) => outcomes.extend(published),
+            Err(BatchFailure::Interrupted(failure)) => outcomes.push(Err(failure)),
+            Err(BatchFailure::Shared(failure)) => {
+                outcomes.extend(shared(failure, commits.len() - outcomes.len()));
+                break;
+            }
+        }
+    }
+    outcomes
+}
+
 /// Publishes each commit under its own savepoint, so one upload's error or panic undoes only its
 /// own changes, then commits them together.
 fn publish_all(
     connection: &mut Connection,
     commits: &[UploadCommit],
 ) -> Result<Vec<UploadOutcome>, BatchFailure> {
-    let transaction = sql::immediate(connection)?;
-    let mut outcomes = Vec::with_capacity(commits.len());
-    for commit in commits {
-        outcomes.push(publish_isolated(&transaction, commit)?);
-    }
-    commit_publication(transaction)?;
+    let transaction =
+        sql::immediate(connection).map_err(|error| BatchFailure::Shared(error.into()))?;
+    let outcomes = commits
+        .iter()
+        .map(|commit| publish_isolated(&transaction, commit))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(BatchFailure::Interrupted)?;
+    commit_publication(transaction).map_err(BatchFailure::Shared)?;
     Ok(outcomes)
 }
 
-/// Returns the upload's own outcome, or a batch failure when the transaction cannot go on: its
-/// savepoint could not be ended, or its error made SQLite roll back the whole transaction.
+/// Returns the upload's own outcome, or the error that ended the transaction: its savepoint could
+/// not be ended, or its error made SQLite roll back the whole transaction. Either way the
+/// transaction rolls back when it is dropped, if SQLite has not rolled it back already.
 fn publish_isolated(
     transaction: &Transaction<'_>,
     commit: &UploadCommit,
-) -> Result<UploadOutcome, BatchFailure> {
+) -> Result<UploadOutcome, ObjectError> {
     sql::exec(transaction, "SAVEPOINT upload", [])?;
     // A panicking upload's changes are rolled back to its savepoint below, so nothing it left
     // half done is committed or read afterwards.
@@ -206,7 +239,7 @@ fn publish_isolated(
             Ok(Ok(published))
         }
         // Some errors, such as a full disk, roll back the whole transaction in SQLite.
-        Err(error) if transaction.is_autocommit() => Err(BatchFailure(error)),
+        Err(error) if transaction.is_autocommit() => Err(error),
         Err(error) => {
             sql::exec(transaction, "ROLLBACK TO upload", [])?;
             sql::exec(transaction, "RELEASE upload", [])?;

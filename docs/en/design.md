@@ -447,8 +447,12 @@ each under its own savepoint, so one WAL sync makes the whole batch durable; not
 waits for a batch to fill. Under its savepoint each upload checks bucket existence and
 all conditions, advances the persistent generation high-water mark, replaces the live
 reference and journals any old blob for deletion. An upload's error or panic rolls back
-only its savepoint, and every upload is answered only after the commit. A failed batch
-commit fails each upload in it, and an upload whose commit is still queued is withdrawn
+only its savepoint, and every upload is answered only after the commit. When an upload's
+error makes SQLite roll back the whole transaction, as an I/O, full-disk or out-of-memory
+error may, nothing was committed: each upload of that batch is published again, in queue
+order, in its own transaction, so only the one that fails again fails. A failed batch
+commit may have published everything, so it is not retried and fails each upload in it;
+a transaction that cannot start fails them too. An upload whose commit is still queued is withdrawn
 before it reports a failure, so it cannot publish after its cleanup.
 File publication and SQL commit are separate operations.
 An ambiguous commit error is followed by a reference check before cleanup; committed

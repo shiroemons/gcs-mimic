@@ -232,6 +232,10 @@ pub(crate) enum Fault {
     Corrupt,
     /// Fails the step with the error SQLite reports when another writer holds the lock.
     Busy,
+    /// Fails the step with an I/O error after rolling back the whole open transaction, as SQLite
+    /// may after an I/O, full-disk or out-of-memory error. Only a step reached through
+    /// [`hit_transaction`] has a transaction to roll back.
+    RollBack,
     /// Panics at the step, as a bug in the code there would.
     Panic,
     /// Copies the data directory to this path, as a process abort leaves it, and lets the
@@ -406,6 +410,7 @@ pub(crate) fn hit(data_dir: &Path, step: Step) -> Result<(), Injected> {
         ))),
         Fault::Corrupt => Err(Injected::Sqlite(sqlite(rusqlite::ffi::SQLITE_CORRUPT))),
         Fault::Busy => Err(Injected::Sqlite(sqlite(rusqlite::ffi::SQLITE_BUSY))),
+        Fault::RollBack => Err(Injected::RolledBack(sqlite(rusqlite::ffi::SQLITE_IOERR))),
         Fault::Panic => panic!("injected {step:?} panic"),
         Fault::Snapshot(target) => {
             // A snapshot that cannot be taken must fail the test, not pass as a fault.
@@ -425,6 +430,22 @@ pub(crate) fn hit(data_dir: &Path, step: Step) -> Result<(), Injected> {
             Ok(())
         }
     }
+}
+
+/// [`hit`] at a step inside the open transaction of `connection`, where a [`Fault::RollBack`]
+/// rolls that transaction back before it fails the step.
+pub(crate) fn hit_transaction(
+    connection: &rusqlite::Connection,
+    step: Step,
+) -> Result<(), Injected> {
+    hit(&database_dir(connection), step).map_err(|error| match error {
+        // A rollback that failed leaves the transaction open, and the test sees that instead.
+        Injected::RolledBack(error) => match connection.execute_batch("ROLLBACK") {
+            Ok(()) => Injected::Sqlite(error),
+            Err(rollback) => Injected::Sqlite(rollback),
+        },
+        error @ (Injected::Io(_) | Injected::Sqlite(_)) => error,
+    })
 }
 
 /// What a power loss would keep of one data directory, recorded while a
@@ -733,12 +754,14 @@ impl Ledger {
 pub(crate) enum Injected {
     Io(io::Error),
     Sqlite(rusqlite::Error),
+    /// An SQLite failure that ends the open transaction, which [`hit_transaction`] rolls back.
+    RolledBack(rusqlite::Error),
 }
 
 pub(crate) fn hit_io(path: &Path, step: Step) -> io::Result<()> {
     hit(path, step).map_err(|error| match error {
         Injected::Io(error) => error,
-        Injected::Sqlite(error) => io::Error::other(error),
+        Injected::Sqlite(error) | Injected::RolledBack(error) => io::Error::other(error),
     })
 }
 
@@ -746,14 +769,14 @@ impl StorageCause for Injected {
     fn into_cause(self) -> BackendCause {
         match self {
             Self::Io(error) => error.into_cause(),
-            Self::Sqlite(error) => error.into_cause(),
+            Self::Sqlite(error) | Self::RolledBack(error) => error.into_cause(),
         }
     }
 
     fn classify(self) -> Classified {
         match self {
             Self::Io(error) => error.classify(),
-            Self::Sqlite(error) => error.classify(),
+            Self::Sqlite(error) | Self::RolledBack(error) => error.classify(),
         }
     }
 }
