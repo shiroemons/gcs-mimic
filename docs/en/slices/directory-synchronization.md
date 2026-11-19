@@ -1117,18 +1117,8 @@ still gets 409 when restore targets a different bucket incarnation.
 
 `wait` forces a complete stable scan of preceding external edits and applies
 API changes through its captured journal fence, including a post-scan fence.
-It succeeds once every change it can reflect is reflected; the first of these
-that remains ends it instead:
-
-| Remains after the barrier | `reason` |
-| --- | --- |
-| A pause, which ends the wait at once; the answer adds `paused_reason` | `Paused` |
-| The wait's deadline passed | `Timeout` (408) |
-| A path still settling, or an export skipped for a busy file that waits for its retry | `SourceChanging` |
-| An unsafe or unmappable entry this scan found in the tree, also after the baseline completed | `SourceUnrepresentable` |
-| A guarded deletion set awaiting approval | `DeletionApproval` |
-| A finding whose kind stops a wait (an export that met an edited file), an unresolved conflict, a path stop, unfinished write-back or a write-back state other than `Ready` | `FindingsPending` |
-| Nothing above | `Ready` (200) |
+It succeeds once every change it can reflect is reflected; a pause ends it at
+once, with `paused_reason` in the answer.
 
 Objects whose names the tree cannot hold, such as a backslash, a component
 longer than the host allows, a file and directory of one name or a case alias,
