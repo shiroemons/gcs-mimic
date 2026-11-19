@@ -113,7 +113,7 @@ impl UnmappedObjects {
     /// The policy of a wait request whose `require_no_findings` is `required`.
     #[expect(
         clippy::fn_params_excessive_bools,
-        reason = "forwards the wire boolean require_no_findings, which the request body and the command's flag carry"
+        reason = "forwards the wire boolean require_no_findings of a wait request's body"
     )]
     pub const fn from_require_no_findings(required: bool) -> Self {
         if required { Self::Refuse } else { Self::Report }

@@ -17,7 +17,7 @@ gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revis
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
-gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings true
+gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
 ```
 
@@ -77,8 +77,10 @@ HTTPにこのオプションを指定すると失敗し、TLS検証を省くオ�
 通信期限の既定値はrescanが30000 ms、wait以外のコマンドが10000 msです。rescanでは静穏待ちの上限10秒と、その後の走査を見込みます。
 `--timeout-ms`に1～60000、または`--timeout`に整数とms・s・mの接尾辞を指定すると、既定値を置き換えます。
 
-waitの既定値は10分で、60分（`--timeout-ms`では3600000）まで指定できます。
-約1,000件のローカル開発用ツリーを遅いbind mountで初めて照合すると数分かかるため、その時間を見込んだ値です。
+waitの既定値は2分で、60分（`--timeout-ms`では3600000）まで指定できます。
+既定値は、サーバーがhealthyになった後のテスト1ステップ分の変更を待つための値です。
+約1,000件のローカル開発用ツリーを遅いbind mountで初めて照合すると数分かかるため、ヘルスチェックは最初の照合が終わるまで失敗し、5分の開始猶予を取っています。
+最初の照合もwaitで待つ場合は、`--timeout`を長く指定してください。
 サーバーは1回の要求を最長1分しか観測しないため、CLIは残り時間を観測期限として、1分以内の要求を繰り返し送ります。
 各要求では、応答を受け取るためにCLI側で1秒を追加します。
 問い合わせ直すのは、処理が進行中であることを示す応答のときだけです。
@@ -89,9 +91,10 @@ waitの既定値は10分で、60分（`--timeout-ms`では3600000）まで指定
 
 waitは、反映できる変更をすべて反映した時点で成功します。
 ディレクトリに書き出せない名前のオブジェクトはAPIから使えるため、waitを失敗させません。
-応答の`findings.unmapped`に件数を返し、CLIは終了コード0で、一覧を表示するコマンドを標準エラーへ`warning`の診断として1行出します。
-件数が0なら、何も追加しません。`--require-no-findings true`を付けると、こうしたwaitを`FindingsPending`で失敗させます。
-このときは残っているオブジェクトの件数と、それを一覧するfindingsの一覧を示す`error`の診断を1つだけ出し、`warning`の行は出しません。既定の`false`では成功のままです。
+応答の`findings.unmapped`に件数を返し、CLIは終了コード0で、一覧を表示するコマンドを標準エラーへ`warn`の診断として1行出します。
+件数が0なら、何も追加しません。値を取らないスイッチの`--require-no-findings`を付けると、こうしたwaitを`FindingsPending`で失敗させます。
+このときは残っているオブジェクトの件数と、それを一覧するfindingsの一覧を示す`error`の診断を1つだけ出し、`warn`の行は出しません。
+このオプションに値を付けると、値を取らないことを示して失敗します。
 失敗したwaitは、理由、一時停止なら記録された`paused_reason`、接続オプションを埋めた対処を`error`の診断で示します。
 例えば一時停止では`gcs-mimic sync rescan --endpoint https://127.0.0.1:4443`、競合では`gcs-mimic sync conflicts`、
 承認待ちの削除では、その削除集合のリビジョンを付けた`gcs-mimic sync status --view deletions --revision`を案内します。
@@ -123,9 +126,19 @@ scanの前後でnative通知を確認し、イベント世代が変わらず未�
 静穏上限より長い操作では、累積が閾値に届く前の少数の自動削除が確定する場合があります。
 schema 49から50への移行は一方向です。更新前に停止したデータディレクトリ全体をbackupしてください。
 移行時の累積数は0から始まり、旧スキーマで既に削除した名前は復元できません。
-最後の応答が期限切れ408や停止中409などの非成功応答なら、JSONを表示して非0で終了します。
 timeoutや切断の後も、受け付け済みの走査・公開処理が完了する場合があります。
 mutationを自動再送しないため、再試行前にstatusを確認してください。
+
+waitは結果にかかわらず最後の応答をJSONで表示し、終了コードで結果を区別します。
+スクリプトやCIの手順は、応答を読まなくても結果が分かります。
+wait以外のコマンドは、成功なら0、失敗なら1で終了します。
+
+| 終了コード | `sync wait`の結果 | 理由 |
+| --- | --- | --- |
+| 0 | 反映できる変更をすべて反映した。報告するだけのオブジェクトが残っていても0 | `Ready` |
+| 1 | それ以外。サーバーに接続できない、要求やオプションが拒否された、別リリースのサーバー、サーバーが停止した | `Stopped`、または理由なし |
+| 2 | 待っても同期を止めている原因は変わらず、利用者の対処が要る。エラーが実行するコマンドを示す | `Paused`、`SourceUnrepresentable`、`DeletionApproval`、`FindingsPending`（`--require-no-findings`による失敗を含む） |
+| 3 | `--timeout`を過ぎた時点で、まだ処理が進行中だった。エラーが残っていたものを示す | `Timeout`、`SourceChanging`、`JournalChanged` |
 
 応答はheader 64件・16 KiB、JSON本文256 KiBまでです。chunked応答にも同じ上限を適用し、
 壊れたJSON、途中で切れた本文、超過を成功扱いにしません。

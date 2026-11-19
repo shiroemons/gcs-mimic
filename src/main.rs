@@ -105,7 +105,7 @@ fn main() -> ExitCode {
             );
             let diagnostics = error.diagnostics().unwrap_or(&fallback);
             let _ = diagnostics.write(io::stderr().lock());
-            ExitCode::FAILURE
+            error.exit_code()
         }
     }
 }
@@ -115,6 +115,9 @@ fn main() -> ExitCode {
 #[derive(Debug)]
 enum CliError {
     Diagnostics(Diagnostics),
+    /// A `sync wait` that did not end ready: its diagnostics, and the exit status that tells
+    /// how it ended.
+    Wait(Diagnostics, sync_cli::WaitExit),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
     /// causes remain the error's source. Boxed because it holds two catalog errors.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
@@ -127,6 +130,7 @@ impl CliError {
     fn diagnostics(&self) -> Option<&Diagnostics> {
         match self {
             Self::Diagnostics(diagnostics)
+            | Self::Wait(diagnostics, _)
             | Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
                 Some(diagnostics)
             }
@@ -134,12 +138,22 @@ impl CliError {
             Self::Import(_) | Self::Io(_) => None,
         }
     }
+
+    /// The status the process exits with: a wait's own, and 1 for any other failure.
+    fn exit_code(&self) -> ExitCode {
+        match self {
+            Self::Wait(_, exit) => ExitCode::from(exit.code()),
+            Self::Diagnostics(_) | Self::Authentication(_) | Self::Io(_) | Self::Import(_) => {
+                ExitCode::FAILURE
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Diagnostics(diagnostics) => diagnostics.fmt(f),
+            Self::Diagnostics(diagnostics) | Self::Wait(diagnostics, _) => diagnostics.fmt(f),
             Self::Authentication(failure) => failure.fmt(f),
             Self::Io(error) => error.fmt(f),
             Self::Import(error) => error.fmt(f),
@@ -150,7 +164,7 @@ impl std::fmt::Display for CliError {
 impl std::error::Error for CliError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Diagnostics(diagnostics) => Some(diagnostics),
+            Self::Diagnostics(diagnostics) | Self::Wait(diagnostics, _) => Some(diagnostics),
             Self::Authentication(failure) => Some(failure.as_ref()),
             Self::Io(error) => Some(error),
             Self::Import(error) => Some(error),

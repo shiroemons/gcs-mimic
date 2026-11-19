@@ -255,6 +255,19 @@ docker compose exec gcs gcs-mimic sync wait --endpoint http://127.0.0.1:4443
 cat sync/demo-bucket/docs/hello.txt
 ```
 
+In CI, the exit status of `gcs-mimic sync wait` tells its outcomes apart
+without reading the JSON answer it prints; the error on standard error names
+what to run next. It waits two minutes by default, which suits a wait after
+`docker compose up --wait`: that already waited for the first pass, which the
+healthcheck allows a 5-minute start period.
+
+| Exit status | Outcome |
+| --- | --- |
+| 0 | Every change is reflected, even while objects whose names the directory cannot hold remain, unless `--require-no-findings` is given |
+| 1 | Anything else, such as an unreachable server, a refused option or a server that stopped |
+| 2 | Someone must act: a pause, entries no object can take, deletions awaiting approval, or findings |
+| 3 | The directory was still changing when `--timeout` passed |
+
 After readiness, the server exports existing buckets and objects, including empty
 buckets. API create, overwrite, copy, compose and delete then update the files
 shortly after each response, so wait with `gcs-mimic sync wait` before reading
@@ -325,8 +338,8 @@ even only `.DS_Store`, stays as it is, and that object is reported as a
 that cannot be mapped to host file names, are skipped without stopping the
 mirror; they stay available through the API. `gcs-mimic sync wait` succeeds
 past them: it counts them and prints one line with the command that lists them,
-and `--require-no-findings true` makes them fail it instead. A wait asks the
-server again while the directory is still changing, for up to ten minutes by
+and `--require-no-findings` makes them fail it instead. A wait asks the
+server again while the directory is still changing, for up to two minutes by
 default (`--timeout`, at most `60m`). A name containing `:`, such as
 `logs/2026-10-28T12:00:00.log`, becomes a file of the same name wherever the
 directory's filesystem stores colons, which the server checks at startup with no

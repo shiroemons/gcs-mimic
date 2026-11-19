@@ -126,14 +126,29 @@ impl Server {
             String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&stderr)
         );
+        if command == "wait" {
+            assert_eq!(status.code(), Some(wait_exit(&value)), "{value}");
+        }
         value
     }
 }
 
-/// What one `gcs-mimic sync` run reported: whether it succeeded, its JSON answer and the lines
-/// it wrote to standard error.
+/// The exit status `sync wait` documents for its `answer`: 0 when ready, 2 when someone must
+/// act, 3 when its timeout passed while work was in progress, and 1 otherwise.
+fn wait_exit(answer: &Value) -> i32 {
+    match answer["reason"].as_str() {
+        Some("Ready") => 0,
+        Some("Paused" | "SourceUnrepresentable" | "DeletionApproval" | "FindingsPending") => 2,
+        Some("Timeout" | "SourceChanging" | "JournalChanged") => 3,
+        _ => 1,
+    }
+}
+
+/// What one `gcs-mimic sync` run reported: whether it succeeded, its exit status, its JSON
+/// answer and the lines it wrote to standard error.
 struct CliRun {
     success: bool,
+    code: Option<i32>,
     answer: Value,
     stderr: Vec<Value>,
 }
@@ -151,6 +166,7 @@ impl Server {
             .unwrap();
         CliRun {
             success: status.success(),
+            code: status.code(),
             answer: serde_json::from_slice(&stdout).unwrap(),
             stderr: stderr
                 .split(|byte| *byte == b'\n')
@@ -175,8 +191,8 @@ impl CliRun {
 
 /// An object whose name the directory cannot hold does not fail `sync wait`: it exits 0 and
 /// prints one line naming the ready-to-run command that lists it, and nothing while none
-/// remain. `--require-no-findings true` fails it as FindingsPending with one error that names
-/// the objects and what to run next, and no hint besides.
+/// remain. `--require-no-findings` fails it as FindingsPending, exiting 2, with one error that
+/// names the objects and what to run next, and no hint besides.
 #[test]
 fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists_it() {
     let data = TestDir::new();
@@ -200,7 +216,7 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
         )
         .expect(200);
     let waited = server.cli_run("wait", &["--timeout", "30s"]);
-    assert!(waited.success, "{:?}", waited.stderr);
+    assert_eq!(waited.code, Some(0), "{:?}", waited.stderr);
     assert_eq!(waited.answer["reason"], "Ready");
     assert_eq!(waited.answer["findings"]["unmapped"], 1);
     let revision = waited.answer["findings"]["revision"].as_str().unwrap();
@@ -219,11 +235,8 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
     );
     assert_eq!(listed["items"][0]["object"], r"dir\file", "{listed}");
     assert_eq!(server.cli("status", &[], true)["state"], "Ready");
-    let strict = server.cli_run(
-        "wait",
-        &["--timeout", "30s", "--require-no-findings", "true"],
-    );
-    assert!(!strict.success);
+    let strict = server.cli_run("wait", &["--timeout", "30s", "--require-no-findings"]);
+    assert_eq!(strict.code, Some(2), "{:?}", strict.stderr);
     assert_eq!(strict.answer["reason"], "FindingsPending");
     let [error] = strict.diagnostics("sync").try_into().unwrap();
     // The remedy names the objects and the findings view at the revision this wait read its

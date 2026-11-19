@@ -4,7 +4,7 @@ use super::CliError;
 use gcs_mimic::{
     bounded_file,
     config::Config,
-    config_input::{DurationError, RenamedEnvironmentVariable, duration, option_pairs},
+    config_input::{DurationError, RenamedEnvironmentVariable, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
     sync::{UnmappedObjects, WaitReason, advice, handshake},
@@ -28,6 +28,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait [--endpoint http(s)://HOST:PORT] [OPTIONS]
+       gcs-mimic sync wait [--endpoint URL] [--timeout DURATION] [--require-no-findings]
        gcs-mimic sync status [--endpoint URL] --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
        gcs-mimic sync deletions|findings [--endpoint URL] [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
        gcs-mimic sync approve [--endpoint URL] --deletion-set REVISION [OPTIONS]
@@ -43,15 +44,25 @@ commands it advises then leave --endpoint out as well.
 Options: --ca-cert PATH, --token-file PATH, --timeout Nms|Ns|Nm (1ms..60s),
 or the numeric --timeout-ms N. Rescan defaults to 30s; other controls default
 to 10s. Explicit timeout values replace these defaults.
-Wait takes up to 60m and defaults to 10m. It asks the server again, at most a
-minute at a time, while the tree is still changing or one request's deadline
-passed, and stops at once for a pause, conflicts, deletions awaiting approval
-or findings that need action; it then fails with the reason and what to run
-next. It succeeds once every change it can reflect is reflected. Objects whose
-names the directory cannot hold stay reachable through the API: the answer
-counts them in findings.unmapped, and one line on standard error names the
-command that lists them. With --require-no-findings true, any such object
-fails the wait as FindingsPending.
+Wait takes up to 60m and defaults to 2m, for a server that is already healthy.
+It asks the server again, at most a minute at a time, while the tree is still
+changing or one request's deadline passed, and stops at once for a pause,
+conflicts, source entries no object can take or that cannot be read, deletions
+awaiting approval or findings that need action; it then fails with the reason
+and what to run next. It succeeds once every change it can reflect is
+reflected. Objects whose names the directory cannot hold stay reachable through
+the API: the answer counts them in findings.unmapped, and one line on standard
+error names the command that lists them. --require-no-findings, which takes no
+value, fails the wait if any object the API holds has a name the directory
+cannot hold.
+Wait exit status (other commands exit 0 on success and 1 on failure):
+  0  Ready: every change is reflected, even with objects it only reports
+  1  anything else: an unreachable server, a refused request or option, or
+     a server that stopped
+  2  someone must act: Paused, SourceUnrepresentable, DeletionApproval or
+     FindingsPending, which --require-no-findings also fails with
+  3  the timeout passed while work was in progress: Timeout, SourceChanging
+     or JournalChanged
 The endpoint must be a loopback or private-network HTTP(S) origin with an explicit port.
 Use HTTPS outside loopback to protect the token. HTTPS verifies
 the embedded development CA or the supplied CA and the endpoint hostname.
@@ -67,7 +78,7 @@ Inspect status before retrying. Recovery discard requires exactly one matching
 --confirm-backup-verified ID or --confirm-discard-without-backup ID.
 Unsupported server operations fail visibly.";
 
-/// A sync control option; each takes one value.
+/// A sync control option. Each takes one value, except a switch, which its presence sets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Flag {
     Endpoint,
@@ -141,25 +152,56 @@ impl Flag {
     fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|flag| flag.as_str() == name)
     }
+
+    /// Whether the option is a switch, which takes no value.
+    const fn is_switch(self) -> bool {
+        matches!(self, Self::RequireNoFindings)
+    }
+}
+
+/// The refusal of a value given to a switch, which would otherwise read as a misplaced option.
+fn switch_value(switch: &str, value: &str) -> Diagnostics {
+    fail(format!(
+        "{switch} is a switch and takes no value; give it alone, without {value}"
+    ))
 }
 
 /// The options of one command line. Each step takes what it reads; anything left was not
-/// accepted by the selected operation.
+/// accepted by the selected operation. A switch reads as an empty value.
 struct Flags<'a>(BTreeMap<Flag, &'a str>);
 
 impl<'a> Flags<'a> {
-    /// Known options, each once, with a nonempty value of at most 8192 bytes.
+    /// Known options, each once, with a nonempty value of at most 8192 bytes, or none for a
+    /// switch. No argument stands alone, so one that follows a switch is a value given to it.
     fn read(args: &'a [String]) -> Result<Self, Diagnostics> {
         let refused = || fail("Use unique sync option/value pairs; see sync --help");
         let mut flags = BTreeMap::new();
-        for pair in option_pairs(args) {
-            let (name, value) = pair.map_err(|_| refused())?;
+        let mut rest = args;
+        while let [name, tail @ ..] = rest {
             let Some(flag) = Flag::parse(name) else {
-                return Err(refused());
+                return Err(match name.split_once('=') {
+                    Some((switch, value)) if Flag::parse(switch).is_some_and(Flag::is_switch) => {
+                        switch_value(switch, &format!("={value}"))
+                    }
+                    Some(_) | None => refused(),
+                });
             };
-            if value.is_empty() || value.len() > 8192 {
-                return Err(refused());
-            }
+            let value = if flag.is_switch() {
+                if let Some(value) = tail.first().filter(|value| !value.starts_with("--")) {
+                    return Err(switch_value(name, value));
+                }
+                rest = tail;
+                ""
+            } else {
+                let [value, tail @ ..] = tail else {
+                    return Err(refused());
+                };
+                if value.is_empty() || value.len() > 8192 {
+                    return Err(refused());
+                }
+                rest = tail;
+                value.as_str()
+            };
             match flags.entry(flag) {
                 btree_map::Entry::Vacant(entry) => {
                     entry.insert(value);
@@ -324,12 +366,13 @@ impl Command {
 }
 
 /// Rescans wait for a quiet interval, so they default to 30 s; other controls to 10 s. A wait
-/// defaults to 10 minutes, which leaves time for a first pass over the thousand objects of a
-/// local-development tree, which can take several minutes on a slow bind mount.
+/// defaults to 2 minutes, for the changes of a test step on a server that is already healthy:
+/// the healthcheck fails until the first pass is done and gives it its own 5-minute start
+/// period, since a first pass over a slow bind mount can take several minutes.
 fn default_timeout_ms(command: Option<Command>) -> u64 {
     match command {
         Some(Command::Rescan) => 30_000,
-        Some(Command::Wait) => 600_000,
+        Some(Command::Wait) => 120_000,
         Some(Command::Status | Command::Approve | Command::Resolve | Command::List(_)) | None => {
             10_000
         }
@@ -373,13 +416,51 @@ const WAIT_MARGIN: Duration = Duration::from_secs(1);
 /// the server answers at once.
 const JOURNAL_PAUSE: Duration = Duration::from_secs(1);
 
-/// What `--require-no-findings` asks of `sync wait`: to refuse objects whose names the sync
-/// directory cannot hold, or to report them and name the command that lists them.
-fn unmapped_objects(value: &str) -> Result<UnmappedObjects, Diagnostics> {
-    value
-        .parse::<bool>()
-        .map(UnmappedObjects::from_require_no_findings)
-        .map_err(|_| fail("--require-no-findings must be true or false"))
+/// How `sync wait` exits, so that a script tells what ended it without reading the answer.
+/// Other commands exit 0 on success and 1 on failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WaitExit {
+    /// Every change the wait can reflect is reflected, even while objects it only reports
+    /// remain.
+    Ready,
+    /// No answer names how the wait ended, as for an unreachable server or a refused request,
+    /// or the server stopped: like any other failed command.
+    Failed,
+    /// Waiting does not change what holds synchronization back, so someone must act.
+    ActionNeeded,
+    /// Work was still in progress when the wait's timeout passed.
+    TimedOut,
+}
+
+impl WaitExit {
+    /// How a wait whose last answer gave `reason`, if any, exits.
+    const fn of(reason: Option<WaitReason>) -> Self {
+        match reason {
+            Some(WaitReason::Ready) => Self::Ready,
+            Some(
+                WaitReason::Paused
+                | WaitReason::SourceUnrepresentable
+                | WaitReason::DeletionApproval
+                | WaitReason::FindingsPending,
+            ) => Self::ActionNeeded,
+            // The command asks again while one of these holds, so a wait that ends with one ran
+            // out of time.
+            Some(WaitReason::Timeout | WaitReason::SourceChanging | WaitReason::JournalChanged) => {
+                Self::TimedOut
+            }
+            Some(WaitReason::Stopped) | None => Self::Failed,
+        }
+    }
+
+    /// The process exit status.
+    pub(super) const fn code(self) -> u8 {
+        match self {
+            Self::Ready => 0,
+            Self::Failed => 1,
+            Self::ActionNeeded => 2,
+            Self::TimedOut => 3,
+        }
+    }
 }
 
 /// The body of one wait request that asks the server to observe for `millis`, with
@@ -551,28 +632,19 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     if let Err(mismatch) = handshake::check(&reply.headers, handshake::Peer::Server) {
         return Err(fail(mismatch).into());
     }
-    let outcome = options
-        .wait
-        .is_some()
-        .then(|| WaitOutcome::read(&reply.body));
-    let advice = outcome
-        .as_ref()
-        .map_or_else(Diagnostics::default, |outcome| {
-            outcome.advice(&options.connection())
-        });
-    if reply.status.is_success() {
-        advice.write(io::stderr().lock())?;
-        return Ok(());
+    match options.wait {
+        Some(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &options.connection()),
+        None if reply.status.is_success() => Ok(()),
+        None => Err(http_failure(reply.status).into()),
     }
-    // A wait that names its reason says what to run next; anything else is reported generically.
-    if advice.is_err() {
-        return Err(advice.into());
-    }
-    Err(fail(format!(
+}
+
+/// The failure of a request whose answer says nothing the command can advise on.
+fn http_failure(status: StatusCode) -> Diagnostics {
+    fail(format!(
         "Synchronization control returned HTTP {}; inspect its JSON response and preserve pending work.",
-        reply.status.as_u16()
+        status.as_u16()
     ))
-    .into())
 }
 
 /// What the command reads from a wait's answer to advise its user.
@@ -597,6 +669,23 @@ impl<'a> WaitOutcome<'a> {
                 .zip(findings.and_then(|findings| text(findings, "revision"))),
             paused_reason: text(body, "paused_reason"),
             remedy: text(body, "remedy"),
+        }
+    }
+
+    /// Ends the command for a wait whose last answer came with `status`: a ready wait writes its
+    /// advice and succeeds, and any other fails with its advice and the [`WaitExit`] of its
+    /// reason. An answer that names no reason the command knows fails like any other request.
+    fn conclude(&self, status: StatusCode, connection: &str) -> Result<(), CliError> {
+        let advice = self.advice(connection);
+        match WaitExit::of(self.reason) {
+            WaitExit::Ready => {
+                advice.write(io::stderr().lock())?;
+                Ok(())
+            }
+            WaitExit::Failed if !advice.is_err() => Err(http_failure(status).into()),
+            exit @ (WaitExit::Failed | WaitExit::ActionNeeded | WaitExit::TimedOut) => {
+                Err(CliError::Wait(advice, exit))
+            }
         }
     }
 
@@ -711,7 +800,7 @@ impl Options {
             Some(Command::Wait) => Some(
                 flags
                     .take(Flag::RequireNoFindings)
-                    .map_or(Ok(UnmappedObjects::Report), unmapped_objects)?,
+                    .map_or(UnmappedObjects::Report, |_| UnmappedObjects::Refuse),
             ),
             Some(
                 Command::Status

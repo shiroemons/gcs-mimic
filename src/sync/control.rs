@@ -262,7 +262,7 @@ pub(crate) fn unmapped_objects_remedy(count: u64, at_hand: AtHand<'_>) -> String
         ("objects", "their names", "them")
     };
     format!(
-        "{count} {objects} in the API cannot be written to the sync directory because of {names}, and this wait requires that none remain. Rename or delete {them} through the API, or wait without --require-no-findings true, which reports {them} instead; the findings view lists {them}: {}",
+        "{count} {objects} in the API cannot be written to the sync directory because of {names}, and this wait requires that none remain. Rename or delete {them} through the API, or wait without --require-no-findings, which reports {them} instead; the findings view lists {them}: {}",
         Advised::Findings(at_hand.findings_revision)
     )
 }

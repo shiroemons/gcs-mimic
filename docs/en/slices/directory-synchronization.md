@@ -1107,7 +1107,7 @@ without authentication and must be identified as such in status.
 
 CLI `approve --deletion-set ID` and `resolve --conflict ID --revision ID --action
 restore|discard --expected-generation N --operation-id ID` map exactly to these
-requests. `wait --timeout 10m --require-no-findings true` sends wait requests of
+requests. `wait --timeout 10m --require-no-findings` sends wait requests of
 at most a minute each until its own deadline, as described below. `status --view deletions|findings --revision
 ID --limit N --cursor ID` maps to the GET query; without `--revision`, the CLI
 reads the summary first and requests the page at the `findings_revision` or
@@ -1211,13 +1211,19 @@ then read through the API.
 
 A server observes one wait request for at most a minute. `gcs-mimic sync wait`
 therefore sends requests of at most a minute each, with the time left of its own
-`--timeout`, which defaults to ten minutes and takes up to an hour. It asks again
+`--timeout`, which defaults to two minutes and takes up to an hour; the
+healthcheck's start period, not the wait's default, covers the first pass. It asks again
 only while the answer says the work is still in progress, `Timeout`,
 `SourceChanging` or, after a one-second pause, `JournalChanged`, and reports each
-repeat on standard error; a pause, findings, an approval or a stop end it at once.
+repeat on standard error; a pause, source entries no object can take, findings,
+an approval or a stop end it at once.
 A `Ready` answer that counts unmapped objects exits 0 and prints one warning with
 the ready-to-run `gcs-mimic sync status --view findings` command that lists them;
-it prints nothing when the count is zero.
+it prints nothing when the count is zero. The exit status tells the other ends
+apart: 2 when someone must act (`Paused`, `SourceUnrepresentable`,
+`DeletionApproval`, `FindingsPending`), 3 when the timeout passed while work was
+in progress (`Timeout`, `SourceChanging`, `JournalChanged`), and 1 for anything
+else, such as `Stopped` or an unreachable server.
 
 ## Stops, findings and remedies
 

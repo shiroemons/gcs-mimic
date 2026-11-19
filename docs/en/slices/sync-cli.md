@@ -19,7 +19,7 @@ gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revis
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
-gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings true
+gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
 ```
 
@@ -128,10 +128,12 @@ quiet cap followed by scanning. Other commands except `wait` default to 10000 ms
 configurable from 1 through 60000 with `--timeout-ms`, or `--timeout` with an
 integer `ms`, `s` or `m` suffix.
 
-`wait` defaults to ten minutes and takes up to 60 minutes (`--timeout-ms` up to
-3600000). The default leaves time for a first pass over a local-development tree
-of about a thousand objects, which can take several minutes on a slow bind
-mount. A server observes one request for at most a minute, so the command sends
+`wait` defaults to two minutes and takes up to 60 minutes (`--timeout-ms` up to
+3600000). The default covers the changes of a test step once the server is
+healthy: the healthcheck fails until the first pass is done and allows it a
+5-minute start period, because a first pass over a local-development tree of
+about a thousand objects can take several minutes on a slow bind mount. A wait
+that may itself cover a first pass needs a longer `--timeout`. A server observes one request for at most a minute, so the command sends
 requests of at most a minute each, carrying the time left as the server's
 observation budget and allowing one more second to receive the result. It asks
 again only while the answer says the work is still in progress: `Timeout` for
@@ -150,14 +152,14 @@ prints one warning line on standard error with the ready-to-run command that
 lists them, for example:
 
 ```text
-{"event":"diagnostics","level":"warning","diagnostics":[{"source":"cli","key":"sync-findings","fix":"1 object in the API cannot be written to the sync directory because of its name and stays reachable only through the API; list it with gcs-mimic sync status --view findings --revision FINDINGS_REVISION --endpoint https://127.0.0.1:4443"}]}
+{"event":"diagnostics","level":"warn","diagnostics":[{"source":"cli","key":"sync-findings","fix":"1 object in the API cannot be written to the sync directory because of its name and stays reachable only through the API; list it with gcs-mimic sync status --view findings --revision FINDINGS_REVISION --endpoint https://127.0.0.1:4443"}]}
 ```
 
-It prints nothing more when the count is zero. `--require-no-findings true`
-fails such a wait as `FindingsPending` instead, with one `error` diagnostic that
-says how many objects remain and names the findings view that lists them, and
-no warning line; `false`, the default, keeps the
-success. A wait that fails prints an `error` diagnostic with its reason, the
+It prints nothing more when the count is zero. `--require-no-findings`, a switch
+that takes no value, fails such a wait as `FindingsPending` instead, with one
+`error` diagnostic that says how many objects remain and names the findings view
+that lists them, and no warning line. A value after it is refused with a
+diagnostic that says the option takes none. A wait that fails prints an `error` diagnostic with its reason, the
 recorded `paused_reason` for a pause and the remedy with the connection options
 filled in, such as `gcs-mimic sync rescan --endpoint https://127.0.0.1:4443` for
 a pause, `gcs-mimic sync conflicts` for conflicts and
@@ -176,9 +178,19 @@ scan/export/deletion steps; settling
 also observes the deadline. An interrupted scan cannot complete its baseline or
 authorize deletion. The status writeback summary omits the former always-null
 `journal_sequence` and `journal_epoch`; wait exposes its actual `journal_fence`.
-A final 408 deadline or 409 stopped result is printed as JSON and returns nonzero.
 A timeout/disconnect does not cancel an
 already accepted scan or publication; inspect status before retrying.
+
+`wait` prints its last answer as JSON whatever the outcome, and its exit status
+tells the outcomes apart, so that a script or CI step need not read the answer.
+The other commands exit 0 on success and 1 on any failure.
+
+| Exit status | `sync wait` outcome | Reasons |
+| --- | --- | --- |
+| 0 | Every change the wait can reflect is reflected, even while objects it only reports remain | `Ready` |
+| 1 | Anything else: an unreachable server, a refused request or option, a server of another release, or a server that stopped | `Stopped`, or no reason |
+| 2 | Waiting does not change what holds synchronization back, so someone must act; the error names what to run | `Paused`, `SourceUnrepresentable`, `DeletionApproval`, `FindingsPending`, including a `--require-no-findings` failure |
+| 3 | Work was still in progress when `--timeout` passed; the error names what remained | `Timeout`, `SourceChanging`, `JournalChanged` |
 
 Headers are limited to 64 and 16 KiB, and both chunked and length-framed JSON
 responses have a 256 KiB body cap. Malformed, truncated and oversized responses

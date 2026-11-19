@@ -186,11 +186,11 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
         parse_cmd(&["status"]).unwrap().timeout,
         Duration::from_secs(10)
     );
-    // A wait asks again until its own timeout, which leaves a first pass over a
-    // local-development tree on a slow bind mount time to finish.
+    // A wait asks again until its own timeout, which covers the changes of a test step on a
+    // server the healthcheck already found healthy, after its first pass.
     assert_eq!(
         parse_cmd(&["wait"]).unwrap().timeout,
-        Duration::from_secs(600)
+        Duration::from_secs(120)
     );
     assert_eq!(
         parse_cmd(&["rescan", "--timeout", "5s"]).unwrap().timeout,
@@ -202,8 +202,8 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
             .timeout,
         Duration::from_millis(25)
     );
-    assert!(HELP.contains("Wait takes up to 60m and defaults to 10m"));
-    assert!(HELP.contains("--require-no-findings true"));
+    assert!(HELP.contains("Wait takes up to 60m and defaults to 2m"));
+    assert!(HELP.contains("--require-no-findings, which takes no\nvalue"));
 }
 
 #[test]
@@ -332,27 +332,46 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
         assert!(parse_cmd(&["wait", "--timeout", value]).is_err(), "{value}");
     }
     assert!(parse_cmd(&["wait", "--timeout", "1s", "--timeout-ms", "1000"]).is_err());
-    let strict = parse_cmd(&["wait", "--require-no-findings", "true"]).unwrap();
-    assert_eq!(strict.wait, Some(UnmappedObjects::Refuse));
+    // --require-no-findings is a switch, wherever it stands among the options.
+    for args in [
+        &["wait", "--require-no-findings"][..],
+        &["wait", "--require-no-findings", "--timeout", "10s"],
+        &["wait", "--timeout", "10s", "--require-no-findings"],
+    ] {
+        let strict = parse_cmd(args).unwrap();
+        assert_eq!(strict.wait, Some(UnmappedObjects::Refuse), "{args:?}");
+    }
     assert_eq!(
         wait_body(UnmappedObjects::Refuse, 25),
         json!({"timeout_ms":25,"require_no_findings":true})
     );
-    assert_eq!(
-        parse_cmd(&["wait", "--require-no-findings", "false"])
-            .unwrap()
-            .wait,
-        Some(UnmappedObjects::Report)
-    );
+    // A value given to it says that it takes none, in either spelling.
+    for (value, given) in [
+        (&["--require-no-findings", "true"][..], "true"),
+        (
+            &["--require-no-findings", "false", "--timeout", "1s"],
+            "false",
+        ),
+        (&["--require-no-findings=true"], "=true"),
+    ] {
+        let mut args = vec!["wait", "--endpoint", "http://127.0.0.1:4443"];
+        args.extend_from_slice(value);
+        assert_eq!(
+            refusal(&args),
+            format!(
+                "--require-no-findings is a switch and takes no value; give it alone, without {given}"
+            )
+        );
+    }
     assert_eq!(
         refusal(&[
             "wait",
             "--endpoint",
             "http://127.0.0.1:4443",
             "--require-no-findings",
-            "yes"
+            "--require-no-findings"
         ]),
-        "--require-no-findings must be true or false"
+        "Use unique sync option/value pairs; see sync --help"
     );
     // Only a wait decides whether findings stop it.
     assert_eq!(
@@ -360,8 +379,7 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
             "status",
             "--endpoint",
             "http://127.0.0.1:4443",
-            "--require-no-findings",
-            "true"
+            "--require-no-findings"
         ]),
         "This sync operation does not accept the remaining options; see sync --help"
     );
@@ -816,6 +834,77 @@ fn a_wait_stops_at_once_for_what_waiting_cannot_change() {
         assert_eq!(reply.body["reason"], reason);
         assert_eq!(requests(&endpoint, server), [60_000], "{reason}");
     }
+}
+
+/// A wait's exit status tells how it ended: 0 when ready, 2 when someone must act, 3 when its
+/// timeout passed while work it asks again about was in progress, and 1 for a stopped server
+/// or an answer without a reason, like any other failed command.
+#[test]
+fn a_wait_exits_with_the_status_of_how_it_ended() {
+    use WaitExit::{ActionNeeded, Failed, Ready, TimedOut};
+    for (name, exit) in [
+        ("Ready", Ready),
+        ("Timeout", TimedOut),
+        ("Stopped", Failed),
+        ("Paused", ActionNeeded),
+        ("JournalChanged", TimedOut),
+        ("SourceChanging", TimedOut),
+        ("SourceUnrepresentable", ActionNeeded),
+        ("DeletionApproval", ActionNeeded),
+        ("FindingsPending", ActionNeeded),
+    ] {
+        let reason: WaitReason = name.parse().unwrap();
+        assert_eq!(WaitExit::of(Some(reason)), exit, "{name}");
+        assert_eq!(reason.is_in_progress(), exit == TimedOut, "{name}");
+    }
+    assert_eq!(WaitExit::of(None), Failed);
+    assert_eq!(
+        [Ready, Failed, ActionNeeded, TimedOut].map(WaitExit::code),
+        [0, 1, 2, 3]
+    );
+    let ended = |answer: Value, status| match WaitOutcome::read(&answer)
+        .conclude(status, "--endpoint http://127.0.0.1:4443")
+    {
+        Ok(()) => (Ready, Vec::new()),
+        Err(CliError::Wait(diagnostics, exit)) => (exit, diagnostics.errors),
+        Err(CliError::Diagnostics(diagnostics)) => (Failed, diagnostics.errors),
+        Err(error) => panic!("{error:?}"),
+    };
+    assert_eq!(ended(json!({"reason":"Ready"}), StatusCode::OK).0, Ready);
+    // A wait that the objects it refuses failed exits as one that needs action, with its remedy.
+    let (exit, errors) = ended(
+        json!({"reason":"FindingsPending","findings":{"unmapped":1,"revision":"r"},
+            "remedy":"Rename it: gcs-mimic sync wait --endpoint URL"}),
+        StatusCode::CONFLICT,
+    );
+    assert_eq!(exit, ActionNeeded);
+    assert_eq!(
+        errors[0].fix,
+        "sync wait ended with FindingsPending: Rename it: gcs-mimic sync wait --endpoint http://127.0.0.1:4443"
+    );
+    assert_eq!(
+        ended(json!({"reason":"Timeout"}), StatusCode::REQUEST_TIMEOUT).0,
+        TimedOut
+    );
+    let (exit, errors) = ended(json!({"reason":"Stopped"}), StatusCode::CONFLICT);
+    assert_eq!(
+        (exit, errors[0].fix.as_str()),
+        (Failed, "sync wait ended with Stopped")
+    );
+    let (exit, errors) = ended(
+        json!({"error":{"code":503}}),
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
+    assert_eq!(exit, Failed);
+    assert!(errors[0].fix.contains("HTTP 503"), "{errors:?}");
+    assert_eq!(
+        crate::CliError::Wait(Diagnostics::default(), TimedOut).exit_code(),
+        std::process::ExitCode::from(3)
+    );
+    assert_eq!(
+        crate::CliError::Diagnostics(Diagnostics::default()).exit_code(),
+        std::process::ExitCode::FAILURE
+    );
 }
 
 /// A wait that succeeds names the command that lists the objects the directory cannot hold, in
