@@ -17,7 +17,8 @@ gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
-gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 10s
+gcs-mimic sync wait --endpoint https://127.0.0.1:4443
+gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings true
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
 ```
 
@@ -75,9 +76,9 @@ membership while refreshing current safety findings and revisions. Every read
 rechecks authority and the journal fence; revision-bound
 pages and approval reject an invalidated revision with 409.
 During native quiet settling, wait and rescan remain queued inside the actor.
-Wait observes its original deadline; if quiet has not been established at that
-deadline it reports SourceChanging with HTTP 409. A single CLI invocation waits
-for quiet and observation without client retries. Rescan runs after quiet or the
+A wait request observes its original deadline; if quiet has not been established
+at that deadline it reports SourceChanging with HTTP 409, and the CLI asks again
+while its own `--timeout` leaves time. Rescan runs after quiet or the
 ten-second quiet cap instead of returning an unperformed scan as success.
 Reaching that cap alone never completes wait; another quiet interval runs while
 its original deadline remains fixed. Queued controls survive observer recovery.
@@ -106,11 +107,42 @@ an empty value or a simultaneous new token or token file. The server repeats its
 Google bucket IAM or fixture-administrator authority does not bypass it.
 
 Rescan has a default 30000 ms total network deadline to allow for the ten-second
-quiet cap followed by scanning. Other commands default to 10000 ms, configurable from
-1 through 60000 with `--timeout-ms`, or `--timeout` with an integer `ms`/`s`
-suffix. For `wait` this value is sent as the server's
-observation budget; the client allows an additional one second to receive the
-result. Authorization and request-body preparation use the catalog-wait budget without
+quiet cap followed by scanning. Other commands except `wait` default to 10000 ms,
+configurable from 1 through 60000 with `--timeout-ms`, or `--timeout` with an
+integer `ms`, `s` or `m` suffix.
+
+`wait` defaults to ten minutes and takes up to 60 minutes (`--timeout-ms` up to
+3600000). The default leaves time for a first pass over a local-development tree
+of about a thousand objects, which can take several minutes on a slow bind
+mount. A server observes one request for at most a minute, so the command sends
+requests of at most a minute each, carrying the time left as the server's
+observation budget and allowing one more second to receive the result. It asks
+again only while the answer says the work is still in progress: `Timeout` for
+that request, `SourceChanging`, or `JournalChanged` after a one-second pause.
+Each repeat is an `info` diagnostic on standard error, and standard output keeps
+only the last JSON answer. A pause, findings or conflicts that need action,
+deletions awaiting approval, unrepresentable source entries and stopped work end
+it with the first answer.
+
+A wait succeeds once every change it can reflect is reflected. Objects whose
+names the directory cannot hold stay reachable through the API and do not fail
+it: the answer counts them in `findings.unmapped`, and the command exits 0 and
+prints one warning line on standard error with the ready-to-run command that
+lists them, for example:
+
+```text
+{"event":"diagnostics","level":"warning","diagnostics":[{"source":"cli","key":"sync-findings","fix":"1 object in the API cannot be written to the sync directory because of its name and stays reachable only through the API; list it with gcs-mimic sync status --view findings --revision FINDINGS_REVISION --endpoint https://127.0.0.1:4443"}]}
+```
+
+It prints nothing more when the count is zero. `--require-no-findings true`
+fails such a wait as `FindingsPending` instead; `false`, the default, keeps the
+success. A wait that fails prints an `error` diagnostic with its reason, the
+recorded `paused_reason` for a pause and the remedy with the connection options
+filled in, such as `gcs-mimic sync rescan --endpoint https://127.0.0.1:4443` for
+a pause, `gcs-mimic sync conflicts` for conflicts and
+`gcs-mimic sync status --view deletions` for deletions awaiting approval.
+
+Authorization and request-body preparation use the catalog-wait budget without
 being mistaken for connection inactivity. After parsing authorized input, the
 requested observation budget takes over. Waiting captures a fixed scan/journal fence; unrelated later
 writes do not extend it indefinitely. Deadline checks run between owned
@@ -118,7 +150,7 @@ scan/export/deletion steps; settling
 also observes the deadline. An interrupted scan cannot complete its baseline or
 authorize deletion. The status writeback summary omits the former always-null
 `journal_sequence` and `journal_epoch`; wait exposes its actual `journal_fence`.
-A 408 deadline or 409 stopped result is printed as JSON and returns nonzero.
+A final 408 deadline or 409 stopped result is printed as JSON and returns nonzero.
 A timeout/disconnect does not cancel an
 already accepted scan or publication; inspect status before retrying.
 

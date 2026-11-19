@@ -300,7 +300,11 @@ the file is replaced with the API's bytes and the edit is retained as a
 conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;
 restoring it publishes the edit. Object names containing `\`, and other names
 that cannot be mapped to host file names, are skipped without stopping the
-mirror; they stay available through the API. A name containing `:`, such as
+mirror; they stay available through the API. `gcs-mimic sync wait` succeeds
+past them: it counts them and prints one line with the command that lists them,
+and `--require-no-findings true` makes them fail it instead. A wait asks the
+server again while the directory is still changing, for up to ten minutes by
+default (`--timeout`, at most `60m`). A name containing `:`, such as
 `logs/2026-10-28T12:00:00.log`, becomes a file of the same name wherever the
 directory's filesystem stores colons, which the server checks at startup with no
 setting. Linux local filesystems and APFS store them; the `sync_root_naming` log

@@ -15,7 +15,8 @@ gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
-gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 10s
+gcs-mimic sync wait --endpoint https://127.0.0.1:4443
+gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings true
 gcs-mimic sync resolve --endpoint https://127.0.0.1:4443 --conflict CONFLICT_ID --revision TARGET_REVISION --action restore --expected-generation 123 --operation-id restore-one
 ```
 
@@ -64,9 +65,26 @@ HTTPにこのオプションを指定すると失敗し、TLS検証を省くオ�
 サーバーは現在の同期操作権限を検査し直し、
 通常のバケットIAMやfixture管理者の権限で代用することはできません。
 
-通信期限の既定値はrescanが30000 ms、それ以外が10000 msです。rescanでは静穏待ちの上限10秒と、その後の走査を見込みます。
-`--timeout-ms`に1～60000、または`--timeout`に整数とms・sの接尾辞を指定すると、既定値を置き換えます。
-waitではその値をサーバーの観測期限として送り、応答を受け取るためにCLI側で1秒を追加します。
+通信期限の既定値はrescanが30000 ms、wait以外のコマンドが10000 msです。rescanでは静穏待ちの上限10秒と、その後の走査を見込みます。
+`--timeout-ms`に1～60000、または`--timeout`に整数とms・s・mの接尾辞を指定すると、既定値を置き換えます。
+
+waitの既定値は10分で、60分（`--timeout-ms`では3600000）まで指定できます。
+約1,000件のローカル開発用ツリーを遅いbind mountで初めて照合すると数分かかるため、その時間を見込んだ値です。
+サーバーは1回の要求を最長1分しか観測しないため、CLIは残り時間を観測期限として、1分以内の要求を繰り返し送ります。
+各要求では、応答を受け取るためにCLI側で1秒を追加します。
+問い合わせ直すのは、処理が進行中であることを示す応答のときだけです。
+その要求の期限切れ（`Timeout`）、`SourceChanging`、1秒置いてからの`JournalChanged`が該当します。
+問い合わせ直すたびに標準エラーへ`info`の診断を1行出し、標準出力には最後のJSON応答だけを出します。
+一時停止、対処が必要なfindingや競合、承認待ちの削除、取り込めないソースのエントリ、停止は、最初の応答で終わります。
+
+waitは、反映できる変更をすべて反映した時点で成功します。
+ディレクトリに書き出せない名前のオブジェクトはAPIから使えるため、waitを失敗させません。
+応答の`findings.unmapped`に件数を返し、CLIは終了コード0で、一覧を表示するコマンドを標準エラーへ`warning`の診断として1行出します。
+件数が0なら、何も追加しません。`--require-no-findings true`を付けると、こうしたwaitを`FindingsPending`で失敗させます。既定の`false`では成功のままです。
+失敗したwaitは、理由、一時停止なら記録された`paused_reason`、接続オプションを埋めた対処を`error`の診断で示します。
+例えば一時停止では`gcs-mimic sync rescan --endpoint https://127.0.0.1:4443`、競合では`gcs-mimic sync conflicts`、
+承認待ちの削除では`gcs-mimic sync status --view deletions`を案内します。
+
 認可のDB待ちと本文の準備にはcatalogの待機期限を使い、connectionのinactivityとして扱いません。
 認可済みの本文を読めた後に指定の観測期限へ切り替え、エラーや取消しでも待機保護を解放します。
 観測するscan・journal fenceを固定するため、後から続く無関係な書き込みを待ち続けません。
@@ -77,8 +95,9 @@ statusのwritebackから、常にnullだった`journal_sequence`と`journal_epoc
 削除候補を再計算している間、statusは最後に確定した削除候補を返し、安全上のfindingとrevisionは現在の状態に更新します。
 権限とjournal fenceは読み取りごとに再確認し、古いrevisionでのページ取得や承認は409になります。
 native通知の後は1秒の静穏を待ち、追加通知で待ち直します。上限は10秒です。
-静穏待ちのwaitとrescanはアクター内の有界キューで待ち、CLI側で要求を再試行する必要はありません。
-waitは元の指定期限を保ち、その期限でも静穏が成立していない場合に初めてSourceChangingで409を返します。
+静穏待ちのwaitとrescanはアクター内の有界キューで待ちます。
+waitの要求は元の指定期限を保ち、その期限でも静穏が成立していない場合に初めてSourceChangingで409を返します。
+CLIは、自分の`--timeout`に時間が残っていれば問い合わせ直します。
 rescanは静穏成立か10秒の上限後に実際のscanを行い、実行前に成功扱いにはしません。
 上限でscanを行ってもwaitは完了せず、元の期限を保って次の静穏を待ちます。
 待機中の要求は観測処理の停止・回復をまたいで保持します。
@@ -91,7 +110,7 @@ scanの前後でnative通知を確認し、イベント世代が変わらず未�
 静穏上限より長い操作では、累積が閾値に届く前の少数の自動削除が確定する場合があります。
 schema 49から50への移行は一方向です。更新前に停止したデータディレクトリ全体をbackupしてください。
 移行時の累積数は0から始まり、旧スキーマで既に削除した名前は復元できません。
-期限切れ408、停止中409を含む非成功応答は、JSONを表示して非0で終了します。
+最後の応答が期限切れ408や停止中409などの非成功応答なら、JSONを表示して非0で終了します。
 timeoutや切断の後も、受け付け済みの走査・公開処理が完了する場合があります。
 mutationを自動再送しないため、再試行前にstatusを確認してください。
 

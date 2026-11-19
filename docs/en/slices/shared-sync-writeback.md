@@ -73,7 +73,8 @@ inode number. The pass then handles the file like an unchanged one: it neither
 reports a conflict nor counts the file as deferred, and the export or removal of
 the API change replaces it. Counting it as deferred would keep `sync wait`
 reporting a changing source, and a finding that holds that export back would
-leave the wait to time out instead of reporting the finding.
+leave the wait to time out instead of succeeding and counting the finding in
+its answer.
 
 ## Conflict, cancellation and recovery
 

@@ -1044,16 +1044,17 @@ without authentication and must be identified as such in status.
 
 | Method and path | Request and response |
 | --- | --- |
-| `GET /_internal/sync` | Default summary: authentication mode, state, session ID, findings revision, the observation summary (revision, baseline completeness, tracked objects, mapping findings, pending write-back, path stops, unresolved conflicts, pause and scan-stop reasons, conflict quota usage including workspace bytes/entries and over-limit state), pending-deletion revision/count with the frozen deletion set, `writeback_safety`, and whether conflict resolution and stable waits are available. `view=deletions` or `view=findings` selects the fixed-revision pages defined below. No object bodies or raw filesystem paths. |
+| `GET /_internal/sync` | Default summary: authentication mode, state, session ID, findings revision, the observation summary (revision, baseline completeness, tracked objects, mapping findings with `blocking_findings` and `unmapped_findings`, the parts of them that stop a wait and the objects the tree cannot hold, pending write-back, path stops, unresolved conflicts, pause and scan-stop reasons, conflict quota usage including workspace bytes/entries and over-limit state), pending-deletion revision/count with the frozen deletion set, `writeback_safety`, and whether conflict resolution and stable waits are available. `view=deletions` or `view=findings` selects the fixed-revision pages defined below. No object bodies or raw filesystem paths. |
 | `GET /_internal/sync/conflicts` | `limit` default/max 256, opaque cursor bound to catalog/root and listing revision. Return IDs, logical names, original owner project/incarnation, revisions, generations, reason, size/hashes; no retained-body path. Stale cursor returns 409. |
 | `POST /_internal/sync/approve` | JSON `deletion_set` revision; return accepted operation ID and exact count, or 409 for stale/foreign/replayed revision. |
 | `POST /_internal/sync/resolve` | Registered conflict: JSON `conflict_id`, `revision`, `action` (`restore` or `discard`), `expected_generation` (zero means absent) and `operation_id`; generation/incarnation recheck as above. Unregistered recovery: exclusive `recovery_id`, `revision`, `target_identity`, `action: "discard"`, `confirmation` and `operation_id` as defined above; original-owner authority and explicit confirmation precede deletion. |
 | `POST /_internal/sync/rescan` | Empty JSON object; return coalesced scan revision/operation ID. It requests observation, never approval or an override of a stop. |
-| `POST /_internal/sync/wait` | JSON `timeout_ms`, default 10000, `1..=60000`; capture a requested stable scan plus journal fence and wait for that bounded barrier. Return barrier/revisions/counts or explicit timeout/stopped result. Later unrelated edits do not move the fence forever. |
+| `POST /_internal/sync/wait` | JSON `timeout_ms`, default 10000, `1..=60000`, and an optional boolean `require_no_findings`; capture a requested stable scan plus journal fence and wait for that bounded barrier. Return barrier/revisions/counts with `findings` (`unmapped` and the findings `revision` that lists them, null unless the barrier was observed), `paused_reason` for a pause and the `remedy` for the reason, or an explicit timeout/stopped result. Later unrelated edits do not move the fence forever. |
 
-CLI `approve --deletion-set ID`, `resolve --conflict ID --revision ID --action
-restore|discard --expected-generation N --operation-id ID`, and `wait --timeout
-10s` map exactly to these requests. `status --view deletions|findings --revision
+CLI `approve --deletion-set ID` and `resolve --conflict ID --revision ID --action
+restore|discard --expected-generation N --operation-id ID` map exactly to these
+requests. `wait --timeout 10m --require-no-findings true` sends wait requests of
+at most a minute each until its own deadline, as described below. `status --view deletions|findings --revision
 ID --limit N --cursor ID` maps to the GET query; listing accepts the same page
 limit/cursor flags. Recovery resolve uses the exclusive recovery form and explicit
 confirmation flags above. Omit `--view` for the summary.
@@ -1066,7 +1067,9 @@ and wait return 200, wait deadline 408 and an existing stop 409. A rescan that
 fails and leaves synchronization paused answers 409 with the `paused_reason`, the
 cause and the remedy, and an approval while paused answers 409 and asks for a
 rescan first; neither answers 503, which would invite a blind retry. The CLI exits
-nonzero on errors, timeout or stopped work and prints actionable diagnostics.
+nonzero on errors, timeout or stopped work and prints actionable diagnostics; a
+wait that ends for another reason than `Ready` names it, with the recorded
+`paused_reason` for a pause, and the remedy with the connection options filled in.
 Control requests have no count limit. A command waits for the mirror's one-command queue
 within its own deadline: the requested `timeout_ms` for a wait, which still answers 408, and
 `object_request_timeout_ms` for the others. The mirror stopping closes the queue and wakes them,
@@ -1113,11 +1116,43 @@ before/after recreating that name in another project. A fully authorized caller
 still gets 409 when restore targets a different bucket incarnation.
 
 `wait` forces a complete stable scan of preceding external edits and applies
-API changes through its captured journal fence, including a post-scan fence;
-completion requires no unresolved work/stops within that barrier. A writer that
-never settles yields timeout. A successful wait is not a permanent quiescence
-claim. Shutdown wakes waiters and drains accepted side effects before releasing
-locks. CLI users can write a file, wait, then read through the API.
+API changes through its captured journal fence, including a post-scan fence.
+It succeeds once every change it can reflect is reflected; the first of these
+that remains ends it instead:
+
+| Remains after the barrier | `reason` |
+| --- | --- |
+| A pause, which ends the wait at once; the answer adds `paused_reason` | `Paused` |
+| The wait's deadline passed | `Timeout` (408) |
+| A path still settling, or an export skipped for a busy file that waits for its retry | `SourceChanging` |
+| An unsafe or unmappable entry this scan found in the tree, also after the baseline completed | `SourceUnrepresentable` |
+| A guarded deletion set awaiting approval | `DeletionApproval` |
+| A finding whose kind stops a wait (an export that met an edited file), an unresolved conflict, a path stop, unfinished write-back or a write-back state other than `Ready` | `FindingsPending` |
+| Nothing above | `Ready` (200) |
+
+Objects whose names the tree cannot hold, such as a backslash, a component
+longer than the host allows, a file and directory of one name or a case alias,
+stay reachable through the API and do not stop a wait: a `Ready` answer counts
+them in `findings.unmapped` with the findings `revision` that lists them. Names
+the tree ignores, such as `.DS_Store`, are neither counted nor stop it. With
+`require_no_findings: true`, a `Ready` wait that counts any becomes
+`FindingsPending`; the decision is the control's, and the mirror's barrier is the
+same either way. Every answer other than `Ready`, `Timeout`, `Stopped` and
+`JournalChanged` carries the `remedy` for its reason, with `--endpoint URL` for
+the client to fill in. A writer that never settles yields timeout. A successful
+wait is not a permanent quiescence claim. Shutdown wakes waiters and drains
+accepted side effects before releasing locks. CLI users can write a file, wait,
+then read through the API.
+
+A server observes one wait request for at most a minute. `gcs-mimic sync wait`
+therefore sends requests of at most a minute each, with the time left of its own
+`--timeout`, which defaults to ten minutes and takes up to an hour. It asks again
+only while the answer says the work is still in progress, `Timeout`,
+`SourceChanging` or, after a one-second pause, `JournalChanged`, and reports each
+repeat on standard error; a pause, findings, an approval or a stop end it at once.
+A `Ready` answer that counts unmapped objects exits 0 and prints one warning with
+the ready-to-run `gcs-mimic sync status --view findings` command that lists them;
+it prints nothing when the count is zero.
 
 ## Stops, findings and remedies
 
@@ -1155,7 +1190,7 @@ Each kind of stop has its own exhaustive type; no single type covers them all:
 | `retrying` | `Retrying`. |
 | `paused` | `ConflictCapacity`, `IoFailure` or `RecoveryRequired` for that recorded reason; otherwise `Paused`, also for a pause the mirror failed to record. |
 | `stopped` | `Stopped`. |
-| `running` | The first that holds: a recorded pause, named as for `paused`; the write-back state other than `Ready`; the scan stop; `Observing` without a complete baseline; `DeletionApproval` while a guarded deletion set waits; `FindingsPending` while findings, path stops, pending write-back or unresolved conflicts remain; otherwise `Ready`. |
+| `running` | The first that holds: a recorded pause, named as for `paused`; the write-back state other than `Ready`; the scan stop; `Observing` without a complete baseline; `DeletionApproval` while a guarded deletion set waits; `FindingsPending` while findings that stop a wait (`blocking_findings`), path stops, pending write-back or unresolved conflicts remain; otherwise `Ready`, also while `unmapped_findings` counts objects the tree cannot hold. |
 
 Distinguish a whole-root pause, a blocked path and a nonblocking finding. Emit
 structured stderr events on transitions, not on every repeated observation.
