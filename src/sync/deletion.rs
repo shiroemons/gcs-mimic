@@ -61,9 +61,15 @@ pub(super) async fn inventory_with(
     let guard = Guard::from(config.sync_delete_guard);
     let mut inventory = root.begin_deletion_inventory(guard).await?;
     loop {
-        let Some(counted) = count_candidates(root, &mut inventory, interrupt).await? else {
+        let mut unobserved = Unobserved::default();
+        let Some(counted) =
+            count_candidates(root, &mut inventory, interrupt, &mut unobserved).await?
+        else {
             return Ok(None);
         };
+        if counted == Confirmed::Same {
+            unobserved.warn();
+        }
         let new_set = inventory.writes_new_set();
         if counted == Confirmed::Same
             && let Some(set) = root.finish_deletion_inventory(inventory.clone()).await?
@@ -152,6 +158,7 @@ async fn count_candidates(
     root: &RootLease,
     inventory: &mut crate::storage::sync_state::deletions::Inventory,
     interrupt: Interrupt<'_>,
+    unobserved: &mut Unobserved,
 ) -> Result<Option<Confirmed>, SyncError> {
     let naming = root.naming()?;
     let mut after = String::new();
@@ -190,7 +197,9 @@ async fn count_candidates(
                     missing.push(missing_file);
                 }
                 Presence::Present => {}
-                Presence::Unobservable(reason) => unobservable(root, &candidate, &reason).await?,
+                Presence::Unobservable(reason) => {
+                    unobservable(root, &candidate, &reason, unobserved).await?;
+                }
             }
         }
         if record_missing(root, inventory, baseline, missing).await? == Confirmed::Diverged {
@@ -259,26 +268,71 @@ pub(super) async fn bucket_directory_held(
         && root.inventories_in(bucket).await?)
 }
 
-/// Reports a tracked file whose path tells nothing about it. Its object is not deleted, and the
+/// Counts a tracked file whose path tells nothing about it. Its object is not deleted, and the
 /// inventory goes on with the others. A file replaced by a directory or a special file also
 /// stops its own path, where the findings name it until the path is empty or regular again.
 async fn unobservable(
     root: &RootLease,
     candidate: &Candidate,
     reason: &Unobservable,
+    unobserved: &mut Unobserved,
 ) -> Result<(), SyncError> {
     if reason.stops_path() {
         record_replaced(root, &candidate.bucket, &candidate.name).await?;
     }
-    diagnostics::emit(
-        LogLevel::Warn,
-        "sync_deletion_unobservable",
-        serde_json::json!({
-            "bucket":candidate.bucket,"object":candidate.name,"path":candidate.path,
-            "reason":reason.to_string(),"remedy":reason.remedy(),
-        }),
-    );
+    unobserved.record(candidate, reason);
     Ok(())
+}
+
+/// The tracked paths one inventory could not observe: how many, and the first few with their
+/// reasons and remedies. Every inventory meets a path again while it stays unobservable, and a
+/// warning for each on every pass buried the rest of the log, so an inventory warns once.
+#[derive(Debug, Default)]
+struct Unobserved {
+    count: u64,
+    first: Vec<UnobservedPath>,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+struct UnobservedPath {
+    bucket: BucketName,
+    object: crate::storage::admin::ObjectName,
+    path: String,
+    reason: String,
+    remedy: &'static str,
+}
+
+impl Unobserved {
+    /// Paths the warning names; the rest are only counted.
+    const NAMED: usize = 10;
+
+    fn record(&mut self, candidate: &Candidate, reason: &Unobservable) {
+        self.count += 1;
+        if self.first.len() < Self::NAMED {
+            self.first.push(UnobservedPath {
+                bucket: candidate.bucket.clone(),
+                object: candidate.name.clone(),
+                path: candidate.path.clone(),
+                reason: reason.to_string(),
+                remedy: reason.remedy(),
+            });
+        }
+    }
+
+    /// Warns about the paths, if there were any, in one line.
+    fn warn(&self) {
+        if self.count == 0 {
+            return;
+        }
+        let named = u64::try_from(self.first.len()).unwrap_or(u64::MAX);
+        diagnostics::emit(
+            LogLevel::Warn,
+            "sync_deletion_unobservable",
+            serde_json::json!({
+                "count":self.count,"paths":self.first,"omitted":self.count.saturating_sub(named),
+            }),
+        );
+    }
 }
 
 /// Stops the path of `name`, whose tracked file a directory or special file replaced. A bucket

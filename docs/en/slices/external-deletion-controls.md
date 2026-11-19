@@ -42,8 +42,9 @@ Each tracked path is looked at on its own without following links. A path that
 tells nothing about its file (deeper than `max_sync_depth`, a name the file
 system refuses, a non-directory above it, a differently spelled entry, an
 unreadable path, or a directory or special file in the file's place) keeps its
-own object out of the set and logs `sync_deletion_unobservable` with a remedy;
-the inventory goes on with the other paths. A directory or special file that
+own object out of the set, and the inventory goes on with the other paths. Each
+complete inventory logs such paths in one `sync_deletion_unobservable` warning:
+their count and the first ten, each with its reason and remedy. A directory or special file that
 replaced a tracked file also stops that one path as `EntryReplaced`, in exports
 and inventories alike, until the path is empty or holds a regular file again;
 the root keeps running. An untracked one stays a mapping finding. The directory

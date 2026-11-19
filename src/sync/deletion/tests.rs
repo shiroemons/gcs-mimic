@@ -157,6 +157,52 @@ async fn applied_deletions_name_the_first_paths_and_count_the_rest() {
     catalog.close().await.unwrap();
 }
 
+/// An inventory gathers the paths it could not observe into one bounded warning instead of one
+/// for each path on every pass, and keeps each path out of the set as before.
+#[tokio::test]
+async fn an_inventory_names_the_first_unobservable_paths_and_counts_the_rest() {
+    let (_data, tree, catalog, root, _config) = fixture(12).await;
+    for index in 0..12 {
+        let path = tree.0.join(format!("test-bucket/{index:04}"));
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+    }
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let mut inventory = root.begin_deletion_inventory(Guard::Enabled).await.unwrap();
+    let mut unobserved = Unobserved::default();
+    let counted = count_candidates(
+        &root,
+        &mut inventory,
+        Interrupt::new(&stopping),
+        &mut unobserved,
+    )
+    .await
+    .unwrap();
+    assert_eq!(counted, Some(Confirmed::Same));
+    assert_eq!(unobserved.count, 12);
+    assert_eq!(
+        unobserved
+            .first
+            .iter()
+            .map(|path| (path.path.as_str(), path.reason.as_str()))
+            .collect::<Vec<_>>(),
+        (0..Unobserved::NAMED)
+            .map(|index| format!("test-bucket/{index:04}"))
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|path| (path.as_str(), Unobservable::Replaced.as_str()))
+            .collect::<Vec<_>>()
+    );
+    let set = root
+        .finish_deletion_inventory(inventory)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(set.candidate_count, 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate() {
     let (_data, tree, catalog, root, config) = fixture(1).await;
