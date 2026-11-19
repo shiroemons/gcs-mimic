@@ -113,8 +113,10 @@ impl Unrepresentable {
     }
 }
 
-/// The JSON keeps the total as `unrepresentable`, which earlier clients read, beside the API's
-/// side as `unmapped_objects`, and the entries that could not be read as `unreadable`.
+/// The JSON keeps the total as `unrepresentable`, which earlier clients read, beside each side:
+/// the API's as `unmapped_objects` and the tree's as `unrepresentable_entries`, the count that
+/// holds back the baseline and deletions. The entries that could not be read are `unreadable`,
+/// apart from all three.
 impl serde::Serialize for Unrepresentable {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         #[derive(serde::Serialize)]
@@ -122,11 +124,13 @@ impl serde::Serialize for Unrepresentable {
             unrepresentable: u64,
             unreadable: u64,
             unmapped_objects: u64,
+            unrepresentable_entries: u64,
         }
         Counts {
             unrepresentable: self.total(),
             unreadable: self.entries.unreadable(),
             unmapped_objects: self.unmapped_objects,
+            unrepresentable_entries: self.entries.unrepresentable(),
         }
         .serialize(serializer)
     }
@@ -466,18 +470,23 @@ mod tests {
     }
 
     /// The JSON keeps `unrepresentable`, which earlier clients read, as the sum of both sides,
-    /// and counts the entries that could not be read apart from it.
+    /// and names each side. A deleted bucket's directory is one of the tree's entries, and
+    /// `blocked_buckets` counts it again only as a breakdown of them. The entries that could not
+    /// be read count apart from all three.
     #[test]
     fn the_json_total_is_the_sum_of_both_sides() {
         let mut pass = with_unreadable(Reconciliation::default());
         pass.count_unmapped_object();
         pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
-        pass.count_unrepresentable_entry(Path::new("bad name"), EntryProblem::UnmappableName);
+        pass.count_unrepresentable_entry(Path::new("deleted"), EntryProblem::DeletedBucket);
+        pass.blocked_buckets += 1;
         let json = serde_json::to_value(&pass).unwrap();
         assert_eq!(json["unrepresentable"], 3);
         assert_eq!(json["unreadable"], 1);
         assert_eq!(json["unmapped_objects"], 1);
+        assert_eq!(json["unrepresentable_entries"], 2);
         assert_eq!(pass.unrepresentable_entries().get(), 2);
+        assert_eq!(json["blocked_buckets"], 1);
     }
 
     /// A pass with one working-tree entry, which holds back both decisions.

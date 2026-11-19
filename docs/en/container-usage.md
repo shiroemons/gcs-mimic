@@ -293,7 +293,9 @@ cannot become a file, described below, never holds back these deletions. An
 entry in the directory that cannot become an object, such as a symlink or a file
 left in the directory of a bucket deleted through the API, holds back every
 deletion until it is moved away, because the missing file may be there; the
-rescan result counts it and the log names it. A regular file directly in the
+rescan result counts it as `unrepresentable_entries`, apart from the objects the
+directory cannot hold (`unmapped_objects`; `unrepresentable` is their sum), and
+the log names it. A regular file directly in the
 directory, such as a `README.md` or `.gitkeep`, belongs to no bucket: it is
 skipped with one `sync_skipped` warning and holds nothing back, and files named
 like `.DS_Store` are skipped silently. A directory put where a synchronized

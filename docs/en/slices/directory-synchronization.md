@@ -330,8 +330,10 @@ after API deletion. A directory with a known but absent API bucket is skipped,
 counted as `blocked_buckets` and diagnosed with a remedy: remove/move the
 directory or explicitly recreate the API bucket. Other buckets continue. While it
 holds an entry other than an ignored name, it is also an entry no object can
-take, which stops inferred deletions; an empty one holds nothing back and stays
-in place. Observing
+take, which stops inferred deletions and counts once among
+`unrepresentable_entries`; `blocked_buckets` breaks that count down, and the
+entries below the directory are not counted. An empty one holds nothing back and
+stays in place. Observing
 the directory absent clears only that observation, permitting deliberate later
 directory recreation; it never deletes a bucket or object and never runs `rmdir`.
 Per-path read/access failures are logged with a relative path and a

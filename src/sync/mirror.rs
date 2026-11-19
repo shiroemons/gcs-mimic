@@ -72,6 +72,9 @@ pub struct Reconciliation {
     pub source_changing: bool,
     pub interrupted: bool,
     pub ingested: u64,
+    /// The directories of buckets deleted through the API that still hold entries. Each is also
+    /// one of the tree's unrepresentable entries, and the entries below it are not counted, so
+    /// this only breaks that count down.
     pub blocked_buckets: u64,
     pub exported: u64,
     pub identical: u64,
