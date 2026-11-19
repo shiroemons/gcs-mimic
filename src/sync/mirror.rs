@@ -2,7 +2,7 @@
 use super::MirrorState;
 use super::control::PauseChange;
 use super::control::{Command, ControlError, Reply};
-use super::entries::EntryProblem;
+use super::entries::{EntryClass, EntryProblem, classify};
 use super::error::StoppedRescan;
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
@@ -2378,39 +2378,25 @@ async fn external_files(
             if interrupt.check() != Interrupted::No {
                 return Ok(());
             }
-            if let Some(kind) = entry.error {
-                if kind == io::ErrorKind::ResourceBusy {
-                    return Err(io::Error::from(kind).into());
+            match classify(&entry, naming) {
+                EntryClass::Unreadable(io::ErrorKind::ResourceBusy) => {
+                    return Err(io::Error::from(io::ErrorKind::ResourceBusy).into());
                 }
-                counts.count_unrepresentable_entry(&entry.path, EntryProblem::Unreadable);
-                continue;
-            }
-            if entry.directory {
-                continue;
-            }
-            if entry.identity.is_some() {
-                let known = match mapping::path_to_name(&entry.path, naming) {
-                    Ok((bucket, object)) => match admin.get_object(&bucket, &object, None).await {
-                        Ok(_) => true,
-                        Err(AdminError::NotFound) => false,
+                EntryClass::Unreadable(_) => {
+                    counts.count_unrepresentable_entry(&entry.path, EntryProblem::Unreadable);
+                }
+                EntryClass::Bucket(_) | EntryClass::Directory => {}
+                EntryClass::Skipped(skip) => counts.count_skipped(&entry.path, skip),
+                EntryClass::Unrepresentable(problem) => {
+                    counts.count_unrepresentable_entry(&entry.path, problem);
+                }
+                EntryClass::File(file) => {
+                    match admin.get_object(&file.bucket, &file.name, None).await {
+                        Ok(_) => {}
+                        Err(AdminError::NotFound) => counts.external_only += 1,
                         Err(error) => return Err(error.into()),
-                    },
-                    Err(_) => false,
-                };
-                if !known {
-                    if entry
-                        .path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(crate::source_tree::is_ignored_regular_file)
-                    {
-                        counts.ignored += 1;
-                    } else {
-                        counts.external_only += 1;
                     }
                 }
-            } else {
-                counts.count_unrepresentable_entry(&entry.path, EntryProblem::UnsafeEntry);
             }
         }
     }

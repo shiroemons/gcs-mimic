@@ -6,7 +6,10 @@
 //! one unexportable name.
 
 use super::{EntryReportSender, Reconciliation};
-use crate::{storage::sync_state::root::Baseline, sync::entries::EntryProblem};
+use crate::{
+    storage::sync_state::root::Baseline,
+    sync::entries::{EntryProblem, Skip},
+};
 use std::path::Path;
 
 /// Working-tree entries that a pass could not take in: an unsafe or unmappable entry, a file that
@@ -125,6 +128,16 @@ impl Reconciliation {
     ) {
         self.unrepresentable += 1;
         self.entries.record(path, problem);
+    }
+
+    /// Counts a regular file the pass passed over, which holds nothing back. A file directly in
+    /// the root is named too, so that the mirror warns about it.
+    pub(in crate::sync) fn count_skipped(&mut self, path: &Path, skip: Skip) {
+        self.ignored += 1;
+        match skip {
+            Skip::IgnoredName => {}
+            Skip::RootFile => self.entries.record_root_file(path),
+        }
     }
 
     /// The working-tree entries among `unrepresentable`: what a wait reports as an

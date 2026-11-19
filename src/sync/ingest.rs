@@ -1,9 +1,9 @@
 use super::interrupt::{Interrupt, Interrupted};
-use super::tree::{TreeEntry as Entry, TreeScan as Scan};
+use super::tree::TreeScan as Scan;
 use super::{
     Pass, SyncError,
     deletion::Presence,
-    entries::EntryProblem,
+    entries::{EntryClass, EntryProblem, MappedFile, classify},
     mapping,
     mirror::Reconciliation,
     naming::RootNaming,
@@ -234,19 +234,26 @@ pub(super) async fn rescan_with(
             if blocked.iter().any(|path| entry.path.starts_with(path)) {
                 continue;
             }
-            if let Some(error) = entry.error {
-                ingest.defer(&entry.path, error);
-                continue;
-            }
-            if entry.directory {
-                if ingest.bucket_directory(&entry).await? == BucketDirectory::Blocked {
-                    scan.skip(&entry.path);
-                    blocked.push(entry.path.clone());
+            match classify(&entry, ingest.naming) {
+                EntryClass::Unreadable(kind) => ingest.defer(&entry.path, kind),
+                EntryClass::Bucket(bucket) => {
+                    if ingest.bucket_directory(&entry.path, bucket).await?
+                        == BucketDirectory::Blocked
+                    {
+                        scan.skip(&entry.path);
+                        blocked.push(entry.path);
+                    }
                 }
-                continue;
-            }
-            if let Some(candidate) = ingest.candidate(entry).await? {
-                candidates.push(candidate);
+                EntryClass::Directory => {}
+                EntryClass::Skipped(skip) => ingest.summary.count_skipped(&entry.path, skip),
+                EntryClass::Unrepresentable(problem) => {
+                    ingest.unrepresentable(&entry.path, problem);
+                }
+                EntryClass::File(file) => {
+                    if let Some(candidate) = ingest.candidate(entry.path, file).await? {
+                        candidates.push(candidate);
+                    }
+                }
             }
         }
         // Stable files need no timer or body read; one quiet interval covers changed candidates.
@@ -399,20 +406,23 @@ impl Ingest<'_> {
         );
     }
 
-    async fn bucket_directory(&mut self, entry: &Entry) -> Result<BucketDirectory, SyncError> {
-        if entry.path.components().count() != 1 {
-            return Ok(BucketDirectory::Ready);
+    /// Counts an entry no object can take, and names an unsafe one in the log.
+    fn unrepresentable(&mut self, path: &std::path::Path, problem: EntryProblem) {
+        self.summary.count_unrepresentable_entry(path, problem);
+        if problem == EntryProblem::UnsafeEntry {
+            diagnostics::emit(
+                LogLevel::Warn,
+                "sync_unsafe_entry",
+                serde_json::json!({"path":path,"remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}),
+            );
         }
-        let Some(text) = entry.path.to_str() else {
-            self.summary
-                .count_unrepresentable_entry(&entry.path, EntryProblem::UnmappableName);
-            return Ok(BucketDirectory::Ready);
-        };
-        let Ok(bucket) = BucketName::new(text) else {
-            self.summary
-                .count_unrepresentable_entry(&entry.path, EntryProblem::UnmappableName);
-            return Ok(BucketDirectory::Ready);
-        };
+    }
+
+    async fn bucket_directory(
+        &mut self,
+        path: &std::path::Path,
+        bucket: BucketName,
+    ) -> Result<BucketDirectory, SyncError> {
         if self
             .root
             .ensure_sync_bucket(&bucket, &self.config.seed_project)
@@ -427,12 +437,12 @@ impl Ingest<'_> {
         }
         self.summary.blocked_buckets += 1;
         self.summary
-            .count_unrepresentable_entry(&entry.path, EntryProblem::DeletedBucket);
+            .count_unrepresentable_entry(path, EntryProblem::DeletedBucket);
         diagnostics::emit(
             LogLevel::Warn,
             "sync_bucket_missing",
             serde_json::json!({
-                "path":entry.path,"reason":"The previously synchronized bucket was deleted through the API",
+                "path":path,"reason":"The previously synchronized bucket was deleted through the API",
                 "remedy":"Remove or move this directory, or recreate the bucket through the API (for example, create the same bucket name in the intended project); then request another rescan"
             }),
         );
@@ -440,30 +450,17 @@ impl Ingest<'_> {
     }
 
     /// Selects a regular file whose observed state differs from its tracked fingerprint;
-    /// `None` means it is unchanged or was counted as ignored, unrepresentable or deferred.
-    async fn candidate(&mut self, entry: Entry) -> Result<Option<Candidate>, SyncError> {
-        let (bucket, name) = match mapping::path_to_name(&entry.path, self.naming) {
-            Ok(mapped) => mapped,
-            Err(mapping::Reason::Ignored) => {
-                self.summary.ignored += 1;
-                return Ok(None);
-            }
-            Err(_) => {
-                self.summary
-                    .count_unrepresentable_entry(&entry.path, EntryProblem::UnmappableName);
-                return Ok(None);
-            }
-        };
-        let Some(identity) = entry.identity else {
-            self.summary
-                .count_unrepresentable_entry(&entry.path, EntryProblem::UnsafeEntry);
-            diagnostics::emit(
-                LogLevel::Warn,
-                "sync_unsafe_entry",
-                serde_json::json!({"path":entry.path,"remedy":"Replace the symlink or special file with a regular file; for example, copy its intended bytes into a new regular file"}),
-            );
-            return Ok(None);
-        };
+    /// `None` means it is unchanged or was counted as unrepresentable or deferred.
+    async fn candidate(
+        &mut self,
+        path: PathBuf,
+        file: MappedFile,
+    ) -> Result<Option<Candidate>, SyncError> {
+        let MappedFile {
+            bucket,
+            name,
+            identity,
+        } = file;
         let state = self.catalog.sync_state();
         let binding = match self.root.sync_binding(&bucket).await {
             Ok(binding) => binding,
@@ -473,14 +470,13 @@ impl Ingest<'_> {
             }
             Err(error) => return Err(error.into()),
         };
-        let path = entry
-            .path
+        let text = path
             .to_str()
             .ok_or(SyncError::Invariant("invalid sync path"))?
             .to_owned();
         // The tracked state's lookup checks the same spelling, so this fails exactly where it would.
-        let key = SyncPath::try_from(path.clone())?;
-        let tracked = match state.get_path(binding.clone(), path).await {
+        let key = SyncPath::try_from(text.clone())?;
+        let tracked = match state.get_path(binding.clone(), text).await {
             Ok(tracked) => tracked,
             Err(AdminError::NotFound | AdminError::Precondition) => {
                 self.summary.deferred += 1;
@@ -492,7 +488,7 @@ impl Ingest<'_> {
             let unchanged = match TrackedCheck::new(&tracked.fingerprint, identity) {
                 TrackedCheck::Unchanged => true,
                 TrackedCheck::Hash => match self
-                    .hash_tracked(&entry.path, identity, tracked, &binding, &name)
+                    .hash_tracked(&path, identity, tracked, &binding, &name)
                     .await?
                 {
                     HashCheck::Recorded => {
@@ -516,16 +512,16 @@ impl Ingest<'_> {
         };
         if super::mirror::hierarchy_collision(&self.admin, &bucket, &name).await? {
             self.summary
-                .count_unrepresentable_entry(&entry.path, EntryProblem::PathCollision);
+                .count_unrepresentable_entry(&path, EntryProblem::PathCollision);
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_path_collision",
-                serde_json::json!({"path":entry.path,"remedy":"Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"}),
+                serde_json::json!({"path":path,"remedy":"Rename the external file or the API object so a file is not also a parent directory; for example, use files/object instead of files"}),
             );
             return Ok(None);
         }
         Ok(Some(Candidate {
-            path: entry.path,
+            path,
             key,
             identity,
             bucket,

@@ -13,7 +13,7 @@ fn unexportable_name() -> String {
     "x".repeat(300)
 }
 
-async fn exists(catalog: &Catalog, bucket: &BucketName, name: &str) -> bool {
+pub(super) async fn exists(catalog: &Catalog, bucket: &BucketName, name: &str) -> bool {
     match catalog
         .admin(Origin::Api)
         .get_object(bucket, &ObjectName::new(name).unwrap(), None)
@@ -25,7 +25,8 @@ async fn exists(catalog: &Catalog, bucket: &BucketName, name: &str) -> bool {
     }
 }
 
-async fn ingest(
+/// One live ingestion pass, as a native event or a rescan request starts it.
+pub(super) async fn ingest(
     catalog: &Catalog,
     root: &RootLease,
     status: &Lifecycle,
@@ -49,7 +50,7 @@ async fn ingest(
     .unwrap()
 }
 
-const COMPLETE: BaselineProgress = BaselineProgress {
+pub(super) const COMPLETE: BaselineProgress = BaselineProgress {
     gate: BaselineGate::Allowed,
     complete: true,
 };

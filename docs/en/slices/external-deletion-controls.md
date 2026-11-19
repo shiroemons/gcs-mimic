@@ -24,7 +24,14 @@ went, so it stops the baseline and the inventory until it is gone. So do an
 interrupted pass, deferred or conflicting files, and files no object accounts
 for yet, such as the new name of a renamed file. The mirror
 keeps the first 256 such paths and the count of the rest in memory; the control
-status does not list them yet. An
+status does not list them yet. A regular file directly in the root, such as a
+`README.md` or a `.gitkeep`, belongs to no bucket: it is counted as ignored,
+logged once as `sync_skipped` while it stays, and holds nothing back, as
+seeding skips one. An ignored operating-system or editor name, such as
+`.DS_Store`, skips only a regular file, anywhere in the tree; a symlink or
+special file so named is an unsafe entry, and a directory so named is traversed.
+Ingestion and reconciliation classify every entry through one function, so
+they cannot disagree about which entries hold anything back. An
 API object the tree cannot hold, such as a name the file system rejects or one
 deeper than `max_sync_depth`, is a mapping finding. It has no file that could
 look deleted, so it neither keeps the baseline open nor stops the deletion of

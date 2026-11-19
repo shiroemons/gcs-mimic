@@ -169,24 +169,54 @@ impl Default for MirrorStatusSender {
 /// instead of the [`MirrorStatusSender`], so that only the mirror's outer loop changes the
 /// mirror's state.
 #[derive(Clone, Debug)]
-pub(crate) struct EntryReportSender(watch::Sender<Arc<EntryReport>>);
+pub(crate) struct EntryReportSender {
+    report: watch::Sender<Arc<EntryReport>>,
+    /// Every root file warned about, in order, so that a test sees how often each was.
+    #[cfg(test)]
+    warned: std::sync::Arc<std::sync::Mutex<Vec<std::path::PathBuf>>>,
+}
 
 impl Default for EntryReportSender {
     fn default() -> Self {
-        Self(watch::Sender::new(Arc::default()))
+        Self {
+            report: watch::Sender::new(Arc::default()),
+            #[cfg(test)]
+            warned: std::sync::Arc::default(),
+        }
     }
 }
 
 impl EntryReportSender {
-    /// Replaces the entries of the previous complete scan with those of `report`.
+    /// Replaces the entries of the previous complete scan with those of `report`, and warns
+    /// about each file skipped directly in the root that the previous complete scan did not
+    /// skip, so a file that stays is warned about once.
     pub(crate) fn report(&self, report: EntryReport) {
-        self.0.send_if_modified(|current| {
+        let mut found = Vec::new();
+        self.report.send_if_modified(|current| {
+            found = report.root_files_since(current);
             if **current == report {
                 return false;
             }
             *current = Arc::new(report);
             true
         });
+        for path in found {
+            super::entries::warn_root_file(&path);
+            #[cfg(test)]
+            self.warned
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(path);
+        }
+    }
+
+    /// The root files warned about so far, in order.
+    #[cfg(test)]
+    pub(crate) fn warned_root_files(&self) -> Vec<std::path::PathBuf> {
+        self.warned
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -199,7 +229,7 @@ impl MirrorStatusSender {
     pub(crate) fn subscribe(&self) -> MirrorStatus {
         MirrorStatus {
             current: self.current.subscribe(),
-            entries: self.entries.0.subscribe(),
+            entries: self.entries.report.subscribe(),
             #[cfg(test)]
             entered: std::sync::Arc::clone(&self.entered),
         }

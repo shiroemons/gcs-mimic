@@ -1,8 +1,125 @@
-//! The working-tree entries a scan could not take in, by path. They hold back the baseline and
-//! deletion detection for the whole root, so a count alone left a user searching the tree for
-//! what to fix; the list names them, up to a bound, and is rebuilt by every complete scan.
+//! What a scan makes of each working-tree entry, and the entries it could not take in, by path.
+//! Those hold back the baseline and deletion detection for the whole root, so a count alone left
+//! a user searching the tree for what to fix; the list names them, up to a bound, and is rebuilt
+//! by every complete scan.
 
-use std::path::{Path, PathBuf};
+use super::{mapping, naming::RootNaming, tree::TreeEntry};
+use crate::{
+    diagnostics::{self, LogLevel},
+    fsutil::FileIdentity,
+    storage::admin::{BucketName, ObjectName},
+};
+use std::{
+    collections::HashSet,
+    ffi::OsStr,
+    io,
+    path::{Path, PathBuf},
+};
+
+/// What a scan makes of one working-tree entry. Ingestion and the reconciliation's count of
+/// external files both take it from [`classify`] and only count it, so they cannot disagree about
+/// an entry: a root-level `.DS_Store` once held back ingestion's deletion detection while the
+/// reconciliation counted it as ignored.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EntryClass {
+    /// A directory directly in the root, which holds one bucket's objects.
+    Bucket(BucketName),
+    /// A directory below a bucket's, which the scan descends into.
+    Directory,
+    /// A regular file whose path names an object.
+    File(MappedFile),
+    /// A regular file no object is made from, which holds nothing back.
+    Skipped(Skip),
+    /// An entry that could not be read this time.
+    Unreadable(io::ErrorKind),
+    /// An entry no object can take, where a missing tracked file may have gone.
+    Unrepresentable(EntryProblem),
+}
+
+/// A regular file and the object its path names.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MappedFile {
+    pub(crate) bucket: BucketName,
+    pub(crate) name: ObjectName,
+    /// What the scan observed of the file.
+    pub(crate) identity: FileIdentity,
+}
+
+/// Why a scan passes over a regular file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Skip {
+    /// An operating-system or editor file, which no object is made from wherever it lies.
+    IgnoredName,
+    /// A file directly in the root, where only bucket directories belong, such as a `README.md`
+    /// or a `.gitkeep`. Its path names no object, and a synchronized file moved there has left
+    /// the buckets as one moved out of the root has, so it holds nothing back.
+    RootFile,
+}
+
+/// Classifies one entry of a tree scan. Ignored names are checked before name mapping and only
+/// for regular files: a directory named like an editor file is traversed, and a symlink so named
+/// is as unsafe as any other.
+pub(crate) fn classify(entry: &TreeEntry, naming: RootNaming) -> EntryClass {
+    match (entry.error, entry.directory, entry.identity) {
+        (Some(kind), ..) => EntryClass::Unreadable(kind),
+        (None, true, _) => directory(&entry.path),
+        (None, false, None) => EntryClass::Unrepresentable(EntryProblem::UnsafeEntry),
+        (None, false, Some(identity)) => regular_file(&entry.path, identity, naming),
+    }
+}
+
+fn directory(path: &Path) -> EntryClass {
+    if path.components().count() != 1 {
+        return EntryClass::Directory;
+    }
+    match path.to_str().map(BucketName::new) {
+        Some(Ok(bucket)) => EntryClass::Bucket(bucket),
+        Some(Err(_)) | None => EntryClass::Unrepresentable(EntryProblem::UnmappableName),
+    }
+}
+
+fn regular_file(path: &Path, identity: FileIdentity, naming: RootNaming) -> EntryClass {
+    if path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(crate::source_tree::is_ignored_regular_file)
+    {
+        return EntryClass::Skipped(Skip::IgnoredName);
+    }
+    if path.components().count() == 1 {
+        return EntryClass::Skipped(Skip::RootFile);
+    }
+    match mapping::path_to_name(path, naming) {
+        Ok((bucket, name)) => EntryClass::File(MappedFile {
+            bucket,
+            name,
+            identity,
+        }),
+        // The mapping repeats the check of the file's own name made above.
+        Err(mapping::Reason::Ignored) => EntryClass::Skipped(Skip::IgnoredName),
+        Err(
+            mapping::Reason::InvalidName
+            | mapping::Reason::HostRestriction
+            | mapping::Reason::Reserved
+            | mapping::Reason::Collision
+            | mapping::Reason::UnsafeEntry,
+        ) => EntryClass::Unrepresentable(EntryProblem::UnmappableName),
+    }
+}
+
+/// Warns about a file a scan skipped directly in the root, as seeding warns about one in its
+/// root.
+pub(crate) fn warn_root_file(path: &Path) {
+    diagnostics::emit(
+        LogLevel::Warn,
+        "sync_skipped",
+        serde_json::json!({
+            "path":path.to_string_lossy(),
+            "reason":"top-level entries must be bucket directories",
+            "remedy":"Move the file into a bucket directory to make it an object; where it is, it is never synchronized and holds nothing back",
+        }),
+    );
+}
 
 /// Why a scan could not take a working-tree entry in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -34,6 +151,10 @@ pub(crate) struct UnrepresentableEntry {
 pub(crate) struct EntryReport {
     entries: Vec<UnrepresentableEntry>,
     total: u64,
+    /// The first [`EntryReport::LIMIT`] files the scan skipped directly in the root. Each is
+    /// warned about when a scan first finds it, not on every scan while it stays.
+    #[serde(skip)]
+    root_files: Vec<PathBuf>,
 }
 
 impl EntryReport {
@@ -48,6 +169,22 @@ impl EntryReport {
                 problem,
             });
         }
+    }
+
+    pub(crate) fn record_root_file(&mut self, path: &Path) {
+        if self.root_files.len() < Self::LIMIT {
+            self.root_files.push(path.to_owned());
+        }
+    }
+
+    /// The root files this report holds that `previous` did not.
+    pub(crate) fn root_files_since(&self, previous: &Self) -> Vec<PathBuf> {
+        let previous: HashSet<&PathBuf> = previous.root_files.iter().collect();
+        self.root_files
+            .iter()
+            .filter(|path| !previous.contains(path))
+            .cloned()
+            .collect()
     }
 
     #[cfg(test)]
@@ -86,5 +223,80 @@ mod tests {
             serde_json::to_value(&report.entries()[0]).unwrap(),
             serde_json::json!({"path":"bucket/0","problem":"unsafe-entry"})
         );
+    }
+
+    /// What the scan could not read decides before what the entry is, and only a regular file
+    /// is ignored or skipped by its name or place.
+    #[cfg(unix)]
+    #[test]
+    fn an_entry_is_unreadable_unsafe_or_skipped_before_its_name_is_mapped() {
+        let identity = FileIdentity {
+            device: 1,
+            inode: 1,
+            size: 0,
+            modified_ns: 0,
+            changed_ns: 0,
+        };
+        let entry = |path: &str, directory: bool, identity: Option<FileIdentity>| TreeEntry {
+            path: path.into(),
+            identity,
+            directory,
+            error: None,
+        };
+        let unreadable = TreeEntry {
+            error: Some(io::ErrorKind::PermissionDenied),
+            ..entry("bucket", true, None)
+        };
+        let cases = [
+            (
+                unreadable,
+                EntryClass::Unreadable(io::ErrorKind::PermissionDenied),
+            ),
+            (
+                entry(".DS_Store", false, None),
+                EntryClass::Unrepresentable(EntryProblem::UnsafeEntry),
+            ),
+            (
+                entry("bucket/x.swp", false, None),
+                EntryClass::Unrepresentable(EntryProblem::UnsafeEntry),
+            ),
+            (entry("bucket/x.swp", true, None), EntryClass::Directory),
+            (
+                entry(".DS_Store", false, Some(identity)),
+                EntryClass::Skipped(Skip::IgnoredName),
+            ),
+            (
+                entry("README.md", false, Some(identity)),
+                EntryClass::Skipped(Skip::RootFile),
+            ),
+            (
+                entry("bucket", true, None),
+                EntryClass::Bucket(BucketName::new("bucket").unwrap()),
+            ),
+            (
+                entry("Bucket", true, None),
+                EntryClass::Unrepresentable(EntryProblem::UnmappableName),
+            ),
+            (
+                entry("bucket/name", false, Some(identity)),
+                EntryClass::File(MappedFile {
+                    bucket: BucketName::new("bucket").unwrap(),
+                    name: ObjectName::new("name").unwrap(),
+                    identity,
+                }),
+            ),
+            (
+                entry("bucket/a\\b", false, Some(identity)),
+                EntryClass::Unrepresentable(EntryProblem::UnmappableName),
+            ),
+        ];
+        for (entry, expected) in cases {
+            assert_eq!(
+                classify(&entry, RootNaming::posix()),
+                expected,
+                "{}",
+                entry.path.display()
+            );
+        }
     }
 }
