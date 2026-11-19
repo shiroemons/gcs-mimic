@@ -455,7 +455,8 @@ fn enter(status: &MirrorStatusSender, state: MirrorState) {
 
 /// Reports the mirror stopped however its thread ends. A panic outside a supervised run skips
 /// [`Mirror::shut_down`], so the guard then also withdraws the controls: a status that still read
-/// as paused, behind controls that can never resume it, would mislead whoever reads it.
+/// as paused, behind controls that can never resume it, would mislead whoever reads it. It
+/// withdraws them before reporting `Stopped`, so whoever sees that state finds them gone.
 struct StopOnExit {
     state: MirrorStatusSender,
     catalog: Catalog,
@@ -463,7 +464,6 @@ struct StopOnExit {
 
 impl Drop for StopOnExit {
     fn drop(&mut self) {
-        enter(&self.state, MirrorState::Stopped);
         if std::thread::panicking()
             && let Err(error) = self.catalog.clear_sync_controls()
         {
@@ -473,6 +473,7 @@ impl Drop for StopOnExit {
                 serde_json::json!({"reason":error.to_string()}),
             );
         }
+        enter(&self.state, MirrorState::Stopped);
     }
 }
 
