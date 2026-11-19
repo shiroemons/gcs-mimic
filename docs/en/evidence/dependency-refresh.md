@@ -1404,3 +1404,39 @@ The application's `bytes` entry in the dependency snapshot now links the 1.12.2 
 | `markdownlint-cli2` on the changed Markdown files | 0 issues in 11 files |
 
 Both freshness checks ran with `GITHUB_TOKEN` set.
+
+## Refresh: 2026-11-19
+
+The full freshness check on 2026-11-19 reported three development-only updates and no other: the Temurin toolchain of both Java manifests, the Ruby toolchain of the three Ruby manifests, and the `google.golang.org/genproto` pseudo-version in the Go SDK suite. Ruby and genproto are adopted; Temurin is deferred under a recorded exception.
+
+| Input | Previous | Latest | Outcome | Where |
+| --- | --- | --- | --- | --- |
+| Temurin | 27.0.1.0.2+1 | 27.0.1.1+4 (released 2026-11-18T10:08:11Z; linux/x64 archive 142,746,421 bytes, SHA-256 `005e57ee860978acfeeff1be2b30f770664fe2b941e9b803c61c76992086d107`) | Deferred | `sdk-tests/java`, `sdk-scorecard/java` |
+| Ruby | 4.0.9 | 4.0.10 (released 2026-11-18; `ruby-4.0.10.tar.gz`, SHA-256 `b53eef3371fa5d3e3b74340edcd015f06d5d8853968d4e539a5264fce41ed9f1`) | Adopted | `examples/ruby`, `sdk-tests/ruby`, `sdk-tests/ruby/active_storage`, `sdk-scorecard/ruby` |
+| google.golang.org/genproto | v0.0.0-20261116203732-fd2c7689a808 | v0.0.0-20261118221215-c8830f628b3f (revision `c8830f628b3f225f093d4aa49c037516334a5501`, the proxy's `@latest`) | Adopted | `sdk-tests/go` |
+
+[Temurin 27.0.1.1+4](https://github.com/adoptium/temurin27-binaries/releases/tag/jdk-27.0.1.1%2B4) is the newest GA release in the Adoptium API's release names, but it is not adopted yet. On 2026-11-19 its release held only the linux/x64 and alpine-linux/x64 archives: no macOS archive existed, so the development host could not install it and the Java scorecard probe could not run on it. The Java SDK suite did pass on it in a linux/amd64 container, so this is an availability gap rather than a failing test. Both `.java-version` files and `sdk-tests/java/.java-sha256` stay at 27.0.1.0.2+1, and `compatibility/dependency-status.json` records the exception with a review date of 2026-11-26. Until then the full freshness check reports the Temurin toolchain of both Java manifests as `UPDATE_AVAILABLE` and exits 1.
+
+[Ruby 4.0.10](https://www.ruby-lang.org/en/news/2026/11/18/ruby-4-0-10-released/) is a security release for multiple vulnerabilities in Regexp and String case conversion. The four `.ruby-version` files and the `RUBY VERSION` stanza of the four lockfiles move to it. `bundle _4.1.0_ lock` (`bundle _4.0.23_ lock --local` in `examples/ruby`) with Ruby 4.0.10 changes only that stanza in each lock; no gem, checksum or Bundler version changes. Bundler 4.1.0 and 4.0.23 had to be installed for the new Ruby first, because its default Bundler is 4.0.20. `bundle lock --local` is not suitable for the Active Storage lock: it drops the locked `ruby` platform variants of nokogiri and sqlite3 with mini_portile2, which the remote `bundle lock` keeps. The parser fixtures in `xtask` that name 4.0.9 or 27.0.1.0.2+1 are sample responses for the parsers and stay unchanged.
+
+The new genproto revision changes no file under `googleapis/storage`, which holds the legacy Storage v1 stubs the suite imports. Its other changes are `googleapis/chromeos/moblab/v1beta1`, the go.mod and go.sum of `googleapis/api` and `googleapis/bytestream`, `go.work.sum` and `regen.txt`. The root LICENSE and go.mod are byte-identical to the previous revision. `go get` and `go mod tidy` change only the genproto requirement and its `go.sum` lines.
+
+### Validation performed on 2026-11-19
+
+| Command or check | Result |
+| --- | --- |
+| `cargo xtask dependencies check` at `2026-11-19T03:03:32Z` | Exit 1 with 142 `CURRENT` lines and no check errors. Only the deferred Temurin toolchain reports `UPDATE_AVAILABLE`, in both Java manifests; fake-gcs-server v1.56.1 stays `PINNED_REFERENCE` |
+| `cargo xtask dependencies check --scope release` at `2026-11-19T03:05:03Z` | Exit 0 with 42 `CURRENT` lines |
+| `cargo test --locked -p xtask` | 290 passed (277 and 13), 0 failed |
+| `cargo xtask compatibility check` | Validated 610 feature rows |
+| `bash scripts/with-test-tmpdir.sh bash scripts/sdk-go.sh --with-ruby` | `go vet` passed. Go suite: 95 top-level tests passed, the HTTPS-only V2 signing test skipped. The Ruby HTTP/HTTPS self-check, migration scenario and every journey passed on Ruby 4.0.10 |
+| `bash scripts/sdk-active-storage.sh` | The 11 attachment cases and the production no-key case passed. The scenario run reports 1 PASS, 6 PASS_WITH_WORKAROUND and 1 FAIL (AS-DEFAULT-AUTH) and exits 1, as the [Active Storage scenario](../slices/sdk-active-storage-scenario.md) documents |
+| `bash scripts/test-pinned-ruby.sh` | Passed |
+| `GCSM_ENDPOINT=<local endpoint> bash examples/ruby/run.sh` | Created, listed, downloaded and deleted an object on Ruby 4.0.10 |
+| `bash sdk-tests/java/run.sh` in a linux/amd64 container with the not yet adopted Temurin 27.0.1.1+4 and Maven 3.10.1, against a container built from the checkout's Dockerfile | The dependency graph matched `dependencies.lock` and the HTTP scenario passed |
+| `bash sdk-scorecard/test-score.sh` | Passed |
+| `bash sdk-scorecard/run.sh --out <dir> gcs-mimic` | Score 100 and core score 100: Go 66/66, Ruby 57/57 on Ruby 4.0.10, Node.js 59/59, PHP 60/60, Python 63/63, Java 79/79, .NET 72/72, Rust 54/54 and C++ 61/61. The Java probe ran on the pinned Temurin 27.0.1.0.2+1 |
+| `bash scripts/check-docs.sh` | Passed |
+| `markdownlint-cli2` on the changed Markdown files | 0 issues in 10 files |
+
+Both freshness checks ran with `GITHUB_TOKEN` set.

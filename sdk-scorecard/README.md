@@ -212,7 +212,7 @@ browser behavior.
 
 ## Running
 
-Requires Bash, Rust, Go, Ruby 4.0.9 with Bundler, Node.js 24+ with npm, uv,
+Requires Bash, Rust, Go, Ruby 4.0.10 with Bundler, Node.js 24+ with npm, uv,
 the JDK and Maven pinned in `java/`, the .NET SDK pinned in `dotnet/global.json`,
 Docker, curl and jq. uv selects Python 3.15.2; PHP and Composer run in Docker,
 and so do the Rust and C++ probes (see Limitations).

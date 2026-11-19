@@ -15,9 +15,9 @@ value. Expiry uses injected-clock wire tests, without sleeping. See the
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-This scoped local HTTP/HTTPS journey pins Ruby 4.0.9, Bundler 4.1.0 and
+This scoped local HTTP/HTTPS journey pins Ruby 4.0.10, Bundler 4.1.0 and
 `google-cloud-storage` 1.62.2, verified against official release metadata on
-2026-11-05 and, for Bundler, 2026-11-16 and, for the SDK, 2026-11-12. The SDK uses Apache-2.0; Bundler uses MIT. `Gemfile.lock` pins the
+2026-11-19 and, for Bundler, 2026-11-16 and, for the SDK, 2026-11-12. The SDK uses Apache-2.0; Bundler uses MIT. `Gemfile.lock` pins the
 complete dependency graph and RubyGems checksums. The SDK's generated storage
 client and Faraday transport are locked transitively; no additional direct gem
 is needed. The historical runner name remains `https.rb`. This covers the basic
