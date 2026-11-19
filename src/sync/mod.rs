@@ -113,12 +113,16 @@ pub async fn preflight(catalog: &Catalog, config: &Config) -> io::Result<Option<
         })
 }
 
-/// What an operator does about a root that startup refused. A directory in the synchronized
-/// one's place is refused only when it holds something, so its remedy names the switch to an
-/// empty directory.
+/// What an operator does about a root that startup refused. A data directory synchronizes one
+/// directory: an unmarked directory that holds files is refused because its files could be
+/// anything, so its remedy names the directories to select instead.
 fn activation_remedy(error: &RootError, catalog: CatalogId) -> String {
     match error {
-        RootError::RootChanged => "sync_dir is not the directory this data directory synchronizes with, and it holds something or could not be listed. Restore the intended mount/root, or switch to another directory by selecting an empty one (nothing in it but .DS_Store) without --sync-reinitialize: startup then registers it in place of the previous directory and writes every object into it, deletes no object and leaves the previous directory as it is.".to_owned(),
+        RootError::ReplacementOccupied { synchronized } => format!(
+            "sync_dir has no .gcs-mimic-sync.json and holds more than files directly in it, and this data directory synchronizes {}. A data directory synchronizes one directory: select that one, or select an empty directory (files directly in it such as .gitkeep or README.md, no subdirectory) to switch to it; startup writes every object into it, deletes no object and leaves the previous directory as it is. To use files from this directory, start with the synchronized directory or an empty one and copy them into it while the server runs.",
+            synchronized.join(", ")
+        ),
+        RootError::RootChanged => "sync_dir was replaced while startup checked it, overlaps the data directory, or is not the registered directory that --sync-reinitialize names. Keep sync_dir in place and apart from data_dir, and use --sync-reinitialize only for the registered directory whose marker is missing. Without it, startup takes a directory this data directory synchronized before, or an empty one, in place of the registered directory.".to_owned(),
         RootError::Admin(_)
         | RootError::InUse
         | RootError::Unsupported

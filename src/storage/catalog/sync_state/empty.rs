@@ -1,7 +1,8 @@
-//! What counts as an empty directory in the working tree: one that holds nothing, or nothing but
-//! Finder's metadata files. An export replaces such a directory at its target, and startup
-//! switches to such a directory when it takes the synchronized root's place; one definition keeps
-//! the two from disagreeing about a directory.
+//! What counts as an empty directory for an export that replaces a directory at its target: one
+//! that holds nothing, or nothing but Finder's metadata files, which the export removes. Startup,
+//! which takes a directory without a marker in place of the synchronized one, has a looser
+//! definition of its own (`root::switch`) because it removes nothing. The two stay apart so that
+//! loosening the switch never lets an export remove more.
 
 use crate::fsutil;
 use std::{fs::File, io};

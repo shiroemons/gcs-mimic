@@ -246,7 +246,7 @@ Collect diagnostics by original source/key with a concrete fix before mutation.
 
 | JSON key | Default | Validation and effect |
 | --- | --- | --- |
-| `sync_dir` | Unset: disabled | Nonempty existing writable directory, not a symlink. This is the only required setting to enable sync. Canonicalize and reject equality or ancestor/descendant overlap with `data_dir` or `seed_dir`, including aliases. Reserve and revalidate the root identity rather than following a replaced root. |
+| `sync_dir` | Unset: disabled | Nonempty existing writable directory, not a symlink. This is the only required setting to enable sync. Canonicalize and reject equality or ancestor/descendant overlap with `data_dir` or `seed_dir`, including aliases. Reserve and revalidate the root identity rather than following a replaced root. A data directory synchronizes one directory: another one takes its place only when it holds this data directory's marker (merged) or no subdirectory (switched); see [marker and activation requirements](#marker-and-activation-requirements). |
 | `sync_delete_guard` | `true` | `false` disables only the count/percentage guard. Marker, complete-scan, incarnation and generation protections remain mandatory. |
 | `max_sync_entries` | `0` (unlimited) | `0..=2^64−1`; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. A scan keeps one page per directory level, so a larger tree takes longer but holds no more memory. |
 | `max_sync_depth` | `0` (unlimited) | `0..=1024`; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk stops at 1024. |
@@ -693,23 +693,45 @@ First activation behaves as follows:
   exported, identical, conflicting, ignored and unrepresentable counts separately.
 
 A previously associated root with a missing marker, or any foreign/malformed
-marker, stops startup before bind. A wrong mount is never an empty baseline:
-a directory in a registered root's place, at its path with another identity or
-with its identity at another path, stops startup with `RootChanged` when it
-holds anything. An empty one is a switch instead, so that a changed bind mount
-needs no reinitialization; empty means what it means for a directory that live
-export replaces: no entry, or only a regular `.DS_Store`. Startup lists the
-directory once for the proof, stages a marker for a new root, then in one
-transaction forgets the previous root's rows (findings, path stops, deletion
-set, conflicts and write-back state) and every tracked file, marks every other
-root's baseline incomplete because tracked files carry no root, and registers
-the new root with an incomplete baseline; publishing the marker follows, and the
-first pass exports every object as on a first activation. A crash before that
+marker, stops startup before bind. A data directory synchronizes one directory,
+because tracked files carry no root: ingestion takes a file that differs from its
+tracked file while the object kept its generation for an edit, and a complete
+baseline takes a missing tracked file for a deletion, so tracked files are only
+ever compared with the tree they were recorded in. Startup decides in one place
+how it takes the selected directory:
+
+1. The registered root, at its path with its identity and marker, opens as it
+   is.
+2. Otherwise a directory with this catalog's marker, such as the previous
+   directory mounted back or a root moved with `mv`, is merged under the
+   marker's root, which keeps the marker.
+3. Otherwise a directory with no subdirectory, no symlink and no special file,
+   only files directly in it that a scan never makes objects of (`.DS_Store`,
+   `.gitkeep`, `README.md`), gets a new root. This is looser than what live
+   export removes, which is only `.DS_Store`, because startup removes nothing.
+4. Otherwise a directory without a marker is refused with
+   `ReplacementOccupied`, which names the registered paths.
+5. Another catalog's marker is refused with `ForeignMarker`.
+
+A catalog that an earlier release let register several roots keeps only the one
+it opens. Every change, whether a merge, a new root or several roots reduced to
+one, forgets in one transaction every registered root's rows (findings, path
+stops, deletion sets, conflicts, recovery workspaces and write-back state) and
+every tracked file, and registers the selected root with an incomplete baseline.
+Its first pass then merges the tree as a first activation does: differing files
+become conflicts, objects without files are exported, and nothing is deleted.
+An object deleted through the API while another directory was synchronized comes
+back from the merged directory's file. For a new root, startup lists the
+directory once for the proof and stages its marker before the transaction, which
+first rechecks that the registrations are the ones it replaces; when they are
+not, it registers nothing and removes the staged marker. A crash before that
 transaction commits keeps the previous registration, and the next start removes
 the staged marker no root owns and switches again; after it, the next start
-publishes the staged marker. The `sync_root_switched` warning names both roots
-and what was forgotten. The previous directory is never opened, so its files and
-the conflict bytes in its workspace stay, and no object changes.
+publishes the staged marker. The `sync_root_switched` warning names the reason,
+both paths and what was forgotten, listing the first retained conflicts and
+recovery workspaces with the paths of their bytes, and `sync status` reports the
+path and the change made by the current process. A previous directory is never
+opened, so its files and the bytes in its workspace stay, and no object changes.
 `--sync-reinitialize` never switches. First repair the mount/root. For intentional reactivation, stop other writers,
 back up the tree and use `--sync-reinitialize CATALOG_ID`: require a missing
 marker, exact local catalog ID, unchanged selected root identity and exclusive

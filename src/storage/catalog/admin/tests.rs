@@ -180,6 +180,12 @@ fn synchronization_diagnostics_summarize_wrapped_causes() {
             RootError::ReinitializeDenied,
             "synchronization root: ReinitializeDenied",
         ),
+        (
+            RootError::ReplacementOccupied {
+                synchronized: vec!["/synchronized".into()],
+            },
+            "synchronization root: ReplacementOccupied",
+        ),
     ] {
         assert_eq!(error.to_string(), expected);
     }

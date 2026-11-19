@@ -363,17 +363,32 @@ old directory with a `ForeignMarker` diagnostic. Move it aside and create a fres
 empty directory instead. The directory must not overlap the data or seed
 directory.
 
-To keep the data volume and switch to another directory, mount an empty
-directory, or one that holds only `.DS_Store`, at the same container path.
-Startup takes it in place of the previous one, logs a `sync_root_switched`
-warning with both roots' identities, and writes every object into it as on a
-first start. The catalog forgets what it tracked for the previous directory, its
-findings and the deletions waiting for approval there, so no object is deleted.
-The previous directory is never opened; its files stay as they were, including
-conflict copies in its `.gcs-mimic-sync-work`. A directory that holds anything
-else is refused with a `RootChanged` diagnostic, and so is the previous directory
-mounted back after a switch: select an empty directory, or move what it holds
-out of it.
+A data directory synchronizes one directory at a time. To keep the data volume
+and switch to another directory, mount an empty directory at the same container
+path, or select one at another path with a native binary. Empty means no
+subdirectory and no symlink: files directly in it that a scan never makes
+objects of, such as `.DS_Store`, `.gitkeep` or `README.md`, may stay. Startup
+takes it in place of the previous one, logs a `sync_root_switched` warning with
+both paths, and writes every object into it as on a first start; no object is
+deleted. The catalog forgets what it tracked for the previous directory, its
+findings and the deletions waiting for approval there. It also forgets the
+conflicts and recovery workspaces retained there, which `sync conflicts` no
+longer lists: the warning lists the first ones with the paths of their bytes,
+which stay where they were. Resolve them before you switch on purpose. The
+previous directory is never opened, and its files stay as they were.
+
+A directory that holds this data directory's `.gcs-mimic-sync.json`, such as
+the previous directory mounted back or a synchronized directory moved with
+`mv`, is merged in place of the current one: a file whose content differs from
+its object is kept as a conflict, an object without a file is written into the
+directory, and nothing is deleted. An object deleted while the server
+synchronized another directory comes back from the merged directory's file, and
+a file edited in the merged directory meanwhile becomes a conflict rather than a
+new version. A
+directory without that marker that holds a subdirectory is refused with a
+`ReplacementOccupied` diagnostic that names the directory the data directory
+synchronizes. `sync status` reports the synchronized path, and after a switch or
+merge in this process, why and which path it replaced.
 
 In strict mode, sync controls require project-owner authority through
 the local identity registry. Sync runs on Linux and macOS; on other platforms the

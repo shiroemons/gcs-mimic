@@ -924,24 +924,15 @@ async fn live_export_installed_copy_is_never_cancelled_after_arming() {
     fixture.close().await;
 }
 
+/// A changed API generation makes an export obsolete. A data directory synchronizes one
+/// directory, so another root exists only after a switch, which forgets the replaced root's
+/// operations: the root that replaced it refuses such a handle, and so does the replaced root's
+/// own lease.
 #[tokio::test]
-async fn live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation() {
+async fn live_export_rejects_forgotten_handles_and_obsoletes_a_changed_api_generation() {
     let fixture = Fixture::new().await;
     fixture.publish("object", b"api").await;
     let operation = fixture.begin("object").await;
-    let other_tree = TestDir::new();
-    let other_root = fixture
-        .catalog
-        .sync_state()
-        .activate_root(&other_tree.0, super::super::super::root::Activation::Open)
-        .await
-        .unwrap()
-        .assume_naming(crate::sync::naming::RootNaming::posix());
-    let other = other_root.default_writeback().await.unwrap();
-    assert!(matches!(
-        other.advance_live_export(operation.clone()).await,
-        Err(Error::Admin(AdminError::Precondition))
-    ));
     fixture
         .writeback
         .advance_live_export(operation.clone())
@@ -968,6 +959,32 @@ async fn live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generat
     );
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
     drop(operation);
+
+    fixture.publish("pending", b"api").await;
+    let pending = fixture.begin("pending").await;
+    let other_tree = TestDir::new();
+    let other_root = fixture
+        .catalog
+        .sync_state()
+        .activate_root(&other_tree.0, super::super::super::root::Activation::Open)
+        .await
+        .unwrap()
+        .assume_naming(crate::sync::naming::RootNaming::posix());
+    let other = other_root.default_writeback().await.unwrap();
+    assert!(matches!(
+        other.advance_live_export(pending.clone()).await,
+        Err(Error::Admin(AdminError::Precondition))
+    ));
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(pending.clone())
+            .await
+            .is_err()
+    );
+    assert!(!fixture.tree.0.join("test-bucket/pending").exists());
+    assert!(!other_tree.0.join("test-bucket/pending").exists());
+    drop(pending);
     drop(other);
     drop(other_root);
     fixture.close().await;
@@ -1129,8 +1146,11 @@ async fn live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried() {
     fixture.close().await;
 }
 
+/// An operation that failed stops the root until recovery. A switch to another directory forgets
+/// it, and the replaced root's lease can no longer advance it; the root that replaced it exports
+/// the object into its own tree, and the replaced tree is left as the failure left it.
 #[tokio::test]
-async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
+async fn live_export_failed_operation_is_forgotten_by_a_switch() {
     let fixture = Fixture::new().await;
     let record = fixture.publish("object", b"api").await;
     let operation = fixture.begin("object").await;
@@ -1151,6 +1171,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
         fixture.writeback.status().await.unwrap().stop(),
         Stop::IoFailure
     );
+    let before = fs::read_dir(&fixture.tree.0).unwrap().count();
     let tree = TestDir::new();
     let root = fixture
         .catalog
@@ -1193,10 +1214,8 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
         other.advance_live_export(next.clone()).await.unwrap(),
         LiveResult::Complete
     );
-    assert_eq!(
-        fixture.writeback.status().await.unwrap().stop(),
-        Stop::IoFailure
-    );
+    assert_eq!(fs::read(tree.0.join("test-bucket/object")).unwrap(), b"api");
+    assert_eq!(other.status().await.unwrap().stop(), Stop::Ready);
     assert!(
         fixture
             .writeback
@@ -1204,14 +1223,7 @@ async fn live_export_other_root_completion_cannot_clear_a_failed_operation() {
             .await
             .is_err()
     );
-    assert_eq!(
-        fixture.writeback.recover_pending().await.unwrap().stop(),
-        Stop::Ready
-    );
-    assert_eq!(
-        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
-        b"api"
-    );
+    assert_eq!(fs::read_dir(&fixture.tree.0).unwrap().count(), before);
     drop(next);
     drop(other);
     drop(root);

@@ -117,7 +117,7 @@ the preceding intent and bytes remain until recovery succeeds after repair.
 
 Production-path tests cover unpublished cancellation, installed external edits,
 0-byte/binary copies, failed acknowledgement transactions, stale API generations,
-foreign handles, removal before a complete baseline, workspace replacement and cancelled
+handles that a root switch forgot, removal before a complete baseline, workspace replacement and cancelled
 jobs across separate handles. Recovery and conflict-transfer tests cover sparse
 quota overflow, original-owner retention, multiple keyset pages, failed writes
 and syncs, restart, and paired crash/power-loss snapshots. Schema tests retain

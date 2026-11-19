@@ -1941,7 +1941,8 @@ fn retryable(error: &writeback::Error) -> bool {
             | RootError::MissingMarker
             | RootError::InvalidMarker
             | RootError::ForeignMarker
-            | RootError::ReinitializeDenied,
+            | RootError::ReinitializeDenied
+            | RootError::ReplacementOccupied { .. },
         )
         // A displaced target belongs to recovery, so neither is retried automatically.
         | writeback::Error::Conflict(_)

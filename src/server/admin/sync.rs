@@ -12,7 +12,7 @@ use crate::{
         authority::ControlAuthority,
         deletions::{Candidate, DeletionFence, DeletionSet},
         observation::{ObservationCursor, PauseReason, Summary},
-        root::{RootError, RootLease, RootStatus},
+        root::{RootChange, RootError, RootLease, RootStatus},
     },
     sync::{
         Cause, MirrorState, Reconciliation, UnmappedObjects,
@@ -26,7 +26,7 @@ use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fmt, sync::Arc};
+use std::{borrow::Cow, fmt, sync::Arc};
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 
@@ -653,6 +653,11 @@ struct StatusSummary<'a> {
     /// runs.
     mirror_state: MirrorState,
     session_id: &'a str,
+    /// The directory this process synchronizes.
+    root_path: Cow<'a, str>,
+    /// How this process changed the synchronized directory at startup, when it did; it is not
+    /// stored, so a later process reports none.
+    root_change: Option<&'a RootChange>,
     findings_revision: &'a str,
     observation: &'a Summary,
     pending_deletion_revision: Option<OpaqueId>,
@@ -745,6 +750,8 @@ async fn status(
                 state: ControlState::of(mirror, &observation, set),
                 mirror_state: mirror,
                 session_id: session,
+                root_path: root.watch_path().to_string_lossy(),
+                root_change: root.change(),
                 findings_revision: &findings_revision,
                 observation: &observation,
                 pending_deletion_revision: set.filter(|_| pending > 0).map(|set| set.revision),
@@ -922,7 +929,8 @@ pub(super) fn root_error(error: &RootError) -> ApiError {
         | RootError::MissingMarker
         | RootError::InvalidMarker
         | RootError::ForeignMarker
-        | RootError::ReinitializeDenied => ApiError::new(
+        | RootError::ReinitializeDenied
+        | RootError::ReplacementOccupied { .. } => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Synchronization root cannot be verified; preserve the tree and workspace and inspect server diagnostics",

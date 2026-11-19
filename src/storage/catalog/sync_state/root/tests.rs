@@ -86,15 +86,35 @@ async fn sync_root_activation_baseline_reopen_and_reinitialize_preserve_data() {
             .permits_external_deletions()
     );
     drop(lease);
+    let lease = state
+        .activate_root(&root.0, Activation::Open)
+        .await
+        .unwrap();
+    assert_eq!(lease.status().root_id, root_id);
+    assert!(lease.status().permits_external_deletions());
+    drop(lease);
+    // A second root never stands beside the first: a directory that holds a subdirectory is
+    // refused, and an empty one takes the first one's place.
     let unrelated = TestDir::new();
+    fs::create_dir(unrelated.0.join("test-bucket")).unwrap();
+    assert!(matches!(
+        state.activate_root(&unrelated.0, Activation::Open).await,
+        Err(RootError::ReplacementOccupied { .. })
+    ));
+    assert!(!unrelated.0.join(MARKER).exists());
+    fs::remove_dir(unrelated.0.join("test-bucket")).unwrap();
     let second = state
         .activate_root(&unrelated.0, Activation::Open)
         .await
         .unwrap();
-    assert_ne!(second.status().root_id, root_id);
+    let second_id = second.status().root_id;
+    assert_ne!(second_id, root_id);
+    assert!(!second.status().permits_external_deletions());
     second.complete_baseline().await.unwrap();
     drop(second);
     catalog.close().await.unwrap();
+    // Startup merges the first directory back under its own root, and none of its files counts
+    // as missing until its baseline completes again.
     let catalog = Catalog::open(&data.0).await.unwrap();
     let state = catalog.sync_state();
     let lease = state
@@ -102,7 +122,14 @@ async fn sync_root_activation_baseline_reopen_and_reinitialize_preserve_data() {
         .await
         .unwrap();
     assert_eq!(lease.status().root_id, root_id);
-    assert!(lease.status().permits_external_deletions());
+    assert!(!lease.status().permits_external_deletions());
+    assert!(
+        lease
+            .complete_baseline()
+            .await
+            .unwrap()
+            .permits_external_deletions()
+    );
     drop(lease);
     assert!(matches!(
         state
@@ -145,7 +172,8 @@ async fn sync_root_activation_baseline_reopen_and_reinitialize_preserve_data() {
         .activate_root(&unrelated.0, Activation::Open)
         .await
         .unwrap();
-    assert!(second.status().permits_external_deletions());
+    assert_eq!(second.status().root_id, second_id);
+    assert!(!second.status().permits_external_deletions());
     drop(second);
     catalog.close().await.unwrap();
 }
@@ -215,8 +243,8 @@ async fn sync_root_replacement_symlinks_and_marker_changes_fail_closed() {
     let saved = root.0.with_extension("saved");
     fs::rename(&root.0, &saved).unwrap();
     fs::create_dir(&root.0).unwrap();
-    // Only an empty replacement is switched to; this one holds a file.
-    fs::write(root.0.join("held"), b"").unwrap();
+    // Only an empty replacement is switched to; this one holds a directory.
+    fs::create_dir(root.0.join("held")).unwrap();
     assert_eq!(
         lease.file_job(|_| Ok(())).await,
         Err(RootError::RootChanged)
@@ -224,7 +252,7 @@ async fn sync_root_replacement_symlinks_and_marker_changes_fail_closed() {
     drop(lease);
     assert!(matches!(
         state.activate_root(&root.0, Activation::Open).await,
-        Err(RootError::RootChanged)
+        Err(RootError::ReplacementOccupied { .. })
     ));
     assert!(matches!(
         state
@@ -232,7 +260,7 @@ async fn sync_root_replacement_symlinks_and_marker_changes_fail_closed() {
             .await,
         Err(RootError::RootChanged)
     ));
-    fs::remove_file(root.0.join("held")).unwrap();
+    fs::remove_dir(root.0.join("held")).unwrap();
     fs::remove_dir(&root.0).unwrap();
     symlink(&saved, &root.0).unwrap();
     assert!(
@@ -410,12 +438,18 @@ async fn sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved() {
             .await
             .is_err()
     );
+    // This data directory's marker copied into another directory makes that directory one it
+    // synchronized before: startup merges it under the marker's root, with no tracked file.
     let fresh = TestDir::new();
     fs::write(fresh.0.join(MARKER), &valid).unwrap();
-    assert!(matches!(
-        state.activate_root(&fresh.0, Activation::Open).await,
-        Err(RootError::ForeignMarker)
-    ));
+    let merged = state
+        .activate_root(&fresh.0, Activation::Open)
+        .await
+        .unwrap();
+    assert_eq!(merged.status().root_id, status.root_id);
+    assert_eq!(merged.status().baseline, Baseline::Activating);
+    drop(merged);
+    assert_eq!(fs::read(fresh.0.join(MARKER)).unwrap(), valid);
     fs::remove_file(root.0.join(MARKER)).unwrap();
     fs::create_dir(root.0.join(MARKER)).unwrap();
     assert!(matches!(

@@ -13,7 +13,7 @@ use crate::{
         naming::RootNaming,
     },
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
@@ -95,7 +95,13 @@ pub enum RootError {
     InvalidMarker,
     ForeignMarker,
     ReinitializeDenied,
+    /// The selected directory has no marker and holds more than files directly in it, and the
+    /// data directory synchronizes the directories at these paths.
+    ReplacementOccupied {
+        synchronized: Vec<String>,
+    },
 }
+
 impl From<AdminError> for RootError {
     fn from(error: AdminError) -> Self {
         Self::Admin(error)
@@ -138,6 +144,7 @@ impl std::fmt::Display for RootError {
             Self::InvalidMarker => f.write_str("InvalidMarker"),
             Self::ForeignMarker => f.write_str("ForeignMarker"),
             Self::ReinitializeDenied => f.write_str("ReinitializeDenied"),
+            Self::ReplacementOccupied { .. } => f.write_str("ReplacementOccupied"),
         }
     }
 }
@@ -157,7 +164,8 @@ impl TypedSource for RootError {
             | Self::MissingMarker
             | Self::InvalidMarker
             | Self::ForeignMarker
-            | Self::ReinitializeDenied => None,
+            | Self::ReinitializeDenied
+            | Self::ReplacementOccupied { .. } => None,
         }
     }
 }
@@ -260,7 +268,7 @@ fn remove_staging(directory: &File) -> Result<(), RootError> {
 /// Writes `marker` under the staging name and syncs it and the root, so that a crash from here
 /// on leaves a complete staged marker, which a restart publishes while the catalog registers
 /// its root at this directory and removes otherwise.
-fn stage_marker(owns: &Ownership, marker: Marker) -> Result<(), RootError> {
+fn stage_marker(owns: &Ownership, marker: Marker) -> Result<switch::Staged, RootError> {
     let root = owns.lock.file();
     remove_staging(root)?;
     let bytes = serde_json::to_vec(&marker).map_err(AdminError::backend)?;
@@ -285,7 +293,7 @@ fn stage_marker(owns: &Ownership, marker: Marker) -> Result<(), RootError> {
         failure_boundary(&owns.path, "file_synced")?;
         super::super::fault::hit_io(&owns.path, super::super::fault::Step::SyncMarkerPrepared)?;
     }
-    Ok(())
+    Ok(switch::Staged(marker))
 }
 
 fn publish_marker(
@@ -358,11 +366,103 @@ struct Ownership {
 
 /// What startup registers for the selected directory.
 enum Reservation {
-    /// The directory is the registered root, a reinitialized one or a new one.
-    Reserved(RootStatus),
-    /// Another directory now has a registered root's path, or a registered root's directory has
-    /// another path. Startup switches to the selected directory only when it is empty.
+    /// The selected directory is the root `status` names. `change` is what startup changed to
+    /// register it, when the data directory synchronized another directory before.
+    Reserved {
+        status: RootStatus,
+        change: Option<Box<switch::Change>>,
+    },
+    /// A directory without a marker in place of the registered roots, which startup switches to
+    /// only when it holds nothing but files directly in it.
     Replaced(switch::Replaced),
+}
+
+/// Whose marker the selected directory holds.
+#[derive(Clone, Copy)]
+enum Mark {
+    Absent,
+    /// This data directory's marker, for the root it names.
+    Own(RootId),
+    /// Another data directory's.
+    Foreign,
+}
+
+/// What startup does with the selected directory, by the rules [`switch`] describes.
+enum Decision {
+    /// Opens the registered root as it is, with its tracked files and its baseline.
+    Open { root: RootId, complete: bool },
+    /// Builds the baseline of the registered root again, keeping its tracked files.
+    Reinitialize(RootId),
+    /// Registers the data directory's first root.
+    First,
+    /// Changes the synchronized directory to the selected one under the root its marker names,
+    /// or that `--sync-reinitialize` named, forgetting every registered root and tracked file.
+    Rebind {
+        reason: switch::Reason,
+        root: RootId,
+    },
+    /// Switches to the selected directory under a new root when it holds only root files.
+    Replace,
+}
+
+/// The one place that decides how startup takes the selected directory, at `location` with the
+/// identity `node`.
+fn decide(
+    registered: &[switch::Registered],
+    location: &[u8],
+    node: NodeId,
+    mark: Mark,
+    catalog: CatalogId,
+    activation: Activation,
+) -> Result<Decision, RootError> {
+    let at = registered
+        .iter()
+        .find(|root| root.location == location && root.node == node);
+    let near = registered
+        .iter()
+        .any(|root| root.location == location || root.node == node);
+    let alone = registered.len() == 1;
+    match (activation, mark, at) {
+        (_, Mark::Foreign, _) => Err(RootError::ForeignMarker),
+        (Activation::Open, Mark::Own(id), Some(root)) if id == root.root_id && alone => {
+            Ok(Decision::Open {
+                root: id,
+                complete: root.complete,
+            })
+        }
+        (Activation::Open, Mark::Own(id), Some(root)) if id == root.root_id => {
+            Ok(Decision::Rebind {
+                reason: switch::Reason::SeveralRoots,
+                root: id,
+            })
+        }
+        (Activation::Open, Mark::Own(id), _) => Ok(Decision::Rebind {
+            reason: switch::Reason::MarkedDirectory,
+            root: id,
+        }),
+        (Activation::Open, Mark::Absent, Some(_)) => Err(RootError::MissingMarker),
+        (Activation::Open, Mark::Absent, None) if registered.is_empty() => Ok(Decision::First),
+        (Activation::Open, Mark::Absent, None) => Ok(Decision::Replace),
+        (Activation::Reinitialize { catalog_id }, Mark::Absent, Some(root))
+            if catalog_id == catalog && alone =>
+        {
+            Ok(Decision::Reinitialize(root.root_id))
+        }
+        (Activation::Reinitialize { catalog_id }, Mark::Absent, Some(root))
+            if catalog_id == catalog =>
+        {
+            Ok(Decision::Rebind {
+                reason: switch::Reason::SeveralRoots,
+                root: root.root_id,
+            })
+        }
+        (Activation::Reinitialize { .. }, Mark::Absent, None) if near => {
+            Err(RootError::RootChanged)
+        }
+        (Activation::Reinitialize { .. }, Mark::Absent | Mark::Own(_), _) => {
+            Err(RootError::ReinitializeDenied)
+        }
+    }
 }
 
 fn reserve(
@@ -380,85 +480,71 @@ fn reserve(
         return Err(RootError::ForeignMarker);
     }
     let node = identity.node();
-    let (device, inode) = node.to_be_bytes();
-    let found = sql::row(
-        &transaction,
-        "SELECT root_id, device, inode, complete, location FROM sync_roots
-         WHERE location = ?1 OR (device = ?2 AND inode = ?3) LIMIT 1",
-        params![location, device, inode],
-        |row| {
-            Ok((
-                row.get::<_, RootId>(0)?,
-                NodeId::from_be_bytes(row.get(1)?, row.get(2)?),
-                row.get::<_, bool>(3)?,
-                row.get::<_, Vec<u8>>(4)?,
-            ))
-        },
-    )
-    .optional()
-    .map_err(super::super::unavailable)?;
-    let status = if let Some((id, stored_node, complete, stored_location)) = found {
-        if stored_node != node || stored_location != location {
-            return match activation {
-                Activation::Open => Ok(Reservation::Replaced(switch::Replaced {
-                    root_id: id,
-                    location: stored_location,
-                    node: stored_node,
-                })),
-                Activation::Reinitialize { .. } => Err(RootError::RootChanged),
-            };
-        }
-        let baseline = match (activation, marker) {
-            (Activation::Open, Some(marker))
-                if marker.catalog_id == catalog && marker.root_id == id =>
-            {
-                if complete {
+    let registered = switch::registered(&transaction)?;
+    let mark = match marker {
+        None => Mark::Absent,
+        Some(marker) if marker.catalog_id == catalog => Mark::Own(marker.root_id),
+        Some(_) => Mark::Foreign,
+    };
+    let (root_id, baseline, change) =
+        match decide(&registered, location, node, mark, catalog, activation)? {
+            Decision::Open { root, complete } => {
+                let baseline = if complete {
                     Baseline::Complete
                 } else {
                     Baseline::Activating
-                }
+                };
+                (root, baseline, None)
             }
-            (Activation::Open, None) => return Err(RootError::MissingMarker),
-            (Activation::Reinitialize { catalog_id }, None) if catalog_id == catalog => {
+            Decision::Reinitialize(root) => {
                 sql::exec(
                     &transaction,
                     "UPDATE sync_roots SET complete = 0 WHERE root_id = ?1",
-                    [id.0],
+                    [root.0],
                 )
                 .map_err(super::super::unavailable)?;
-                Baseline::Activating
+                (root, Baseline::Activating, None)
             }
-            (Activation::Reinitialize { .. }, _) => return Err(RootError::ReinitializeDenied),
-            _ => return Err(RootError::ForeignMarker),
+            Decision::First => {
+                let root = RootId::generate()
+                    .map_err(|error| RootError::Admin(AdminError::backend(error)))?;
+                insert_root(&transaction, root, location, node)?;
+                (root, Baseline::Activating, None)
+            }
+            Decision::Rebind { reason, root } => {
+                let change =
+                    switch::rebind(&transaction, reason, registered, root, location, node)?;
+                (root, Baseline::Activating, Some(Box::new(change)))
+            }
+            Decision::Replace => return Ok(Reservation::Replaced(switch::Replaced(registered))),
         };
-        RootStatus {
-            catalog_id: catalog,
-            root_id: id,
-            baseline,
-        }
-    } else {
-        if marker.is_some() {
-            return Err(RootError::ForeignMarker);
-        }
-        if activation != Activation::Open {
-            return Err(RootError::ReinitializeDenied);
-        }
-        let id =
-            RootId::generate().map_err(|error| RootError::Admin(AdminError::backend(error)))?;
-        sql::exec(
-            &transaction,
-            "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
-            params![id, location, device, inode],
-        )
-        .map_err(super::super::unavailable)?;
-        RootStatus {
-            catalog_id: catalog,
-            root_id: id,
-            baseline: Baseline::Activating,
-        }
-    };
     transaction.commit().map_err(super::super::unavailable)?;
-    Ok(Reservation::Reserved(status))
+    Ok(Reservation::Reserved {
+        status: RootStatus {
+            catalog_id: catalog,
+            root_id,
+            baseline,
+        },
+        change,
+    })
+}
+
+/// Registers the directory at `location` with the identity `node` as the root `root_id`, with
+/// its baseline still to build.
+fn insert_root(
+    transaction: &Connection,
+    root_id: RootId,
+    location: &[u8],
+    node: NodeId,
+) -> Result<(), RootError> {
+    let (device, inode) = node.to_be_bytes();
+    sql::exec(
+        transaction,
+        "INSERT INTO sync_roots VALUES (?1,?2,?3,?4,0)",
+        params![root_id, location, device, inode],
+    )
+    .map_err(super::super::unavailable)?;
+    Ok(())
 }
 impl Ownership {
     fn validate(&self) -> Result<(), RootError> {
@@ -509,6 +595,10 @@ impl RootLease {
     pub(crate) fn watch_path(&self) -> &Path {
         &self.ownership.path
     }
+    /// How this process changed the synchronized directory at startup, if it did.
+    pub(crate) fn change(&self) -> Option<&RootChange> {
+        self.change.as_deref()
+    }
     pub(crate) fn observation_time_ns(&self) -> Result<i128, RootError> {
         let now = self.catalog().0.clock.now();
         match now.duration_since(std::time::UNIX_EPOCH) {
@@ -532,6 +622,7 @@ pub struct RootLease {
     stopping: Option<tokio::sync::watch::Receiver<bool>>,
     tree_limits: crate::sync::tree::TreeLimits,
     pub(super) published_observation: super::observation::publication::Published,
+    change: Option<Arc<RootChange>>,
 }
 impl RootLease {
     pub(crate) fn with_shutdown(mut self, stopping: tokio::sync::watch::Receiver<bool>) -> Self {
@@ -771,12 +862,19 @@ impl SyncState {
         } else {
             marker
         };
-        let (status, marker) = match reservation? {
-            Reservation::Reserved(status) => (status, marker),
+        let (status, marker, change) = match reservation? {
+            Reservation::Reserved { status, change } => (status, marker, change),
             Reservation::Replaced(replaced) => {
-                self.switch_root(&ownership, catalog, replaced).await?
+                let (status, marker, change) =
+                    self.switch_root(&ownership, catalog, replaced).await?;
+                (status, marker, Some(Box::new(change)))
             }
         };
+        // The change committed whether or not publishing the marker succeeds.
+        let change = change.map(|change| {
+            change.report();
+            Arc::new(change.summary())
+        });
         let owns = ownership.clone();
         let marker_identity = self
             .0
@@ -793,11 +891,13 @@ impl SyncState {
             stopping: None,
             tree_limits: Default::default(),
             published_observation: Default::default(),
+            change,
         })
     }
 }
 
 mod switch;
+pub(crate) use switch::RootChange;
 
 #[cfg(test)]
 #[cfg(unix)]

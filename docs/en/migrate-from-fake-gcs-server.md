@@ -210,11 +210,17 @@ What differs from fake-gcs-server:
 - **The directory must match the data.** The server refuses a directory that
   belonged to other data (`ForeignMarker`), as after `docker compose down
   --volumes`. Start over as above.
-- **An empty directory switches without losing data.** To keep the data and
-  synchronize another host directory, mount an empty one (`.DS_Store` alone is
-  fine) at the same path. The server writes every object into it, deletes none
-  and leaves the previous directory as it was. A directory that holds anything
-  else is refused (`RootChanged`).
+- **One data directory, one synchronized directory.** To keep the data and
+  synchronize another host directory, mount an empty one at the same path, or
+  name one at another path with a native binary. Files directly in it such as
+  `.DS_Store`, `.gitkeep` or `README.md` are fine; a subdirectory is not. The
+  server writes every object into it and deletes no object. Conflicts and
+  recovery workspaces retained for the previous directory no longer appear in
+  `sync conflicts`, so resolve them first. A directory that this data
+  directory synchronized before, which holds its `.gcs-mimic-sync.json`, is
+  merged back: differing files become conflicts and nothing is deleted. Any
+  other directory that holds a subdirectory is refused
+  (`ReplacementOccupied`).
 
 The [reference](container-usage.md#mirror-objects-to-a-host-directory) covers
 conflicts, recovery and the remaining limits.

@@ -23,7 +23,9 @@ change HTTP/CLI behavior or perform the initial merge. UX-002 seed is unchanged.
   A complete synced staging marker for that same association can be resumed.
 - Explicit reinitialization requires the exact CatalogId, unchanged root identity,
   exclusive ownership and a missing marker. Never overwrite foreign/malformed
-  markers, clear API/seed/conflict data or modify another root association.
+  markers or clear API/seed data; conflict data stays unless the catalog still
+  registers another root association from an earlier release, which
+  reinitialization forgets as any activation does.
 - Test competing catalogs, same-catalog reopen, replacement, marker boundaries,
   activation interruptions, reinitialization, cancellation/drain and migration
   rollback/retry with existing data preserved.
@@ -51,11 +53,16 @@ The canonical root location and device/inode pair must both match the durable
 association. No-follow opens strip trailing separators/dot components without
 resolving symlinks or parent components. Both the canonical location and original
 absolute selection are rechecked against the pinned identity, so retargeting an
-ancestor alias cannot silently redirect file work. A different fresh directory
-can be associated separately; root
-replacement at a known location is rejected. Reinitialization resets only that
-association's baseline flag and preserves its RootId, other root associations,
-existing synchronized records, API objects, seed state and workspace files.
+ancestor alias cannot silently redirect file work. A data directory associates
+one root at a time, because tracked files carry no root. Another directory
+replaces the association only when it holds this catalog's marker, which merges
+it under the marker's RootId, or holds no subdirectory or symlink, which
+registers a new RootId; either change forgets every association and tracked file
+in one transaction, and any other directory is rejected
+([directory synchronization](directory-synchronization.md#marker-and-activation-requirements)).
+Reinitialization resets only that association's baseline flag and preserves its
+RootId, existing synchronized records, API objects, seed state and workspace
+files.
 The marker contains lowercase 32-digit hexadecimal IDs, not credentials.
 The root and marker are revalidated around descriptor-relative file jobs;
 callers must not retain descriptors or spawn independent work from the callback.

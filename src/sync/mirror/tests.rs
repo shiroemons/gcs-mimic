@@ -25,6 +25,7 @@ mod ingest_durability;
 mod install_faults;
 mod missing_bucket;
 mod root_files;
+mod several_roots;
 pub(super) mod state;
 mod wait;
 
