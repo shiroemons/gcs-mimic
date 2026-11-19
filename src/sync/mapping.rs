@@ -403,7 +403,12 @@ mod tests {
                     for component in &path {
                         prop_assert!(naming.admits(component), "{component:?}");
                     }
-                    let text = path.to_str().unwrap().to_owned();
+                    // The catalog stores `/` between components on every host.
+                    let text = path
+                        .iter()
+                        .map(|component| component.to_str().unwrap())
+                        .collect::<Vec<_>>()
+                        .join("/");
                     prop_assert!(crate::storage::sync_state::SyncPath::try_from(text).is_ok());
                 }
                 PathMapping::Unrepresentable(Reason::HostRestriction) => {
