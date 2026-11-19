@@ -27,7 +27,7 @@ use crate::{
         },
     },
 };
-use lifecycle::{Event, Lifecycle};
+use lifecycle::{Event, Lifecycle, Reconciled};
 use std::{
     fs::File,
     future::Future,
@@ -161,12 +161,12 @@ impl DirectoryWatch {
                     watcher.generation = self.generation;
                     watcher.pending = self.pending.take();
                     *self = watcher;
-                    status.on(root, Event::WatchRebuilt).await?;
+                    status.on(root, Event::WatchRebuilt).await;
                     return Ok(());
                 }
                 Err(error) if error.is_watch_retryable() => {
                     failures += 1;
-                    status.on(root, Event::WatchRetrying).await?;
+                    status.on(root, Event::WatchRetrying).await;
                     #[cfg(test)]
                     export_checkpoint("retry").await;
                     if failures >= 3 {
@@ -398,13 +398,7 @@ impl Mirror {
 
     /// Reports `event` to the lifecycle, which alone changes the state and the recorded pause.
     fn on(&self, event: Event) -> Option<crate::sync::status::Transition> {
-        self.runtime
-            .block_on(self.lifecycle.on(&self.root, event))
-            .unwrap_or_else(|error| {
-                // Only clearing a pause fails a transition, and no failure clears one.
-                descriptor::pause_unrecorded(&error);
-                None
-            })
+        self.runtime.block_on(self.lifecycle.on(&self.root, event))
     }
 
     /// Moves the mirror on after a run failed with `error`. `resume` is the explicit rescan that
@@ -889,11 +883,11 @@ async fn initialize_live(
     // stays starting, a retrying one retrying and a paused one paused, even while its explicit
     // rescan runs.
     let reconciled = if resume.is_some() {
-        Event::RescanSucceeded
+        Reconciled::Rescan
     } else {
-        Event::Reconciled
+        Reconciled::Run
     };
-    status.on(root, reconciled).await?;
+    status.reconciled(root, reconciled).await?;
     if let Some(request) = resume.take() {
         let _ = request.reply.send(Ok(summary));
         writeback = writeback.with_root(root)?;

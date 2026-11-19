@@ -1,6 +1,7 @@
-//! The mirror's lifecycle. One table, [`effect`], decides what each event does to the mirror's
-//! state and to the pause the catalog records, so that no caller can resume a paused mirror,
-//! or report it retrying, by itself.
+//! The mirror's lifecycle. Two tables, [`after_reconciled`] and [`effect`], decide what each
+//! event does to the mirror's state and to the pause the catalog records, so that no caller can
+//! resume a paused mirror, or report it retrying, by itself. Only a pass that reconciled the
+//! whole tree clears the recorded pause, so only applying one can fail.
 
 use super::descriptor;
 use crate::{
@@ -15,14 +16,21 @@ use crate::{
     },
 };
 
-/// What happens to the mirror. Only [`effect`] decides what an event changes.
+/// A pass that reconciled the whole tree, after which the recorded pause is cleared wherever the
+/// mirror moves to `Running`. Only [`after_reconciled`] decides what it changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Event {
+pub(super) enum Reconciled {
     /// A run reconciled the whole tree at its start without an explicit rescan to resume a
     /// pause: this process's first pass, or the run after a retry.
-    Reconciled,
+    Run,
     /// The explicit rescan that was to resume a paused mirror reconciled the whole tree.
-    RescanSucceeded,
+    Rescan,
+}
+
+/// What else happens to the mirror. None of these clears the recorded pause, so applying one
+/// cannot fail. Only [`effect`] decides what an event changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Event {
     /// A run, or the explicit rescan that was to resume a pause, failed transiently.
     FailedTransiently,
     /// A run, or an explicit rescan, failed in a way only an operator can repair.
@@ -35,60 +43,51 @@ pub(super) enum Event {
     Stopping,
 }
 
-/// What an event does to the pause the catalog records, which status reads and which outlives a
-/// restart.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PauseRecord {
-    Unchanged,
-    /// Records the reason synchronization paused for.
-    Record(PauseReason),
-    /// Removes the recorded pause, because a run reconciled the whole tree.
-    Clear,
-}
-
-/// The state an event moves the mirror to, and what it does to the recorded pause.
+/// The state an event moves the mirror to, and the reason it records for a pause, which status
+/// reads and which outlives a restart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Effect {
     to: MirrorState,
-    pause: PauseRecord,
+    records: Option<PauseReason>,
+}
+
+/// The state a mirror in `from` moves to once `reconciled`; `None` leaves it as it is. Every pair
+/// is listed. Only an explicit rescan that succeeded leaves `Paused` for `Running`, and nothing
+/// leaves `Stopped`.
+const fn after_reconciled(from: MirrorState, reconciled: Reconciled) -> Option<MirrorState> {
+    use MirrorState::{Paused, Retrying, Running, Starting, Stopped};
+    match (from, reconciled) {
+        (Starting | Retrying, Reconciled::Run) | (Paused, Reconciled::Rescan) => Some(Running),
+        (Stopped, Reconciled::Run | Reconciled::Rescan)
+        | (Running | Paused, Reconciled::Run)
+        | (Starting | Running | Retrying, Reconciled::Rescan) => None,
+    }
 }
 
 /// What `event` does to a mirror in `from`; `None` leaves both the state and the recorded pause
-/// as they are. Every pair is listed. Only an explicit rescan that succeeded leaves `Paused` for
-/// `Running`; a transient failure keeps a mirror `Starting` through the retries of its first pass
-/// and never leaves `Paused`; nothing leaves `Stopped`.
+/// as they are. Every pair is listed. A transient failure keeps a mirror `Starting` through the
+/// retries of its first pass and never leaves `Paused`; nothing leaves `Stopped`.
 const fn effect(from: MirrorState, event: Event) -> Option<Effect> {
     use MirrorState::{Paused, Retrying, Running, Starting, Stopped};
-    let (to, pause) = match (from, event) {
+    let (to, records) = match (from, event) {
         (
             Stopped,
-            Event::Reconciled
-            | Event::RescanSucceeded
-            | Event::FailedTransiently
+            Event::FailedTransiently
             | Event::FailedPersistently(_)
             | Event::WatchRetrying
             | Event::WatchRebuilt
             | Event::Stopping,
         )
-        | (Running | Paused, Event::Reconciled)
-        | (Starting | Running | Retrying, Event::RescanSucceeded)
         | (Starting | Retrying | Paused, Event::FailedTransiently | Event::WatchRetrying)
         | (Starting | Running | Paused, Event::WatchRebuilt) => return None,
-        (Starting | Retrying, Event::Reconciled) | (Paused, Event::RescanSucceeded) => {
-            (Running, PauseRecord::Clear)
-        }
-        (Running, Event::FailedTransiently | Event::WatchRetrying) => {
-            (Retrying, PauseRecord::Unchanged)
-        }
+        (Running, Event::FailedTransiently | Event::WatchRetrying) => (Retrying, None),
         (Starting | Running | Retrying | Paused, Event::FailedPersistently(reason)) => {
-            (Paused, PauseRecord::Record(reason))
+            (Paused, Some(reason))
         }
-        (Retrying, Event::WatchRebuilt) => (Running, PauseRecord::Unchanged),
-        (Starting | Running | Retrying | Paused, Event::Stopping) => {
-            (Stopped, PauseRecord::Unchanged)
-        }
+        (Retrying, Event::WatchRebuilt) => (Running, None),
+        (Starting | Running | Retrying | Paused, Event::Stopping) => (Stopped, None),
     };
-    Some(Effect { to, pause })
+    Some(Effect { to, records })
 }
 
 /// The mirror's state, which only events change, through [`effect`]. The mirror's thread keeps
@@ -127,34 +126,33 @@ impl Lifecycle {
         self.status.entries()
     }
 
-    /// Applies `event`, the one place that changes the state or the recorded pause, and returns
-    /// the change of state. A failure to record a pause leaves the mirror paused all the same and
-    /// is logged as `sync_pause_unrecorded`: status shows the mirror's own `Paused` without a
-    /// reason, and only a rescan that succeeds resumes it. A failure to clear one leaves the state
-    /// as it was and fails the caller, so that a running mirror never shows a pause it left.
-    pub(super) async fn on(
+    /// Applies `reconciled`, and returns the change of state. A mirror that moves to `Running`
+    /// clears the recorded pause first; a failure to clear it leaves the state as it was and fails
+    /// the caller, so that a running mirror never shows a pause it left.
+    pub(super) async fn reconciled(
         &self,
         root: &RootLease,
-        event: Event,
+        reconciled: Reconciled,
     ) -> Result<Option<Transition>, RootError> {
-        let Some(effect) = effect(self.state(), event) else {
+        let Some(to) = after_reconciled(self.state(), reconciled) else {
             return Ok(None);
         };
-        let transition = match effect.pause {
-            PauseRecord::Clear => {
-                root.observation_pause(None).await?;
-                self.enter(effect.to)
-            }
-            PauseRecord::Record(reason) => {
-                let transition = self.enter(effect.to);
-                if let Err(error) = self.record(root, reason).await {
-                    descriptor::pause_unrecorded(&error);
-                }
-                transition
-            }
-            PauseRecord::Unchanged => self.enter(effect.to),
-        };
-        Ok(transition)
+        root.observation_pause(None).await?;
+        Ok(self.enter(to))
+    }
+
+    /// Applies `event`, and returns the change of state. A failure to record a pause leaves the
+    /// mirror paused all the same and is logged as `sync_pause_unrecorded`: status shows the
+    /// mirror's own `Paused` without a reason, and only a rescan that succeeds resumes it.
+    pub(super) async fn on(&self, root: &RootLease, event: Event) -> Option<Transition> {
+        let effect = effect(self.state(), event)?;
+        let transition = self.enter(effect.to);
+        if let Some(reason) = effect.records
+            && let Err(error) = self.record(root, reason).await
+        {
+            descriptor::pause_unrecorded(&error);
+        }
+        transition
     }
 
     /// Applies [`Event::Stopping`], which leaves the recorded pause as it is, so that a guard
@@ -186,19 +184,39 @@ mod tests {
     use super::*;
     use MirrorState::{Paused, Retrying, Running, Starting, Stopped};
 
-    const EVENTS: [Event; 7] = [
-        Event::Reconciled,
-        Event::RescanSucceeded,
-        Event::FailedTransiently,
-        Event::FailedPersistently(PauseReason::IoFailure),
-        Event::WatchRetrying,
-        Event::WatchRebuilt,
-        Event::Stopping,
+    /// Anything that happens to the mirror, in the order of the table's columns.
+    #[derive(Clone, Copy, Debug)]
+    enum Happening {
+        Reconciled(Reconciled),
+        Event(Event),
+    }
+
+    impl Happening {
+        /// The state a mirror in `from` moves to, and what that does to the recorded pause: `C`
+        /// clears it, `R` records it, and `-` leaves it.
+        fn applied(self, from: MirrorState) -> Option<(MirrorState, char)> {
+            match self {
+                Self::Reconciled(reconciled) => {
+                    after_reconciled(from, reconciled).map(|to| (to, 'C'))
+                }
+                Self::Event(event) => effect(from, event)
+                    .map(|effect| (effect.to, if effect.records.is_some() { 'R' } else { '-' })),
+            }
+        }
+    }
+
+    const HAPPENINGS: [Happening; 7] = [
+        Happening::Reconciled(Reconciled::Run),
+        Happening::Reconciled(Reconciled::Rescan),
+        Happening::Event(Event::FailedTransiently),
+        Happening::Event(Event::FailedPersistently(PauseReason::IoFailure)),
+        Happening::Event(Event::WatchRetrying),
+        Happening::Event(Event::WatchRebuilt),
+        Happening::Event(Event::Stopping),
     ];
 
-    /// The expected effect of every event in every state, one row per state in the order of
-    /// [`EVENTS`]: `-` leaves the state and the recorded pause, `C` clears the pause, `R` records
-    /// it.
+    /// The expected effect of everything that happens in every state, one row per state in the
+    /// order of [`HAPPENINGS`]: `-` leaves the recorded pause, `C` clears it, `R` records it.
     #[test]
     fn every_event_in_every_state_has_the_listed_effect() {
         type Row = (MirrorState, [Option<(MirrorState, char)>; 7]);
@@ -255,16 +273,12 @@ mod tests {
             (Stopped, [keep; 7]),
         ];
         for (from, expected) in table {
-            for (event, expected) in EVENTS.into_iter().zip(expected) {
-                let expected = expected.map(|(to, pause)| Effect {
-                    to,
-                    pause: match pause {
-                        'C' => PauseRecord::Clear,
-                        'R' => PauseRecord::Record(PauseReason::IoFailure),
-                        _ => PauseRecord::Unchanged,
-                    },
-                });
-                assert_eq!(effect(from, event), expected, "{from:?} on {event:?}");
+            for (happening, expected) in HAPPENINGS.into_iter().zip(expected) {
+                assert_eq!(
+                    happening.applied(from),
+                    expected,
+                    "{from:?} on {happening:?}"
+                );
             }
         }
     }
@@ -273,18 +287,22 @@ mod tests {
     /// succeeded resumes a paused mirror, and only a stop records nothing while ending it.
     #[test]
     fn only_a_successful_rescan_resumes_a_paused_mirror() {
-        for event in EVENTS {
-            let resumes = effect(Paused, event).is_some_and(|effect| effect.to != Paused);
+        for happening in HAPPENINGS {
+            let resumes = happening
+                .applied(Paused)
+                .is_some_and(|(to, _)| to != Paused);
             assert_eq!(
                 resumes,
-                matches!(event, Event::RescanSucceeded | Event::Stopping),
-                "{event:?}"
+                matches!(
+                    happening,
+                    Happening::Reconciled(Reconciled::Rescan) | Happening::Event(Event::Stopping)
+                ),
+                "{happening:?}"
             );
         }
         for from in [Starting, Running, Retrying, Paused, Stopped] {
             assert!(
-                effect(from, Event::Stopping)
-                    .is_none_or(|effect| effect.pause == PauseRecord::Unchanged),
+                effect(from, Event::Stopping).is_none_or(|effect| effect.records.is_none()),
                 "{from:?}"
             );
         }

@@ -365,8 +365,7 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
                 crate::storage::sync_state::observation::PauseReason::ObserverFailure,
             ),
         )
-        .await
-        .unwrap();
+        .await;
     let (_commands, mut requests) = tokio::sync::mpsc::channel(1);
     let (_stop, mut stopping) = tokio::sync::watch::channel(false);
     let resume = tokio::time::timeout(
