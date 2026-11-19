@@ -514,14 +514,50 @@ enum EndpointSource {
 }
 
 impl Endpoint {
+    /// The origin requests go to.
+    fn origin(&self) -> String {
+        format!("{}://{}", self.transport.scheme(), self.authority)
+    }
+
+    /// What to check when the server cannot be reached here, which depends on what named it.
+    const fn check(&self) -> &'static str {
+        match self.source {
+            EndpointSource::Given => {
+                "check that the server is running and that --endpoint names it"
+            }
+            EndpointSource::Environment => {
+                "check that the server is running and that GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME give its address, or supply --endpoint"
+            }
+        }
+    }
+
+    /// The failure to connect, which names the origin and what to check, keeping `cause`.
+    fn unreachable(&self, cause: io::Error) -> CliError {
+        let advice = fail(format!(
+            "Cannot connect to the synchronization server at {} ({cause}); {}",
+            self.origin(),
+            self.check()
+        ));
+        CliError::Unreachable(advice, cause)
+    }
+
+    /// A request that got no answer within `timeout`. The server may have accepted it, so the
+    /// advice says to inspect its status before retrying a control.
+    fn unanswered(&self, timeout: Duration) -> CliError {
+        let advice = fail(format!(
+            "The synchronization server at {} did not answer within {:.1}s; {}. A control it accepted may still be running, so inspect its status before retrying",
+            self.origin(),
+            timeout.as_secs_f64(),
+            self.check()
+        ));
+        let cause = io::Error::new(io::ErrorKind::TimedOut, "synchronization request timed out");
+        CliError::Unreachable(advice, cause)
+    }
+
     /// The options that reach this endpoint again, as a suggested command spells them.
     fn options(&self) -> Vec<String> {
         let endpoint = match self.source {
-            EndpointSource::Given => Some(format!(
-                "--endpoint {}://{}",
-                self.transport.scheme(),
-                self.authority
-            )),
+            EndpointSource::Given => Some(format!("--endpoint {}", self.origin())),
             EndpointSource::Environment => None,
         };
         let ca_cert = match &self.transport {
@@ -632,19 +668,32 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     if let Err(mismatch) = handshake::check(&reply.headers, handshake::Peer::Server) {
         return Err(fail(mismatch).into());
     }
+    let connection = options.connection();
     match options.wait {
-        Some(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &options.connection()),
+        Some(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
         None if reply.status.is_success() => Ok(()),
-        None => Err(http_failure(reply.status).into()),
+        None => Err(http_failure(reply.status, error_message(&reply.body), &connection).into()),
     }
 }
 
-/// The failure of a request whose answer says nothing the command can advise on.
-fn http_failure(status: StatusCode) -> Diagnostics {
-    fail(format!(
-        "Synchronization control returned HTTP {}; inspect its JSON response and preserve pending work.",
-        status.as_u16()
-    ))
+/// The message of a failed request's JSON error envelope, `{"error":{"message":..}}`.
+fn error_message(body: &Value) -> Option<&str> {
+    body.pointer("/error/message").and_then(Value::as_str)
+}
+
+/// The failure of a request whose answer names no outcome the command advises on: the server's
+/// `message`, whose commands get the options that reached it, or without one, the status alone.
+fn http_failure(status: StatusCode, message: Option<&str>, connection: &str) -> Diagnostics {
+    let status = status.as_u16();
+    fail(match message {
+        Some(message) => format!(
+            "Synchronization control returned HTTP {status}: {}",
+            advice::with_connection(message, connection)
+        ),
+        None => format!(
+            "Synchronization control returned HTTP {status}; inspect its JSON response and preserve pending work."
+        ),
+    })
 }
 
 /// What the command reads from a wait's answer to advise its user.
@@ -655,6 +704,8 @@ struct WaitOutcome<'a> {
     unmapped: Option<(u64, &'a str)>,
     paused_reason: Option<&'a str>,
     remedy: Option<&'a str>,
+    /// The message of an answer that is a request's failure rather than a wait's end.
+    message: Option<&'a str>,
 }
 
 impl<'a> WaitOutcome<'a> {
@@ -669,6 +720,7 @@ impl<'a> WaitOutcome<'a> {
                 .zip(findings.and_then(|findings| text(findings, "revision"))),
             paused_reason: text(body, "paused_reason"),
             remedy: text(body, "remedy"),
+            message: error_message(body),
         }
     }
 
@@ -682,7 +734,9 @@ impl<'a> WaitOutcome<'a> {
                 advice.write(io::stderr().lock())?;
                 Ok(())
             }
-            WaitExit::Failed if !advice.is_err() => Err(http_failure(status).into()),
+            WaitExit::Failed if !advice.is_err() => {
+                Err(http_failure(status, self.message, connection).into())
+            }
             exit @ (WaitExit::Failed | WaitExit::ActionNeeded | WaitExit::TimedOut) => {
                 Err(CliError::Wait(advice, exit))
             }
@@ -950,17 +1004,22 @@ impl Options {
                     }
                     checked.push(address);
                 }
-                let mut connected: Result<tokio::net::TcpStream, CliError> =
-                    Err(fail("Endpoint has no local address").into());
+                let mut connected = None;
+                let mut refused = None;
                 for address in checked {
-                    connected = tokio::net::TcpStream::connect(address)
-                        .await
-                        .map_err(CliError::from);
-                    if connected.is_ok() {
-                        break;
+                    match tokio::net::TcpStream::connect(address).await {
+                        Ok(stream) => {
+                            connected = Some(stream);
+                            break;
+                        }
+                        Err(error) => refused = Some(error),
                     }
                 }
-                let stream = connected?;
+                let stream = match (connected, refused) {
+                    (Some(stream), _) => stream,
+                    (None, Some(error)) => return Err(self.endpoint.unreachable(error)),
+                    (None, None) => return Err(fail("Endpoint has no local address").into()),
+                };
                 if let Some(client) = client {
                     let name = tokio_rustls::rustls::pki_types::ServerName::try_from(
                         self.endpoint.host.clone(),
@@ -975,12 +1034,7 @@ impl Options {
                 }
             })
             .await
-            .map_err(|_| {
-                CliError::Io(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "Synchronization request timed out",
-                ))
-            })?
+            .map_err(|_| self.endpoint.unanswered(timeout))?
         });
         // A timed-out resolver must not keep this one-shot command alive.
         runtime.shutdown_background();

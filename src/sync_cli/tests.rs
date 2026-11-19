@@ -500,6 +500,79 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
 /// healthcheck finds it, and the commands it advises leave the endpoint out. An explicit endpoint
 /// wins. A config file, which the command does not open, a configuration with errors and an
 /// origin the command cannot reach each say what to supply instead.
+/// A server that does not listen, or that never answers, fails the command with the URL it
+/// tried and what to check, which names the environment when that gave the endpoint, keeping
+/// the I/O failure as the cause. A refused request names the server's message, whose commands
+/// get the options that reached the server.
+#[test]
+fn a_failed_request_names_the_url_it_tried_and_the_servers_message() {
+    let unreachable = |options: &Options, timeout| match options.execute(STATUS_PATH, None, timeout)
+    {
+        Err(CliError::Unreachable(advice, cause)) => (advice.errors[0].fix.clone(), cause.kind()),
+        Err(error) => panic!("{error:?}"),
+        Ok(reply) => panic!("answered: {}", reply.body),
+    };
+    let closed = parse(&["status", "--endpoint", "http://127.0.0.1:1"]).unwrap();
+    let (fix, cause) = unreachable(&closed, Duration::from_secs(5));
+    assert_eq!(cause, io::ErrorKind::ConnectionRefused);
+    assert!(
+        fix.starts_with("Cannot connect to the synchronization server at http://127.0.0.1:1 ("),
+        "{fix}"
+    );
+    assert!(
+        fix.ends_with("); check that the server is running and that --endpoint names it"),
+        "{fix}"
+    );
+    let configured = Options::parse(
+        &["status".to_owned()],
+        vec![(
+            OsString::from("GCS_MIMIC_LISTEN"),
+            OsString::from("127.0.0.1:1"),
+        )],
+    )
+    .unwrap();
+    let (fix, _) = unreachable(&configured, Duration::from_secs(5));
+    assert!(
+        fix.ends_with(
+            "check that the server is running and that GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME give its address, or supply --endpoint"
+        ),
+        "{fix}"
+    );
+    let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", silent.local_addr().unwrap());
+    let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
+    let (fix, cause) = unreachable(&options, Duration::from_millis(200));
+    drop(silent);
+    assert_eq!(cause, io::ErrorKind::TimedOut);
+    assert_eq!(
+        fix,
+        format!(
+            "The synchronization server at {endpoint} did not answer within 0.2s; check that the server is running and that --endpoint names it. A control it accepted may still be running, so inspect its status before retrying"
+        )
+    );
+
+    let paused = json!({"error":{"code":409,
+        "message":"Synchronization is paused. Find the reason: gcs-mimic sync status --endpoint URL; then resume"}});
+    let refused = http_failure(
+        StatusCode::CONFLICT,
+        error_message(&paused),
+        "--endpoint http://127.0.0.1:4443",
+    );
+    assert_eq!(
+        refused.errors[0].fix,
+        "Synchronization control returned HTTP 409: Synchronization is paused. Find the reason: gcs-mimic sync status --endpoint http://127.0.0.1:4443; then resume"
+    );
+    let bare = http_failure(
+        StatusCode::SERVICE_UNAVAILABLE,
+        error_message(&json!({})),
+        "",
+    );
+    assert_eq!(
+        bare.errors[0].fix,
+        "Synchronization control returned HTTP 503; inspect its JSON response and preserve pending work."
+    );
+}
+
 #[test]
 fn without_an_endpoint_the_command_controls_the_server_the_environment_configures() {
     let parse_in = |args: &[&str], environment: &[(&str, &str)]| {

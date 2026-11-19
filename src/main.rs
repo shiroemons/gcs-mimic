@@ -118,6 +118,9 @@ enum CliError {
     /// A `sync wait` that did not end ready: its diagnostics, and the exit status that tells
     /// how it ended.
     Wait(Diagnostics, sync_cli::WaitExit),
+    /// A server that could not be reached or did not answer: advice that names where the
+    /// command looked and what to check, and the I/O failure as the cause.
+    Unreachable(Diagnostics, io::Error),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
     /// causes remain the error's source. Boxed because it holds two catalog errors.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
@@ -131,6 +134,7 @@ impl CliError {
         match self {
             Self::Diagnostics(diagnostics)
             | Self::Wait(diagnostics, _)
+            | Self::Unreachable(diagnostics, _)
             | Self::Import(gcs_mimic::import::ImportError::Diagnostics(diagnostics)) => {
                 Some(diagnostics)
             }
@@ -143,9 +147,11 @@ impl CliError {
     fn exit_code(&self) -> ExitCode {
         match self {
             Self::Wait(_, exit) => ExitCode::from(exit.code()),
-            Self::Diagnostics(_) | Self::Authentication(_) | Self::Io(_) | Self::Import(_) => {
-                ExitCode::FAILURE
-            }
+            Self::Diagnostics(_)
+            | Self::Unreachable(..)
+            | Self::Authentication(_)
+            | Self::Io(_)
+            | Self::Import(_) => ExitCode::FAILURE,
         }
     }
 }
@@ -153,7 +159,9 @@ impl CliError {
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Diagnostics(diagnostics) | Self::Wait(diagnostics, _) => diagnostics.fmt(f),
+            Self::Diagnostics(diagnostics)
+            | Self::Wait(diagnostics, _)
+            | Self::Unreachable(diagnostics, _) => diagnostics.fmt(f),
             Self::Authentication(failure) => failure.fmt(f),
             Self::Io(error) => error.fmt(f),
             Self::Import(error) => error.fmt(f),
@@ -166,7 +174,7 @@ impl std::error::Error for CliError {
         match self {
             Self::Diagnostics(diagnostics) | Self::Wait(diagnostics, _) => Some(diagnostics),
             Self::Authentication(failure) => Some(failure.as_ref()),
-            Self::Io(error) => Some(error),
+            Self::Io(error) | Self::Unreachable(_, error) => Some(error),
             Self::Import(error) => Some(error),
         }
     }

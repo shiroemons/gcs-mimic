@@ -196,7 +196,12 @@ Headers are limited to 64 and 16 KiB, and both chunked and length-framed JSON
 responses have a 256 KiB body cap. Malformed, truncated and oversized responses
 fail. A non-JSON body reports its HTTP status without echoing the body.
 Non-success HTTP statuses print their bounded JSON and fail, including
-explicitly unsupported operations. Conflict resolution remains subject to the
+explicitly unsupported operations; the `error` diagnostic repeats the server's
+`error.message`, with the connection options filled in for any command it
+names. A server that refuses the connection or does not answer within the
+timeout fails with the URL the command tried and what to check: that the
+server is running and that `--endpoint`, or without it `GCS_MIMIC_LISTEN` and
+`GCS_MIMIC_SCHEME`, give its address. Conflict resolution remains subject to the
 server's exact revision, identity, authorization and confirmation checks.
 
 ## Native operator acceptance
