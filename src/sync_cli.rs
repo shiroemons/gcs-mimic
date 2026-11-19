@@ -351,6 +351,8 @@ impl Paging {
 
 /// The status control, which also lists the views.
 const STATUS_PATH: &str = "/_internal/sync";
+/// The wait control, which each request of a wait asks with the time left.
+const WAIT_PATH: &str = "/_internal/sync/wait";
 
 impl Command {
     /// `None` names no operation. That is reported where the operation is chosen, after the
@@ -796,17 +798,33 @@ fn configured_endpoint(
 
 struct Options {
     endpoint: Endpoint,
-    /// The first request; for a page at the latest revision, the status that reports it.
-    path: String,
-    body: Option<Value>,
-    latest: Option<LatestPage>,
+    plan: Plan,
     token: Option<hyper::header::HeaderValue>,
     /// The token file named on the command line, which a suggested command names again.
     token_file: Option<PathBuf>,
     /// One request's deadline, or for a wait, the deadline of the whole wait.
     timeout: Duration,
-    /// `Some` for `sync wait`, which repeats requests until `timeout`.
-    wait: Option<UnmappedObjects>,
+}
+
+/// What a command asks of the server.
+#[derive(Debug, PartialEq, Eq)]
+enum Plan {
+    /// One request to `path`, with `body` for a control.
+    Once { path: String, body: Option<Value> },
+    /// `sync wait`, which asks again until its timeout, treating objects whose names the tree
+    /// cannot hold by this policy.
+    Wait(UnmappedObjects),
+    /// A view page at the revision the status reports when the command runs.
+    Latest(LatestPage),
+}
+
+impl Plan {
+    fn once(path: &str, body: Option<Value>) -> Self {
+        Self::Once {
+            path: path.to_owned(),
+            body,
+        }
+    }
 }
 
 pub(super) fn run(args: &[String]) -> Result<(), CliError> {
@@ -843,10 +861,12 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
         return Err(fail(mismatch).into());
     }
     let connection = options.connection(&endpoint);
-    match options.wait {
-        Some(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
-        None if reply.status.is_success() => Ok(()),
-        None => Err(http_failure(reply.status, error_message(&reply.body), &connection).into()),
+    match options.plan {
+        Plan::Wait(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
+        Plan::Once { .. } | Plan::Latest(_) if reply.status.is_success() => Ok(()),
+        Plan::Once { .. } | Plan::Latest(_) => {
+            Err(http_failure(reply.status, error_message(&reply.body), &connection).into())
+        }
     }
 }
 
@@ -1078,21 +1098,6 @@ impl Options {
         };
         let token_file = flags.take(Flag::TokenFile);
         let token = token_file.map(read_token).transpose()?;
-        let wait = match command {
-            Some(Command::Wait) => Some(
-                flags
-                    .take(Flag::RequireNoFindings)
-                    .map_or(UnmappedObjects::Report, |_| UnmappedObjects::Refuse),
-            ),
-            Some(
-                Command::Status
-                | Command::Rescan
-                | Command::Approve
-                | Command::Resolve
-                | Command::List(_),
-            )
-            | None => None,
-        };
         // Approval reads its revision from --deletion-set; anywhere else that option is left
         // over and refused below.
         let revision = flags.take(if command == Some(Command::Approve) {
@@ -1106,17 +1111,14 @@ impl Options {
             )
             .into());
         }
-        let ControlRequest { path, body, latest } = request(command, revision, &mut flags)?;
+        let plan = request(command, revision, &mut flags)?;
         flags.finish()?;
         Ok(Self {
             endpoint,
-            path,
-            body,
-            latest,
+            plan,
             token,
             token_file: token_file.map(PathBuf::from),
             timeout: Duration::from_millis(timeout),
-            wait,
         })
     }
 
@@ -1160,13 +1162,13 @@ impl Options {
 
     /// The answer of the command's requests to `endpoint`.
     fn answer(&self, endpoint: &Endpoint) -> Result<Reply, CliError> {
-        match (self.wait, &self.latest) {
-            (Some(unmapped), _) => {
+        match &self.plan {
+            Plan::Wait(unmapped) => {
                 let started = std::time::Instant::now();
-                self.wait_until_settled(endpoint, unmapped, || started.elapsed())
+                self.wait_until_settled(endpoint, *unmapped, || started.elapsed())
             }
-            (None, Some(page)) => self.latest_page(endpoint, page),
-            (None, None) => self.execute(endpoint, &self.path, self.body.as_ref(), self.timeout),
+            Plan::Latest(page) => self.latest_page(endpoint, page),
+            Plan::Once { path, body } => self.execute(endpoint, path, body.as_ref(), self.timeout),
         }
     }
 
@@ -1190,7 +1192,7 @@ impl Options {
             let millis = u64::try_from(slice.as_millis()).unwrap_or(u64::MAX);
             let reply = self.execute(
                 endpoint,
-                &self.path,
+                WAIT_PATH,
                 Some(&wait_body(unmapped, millis)),
                 slice + WAIT_MARGIN,
             )?;
@@ -1377,41 +1379,26 @@ fn response_json(status: StatusCode, bytes: &[u8]) -> Result<Value, NonJsonRespo
     serde_json::from_slice(bytes).map_err(|cause| NonJsonResponse { status, cause })
 }
 
-/// What a command asks first, and for a view page at the latest revision, the page it then reads.
-struct ControlRequest {
-    path: String,
-    body: Option<Value>,
-    latest: Option<LatestPage>,
-}
-
-impl ControlRequest {
-    fn once(path: &str, body: Option<Value>) -> Self {
-        Self {
-            path: path.to_owned(),
-            body,
-            latest: None,
-        }
-    }
-}
-
-/// The request of `command` with `revision`, taking the options it reads from `flags`.
+/// What `command` with `revision` asks, taking the options it reads from `flags`.
 fn request(
     command: Option<Command>,
     revision: Option<&str>,
     flags: &mut Flags<'_>,
-) -> Result<ControlRequest, Diagnostics> {
+) -> Result<Plan, Diagnostics> {
     Ok(match (command, revision) {
-        (Some(Command::Status), None) => ControlRequest::once(STATUS_PATH, None),
-        (Some(Command::Rescan), None) => {
-            ControlRequest::once("/_internal/sync/rescan", Some(json!({})))
-        }
+        (Some(Command::Status), None) => Plan::once(STATUS_PATH, None),
+        (Some(Command::Rescan), None) => Plan::once("/_internal/sync/rescan", Some(json!({}))),
         // Each request of a wait carries its own body, with the time left at that request.
-        (Some(Command::Wait), None) => ControlRequest::once("/_internal/sync/wait", None),
-        (Some(Command::Resolve), revision) => ControlRequest::once(
+        (Some(Command::Wait), None) => Plan::Wait(
+            flags
+                .take(Flag::RequireNoFindings)
+                .map_or(UnmappedObjects::Report, |_| UnmappedObjects::Refuse),
+        ),
+        (Some(Command::Resolve), revision) => Plan::once(
             "/_internal/sync/resolve",
             Some(resolve_body(revision, flags)?),
         ),
-        (Some(Command::Approve), revision) => ControlRequest::once(
+        (Some(Command::Approve), revision) => Plan::once(
             "/_internal/sync/approve",
             Some(
                 json!({"deletion_set":revision.ok_or_else(|| fail("Approval requires --deletion-set REVISION from an inspected deletion set"))?}),
@@ -1426,14 +1413,10 @@ fn request(
                     "A --cursor continues the pages of one revision; supply the --revision of the page that returned it",
                 ));
             }
-            ControlRequest {
-                path: STATUS_PATH.to_owned(),
-                body: None,
-                latest: Some(LatestPage { view, paging }),
-            }
+            Plan::Latest(LatestPage { view, paging })
         }
         (Some(Command::List(listing)), revision) => {
-            ControlRequest::once(&Paging::read(flags)?.path(listing, revision), None)
+            Plan::once(&Paging::read(flags)?.path(listing, revision), None)
         }
         (Some(Command::Status | Command::Rescan | Command::Wait), Some(_)) | (None, _) => {
             return Err(fail(

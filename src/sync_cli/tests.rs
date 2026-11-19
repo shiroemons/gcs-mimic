@@ -210,8 +210,13 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
     let options = parse_cmd(&["approve", "--deletion-set", revision]).unwrap();
-    assert_eq!(options.path, "/_internal/sync/approve");
-    assert_eq!(options.body, Some(json!({"deletion_set":revision})));
+    assert_eq!(
+        once(&options),
+        (
+            "/_internal/sync/approve",
+            Some(&json!({"deletion_set":revision}))
+        )
+    );
     // --revision names the pages approval was read from, not the set it approves.
     let Err(CliError::Diagnostics(refused)) = parse_cmd(&["approve", "--revision", revision])
     else {
@@ -230,7 +235,10 @@ fn approval_requires_an_explicit_exact_revision() {
     ] {
         assert!(parse_cmd(&args).is_err(), "{args:?}");
     }
-    assert_eq!(parse_cmd(&["rescan"]).unwrap().body, Some(json!({})));
+    assert_eq!(
+        parse_cmd(&["rescan"]).unwrap().plan,
+        Plan::once("/_internal/sync/rescan", Some(json!({})))
+    );
 }
 
 #[test]
@@ -245,13 +253,12 @@ fn pages_preserve_opaque_cursors_without_query_injection() {
         "2",
     ])
     .unwrap();
+    let (path, body) = once(&options);
     assert!(
-        options
-            .path
-            .ends_with("&cursor=x%26revision%3Dy%2B%2F&limit=2")
+        path.ends_with("&cursor=x%26revision%3Dy%2B%2F&limit=2"),
+        "{path}"
     );
-    assert!(options.body.is_none());
-    assert!(options.latest.is_none());
+    assert_eq!(body, None);
     assert!(
         parse(&[
             "status",
@@ -269,7 +276,7 @@ fn findings_require_their_session_bound_revision() {
     let revision = "0123456789abcdef0123456789abcdef0123456789abcdef";
     let page = parse_cmd(&["findings", "--revision", revision]).unwrap();
     assert_eq!(
-        page.path,
+        once(&page).0,
         format!("/_internal/sync?view=findings&revision={revision}")
     );
     assert!(parse_cmd(&["findings", "--revision", &revision[..32]]).is_err());
@@ -279,8 +286,8 @@ fn findings_require_their_session_bound_revision() {
 #[test]
 fn conflicts_keep_their_own_endpoint_revision_and_opaque_cursor() {
     assert_eq!(
-        parse_cmd(&["conflicts"]).unwrap().path,
-        "/_internal/sync/conflicts"
+        parse_cmd(&["conflicts"]).unwrap().plan,
+        Plan::once("/_internal/sync/conflicts", None)
     );
     let revision = "0123456789abcdef0123456789abcdef";
     assert_eq!(
@@ -294,8 +301,11 @@ fn conflicts_keep_their_own_endpoint_revision_and_opaque_cursor() {
             "2"
         ])
         .unwrap()
-        .path,
-        format!("/_internal/sync/conflicts?revision={revision}&cursor=a%26b&limit=2")
+        .plan,
+        Plan::once(
+            &format!("/_internal/sync/conflicts?revision={revision}&cursor=a%26b&limit=2"),
+            None
+        )
     );
     assert!(parse_cmd(&["conflicts", "--limit", "257"]).is_err());
 }
@@ -304,7 +314,7 @@ fn conflicts_keep_their_own_endpoint_revision_and_opaque_cursor() {
 fn canonical_control_flags_map_to_the_exact_wire_contract() {
     let revision = "0123456789abcdef0123456789abcdef";
     let options = parse_cmd(&["approve", "--deletion-set", revision]).unwrap();
-    assert_eq!(options.body, Some(json!({"deletion_set":revision})));
+    assert_eq!(once(&options).1, Some(&json!({"deletion_set":revision})));
     assert!(
         parse_cmd(&[
             "approve",
@@ -317,13 +327,12 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
     );
     let options = parse_cmd(&["status", "--view", "deletions", "--revision", revision]).unwrap();
     assert_eq!(
-        options.path,
+        once(&options).0,
         format!("/_internal/sync?view=deletions&revision={revision}")
     );
     let options = parse_cmd(&["wait", "--timeout", "10s"]).unwrap();
-    assert_eq!(options.path, "/_internal/sync/wait");
     assert_eq!(options.timeout, Duration::from_secs(10));
-    assert_eq!(options.wait, Some(UnmappedObjects::Report));
+    assert_eq!(options.plan, Plan::Wait(UnmappedObjects::Report));
     assert_eq!(
         wait_body(UnmappedObjects::Report, 10_000),
         json!({"timeout_ms":10000})
@@ -339,7 +348,7 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
         &["wait", "--timeout", "10s", "--require-no-findings"],
     ] {
         let strict = parse_cmd(args).unwrap();
-        assert_eq!(strict.wait, Some(UnmappedObjects::Refuse), "{args:?}");
+        assert_eq!(strict.plan, Plan::Wait(UnmappedObjects::Refuse), "{args:?}");
     }
     assert_eq!(
         wait_body(UnmappedObjects::Refuse, 25),
@@ -400,11 +409,13 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
     let mut args = base.to_vec();
     args.extend(["--conflict", id, "--expected-generation", "0"]);
     let options = parse_cmd(&args).unwrap();
-    assert_eq!(options.path, "/_internal/sync/resolve");
     assert_eq!(
-        options.body,
-        Some(
-            json!({"conflict_id":id,"revision":id,"action":"discard","expected_generation":0,"operation_id":"operation-one"})
+        once(&options),
+        (
+            "/_internal/sync/resolve",
+            Some(
+                &json!({"conflict_id":id,"revision":id,"action":"discard","expected_generation":0,"operation_id":"operation-one"})
+            )
         )
     );
     args.extend(["--recovery", id]);
@@ -417,7 +428,8 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
         args.extend(["--recovery", id, "--target-identity", id]);
         assert!(parse_cmd(&args).is_err());
         args.extend([confirmation, id]);
-        let body = parse_cmd(&args).unwrap().body.unwrap();
+        let options = parse_cmd(&args).unwrap();
+        let body = once(&options).1.unwrap();
         assert_eq!(body["recovery_id"], id);
         assert_eq!(
             body["confirmation"],
@@ -440,7 +452,6 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
 fn a_wait_takes_up_to_an_hour_while_other_controls_take_a_minute() {
     let options = parse_cmd(&["wait", "--timeout-ms", "25"]).unwrap();
     assert_eq!(options.timeout, Duration::from_millis(25));
-    assert!(options.body.is_none());
     for (args, timeout) in [
         (
             vec!["wait", "--timeout-ms", "60001"],
@@ -699,12 +710,7 @@ fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, S
     });
     let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
     let result = options
-        .execute(
-            &options.endpoint,
-            &options.path,
-            options.body.as_ref(),
-            options.timeout,
-        )
+        .answer(&options.endpoint)
         .map(|reply| (reply.status, reply.body));
     (result, peer.join().unwrap())
 }
@@ -771,9 +777,7 @@ fn a_view_without_a_revision_lists_the_page_at_the_revision_status_reports() {
         "2",
     ])
     .unwrap();
-    assert_eq!(options.path, "/_internal/sync");
-    let page = options.latest.as_ref().unwrap();
-    let reply = options.latest_page(&options.endpoint, page).unwrap();
+    let reply = options.answer(&options.endpoint).unwrap();
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(reply.body["revision"], newer);
     assert_eq!(
@@ -789,9 +793,7 @@ fn a_view_without_a_revision_lists_the_page_at_the_revision_status_reports() {
     let (endpoint, server) =
         page_server(vec![("200 OK", json!({"pending_deletion_revision":null}))]);
     let options = parse(&["deletions", "--endpoint", &endpoint]).unwrap();
-    let Err(CliError::Diagnostics(refused)) =
-        options.latest_page(&options.endpoint, options.latest.as_ref().unwrap())
-    else {
+    let Err(CliError::Diagnostics(refused)) = options.answer(&options.endpoint) else {
         panic!("a deletion view without a pending set must be refused with a diagnostic");
     };
     assert_eq!(
@@ -889,9 +891,12 @@ fn requests(endpoint: &str, server: thread::JoinHandle<Vec<u64>>) -> Vec<u64> {
 /// seconds, from `elapsed` in turn instead of the clock.
 fn wait_for_150s(endpoint: &str, elapsed: &[u64]) -> Reply {
     let options = parse(&["wait", "--endpoint", endpoint, "--timeout", "150s"]).unwrap();
+    let Plan::Wait(unmapped) = options.plan else {
+        panic!("sync wait plans a wait: {:?}", options.plan);
+    };
     let mut elapsed = elapsed.iter().map(|seconds| Duration::from_secs(*seconds));
     options
-        .wait_until_settled(&options.endpoint, options.wait.unwrap(), || {
+        .wait_until_settled(&options.endpoint, unmapped, || {
             elapsed
                 .next()
                 .expect("the wait read the clock more often than expected")
@@ -1405,4 +1410,12 @@ fn wire_client_rejects_oversized_truncated_and_foreign_responses() {
         ),
         "{fix}"
     );
+}
+
+/// The one request `options` plans: its path and body.
+fn once(options: &Options) -> (&str, Option<&Value>) {
+    match &options.plan {
+        Plan::Once { path, body } => (path, body.as_ref()),
+        plan @ (Plan::Wait(_) | Plan::Latest(_)) => panic!("not one request: {plan:?}"),
+    }
 }
