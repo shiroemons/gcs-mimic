@@ -365,8 +365,8 @@ ever removed from one. A directory that holds anything else, even only a hidden
 file such as `._x` or an editor's swap file, stays as it is, and that object is
 reported as a `directory-occupied` finding. Object names
 containing `\`, and other names
-that cannot be mapped to host file names, are skipped without stopping the
-mirror; they stay available through the API. `gcs-mimic sync wait` succeeds
+that cannot be mapped to host file names, are skipped without stopping
+synchronization; they stay available through the API. `gcs-mimic sync wait` succeeds
 past them: it counts them and prints one line with the command that lists them,
 and `--require-no-findings` makes them fail it instead. A wait asks the
 server again while the directory is still changing, for up to two minutes by
