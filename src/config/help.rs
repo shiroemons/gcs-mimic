@@ -231,7 +231,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
         ),
         Setting::SyncDeleteGuard => (
             "BOOL",
-            "true (at least 100 deletions that are over half of the tree wait for gcs-mimic sync approve)",
+            "true (at least 100 deletions that are over half of the tree wait for approval through the sync approve subcommand)",
         ),
         Setting::SyncReinitialize => ("ID", "startup only (exact catalog ID; missing marker only)"),
         Setting::MaxSyncEntries => (
@@ -522,7 +522,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "74d00a966b09749091885a5be22d989f229de7b40302c19908dcf09398efe1db"
+            "df3c3e3a46f70da7caf7786155a73ab4a4bb775b8de6d72f7684347065b17803"
         );
     }
 }

@@ -565,7 +565,7 @@ struct LiveRun<'a> {
     /// Where the run reports what changes the mirror's state.
     status: &'a Lifecycle,
     /// The explicit rescan that resumes a paused mirror; a run that succeeds answers and takes
-    /// it, and one that fails leaves it to [`Mirror::pause`].
+    /// it, and one that fails leaves it to [`Mirror::fail`].
     resume: &'a mut Option<Resume>,
 }
 
@@ -1080,7 +1080,7 @@ struct LiveScope<'a> {
     writeback: &'a Writeback,
     stopping: &'a tokio::sync::watch::Receiver<bool>,
     /// Where an ingestion names the entries it could not take in. It changes nothing else of the
-    /// mirror's status, which only the outer loop changes.
+    /// mirror's status, whose state changes only through the lifecycle events a run reports.
     entries: &'a EntryReportSender,
 }
 

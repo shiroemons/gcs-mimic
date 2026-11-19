@@ -168,8 +168,8 @@ impl Default for MirrorStatusSender {
 }
 
 /// Replaces the working-tree entries a complete scan could not take in. Passes hold this
-/// instead of the [`MirrorStatusSender`], so that only the mirror's outer loop changes the
-/// mirror's state.
+/// instead of the [`MirrorStatusSender`], so that the mirror's state changes only through the
+/// lifecycle events a run reports.
 #[derive(Clone, Debug)]
 pub(crate) struct EntryReportSender {
     report: watch::Sender<Arc<EntryReport>>,
