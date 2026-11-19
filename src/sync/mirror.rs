@@ -1559,16 +1559,23 @@ impl LiveObject<'_> {
     }
 
     /// Whether the tracked file of `record`, missing from the tree, is left to the deletion
-    /// inventory instead of being written back.
+    /// inventory instead of being written back: only where the inventory looks at it, so an
+    /// object it skips, such as one with a finding, is written back rather than left to nobody.
     async fn missing_is_deleted(
         &self,
         record: &ObjectRecord,
         tracked: Option<&SyncRecord>,
     ) -> Result<bool, SyncError> {
+        let Some(tracked) = tracked else {
+            return Ok(false);
+        };
         Ok(self.missing == MissingFile::Inventory
-            && tracked.is_some_and(|tracked| tracked.generation.get() == record.generation)
             && self.root.current_baseline().await?
-                == crate::storage::sync_state::root::Baseline::Complete)
+                == crate::storage::sync_state::root::Baseline::Complete
+            && self
+                .root
+                .inventories(self.bucket, tracked, record.generation)
+                .await?)
     }
 
     /// Compares the live object with its working-tree path; `None` means a finding, a path stop

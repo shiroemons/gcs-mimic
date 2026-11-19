@@ -290,3 +290,68 @@ async fn a_lowered_depth_limit_keeps_the_deeper_object_while_other_deletions_pro
     drop(root);
     catalog.close().await.unwrap();
 }
+
+/// Starts the mirror on `tree` with `max_sync_depth` as the server does: ingestion,
+/// reconciliation and the deletion inventory.
+async fn start_with_depth(
+    catalog: &Catalog,
+    data: &TestDir,
+    tree: &TestDir,
+    depth: Option<std::num::NonZeroUsize>,
+) -> (RootLease, Initialized) {
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        max_sync_depth: depth,
+        ..Default::default()
+    };
+    let root = crate::sync::preflight(catalog, &config)
+        .await
+        .unwrap()
+        .unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let live = initialize_live(
+        LiveRun {
+            catalog,
+            root: &root,
+            config: &config,
+            status: &Lifecycle::default(),
+            resume: &mut None,
+        },
+        &stopping,
+    )
+    .await
+    .unwrap();
+    (root, live)
+}
+
+/// An object with a finding is no deletion candidate, so once the finding's cause is gone, its
+/// missing tracked file is written back and the finding clears, instead of the reconciliation
+/// leaving the file to an inventory that skips it.
+#[tokio::test]
+async fn a_missing_file_of_an_object_with_a_finding_is_written_back_once_the_cause_is_gone() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    for name in ["one/shallow", "one/two/deep"] {
+        publish_named(&catalog, &bucket, name, name.as_bytes(), Origin::Api).await;
+    }
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    drop(root);
+    fs::remove_dir_all(tree.0.join("test-bucket/one/two")).unwrap();
+    let (root, live) =
+        start_with_depth(&catalog, &data, &tree, std::num::NonZeroUsize::new(2)).await;
+    assert_eq!(root.observation().await.unwrap().mapping_findings, 1);
+    drop(live);
+    drop(root);
+
+    let (root, live) = start_with_depth(&catalog, &data, &tree, None).await;
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/one/two/deep")).unwrap(),
+        b"one/two/deep"
+    );
+    assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
+    assert!(exists(&catalog, &bucket, "one/two/deep").await);
+    assert!(exists(&catalog, &bucket, "one/shallow").await);
+    drop(live);
+    drop(root);
+    catalog.close().await.unwrap();
+}

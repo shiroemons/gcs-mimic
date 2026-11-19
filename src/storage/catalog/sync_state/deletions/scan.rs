@@ -1,5 +1,16 @@
 use super::*;
-use crate::storage::catalog::sql;
+use crate::storage::{catalog::sql, sync_state::SyncRecord};
+
+/// The tracked files a deletion inventory looks at, as the `FROM … WHERE` of a query whose `?1`
+/// is the root: each tracks its object's live generation in a bucket incarnation that still
+/// exists, and the object has no finding. A finding means the tree could not hold or show the
+/// object as tracked, so its missing file is written back, never inferred deleted; the
+/// inventory's pages and the reconciliation's check of one object both read this condition.
+macro_rules! inventoried {
+    () => {
+        "FROM sync_objects s JOIN bucket_incarnations i ON i.bucket=s.bucket AND i.incarnation=s.incarnation JOIN buckets b ON b.name=s.bucket JOIN objects o ON o.bucket=s.bucket AND o.name=s.name AND o.generation=s.generation AND o.time_deleted IS NULL WHERE NOT EXISTS(SELECT 1 FROM sync_findings f WHERE f.root_id=?1 AND f.bucket=s.bucket AND f.name=s.name)"
+    };
+}
 
 #[derive(Clone)]
 pub(crate) struct Inventory {
@@ -169,12 +180,59 @@ impl RootLease {
         after: String,
     ) -> Result<Vec<Candidate>, RootError> {
         let scope = self.control_scope();
-        Ok(self.catalog().run_admin(move |connection| {
-            let tx=connection.transaction()?;scope.authorize(&tx)?;
-            if fence(&tx)?!=inventory.fence {return Err(CatalogError::PreconditionFailed)}
-            tx.prepare_cached("SELECT s.bucket,s.name,b.project,s.incarnation,s.generation,s.path,0 FROM sync_objects s JOIN bucket_incarnations i ON i.bucket=s.bucket AND i.incarnation=s.incarnation JOIN buckets b ON b.name=s.bucket JOIN objects o ON o.bucket=s.bucket AND o.name=s.name AND o.generation=s.generation AND o.time_deleted IS NULL WHERE s.path>?1 AND NOT EXISTS(SELECT 1 FROM sync_findings f WHERE f.root_id=?2 AND f.bucket=s.bucket AND f.name=s.name) ORDER BY s.path LIMIT 256")
-                .and_then(|mut statement|statement.query_map(params![after,inventory.root],read_candidate)?.collect()).map_err(unavailable)
-        }).await?)
+        Ok(self
+            .catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                scope.authorize(&tx)?;
+                if fence(&tx)? != inventory.fence {
+                    return Err(CatalogError::PreconditionFailed);
+                }
+                tx.prepare_cached(concat!(
+                    "SELECT s.bucket,s.name,b.project,s.incarnation,s.generation,s.path,0 ",
+                    inventoried!(),
+                    " AND s.path>?2 ORDER BY s.path LIMIT 256"
+                ))
+                .and_then(|mut statement| {
+                    statement
+                        .query_map(params![inventory.root, after], read_candidate)?
+                        .collect()
+                })
+                .map_err(unavailable)
+            })
+            .await?)
+    }
+
+    /// Whether the deletion inventory looks at `tracked`, the file of an object in `bucket`
+    /// whose live generation is `generation`, so that a reconciliation finding that file missing
+    /// leaves it to the inventory instead of writing it back. Both read [`inventoried!`], so no
+    /// object is left to an inventory that skips it.
+    pub(crate) async fn inventories(
+        &self,
+        bucket: &BucketName,
+        tracked: &SyncRecord,
+        generation: i64,
+    ) -> Result<bool, RootError> {
+        let root = self.status().root_id;
+        let bucket = bucket.clone();
+        let (name, path) = (tracked.name.clone(), tracked.path.clone());
+        Ok(self
+            .catalog()
+            .run_admin(move |connection| {
+                connection
+                    .prepare_cached(concat!(
+                        "SELECT EXISTS(SELECT 1 ",
+                        inventoried!(),
+                        " AND s.bucket=?2 AND s.name=?3 AND s.path=?4 AND s.generation=?5)"
+                    ))
+                    .and_then(|mut statement| {
+                        statement.query_row(params![root, bucket, name, path, generation], |row| {
+                            row.get(0)
+                        })
+                    })
+                    .map_err(unavailable)
+            })
+            .await?)
     }
 
     /// Adds one page of the inventory: `baseline` tracked live files, of which `candidates` are

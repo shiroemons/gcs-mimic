@@ -54,7 +54,11 @@ With the baseline complete, a tracked file that is missing while its API
 generation is still the one last synchronized was deleted from the tree, also
 when that happened while the server was stopped or after it was killed.
 Reconciliation leaves it to the next inventory instead of writing it back, and
-the delete guard below is what stops a large deletion. Ingestion syncs a file
+the delete guard below is what stops a large deletion. It does so only for a
+file the inventory looks at: an object with a finding, such as one kept out of
+the tree while `max_sync_depth` was lower, is no candidate, so its missing file
+is written back once the cause is gone, which clears the finding. One catalog
+condition decides both. Ingestion syncs a file
 and each directory above it before it records the file, so a power loss never
 keeps a tracking row whose file it lost; a failed sync records nothing, counts
 the file as deferred and retries on the next scan. Restoring the synchronization
