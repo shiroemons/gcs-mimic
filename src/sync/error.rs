@@ -34,14 +34,24 @@ pub(crate) enum SyncError {
     Recovery(Stop),
     /// The root's naming rules could not be established, so no name may be mapped.
     RootNaming(ProbeError),
-    /// An explicit rescan failed and paused synchronization for this reason.
-    RescanStopped(PauseReason),
+    /// An explicit rescan of a running mirror failed in a way that pauses synchronization, which
+    /// ends the run. The rescan waits inside for the mirror to pause before it hears the answer.
+    RescanStopped(Box<StoppedRescan>),
     /// Unfinished write-back blocks this pass until an operator resolves it.
     WritebackUnfinished(Pass),
     /// The mirror job panicked; `catch_job` has already reported the panic.
     Panicked(JobPanicked),
     /// A value that an earlier step checked broke the next step's assumption.
     Invariant(&'static str),
+}
+
+/// An explicit rescan whose failure pauses synchronization: the reason it pauses for, its own
+/// failure, and the caller waiting for the answer.
+#[derive(Debug)]
+pub(crate) struct StoppedRescan {
+    pub(crate) reason: PauseReason,
+    pub(crate) error: SyncError,
+    pub(crate) reply: crate::sync::control::Reply<crate::sync::Reconciliation>,
 }
 
 /// The pass that unfinished write-back blocks. Each names its own remedy.
@@ -216,8 +226,8 @@ impl SyncError {
     /// Why the mirror pauses after this failure: the first cause in the chain that names a
     /// reason, or an observer failure when none does.
     pub(super) fn pause_reason(&self) -> PauseReason {
-        if let Self::RescanStopped(reason) = self {
-            return *reason;
+        if let Self::RescanStopped(stopped) = self {
+            return stopped.reason;
         }
         if let Self::RootNaming(error) = self {
             return error.pause_reason();
@@ -275,8 +285,12 @@ impl fmt::Display for SyncError {
             Self::Io(error) => fmt::Display::fmt(error, f),
             Self::Recovery(stop) => fmt::Display::fmt(stop, f),
             Self::RootNaming(error) => fmt::Display::fmt(error, f),
-            Self::RescanStopped(reason) => {
-                write!(f, "Explicit rescan stopped synchronization: {reason:?}")
+            Self::RescanStopped(stopped) => {
+                write!(
+                    f,
+                    "Explicit rescan stopped synchronization: {:?}",
+                    stopped.reason
+                )
             }
             Self::WritebackUnfinished(Pass::Reconcile) => f.write_str(
                 "Unfinished write-back requires recovery; inspect retained conflicts and workspace findings, resolve the exact retained revision and rescan",

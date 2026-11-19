@@ -31,7 +31,7 @@ pub(super) fn resume_failed(error: &SyncError) {
         "sync_resume_failed",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":"Synchronization stays paused for the reason it recorded; run gcs-mimic sync rescan --endpoint URL again"}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":crate::sync::control::RESUME_RETRY_REMEDY}),
         ),
     );
 }

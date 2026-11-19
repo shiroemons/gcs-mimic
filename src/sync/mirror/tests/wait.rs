@@ -32,6 +32,7 @@ async fn with_control<T>(
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
+            entries: &EntryReportSender::default(),
         },
         state: &mut state,
     };

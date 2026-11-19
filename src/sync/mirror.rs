@@ -1,10 +1,14 @@
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+use super::MirrorState;
+use super::control::PauseChange;
 use super::control::{Command, ControlError, Reply};
 use super::entries::EntryProblem;
+use super::error::StoppedRescan;
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 use super::naming::RootNaming;
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
-use super::{EntryReportSender, MirrorState, MirrorStatus, MirrorStatusSender, Pass, SyncError};
+use super::{EntryReportSender, MirrorStatus, Pass, SyncError};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
@@ -23,6 +27,7 @@ use crate::{
         },
     },
 };
+use lifecycle::{Event, Lifecycle};
 use std::{
     fs::File,
     future::Future,
@@ -55,6 +60,7 @@ mod tests;
 
 mod descriptor;
 mod gate;
+mod lifecycle;
 mod observation;
 mod wait;
 
@@ -129,7 +135,7 @@ impl DirectoryWatch {
         &mut self,
         root: &RootLease,
         stopping: &tokio::sync::watch::Receiver<bool>,
-        status: &MirrorStatusSender,
+        status: &Lifecycle,
     ) -> Result<(), SyncError> {
         let mut backoff = MIRROR_BACKOFF;
         let mut failures = 0;
@@ -145,12 +151,12 @@ impl DirectoryWatch {
                     watcher.generation = self.generation;
                     watcher.pending = self.pending.take();
                     *self = watcher;
-                    enter(status, MirrorState::Running);
+                    status.on(root, Event::WatchRebuilt).await?;
                     return Ok(());
                 }
                 Err(error) if error.is_watch_retryable() => {
                     failures += 1;
-                    enter(status, MirrorState::Retrying);
+                    status.on(root, Event::WatchRetrying).await?;
                     #[cfg(test)]
                     export_checkpoint("retry").await;
                     if failures >= 3 {
@@ -268,17 +274,19 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     // The mirror reports its own state instead of joining the catalog's background tasks, so
     // that a stopped mirror stops synchronization but never the Storage API's readiness. The
     // controls and the readiness probe read the one handle made here.
-    let state = MirrorStatusSender::default();
-    let status = state.subscribe();
+    let lifecycle = Lifecycle::new(config);
+    let status = lifecycle.subscribe();
     catalog
         .register_sync_controls(&root, rescan.clone(), status.clone())
         .map_err(io::Error::other)?;
     let mirror = Mirror {
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        _release_hold: tests::state::ReleaseHold::armed(config),
         catalog,
         root,
         config: config.clone(),
         runtime: tokio::runtime::Handle::current(),
-        state,
+        lifecycle,
         stopping,
         requests,
         controls: observation::Controls::default(),
@@ -296,46 +304,62 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
 /// with backoff. A persistent failure pauses intake but keeps ownership and the controls; only
 /// an explicit rescan after repair may resume synchronization.
 struct Mirror {
+    /// Holds the fields after it, where a test arms it, until the test lets them drop, so that
+    /// the test sees whether `Task::finish` returns before the root is released.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    _release_hold: tests::state::ReleaseHold,
     catalog: Catalog,
     root: std::sync::Arc<RootLease>,
     config: Config,
     runtime: tokio::runtime::Handle,
-    state: MirrorStatusSender,
+    lifecycle: Lifecycle,
     stopping: tokio::sync::watch::Receiver<bool>,
     requests: tokio::sync::mpsc::Receiver<Command>,
     controls: observation::Controls,
 }
 
+/// What follows a failed run.
+enum AfterFailure {
+    /// Run again after the retry delay.
+    Retry(SyncError),
+    /// The explicit rescan that resumes the pause arrived.
+    Resume(Resume),
+    /// The mirror stops while paused.
+    Stop,
+}
+
 impl Mirror {
-    fn run(mut self, done: tokio::sync::oneshot::Sender<()>) {
+    fn run(self, done: tokio::sync::oneshot::Sender<()>) {
+        // Locals drop in reverse order, also while a panic unwinds this thread: the guard reports
+        // `Stopped` first, the mirror then releases the root, and `done` goes last, so that whoever
+        // `Task::finish` wakes can activate the root at once.
+        let done = done;
+        let mut mirror = self;
         let _stopped = StopOnExit {
-            state: self.state.clone(),
-            catalog: self.catalog.clone(),
+            lifecycle: mirror.lifecycle.clone(),
+            catalog: mirror.catalog.clone(),
         };
         let mut backoff = MIRROR_BACKOFF;
         let mut resume = None;
         loop {
             let started = std::time::Instant::now();
-            let Err(error) = self.live(&mut resume) else {
+            let Err(error) = mirror.live(&mut resume) else {
                 break;
             };
-            // A rescan that was to resume a paused mirror is still here when its run failed. It
-            // hears the failure, and the mirror goes back to the pause even when the failure is
-            // transient: a retry would resume synchronization without a rescan that succeeded.
-            let failed = resume.take();
-            if failed.is_some() || !error.is_transient() {
-                resume = self.pause(error, failed);
-                if resume.is_none() {
-                    break;
+            match mirror.fail(error, resume.take()) {
+                AfterFailure::Retry(error) => {
+                    if mirror.retry(&error, &mut backoff, started) == Step::Stopped {
+                        break;
+                    }
                 }
-                backoff.reset();
-                continue;
-            }
-            if self.retry(&error, &mut backoff, started) == Step::Stopped {
-                break;
+                AfterFailure::Resume(request) => {
+                    resume = Some(request);
+                    backoff.reset();
+                }
+                AfterFailure::Stop => break,
             }
         }
-        self.shut_down(done);
+        mirror.shut_down(done);
     }
 
     /// One supervised run, which takes `resume` once it has resumed synchronization.
@@ -348,7 +372,7 @@ impl Mirror {
                     catalog: &self.catalog,
                     root: &self.root,
                     config: &self.config,
-                    status: &self.state,
+                    status: &self.lifecycle,
                     resume,
                 },
                 &mut self.stopping,
@@ -362,37 +386,87 @@ impl Mirror {
         result.unwrap_or_else(|panicked| Err(SyncError::Panicked(panicked)))
     }
 
-    /// Pauses after `error` until an explicit rescan arrives, and returns that rescan; `None`
-    /// means the mirror is stopping. `failed` is the rescan whose run ended in `error`: it hears
-    /// the failure, and a transient one keeps the reason the pause recorded before.
-    fn pause(&mut self, error: SyncError, failed: Option<Resume>) -> Option<Resume> {
-        enter(&self.state, MirrorState::Paused);
-        let kept = failed
-            .as_ref()
-            .filter(|_| error.is_transient())
-            .map(|resume| resume.paused_for);
-        let reason = if let Some(reason) = kept {
-            descriptor::resume_failed(&error);
-            reason
-        } else {
-            let reason = error.pause_reason();
-            descriptor::paused(&error, reason);
-            if let Err(error) = self
-                .runtime
-                .block_on(self.root.observation_pause(Some(reason)))
-            {
+    /// Reports `event` to the lifecycle, which alone changes the state and the recorded pause.
+    fn on(&self, event: Event) -> Option<crate::sync::status::Transition> {
+        self.runtime
+            .block_on(self.lifecycle.on(&self.root, event))
+            .unwrap_or_else(|error| {
+                // Only clearing a pause fails a transition, and no failure clears one.
                 descriptor::pause_unrecorded(&error);
+                None
+            })
+    }
+
+    /// Moves the mirror on after a run failed with `error`. `resume` is the explicit rescan that
+    /// was to resume a pause when its run failed; a running rescan whose failure stopped the run
+    /// comes inside `error`. Either hears the failure once the pause it leaves is recorded. A
+    /// failed resume keeps the mirror paused even when the failure is transient: a retry would
+    /// resume synchronization without a rescan that succeeded.
+    fn fail(&mut self, error: SyncError, resume: Option<Resume>) -> AfterFailure {
+        if let SyncError::RescanStopped(stopped) = error {
+            let StoppedRescan {
+                reason,
+                error,
+                reply,
+            } = *stopped;
+            let change = self.pause_for(reason);
+            return self.paused(error, reason, change, Some(reply));
+        }
+        let Some(resume) = resume else {
+            if error.is_transient() {
+                self.on(Event::FailedTransiently);
+                return AfterFailure::Retry(error);
             }
-            reason
+            let reason = error.pause_reason();
+            let change = self.pause_for(reason);
+            return self.paused(error, reason, change, None);
         };
-        if let Some(request) = failed {
-            let _ = request
-                .reply
-                .send(Err(ControlError::RescanFailed { reason, error }));
+        if error.is_transient() {
+            self.on(Event::FailedTransiently);
+            return self.paused(
+                error,
+                resume.paused_for,
+                PauseChange::Kept,
+                Some(resume.reply),
+            );
+        }
+        let reason = error.pause_reason();
+        let change = self.pause_for(reason);
+        self.paused(error, reason, change, Some(resume.reply))
+    }
+
+    /// Pauses for `reason`, and says whether that began the pause or recorded a new reason for
+    /// one already in place.
+    fn pause_for(&self, reason: PauseReason) -> PauseChange {
+        match self.on(Event::FailedPersistently(reason)) {
+            Some(_) => PauseChange::Began,
+            None => PauseChange::Recorded,
+        }
+    }
+
+    /// Reports the pause for `reason` that `error` left, answers `waiting`, the rescan that failed
+    /// with it, and waits for the explicit rescan that resumes synchronization.
+    fn paused(
+        &mut self,
+        error: SyncError,
+        reason: PauseReason,
+        change: PauseChange,
+        waiting: Option<Reply<Reconciliation>>,
+    ) -> AfterFailure {
+        match change {
+            PauseChange::Kept => descriptor::resume_failed(&error),
+            PauseChange::Began | PauseChange::Recorded => descriptor::paused(&error, reason),
+        }
+        if let Some(reply) = waiting {
+            let _ = reply.send(Err(ControlError::RescanFailed {
+                reason,
+                change,
+                error,
+            }));
         }
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         tests::injected_pause_panic(&self.config);
-        self.runtime.block_on(await_resume(
+        let resume = self.runtime.block_on(await_resume(
             &self.catalog,
             &self.root,
             &self.config,
@@ -400,7 +474,8 @@ impl Mirror {
             &mut self.stopping,
             &mut self.controls,
             reason,
-        ))
+        ));
+        resume.map_or(AfterFailure::Stop, AfterFailure::Resume)
     }
 
     /// Waits out the next retry delay after a transient `error`, unless the mirror stops first.
@@ -410,11 +485,6 @@ impl Mirror {
         backoff: &mut Backoff,
         started: std::time::Instant,
     ) -> Step {
-        // A retry of the first pass is still part of starting: the healthcheck waits for that
-        // pass, and `retrying` would let it pass before the tree was reconciled.
-        if self.state.state() != MirrorState::Starting {
-            enter(&self.state, MirrorState::Retrying);
-        }
         // A run that lasted longer than the cap had recovered, so its failure starts over.
         if started.elapsed() >= RETRY_DELAY_MAX {
             backoff.reset();
@@ -431,17 +501,12 @@ impl Mirror {
     }
 
     fn shut_down(mut self, done: tokio::sync::oneshot::Sender<()>) {
-        // Before the queued controls hear that synchronization stopped.
-        enter(&self.state, MirrorState::Stopped);
+        // In the guard's order: whoever sees `Stopped` finds the controls gone, and the queued
+        // controls hear that synchronization stopped only after that.
+        withdraw_controls(&self.catalog);
+        self.lifecycle.stop();
         self.controls.stop();
         drop(self.requests);
-        if let Err(error) = self.catalog.clear_sync_controls() {
-            diagnostics::emit(
-                LogLevel::Error,
-                "sync_controls_closed",
-                serde_json::json!({"reason":error.to_string()}),
-            );
-        }
         let (stopping, catalog) = (&mut self.stopping, &self.catalog);
         self.runtime.block_on(async {
             if !*stopping.borrow() {
@@ -456,10 +521,14 @@ impl Mirror {
     }
 }
 
-/// Moves the mirror to `state` and logs the change once; the status itself only keeps it.
-fn enter(status: &MirrorStatusSender, state: MirrorState) {
-    if let Some(transition) = status.enter(state) {
-        descriptor::state_changed(transition);
+/// Withdraws the controls this mirror registered.
+fn withdraw_controls(catalog: &Catalog) {
+    if let Err(error) = catalog.clear_sync_controls() {
+        diagnostics::emit(
+            LogLevel::Error,
+            "sync_controls_closed",
+            serde_json::json!({"reason":error.to_string()}),
+        );
     }
 }
 
@@ -468,22 +537,16 @@ fn enter(status: &MirrorStatusSender, state: MirrorState) {
 /// as paused, behind controls that can never resume it, would mislead whoever reads it. It
 /// withdraws them before reporting `Stopped`, so whoever sees that state finds them gone.
 struct StopOnExit {
-    state: MirrorStatusSender,
+    lifecycle: Lifecycle,
     catalog: Catalog,
 }
 
 impl Drop for StopOnExit {
     fn drop(&mut self) {
-        if std::thread::panicking()
-            && let Err(error) = self.catalog.clear_sync_controls()
-        {
-            diagnostics::emit(
-                LogLevel::Error,
-                "sync_controls_closed",
-                serde_json::json!({"reason":error.to_string()}),
-            );
+        if std::thread::panicking() {
+            withdraw_controls(&self.catalog);
         }
-        enter(&self.state, MirrorState::Stopped);
+        self.lifecycle.stop();
     }
 }
 
@@ -491,7 +554,8 @@ struct LiveRun<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
     config: &'a Config,
-    status: &'a MirrorStatusSender,
+    /// Where the run reports what changes the mirror's state.
+    status: &'a Lifecycle,
     /// The explicit rescan that resumes a paused mirror; a run that succeeds answers and takes
     /// it, and one that fails leaves it to [`Mirror::pause`].
     resume: &'a mut Option<Resume>,
@@ -549,13 +613,6 @@ async fn await_resume(
         }
     }
     None
-}
-
-/// Records the pause that a rescan's failure leaves behind.
-async fn record_pause(scope: LiveScope<'_>, reason: PauseReason) -> Result<(), RootError> {
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    tests::state::injected_pause_record_failure(scope.config)?;
-    scope.root.observation_pause(Some(reason)).await
 }
 
 async fn run_live_config(
@@ -816,11 +873,15 @@ async fn initialize_live(
         Interrupt::new(stopping),
     )
     .await?;
-    root.observation_pause(None).await?;
     // Running only now, after this run reconciled the whole tree: until then a starting mirror
     // stays starting, a retrying one retrying and a paused one paused, even while its explicit
     // rescan runs.
-    enter(status, MirrorState::Running);
+    let reconciled = if resume.is_some() {
+        Event::RescanSucceeded
+    } else {
+        Event::Reconciled
+    };
+    status.on(root, reconciled).await?;
     if let Some(request) = resume.take() {
         let _ = request.reply.send(Ok(summary));
         writeback = writeback.with_root(root)?;
@@ -1083,26 +1144,20 @@ impl LiveControl<'_> {
                         return Ok(());
                     }
                 };
-                let stop = summary
-                    .as_ref()
-                    .err()
-                    .filter(|error| !error.is_transient())
-                    .map(SyncError::pause_reason);
-                // A failure to record the pause is only logged: the mirror records it again as it
-                // pauses. Returned as this run's failure, a transient one would retry the run and
-                // resume synchronization without a rescan that succeeded.
-                if let Some(reason) = stop
-                    && let Err(error) = record_pause(self.scope, reason).await
-                {
-                    descriptor::pause_unrecorded(&error);
-                }
-                let answer = match (summary, stop) {
-                    (Err(error), Some(reason)) => Err(ControlError::RescanFailed { reason, error }),
-                    (summary, _) => summary.map_err(ControlError::Failed),
-                };
-                let _ = reply.send(answer);
-                if let Some(reason) = stop {
-                    return Err(SyncError::RescanStopped(reason));
+                match summary {
+                    // A failure that pauses ends the run, and the mirror answers the rescan only
+                    // after it paused, so that whoever hears the answer finds the pause.
+                    Err(error) if !error.is_transient() => {
+                        let reason = error.pause_reason();
+                        return Err(SyncError::RescanStopped(Box::new(StoppedRescan {
+                            reason,
+                            error,
+                            reply,
+                        })));
+                    }
+                    summary => {
+                        let _ = reply.send(summary.map_err(ControlError::Failed));
+                    }
                 }
             }
             Command::Approve {

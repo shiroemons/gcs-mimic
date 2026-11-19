@@ -146,7 +146,7 @@ impl Started {
             .unwrap()
             .unwrap();
         let (stop, stopping) = tokio::sync::watch::channel(false);
-        let status = MirrorStatusSender::default();
+        let status = Lifecycle::default();
         let live = initialize_live(
             LiveRun {
                 catalog: &catalog,

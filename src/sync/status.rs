@@ -144,10 +144,10 @@ impl MirrorStatus {
     }
 }
 
-/// Changes the mirror's state. The mirror's outer loop keeps it and hands out [`MirrorStatus`] to
-/// readers, so that no reader can change the state.
+/// Changes the mirror's state. Only the mirror's lifecycle holds it, so that every change goes
+/// through its one table of events; readers get a [`MirrorStatus`].
 #[derive(Clone, Debug)]
-pub(crate) struct MirrorStatusSender {
+pub(in crate::sync) struct MirrorStatusSender {
     current: watch::Sender<MirrorState>,
     entries: EntryReportSender,
     #[cfg(test)]
@@ -213,7 +213,7 @@ impl MirrorStatusSender {
     /// Moves to `state`, and returns the change, or `None` when the state stays. `Stopped` is
     /// final: a late transition cannot make a stopped mirror look as if it still ran.
     #[must_use = "the mirror reports each change of its state"]
-    pub(crate) fn enter(&self, state: MirrorState) -> Option<Transition> {
+    pub(in crate::sync) fn enter(&self, state: MirrorState) -> Option<Transition> {
         let mut changed = None;
         self.current.send_if_modified(|current| {
             if *current == state || *current == MirrorState::Stopped {

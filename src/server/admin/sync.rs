@@ -16,7 +16,7 @@ use crate::{
     },
     sync::{
         Cause, MirrorState, Reconciliation,
-        control::{Command, ControlError, Registration, WaitReason, WaitResult},
+        control::{Command, ControlError, PauseChange, Registration, WaitReason, WaitResult},
         handshake,
     },
 };
@@ -966,14 +966,26 @@ pub(super) fn control_error(error: &ControlError) -> ApiError {
             .unwrap_or_else(busy),
         // The caller holds sync control authority, so the answer may name the cause, which is
         // what tells a failed resume apart from a busy queue.
-        ControlError::RescanFailed { reason, error } => ApiError::new(
+        ControlError::RescanFailed {
+            reason,
+            change,
+            error,
+        } => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             format!(
-                "The rescan failed, so synchronization stays paused with paused_reason {}: {}. {}",
+                "The rescan failed, so synchronization {} with paused_reason {}: {}. {}",
+                change.paused(),
                 reason.as_str(),
                 crate::error::Report(error),
-                crate::sync::control::pause_remedy(*reason),
+                match change {
+                    // The failure was transient, so the same rescan may now succeed; the
+                    // `sync_resume_failed` event says the same.
+                    PauseChange::Kept => crate::sync::control::RESUME_RETRY_REMEDY,
+                    PauseChange::Began | PauseChange::Recorded => {
+                        crate::sync::control::pause_remedy(*reason)
+                    }
+                },
             ),
         ),
         ControlError::Paused => ApiError::new(

@@ -18,7 +18,7 @@ mod test_support;
 pub(crate) mod tree;
 pub(crate) use error::{Cause, Pass, SyncError};
 pub use mirror::{Reconciliation, Task, reconcile, start};
-use status::{EntryReportSender, MirrorStatusSender};
+use status::EntryReportSender;
 pub use status::{MirrorState, MirrorStatus, UnknownMirrorState};
 
 #[cfg(test)]

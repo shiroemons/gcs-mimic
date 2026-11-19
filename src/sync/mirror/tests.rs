@@ -41,7 +41,7 @@ async fn run_live_controlled(
     stopping: &mut tokio::sync::watch::Receiver<bool>,
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
 ) -> Result<(), SyncError> {
-    let status = MirrorStatusSender::default();
+    let status = Lifecycle::default();
     let config = Config::default();
     run_live_config(
         LiveRun {
@@ -174,7 +174,7 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
                 catalog: &worker_catalog,
                 root: &worker_root,
                 config: &Config::default(),
-                status: &MirrorStatusSender::default(),
+                status: &Lifecycle::default(),
                 resume: &mut None,
             },
             &mut stopping,
@@ -2378,6 +2378,7 @@ async fn a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds() 
             &failed,
             ControlError::RescanFailed {
                 reason,
+                change: crate::sync::control::PauseChange::Kept,
                 error: SyncError::Admin(AdminError::Busy { .. }),
             } if Some(*reason) == recorded
         ),
@@ -2529,7 +2530,7 @@ async fn shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition() 
 }
 
 #[tokio::test]
-async fn failed_explicit_rescan_records_the_pause_before_replying() {
+async fn failed_explicit_rescan_hands_its_reply_to_the_pause() {
     use crate::storage::sync_state::observation::PauseReason;
     let (_data, tree, catalog, _bucket, root) = live_fixture().await;
     reconcile(&catalog, &root).await.unwrap();
@@ -2558,7 +2559,7 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
         },
         state: &mut state,
     };
-    let (reply, result) = tokio::sync::oneshot::channel();
+    let (reply, mut result) = tokio::sync::oneshot::channel();
     let error = control
         .handle_authorized(Command::Rescan {
             reply,
@@ -2567,11 +2568,13 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
         .await
         .unwrap_err();
     assert_eq!(error.pause_reason(), PauseReason::RecoveryRequired);
-    assert!(result.await.unwrap().is_err());
-    assert_eq!(
-        root.observation().await.unwrap().paused_reason,
-        Some(PauseReason::RecoveryRequired)
-    );
+    // The mirror pauses, records the pause and only then answers, from outside the run.
+    assert!(matches!(error, SyncError::RescanStopped(_)), "{error:?}");
+    assert!(matches!(
+        result.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    assert_eq!(root.observation().await.unwrap().paused_reason, None);
     drop(writeback);
     drop(root);
     catalog.close().await.unwrap();

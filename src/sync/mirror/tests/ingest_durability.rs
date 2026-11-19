@@ -38,7 +38,7 @@ impl Started {
                 catalog: &catalog,
                 root: &root,
                 config: &config,
-                status: &MirrorStatusSender::default(),
+                status: &Lifecycle::default(),
                 resume: &mut None,
             },
             &stopping,

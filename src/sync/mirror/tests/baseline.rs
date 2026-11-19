@@ -28,7 +28,7 @@ async fn exists(catalog: &Catalog, bucket: &BucketName, name: &str) -> bool {
 async fn ingest(
     catalog: &Catalog,
     root: &RootLease,
-    status: &MirrorStatusSender,
+    status: &Lifecycle,
     baseline: &mut BaselineProgress,
 ) -> Reconciliation {
     let writeback = root.default_writeback().await.unwrap();
@@ -86,7 +86,7 @@ async fn an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_exte
         gate: BaselineGate::Allowed,
         complete: false,
     };
-    let status = MirrorStatusSender::default();
+    let status = Lifecycle::default();
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
     assert!(baseline.complete);
     assert!(summary.baseline_complete);
@@ -136,7 +136,7 @@ async fn an_entry_no_object_can_take_stops_deletions_and_is_named_until_it_is_go
     fs::write(outside.0.join("target"), b"outside").unwrap();
     std::os::unix::fs::symlink(outside.0.join("target"), tree.0.join("test-bucket/link")).unwrap();
     fs::remove_file(tree.0.join("test-bucket/deleted")).unwrap();
-    let status = MirrorStatusSender::default();
+    let status = Lifecycle::default();
     let mut baseline = COMPLETE;
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
     assert_eq!(summary.unrepresentable_entries().get(), 1);
@@ -181,7 +181,7 @@ async fn a_tracked_file_replaced_by_a_directory_stops_only_its_own_path() {
     fs::remove_file(&replaced).unwrap();
     fs::create_dir(&replaced).unwrap();
     fs::remove_file(tree.0.join("test-bucket/deleted")).unwrap();
-    let status = MirrorStatusSender::default();
+    let status = Lifecycle::default();
     let mut baseline = COMPLETE;
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
     assert_eq!(summary.unrepresentable, 0);
@@ -238,7 +238,7 @@ async fn a_file_deleted_while_the_mirror_was_away_is_left_to_the_deletion_invent
     assert!(summary.baseline_complete);
     assert!(!deleted.exists());
     assert!(exists(&catalog, &bucket, "deleted").await);
-    let status = MirrorStatusSender::default();
+    let status = Lifecycle::default();
     let mut baseline = COMPLETE;
     ingest(&catalog, &root, &status, &mut baseline).await;
     assert!(!exists(&catalog, &bucket, "deleted").await);
@@ -279,7 +279,7 @@ async fn a_lowered_depth_limit_keeps_the_deeper_object_while_other_deletions_pro
     assert_eq!((summary.unmapped_objects, summary.unrepresentable), (1, 1));
     assert!(summary.baseline_complete);
     fs::remove_file(tree.0.join("test-bucket/one/gone")).unwrap();
-    let status = MirrorStatusSender::default();
+    let status = Lifecycle::default();
     let mut baseline = COMPLETE;
     ingest(&catalog, &root, &status, &mut baseline).await;
     assert!(!exists(&catalog, &bucket, "one/gone").await);

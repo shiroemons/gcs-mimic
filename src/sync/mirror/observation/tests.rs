@@ -356,11 +356,17 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
             )
             .is_none()
     );
-    root.observation_pause(Some(
-        crate::storage::sync_state::observation::PauseReason::ObserverFailure,
-    ))
-    .await
-    .unwrap();
+    // Only a paused mirror has a rescan to resume it with.
+    let status = Lifecycle::default();
+    status
+        .on(
+            &root,
+            Event::FailedPersistently(
+                crate::storage::sync_state::observation::PauseReason::ObserverFailure,
+            ),
+        )
+        .await
+        .unwrap();
     let (_commands, mut requests) = tokio::sync::mpsc::channel(1);
     let (_stop, mut stopping) = tokio::sync::watch::channel(false);
     let resume = tokio::time::timeout(
@@ -383,7 +389,7 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
             catalog: &catalog,
             root: &root,
             config: &config,
-            status: &MirrorStatusSender::default(),
+            status: &status,
             resume: &mut Some(resume),
         },
         &stopping,
@@ -392,6 +398,7 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
     .unwrap();
     assert!(result.await.unwrap().unwrap().baseline_complete);
     assert!(root.observation().await.unwrap().paused_reason.is_none());
+    assert_eq!(status.state(), MirrorState::Running);
     drop(initialized);
     drop(watcher);
     drop(root);

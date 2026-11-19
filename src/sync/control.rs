@@ -26,9 +26,10 @@ pub(crate) enum ControlError {
     /// The rescan, approval or wait ran, or was being authorized, and failed.
     Failed(SyncError),
     /// A rescan ran and failed, and synchronization is paused for `reason`: the reason a failed
-    /// resume keeps, or the one the failure itself recorded.
+    /// resume keeps, or the one the failure itself recorded, as `change` says.
     RescanFailed {
         reason: PauseReason,
+        change: PauseChange,
         error: SyncError,
     },
     /// Synchronization is paused; only an explicit rescan may resume it.
@@ -36,6 +37,33 @@ pub(crate) enum ControlError {
     /// The mirror stopped before running the control.
     Shutdown,
 }
+
+/// What a failed rescan did to the pause, which its answer names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PauseChange {
+    /// The mirror was running, and the rescan's failure paused it.
+    Began,
+    /// The rescan was to resume a pause and failed in a way that needs an operator, so the
+    /// pause stays and records the failure's reason.
+    Recorded,
+    /// The rescan was to resume a pause and failed transiently, so the pause stays with the
+    /// reason it recorded before, and running the rescan again may succeed.
+    Kept,
+}
+
+impl PauseChange {
+    /// How synchronization stands after the failed rescan.
+    pub(crate) const fn paused(self) -> &'static str {
+        match self {
+            Self::Began => "is now paused",
+            Self::Recorded | Self::Kept => "stays paused",
+        }
+    }
+}
+
+/// What to do after a rescan that was to resume a pause failed transiently: the
+/// `sync_resume_failed` event and the rescan's answer both say it.
+pub(crate) const RESUME_RETRY_REMEDY: &str = "Synchronization stays paused for the reason it recorded; run gcs-mimic sync rescan --endpoint URL again";
 
 /// What resumes synchronization after a pause for `reason`. The `sync_paused` event, the root-stop
 /// finding and a failed rescan give the same advice, naming the commands to run.
@@ -78,9 +106,10 @@ impl fmt::Display for ControlError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Failed(error) => fmt::Display::fmt(error, f),
-            Self::RescanFailed { reason, .. } => write!(
+            Self::RescanFailed { reason, change, .. } => write!(
                 f,
-                "the rescan failed and synchronization stays paused ({})",
+                "the rescan failed and synchronization {} ({})",
+                change.paused(),
                 reason.as_str()
             ),
             Self::Paused => f.write_str(

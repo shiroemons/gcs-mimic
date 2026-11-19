@@ -33,6 +33,15 @@ fn panicked() -> JobPanicked {
         .expect_err("the fixture job panics")
 }
 
+/// A running rescan that stopped synchronization for `reason`, whose caller has gone.
+fn rescan_stopped(reason: PauseReason) -> SyncError {
+    SyncError::RescanStopped(Box::new(StoppedRescan {
+        reason,
+        error: SyncError::Invariant("rescan fixture"),
+        reply: tokio::sync::oneshot::channel().0,
+    }))
+}
+
 /// Diagnostics print a failure through `Report`; carrying it typed must not change the text the
 /// `io::Error::other` wrapper produced.
 #[test]
@@ -110,7 +119,7 @@ fn message_only_failures_keep_their_former_text() {
             "Unfinished write-back blocks ingestion; inspect retained conflicts and recovery findings, preserve the workspace and resolve the exact retained revision before rescanning",
         ),
         (
-            SyncError::RescanStopped(PauseReason::ConflictCapacity),
+            rescan_stopped(PauseReason::ConflictCapacity),
             "Explicit rescan stopped synchronization: ConflictCapacity",
         ),
         (
@@ -427,7 +436,7 @@ fn recovered_writeback_stops_pause_without_fabricating_io_causes() {
 #[test]
 fn rescan_stops_keep_their_reason_and_messages_pause_as_observer_failures() {
     assert_eq!(
-        SyncError::RescanStopped(PauseReason::ConflictCapacity).pause_reason(),
+        rescan_stopped(PauseReason::ConflictCapacity).pause_reason(),
         PauseReason::ConflictCapacity
     );
     for error in [

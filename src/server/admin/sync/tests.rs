@@ -189,23 +189,43 @@ fn controls_answer_with_what_resumes_synchronization() {
         "{}",
         paused.message
     );
-    let limit = control_error(&ControlError::RescanFailed {
-        reason: PauseReason::ObserverFailure,
-        error: SyncError::Admin(AdminError::Invalid(
+    let limit = || {
+        SyncError::Admin(AdminError::Invalid(
             "sync tree exceeds 3 inspected entries".to_owned(),
-        )),
+        ))
+    };
+    // A running rescan that paused, and a resume that failed again for good.
+    let began = control_error(&ControlError::RescanFailed {
+        reason: PauseReason::ObserverFailure,
+        change: PauseChange::Began,
+        error: limit(),
     });
+    let recorded = control_error(&ControlError::RescanFailed {
+        reason: PauseReason::ObserverFailure,
+        change: PauseChange::Recorded,
+        error: limit(),
+    });
+    // A resume that failed transiently keeps the reason and may simply be run again.
     let kept = control_error(&ControlError::RescanFailed {
         reason: PauseReason::IoFailure,
+        change: PauseChange::Kept,
         error: SyncError::Admin(AdminError::Busy {
             retry_after: Duration::from_secs(1),
         }),
     });
     for (failed, parts) in [
         (
-            &limit,
+            &began,
             [
-                "paused_reason observer-failure: ",
+                "synchronization is now paused with paused_reason observer-failure: ",
+                "sync tree exceeds 3 inspected entries",
+                "such as max_sync_entries, needs a restart",
+            ],
+        ),
+        (
+            &recorded,
+            [
+                "synchronization stays paused with paused_reason observer-failure: ",
                 "sync tree exceeds 3 inspected entries",
                 "such as max_sync_entries, needs a restart",
             ],
@@ -213,9 +233,9 @@ fn controls_answer_with_what_resumes_synchronization() {
         (
             &kept,
             [
-                "paused_reason IoFailure: ",
-                "free disk space without deleting pending data",
-                "gcs-mimic sync rescan --endpoint URL",
+                "synchronization stays paused with paused_reason IoFailure: ",
+                "Busy",
+                crate::sync::control::RESUME_RETRY_REMEDY,
             ],
         ),
     ] {
