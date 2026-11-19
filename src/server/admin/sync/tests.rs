@@ -1845,6 +1845,35 @@ async fn commands_in_line_end_at_their_own_deadlines() {
     fixture.finish().await;
 }
 
+/// A rescan of a running mirror that fails transiently, as when catalog admission timed out,
+/// answers 503 so its client retries, and pauses nothing: the mirror keeps running, status
+/// names no pause, and the retried rescan succeeds without a resume.
+#[tokio::test]
+async fn a_transient_failure_of_a_running_rescan_answers_503_and_pauses_nothing() {
+    use crate::sync::test_support::{RescanFault, arm_rescan_fault};
+    let fixture = Fixture::new(Tree::Empty).await;
+    arm_rescan_fault(&fixture.tree.0, RescanFault::Busy);
+    let failed = fixture
+        .request("POST", "/_internal/sync/rescan", b"{}", None)
+        .await
+        .unwrap_err();
+    assert_eq!(failed.status, StatusCode::SERVICE_UNAVAILABLE, "{failed:?}");
+    assert_eq!(fixture.task.status().state(), MirrorState::Running);
+    let status = fixture.status().await;
+    assert_eq!(
+        (&status["state"], &status["paused_reason"]),
+        (&json!("Ready"), &Value::Null),
+        "{status}"
+    );
+    let retried = fixture
+        .request("POST", "/_internal/sync/rescan", b"{}", None)
+        .await
+        .unwrap();
+    assert_eq!(retried.status(), StatusCode::ACCEPTED);
+    assert_eq!(body(retried).await["completed"], true);
+    fixture.finish().await;
+}
+
 #[tokio::test]
 async fn status_rechecks_the_owner_union_after_admission_authorization() {
     let mut fixture = Fixture::new(Tree::Empty).await;

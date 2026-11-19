@@ -3,6 +3,8 @@
     reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
 )]
 
+/// The rescan faults a mirror test arms, which a test of the control route arms as well.
+pub(crate) use super::mirror::{RescanFault, arm_rescan_fault};
 use super::{Hook, RootLease};
 use crate::{
     clock::SystemClock,

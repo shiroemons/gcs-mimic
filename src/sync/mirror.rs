@@ -57,6 +57,8 @@ async fn export_checkpoint(phase: &str) {
 // Directory synchronization supports only Linux and macOS; elsewhere roots are rejected.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) use tests::state::{RescanFault, arm_rescan_fault};
 
 mod descriptor;
 mod gate;
