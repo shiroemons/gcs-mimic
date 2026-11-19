@@ -7,6 +7,7 @@ fn finding_rows_reject_unknown_persisted_reasons_instead_of_using_a_remedy_fallb
     for (category, reason) in [
         ("mapping", "collision"),
         ("mapping", "export-conflict"),
+        ("mapping", "unclassified-collision"),
         ("path-stop", "IoFailure"),
         ("root-stop", "observer-failure"),
     ] {

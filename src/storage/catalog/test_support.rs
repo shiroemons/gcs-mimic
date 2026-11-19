@@ -101,7 +101,7 @@ pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connec
 /// drops what schema 58 created; replays the statements schemas 21, 40 and 41 ran for these
 /// tables and triggers, word for word; and puts the rows back before the triggers exist, so
 /// the observation revision does not move.
-const FINDING_REASON_DOWNGRADE: &str = "CREATE TEMP TABLE downgrade_findings AS SELECT ordinal,root_id,bucket,name,incarnation,generation,CASE reason WHEN 'export-conflict' THEN 'collision' ELSE reason END AS reason,owner_project FROM sync_findings;
+const FINDING_REASON_DOWNGRADE: &str = "CREATE TEMP TABLE downgrade_findings AS SELECT ordinal,root_id,bucket,name,incarnation,generation,CASE WHEN reason IN ('export-conflict','unclassified-collision') THEN 'collision' ELSE reason END AS reason,owner_project FROM sync_findings;
 CREATE TEMP TABLE downgrade_owners AS SELECT ordinal,incarnation,owner_project FROM sync_finding_owners;
 CREATE TEMP TABLE downgrade_stops AS SELECT ordinal,root_id,bucket,name,owner_project,incarnation,generation,reason FROM sync_path_stops;
 CREATE TEMP TABLE downgrade_sequences AS SELECT name,seq FROM sqlite_sequence WHERE name IN ('sync_findings','sync_path_stops');
@@ -166,9 +166,10 @@ DROP TABLE temp.downgrade_stops;
 DROP TABLE temp.downgrade_sequences;";
 
 /// Restores schema 57, before an export conflict had a finding reason apart from a name
-/// collision and findings had a revision of their own. An export conflict goes back to
-/// `collision`, the reason schema 57 recorded it with. Fixtures hold no `alias` finding and no
-/// `EntryReplaced` or `AliasEdited` stop, which schema 57 cannot store.
+/// collision and findings had a revision of their own. An export conflict and a collision
+/// carried over from schema 57 go back to `collision`, the reason schema 57 recorded both with.
+/// Fixtures hold no `alias` finding and no `EntryReplaced` or `AliasEdited` stop, which schema
+/// 57 cannot store.
 pub(crate) fn downgrade_finding_reason_schema(connection: &rusqlite::Connection) {
     let present: bool = connection
         .query_row(

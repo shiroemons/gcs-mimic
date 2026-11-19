@@ -60258,7 +60258,7 @@
           "id": "shared-sync-export-interfaces",
           "description": "Descriptor-relative cross-directory replacement and durable root-bound findings with idempotent generation checks, bounded keyset pages and conditional removal. Shared APIs only; runtime mirroring remains pending. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
           "result": "PASS",
-          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations","mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record","name_findings_keep_an_export_conflict_until_the_generation_moves_on","finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"]
+          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations","mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record","name_findings_keep_an_export_conflict_until_the_generation_moves_on","finding_effects_block_export_conflicts_report_names_and_skip_ignored_names","an_unclassified_collision_gives_way_to_the_finding_that_classifies_it"]
         },
         {
           "id": "shared-sync-pending-protection",
@@ -60343,7 +60343,7 @@
           "id": "sync-runtime-export-mapping",
           "description": "PASS: initial export records lexical/ignored, prefix/type, host length and symlink findings without following redirects or modifying API/external bytes; descriptor directory pages are bounded. Exhaustive case/Unicode alias groups before first export, stale-finding reconciliation, legacy invalid-bucket per-object findings and non-Linux conflict guarantees remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects"]
+          "test_ids": ["initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision"]
         },
         {
           "id": "sync-name-mapping",
@@ -60463,7 +60463,7 @@
           "id": "sync-external-create-edit",
           "description": "PASS multiple-bucket external create/edit, binary/empty bodies, rename create side, default bucket creation and stable-page observation; initial conflicts preserve external bytes and API state. External deletion/rename delete side, watchers and controls remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_defers_partial_and_replacement_saves_then_resumes_activation"]
+          "test_ids": ["ingest_initial_baseline_runtime_rescan_and_restart_preserve_generations", "ingest_external_only_conflicts_equal_hash_and_unsafe_entries", "ingest_defers_partial_and_replacement_saves_then_resumes_activation", "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict"]
         },
         {
           "id": "sync-known-bucket-observations",
@@ -60493,7 +60493,7 @@
           "id": "sync-status-and-wait",
           "description": "Implement all documented stop scopes/remedies and GET /_internal/sync fixed-revision views for deletions and findings with limit/cursor, exact candidate/Unrepresentable/ProtectedDeletion/recovery fields and remedies; verify multi-page inspection equals the approved set, intermediate changes reject stale cursors/approval with 409, bounded responses/request admission and sanitized readiness without changing API-ready status; wait on captured stable-scan/journal barriers with timeout/disconnect/shutdown behavior and inspectable stopped state; owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
-          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names"]
+          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names","carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again"]
         },
         {
           "id": "sync-bounded-observation",
@@ -60963,7 +60963,11 @@
         "mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record",
         "name_findings_keep_an_export_conflict_until_the_generation_moves_on",
         "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names",
-        "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names"
+        "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names",
+        "an_unclassified_collision_gives_way_to_the_finding_that_classifies_it",
+        "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again",
+        "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision",
+        "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict"
       ],
       "verification": [
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
@@ -61483,18 +61487,18 @@
           "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
         },
         {
-          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::sync_state::findings server::admin::sync::findings storage::catalog::sync_state::observation",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog sync:: server::admin::sync",
           "result": "PASS",
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record", "name_findings_keep_an_export_conflict_until_the_generation_moves_on", "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"]
+          "test_ids": ["mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record", "name_findings_keep_an_export_conflict_until_the_generation_moves_on", "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names", "an_unclassified_collision_gives_way_to_the_finding_that_classifies_it", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision", "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict"]
         },
         {
-          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::sync_state::findings server::admin::sync::findings storage::catalog::sync_state::observation",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog sync:: server::admin::sync",
           "result": "PASS",
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names"]
+          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names", "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again"]
         }
       ],
       "sdk_evidence": [],
@@ -61800,7 +61804,7 @@
           "id": "shared-sync-export-durability",
           "description": "Sync both replacement parents before live durable/state commit, retain captured external bytes, reject spelling aliases and symlink traversal, and preserve findings/API/root/writeback state across transactional schema migration, restart and paired crash/power-loss snapshots. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
           "result": "PASS",
-          "test_ids": ["preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback","schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts","schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"]
+          "test_ids": ["preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback","schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_unclassified","schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"]
         },
         {
           "id": "shared-sync-writeback-durability",
@@ -62183,7 +62187,7 @@
         "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
         "import_publication_disk_full_rolls_back_records_observations_and_cursor",
         "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit",
-        "schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts",
+        "schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_unclassified",
         "schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"
       ],
       "verification": [
@@ -62496,11 +62500,11 @@
           "test_ids": ["fatal_listener_failure_drains_background_work_before_catalog_close"]
         },
         {
-          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::sync_state::findings server::admin::sync::findings storage::catalog::sync_state::observation",
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog sync:: server::admin::sync",
           "result": "PASS",
           "verified_at": "2026-11-19",
           "artifact": "docs/en/native-binary.md",
-          "test_ids": ["schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts", "schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"]
+          "test_ids": ["schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_unclassified", "schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"]
         }
       ],
       "sdk_evidence": [],
@@ -70665,6 +70669,13 @@
         "schema_upgrade_is_logged_once_and_newer_schema_explains_recovery"
       ],
       "verification": [
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_import_seed -- --test-threads=4 released_data_upgrade schema_upgrade_is_logged_once_and_newer_schema_explains_recovery",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/native-binary.md",
+          "test_ids": ["supported_release_data_directories_upgrade_without_changing_resources", "every_supported_release_has_a_fixture", "schema_upgrade_is_logged_once_and_newer_schema_explains_recovery"]
+        },
         {
           "command": "cargo test --locked --test released_data_upgrade",
           "result": "PASS",

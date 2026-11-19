@@ -3,10 +3,12 @@ use crate::{
     api_error::ApiError,
     storage::sync_state::{
         OpaqueId,
+        findings::FindingKind,
         observation::{
             FindingCategory, FindingReason, Item, PathStop, PauseReason, WritebackSummary,
         },
     },
+    sync::mapping::Reason,
 };
 use serde_json::{Value, json};
 
@@ -29,13 +31,26 @@ pub(super) fn value(
             },
             crate::sync::control::pause_remedy(*pause),
         ),
-        FindingReason::ExportConflict => (
+        FindingReason::Mapping(FindingKind::ExportConflict) => (
             "Conflict",
             "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan",
         ),
+        // The row cannot say whether an edited file exists, so the remedy asks for the
+        // observation that tells, not for preserving a file that may not be there.
+        FindingReason::Mapping(FindingKind::UnclassifiedCollision) => (
+            "Conflict",
+            "Carried over from a release that recorded name collisions and export conflicts alike; rescan or restart so the object is observed again and classified, then follow the remedy of the finding that replaces this one",
+        ),
         // A name collision is a name the tree cannot hold, like the other mapping reasons; only
         // an export that met an edited file is a conflict.
-        FindingReason::Mapping(_) => (
+        FindingReason::Mapping(FindingKind::Unmapped(
+            Reason::InvalidName
+            | Reason::HostRestriction
+            | Reason::Reserved
+            | Reason::Ignored
+            | Reason::Collision
+            | Reason::UnsafeEntry,
+        )) => (
             "Unrepresentable",
             "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes",
         ),
@@ -164,44 +179,66 @@ mod tests {
         assert_eq!(without["over_limit"], false);
     }
 
-    /// Only an export that met an edited file is a conflict; a name collision is a name the
-    /// tree cannot hold, like the other mapping reasons.
-    #[test]
-    fn export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names() {
-        use crate::sync::mapping::Reason;
-        let mapping = |reason| Item {
+    fn mapping_finding(kind: FindingKind) -> Item {
+        Item {
             ordinal: Ordinal::try_from(3).unwrap(),
             category: FindingCategory::Mapping,
             bucket: Some("bucket".into()),
             object: Some("object".into()),
             bucket_incarnation: None,
             generation: Some(5),
-            reason,
+            reason: FindingReason::Mapping(kind),
             operation_id: None,
             owner_project: Some("project".into()),
             recovery: None,
             conflict_id: None,
             conflict_revision: None,
-        };
-        for (reason, rendered, detail) in [
-            (FindingReason::ExportConflict, "Conflict", "export-conflict"),
+        }
+    }
+
+    /// Only an export that met an edited file is a conflict; a name collision is a name the
+    /// tree cannot hold, like the other mapping reasons.
+    #[test]
+    fn export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names() {
+        for (kind, rendered, detail) in [
+            (FindingKind::ExportConflict, "Conflict", "export-conflict"),
             (
-                FindingReason::Mapping(Reason::Collision),
+                FindingKind::Unmapped(Reason::Collision),
                 "Unrepresentable",
                 "collision",
             ),
             (
-                FindingReason::Mapping(Reason::InvalidName),
+                FindingKind::Unmapped(Reason::InvalidName),
                 "Unrepresentable",
                 "invalid-name",
             ),
         ] {
-            let value = value(&mapping(reason), "prefix", None).unwrap();
+            let value = value(&mapping_finding(kind), "prefix", None).unwrap();
             assert_eq!(
                 (&value["reason"], &value["detail_code"], &value["scope"]),
                 (&json!(rendered), &json!(detail), &json!("path")),
                 "{detail}"
             );
         }
+    }
+
+    /// A collision carried over from schema 57 may hide an edited file, so it stays a
+    /// conflict, but its remedy asks for the observation that classifies it rather than for
+    /// preserving a file that may not exist.
+    #[test]
+    fn carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again() {
+        let value = value(
+            &mapping_finding(FindingKind::UnclassifiedCollision),
+            "prefix",
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            (&value["reason"], &value["detail_code"]),
+            (&json!("Conflict"), &json!("unclassified-collision"))
+        );
+        let remedy = value["remedy"].as_str().unwrap();
+        assert!(remedy.contains("observed again and classified"), "{remedy}");
+        assert!(!remedy.contains("edited file"), "{remedy}");
     }
 }

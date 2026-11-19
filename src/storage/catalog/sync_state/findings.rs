@@ -40,8 +40,8 @@ pub(in crate::storage) const REASON_SCHEMA_VERSION: i64 = 58;
 /// foreign key, and dropping either table deletes its sequence row, after which a removed
 /// highest ordinal would be handed out again and an old finding ID would name another finding.
 /// Before schema 58 one reason covered both conditions, and a row cannot tell which it was:
-/// every `collision` row becomes an export conflict, which stops a later wait rather than
-/// letting it report success with an edit nobody reconciled.
+/// every `collision` row becomes `unclassified-collision`, which keeps that uncertainty apart
+/// from the export conflicts schema 58 records until the object is observed again.
 pub(in crate::storage) const REASON_SCHEMA: &str = include_str!("findings/reason_schema.sql");
 
 /// Counts the rows schema 58 rebuilds; the migration commits only if they all come back.
@@ -111,6 +111,10 @@ pub(crate) enum FindingKind {
     /// Export stopped because the file at the object's path no longer held the bytes this tree
     /// last tracked while the API object changed or was deleted; the file stays as it was.
     ExportConflict,
+    /// A schema 57 `collision` row, which does not say whether it was a name collision or an
+    /// export conflict. It stops the wait like an export conflict until the object is observed
+    /// again, and either kind of finding then replaces it.
+    UnclassifiedCollision,
 }
 
 impl FindingKind {
@@ -118,12 +122,14 @@ impl FindingKind {
         match self {
             Self::Unmapped(reason) => reason.as_str(),
             Self::ExportConflict => "export-conflict",
+            Self::UnclassifiedCollision => "unclassified-collision",
         }
     }
 
     fn parse(value: &str) -> Option<Self> {
         match value {
             "export-conflict" => Some(Self::ExportConflict),
+            "unclassified-collision" => Some(Self::UnclassifiedCollision),
             unmapped => Reason::parse(unmapped).map(Self::Unmapped),
         }
     }
@@ -139,7 +145,7 @@ impl FindingKind {
     )]
     pub(crate) const fn effect(self) -> FindingEffect {
         match self {
-            Self::ExportConflict => FindingEffect::Blocks,
+            Self::ExportConflict | Self::UnclassifiedCollision => FindingEffect::Blocks,
             Self::Unmapped(Reason::Ignored) => FindingEffect::Silent,
             Self::Unmapped(
                 Reason::InvalidName
@@ -169,7 +175,7 @@ sql::text_enum!(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FindingEffect {
     /// The wait cannot succeed while the finding remains: an external edit and an API
-    /// generation are both unreconciled, so the tree is not up to date.
+    /// generation are, or may be, both unreconciled, so the tree is not known to be up to date.
     Blocks,
     /// The wait may succeed and reports the finding: the object stays reachable through the
     /// API, and the tree cannot hold its name.
@@ -227,8 +233,10 @@ impl RootLease {
     /// Records only the selected live incarnation/generation; no filesystem path is required.
     /// An export conflict on the same incarnation and generation keeps its row: the name
     /// reason does not settle the edit that conflict left behind, while a newer generation or
-    /// incarnation is a new observation that replaces it. Recording the same finding again
-    /// writes nothing, so findings keep their revision.
+    /// incarnation is a new observation that replaces it. An unclassified collision carried
+    /// over from schema 57 is replaced, because the name reason classifies it; an edited file
+    /// behind it is recorded as an export conflict again by the next ingestion. Recording the
+    /// same finding again writes nothing, so findings keep their revision.
     pub(crate) async fn record_finding(
         &self,
         binding: SyncBinding,
@@ -295,6 +303,30 @@ impl RootLease {
             sql::exec(c, "DELETE FROM sync_findings WHERE root_id=?1 AND ordinal=?2 AND bucket=?3 AND name=?4 AND incarnation=?5 AND generation=?6 AND reason=?7", params![finding.root_id,finding.ordinal,finding.bucket,finding.name,finding.incarnation,finding.generation,finding.reason])
                 .map(|count|count == 1).map_err(unavailable)
         }).await.map_err(RootError::from)
+    }
+
+    /// Gives the finding for `name` the reason schema 58 gives a schema 57 `collision` row, as
+    /// a migrated catalog holds it.
+    #[cfg(all(test, unix))]
+    pub(crate) async fn unclassify_finding(
+        &self,
+        bucket: &str,
+        name: &str,
+    ) -> Result<bool, RootError> {
+        let root = self.status().root_id;
+        let (bucket, name) = (bucket.to_owned(), name.to_owned());
+        self.catalog()
+            .run_admin(move |c| {
+                sql::exec(
+                    c,
+                    "UPDATE sync_findings SET reason=?4 WHERE root_id=?1 AND bucket=?2 AND name=?3",
+                    params![root, bucket, name, FindingKind::UnclassifiedCollision],
+                )
+                .map(|count| count == 1)
+                .map_err(unavailable)
+            })
+            .await
+            .map_err(RootError::from)
     }
 }
 

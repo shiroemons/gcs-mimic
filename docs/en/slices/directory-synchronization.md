@@ -103,7 +103,10 @@ left intact, logged with a preservation remedy and counted as a conflict;
 `export-conflict` findings record both overwrite and deleted-object cases.
 Before catalog schema 58 these cases were recorded as `collision`, the reason a
 name collision also uses; a stored row cannot tell the two apart, so schema 58
-turns every such row into `export-conflict`.
+turns every such row into `unclassified-collision`. That finding stops `sync wait`
+like an export conflict until the object is observed again: a name collision found
+again replaces it with `collision`, and an edited file found again by ingestion,
+which runs before the wait decides, replaces it with `export-conflict`.
 If the API advances after installation, state records the generation and
 fingerprint actually installed, allowing the next live generation to replace
 those known bytes without treating the export as an external edit.
@@ -1098,7 +1101,7 @@ details and aggregate counts.
 | `Observing` | Running without a complete baseline; status | Wait for the scan, or run `gcs-mimic sync wait`. |
 | `DeletionApproval` | External deletions paused; status/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
 | `FindingsPending` | Running with findings, path stops, pending write-back or unresolved conflicts; status | List them with `gcs-mimic sync findings --revision` and the status's `findings_revision`, and follow each finding's remedy. Other paths continue. |
-| `Conflict` | Path finding after successful preservation; `conflicts`, status/event. A mapping finding with `detail_code` `export-conflict` is an export that met an edited file and left it as it was | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. For an export conflict, preserve the edited file, then inspect conflicts or restore the previously exported bytes and rescan. Other paths continue. |
+| `Conflict` | Path finding after successful preservation; `conflicts`, status/event. A mapping finding with `detail_code` `export-conflict` is an export that met an edited file and left it as it was; one with `unclassified-collision` was carried over from a `collision` recorded before schema 58 | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. For an export conflict, preserve the edited file, then inspect conflicts or restore the previously exported bytes and rescan. For an unclassified collision, rescan or restart so the object is observed again, then follow the remedy of the finding that replaces it. Other paths continue. |
 | `ConflictCapacity` | Root ingestion and destructive write-back paused; status/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
 | `RecoveryRequired` | Root pause, write-back state, or a path's pending write-back operation; status, `sync_paused` event and paged recovery findings | Preserve the workspace and current target, inspect each recovery finding with `gcs-mimic sync findings`, and settle it with `gcs-mimic sync resolve --recovery` as an exact confirmed discard, or as a registered conflict; then rescan. |
 | `ProtectedBody` | Write-back state while a displaced body is protected in the workspace; status and paged recovery findings, whose `reason` is `RecoveryRequired` | As for `RecoveryRequired`; when it stops a run, the root pauses as `RecoveryRequired`. |

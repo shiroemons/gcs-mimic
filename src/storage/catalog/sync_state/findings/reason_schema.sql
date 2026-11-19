@@ -17,11 +17,11 @@ CREATE TABLE sync_findings (
  name TEXT NOT NULL COLLATE BINARY,
  incarnation TEXT NOT NULL,
  generation INTEGER NOT NULL CHECK(generation > 0),
- reason TEXT NOT NULL CHECK(reason IN ('invalid-name','host-restriction','reserved','ignored','collision','unsafe-entry','export-conflict','alias')),
+ reason TEXT NOT NULL CHECK(reason IN ('invalid-name','host-restriction','reserved','ignored','collision','unsafe-entry','export-conflict','unclassified-collision','alias')),
  owner_project TEXT CHECK(owner_project IS NULL OR length(owner_project) BETWEEN 1 AND 256),
  UNIQUE(root_id,bucket,name)
 );
-INSERT INTO sync_findings(ordinal,root_id,bucket,name,incarnation,generation,reason,owner_project) SELECT ordinal,root_id,bucket,name,incarnation,generation,CASE reason WHEN 'collision' THEN 'export-conflict' ELSE reason END,owner_project FROM temp.sync_reason_findings;
+INSERT INTO sync_findings(ordinal,root_id,bucket,name,incarnation,generation,reason,owner_project) SELECT ordinal,root_id,bucket,name,incarnation,generation,CASE reason WHEN 'collision' THEN 'unclassified-collision' ELSE reason END,owner_project FROM temp.sync_reason_findings;
 INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM temp.sync_reason_owners;
 CREATE INDEX sync_findings_page ON sync_findings(root_id,ordinal);
 CREATE TRIGGER sync_observation_finding_insert AFTER INSERT ON sync_findings BEGIN

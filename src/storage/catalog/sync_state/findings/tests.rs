@@ -687,9 +687,72 @@ async fn name_findings_keep_an_export_conflict_until_the_generation_moves_on() {
     catalog.close().await.unwrap();
 }
 
+/// A collision carried over from schema 57 gives way to whichever finding observes the object
+/// again on the same generation. Once an export conflict is recorded, in either order, a name
+/// finding no longer replaces it.
+#[tokio::test]
+async fn an_unclassified_collision_gives_way_to_the_finding_that_classifies_it() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let name = ObjectName::new("object").unwrap();
+    let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
+    let reason = || {
+        let lease = lease.clone();
+        async move { lease.findings_page(0, 1).await.unwrap()[0].reason }
+    };
+    let collision =
+        || lease.record_finding(binding.clone(), name.clone(), generation, Reason::Collision);
+    let conflict = || lease.record_export_conflict(binding.clone(), name.clone(), generation);
+    collision().await.unwrap();
+    let unclassified = async || {
+        assert!(
+            lease
+                .unclassify_finding("test-bucket", "object")
+                .await
+                .unwrap()
+        );
+        assert_eq!(reason().await, FindingKind::UnclassifiedCollision);
+    };
+
+    unclassified().await;
+    collision().await.unwrap();
+    assert_eq!(reason().await, FindingKind::Unmapped(Reason::Collision));
+
+    unclassified().await;
+    conflict().await.unwrap();
+    assert_eq!(reason().await, FindingKind::ExportConflict);
+    collision().await.unwrap();
+    assert_eq!(reason().await, FindingKind::ExportConflict);
+
+    // A name finding first, then the export conflict the next ingestion records again.
+    unclassified().await;
+    collision().await.unwrap();
+    conflict().await.unwrap();
+    assert_eq!(reason().await, FindingKind::ExportConflict);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() {
     assert_eq!(FindingKind::ExportConflict.effect(), FindingEffect::Blocks);
+    assert_eq!(
+        FindingKind::UnclassifiedCollision.effect(),
+        FindingEffect::Blocks
+    );
     assert_eq!(
         FindingKind::Unmapped(Reason::Ignored).effect(),
         FindingEffect::Silent

@@ -2997,6 +2997,44 @@ async fn wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_f
     catalog.close().await.unwrap();
 }
 
+/// A collision carried over from schema 57 does not say whether it was a name collision or an
+/// export conflict. A reconciliation that meets the name collision again records it as one.
+#[tokio::test]
+async fn reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision() {
+    let (_data, _tree, catalog, bucket, root) = live_fixture().await;
+    publish_origin(&catalog, &bucket, b"file", Origin::Api).await;
+    publish_named(&catalog, &bucket, "object/child", b"child", Origin::Api).await;
+    reconcile(&catalog, &root).await.unwrap();
+    let reason = || {
+        let root = root.clone();
+        async move {
+            root.findings_page(0, 256)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|finding| finding.name == "object")
+                .map(|finding| finding.reason)
+        }
+    };
+    assert_eq!(
+        reason().await,
+        Some(FindingKind::Unmapped(Reason::Collision))
+    );
+    assert!(
+        root.unclassify_finding("test-bucket", "object")
+            .await
+            .unwrap()
+    );
+    assert_eq!(reason().await, Some(FindingKind::UnclassifiedCollision));
+    reconcile(&catalog, &root).await.unwrap();
+    assert_eq!(
+        reason().await,
+        Some(FindingKind::Unmapped(Reason::Collision))
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// Different bytes behind a renumbered fingerprint, with the same size and times, are still an
 /// external edit: against a newer API generation the wait reports a conflict.
 #[tokio::test]

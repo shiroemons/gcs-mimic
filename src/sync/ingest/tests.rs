@@ -743,6 +743,53 @@ async fn ingest_external_only_conflicts_equal_hash_and_unsafe_entries() {
     catalog.close().await.unwrap();
 }
 
+/// A collision carried over from schema 57 may stand for an edited file. Even after a name
+/// finding has replaced it, the next scan records the edited file as an export conflict again,
+/// so the wait that scans first still stops for the edit.
+#[tokio::test]
+async fn a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict() {
+    use crate::storage::sync_state::findings::FindingKind;
+    let (_data, tree, catalog, root, config) = fixture().await;
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    fs::write(tree.0.join("test-bucket/object"), b"old").unwrap();
+    scan(&catalog, &root, &config).await;
+    fs::write(tree.0.join("test-bucket/object"), b"external-edit").unwrap();
+    api_put(&catalog, "test-bucket/object", b"api-winner").await;
+    assert_eq!(scan(&catalog, &root, &config).await.conflicting, 1);
+    let reason = || {
+        let root = root.clone();
+        async move { root.findings_page(0, 256).await.unwrap()[0].reason }
+    };
+    assert_eq!(reason().await, FindingKind::ExportConflict);
+
+    assert!(
+        root.unclassify_finding("test-bucket", "object")
+            .await
+            .unwrap()
+    );
+    let bucket = BucketName::new("test-bucket").unwrap();
+    root.record_finding(
+        catalog.sync_state().binding(&bucket).await.unwrap(),
+        ObjectName::new("object").unwrap(),
+        Generation::new(object(&catalog, "test-bucket/object").await.generation).unwrap(),
+        mapping::Reason::Collision,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        reason().await,
+        FindingKind::Unmapped(mapping::Reason::Collision)
+    );
+    assert_eq!(scan(&catalog, &root, &config).await.conflicting, 1);
+    assert_eq!(reason().await, FindingKind::ExportConflict);
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/object")).unwrap(),
+        b"external-edit"
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ingest_preserves_metadata_patch_and_api_body_racing_publication() {
     for body_race in [false, true] {

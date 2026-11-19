@@ -3,7 +3,6 @@
 use super::{
     OpaqueId, Ordinal, PageLimit,
     conflicts::RecoveryPhase,
-    findings::FindingKind,
     root::{RootError, RootId, RootLease},
     writeback,
 };
@@ -111,7 +110,7 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let category = row.get(2)?;
     let reason = match category {
         FindingCategory::RootStop => FindingReason::RootStop(row.get(7)?),
-        FindingCategory::Mapping => row.get::<_, FindingKind>(7)?.into(),
+        FindingCategory::Mapping => FindingReason::Mapping(row.get(7)?),
         FindingCategory::PathStop => FindingReason::PathStop(row.get(7)?),
         FindingCategory::Writeback => FindingReason::Writeback(row.get(7)?),
         FindingCategory::Conflict => FindingReason::Conflict(row.get(7)?),

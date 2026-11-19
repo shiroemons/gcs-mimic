@@ -103,11 +103,11 @@ fn user_version(connection: &Connection) -> i64 {
         .unwrap()
 }
 
-/// What schema 58 makes of `before`: every `collision` row becomes an export conflict.
+/// What schema 58 makes of `before`: every `collision` row becomes an unclassified collision.
 fn migrated(mut before: Rows) -> Rows {
     for finding in &mut before.findings {
         if finding.4 == "collision" {
-            finding.4 = "export-conflict".into();
+            finding.4 = "unclassified-collision".into();
         }
     }
     before
@@ -233,8 +233,7 @@ async fn schema_57_fixture() -> (TestDir, TestDir) {
 }
 
 #[tokio::test]
-async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts()
- {
+async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_unclassified() {
     let (data, tree) = schema_57_fixture().await;
     let connection = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     let before = rows(&connection);
@@ -307,8 +306,8 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
             .iter()
             .zip([
                 FindingKind::Unmapped(Reason::InvalidName),
-                FindingKind::ExportConflict,
-                FindingKind::ExportConflict,
+                FindingKind::UnclassifiedCollision,
+                FindingKind::UnclassifiedCollision,
                 FindingKind::Unmapped(Reason::Ignored),
             ])
             .map(|(finding, kind)| (finding.0, kind))
@@ -334,8 +333,8 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
         reasons(FindingCategory::Mapping),
         [
             "invalid-name",
-            "export-conflict",
-            "export-conflict",
+            "unclassified-collision",
+            "unclassified-collision",
             "ignored"
         ]
     );
