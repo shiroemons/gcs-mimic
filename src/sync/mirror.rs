@@ -131,12 +131,12 @@ impl DirectoryWatch {
                     watcher.generation = self.generation;
                     watcher.pending = self.pending.take();
                     *self = watcher;
-                    status.enter(MirrorState::Running);
+                    enter(status, MirrorState::Running);
                     return Ok(());
                 }
                 Err(error) if error.is_watch_retryable() => {
                     failures += 1;
-                    status.enter(MirrorState::Retrying);
+                    enter(status, MirrorState::Retrying);
                     #[cfg(test)]
                     export_checkpoint("retry").await;
                     if failures >= 3 {
@@ -353,7 +353,7 @@ impl Mirror {
     /// means the mirror is stopping. `failed` is the rescan whose run ended in `error`: it hears
     /// the failure, and a transient one keeps the reason the pause recorded before.
     fn pause(&mut self, error: SyncError, failed: Option<Resume>) -> Option<Resume> {
-        self.state.enter(MirrorState::Paused);
+        enter(&self.state, MirrorState::Paused);
         let kept = self
             .paused_for
             .filter(|_| failed.is_some() && error.is_transient());
@@ -403,7 +403,7 @@ impl Mirror {
         // A retry of the first pass is still part of starting: the healthcheck waits for that
         // pass, and `retrying` would let it pass before the tree was reconciled.
         if self.state.state() != MirrorState::Starting {
-            self.state.enter(MirrorState::Retrying);
+            enter(&self.state, MirrorState::Retrying);
         }
         // A run that lasted longer than the cap had recovered, so its failure starts over.
         if started.elapsed() >= RETRY_DELAY_MAX {
@@ -422,7 +422,7 @@ impl Mirror {
 
     fn shut_down(mut self, done: tokio::sync::oneshot::Sender<()>) {
         // Before the queued controls hear that synchronization stopped.
-        self.state.enter(MirrorState::Stopped);
+        enter(&self.state, MirrorState::Stopped);
         self.controls.stop();
         drop(self.requests);
         if let Err(error) = self.catalog.clear_sync_controls() {
@@ -446,6 +446,13 @@ impl Mirror {
     }
 }
 
+/// Moves the mirror to `state` and logs the change once; the status itself only keeps it.
+fn enter(status: &MirrorStatusSender, state: MirrorState) {
+    if let Some(transition) = status.enter(state) {
+        descriptor::state_changed(transition);
+    }
+}
+
 /// Reports the mirror stopped however its thread ends. A panic outside a supervised run skips
 /// [`Mirror::shut_down`], so the guard then also withdraws the controls: a status that still read
 /// as paused, behind controls that can never resume it, would mislead whoever reads it.
@@ -456,7 +463,7 @@ struct StopOnExit {
 
 impl Drop for StopOnExit {
     fn drop(&mut self) {
-        self.state.enter(MirrorState::Stopped);
+        enter(&self.state, MirrorState::Stopped);
         if std::thread::panicking()
             && let Err(error) = self.catalog.clear_sync_controls()
         {
@@ -787,7 +794,7 @@ async fn initialize_live(
     // Running only now, after this run reconciled the whole tree: until then a starting mirror
     // stays starting, a retrying one retrying and a paused one paused, even while its explicit
     // rescan runs.
-    status.enter(MirrorState::Running);
+    enter(status, MirrorState::Running);
     if let Some(request) = resume.take() {
         let _ = request.reply.send(Ok(summary));
         writeback = writeback.with_root(root)?;

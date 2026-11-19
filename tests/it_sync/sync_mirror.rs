@@ -484,6 +484,20 @@ fn large_tree_warnings(events: &[serde_json::Value]) -> usize {
         .count()
 }
 
+/// The changes of `sync.state` that the server logged, in order.
+fn state_changes(events: &[serde_json::Value]) -> Vec<(&str, &str)> {
+    events
+        .iter()
+        .filter(|event| event["event"] == "sync_state_changed")
+        .map(|event| {
+            (
+                event["from"].as_str().unwrap(),
+                event["to"].as_str().unwrap(),
+            )
+        })
+        .collect()
+}
+
 fn startup_summary<'a>(events: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
     events
         .iter()
@@ -547,6 +561,12 @@ async fn the_deepest_object_name_exports_and_is_found_again_after_a_restart() {
     let events = startup_events(&data, &tree, &[], &object_name);
     assert_eq!(startup_summary(&events, "sync_reconciled")["exported"], 1);
     assert_eq!(startup_summary(&events, "sync_ingested")["deferred"], 0);
+    // Each change of state is logged once, though shutdown and the thread's exit both stop it.
+    assert_eq!(
+        state_changes(&events),
+        [("starting", "running"), ("running", "stopped")],
+        "{events:?}"
+    );
 
     let events = startup_events(&data, &tree, &[], &object_name);
     assert_eq!(startup_summary(&events, "sync_reconciled")["identical"], 1);

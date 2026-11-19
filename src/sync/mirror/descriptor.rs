@@ -1,4 +1,7 @@
-use crate::{storage::sync_state::observation::PauseReason, sync::SyncError};
+use crate::{
+    storage::sync_state::observation::PauseReason,
+    sync::{SyncError, status::Transition},
+};
 
 /// Reports a pause with the reason the status control and the root-stop finding name.
 pub(super) fn paused(error: &SyncError, pause: PauseReason) {
@@ -21,6 +24,14 @@ pub(super) fn resume_failed(error: &SyncError) {
             error,
             serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":"Synchronization stays paused for the reason it recorded; run gcs-mimic sync rescan --endpoint URL again"}),
         ),
+    );
+}
+/// Reports a change of the state that `/_internal/ready` shows as `sync.state`.
+pub(super) fn state_changed(transition: Transition) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Info,
+        "sync_state_changed",
+        serde_json::json!({"from":transition.from.as_str(),"to":transition.to.as_str()}),
     );
 }
 pub(super) fn retrying(error: &SyncError, delay: std::time::Duration) {

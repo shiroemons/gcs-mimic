@@ -10,10 +10,9 @@ use crate::{
     storage::sync_state::{
         MAX_PAGE, OpaqueId, Ordinal, PageLimit,
         authority::ControlAuthority,
-        deletions::{Candidate, DeletionAuthorization, DeletionFence, DeletionSet},
-        observation::{ObservationCursor, PauseReason, Summary},
+        deletions::{Candidate, DeletionFence, DeletionSet},
+        observation::{ObservationCursor, Summary},
         root::{RootError, RootLease, RootStatus},
-        writeback::Stop,
     },
     sync::{
         Cause, MirrorState, Reconciliation,
@@ -55,7 +54,9 @@ async fn authorization_checkpoint() {}
 pub(super) mod conflicts;
 mod cursor;
 mod findings;
+mod state;
 use cursor::SyncCursor;
+use state::ControlState;
 
 struct ControlActivity<'a>(RequestCtx<'a>);
 impl Drop for ControlActivity<'_> {
@@ -564,7 +565,10 @@ fn render_halving<T>(
 #[derive(Serialize)]
 struct StatusSummary<'a> {
     auth_mode: &'static str,
-    state: &'static str,
+    state: ControlState,
+    /// The same value as `sync.state` in a ready answer, which `state` refines while the mirror
+    /// runs.
+    mirror_state: MirrorState,
     session_id: &'a str,
     findings_revision: &'a str,
     observation: &'a Summary,
@@ -650,11 +654,13 @@ async fn status(
             deletion_page(&root, query, set, authority).await
         }
         Page::Summary => {
+            let mirror = registration.status.state();
             let set = published_set.as_ref();
             let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
             let summary = StatusSummary {
                 auth_mode: state.auth.mode().as_str(),
-                state: control_state(registration.status.state(), &observation, set),
+                state: ControlState::of(mirror, &observation, set),
+                mirror_state: mirror,
                 session_id: session,
                 findings_revision: &findings_revision,
                 observation: &observation,
@@ -667,52 +673,6 @@ async fn status(
             };
             bounded(&super::encode(&RootDocument::new(&root.status(), summary))?)
         }
-    }
-}
-
-/// The one state `status` reports; the first condition that holds decides it. The mirror's
-/// own state, not the server's readiness, decides `Unhealthy`: the API stays ready while
-/// synchronization stops.
-fn control_state(
-    mirror: MirrorState,
-    observation: &Summary,
-    set: Option<&DeletionSet>,
-) -> &'static str {
-    let starting = match mirror {
-        MirrorState::Running => false,
-        MirrorState::Starting => true,
-        // A recorded pause names its reason; a retry, or a pause the mirror failed to record,
-        // is unhealthy whatever the stored observation says.
-        MirrorState::Retrying | MirrorState::Paused | MirrorState::Stopped => {
-            return observation
-                .paused_reason
-                .map_or("Unhealthy", PauseReason::state);
-        }
-    };
-    if let Some(reason) = observation.paused_reason {
-        reason.state()
-    } else if let Some(writeback) = &observation.writeback
-        && writeback.state != Stop::Ready
-    {
-        writeback.state.as_str()
-    } else if let Some(stop) = observation.scan_stop {
-        stop.as_str()
-    } else if starting || !observation.baseline_complete {
-        // A baseline an earlier process completed does not show this one has caught up.
-        "Observing"
-    } else if set
-        .is_some_and(|set| set.guarded && set.authorization == DeletionAuthorization::Withheld)
-    {
-        "DeletionApproval"
-    } else if observation.path_stops
-        + observation.mapping_findings
-        + observation.pending_writeback
-        + observation.unresolved_conflicts
-        > 0
-    {
-        "FindingsPending"
-    } else {
-        "Ready"
     }
 }
 

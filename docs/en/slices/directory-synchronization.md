@@ -1053,13 +1053,18 @@ locks. CLI users can write a file, wait, then read through the API.
 
 Each kind of stop has its own exhaustive type; no single type covers them all:
 
-- `PauseReason` pauses the whole root and is stored with the observation:
-  `ConflictCapacity`, `IoFailure`, `RecoveryRequired`, `SourceChanging`,
-  `SourceUnrepresentable` and `observer-failure`, the last for any failure that
-  names no other reason. The `sync_paused` event reports it as `paused_reason`
-  and a root-stop finding as its `reason`, except that the finding shows
-  `observer-failure` as `Paused`. Status `state` names the first three and shows
-  the others as `Paused`.
+- `PauseReason` pauses the whole root until a rescan succeeds and is stored
+  with the observation as `paused_reason`: `ConflictCapacity`, `IoFailure`,
+  `RecoveryRequired`, `SourceChanging`, `SourceUnrepresentable` and
+  `observer-failure`, the last for any failure that names no other reason. The
+  `sync_paused` event reports it as `paused_reason` with the remedy for that
+  reason, and a root-stop finding as its `reason`, except that the finding
+  shows `observer-failure` as `Paused`.
+- A scan stop ends one scan without pausing: the root keeps running and the
+  next scan tries again. It is stored apart from the pause as `scan_stop`,
+  which only takes `SourceChanging` or `SourceUnrepresentable`, and is also
+  listed as a root-stop finding. These two names describe the same source
+  condition in either place; only `paused_reason` means synchronization paused.
 - `writeback::Stop` is the write-back state in status: `Ready`,
   `RecoveryRequired`, `ProtectedBody`, `ConflictCapacity` or `IoFailure`.
 - `WaitReason` says why `sync wait` ended: `Ready`, `Timeout`, `Stopped`,
@@ -1067,6 +1072,19 @@ Each kind of stop has its own exhaustive type; no single type covers them all:
   `DeletionApproval` or `FindingsPending`.
 - A path finding's `reason` is `Conflict`, `Unrepresentable`,
   `ProtectedDeletion`, `SourceChanging`, `IoFailure` or `RecoveryRequired`.
+- Status `state` is one of `Starting`, `Retrying`, `Paused`, `Stopped`,
+  `ConflictCapacity`, `IoFailure`, `RecoveryRequired`, `ProtectedBody`,
+  `SourceChanging`, `SourceUnrepresentable`, `Observing`, `DeletionApproval`,
+  `FindingsPending` or `Ready`. Status also reports `mirror_state`, the same
+  value as `sync.state` in a ready answer, which decides `state` as follows.
+
+| `mirror_state` | Status `state` |
+| --- | --- |
+| `starting` | `Starting`. A reason an earlier process recorded shows only in `observation.paused_reason`. |
+| `retrying` | `Retrying`. |
+| `paused` | `ConflictCapacity`, `IoFailure` or `RecoveryRequired` for that recorded reason; otherwise `Paused`, also for a pause the mirror failed to record. |
+| `stopped` | `Stopped`. |
+| `running` | The first that holds: a recorded pause, named as for `paused`; the write-back state other than `Ready`; the scan stop; `Observing` without a complete baseline; `DeletionApproval` while a guarded deletion set waits; `FindingsPending` while findings, path stops, pending write-back or unresolved conflicts remain; otherwise `Ready`. |
 
 Distinguish a whole-root pause, a blocked path and a nonblocking finding. Emit
 structured stderr events on transitions, not on every repeated observation.
@@ -1075,15 +1093,22 @@ details and aggregate counts.
 
 | Reason | Scope and discovery | Complete recovery path |
 | --- | --- | --- |
+| `Starting` | This process's first pass, until it finishes, through any retries; status, `sync.state` and the healthcheck's diagnostic | Nothing to repair: wait, and follow it with `gcs-mimic sync status`. A persistent failure pauses the root instead. |
+| `Retrying` | A started mirror recovering from a transient failure, until the next run's reconciliation finishes, or a directory watch rebuild; status, `sync.state`, `sync_retrying` or `sync_watch_retry` event | Nothing to repair for a transient failure; restore read/search permissions for a watch rebuild, whose third failure pauses the root. |
+| `Observing` | Running without a complete baseline; status | Wait for the scan, or run `gcs-mimic sync wait`. |
 | `DeletionApproval` | External deletions paused; status/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
+| `FindingsPending` | Running with findings, path stops, pending write-back or unresolved conflicts; status | List them with `gcs-mimic sync findings --revision` and the status's `findings_revision`, and follow each finding's remedy. Other paths continue. |
 | `Conflict` | Path finding after successful preservation; `conflicts`, status/event. A mapping finding with `detail_code` `export-conflict` is an export that met an edited file and left it as it was | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. For an export conflict, preserve the edited file, then inspect conflicts or restore the previously exported bytes and rescan. Other paths continue. |
 | `ConflictCapacity` | Root ingestion and destructive write-back paused; status/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 TiB and 1,000,000-entry limits, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
+| `RecoveryRequired` | Root pause, write-back state, or a path's pending write-back operation; status, `sync_paused` event and paged recovery findings | Preserve the workspace and current target, inspect each recovery finding with `gcs-mimic sync findings`, and settle it with `gcs-mimic sync resolve --recovery` as an exact confirmed discard, or as a registered conflict; then rescan. |
+| `ProtectedBody` | Write-back state while a displaced body is protected in the workspace; status and paged recovery findings, whose `reason` is `RecoveryRequired` | As for `RecoveryRequired`; when it stops a run, the root pauses as `RecoveryRequired`. |
 | `Unrepresentable` | Path finding; paged status findings/event. Its `detail_code` names the mapping reason, including `collision` for a file/directory collision or an aliased entry | Rename/copy-delete through API into a representable name, remove the collision/unsafe external entry without following it and rescan, or retain API-only access. Never silently normalize. |
 | `ProtectedDeletion` | Path restored and blocked; paged status findings/event | Release hold/retention through a supported API, then delete the file again. If protection cannot be released, retain the restored file/API object. |
-| `SourceChanging` | Path deferred until quiet deadline; status | Finish/stop the writer then rescan/wait. Continuously changing input times out wait without publishing partial bytes. |
+| `SourceChanging` | Path deferred until quiet deadline, or a scan stop; status, path or root-stop finding | Finish/stop the writer then rescan/wait. Continuously changing input times out wait without publishing partial bytes. A root paused for it shows `Paused`. |
+| `SourceUnrepresentable` | A scan stop for unsafe or unmappable source entries; status and a root-stop finding | Preserve the entries the findings list, rename them or move them out of the tree, then rescan. A root paused for it shows `Paused`. |
 | `IoFailure` | Affected path; whole-root pause for unavailable root, incomplete scan or failed displaced-body preservation; status/event and paged recovery findings | Restore mount/permissions/free space, preserve source/conflicts and any displaced workspace body, then rescan under the displaced-body recovery rules; typed disk-full is not swallowed or tight-looped. |
-| `Paused` | Root paused by `observer-failure`, `SourceChanging` or `SourceUnrepresentable`; status, `sync_paused` event and a root-stop finding | Inspect server diagnostics, correct the reported condition without removing pending data and request an explicit rescan. |
-| `Stopped` | Shutdown; status while available, waiting requests wake and end with it | Restart after fixing the reported shutdown/storage error; reopen only after old jobs release ownership. |
+| `Paused` | Root paused by `observer-failure`, `SourceChanging` or `SourceUnrepresentable`, or by a pause it failed to record; status with `observation.paused_reason`, `sync_paused` event and a root-stop finding | Correct the condition the event names without removing pending data, then run `gcs-mimic sync rescan`. A changed server setting, such as `max_sync_entries`, needs a restart instead. A failed rescan answers 409 with the reason and keeps the pause. |
+| `Stopped` | Shutdown, or the mirror's thread ended; status while available, waiting requests wake and end with it | Restart after fixing the reported shutdown/storage error; reopen only after old jobs release ownership. |
 
 A marker mismatch is a startup failure, reported through the root error before
 bind; it has no stop reason of its own. A journal gap
@@ -1097,16 +1122,19 @@ catalog health failures and failing maintenance still can. While synchronization
 is enabled, a ready answer adds `sync.state`, the mirror's state, read from
 memory without a catalog query: `starting` until this process's first
 reconciliation finishes, through any retries on the way, then `running`;
-`retrying` while a run of a mirror that has started, or a directory watch
-rebuild, waits to retry; `paused` until an explicit rescan succeeds, so a
-rescan that fails, even transiently, answers with its failure and leaves the
-mirror paused under the reason it recorded; and `stopped` after shutdown or
-after the mirror's thread ends unexpectedly, which also withdraws the sync
-controls. The summary carries no counts, paths, names,
-catalog/root IDs or tokens; detailed strict diagnostics require management
-authorization. While the mirror is retrying, paused or stopped without a recorded
-pause reason, status `state` is `Unhealthy`. The `sync` object is outside the
-public contract until directory synchronization is complete.
+`retrying` from a transient failure of a mirror that has started until its next
+run's reconciliation finishes, or while a directory watch rebuild retries;
+`paused` until an explicit rescan succeeds, so a rescan that fails, even
+transiently, answers 409 with its failure and leaves the mirror paused under the
+reason it recorded; and `stopped` after shutdown or after the mirror's thread
+ends unexpectedly, which also withdraws the sync controls. `running` says the
+first pass has finished, not that a later change is applied, which
+`gcs-mimic sync wait` waits for. Each change of state is logged once as a
+`sync_state_changed` event with `from` and `to`. The summary carries no counts,
+paths, names, catalog/root IDs or tokens; detailed strict diagnostics require
+management authorization. Status reports the same value as `mirror_state`
+beside its own `state`, as tabled above. The `sync` object is outside the
+public contract until the directory synchronization feature is complete.
 
 `gcs-mimic healthcheck`, which the container image runs, fails while a ready
 answer reports `starting`. `starting` covers the whole first pass: ingesting the

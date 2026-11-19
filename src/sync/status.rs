@@ -16,7 +16,9 @@ pub enum MirrorState {
     Starting,
     /// Observing the tree and replaying API changes.
     Running,
-    /// Waiting to run again after a transient failure, or retrying a directory watch rebuild.
+    /// Recovering from a transient failure after the mirror has started: from the failure,
+    /// through the retry delay, until the next run's full reconciliation finishes, or until a
+    /// directory watch rebuild succeeds. A retry of the first pass stays [`Self::Starting`].
     Retrying,
     /// Stopped by a persistent failure; only an explicit rescan that succeeds resumes it.
     Paused,
@@ -43,6 +45,8 @@ impl MirrorState {
         }
     }
 }
+
+crate::serde_util::serialize_as_str!(MirrorState);
 
 impl fmt::Display for MirrorState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -73,6 +77,13 @@ impl FromStr for MirrorState {
     }
 }
 
+/// A change of the mirror's state, which the mirror reports once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Transition {
+    pub(crate) from: MirrorState,
+    pub(crate) to: MirrorState,
+}
+
 /// Every state entered, in order, so that a test sees a state the mirror left at once.
 #[cfg(test)]
 type History = std::sync::Arc<std::sync::Mutex<Vec<MirrorState>>>;
@@ -95,7 +106,7 @@ impl MirrorStatus {
     #[cfg(test)]
     pub(crate) fn in_state(state: MirrorState) -> Self {
         let sender = MirrorStatusSender::default();
-        sender.enter(state);
+        let _ = sender.enter(state);
         sender.subscribe()
     }
 
@@ -151,13 +162,19 @@ impl MirrorStatusSender {
         }
     }
 
-    /// Moves to `state`. `Stopped` is final: a late transition cannot make a stopped mirror
-    /// look as if it still ran.
-    pub(crate) fn enter(&self, state: MirrorState) {
+    /// Moves to `state`, and returns the change, or `None` when the state stays. `Stopped` is
+    /// final: a late transition cannot make a stopped mirror look as if it still ran.
+    #[must_use = "the mirror reports each change of its state"]
+    pub(crate) fn enter(&self, state: MirrorState) -> Option<Transition> {
+        let mut changed = None;
         self.current.send_if_modified(|current| {
             if *current == state || *current == MirrorState::Stopped {
                 return false;
             }
+            changed = Some(Transition {
+                from: *current,
+                to: state,
+            });
             *current = state;
             #[cfg(test)]
             self.entered
@@ -166,6 +183,7 @@ impl MirrorStatusSender {
                 .push(state);
             true
         });
+        changed
     }
 }
 
@@ -183,15 +201,30 @@ mod tests {
         assert!("".parse::<MirrorState>().is_err());
     }
 
+    /// Only a change is a transition, so the mirror reports each one once; nothing follows
+    /// `Stopped`.
     #[test]
     fn a_stopped_mirror_stays_stopped() {
+        use MirrorState::{Running, Starting, Stopped};
         let sender = MirrorStatusSender::default();
         let status = sender.subscribe();
-        assert_eq!(status.state(), MirrorState::Starting);
-        sender.enter(MirrorState::Running);
-        sender.enter(MirrorState::Running);
-        sender.enter(MirrorState::Stopped);
-        sender.enter(MirrorState::Running);
+        assert_eq!(status.state(), Starting);
+        assert_eq!(
+            sender.enter(Running),
+            Some(Transition {
+                from: Starting,
+                to: Running
+            })
+        );
+        assert_eq!(sender.enter(Running), None);
+        assert_eq!(
+            sender.enter(Stopped),
+            Some(Transition {
+                from: Running,
+                to: Stopped
+            })
+        );
+        assert_eq!(sender.enter(Running), None);
         assert_eq!(status.state(), MirrorState::Stopped);
         drop(sender);
         assert_eq!(

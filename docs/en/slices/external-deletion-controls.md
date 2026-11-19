@@ -49,7 +49,7 @@ answer 503 once the mirror is closed or the wait gives up, cap JSON inputs at
 
 | Route | Current subset |
 | --- | --- |
-| `GET /_internal/sync` | State that follows the mirror's own state (`Unhealthy` while it retries, pauses or stops without a recorded reason; never the server's readiness), authentication profile and fixed deletion revision/count/fence. |
+| `GET /_internal/sync` | `state` from a closed set that follows the mirror's own state (`Starting`, `Retrying` or `Stopped` while the mirror is so, its recorded pause reason or `Paused` while it is paused; never the server's readiness), `mirror_state` with the ready answer's `sync.state`, authentication profile and fixed deletion revision/count/fence. The [synchronization contract](directory-synchronization.md#stops-findings-and-remedies) lists the values. |
 | `GET /_internal/sync?view=deletions&revision=...` | Fixed members with original owner, incarnation and generation; opaque bound cursors; no filesystem paths. Long names shorten a page to respect the byte cap. |
 | `GET /_internal/sync?view=findings&revision=...` | Root source stops, mapping findings, protected paths, retained conflicts and pending recovery with exact target/revision and remedy; runtime-session-bound cursors. |
 | `GET /_internal/sync/conflicts` | Original-owner retained revisions, metadata and combined quota with bounded listing and revision-bound continuation. |

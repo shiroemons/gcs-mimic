@@ -22,15 +22,6 @@ sql::text_enum!(pub(crate) PauseReason, "invalid synchronization pause reason", 
     SourceChanging => "SourceChanging", SourceUnrepresentable => "SourceUnrepresentable",
 });
 
-impl PauseReason {
-    pub(crate) fn state(self) -> &'static str {
-        match self {
-            Self::ConflictCapacity | Self::IoFailure | Self::RecoveryRequired => self.as_str(),
-            Self::ObserverFailure | Self::SourceChanging | Self::SourceUnrepresentable => "Paused",
-        }
-    }
-}
-
 crate::serde_util::serialize_as_str!(PauseReason);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

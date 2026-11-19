@@ -12,7 +12,7 @@ use crate::{
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
         sync_state::{
             observation::PauseReason,
-            writeback::{Limits, Writeback},
+            writeback::{Limits, Stop, Writeback},
         },
     },
     test_support::{TestDir, eventually_async, eventually_some_async, joined},
@@ -44,10 +44,12 @@ fn nested_control_errors_keep_status_and_text() {
     }
 }
 
-/// The mirror's state, not the server's readiness, decides `Unhealthy`, and a mirror that has
-/// not reconciled in this process is still observing whatever baseline an earlier one recorded.
+/// The mirror's own state decides `state` until it runs: a mirror that has not finished its
+/// first pass reports `Starting` whatever reason an earlier process recorded, and only a paused
+/// one names its recorded reason. A running one reports the first condition that holds.
 #[test]
 fn status_state_follows_the_mirror_state() {
+    use MirrorState::{Paused, Retrying, Running, Starting, Stopped};
     let observation = |paused_reason| Summary {
         revision: 1,
         baseline_complete: true,
@@ -60,27 +62,76 @@ fn status_state_follows_the_mirror_state() {
         scan_stop: None,
         writeback: None,
     };
+    let state = |mirror, observation: &Summary| ControlState::of(mirror, observation, None);
     let clear = observation(None);
-    assert_eq!(control_state(MirrorState::Running, &clear, None), "Ready");
-    assert_eq!(
-        control_state(MirrorState::Starting, &clear, None),
-        "Observing"
-    );
-    for mirror in [
-        MirrorState::Retrying,
-        MirrorState::Paused,
-        MirrorState::Stopped,
+    let earlier = observation(Some(PauseReason::IoFailure));
+    for (mirror, expected) in [
+        (Starting, ControlState::Starting),
+        (Retrying, ControlState::Retrying),
+        (Stopped, ControlState::Stopped),
     ] {
-        assert_eq!(control_state(mirror, &clear, None), "Unhealthy", "{mirror}");
+        assert_eq!(state(mirror, &clear), expected, "{mirror}");
+        assert_eq!(state(mirror, &earlier), expected, "{mirror}");
     }
-    let recorded = observation(Some(PauseReason::IoFailure));
-    for mirror in [MirrorState::Paused, MirrorState::Starting] {
-        assert_eq!(
-            control_state(mirror, &recorded, None),
-            "IoFailure",
-            "{mirror}"
-        );
+    assert_eq!(state(Running, &clear), ControlState::Ready);
+    assert_eq!(state(Paused, &clear), ControlState::Paused);
+    for (reason, expected) in [
+        (PauseReason::IoFailure, ControlState::IoFailure),
+        (
+            PauseReason::ConflictCapacity,
+            ControlState::ConflictCapacity,
+        ),
+        (
+            PauseReason::RecoveryRequired,
+            ControlState::RecoveryRequired,
+        ),
+        (PauseReason::ObserverFailure, ControlState::Paused),
+        (PauseReason::SourceChanging, ControlState::Paused),
+        (PauseReason::SourceUnrepresentable, ControlState::Paused),
+    ] {
+        assert_eq!(state(Paused, &observation(Some(reason))), expected);
+        assert_eq!(state(Running, &observation(Some(reason))), expected);
     }
+    // A scan stop does not pause, so it shows only while the mirror runs.
+    let stopped = Summary {
+        scan_stop: Some(PauseReason::SourceChanging),
+        ..observation(None)
+    };
+    assert_eq!(state(Running, &stopped), ControlState::SourceChanging);
+    assert_eq!(state(Paused, &stopped), ControlState::Paused);
+    let protected = Summary {
+        writeback: Some(crate::storage::sync_state::observation::WritebackSummary {
+            state: Stop::ProtectedBody,
+            reserved_bytes: 0,
+            retained_bytes: 0,
+            entries: 1,
+            protected_entries: 1,
+            max_bytes: 10,
+            max_entries: 10,
+            over_limit: false,
+        }),
+        ..stopped
+    };
+    assert_eq!(state(Running, &protected), ControlState::ProtectedBody);
+    let observing = Summary {
+        baseline_complete: false,
+        ..observation(None)
+    };
+    assert_eq!(state(Running, &observing), ControlState::Observing);
+}
+
+/// `state` takes its values from one closed set, each serialized as its own name.
+#[test]
+fn status_states_serialize_as_their_names() {
+    let names: std::collections::BTreeSet<_> = ControlState::ALL
+        .iter()
+        .map(|state| state.as_str())
+        .collect();
+    assert_eq!(names.len(), ControlState::ALL.len());
+    for state in ControlState::ALL {
+        assert_eq!(serde_json::to_value(state).unwrap(), state.as_str());
+    }
+    assert!(!names.contains("Unhealthy"));
 }
 
 /// A stopped mirror never ran the control, so it answers as a closed queue. A paused one, and a
@@ -1421,7 +1472,9 @@ async fn controls_reject_invalid_input_and_unsupported_routes() {
     assert_eq!(waited["timed_out"], false);
     assert_eq!(waited["reason"], "Ready");
     assert!(waited["journal_fence"]["sequence"].is_u64());
-    assert_eq!(fixture.status().await["state"], "Ready");
+    let status = fixture.status().await;
+    assert_eq!(status["state"], "Ready");
+    assert_eq!(status["mirror_state"], "running");
     // The mirror's state decides the synchronization state; the server's readiness does not.
     fixture
         .state
