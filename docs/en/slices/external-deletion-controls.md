@@ -46,9 +46,11 @@ own object out of the set and logs `sync_deletion_unobservable` with a remedy;
 the inventory goes on with the other paths. A directory or special file that
 replaced a tracked file also stops that one path as `EntryReplaced`, in exports
 and inventories alike, until the path is empty or holds a regular file again;
-the root keeps running. An untracked one stays a mapping finding. The empty
-directory of a bucket deleted through the API holds nothing back and is left in
-place.
+the root keeps running. An untracked one stays a mapping finding. The directory
+of a bucket deleted through the API holds nothing back while it is empty or
+holds only regular files with ignored names, which the same classification
+decides, and is left in place; a directory or symlink with such a name holds it
+back like any other entry.
 
 With the baseline complete, a tracked file that is missing while its API
 generation is still the one last synchronized was deleted from the tree, also

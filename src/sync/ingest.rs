@@ -342,7 +342,11 @@ enum BucketDirectory {
 /// Whether the directory of `bucket` holds anything besides the operating system and editor
 /// files a scan ignores. One that cannot be read counts as holding entries, so that what it
 /// may hold is never passed over.
-async fn holds_entries(root: &RootLease, bucket: BucketName) -> Result<bool, SyncError> {
+async fn holds_entries(
+    root: &RootLease,
+    bucket: BucketName,
+    naming: RootNaming,
+) -> Result<bool, SyncError> {
     Ok(root
         .file_job(move |root| {
             let directory = match fsutil::directory_at(
@@ -357,16 +361,43 @@ async fn holds_entries(root: &RootLease, bucket: BucketName) -> Result<bool, Syn
             let mut names = fsutil::DirectoryNames::default();
             loop {
                 match names.next_name(&directory, usize::MAX) {
-                    Ok(Some(name))
-                        if name
-                            .to_str()
-                            .is_some_and(crate::source_tree::is_ignored_regular_file) => {}
+                    Ok(Some(name)) if passed_over(&directory, &bucket, &name, naming) => {}
                     Ok(Some(_)) | Err(_) => return Ok(true),
                     Ok(None) => return Ok(false),
                 }
             }
         })
         .await?)
+}
+
+/// Whether the scan passes over the entry `name` of the directory of `bucket`, as [`classify`]
+/// decides for the scan itself: only a regular file with an ignored name. A directory, symlink
+/// or special file so named is one the scan descends into or stops at, so it holds entries.
+fn passed_over(
+    directory: &File,
+    bucket: &BucketName,
+    name: &std::ffi::OsStr,
+    naming: RootNaming,
+) -> bool {
+    let file = match fsutil::child_regular(directory, name) {
+        Ok(fsutil::RegularChild::File(file)) => file,
+        // Removed since the listing: it holds nothing any more.
+        Ok(fsutil::RegularChild::Missing) => return true,
+        Ok(fsutil::RegularChild::Alias) | Err(_) => return false,
+    };
+    let Ok(identity) = fsutil::stat_identity(&file) else {
+        return false;
+    };
+    let entry = super::tree::TreeEntry {
+        path: std::path::Path::new(bucket.as_str()).join(name),
+        identity: Some(identity),
+        directory: false,
+        error: None,
+    };
+    matches!(
+        classify(&entry, naming),
+        EntryClass::Skipped(super::entries::Skip::IgnoredName)
+    )
 }
 
 /// Shared state of one ingestion rescan.
@@ -433,7 +464,7 @@ impl Ingest<'_> {
         }
         // Deleting a bucket through the API leaves its directory empty. Removing it here would
         // let the next scan create the bucket again, and keeping it holds nothing back.
-        if !holds_entries(self.root, bucket).await? {
+        if !holds_entries(self.root, bucket, self.naming).await? {
             return Ok(BucketDirectory::Blocked);
         }
         self.summary.blocked_buckets += 1;

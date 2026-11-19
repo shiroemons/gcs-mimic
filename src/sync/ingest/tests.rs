@@ -983,6 +983,68 @@ fn ingest_strict_configuration_requires_an_identity_registry() {
     );
 }
 
+/// The directory of a bucket deleted through the API holds nothing back while it holds only
+/// files the scan ignores, such as Finder's `.DS_Store`. A directory or symlink with such a name
+/// is no such file: the scan descends into it or stops at it, so it holds the bucket back like
+/// any other entry.
+#[tokio::test]
+async fn only_ignored_regular_files_leave_a_deleted_bucket_directory_empty() {
+    let (_data, tree, catalog, root, config) = fixture().await;
+    let bucket = BucketName::new("deleted-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(
+            crate::storage::admin::BucketDefinition::default_for(
+                &bucket,
+                "original-owner",
+                &crate::clock::SystemClock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    crate::sync::reconcile(&catalog, &root).await.unwrap();
+    catalog
+        .delete_bucket(bucket.as_str(), Default::default(), PERMISSIVE)
+        .await
+        .unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    let ignored = tree.0.join("deleted-bucket/.DS_Store");
+    fs::write(&ignored, b"finder").unwrap();
+    let summary = rescan(&catalog, &root, &config, &stopping).await.unwrap();
+    assert_eq!(
+        (
+            summary.blocked_buckets,
+            summary.unrepresentable_entries().get()
+        ),
+        (0, 0)
+    );
+
+    fs::remove_file(&ignored).unwrap();
+    fs::create_dir(&ignored).unwrap();
+    let summary = rescan(&catalog, &root, &config, &stopping).await.unwrap();
+    assert_eq!(
+        (
+            summary.blocked_buckets,
+            summary.unrepresentable_entries().get()
+        ),
+        (1, 1)
+    );
+
+    fs::remove_dir(&ignored).unwrap();
+    std::os::unix::fs::symlink("elsewhere", &ignored).unwrap();
+    let summary = rescan(&catalog, &root, &config, &stopping).await.unwrap();
+    assert_eq!(
+        (
+            summary.blocked_buckets,
+            summary.unrepresentable_entries().get()
+        ),
+        (1, 1)
+    );
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated() {
     let (data, tree, catalog, root, config) = fixture().await;
