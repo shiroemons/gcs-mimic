@@ -59,7 +59,7 @@ pub(super) fn value(
             | Reason::UnsafeEntry,
         )) => (
             "Unrepresentable",
-            crate::sync::control::UNREPRESENTABLE_REMEDY.into(),
+            Correction::UnrepresentableName.remedy().into(),
         ),
         // The API name is fine here: only the entries in the directory keep the file out.
         FindingReason::Mapping(FindingKind::Unmapped(Reason::DirectoryOccupied)) => (

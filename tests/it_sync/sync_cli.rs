@@ -260,6 +260,73 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
     server.stop();
 }
 
+/// An object renamed through the API to a name the directory can hold, copied and its original
+/// deleted, takes its finding away by the next wait alone: no rescan stands between the
+/// correction and a wait that requires no findings, which is why the finding's remedy ends by
+/// asking to wait again.
+#[test]
+fn live_cli_wait_takes_in_an_unmapped_object_renamed_through_the_api_without_a_rescan() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let mut server = Server::start(&data, Some(&tree));
+    // The first wait takes in the bucket directory, so the bucket exists for the upload.
+    assert_eq!(
+        server.cli("wait", &["--timeout", "30s"], true)["reason"],
+        "Ready"
+    );
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%5Cfile",
+            None,
+            b"backslash",
+        )
+        .expect(200);
+    let strict = server.cli_run("wait", &["--timeout", "30s", "--require-no-findings"]);
+    assert_eq!(
+        strict.answer["reason"], "FindingsPending",
+        "{:?}",
+        strict.stderr
+    );
+    let revision = strict.answer["findings"]["revision"].as_str().unwrap();
+    let listed = server.cli(
+        "status",
+        &["--view", "findings", "--revision", revision],
+        true,
+    );
+    let remedy = listed["items"][0]["remedy"].as_str().unwrap();
+    assert!(
+        remedy.ends_with("; then wait again: gcs-mimic sync wait --endpoint URL"),
+        "{remedy}"
+    );
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/dir%5Cfile/copyTo/b/test-bucket/o/dir%2Ffile",
+            None,
+            b"",
+        )
+        .expect(200);
+    server
+        .request(
+            "DELETE",
+            "/storage/v1/b/test-bucket/o/dir%5Cfile",
+            None,
+            b"",
+        )
+        .expect(204);
+    let renamed = server.cli_run("wait", &["--timeout", "30s", "--require-no-findings"]);
+    assert_eq!(renamed.code, Some(0), "{:?}", renamed.stderr);
+    assert_eq!(renamed.answer["reason"], "Ready");
+    assert_eq!(renamed.answer["findings"]["unmapped"], 0);
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/dir/file")).unwrap(),
+        b"backslash"
+    );
+    server.stop();
+}
+
 /// A name anyone can give a directory in the tree reaches the terminal of whoever waits, as an
 /// entry the wait ended on. Its control characters, ESC and a newline as well as DEL and the C1
 /// CSI that the JSON envelope leaves alone, reach standard error escaped and never raw, while

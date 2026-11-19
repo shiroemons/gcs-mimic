@@ -120,7 +120,7 @@ impl Kept {
     /// What frees the name, as the finding [`Self::finding`] records gives it.
     fn remedy(self) -> String {
         match self {
-            Self::NotDirectory => crate::sync::control::UNREPRESENTABLE_REMEDY.to_owned(),
+            Self::NotDirectory => crate::sync::control::Correction::UnrepresentableName.remedy(),
             Self::Replaces
             | Self::Tracked
             | Self::PathStop

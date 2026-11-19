@@ -88,10 +88,6 @@ pub(crate) fn occupied_directory_remedy() -> String {
     )
 }
 
-/// What makes an object whose name the tree cannot hold reach it, as its finding and the
-/// `sync_directory_kept` warning give it.
-pub(crate) const UNREPRESENTABLE_REMEDY: &str = "Use a representable API name or remove the conflicting directory entry, then rescan; preserve source bytes";
-
 /// What a control that a pause refuses answers, and how the refusal reads in a log.
 pub(crate) fn paused_control_remedy() -> String {
     format!(
@@ -114,6 +110,10 @@ pub(crate) enum Correction {
     /// An entry a pass could not take in or could not read, which its own event names when a
     /// scan first finds it.
     Entry(EntryProblem),
+    /// An object whose name the tree cannot hold, which its finding and the
+    /// `sync_directory_kept` warning name. The wait's own pass exports a renamed object and
+    /// takes in a removed entry, as a rescan would.
+    UnrepresentableName,
     /// An export that met an edited file, which a finding names.
     ExportConflict,
     /// A file that kept changing, which a path stop names.
@@ -142,6 +142,9 @@ impl Correction {
                 "Restore access to this file and its parents (for example, chmod u+r FILE and chmod u+rx DIRECTORY), and free disk space if needed"
             }
             Self::Entry(problem) => problem.correction(),
+            Self::UnrepresentableName => {
+                "Preserve the source bytes, then use a representable API name or remove the conflicting directory entry"
+            }
             Self::ExportConflict => {
                 "Preserve the edited file, then inspect the retained conflicts or restore the previously exported bytes"
             }
