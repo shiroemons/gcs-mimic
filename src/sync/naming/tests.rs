@@ -3,7 +3,9 @@
     reason = "Clippy does not exempt platform-gated test modules; fixture unwraps must fail the test"
 )]
 
-use super::probe::{CREATED, DIRECTORY, FOLDED, inject};
+#[cfg(target_os = "linux")]
+use super::probe::FOLDED;
+use super::probe::{DIRECTORY, UNLINKED, inject};
 use super::*;
 use crate::{
     config::Config,
@@ -94,7 +96,7 @@ async fn findings(root: &RootLease) -> Vec<(String, FindingKind)> {
 
 #[test]
 fn probe_names_never_take_the_operation_id_form() {
-    for name in CREATED.into_iter().chain([DIRECTORY, FOLDED]) {
+    for name in UNLINKED.into_iter().chain([DIRECTORY]) {
         assert!(name.parse::<OpaqueId>().is_err(), "{name}");
         assert!(name.len() != 32, "{name}");
     }
@@ -179,6 +181,24 @@ async fn probing_the_same_root_again_records_the_same_rules() {
     catalog.close().await.unwrap();
 }
 
+/// The case check takes anything it can open under the folded spelling for proof that the root
+/// folds case, so an entry someone put there under that spelling must not survive into the
+/// check: on a root that tells case apart, the probe unlinks it first and still reports that.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_folded_name_left_in_the_probe_directory_is_no_proof_of_folding() {
+    let (_data, tree, catalog, root, _config) = unprobed_fixture(None).await;
+    let writeback = root.default_writeback().await.unwrap();
+    let directory = tree.0.join(mapping::WORKSPACE).join(DIRECTORY);
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join(FOLDED), b"leftover").unwrap();
+    let observed = writeback.probe_naming().await.unwrap().unwrap();
+    assert_eq!(observed.case, Case::Sensitive);
+    assert!(probe_entries(&tree.0).is_empty());
+    drop((writeback, root));
+    catalog.close().await.unwrap();
+}
+
 /// A root that stops because a probe observed other rules logs both sets, so the operator sees
 /// which rule changed under it.
 #[test]
@@ -208,7 +228,7 @@ async fn probe_leftovers_are_removed_by_name_and_other_entries_are_kept() {
     let writeback = root.default_writeback().await.unwrap();
     let directory = tree.0.join(mapping::WORKSPACE).join(DIRECTORY);
     fs::create_dir(&directory).unwrap();
-    for name in CREATED.into_iter().chain(["keep-me"]) {
+    for name in UNLINKED.into_iter().chain(["keep-me"]) {
         fs::write(directory.join(name), b"leftover").unwrap();
     }
     activate(&writeback).await.unwrap();

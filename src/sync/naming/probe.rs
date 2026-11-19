@@ -4,7 +4,9 @@
 //! and never lists the workspace, and no name here has that form, so neither the subdirectory nor
 //! an entry a crash leaves in it can be taken for an interrupted operation. Each probe starts by
 //! unlinking every fixed name rather than listing and removing what it finds, so it never deletes
-//! an entry it did not create, and it never removes the subdirectory.
+//! an entry outside its own fixed names, and it never removes the subdirectory. The fixed names
+//! include the folded spelling it never creates, because the case check takes any entry under
+//! that spelling for proof that the filesystem folds letter case.
 
 use super::{Case, Colon, NameMax, Observation, ProbeError, Spelling};
 use crate::fsutil::{self, DirectoryNames, DirectoryOpen, RegularChild};
@@ -14,7 +16,7 @@ use std::{fs::File, io};
 pub(crate) const DIRECTORY: &str = "naming-probe";
 /// Created to see whether the filesystem keeps its letter case, then looked up as [`FOLDED`].
 const CASED: &str = "Case-Probe";
-/// [`CASED`] in lower case. The probe only looks it up and never creates it.
+/// [`CASED`] in lower case. The probe only unlinks and looks it up, and never creates it.
 pub(super) const FOLDED: &str = "case-probe";
 /// Created to see whether the filesystem keeps a precomposed (NFC) spelling.
 const COMPOSED: &str = "nfc-\u{e9}";
@@ -22,8 +24,10 @@ const COMPOSED: &str = "nfc-\u{e9}";
 const DECOMPOSED: &str = "nfd-e\u{301}";
 /// Created to see whether the filesystem stores a colon.
 const COLON: &str = "colon:probe";
-/// Every name the probe creates; each probe unlinks them all before it starts.
-pub(super) const CREATED: [&str; 4] = [CASED, COMPOSED, DECOMPOSED, COLON];
+/// Every name each probe unlinks before it starts: the names it creates, and [`FOLDED`], which a
+/// leftover or another writer could have put there. On a root that folds case, [`FOLDED`] and
+/// [`CASED`] are one entry; on one that does not, they are two, so both are unlinked.
+pub(super) const UNLINKED: [&str; 5] = [CASED, FOLDED, COMPOSED, DECOMPOSED, COLON];
 /// The probe directory holds only the probe's own names. The bound keeps a directory that
 /// someone filled from turning one activation into an unbounded listing.
 const LISTED: usize = DirectoryNames::PAGE;
@@ -36,7 +40,7 @@ pub(crate) fn run(root: &File, workspace: &File) -> Result<Observation, ProbeErr
         return Ok(observed);
     }
     let probe = Probe::open(root, workspace)?;
-    for name in CREATED {
+    for name in UNLINKED {
         probe.remove(name)?;
     }
     let name_max = NameMax::from(fsutil::name_max(&probe.directory)?);
@@ -111,19 +115,22 @@ impl Probe {
         Ok(Spelling::Rewritten)
     }
 
-    /// Whether [`FOLDED`] resolves to the file created as [`CASED`] under that other spelling, and
-    /// whether that one kept its spelling. The spelling check that every target lookup uses
-    /// decides, not a comparison of inode numbers: Docker Desktop's shared folders can report a new
-    /// inode number for an unchanged file, and each probe unlinks and creates its names again, so a
-    /// second probe of the same root could see two numbers for one file and record other rules.
+    /// Whether [`FOLDED`] opens anything once only [`CASED`] was created, and whether that one kept
+    /// its spelling. Neither inode numbers nor the spelling check decide: Docker Desktop's shared
+    /// folders can report a new inode number for an unchanged file, and each probe unlinks and
+    /// creates its names again, so a second probe of the same root could see two numbers for one
+    /// file; and on Linux the spelling check trusts a directory's casefold flag when it is clear,
+    /// which a filesystem that folds case without that flag also reports.
     fn case(&self) -> Result<(Case, Spelling), ProbeError> {
         let cased = fsutil::create_regular_at(&self.directory, CASED.as_ref())?;
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         self.faults.created(CASED)?;
         let spelling = self.listed(CASED)?;
         let case = match fsutil::child_regular(&self.directory, FOLDED.as_ref())? {
-            RegularChild::Alias => Case::Insensitive,
-            RegularChild::File(_) | RegularChild::Missing => Case::Sensitive,
+            // The probe unlinked FOLDED and never creates it, so opening that spelling at all proves
+            // the filesystem folds it onto CASED.
+            RegularChild::File(_) | RegularChild::Alias => Case::Insensitive,
+            RegularChild::Missing => Case::Sensitive,
         };
         drop(cased);
         self.remove(CASED)?;
