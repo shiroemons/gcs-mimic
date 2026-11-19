@@ -60344,7 +60344,7 @@
         },
         {
           "id": "sync-root-naming-probe",
-          "description": "PASS local-development subset: each activation probes the root's filesystem after write-back recovery and before the first scan, in the fixed naming-probe workspace subdirectory with fixed names outside the 32-hex operation-ID form, unlinking those names first and never listing-and-deleting or removing the subdirectory. It records whether ':' is stored as created (refused with EINVAL/EILSEQ or rewritten means rejected), whether case folds, and fpathconf(_PC_NAME_MAX) capped at 255, once per root lease; a later probe with other rules is RootChanged. A root that rewrites the spelling of created names pauses with observer-failure and a remedy; probe I/O failure pauses with io-failure and keeps its cause. Colon-rejecting, case-folding and rewriting roots are covered by injected observations; a colon finding left by an earlier start clears once a later start exports the object; a crash or power loss at every probe boundary leaves nothing recovery or scans take for data. No setting exists; the schema version is unchanged. Linux and Docker bind-mount runs of the probe remain unverified.",
+          "description": "PASS local-development subset: each activation probes the root's filesystem after write-back recovery and before the first scan, in the fixed naming-probe workspace subdirectory with fixed names outside the 32-hex operation-ID form, unlinking those names first and never listing-and-deleting or removing the subdirectory. It records whether ':' is stored as created (refused with EINVAL/EILSEQ or rewritten means rejected), whether case folds, and fpathconf(_PC_NAME_MAX) capped at 255, once per root lease; a later probe with other rules is RootChanged. A root that rewrites the spelling of created names pauses with observer-failure before any scan, with a reason that says a rescan pauses again and to set sync_dir to a directory on a filesystem that keeps names as created and restart; probe I/O failure pauses with io-failure and keeps its cause. Colon-rejecting, case-folding and rewriting roots are covered by injected observations; a colon finding left by an earlier start clears once a later start exports the object; a crash or power loss at every probe boundary leaves nothing recovery or scans take for data. No setting exists; the schema version is unchanged. Linux and Docker bind-mount runs of the probe remain unverified.",
           "result": "PASS",
           "test_ids": [
             "probe_names_never_take_the_operation_id_form",
@@ -61543,6 +61543,38 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "description": "Linux, Docker bind mounts and the container smoke were not run for this change.",
+          "test_ids": [
+            "literal_names_round_trip_without_normalization",
+            "arbitrary_names_round_trip_or_are_explicitly_rejected",
+            "arbitrary_paths_never_clean_into_another_name",
+            "mapping_preserves_the_api_name_byte_limit",
+            "non_utf8_paths_are_rejected_without_lossy_conversion",
+            "colon_names_follow_the_root_rules_in_both_directions",
+            "one_rules_value_decides_names_in_both_directions_and_the_catalog",
+            "parent_refuses_what_the_root_rules_refuse_before_creating_any_level",
+            "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
+            "probe_names_never_take_the_operation_id_form",
+            "observations_become_rules_only_when_names_keep_their_spelling",
+            "host_probe_reports_the_filesystem_of_the_root",
+            "probe_leftovers_are_removed_by_name_and_other_entries_are_kept",
+            "a_crash_at_any_probe_boundary_leaves_nothing_recovery_or_scans_take_for_data",
+            "unwritable_roots_pause_as_io_failures_with_the_cause_kept",
+            "colon_rejecting_roots_record_findings_and_skip_colon_files_without_other_restrictions",
+            "colon_findings_clear_at_the_next_start_once_the_root_stores_colons",
+            "case_folding_roots_are_recorded_and_still_map_colons",
+            "external_colon_files_are_ingested_as_new_objects",
+            "rewriting_roots_are_refused_before_any_scan_and_pause_the_mirror",
+            "other_rules_on_the_same_root_mean_the_root_changed",
+            "live_export_creates_replaces_deletes_and_preserves_edited_files",
+            "live_export_exports_colon_names_and_skips_backslash_names"
+          ]
+        },
+        {
+          "command": "macOS ARM64 (APFS): cargo test --locked --offline --lib -- --test-threads=4 sync:: storage::catalog::sync_state storage::catalog::lifecycle server::admin::sync fsutil source_tree; cargo test --locked --offline --test it_sync -- --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "description": "The naming probe on the schema-58 source, after the rewriting-root reason began naming sync_dir as the setting to change. Every listed test passed; in the same it_sync run, sync_cli::deletion::live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart failed with 409 on its first deletion page and is not claimed here. Linux, Docker bind mounts and the container smoke were not run for this change.",
           "test_ids": [
             "literal_names_round_trip_without_normalization",
             "arbitrary_names_round_trip_or_are_explicitly_rejected",
