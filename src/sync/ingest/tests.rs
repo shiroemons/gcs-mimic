@@ -720,7 +720,7 @@ async fn ingest_external_only_conflicts_equal_hash_and_unsafe_entries() {
             summary.ingested,
             summary.conflicting,
             summary.ignored,
-            summary.unrepresentable
+            summary.unrepresentable()
         ),
         (1, 1, 5, 1)
     );
@@ -1117,7 +1117,7 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
     assert_eq!(
         (
             summary.blocked_buckets,
-            summary.unrepresentable,
+            summary.unrepresentable(),
             summary.deferred
         ),
         (0, 0, 0)
@@ -1165,7 +1165,7 @@ async fn ingest_unreadable_file_is_deferred_while_other_files_progress() {
     // A missing permission does not pass by waiting, so the file is held as unreadable, which
     // a wait reports at once, rather than deferred for a later pass.
     assert_eq!(
-        (summary.ingested, summary.deferred, summary.unreadable),
+        (summary.ingested, summary.deferred, summary.unreadable()),
         (1, 0, 1)
     );
     assert_eq!(object(&catalog, "test-bucket/working").await.size, 7);

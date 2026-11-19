@@ -78,22 +78,15 @@ pub struct Reconciliation {
     pub conflicting: u64,
     pub external_only: u64,
     pub ignored: u64,
-    /// Every name this pass could not map, on either side: the `unmapped_objects`, and the
-    /// working-tree entries it could not take in.
-    pub unrepresentable: u64,
+    /// Every name this pass could not map, on either side, and the entries it could not read for
+    /// a reason waiting does not clear. The objects and buckets the API holds and the tree cannot
+    /// are reported only; the tree's entries alone hold back the baseline and deletions. Visible
+    /// for the struct literals of tests; only its own methods change it.
+    #[serde(flatten)]
+    pub(crate) unrepresentable: gate::Unrepresentable,
     pub baseline_complete: bool,
     /// Files left for a later pass because they were still changing or raced an API write.
     pub deferred: u64,
-    /// Entries this pass could not read for a reason waiting does not clear, such as a missing
-    /// permission. They hold back the baseline and deletions until an operator restores them.
-    pub unreadable: u64,
-    /// The objects and buckets among `unrepresentable` that the API holds and the tree cannot.
-    /// They are reported only; the tree's entries alone hold back the baseline and deletions.
-    pub unmapped_objects: u64,
-    /// The working-tree entries among `unrepresentable` and the `unreadable` ones, by path, up
-    /// to a bound.
-    #[serde(skip)]
-    pub(crate) entries: super::entries::EntryReport,
     /// The exports among `deferred` that wait for a deletion approval, because they would
     /// recreate a bucket directory the inventory takes to approval.
     #[serde(skip)]
@@ -863,7 +856,7 @@ async fn initialize_live(
     )
     .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    gate::report_entries(status.entries(), &ingested);
+    report_entries(status.entries(), &ingested);
     let ingest_complete = BaselineGate::after_ingest(ingested.gate());
     let mut skipped = SkippedExports::default();
     let mut summary = reconcile_with(
@@ -949,7 +942,7 @@ async fn ingest_external_with(
     let _publication = root.begin_observation_publication().await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
-    gate::report_entries(entries, &summary);
+    report_entries(entries, &summary);
     baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
         && baseline.gate == BaselineGate::Allowed
@@ -982,6 +975,16 @@ async fn ingest_external_with(
     summary.carry_held(&retried);
     summary.interrupted |= interrupt.check() != Interrupted::No;
     Ok(summary)
+}
+
+/// Hands the entries an ingestion could not take in to the mirror's status, replacing those of
+/// the previous one. An interrupted ingestion saw only part of the tree, so it keeps the last
+/// complete list. The status gets a copy: the pass's own report is its count of those entries,
+/// which still decides what the pass holds back.
+fn report_entries(entries: &EntryReportSender, ingested: &Reconciliation) {
+    if !ingested.interrupted {
+        entries.report(ingested.entries().clone());
+    }
 }
 
 async fn observe_deletions(
@@ -1737,7 +1740,10 @@ impl LiveObject<'_> {
                             Reason::Collision,
                         )
                         .await?;
-                    self.summary.unrepresentable += 1;
+                    // The object is what the tree cannot hold, as for the collision a target
+                    // check finds: the directory's own entries are scanned like any other, and
+                    // a tracked file it replaced stops only its own path in the inventory.
+                    self.summary.count_unmapped_object();
                     break;
                 }
                 LiveResult::Conflict => {

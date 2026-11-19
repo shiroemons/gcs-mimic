@@ -5,11 +5,11 @@
 //! it can look deleted, and counting it here stopped deletion detection for the whole root over
 //! one unexportable name.
 
-use super::{EntryReportSender, Reconciliation};
+use super::Reconciliation;
 use crate::{
     storage::sync_state::root::Baseline,
     sync::{
-        entries::{EntryProblem, Skip},
+        entries::{EntryProblem, EntryReport, Skip},
         outstanding::TreeSide,
     },
 };
@@ -80,8 +80,55 @@ impl DeferredFiles {
 pub(crate) struct UnrepresentableEntries(u64);
 
 impl UnrepresentableEntries {
+    #[cfg(test)]
     pub(crate) fn get(self) -> u64 {
         self.0
+    }
+}
+
+/// What a pass could not map, on either side, and the entries it could not read. Only
+/// [`Reconciliation::count_unmapped_object`], [`Reconciliation::count_unrepresentable_entry`] and
+/// [`Reconciliation::count_read_failure`] add to it, and each names its side. The working tree's
+/// side is the entry report's own counts, so the counts that hold back the baseline and
+/// deletions cannot drift from the list that names the entries, and the total is only ever
+/// computed: a count added to the total alone, which read as a tree entry, cannot be written.
+#[derive(Debug, Default)]
+pub(crate) struct Unrepresentable {
+    /// Objects and buckets the API holds that the working tree cannot, which are reported only.
+    unmapped_objects: u64,
+    /// The working-tree entries the pass could not take in or could not read.
+    entries: EntryReport,
+}
+
+impl Unrepresentable {
+    fn total(&self) -> u64 {
+        self.unmapped_objects
+            .saturating_add(self.entries.unrepresentable())
+    }
+
+    /// Adds the working-tree entries of another part of the same pass. Its unmapped objects stay
+    /// its own: they hold nothing back, and the part reports them itself.
+    fn absorb_entries(&mut self, other: &Self) {
+        self.entries.extend(&other.entries);
+    }
+}
+
+/// The JSON keeps the total as `unrepresentable`, which earlier clients read, beside the API's
+/// side as `unmapped_objects`, and the entries that could not be read as `unreadable`.
+impl serde::Serialize for Unrepresentable {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(serde::Serialize)]
+        struct Counts {
+            unrepresentable: u64,
+            unreadable: u64,
+            unmapped_objects: u64,
+        }
+        Counts {
+            unrepresentable: self.total(),
+            unreadable: self.entries.unreadable(),
+            unmapped_objects: self.unmapped_objects,
+        }
+        .serialize(serializer)
     }
 }
 
@@ -229,20 +276,17 @@ impl Reconciliation {
     /// Counts an object or bucket the API holds that the working tree cannot hold. It is
     /// reported, and recorded as a finding where it has one, but decides nothing.
     pub(in crate::sync) fn count_unmapped_object(&mut self) {
-        self.unrepresentable += 1;
-        self.unmapped_objects += 1;
+        self.unrepresentable.unmapped_objects += 1;
     }
 
-    /// Counts a working-tree entry the pass could not take in and names it. Every count of
-    /// `unrepresentable` that is not an unmapped object is one, so a count added without a side
-    /// stops deletions instead of letting them through.
+    /// Counts a working-tree entry the pass could not take in and names it, in the one report
+    /// whose count holds back the baseline and deletions.
     pub(in crate::sync) fn count_unrepresentable_entry(
         &mut self,
         path: &Path,
         problem: EntryProblem,
     ) {
-        self.unrepresentable += 1;
-        self.entries.record(path, problem);
+        self.unrepresentable.entries.record(path, problem);
     }
 
     /// Counts a regular file the pass passed over, which holds nothing back. A file directly in
@@ -251,19 +295,20 @@ impl Reconciliation {
         self.ignored += 1;
         match skip {
             Skip::IgnoredName => {}
-            Skip::RootFile => self.entries.record_root_file(path),
+            Skip::RootFile => self.unrepresentable.entries.record_root_file(path),
         }
     }
 
     /// Counts a working-tree entry the pass could not read. One that waiting may clear is left
     /// for a later pass; any other is named like an entry no object can take, since only an
-    /// operator changes it.
+    /// operator changes it, and the report counts it apart from those.
     pub(in crate::sync) fn count_read_failure(&mut self, path: &Path, kind: io::ErrorKind) {
         match ReadFailure::from(kind) {
             ReadFailure::Passing => self.count_deferred(path),
             ReadFailure::Lasting | ReadFailure::Unknown => {
-                self.unreadable += 1;
-                self.entries.record(path, EntryProblem::Unreadable);
+                self.unrepresentable
+                    .entries
+                    .record(path, EntryProblem::Unreadable);
             }
         }
     }
@@ -290,16 +335,39 @@ impl Reconciliation {
         self.absorb_deferred(reconciled);
         self.conflicting += reconciled.conflicting;
         self.external_only += reconciled.external_only;
-        self.unreadable += reconciled.unreadable;
-        self.unrepresentable += reconciled.unrepresentable_entries().get();
-        self.entries.extend(&reconciled.entries);
+        self.unrepresentable
+            .absorb_entries(&reconciled.unrepresentable);
         self.interrupted |= reconciled.interrupted;
     }
 
-    /// The working-tree entries among `unrepresentable`: what a wait reports as an
+    /// Every name this pass could not map, on either side: the objects and buckets the API holds
+    /// that the working tree cannot, and the working-tree entries the pass could not take in.
+    pub fn unrepresentable(&self) -> u64 {
+        self.unrepresentable.total()
+    }
+
+    /// The objects and buckets among [`Self::unrepresentable`] that the API holds and the tree
+    /// cannot. Only the mirror's tests, which run where synchronization does, read it.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn unmapped_objects(&self) -> u64 {
+        self.unrepresentable.unmapped_objects
+    }
+
+    /// The entries this pass could not read for a reason waiting does not clear.
+    #[cfg(test)]
+    pub(crate) fn unreadable(&self) -> u64 {
+        self.unrepresentable.entries.unreadable()
+    }
+
+    /// The working-tree entries among [`Self::unrepresentable`]: what a wait reports as an
     /// unrepresentable source, unlike the unmapped objects.
     pub(crate) fn unrepresentable_entries(&self) -> UnrepresentableEntries {
-        UnrepresentableEntries(self.unrepresentable.saturating_sub(self.unmapped_objects))
+        UnrepresentableEntries(self.unrepresentable.entries.unrepresentable())
+    }
+
+    /// The working-tree entries this pass could not take in, by path up to a bound.
+    pub(crate) fn entries(&self) -> &EntryReport {
+        &self.unrepresentable.entries
     }
 
     /// The files among `deferred` that a later pass takes in once they settle, leaving out the
@@ -320,19 +388,10 @@ impl Reconciliation {
             deferred: self.still_changing(),
             conflicting: self.conflicting,
             entries: self.unrepresentable_entries(),
-            unreadable: self.unreadable,
+            unreadable: self.unrepresentable.entries.unreadable(),
             unimported: self.external_only,
             held_for_approval: self.held_for_approval,
         }
-    }
-}
-
-/// Hands the entries an ingestion could not take in to the mirror's status, replacing those of
-/// the previous one. An interrupted ingestion saw only part of the tree, so it keeps the last
-/// complete list. The pass keeps its own copy, which a wait names.
-pub(super) fn report_entries(entries: &EntryReportSender, ingested: &Reconciliation) {
-    if !ingested.interrupted {
-        entries.report(ingested.entries.clone());
     }
 }
 
@@ -368,7 +427,7 @@ mod tests {
         for _ in 0..1000 {
             pass.count_unmapped_object();
         }
-        assert_eq!(pass.unrepresentable, 1000);
+        assert_eq!(pass.unrepresentable(), 1000);
         assert_eq!(pass.unrepresentable_entries().get(), 0);
         assert_eq!(pass.gate().hold(), Hold::Clear);
         assert_eq!(
@@ -378,7 +437,7 @@ mod tests {
 
         pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
         assert_eq!(pass.unrepresentable_entries().get(), 1);
-        assert_eq!(pass.entries.total(), 1);
+        assert_eq!(pass.entries().total(), 1);
         assert_eq!(pass.gate().hold(), Hold::TreeEntries);
         assert_eq!(
             BaselineGate::after_ingest(pass.gate()),
@@ -386,16 +445,51 @@ mod tests {
         );
     }
 
-    /// A count added without a side is a tree entry, so it stops deletions instead of letting
-    /// them through.
+    /// The status gets a copy of a pass's entries, and the pass keeps its own count of them, so
+    /// it still holds back the baseline and deletions after the report. Taking the entries out
+    /// for the status would have emptied the count the gate reads.
     #[test]
-    fn an_unsided_count_stops_deletions() {
-        let pass = Reconciliation {
+    fn a_reported_pass_still_holds_back_deletions() {
+        let mut pass = Reconciliation {
             baseline_complete: true,
-            unrepresentable: 1,
             ..Default::default()
         };
+        pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
+        let status = crate::sync::status::MirrorStatusSender::default();
+        super::super::report_entries(status.entries(), &pass);
+        assert_eq!(status.subscribe().unrepresentable_entries().total(), 1);
         assert_eq!(pass.gate().hold(), Hold::TreeEntries);
+        assert_eq!(
+            BaselineGate::after_ingest(pass.gate()),
+            BaselineGate::Deferred
+        );
+    }
+
+    /// The JSON keeps `unrepresentable`, which earlier clients read, as the sum of both sides,
+    /// and counts the entries that could not be read apart from it.
+    #[test]
+    fn the_json_total_is_the_sum_of_both_sides() {
+        let mut pass = with_unreadable(Reconciliation::default());
+        pass.count_unmapped_object();
+        pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
+        pass.count_unrepresentable_entry(Path::new("bad name"), EntryProblem::UnmappableName);
+        let json = serde_json::to_value(&pass).unwrap();
+        assert_eq!(json["unrepresentable"], 3);
+        assert_eq!(json["unreadable"], 1);
+        assert_eq!(json["unmapped_objects"], 1);
+        assert_eq!(pass.unrepresentable_entries().get(), 2);
+    }
+
+    /// A pass with one working-tree entry, which holds back both decisions.
+    fn with_entry(mut pass: Reconciliation) -> Reconciliation {
+        pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
+        pass
+    }
+
+    /// A pass with one entry it could not read for a reason waiting does not clear.
+    fn with_unreadable(mut pass: Reconciliation) -> Reconciliation {
+        pass.count_read_failure(Path::new("bucket/locked"), io::ErrorKind::PermissionDenied);
+        pass
     }
 
     /// Each cause holds back both decisions on its own, and an incomplete baseline holds back
@@ -427,19 +521,17 @@ mod tests {
                 Hold::Deferred,
             ),
             (
-                Reconciliation {
-                    unreadable: 1,
+                with_unreadable(Reconciliation {
                     deferred: 1,
                     ..Default::default()
-                },
+                }),
                 Hold::Unreadable,
             ),
             (
-                Reconciliation {
-                    unrepresentable: 1,
+                with_entry(Reconciliation {
                     external_only: 1,
                     ..Default::default()
-                },
+                }),
                 Hold::TreeEntries,
             ),
             (
@@ -503,30 +595,38 @@ mod tests {
         assert_eq!(unsettled.gate().hold(), Hold::Unimported);
     }
 
-    /// What waiting cannot change comes before what it can: with every cause present, the hold
-    /// names the one only an operator clears, and removing each in turn names the next.
+    /// What waiting cannot change comes before what it can: adding the causes in turn, from the
+    /// one waiting clears soonest to the one only an operator clears, names each before every
+    /// cause already present.
     #[test]
     fn a_hold_names_what_waiting_cannot_change_first() {
         let mut pass = Reconciliation {
-            unrepresentable: 1,
-            unreadable: 1,
-            conflicting: 1,
-            deferred: 1,
-            external_only: 1,
+            baseline_complete: true,
             ..Default::default()
         };
         let mut order = vec![pass.gate().hold()];
-        for clear in [
-            |pass: &mut Reconciliation| pass.unrepresentable = 0,
-            |pass: &mut Reconciliation| pass.unreadable = 0,
-            |pass: &mut Reconciliation| pass.conflicting = 0,
-            |pass: &mut Reconciliation| pass.deferred = 0,
-            |pass: &mut Reconciliation| pass.external_only = 0,
-            |pass: &mut Reconciliation| pass.baseline_complete = true,
+        for add in [
+            |pass: &mut Reconciliation| pass.baseline_complete = false,
+            |pass: &mut Reconciliation| pass.external_only = 1,
+            |pass: &mut Reconciliation| pass.deferred = 1,
+            |pass: &mut Reconciliation| pass.conflicting = 1,
+            |pass: &mut Reconciliation| {
+                pass.count_read_failure(
+                    Path::new("bucket/locked"),
+                    io::ErrorKind::PermissionDenied,
+                );
+            },
+            |pass: &mut Reconciliation| {
+                pass.count_unrepresentable_entry(
+                    Path::new("bucket/link"),
+                    EntryProblem::UnsafeEntry,
+                );
+            },
         ] {
-            clear(&mut pass);
+            add(&mut pass);
             order.push(pass.gate().hold());
         }
+        order.reverse();
         assert_eq!(
             order,
             [
@@ -565,7 +665,7 @@ mod tests {
             ..Default::default()
         };
         pass.count_read_failure(Path::new("bucket/vanished"), io::ErrorKind::NotFound);
-        assert_eq!((pass.deferred, pass.unreadable), (1, 0));
+        assert_eq!((pass.deferred, pass.unreadable()), (1, 0));
         assert_eq!(
             pass.deferred_files.first(),
             [PathBuf::from("bucket/vanished")]
@@ -577,10 +677,14 @@ mod tests {
             (io::ErrorKind::InvalidData, 3),
         ] {
             pass.count_read_failure(Path::new("bucket/locked"), kind);
-            assert_eq!((pass.deferred, pass.unreadable), (1, unreadable), "{kind}");
+            assert_eq!(
+                (pass.deferred, pass.unreadable()),
+                (1, unreadable),
+                "{kind}"
+            );
         }
         assert_eq!(pass.gate().hold(), Hold::Unreadable);
-        assert_eq!(pass.entries.total(), 3);
+        assert_eq!(pass.entries().total(), 3);
         assert_eq!(pass.unrepresentable_entries().get(), 0);
         for name in ["bucket/b", "bucket/c", "bucket/d"] {
             pass.count_deferred(Path::new(name));
@@ -603,7 +707,7 @@ mod tests {
         pass.absorb_hold(&reconciled);
         assert_eq!(pass.gate().hold(), Hold::Unreadable);
         assert_eq!(pass.unrepresentable_entries().get(), 0);
-        assert_eq!(pass.entries.total(), 1);
+        assert_eq!(pass.entries().total(), 1);
         let written = Reconciliation {
             external_only: 1,
             ..Default::default()

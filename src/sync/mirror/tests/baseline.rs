@@ -94,8 +94,8 @@ async fn an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_exte
     let reconciled = reconcile(&catalog, &root).await.unwrap();
     assert_eq!(
         (
-            reconciled.unrepresentable,
-            reconciled.unmapped_objects,
+            reconciled.unrepresentable(),
+            reconciled.unmapped_objects(),
             reconciled.unrepresentable_entries().get()
         ),
         (1, 1, 0)
@@ -153,7 +153,7 @@ async fn an_entry_no_object_can_take_stops_deletions_and_is_named_until_it_is_go
 
     fs::remove_file(tree.0.join("test-bucket/link")).unwrap();
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
-    assert_eq!(summary.unrepresentable, 0);
+    assert_eq!(summary.unrepresentable(), 0);
     assert!(
         status
             .subscribe()
@@ -185,7 +185,7 @@ async fn a_tracked_file_replaced_by_a_directory_stops_only_its_own_path() {
     let status = Lifecycle::default();
     let mut baseline = COMPLETE;
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
-    assert_eq!(summary.unrepresentable, 0);
+    assert_eq!(summary.unrepresentable(), 0);
     assert!(!exists(&catalog, &bucket, "deleted").await);
     assert!(exists(&catalog, &bucket, "replaced").await);
     assert_eq!(path_stops(&root).await, ["EntryReplaced"]);
@@ -193,7 +193,7 @@ async fn a_tracked_file_replaced_by_a_directory_stops_only_its_own_path() {
     // Neither a new API generation nor the API deletion reaches through the directory.
     publish_named(&catalog, &bucket, "replaced", b"newer", Origin::Api).await;
     let summary = reconcile(&catalog, &root).await.unwrap();
-    assert_eq!((summary.exported, summary.unrepresentable), (0, 0));
+    assert_eq!((summary.exported, summary.unrepresentable()), (0, 0));
     assert!(replaced.is_dir());
     assert_eq!(root.observation().await.unwrap().mapping_findings, 0);
     assert_eq!(path_stops(&root).await, ["EntryReplaced"]);
@@ -277,7 +277,10 @@ async fn a_lowered_depth_limit_keeps_the_deeper_object_while_other_deletions_pro
     )
     .await;
     let summary = reconcile(&catalog, &root).await.unwrap();
-    assert_eq!((summary.unmapped_objects, summary.unrepresentable), (1, 1));
+    assert_eq!(
+        (summary.unmapped_objects(), summary.unrepresentable()),
+        (1, 1)
+    );
     assert!(summary.baseline_complete);
     fs::remove_file(tree.0.join("test-bucket/one/gone")).unwrap();
     let status = Lifecycle::default();

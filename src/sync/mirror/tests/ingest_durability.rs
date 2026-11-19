@@ -349,7 +349,7 @@ async fn a_failed_sync_before_ingestion_records_nothing_and_the_next_scan_retrie
             .unwrap();
         assert_eq!(fault::pending(&tree.0), 0, "{skip}");
         assert_eq!(
-            (failed.ingested, failed.deferred, failed.unreadable),
+            (failed.ingested, failed.deferred, failed.unreadable()),
             (0, 0, 1),
             "{skip}"
         );
@@ -399,7 +399,7 @@ async fn a_failed_sync_before_an_identical_file_is_tracked_records_nothing() {
             .unwrap();
         assert_eq!(fault::pending(&tree.0), 0, "{skip}");
         assert_eq!(
-            (failed.identical, failed.deferred, failed.unreadable),
+            (failed.identical, failed.deferred, failed.unreadable()),
             (0, 0, 1),
             "{skip}"
         );

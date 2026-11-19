@@ -82,7 +82,7 @@ async fn initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_i
             summary.exported,
             summary.identical,
             summary.external_only,
-            summary.unrepresentable
+            summary.unrepresentable()
         ),
         (259, 0, 0, 0)
     );
@@ -141,7 +141,7 @@ async fn initial_export_preserves_external_conflicts_and_records_mapping_finding
             summary.conflicting,
             summary.external_only,
             summary.ignored,
-            summary.unrepresentable
+            summary.unrepresentable()
         ),
         (2, 1, 1, 1, 2, 3)
     );
@@ -189,7 +189,7 @@ async fn the_depth_limit_keeps_an_object_out_of_the_tree_until_it_is_raised() {
     settings.max_sync_depth = NonZeroUsize::new(2);
     let root = sync::preflight(&catalog, &settings).await.unwrap().unwrap();
     let summary = sync::reconcile(&catalog, &root).await.unwrap();
-    assert_eq!((summary.exported, summary.unrepresentable), (1, 1));
+    assert_eq!((summary.exported, summary.unrepresentable()), (1, 1));
     assert!(tree.0.join("test-bucket/one/shallow").exists());
     assert!(!deep.exists());
     assert_eq!(root.findings_page(0, 256).await.unwrap().len(), 1);

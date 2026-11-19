@@ -103,9 +103,9 @@ async fn wait_and_status_stop_at_once_for_a_file_without_read_permission() {
     assert!(!result.reason.is_in_progress());
     assert_eq!(result.holdup, Some(Holdup::SourceUnreadable));
     let pass = result.reconciliation.as_ref().unwrap();
-    assert_eq!((pass.unreadable, pass.deferred), (1, 0));
+    assert_eq!((pass.unreadable(), pass.deferred), (1, 0));
     assert_eq!(
-        pass.entries.entries(),
+        pass.entries().entries(),
         [crate::sync::entries::UnrepresentableEntry {
             path: "test-bucket/locked".into(),
             problem: crate::sync::entries::EntryProblem::Unreadable,

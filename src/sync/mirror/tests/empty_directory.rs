@@ -91,6 +91,36 @@ async fn a_refused_removal_is_one_collision_and_other_exports_continue() {
     }
 }
 
+/// A collision an export meets at installation is an object the tree cannot hold, as one a
+/// target check finds: the pass counts the object, completes the baseline and leaves deletion
+/// detection to the tree's own entries.
+#[tokio::test]
+async fn a_collision_at_installation_counts_the_object_and_holds_back_nothing() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    fs::create_dir_all(tree.0.join(TARGET)).unwrap();
+    publish_named(&catalog, &bucket, "a", BODY, Origin::Api).await;
+    fault::arm(
+        &tree.0,
+        Step::SyncEmptyDirectoryRemove,
+        0,
+        Fault::Io(io::ErrorKind::DirectoryNotEmpty),
+    );
+    let summary = reconcile(&catalog, &root).await.unwrap();
+    assert_eq!(fault::pending(&tree.0), 0);
+    assert_eq!(
+        (
+            summary.unmapped_objects(),
+            summary.unrepresentable_entries().get(),
+            summary.unrepresentable()
+        ),
+        (1, 0, 1)
+    );
+    assert!(summary.baseline_complete);
+    assert!(tree.0.join(TARGET).is_dir());
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// A symlink at the target, to an empty directory or to nothing, is never followed or removed:
 /// the export records it as an unsafe entry, as before empty directories gave way, and the
 /// directory it points to stays. Only the export runs, because a scan stops at the symlinks.

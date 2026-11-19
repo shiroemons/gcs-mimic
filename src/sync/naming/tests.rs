@@ -294,7 +294,7 @@ async fn a_crash_at_any_probe_boundary_leaves_nothing_recovery_or_scans_take_for
             assert_eq!(
                 (
                     ingested.ingested,
-                    ingested.unrepresentable,
+                    ingested.unrepresentable(),
                     ingested.deferred
                 ),
                 (0, 0, 0)
@@ -378,7 +378,7 @@ async fn colon_rejecting_roots_record_findings_and_skip_colon_files_without_othe
     // The host stores the colon, but the root's rules do not map it.
     fs::write(tree.0.join("test-bucket/external:file"), b"external").unwrap();
     let ingested = ingest(&catalog, &root, &config).await;
-    assert_eq!((ingested.ingested, ingested.unrepresentable), (0, 1));
+    assert_eq!((ingested.ingested, ingested.unrepresentable()), (0, 1));
     assert!(matches!(
         catalog
             .admin(Origin::Api)

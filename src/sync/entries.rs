@@ -151,6 +151,10 @@ pub(crate) struct UnrepresentableEntry {
 pub(crate) struct EntryReport {
     entries: Vec<UnrepresentableEntry>,
     total: u64,
+    /// The entries among `total` that could not be read, which hold back the baseline and
+    /// deletions as unreadable rather than as unrepresentable.
+    #[serde(skip)]
+    unreadable: u64,
     /// The first [`EntryReport::LIMIT`] files the scan skipped directly in the root. Each is
     /// warned about when a scan first finds it, not on every scan while it stays.
     #[serde(skip)]
@@ -163,6 +167,13 @@ impl EntryReport {
 
     pub(crate) fn record(&mut self, path: &Path, problem: EntryProblem) {
         self.total = self.total.saturating_add(1);
+        match problem {
+            EntryProblem::Unreadable => self.unreadable = self.unreadable.saturating_add(1),
+            EntryProblem::UnmappableName
+            | EntryProblem::UnsafeEntry
+            | EntryProblem::PathCollision
+            | EntryProblem::DeletedBucket => {}
+        }
         if self.entries.len() < Self::LIMIT {
             self.entries.push(UnrepresentableEntry {
                 path: path.to_owned(),
@@ -193,6 +204,7 @@ impl EntryReport {
         self.entries
             .extend(other.entries.iter().take(room).cloned());
         self.total = self.total.saturating_add(other.total);
+        self.unreadable = self.unreadable.saturating_add(other.unreadable);
     }
 
     #[cfg(test)]
@@ -200,9 +212,22 @@ impl EntryReport {
         &self.entries
     }
 
+    /// How many entries the scan could not take in or could not read, named or only counted.
     #[cfg(test)]
     pub(crate) fn total(&self) -> u64 {
         self.total
+    }
+
+    /// The entries no object can take, which hold back the baseline and deletions as
+    /// unrepresentable.
+    pub(crate) fn unrepresentable(&self) -> u64 {
+        self.total.saturating_sub(self.unreadable)
+    }
+
+    /// The entries the scan could not read for a reason waiting does not clear, which hold back
+    /// the baseline and deletions as unreadable.
+    pub(crate) fn unreadable(&self) -> u64 {
+        self.unreadable
     }
 }
 

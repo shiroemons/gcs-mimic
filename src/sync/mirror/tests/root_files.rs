@@ -46,7 +46,7 @@ async fn files_in_the_root_hold_nothing_back_and_are_warned_about_once() {
     };
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
     assert!(summary.baseline_complete);
-    assert_eq!((summary.ignored, summary.unrepresentable), (3, 0));
+    assert_eq!((summary.ignored, summary.unrepresentable()), (3, 0));
     assert!(tree.0.join("test-bucket/deleted").is_file());
 
     fs::remove_file(tree.0.join("test-bucket/deleted")).unwrap();
@@ -105,7 +105,7 @@ async fn files_in_the_root_before_the_first_start_hold_nothing_back() {
     fs::remove_file(tree.0.join("test-bucket/deleted")).unwrap();
     let mut baseline = COMPLETE;
     let summary = ingest(&catalog, &root, &status, &mut baseline).await;
-    assert_eq!((summary.ignored, summary.unrepresentable), (3, 0));
+    assert_eq!((summary.ignored, summary.unrepresentable()), (3, 0));
     assert!(!exists(&catalog, &bucket, "deleted").await);
     assert!(exists(&catalog, &bucket, "kept").await);
     assert_eq!(warned(&status), warned_once());
@@ -217,7 +217,7 @@ async fn ingestion_and_reconciliation_classify_every_entry_alike() {
         (
             counted.ignored,
             counted.external_only,
-            counted.unrepresentable
+            counted.unrepresentable()
         ),
         (6, 2, 5)
     );
@@ -225,15 +225,15 @@ async fn ingestion_and_reconciliation_classify_every_entry_alike() {
         (
             ingested.ignored,
             ingested.ingested,
-            ingested.unrepresentable
+            ingested.unrepresentable()
         ),
         (
             counted.ignored,
             counted.external_only,
-            counted.unrepresentable
+            counted.unrepresentable()
         )
     );
-    assert_eq!(ingested.entries, counted.entries);
+    assert_eq!(ingested.entries(), counted.entries());
     drop(root);
     catalog.close().await.unwrap();
 }
