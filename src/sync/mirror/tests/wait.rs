@@ -204,6 +204,61 @@ async fn wait_succeeds_past_names_the_tree_cannot_hold_and_counts_them() {
     }
 }
 
+/// An export conflict holds an external edit that is in neither the API nor the tree's record,
+/// so a name collision that a later generation of the same object meets must not replace it: the
+/// collision only reports, and the wait would succeed with the edit unresolved. The API writes
+/// the newer generation, and a child that makes its name a directory too, after the wait's scan
+/// recorded the conflict and before it captures the fence it replays to.
+#[tokio::test]
+async fn wait_keeps_stopping_for_an_export_conflict_a_later_name_collision_meets() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
+    assert!(reconcile(&catalog, &root).await.unwrap().baseline_complete);
+    publish_origin(&catalog, &bucket, b"newer", Origin::Api).await;
+    let path = tree.0.join("test-bucket/object");
+    fs::write(&path, b"edited").unwrap();
+    let state = live_state(catalog.current_fence().await.unwrap());
+    let hook = std::sync::Arc::new(Hook {
+        phase: "wait-ingested",
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let result = with_control(&catalog, &root, state, async |control| {
+        EXPORT_HOOK
+            .scope(hook.clone(), async {
+                let work = control.wait(crate::test_support::hang_deadline());
+                tokio::pin!(work);
+                tokio::select! {
+                    result = &mut work => panic!("the wait ended before its scan finished: {:?}", result.map(|value| value.reason)),
+                    entered = tokio::time::timeout(HANG_GUARD, hook.entered.notified()) => entered.unwrap(),
+                }
+                let findings = root.findings_page(0, 256).await.unwrap();
+                assert_eq!(
+                    findings.iter().map(|finding| finding.reason).collect::<Vec<_>>(),
+                    [FindingKind::ExportConflict]
+                );
+                publish_origin(&catalog, &bucket, b"newest", Origin::Api).await;
+                publish_named(&catalog, &bucket, "object/child", b"child", Origin::Api).await;
+                hook.release.notify_one();
+                work.await.unwrap()
+            })
+            .await
+    })
+    .await;
+    assert_eq!(result.reason, WaitReason::FindingsPending);
+    let findings = root.findings_page(0, 256).await.unwrap();
+    assert!(
+        findings.iter().any(
+            |finding| finding.name == "object" && finding.reason == FindingKind::ExportConflict
+        ),
+        "{findings:?}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"edited");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// The external edit a scan meets, against an API change that the journal cursor has already
 /// passed, so that only the export conflict the scan records stands between the wait and Ready.
 #[derive(Clone, Copy, Debug)]

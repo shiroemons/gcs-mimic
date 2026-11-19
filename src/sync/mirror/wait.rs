@@ -50,6 +50,8 @@ impl LiveControl<'_> {
         if summary.interrupted {
             return Ok(WaitResult::result(self.interruption(), None, Some(summary)));
         }
+        #[cfg(test)]
+        export_checkpoint("wait-ingested").await;
         let fence = self.scope.catalog.current_fence().await?;
         #[cfg(test)]
         export_checkpoint("wait-fence").await;

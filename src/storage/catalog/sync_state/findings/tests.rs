@@ -628,7 +628,7 @@ async fn mapping_findings_revision_moves_with_findings_only_and_not_for_an_ident
 }
 
 #[tokio::test]
-async fn name_findings_keep_an_export_conflict_until_the_generation_moves_on() {
+async fn name_findings_keep_an_export_conflict_of_the_same_incarnation() {
     let data = TestDir::new();
     let tree = TestDir::new();
     let catalog = Catalog::open(&data.0).await.unwrap();
@@ -671,7 +671,8 @@ async fn name_findings_keep_an_export_conflict_until_the_generation_moves_on() {
         assert_eq!(revisions(&lease).await, conflicted);
     }
 
-    // A newer generation is a new observation, which the name finding describes.
+    // A newer generation of the same incarnation does not settle the edit the conflict holds,
+    // and a name finding only reports, so the conflict stays as recorded.
     let newer = publish(&catalog, &data, &bucket, name.as_str()).await;
     lease
         .record_finding(binding.clone(), name.clone(), newer, Reason::Collision)
@@ -680,9 +681,9 @@ async fn name_findings_keep_an_export_conflict_until_the_generation_moves_on() {
     let finding = lease.findings_page(0, 1).await.unwrap().remove(0);
     assert_eq!(
         (finding.reason, finding.generation),
-        (FindingKind::Unmapped(Reason::Collision), newer)
+        (FindingKind::ExportConflict, generation)
     );
-    assert_eq!(revisions(&lease).await.0, conflicted.0 + 1);
+    assert_eq!(revisions(&lease).await, conflicted);
     drop(lease);
     catalog.close().await.unwrap();
 }

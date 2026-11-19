@@ -217,12 +217,14 @@ impl RootLease {
     }
 
     /// Records only the selected live incarnation/generation; no filesystem path is required.
-    /// An export conflict on the same incarnation and generation keeps its row: the name
-    /// reason does not settle the edit that conflict left behind, while a newer generation or
-    /// incarnation is a new observation that replaces it. An unclassified collision carried
-    /// over from schema 57 is replaced, because the name reason classifies it; an edited file
-    /// behind it is recorded as an export conflict again by the next ingestion. Recording the
-    /// same finding again writes nothing, so findings keep their revision.
+    /// An export conflict on the same incarnation keeps its row whatever the generation: the
+    /// edit it holds is in neither the API nor the tree's record, and a name reason, which a
+    /// wait only reports, would let the wait succeed with that edit unresolved. Resolving the
+    /// conflict removes the findings of its incarnation, and a newer incarnation replaces it.
+    /// An unclassified collision carried over from schema 57 is replaced, because the name
+    /// reason classifies it; an edited file behind it is recorded as an export conflict again by
+    /// the next ingestion. Recording the same finding again writes nothing, so findings keep
+    /// their revision.
     pub(crate) async fn record_finding(
         &self,
         binding: SyncBinding,
@@ -245,7 +247,7 @@ impl RootLease {
             sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
                 ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
                 WHERE (incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project)
-                AND NOT (reason=?7 AND incarnation=excluded.incarnation AND generation=excluded.generation)", params![root,binding.bucket,name,binding.incarnation,generation,FindingKind::Unmapped(reason),FindingKind::ExportConflict]).map_err(unavailable)?;
+                AND NOT (reason=?7 AND incarnation=excluded.incarnation)", params![root,binding.bucket,name,binding.incarnation,generation,FindingKind::Unmapped(reason),FindingKind::ExportConflict]).map_err(unavailable)?;
             remember_owner(&tx,root,binding.bucket.as_str(),name.as_str())?;
             tx.commit().map_err(unavailable)?;
             Ok::<_, AdminError>(())
