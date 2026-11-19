@@ -27,6 +27,7 @@ mod match_glob;
 mod memory_limit;
 mod metadata_error;
 pub mod mime;
+mod multipart;
 pub mod net;
 mod notification;
 pub mod object;

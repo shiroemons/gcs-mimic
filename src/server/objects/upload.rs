@@ -143,7 +143,7 @@ pub(super) async fn multipart(
     } = target;
     // Cloud Storage stored an `uploadType=multipart` request whose body is not multipart as a
     // media upload (recorded 200 for `text/plain`).
-    if !json::is_multipart_content_type(request.headers()) {
+    if !crate::multipart::is_multipart_content_type(request.headers()) {
         let name = name.ok_or_else(JsonError::missing_object_name)?;
         let target = UploadRequest {
             bucket,
@@ -157,10 +157,10 @@ pub(super) async fn multipart(
     let catalog = &ctx.state.catalog;
     json::upload_content_type(request.headers())?;
     let key = json::request_key(request.headers())?;
-    let boundary = json::multipart_boundary(request.headers())?;
+    let boundary = crate::multipart::multipart_boundary(request.headers())?;
     let replay = Replay::of(&request, ctx, key)?;
     if content_length(request.headers())
-        .is_some_and(|length| length > max_bytes.saturating_add(json::MULTIPART_FRAMING_LIMIT))
+        .is_some_and(|length| length > max_bytes.saturating_add(crate::multipart::FRAMING_LIMIT))
     {
         return Err(ObjectError::TooLarge.into());
     }
@@ -180,7 +180,7 @@ pub(super) async fn multipart(
         ),
     )
     .await?;
-    let mut multipart = json::Multipart::related(request.into_body(), &boundary);
+    let mut multipart = json::RelatedUpload::new(request.into_body(), &boundary);
     let bytes = multipart.metadata().await?;
     let name_known = name.is_some();
     let json::MultipartMetadata {
@@ -241,7 +241,7 @@ pub(super) async fn multipart(
 /// declared, so the catalog verifies them before publishing.
 async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     ctx: ObjectCtx<'_>,
-    multipart: &mut json::Multipart<B>,
+    multipart: &mut json::RelatedUpload<B>,
     upload: impl Future<Output = Result<ObjectRecord, ObjectError>>,
     sender: UploadSender,
     expected: ExpectedHashes,

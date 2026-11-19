@@ -14,7 +14,8 @@ use crate::{
         self, Caller,
         signature::{self, Failure, MAX_EXPIRES},
     },
-    json::{self, JsonError},
+    json::JsonError,
+    multipart::{Multipart, form_data_boundary},
     object::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
         ObjectRecord, Patch, UploadChunk,
@@ -174,7 +175,7 @@ fn disposition(headers: &HeaderMap) -> Result<PartName, Error> {
 }
 
 async fn read_form<B: Body<Data = Bytes> + Unpin>(
-    parser: &mut json::Multipart<B>,
+    parser: &mut Multipart<B>,
 ) -> Result<Form, Error> {
     parser.start().await?;
     let too_large = || {
@@ -671,13 +672,13 @@ pub(crate) async fn respond(
             key.split('=').next().unwrap_or_default()
         )));
     }
-    let boundary = json::form_data_boundary(request.headers()).map_err(|_| {
+    let boundary = form_data_boundary(request.headers()).map_err(|_| {
         Error::invalid(
             "POST Object requires Content-Type: multipart/form-data with a valid boundary.",
         )
     })?;
     let headers = request.headers().clone();
-    let mut parser = json::Multipart::new(request.into_body(), &boundary);
+    let mut parser = Multipart::new(request.into_body(), &boundary);
     let form = read_form(&mut parser).await?;
     let Plan {
         name,
@@ -800,7 +801,7 @@ struct FileLimits {
 
 /// Streams the file part into `upload` and checks its size against the form's limits.
 async fn stream_file<B: Body<Data = Bytes> + Unpin>(
-    parser: &mut json::Multipart<B>,
+    parser: &mut Multipart<B>,
     ctx: ObjectCtx<'_>,
     upload: impl std::future::Future<Output = Result<ObjectRecord, ObjectError>>,
     sender: UploadSender,
@@ -1382,7 +1383,7 @@ mod tests {
     }
 
     async fn parse_form(body: &'static str) -> Result<(Form, Vec<u8>), Error> {
-        let mut parser = json::Multipart::new(Full::new(Bytes::from_static(body.as_bytes())), "b");
+        let mut parser = Multipart::new(Full::new(Bytes::from_static(body.as_bytes())), "b");
         let form = read_form(&mut parser).await?;
         let mut file = Vec::new();
         while let Some(chunk) = parser.next_chunk().await? {
@@ -1424,13 +1425,13 @@ mod tests {
         let charged = "key".len() + FIELD_ENTRY_CHARGE;
         // One field may take the whole budget, far above the former 64 KiB per field.
         let exact = format!("{head}{}{file}", "x".repeat(FORM_CAP - charged));
-        let mut parser = json::Multipart::new(Full::new(Bytes::from(exact)), "b");
+        let mut parser = Multipart::new(Full::new(Bytes::from(exact)), "b");
         assert_eq!(
             read_form(&mut parser).await.unwrap().fields["key"].len(),
             FORM_CAP - charged
         );
         let long = format!("{head}{}{file}", "x".repeat(FORM_CAP - charged + 1));
-        let mut parser = json::Multipart::new(Full::new(Bytes::from(long)), "b");
+        let mut parser = Multipart::new(Full::new(Bytes::from(long)), "b");
         assert!(
             read_form(&mut parser)
                 .await
@@ -1452,7 +1453,7 @@ mod tests {
             body.push_str(
                 "--b\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nx\r\n--b--\r\n",
             );
-            json::Multipart::new(Full::new(Bytes::from(body)), "b")
+            Multipart::new(Full::new(Bytes::from(body)), "b")
         };
         // Each entry costs its name and map entry although its value is empty.
         let charge = "x-goog-meta-000000".len() + FIELD_ENTRY_CHARGE;

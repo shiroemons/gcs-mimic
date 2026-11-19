@@ -48,7 +48,7 @@ pub(super) async fn request(
     let expanded_limit = ctx
         .config
         .max_object_bytes
-        .saturating_add(crate::json::MULTIPART_FRAMING_LIMIT);
+        .saturating_add(crate::multipart::FRAMING_LIMIT);
     // Stored-gzip media can be incompressible; allow bounded framing/deflate overhead on the wire.
     let compressed_limit = expanded_limit
         .saturating_add(expanded_limit / 8)

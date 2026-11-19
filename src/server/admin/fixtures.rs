@@ -71,8 +71,8 @@ pub(super) async fn insert(
     }
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
     let object = ctx.object(None, deadline);
-    let boundary = json::multipart_boundary(request.headers())?;
-    let mut multipart = json::Multipart::related(request.into_body(), &boundary);
+    let boundary = crate::multipart::multipart_boundary(request.headers())?;
+    let mut multipart = json::RelatedUpload::new(request.into_body(), &boundary);
     let metadata = multipart.metadata().await?;
     let mut fixture = parse(&metadata, ctx.state.clock.now(), ctx.config)?;
     let admin = admin.with_notification_mode(fixture.notification_mode);
@@ -115,7 +115,7 @@ pub(super) async fn insert(
 }
 
 async fn stream<B: Body<Data = Bytes> + Unpin>(
-    multipart: &mut json::Multipart<B>,
+    multipart: &mut json::RelatedUpload<B>,
     sender: &UploadSender,
     expected: ExpectedHashes,
     max_bytes: u64,

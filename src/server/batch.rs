@@ -92,7 +92,7 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
     if request.method() != Method::POST {
         return Err(invalid("Batch requests require POST /batch/storage/v1"));
     }
-    let boundary = json::batch_boundary(request.headers())?;
+    let boundary = crate::multipart::batch_boundary(request.headers())?;
     if request.headers().contains_key("content-encoding") {
         return Err(invalid("Compressed batch envelopes are unsupported"));
     }

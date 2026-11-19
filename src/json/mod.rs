@@ -61,14 +61,16 @@ pub(crate) use envelope::{
     etag_header, forbid_caching,
 };
 pub use error::JsonError;
-pub(crate) use error::{ErrorKind, MEDIA_ERROR_CACHE_CONTROL, safe_backend_cause};
+pub(crate) use error::{
+    BAD_CONTENT_TYPE_TEXT, ErrorKind, MEDIA_ERROR_CACHE_CONTROL, MISSING_END_BOUNDARY_TEXT,
+    safe_backend_cause,
+};
 pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
 pub(crate) use multipart::{
-    FRAMING_LIMIT as MULTIPART_FRAMING_LIMIT, Multipart, MultipartMetadata, PartKind,
-    batch_boundary, check_declared_content_type, form_data_boundary, is_multipart_content_type,
-    multipart_boundary, multipart_metadata, multipart_metadata_of,
+    MultipartMetadata, PartKind, RelatedUpload, check_declared_content_type, multipart_metadata,
+    multipart_metadata_of,
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};
