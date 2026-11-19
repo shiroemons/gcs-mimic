@@ -272,6 +272,12 @@ pub(super) const STEPS: &[Step] = &[
         object_hold::RELEASE_TIME_SCHEMA,
         None,
     ),
+    Step::migrated(
+        sync_state::findings::REASON_SCHEMA_VERSION,
+        sync_state::findings::REASON_SCHEMA,
+        None,
+        sync_state::findings::migrate_reasons,
+    ),
 ];
 
 #[expect(

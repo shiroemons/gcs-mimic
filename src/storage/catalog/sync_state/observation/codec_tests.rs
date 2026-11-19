@@ -6,6 +6,7 @@ fn finding_rows_reject_unknown_persisted_reasons_instead_of_using_a_remedy_fallb
     let query = "SELECT 0,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL";
     for (category, reason) in [
         ("mapping", "collision"),
+        ("mapping", "export-conflict"),
         ("path-stop", "IoFailure"),
         ("root-stop", "observer-failure"),
     ] {

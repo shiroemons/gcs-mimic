@@ -2,7 +2,7 @@ use super::PathStop;
 use crate::{
     storage::catalog::{
         sql,
-        sync_state::{conflicts::ConflictState, writeback::Phase},
+        sync_state::{conflicts::ConflictState, findings::FindingKind, writeback::Phase},
     },
     sync::mapping::Reason,
 };
@@ -76,6 +76,8 @@ impl FindingCategory {
 #[derive(Debug)]
 pub(crate) enum FindingReason {
     Mapping(Reason),
+    /// A mapping finding for an export that met an edited file, which is not a name problem.
+    ExportConflict,
     RootStop(PauseReason),
     PathStop(PathStop),
     Writeback(Phase),
@@ -86,10 +88,20 @@ impl FindingReason {
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Mapping(reason) => reason.as_str(),
+            Self::ExportConflict => FindingKind::ExportConflict.as_str(),
             Self::RootStop(reason) => reason.as_str(),
             Self::PathStop(reason) => reason.as_str(),
             Self::Writeback(phase) => phase.as_str(),
             Self::Conflict(state) => state.as_str(),
+        }
+    }
+}
+
+impl From<FindingKind> for FindingReason {
+    fn from(kind: FindingKind) -> Self {
+        match kind {
+            FindingKind::Unmapped(reason) => Self::Mapping(reason),
+            FindingKind::ExportConflict => Self::ExportConflict,
         }
     }
 }

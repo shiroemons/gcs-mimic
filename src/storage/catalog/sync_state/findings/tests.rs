@@ -212,7 +212,10 @@ async fn sync_findings_reject_foreign_bindings_and_stale_incarnations() {
             .record_finding(binding.clone(), name.clone(), generation, reason)
             .await
             .unwrap();
-        assert_eq!(lease.findings_page(0, 1).await.unwrap()[0].reason, reason);
+        assert_eq!(
+            lease.findings_page(0, 1).await.unwrap()[0].reason,
+            FindingKind::Unmapped(reason)
+        );
     }
     let old = lease.findings_page(0, 1).await.unwrap().remove(0);
     let seed_and_current = control_identity(&["seed", "new-owner"]).await;
@@ -544,4 +547,164 @@ async fn sync_findings_migration_rolls_back_and_preserves_catalog_root_and_write
     drop(wb);
     drop(lease);
     catalog.close().await.unwrap();
+}
+
+mod reason_migration;
+
+/// The findings revision and the observation revision of one root.
+async fn revisions(lease: &RootLease) -> (i64, i64) {
+    (
+        lease
+            .mapping_findings_revision_for(lease.authority())
+            .await
+            .unwrap(),
+        lease.observation().await.unwrap().revision,
+    )
+}
+
+#[tokio::test]
+async fn mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let name = ObjectName::new("object").unwrap();
+    let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
+    let start = revisions(&lease).await;
+
+    // A tracked file changing is not a finding change.
+    catalog
+        .run_admin(|connection| {
+            connection
+                .execute_batch("INSERT INTO sync_objects VALUES('test-bucket','tracked','00000000000000000000000000000000','test-bucket/tracked',1,0,zeroblob(16),zeroblob(16),zeroblob(8),zeroblob(16),0,0)")
+                .map_err(unavailable)
+        })
+        .await
+        .unwrap();
+    let tracked = revisions(&lease).await;
+    assert_eq!(tracked.0, start.0);
+    assert!(tracked.1 > start.1);
+
+    let record = |reason| lease.record_finding(binding.clone(), name.clone(), generation, reason);
+    record(Reason::InvalidName).await.unwrap();
+    let recorded = revisions(&lease).await;
+    assert_eq!(recorded.0, tracked.0 + 1);
+    record(Reason::InvalidName).await.unwrap();
+    assert_eq!(revisions(&lease).await, recorded);
+    record(Reason::Reserved).await.unwrap();
+    let changed = revisions(&lease).await;
+    assert_eq!(changed.0, recorded.0 + 1);
+
+    lease
+        .record_export_conflict(binding.clone(), name.clone(), generation)
+        .await
+        .unwrap();
+    let conflicted = revisions(&lease).await;
+    assert_eq!(conflicted.0, changed.0 + 1);
+    lease
+        .record_export_conflict(binding.clone(), name.clone(), generation)
+        .await
+        .unwrap();
+    assert_eq!(revisions(&lease).await, conflicted);
+
+    let finding = lease.findings_page(0, 1).await.unwrap().remove(0);
+    assert_eq!(finding.reason, FindingKind::ExportConflict);
+    assert!(lease.remove_finding(finding).await.unwrap());
+    let removed = revisions(&lease).await;
+    assert_eq!(removed.0, conflicted.0 + 1);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn name_findings_keep_an_export_conflict_until_the_generation_moves_on() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let name = ObjectName::new("object").unwrap();
+    let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
+    lease
+        .record_finding(binding.clone(), name.clone(), generation, Reason::Collision)
+        .await
+        .unwrap();
+    lease
+        .record_export_conflict(binding.clone(), name.clone(), generation)
+        .await
+        .unwrap();
+    let conflicted = revisions(&lease).await;
+    let reason = |lease: &RootLease| {
+        let lease = lease.clone();
+        async move { lease.findings_page(0, 1).await.unwrap()[0].reason }
+    };
+    assert_eq!(reason(&lease).await, FindingKind::ExportConflict);
+
+    // The same generation's name finding leaves the conflict and writes nothing.
+    for unmapped in [Reason::Collision, Reason::UnsafeEntry, Reason::Ignored] {
+        lease
+            .record_finding(binding.clone(), name.clone(), generation, unmapped)
+            .await
+            .unwrap();
+        assert_eq!(reason(&lease).await, FindingKind::ExportConflict);
+        assert_eq!(revisions(&lease).await, conflicted);
+    }
+
+    // A newer generation is a new observation, which the name finding describes.
+    let newer = publish(&catalog, &data, &bucket, name.as_str()).await;
+    lease
+        .record_finding(binding.clone(), name.clone(), newer, Reason::Collision)
+        .await
+        .unwrap();
+    let finding = lease.findings_page(0, 1).await.unwrap().remove(0);
+    assert_eq!(
+        (finding.reason, finding.generation),
+        (FindingKind::Unmapped(Reason::Collision), newer)
+    );
+    assert_eq!(revisions(&lease).await.0, conflicted.0 + 1);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
+#[test]
+fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() {
+    assert_eq!(FindingKind::ExportConflict.effect(), FindingEffect::Blocks);
+    assert_eq!(
+        FindingKind::Unmapped(Reason::Ignored).effect(),
+        FindingEffect::Silent
+    );
+    for reason in [
+        Reason::InvalidName,
+        Reason::HostRestriction,
+        Reason::Reserved,
+        Reason::Collision,
+        Reason::UnsafeEntry,
+    ] {
+        assert_eq!(
+            FindingKind::Unmapped(reason).effect(),
+            FindingEffect::Reports,
+            "{reason:?}"
+        );
+    }
 }

@@ -13,7 +13,7 @@ use crate::{
     storage::admin::{AdminError, Generation, ObjectName},
     sync::mapping::Reason,
 };
-use rusqlite::params;
+use rusqlite::{Connection, Transaction, params};
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_findings (
     ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +28,61 @@ pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_findings (
 CREATE INDEX sync_findings_page ON sync_findings(root_id,ordinal);
 PRAGMA user_version = 21;";
 
+/// Schema 58 gives an export that met an edited file its own finding reason, apart from a name
+/// collision, and gives these findings a revision of their own, which tracked files, stops,
+/// write-backs and conflicts do not advance. The finding reasons also admit `alias` and the
+/// path stops `EntryReplaced` and `AliasEdited`, which no code writes yet, so that the changes
+/// using them need no second rebuild of these tables.
+pub(in crate::storage) const REASON_SCHEMA_VERSION: i64 = 58;
+/// Rebuilds `sync_findings` and `sync_path_stops` under the same names, since their checks can
+/// only change with the tables. The rows, the finding owners and both `sqlite_sequence` rows
+/// are kept aside in TEMP tables first: dropping `sync_findings` deletes its owners through the
+/// foreign key, and dropping either table deletes its sequence row, after which a removed
+/// highest ordinal would be handed out again and an old finding ID would name another finding.
+/// Before schema 58 one reason covered both conditions, and a row cannot tell which it was:
+/// every `collision` row becomes an export conflict, which stops a later wait rather than
+/// letting it report success with an edit nobody reconciled.
+pub(in crate::storage) const REASON_SCHEMA: &str = include_str!("findings/reason_schema.sql");
+
+/// Counts the rows schema 58 rebuilds; the migration commits only if they all come back.
+const REBUILT_ROWS: &str = "SELECT (SELECT count(*) FROM sync_findings),(SELECT count(*) FROM sync_finding_owners),(SELECT count(*) FROM sync_path_stops)";
+/// Whether a rebuilt table, or the owners that refer to one, now breaks a foreign key.
+const REBUILT_FOREIGN_KEYS: &str = "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check('sync_findings') UNION ALL SELECT 1 FROM pragma_foreign_key_check('sync_finding_owners') UNION ALL SELECT 1 FROM pragma_foreign_key_check('sync_path_stops'))";
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration at open"
+)]
+fn rebuilt_rows(transaction: &Transaction<'_>) -> Result<[i64; 3], CatalogError> {
+    Ok(transaction.query_row(REBUILT_ROWS, [], |row| {
+        Ok([row.get(0)?, row.get(1)?, row.get(2)?])
+    })?)
+}
+
+/// Upgrades to schema 58 in one transaction with foreign keys left on. The checks after the
+/// rebuild catch a row the statements failed to restore before anything commits.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a one-time schema migration at open"
+)]
+pub(in crate::storage) fn migrate_reasons(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction()?;
+    let before = rebuilt_rows(&transaction)?;
+    transaction.execute_batch(REASON_SCHEMA)?;
+    if rebuilt_rows(&transaction)? != before {
+        return Err(unavailable(
+            "schema 58 migration did not restore every finding, owner and path stop",
+        ));
+    }
+    let broken: bool = transaction.query_row(REBUILT_FOREIGN_KEYS, [], |row| row.get(0))?;
+    if broken {
+        return Err(unavailable(
+            "schema 58 migration left a finding, owner or path stop without its parent row",
+        ));
+    }
+    transaction.commit().map_err(unavailable)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
     pub catalog_id: CatalogId,
@@ -37,7 +92,7 @@ pub struct Finding {
     pub name: String,
     pub(crate) incarnation: Incarnation,
     pub generation: Generation,
-    pub reason: Reason,
+    pub(crate) reason: FindingKind,
 }
 
 sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
@@ -45,6 +100,84 @@ sql::text_enum!(pub(crate) Reason, "invalid synchronization finding", {
     Reserved => "reserved", Ignored => "ignored", Collision => "collision",
     UnsafeEntry => "unsafe-entry",
 });
+
+/// Why a `sync_findings` row keeps its object out of the working tree. A name the tree cannot
+/// hold and an export that met an edited file are different conditions: only the second leaves
+/// an external edit and an API generation that nobody has reconciled yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FindingKind {
+    /// The object's name has no file in this tree.
+    Unmapped(Reason),
+    /// Export stopped because the file at the object's path no longer held the bytes this tree
+    /// last tracked while the API object changed or was deleted; the file stays as it was.
+    ExportConflict,
+}
+
+impl FindingKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Unmapped(reason) => reason.as_str(),
+            Self::ExportConflict => "export-conflict",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "export-conflict" => Some(Self::ExportConflict),
+            unmapped => Reason::parse(unmapped).map(Self::Unmapped),
+        }
+    }
+
+    /// What this finding does to `sync wait`. Every kind decides here, so a new kind cannot
+    /// reach the wait without a decision.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(
+            dead_code,
+            reason = "only the Unix unit tests read it until the wait counts findings by effect"
+        )
+    )]
+    pub(crate) const fn effect(self) -> FindingEffect {
+        match self {
+            Self::ExportConflict => FindingEffect::Blocks,
+            Self::Unmapped(Reason::Ignored) => FindingEffect::Silent,
+            Self::Unmapped(
+                Reason::InvalidName
+                | Reason::HostRestriction
+                | Reason::Reserved
+                | Reason::Collision
+                | Reason::UnsafeEntry,
+            ) => FindingEffect::Reports,
+        }
+    }
+}
+
+sql::text_enum!(
+    FindingKind,
+    "invalid synchronization finding",
+    FindingKind::parse
+);
+
+/// What a finding does to `sync wait`.
+#[cfg_attr(
+    not(all(test, unix)),
+    expect(
+        dead_code,
+        reason = "only the Unix unit tests read it until the wait counts findings by effect"
+    )
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FindingEffect {
+    /// The wait cannot succeed while the finding remains: an external edit and an API
+    /// generation are both unreconciled, so the tree is not up to date.
+    Blocks,
+    /// The wait may succeed and reports the finding: the object stays reachable through the
+    /// API, and the tree cannot hold its name.
+    Reports,
+    /// The wait neither stops for nor reports the finding: the tree ignores the name by design,
+    /// as with `.DS_Store`.
+    Silent,
+}
 
 fn remember_owner(
     transaction: &rusqlite::Transaction<'_>,
@@ -55,7 +188,7 @@ fn remember_owner(
     // One logical finding may survive several bucket incarnations; replacement cannot erase earlier authority.
     sql::exec(
         transaction,
-        "INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 ON CONFLICT(ordinal,incarnation) DO UPDATE SET owner_project=excluded.owner_project",
+        "INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 ON CONFLICT(ordinal,incarnation) DO UPDATE SET owner_project=excluded.owner_project WHERE owner_project IS NOT excluded.owner_project",
         params![root, bucket, name],
     )?;
     Ok(())
@@ -63,6 +196,7 @@ fn remember_owner(
 
 impl RootLease {
     /// Conflicts may refer to a deleted API object whose synchronized body is still tracked.
+    /// Recording the same conflict again writes nothing, so findings keep their revision.
     pub(crate) async fn record_export_conflict(
         &self,
         binding: SyncBinding,
@@ -80,7 +214,9 @@ impl RootLease {
             let tracked: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)", params![binding.bucket,name,generation,binding.incarnation])?;
             let valid = live || tracked;
             if valid {
-                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,'collision',(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4)) ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation])?;
+                sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
+                    ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
+                    WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation,FindingKind::ExportConflict])?;
                 remember_owner(&tx,root,binding.bucket.as_str(),name.as_str())?;
             }
             tx.commit().map_err(unavailable)
@@ -89,6 +225,10 @@ impl RootLease {
     }
 
     /// Records only the selected live incarnation/generation; no filesystem path is required.
+    /// An export conflict on the same incarnation and generation keeps its row: the name
+    /// reason does not settle the edit that conflict left behind, while a newer generation or
+    /// incarnation is a new observation that replaces it. Recording the same finding again
+    /// writes nothing, so findings keep their revision.
     pub(crate) async fn record_finding(
         &self,
         binding: SyncBinding,
@@ -110,7 +250,8 @@ impl RootLease {
             }
             sql::exec(&tx, "INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,?2,?3,?4,?5,?6,(SELECT b.project FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4))
                 ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason,owner_project=excluded.owner_project
-                WHERE incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project", params![root,binding.bucket,name,binding.incarnation,generation,reason]).map_err(unavailable)?;
+                WHERE (incarnation!=excluded.incarnation OR generation!=excluded.generation OR reason!=excluded.reason OR owner_project IS NOT excluded.owner_project)
+                AND NOT (reason=?7 AND incarnation=excluded.incarnation AND generation=excluded.generation)", params![root,binding.bucket,name,binding.incarnation,generation,FindingKind::Unmapped(reason),FindingKind::ExportConflict]).map_err(unavailable)?;
             remember_owner(&tx,root,binding.bucket.as_str(),name.as_str())?;
             tx.commit().map_err(unavailable)?;
             Ok::<_, AdminError>(())

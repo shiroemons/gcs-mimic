@@ -97,8 +97,94 @@ pub(crate) fn downgrade_bucket_file_entries_schema(connection: &rusqlite::Connec
         .unwrap();
 }
 
+/// Keeps the rows of the two rebuilt tables, the finding owners and both sequence rows aside;
+/// drops what schema 58 created; replays the statements schemas 21, 40 and 41 ran for these
+/// tables and triggers, word for word; and puts the rows back before the triggers exist, so
+/// the observation revision does not move.
+const FINDING_REASON_DOWNGRADE: &str = "CREATE TEMP TABLE downgrade_findings AS SELECT ordinal,root_id,bucket,name,incarnation,generation,CASE reason WHEN 'export-conflict' THEN 'collision' ELSE reason END AS reason,owner_project FROM sync_findings;
+CREATE TEMP TABLE downgrade_owners AS SELECT ordinal,incarnation,owner_project FROM sync_finding_owners;
+CREATE TEMP TABLE downgrade_stops AS SELECT ordinal,root_id,bucket,name,owner_project,incarnation,generation,reason FROM sync_path_stops;
+CREATE TEMP TABLE downgrade_sequences AS SELECT name,seq FROM sqlite_sequence WHERE name IN ('sync_findings','sync_path_stops');
+DELETE FROM sync_finding_owners;
+DROP TABLE sync_findings;
+DROP TABLE sync_path_stops;
+DROP TRIGGER sync_observation_root_insert;
+ALTER TABLE sync_observations DROP COLUMN mapping_findings_revision;
+CREATE TABLE sync_findings (
+    ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+    root_id BLOB NOT NULL REFERENCES sync_roots(root_id),
+    bucket TEXT NOT NULL COLLATE BINARY,
+    name TEXT NOT NULL COLLATE BINARY,
+    incarnation TEXT NOT NULL,
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    reason TEXT NOT NULL CHECK(reason IN ('invalid-name','host-restriction','reserved','ignored','collision','unsafe-entry')),
+    UNIQUE(root_id,bucket,name)
+);
+CREATE INDEX sync_findings_page ON sync_findings(root_id,ordinal);
+ALTER TABLE sync_findings ADD COLUMN owner_project TEXT CHECK(owner_project IS NULL OR length(owner_project) BETWEEN 1 AND 256);
+CREATE TABLE sync_path_stops (
+ ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+ root_id BLOB NOT NULL REFERENCES sync_roots(root_id) ON DELETE CASCADE,
+ bucket TEXT NOT NULL COLLATE BINARY,
+ name TEXT NOT NULL COLLATE BINARY,
+ owner_project TEXT NOT NULL CHECK(length(owner_project) BETWEEN 1 AND 256),
+ incarnation TEXT NOT NULL CHECK(length(incarnation)=32),
+ generation INTEGER NOT NULL CHECK(generation>=0),
+ reason TEXT NOT NULL CHECK(reason IN ('ProtectedDeletion','SourceChanging','IoFailure')),
+ UNIQUE(root_id,bucket,name,incarnation,reason)
+);
+CREATE INDEX sync_path_stops_page ON sync_path_stops(root_id,ordinal);
+INSERT INTO sync_findings(ordinal,root_id,bucket,name,incarnation,generation,reason,owner_project) SELECT ordinal,root_id,bucket,name,incarnation,generation,reason,owner_project FROM temp.downgrade_findings;
+INSERT INTO sync_finding_owners(ordinal,incarnation,owner_project) SELECT ordinal,incarnation,owner_project FROM temp.downgrade_owners;
+INSERT INTO sync_path_stops(ordinal,root_id,bucket,name,owner_project,incarnation,generation,reason) SELECT ordinal,root_id,bucket,name,owner_project,incarnation,generation,reason FROM temp.downgrade_stops;
+UPDATE sqlite_sequence SET seq=max(seq,coalesce((SELECT kept.seq FROM temp.downgrade_sequences kept WHERE kept.name=sqlite_sequence.name),0)) WHERE name IN ('sync_findings','sync_path_stops');
+INSERT INTO sqlite_sequence(name,seq) SELECT kept.name,kept.seq FROM temp.downgrade_sequences kept WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence present WHERE present.name=kept.name);
+CREATE TRIGGER sync_observation_stop_insert AFTER INSERT ON sync_path_stops BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_stop_update AFTER UPDATE ON sync_path_stops BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_stop_delete AFTER DELETE ON sync_path_stops BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=OLD.root_id;
+END;
+CREATE TRIGGER sync_observation_root_insert AFTER INSERT ON sync_roots BEGIN
+ INSERT INTO sync_observations VALUES(NEW.root_id,0,NULL,NULL);
+END;
+CREATE TRIGGER sync_observation_finding_insert AFTER INSERT ON sync_findings BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_finding_update AFTER UPDATE ON sync_findings BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_finding_delete AFTER DELETE ON sync_findings BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=OLD.root_id;
+END;
+DROP TABLE temp.downgrade_findings;
+DROP TABLE temp.downgrade_owners;
+DROP TABLE temp.downgrade_stops;
+DROP TABLE temp.downgrade_sequences;";
+
+/// Restores schema 57, before an export conflict had a finding reason apart from a name
+/// collision and findings had a revision of their own. An export conflict goes back to
+/// `collision`, the reason schema 57 recorded it with. Fixtures hold no `alias` finding and no
+/// `EntryReplaced` or `AliasEdited` stop, which schema 57 cannot store.
+pub(crate) fn downgrade_finding_reason_schema(connection: &rusqlite::Connection) {
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('sync_observations') WHERE name = 'mapping_findings_revision')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if present {
+        connection.execute_batch(FINDING_REASON_DOWNGRADE).unwrap();
+    }
+}
+
 /// Restores schema 56, before objects kept the time their event-based hold was released.
 pub(crate) fn downgrade_event_hold_release_schema(connection: &rusqlite::Connection) {
+    downgrade_finding_reason_schema(connection);
     let present: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('objects') WHERE name = 'event_based_hold_release_time')",

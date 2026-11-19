@@ -60258,7 +60258,7 @@
           "id": "shared-sync-export-interfaces",
           "description": "Descriptor-relative cross-directory replacement and durable root-bound findings with idempotent generation checks, bounded keyset pages and conditional removal. Shared APIs only; runtime mirroring remains pending. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
           "result": "PASS",
-          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations"]
+          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations","mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record","name_findings_keep_an_export_conflict_until_the_generation_moves_on","finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"]
         },
         {
           "id": "shared-sync-pending-protection",
@@ -60941,7 +60941,10 @@
         "filesystem_import_rejects_destination_records_outside_its_prefix",
         "filesystem_import_source_replacement_during_publication_stays_unservable",
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit",
-        "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict"
+        "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict",
+        "mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record",
+        "name_findings_keep_an_export_conflict_until_the_generation_moves_on",
+        "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"
       ],
       "verification": [
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
@@ -61438,6 +61441,13 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["v1_migration_is_transactional_and_current_schema_reopens_idempotently"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::sync_state::findings server::admin::sync::findings storage::catalog::sync_state::observation",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record", "name_findings_keep_an_export_conflict_until_the_generation_moves_on", "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names"]
         }
       ],
       "sdk_evidence": [],
@@ -61743,7 +61753,7 @@
           "id": "shared-sync-export-durability",
           "description": "Sync both replacement parents before live durable/state commit, retain captured external bytes, reject spelling aliases and symlink traversal, and preserve findings/API/root/writeback state across transactional schema migration, restart and paired crash/power-loss snapshots. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
           "result": "PASS",
-          "test_ids": ["preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
+          "test_ids": ["preserved_live_export_crash_and_power_loss_keep_the_external_copy_before_acknowledgement","native_cleanup_failure_charges_the_actual_displaced_body_and_stops_new_exports","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback","schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts","schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"]
         },
         {
           "id": "shared-sync-writeback-durability",
@@ -62125,7 +62135,9 @@
         "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob",
         "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
         "import_publication_disk_full_rolls_back_records_observations_and_cursor",
-        "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit"
+        "import_publication_that_waits_past_the_catalog_wait_keeps_the_prefix", "import_publication_cancelled_caller_drains_commit",
+        "schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts",
+        "schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"
       ],
       "verification": [
         {
@@ -62435,6 +62447,13 @@
           "verified_at": "2026-11-07",
           "artifact": "docs/en/evidence/ledger-test-ids.md",
           "test_ids": ["fatal_listener_failure_drains_background_work_before_catalog_close"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog::sync_state::findings server::admin::sync::findings storage::catalog::sync_state::observation",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/native-binary.md",
+          "test_ids": ["schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_as_export_conflicts", "schema_58_migration_rolls_back_failed_attempts_and_then_upgrades"]
         }
       ],
       "sdk_evidence": [],

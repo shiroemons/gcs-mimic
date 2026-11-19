@@ -39,7 +39,7 @@ pub(super) fn value(
             "RecoveryRequired",
             "Inspect protected workspace entries; preserve them before an exact confirmed recovery discard or registered conflict transfer",
         ),
-        FindingReason::Mapping(Reason::Collision) => (
+        FindingReason::ExportConflict | FindingReason::Mapping(Reason::Collision) => (
             "Conflict",
             "Preserve the edited file; inspect conflicts or restore the previously exported bytes, then rescan",
         ),

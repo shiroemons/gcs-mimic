@@ -100,7 +100,10 @@ its identity and hashes are confirmed. API deletion first moves the checked
 file into the reserved workspace, validates it again and only then unlinks it.
 Directory sync precedes the fingerprint/state commit. A divergent target is
 left intact, logged with a preservation remedy and counted as a conflict;
-existing `collision` findings record both overwrite and deleted-object cases.
+`export-conflict` findings record both overwrite and deleted-object cases.
+Before catalog schema 58 these cases were recorded as `collision`, the reason a
+name collision also uses; a stored row cannot tell the two apart, so schema 58
+turns every such row into `export-conflict`.
 If the API advances after installation, state records the generation and
 fingerprint actually installed, allowing the next live generation to replace
 those known bytes without treating the export as an external edit.
@@ -282,7 +285,7 @@ side. A one-second stable observation precedes staging. Dedicated OS workers wal
 bounded pages, stat unchanged fingerprints without reading bodies, and stage only
 changed/racy files. Conditional publication inherits current metadata and skips
 equal hashes; API body races win and divergent files remain untouched with a
-durable collision finding. Interrupted activation resumes from atomic sync state.
+durable `export-conflict` finding. Interrupted activation resumes from atomic sync state.
 The runtime exposes an internal async rescan and native Linux/macOS observation;
 startup scans after ready and there is no periodic scan. The
 [continuous observation slice](continuous-directory-observation.md) records the

@@ -3,6 +3,7 @@
 use super::{
     OpaqueId, Ordinal, PageLimit,
     conflicts::RecoveryPhase,
+    findings::FindingKind,
     root::{RootError, RootId, RootLease},
     writeback,
 };
@@ -110,7 +111,7 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let category = row.get(2)?;
     let reason = match category {
         FindingCategory::RootStop => FindingReason::RootStop(row.get(7)?),
-        FindingCategory::Mapping => FindingReason::Mapping(row.get(7)?),
+        FindingCategory::Mapping => row.get::<_, FindingKind>(7)?.into(),
         FindingCategory::PathStop => FindingReason::PathStop(row.get(7)?),
         FindingCategory::Writeback => FindingReason::Writeback(row.get(7)?),
         FindingCategory::Conflict => FindingReason::Conflict(row.get(7)?),
@@ -153,6 +154,18 @@ fn revision(connection: &Connection, root: RootId) -> Result<i64, CatalogError> 
     sql::scalar(
         connection,
         "SELECT revision FROM sync_observations WHERE root_id=?1",
+        [root],
+    )
+    .map_err(unavailable)
+}
+
+/// Advances only when a mapping finding of `root` (a `sync_findings` row) is added, changed or
+/// removed. The observation revision, which the status `findings_revision` reports, also follows
+/// every tracked file, stop, write-back and conflict, so it changes on each synchronized save.
+fn mapping_findings_revision(connection: &Connection, root: RootId) -> Result<i64, CatalogError> {
+    sql::scalar(
+        connection,
+        "SELECT mapping_findings_revision FROM sync_observations WHERE root_id=?1",
         [root],
     )
     .map_err(unavailable)
@@ -235,6 +248,29 @@ impl RootLease {
                 let tx = connection.transaction()?;
                 authority.authorize(&tx, root)?;
                 read_summary(&tx, root)
+            })
+            .await
+            .map_err(RootError::from)
+    }
+
+    /// The revision of this root's mapping findings, read under `authority`.
+    #[cfg_attr(
+        not(all(test, unix)),
+        expect(
+            dead_code,
+            reason = "only the Unix unit tests read it until a reader of mapping findings is bound to it"
+        )
+    )]
+    pub(crate) async fn mapping_findings_revision_for(
+        &self,
+        authority: super::authority::ControlAuthority,
+    ) -> Result<i64, RootError> {
+        let root = self.status().root_id;
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                authority.authorize(&tx, root)?;
+                mapping_findings_revision(&tx, root)
             })
             .await
             .map_err(RootError::from)
