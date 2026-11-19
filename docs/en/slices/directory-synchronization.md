@@ -552,7 +552,9 @@ pass makes the next lookup read it again. On Linux the mirror asks for those
 attributes with `statx` and `AT_STATX_FORCE_SYNC`, because a FUSE mount,
 including the virtiofs mounts behind Docker Desktop bind mounts, and an NFS
 mount otherwise answer from an attribute cache that a rename made on the host
-does not invalidate; a kernel or seccomp profile without `statx` falls back to
+does not invalidate, as a Docker Desktop run records
+([evidence](../evidence/sync-listing-attribute-cache.txt)); a kernel or seccomp
+profile without `statx` falls back to
 `fstat` and its cache. macOS has no such request, and needs none: its observer
 accepts only a root on a local filesystem, whose `fstat` answers from the
 filesystem itself. A listing is
