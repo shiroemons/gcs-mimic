@@ -28,7 +28,8 @@ use std::{
 };
 
 mod presence;
-pub(super) use presence::{Missing, Presence, Unobservable, presence};
+pub(crate) use presence::Missing;
+pub(super) use presence::{Observed, Presence, Unobservable, observe, presence};
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
@@ -225,46 +226,32 @@ async fn count_candidates(
                 return Ok(None);
             }
             after.clone_from(&candidate.path);
-            let presence = match mapping::path_to_name(Path::new(&candidate.path), naming) {
+            let observed = match mapping::path_to_name(Path::new(&candidate.path), naming) {
                 Ok((bucket, name)) if bucket == candidate.bucket && name == candidate.name => {
-                    presence(root, candidate.path.clone()).await?
+                    observe(root, candidate).await?
                 }
-                Ok(_) | Err(_) => Presence::Unobservable(Unobservable::NameMismatch),
+                Ok(_) | Err(_) => Observed::Unobservable(candidate, Unobservable::NameMismatch),
             };
-            match presence {
-                Presence::Absent(absence) => {
-                    let missing_file = absence.of(candidate);
+            match observed {
+                Observed::Absent(missing_file) => {
                     gone.saw_absent(missing_file.candidate(), missing_file.removal());
                     missing.push(missing_file);
                 }
-                Presence::Present => gone.saw_present(&candidate),
-                Presence::Unobservable(reason) => {
+                Observed::Present(candidate) => gone.saw_present(&candidate),
+                Observed::Unobservable(candidate, reason) => {
                     unobservable(root, &candidate, &reason, unobserved).await?;
                 }
             }
         }
-        if record_missing(root, inventory, baseline, missing).await? == Confirmed::Diverged {
+        // Only a path seen empty becomes a candidate.
+        if root
+            .record_deletion_candidates(inventory, baseline, missing)
+            .await?
+            == Confirmed::Diverged
+        {
             return Ok(Some(Confirmed::Diverged));
         }
     }
-}
-
-/// Records one page of the inventory: `baseline` tracked live files, of which `missing` were
-/// seen absent. Only a path seen empty becomes a candidate.
-async fn record_missing(
-    root: &RootLease,
-    inventory: &mut Inventory,
-    baseline: u64,
-    missing: Vec<Missing>,
-) -> Result<Confirmed, SyncError> {
-    let removal = missing
-        .iter()
-        .map(Missing::removal)
-        .fold(Removal::Files, Removal::and);
-    let candidates = missing.into_iter().map(Missing::into_candidate).collect();
-    Ok(root
-        .record_deletion_candidates(inventory, baseline, candidates, removal)
-        .await?)
 }
 
 /// What an inventory finds of the buckets whose tracked files may all have gone at once: a
@@ -535,9 +522,9 @@ pub(super) async fn execute_with(
             after = candidate.ordinal;
             // A file that came back, or a path that no longer tells, ends this set; the next
             // inventory leaves that member out and keeps the others.
-            let missing = match presence(root, candidate.path.clone()).await? {
-                Presence::Absent(absence) => absence.of(candidate),
-                Presence::Present | Presence::Unobservable(_) => {
+            let missing = match observe(root, candidate).await? {
+                Observed::Absent(missing) => missing,
+                Observed::Present(_) | Observed::Unobservable(..) => {
                     root.invalidate_deletions().await?;
                     return Ok(applied);
                 }

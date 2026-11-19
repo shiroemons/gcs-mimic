@@ -109,12 +109,13 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .begin_deletion_inventory(Guard::Disabled)
         .await
         .unwrap();
-    let page = root
+    let mut page = root
         .deletion_inventory_page(inventory.clone(), String::new())
         .await
         .unwrap();
     assert_eq!(page.len(), 1);
-    root.record_deletion_candidates(&mut inventory, 1, page, Removal::Files)
+    let missing = crate::sync::test_support::seen_missing(&root, page.remove(0)).await;
+    root.record_deletion_candidates(&mut inventory, 1, vec![missing])
         .await
         .unwrap();
     let set = root

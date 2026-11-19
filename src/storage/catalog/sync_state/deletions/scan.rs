@@ -1,5 +1,8 @@
 use super::*;
-use crate::storage::{catalog::sql, sync_state::SyncRecord};
+use crate::{
+    storage::{catalog::sql, sync_state::SyncRecord},
+    sync::Missing,
+};
 
 /// The tracked files a deletion inventory looks at, as the `FROM … WHERE` of a query whose `?1`
 /// is the root: each tracks its object's live generation in a bucket incarnation that still
@@ -92,34 +95,38 @@ fn reusable(
     .map_err(unavailable)
 }
 
-/// Whether `candidates` are the members of the set `revision` that follow ordinal `after`.
+/// Whether the candidates of `missing` are the members of the set `revision` that follow ordinal
+/// `after`.
 fn same_members(
     connection: &Connection,
     root: RootId,
     revision: OpaqueId,
     after: u64,
-    candidates: &[Candidate],
+    missing: &[Missing],
 ) -> Result<bool, CatalogError> {
     let members: Vec<Candidate> = connection
         .prepare_cached("SELECT m.bucket,m.name,m.owner_project,m.incarnation,m.generation,m.path,m.ordinal FROM sync_deletion_members m JOIN sync_deletion_sets d ON d.root_id=m.root_id WHERE m.root_id=?1 AND d.revision=?2 AND m.ordinal>?3 AND m.done=0 ORDER BY m.ordinal LIMIT ?4")
         .and_then(|mut statement| {
             statement
                 .query_map(
-                    params![root, revision, after, candidates.len()],
+                    params![root, revision, after, missing.len()],
                     read_candidate,
                 )?
                 .collect()
         })
         .map_err(unavailable)?;
-    Ok(members.len() == candidates.len()
-        && members.iter().zip(candidates).all(|(member, candidate)| {
-            member.bucket == candidate.bucket
-                && member.name == candidate.name
-                && member.owner_project == candidate.owner_project
-                && member.bucket_incarnation == candidate.bucket_incarnation
-                && member.generation == candidate.generation
-                && member.path == candidate.path
-        }))
+    Ok(members.len() == missing.len()
+        && members
+            .iter()
+            .zip(missing.iter().map(Missing::candidate))
+            .all(|(member, candidate)| {
+                member.bucket == candidate.bucket
+                    && member.name == candidate.name
+                    && member.owner_project == candidate.owner_project
+                    && member.bucket_incarnation == candidate.bucket_incarnation
+                    && member.generation == candidate.generation
+                    && member.path == candidate.path
+            }))
 }
 
 impl RootLease {
@@ -316,18 +323,21 @@ impl RootLease {
             .await?)
     }
 
-    /// Adds one page of the inventory: `baseline` tracked live files, of which `candidates` are
-    /// absent, with what `removal` saw gone above them. A new set records them; a confirming
-    /// inventory only compares them with the earlier set and writes nothing.
+    /// Adds one page of the inventory: `baseline` tracked live files, of which `missing` were seen
+    /// absent, with what was gone above them. A new set records them; a confirming inventory only
+    /// compares them with the earlier set and writes nothing. Only candidates whose own paths
+    /// were seen empty reach here, which is all a [`Missing`] can hold.
     pub(crate) async fn record_deletion_candidates(
         &self,
         inventory: &mut Inventory,
         baseline: u64,
-        candidates: Vec<Candidate>,
-        removal: Removal,
+        missing: Vec<Missing>,
     ) -> Result<Confirmed, RootError> {
-        inventory.removal = inventory.removal.and(removal);
-        let found = candidates.len() as u64;
+        inventory.removal = missing
+            .iter()
+            .map(Missing::removal)
+            .fold(inventory.removal, Removal::and);
+        let found = missing.len() as u64;
         if found > 256 || baseline > 256 || baseline < found {
             return Err(AdminError::Invalid("invalid deletion inventory page".into()).into());
         }
@@ -338,14 +348,14 @@ impl RootLease {
             scope.authorize(&transaction)?;
             if fence(&transaction)?!=selected.fence {return Err(CatalogError::PreconditionFailed)}
             if let Draft::Confirming { candidates: counted, .. } = selected.draft {
-                let same = same_members(&transaction, selected.root, selected.revision, counted, &candidates)?;
+                let same = same_members(&transaction, selected.root, selected.revision, counted, &missing)?;
                 return Ok(if same { Confirmed::Same } else { Confirmed::Diverged });
             }
             let ordinal:u64=sql::scalar(&transaction, "SELECT candidate_count FROM sync_deletion_sets WHERE root_id=?1 AND revision=?2 AND complete=0", params![selected.root,selected.revision])?;
-            for (index,candidate) in candidates.iter().enumerate() {
+            for (index,candidate) in missing.iter().map(Missing::candidate).enumerate() {
                 sql::exec(&transaction, "INSERT INTO sync_deletion_members VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0)", params![selected.root,ordinal+u64::try_from(index).map_err(unavailable)?+1,candidate.bucket,candidate.name,candidate.owner_project,candidate.bucket_incarnation,candidate.generation,candidate.path])?;
             }
-            sql::exec(&transaction, "UPDATE sync_deletion_sets SET baseline_count=baseline_count+?3,candidate_count=candidate_count+?4 WHERE root_id=?1 AND revision=?2 AND complete=0", params![selected.root,selected.revision,baseline,candidates.len()])?;
+            sql::exec(&transaction, "UPDATE sync_deletion_sets SET baseline_count=baseline_count+?3,candidate_count=candidate_count+?4 WHERE root_id=?1 AND revision=?2 AND complete=0", params![selected.root,selected.revision,baseline,missing.len()])?;
             transaction.commit()?;
             Ok(Confirmed::Same)
         }).await?;

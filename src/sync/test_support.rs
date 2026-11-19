@@ -5,7 +5,7 @@
 
 /// The rescan faults a mirror test arms, which a test of the control route arms as well.
 pub(crate) use super::mirror::{RescanFault, arm_rescan_fault};
-use super::{Hook, RootLease};
+use super::{Hook, Missing, RootLease};
 use crate::{
     clock::SystemClock,
     config::Config,
@@ -14,7 +14,7 @@ use crate::{
         Catalog,
         admin::{BucketDefinition, BucketName, Origin},
         fault::copy_with_times,
-        sync_state::{SyncFingerprint, SyncPath, SyncUpdate},
+        sync_state::{SyncFingerprint, SyncPath, SyncUpdate, deletions::Candidate},
     },
     test_support::TestDir,
 };
@@ -190,4 +190,13 @@ pub(crate) fn restore_tree(snapshot: &Path, tree: &Path, targets: &[&str]) {
             Err(error) => panic!("{}: {error}", kept.display()),
         }
     }
+}
+
+/// `candidate`, whose path the test emptied, as the inventory sees it missing.
+pub(crate) async fn seen_missing(root: &RootLease, candidate: Candidate) -> Missing {
+    let observed = super::deletion::observe(root, candidate).await.unwrap();
+    let super::deletion::Observed::Absent(missing) = observed else {
+        panic!("the path is not seen empty: {observed:?}");
+    };
+    missing
 }
