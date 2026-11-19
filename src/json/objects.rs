@@ -1,5 +1,5 @@
 use super::{
-    FieldSelection, JsonError, Projection, ResponseCache, Schema, WriteMode,
+    ApiError, FieldSelection, Projection, ResponseCache, Schema, WriteMode,
     buckets::{PredefinedAclTarget, encode_segment},
     integer::take_long,
     query::{BUCKET_PATH, BucketCheck, MAX_OBJECT_SEGMENT_BYTES, boolean, path_bucket, projection},
@@ -273,7 +273,7 @@ impl ObjectRequest {
 
 /// Match raw path segments before decoding object names exactly once.
 #[cfg(test)]
-pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
+pub(crate) fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, ApiError>> {
     route_object_with_profile(method, uri, CompatProfile::Native)
 }
 
@@ -281,7 +281,7 @@ pub(crate) fn route_object_with_profile(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<ObjectRequest, JsonError>> {
+) -> Option<Result<ObjectRequest, ApiError>> {
     super::object_restore::route(method, uri, profile)
         .or_else(|| super::object_move::route(method, uri, profile))
         .or_else(|| super::object_copy::route(method, uri, profile))
@@ -365,16 +365,16 @@ impl<'a> ObjectPath<'a> {
         method: &Method,
         uri: &Uri,
         profile: CompatProfile,
-    ) -> Result<ObjectRequest, JsonError> {
+    ) -> Result<ObjectRequest, ApiError> {
         if !self.allows(method) {
             // Cloud Storage answered `POST` to an object resource with its bare not-found page.
             if matches!(self, Self::Object { .. }) && *method == Method::POST {
                 return Err(
-                    JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found")
-                        .with_plain(&super::error::NOT_FOUND_HTML),
+                    ApiError::new(StatusCode::NOT_FOUND, "notFound", "Not Found")
+                        .with_plain(&crate::api_error::NOT_FOUND_HTML),
                 );
             }
-            return Err(JsonError::method_not_allowed(
+            return Err(ApiError::method_not_allowed(
                 "HTTP method is not supported for this object endpoint",
                 Some(self.allow()),
             ));
@@ -394,7 +394,7 @@ impl<'a> ObjectPath<'a> {
                 let name = path_object(object)?;
                 let request = parse_object_query(method, bucket, QueryObject::Named(name), raw)?;
                 if matches!(&request, ObjectRequest::Get { params, .. } if !params.media) {
-                    return Err(JsonError::new(
+                    return Err(ApiError::new(
                         StatusCode::BAD_REQUEST,
                         "notDownload",
                         "Download endpoints require alt=media",
@@ -413,9 +413,9 @@ fn single_segment(segment: &str) -> Option<&str> {
 
 /// The decoded object of a raw path segment: at most [`MAX_OBJECT_SEGMENT_BYTES`] encoded
 /// bytes, then decoded, then checked.
-fn path_object(segment: &str) -> Result<String, JsonError> {
+fn path_object(segment: &str) -> Result<String, ApiError> {
     if segment.len() > MAX_OBJECT_SEGMENT_BYTES {
-        return Err(JsonError::invalid_parameter("Invalid object name"));
+        return Err(ApiError::invalid_parameter("Invalid object name"));
     }
     let name = decode(segment, Decoding::Path)?;
     validate_object_name(&name)?;
@@ -423,9 +423,9 @@ fn path_object(segment: &str) -> Result<String, JsonError> {
 }
 
 /// Validate the flat-namespace requirements, not optional CLI/filesystem recommendations.
-pub(crate) fn validate_object_name(name: &str) -> Result<(), JsonError> {
+pub(crate) fn validate_object_name(name: &str) -> Result<(), ApiError> {
     crate::object::name::validate(name)
-        .map_err(|_| JsonError::invalid_parameter("Invalid object name"))
+        .map_err(|_| ApiError::invalid_parameter("Invalid object name"))
 }
 
 /// The object a query applies to. An upload names its object in the query or its metadata;
@@ -450,7 +450,7 @@ fn parse_object_query(
     bucket: String,
     object: QueryObject,
     raw: &str,
-) -> Result<ObjectRequest, JsonError> {
+) -> Result<ObjectRequest, ApiError> {
     let mut query = parse_query(raw)?;
     // Uploads apply predefinedAcl; other methods keep the server's explicit rejection.
     let predefined_acl = match object {
@@ -462,12 +462,12 @@ fn parse_object_query(
         None | Some("json") => false,
         Some("media") if matches!(*method, Method::GET | Method::HEAD) => true,
         Some("media") => {
-            return Err(JsonError::invalid_parameter(
+            return Err(ApiError::invalid_parameter(
                 "alt=media requires GET or HEAD",
             ));
         }
         Some(other) => {
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalidAltValue",
                 format!("Unknown output format: {other}"),
@@ -507,7 +507,7 @@ fn parse_object_query(
 fn take_common_parameters(
     method: &Method,
     query: &mut BTreeMap<String, String>,
-) -> Result<Option<String>, JsonError> {
+) -> Result<Option<String>, ApiError> {
     // A media download has no JSON body to select from: Cloud Storage returned the object bytes
     // for `alt=media&fields=name` (case obj-fields-selectors).
     if method == Method::DELETE || query.get("alt").is_some_and(|alt| alt == "media") {
@@ -515,7 +515,7 @@ fn take_common_parameters(
     } else {
         super::Fields::take(query, super::Schema::Object)?;
     }
-    super::query::standard_parameters(query, &[], JsonError::unsupported_object)?;
+    super::query::standard_parameters(query, &[], ApiError::unsupported_object)?;
     let content_encoding = if method == Method::POST {
         query.remove("contentEncoding")
     } else {
@@ -531,7 +531,7 @@ fn take_common_parameters(
     };
     for key in method_keys {
         if query.contains_key(*key) {
-            return Err(JsonError::unsupported_object(key));
+            return Err(ApiError::unsupported_object(key));
         }
     }
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
@@ -551,7 +551,7 @@ struct UploadQuery {
 pub(super) fn take_predefined_acl(
     query: &mut BTreeMap<String, String>,
     key: &str,
-) -> Result<Option<crate::acl::PredefinedObjectAcl>, JsonError> {
+) -> Result<Option<crate::acl::PredefinedObjectAcl>, ApiError> {
     query
         .remove(key)
         .map(|value| parse_predefined_acl(key, &value))
@@ -561,25 +561,25 @@ pub(super) fn take_predefined_acl(
 fn parse_predefined_acl(
     key: &str,
     value: &str,
-) -> Result<crate::acl::PredefinedObjectAcl, JsonError> {
+) -> Result<crate::acl::PredefinedObjectAcl, ApiError> {
     value.parse().map_err(|_| {
-        JsonError::invalid_parameter(format!(
+        ApiError::invalid_parameter(format!(
             "Invalid {key} {value:?}; use authenticatedRead, bucketOwnerFullControl, bucketOwnerRead, private, projectPrivate or publicRead (for example, {key}=publicRead)"
         ))
     })
 }
 
 /// The upload front end's answer to an upload type it does not serve: a bare text page.
-pub(crate) fn unsupported_upload_type() -> JsonError {
-    JsonError::invalid_parameter("uploadType must be media, multipart or resumable")
-        .with_plain(&super::error::BAD_REQUEST_TEXT)
+pub(crate) fn unsupported_upload_type() -> ApiError {
+    ApiError::invalid_parameter("uploadType must be media, multipart or resumable")
+        .with_plain(&crate::api_error::BAD_REQUEST_TEXT)
 }
 
 fn parse_upload_query(
     bucket: String,
     mut query: BTreeMap<String, String>,
     upload: UploadQuery,
-) -> Result<ObjectRequest, JsonError> {
+) -> Result<ObjectRequest, ApiError> {
     let UploadQuery {
         conditions,
         content_encoding,
@@ -636,13 +636,13 @@ enum UploadName {
 impl UploadName {
     /// Reads `uploadType` and `name` in Cloud Storage's order: an unknown type, then an invalid
     /// name, then a media upload without one.
-    fn take(query: &mut BTreeMap<String, String>) -> Result<Self, JsonError> {
-        let named: fn(Option<String>) -> Result<Self, JsonError> =
+    fn take(query: &mut BTreeMap<String, String>) -> Result<Self, ApiError> {
+        let named: fn(Option<String>) -> Result<Self, ApiError> =
             match query.remove("uploadType").as_deref() {
                 // An upload that names no type was stored as a media upload (recorded 200).
                 None | Some("media") => |name| {
                     name.map(Self::Media)
-                        .ok_or_else(JsonError::missing_object_name)
+                        .ok_or_else(ApiError::missing_object_name)
                 },
                 Some("multipart") => |name| Ok(Self::Multipart(name)),
                 Some("resumable") => |name| Ok(Self::Resumable(name)),
@@ -658,7 +658,7 @@ impl UploadName {
 
 /// A resumable session cannot start under a generation below zero or a metageneration below
 /// one, which no object can have.
-fn validate_session_preconditions(conditions: &ObjectConditions) -> Result<(), JsonError> {
+fn validate_session_preconditions(conditions: &ObjectConditions) -> Result<(), ApiError> {
     if conditions.if_generation_match.is_some_and(|n| n < 0)
         || conditions.if_generation_not_match.is_some_and(|n| n < 0)
         || conditions.if_metageneration_match.is_some_and(|n| n <= 0)
@@ -666,7 +666,7 @@ fn validate_session_preconditions(conditions: &ObjectConditions) -> Result<(), J
             .if_metageneration_not_match
             .is_some_and(|n| n <= 0)
     {
-        return Err(JsonError::invalid_parameter("Invalid upload precondition"));
+        return Err(ApiError::invalid_parameter("Invalid upload precondition"));
     }
     Ok(())
 }
@@ -683,7 +683,7 @@ fn parse_named_object_query(
     method: &Method,
     target: QueryTarget,
     mut query: BTreeMap<String, String>,
-) -> Result<ObjectRequest, JsonError> {
+) -> Result<ObjectRequest, ApiError> {
     let QueryTarget {
         bucket,
         name,
@@ -719,7 +719,7 @@ fn parse_named_object_query(
     if matches!(*method, Method::GET | Method::HEAD) {
         let soft_deleted = boolean(&mut query, "softDeleted")?;
         if soft_deleted && (target.generation.is_none() || media) {
-            return Err(JsonError::invalid_argument(
+            return Err(ApiError::invalid_argument(
                 "softDeleted=true requires generation and forbids alt=media; use generation=123&softDeleted=true",
             ));
         }
@@ -771,7 +771,7 @@ impl ConditionKeys {
 pub(super) fn take_conditions(
     query: &mut BTreeMap<String, String>,
     keys: ConditionKeys,
-) -> Result<ObjectConditions, JsonError> {
+) -> Result<ObjectConditions, ApiError> {
     let [
         generation_match,
         generation_not_match,
@@ -796,12 +796,12 @@ pub(super) fn match_and_not_match(conditions: &ObjectConditions) -> bool {
 }
 
 /// `keys` lists the customer-supplied key header prefixes the caller parses itself.
-fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonError> {
+fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), ApiError> {
     let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
     if let Some(token) = tokens.next()
         && (token.as_bytes().trim_ascii().is_empty() || tokens.next().is_some())
     {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Expected a single non-empty x-goog-gcs-idempotency-token header",
         ));
     }
@@ -818,7 +818,7 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonErr
             || name.starts_with("x-goog-meta-")
             || matches!(name, "x-goog-user-project" | "x-http-method-override")
         {
-            return Err(JsonError::unsupported_object(name));
+            return Err(ApiError::unsupported_object(name));
         }
     }
     Ok(())
@@ -827,7 +827,7 @@ fn unsupported_headers(headers: &HeaderMap, keys: &[&str]) -> Result<(), JsonErr
 /// The `Content-Type` an upload stores, checked with the rest of its headers without consuming
 /// or collecting the body. Callers read the destination customer-supplied key separately with
 /// [`super::request_key`].
-pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
     unsupported_headers(headers, &[crate::csek::DESTINATION_PREFIX])?;
     validate_read_condition_headers(headers, EtagConditions::Unsupported)?;
     if let Some(mime) = super::resumable::single(headers, "x-upload-content-type")? {
@@ -836,7 +836,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
         advisory.insert(
             "content-type",
             mime.parse()
-                .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
+                .map_err(|_| ApiError::invalid_parameter("Invalid upload content type"))?,
         );
         crate::object::upload_headers::upload_content_type(&advisory)?;
     }
@@ -848,7 +848,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
         "x-upload-content-length",
     ] {
         if headers.contains_key(name) {
-            return Err(JsonError::unsupported_object(name));
+            return Err(ApiError::unsupported_object(name));
         }
     }
     // `X-Goog-Hash` is not examined either. Recorded JSON media uploads that named a wrong,
@@ -860,7 +860,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
 /// Reject unsupported encryption headers explicitly. `If-Range` is not one: Cloud Storage
 /// honored the `Range` of a media read without evaluating it.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
-pub(crate) fn validate_object_get_headers(headers: &HeaderMap) -> Result<(), JsonError> {
+pub(crate) fn validate_object_get_headers(headers: &HeaderMap) -> Result<(), ApiError> {
     validate_keyed_object_headers(headers, &[])
 }
 
@@ -868,7 +868,7 @@ pub(crate) fn validate_object_get_headers(headers: &HeaderMap) -> Result<(), Jso
 pub(crate) fn validate_keyed_object_headers(
     headers: &HeaderMap,
     keys: &[&str],
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     unsupported_headers(headers, keys)?;
     Ok(())
 }
@@ -890,7 +890,7 @@ pub(crate) enum EtagConditions {
 pub(crate) fn validate_read_condition_headers(
     headers: &HeaderMap,
     etags: EtagConditions,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if matches!(etags, EtagConditions::Supported | EtagConditions::MatchOnly) {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
             if (name == "if-modified-since" && headers.contains_key("if-none-match"))
@@ -899,7 +899,7 @@ pub(crate) fn validate_read_condition_headers(
                 continue;
             }
             if headers.contains_key(name) {
-                return Err(JsonError::unsupported_object(name));
+                return Err(ApiError::unsupported_object(name));
             }
         }
     }
@@ -908,7 +908,7 @@ pub(crate) fn validate_read_condition_headers(
             && (etags == EtagConditions::Unsupported
                 || (etags == EtagConditions::MatchOnly && name == "if-none-match"))
         {
-            return Err(JsonError::unsupported_object(name));
+            return Err(ApiError::unsupported_object(name));
         }
     }
     Ok(())
@@ -1030,7 +1030,7 @@ impl std::fmt::Display for UnsatisfiableRange {
 impl std::error::Error for UnsatisfiableRange {}
 
 /// Cloud Storage's JSON answer: 416 `requestedRangeNotSatisfiable`.
-impl From<UnsatisfiableRange> for JsonError {
+impl From<UnsatisfiableRange> for ApiError {
     fn from(UnsatisfiableRange: UnsatisfiableRange) -> Self {
         Self::new(
             StatusCode::RANGE_NOT_SATISFIABLE,
@@ -1078,7 +1078,7 @@ pub(crate) fn object_resource(
     object: &ObjectRecord,
     base_url: &str,
     projection: Projection,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     // ACL and owner projection requires current catalog authorization in the server adapter.
     let (Projection::NoAcl | Projection::Full) = projection;
     let base = base_url.trim_end_matches('/');
@@ -1231,7 +1231,7 @@ pub(crate) enum Gunzip {
 pub(crate) fn object_media_transcoding(
     headers: &HeaderMap,
     object: &ObjectRecord,
-) -> Result<Transcoding, JsonError> {
+) -> Result<Transcoding, ApiError> {
     if !object_media_negotiable(object) {
         return Ok(Transcoding::Stored);
     }
@@ -1245,13 +1245,13 @@ pub(crate) fn object_media_transcoding(
 }
 
 /// Whether `Accept-Encoding` admits gzip, directly or through `*`.
-fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
+fn accepts_gzip(headers: &HeaderMap) -> Result<bool, ApiError> {
     let mut gzip = None;
     let mut wildcard = None;
     for header in headers.get_all("accept-encoding") {
         let value = header
             .to_str()
-            .map_err(|_| JsonError::invalid_parameter("Invalid Accept-Encoding"))?;
+            .map_err(|_| ApiError::invalid_parameter("Invalid Accept-Encoding"))?;
         for entry in value
             .split(',')
             .map(str::trim)
@@ -1262,10 +1262,10 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
             let encoding = parts.next().unwrap_or_default().trim();
             let allowed = if let Some(parameter) = parts.next() {
                 let (name, quality) = parameter.trim().split_once('=').ok_or_else(|| {
-                    JsonError::invalid_parameter("Invalid Accept-Encoding quality")
+                    ApiError::invalid_parameter("Invalid Accept-Encoding quality")
                 })?;
                 if !name.eq_ignore_ascii_case("q") || parts.next().is_some() {
-                    return Err(JsonError::invalid_parameter(
+                    return Err(ApiError::invalid_parameter(
                         "Invalid Accept-Encoding parameter",
                     ));
                 }
@@ -1276,7 +1276,7 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
                     || !fraction.bytes().all(|byte| byte.is_ascii_digit())
                     || (whole == "1" && fraction.bytes().any(|byte| byte != b'0'))
                 {
-                    return Err(JsonError::invalid_parameter(
+                    return Err(ApiError::invalid_parameter(
                         "Invalid Accept-Encoding quality",
                     ));
                 }
@@ -1292,7 +1292,7 @@ fn accepts_gzip(headers: &HeaderMap) -> Result<bool, JsonError> {
                 continue;
             };
             if selected.replace(allowed).is_some() {
-                return Err(JsonError::invalid_parameter(
+                return Err(ApiError::invalid_parameter(
                     "Duplicate Accept-Encoding token",
                 ));
             }

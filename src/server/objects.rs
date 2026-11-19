@@ -13,10 +13,11 @@ use super::{
     retention_access, validate_bodyless_post,
 };
 use crate::{
+    api_error::ApiError,
     auth,
     bucket::{BucketAccess, CatalogError},
     csek::CustomerKey,
-    json::{self, JsonError, ObjectRequest, UploadRequest},
+    json::{self, ObjectRequest, UploadRequest},
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     storage::{MoveAccess, RestoreAccess, UploadAclSnapshot},
 };
@@ -52,7 +53,7 @@ impl Written {
         projection: json::Projection,
         key: Option<CustomerKey>,
         acl: AclSource,
-    ) -> Result<Self, JsonError> {
+    ) -> Result<Self, ApiError> {
         let value =
             json::object_resource_keyed(record, ctx.endpoints.api_base_url(), projection, key)?;
         Ok(Self::object(value, record, acl))
@@ -82,7 +83,7 @@ pub(super) async fn respond(
     request: Request<Incoming>,
     operation: ObjectRequest,
     ctx: ObjectCtx<'_>,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let fields = response_fields(request.uri().query(), operation.fields())?;
     let (permission, bucket) = operation.required_permission();
     // Authorization precedes header/body validation, conditions and existence checks.
@@ -121,13 +122,13 @@ pub(super) async fn respond(
                 ctx,
             )
             .await
-            .map_err(JsonError::for_upload);
+            .map_err(ApiError::for_upload);
         }
         ObjectRequest::List(params) => list(request.headers(), ctx, &access, &params).await?,
         ObjectRequest::Update(params) => update(request, ctx, &access, params).await?,
         ObjectRequest::Multipart(target) => upload::multipart(request, ctx, access, target)
             .await
-            .map_err(JsonError::for_upload)?,
+            .map_err(ApiError::for_upload)?,
         ObjectRequest::Insert(target) => upload::insert(request, ctx, access, target).await?,
         ObjectRequest::Get {
             target,
@@ -167,7 +168,7 @@ async fn check_predefined_acl(
     bucket: &str,
     operation: &ObjectRequest,
     access: &BucketAccess,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let record = ctx
         .state
         .catalog
@@ -183,7 +184,7 @@ async fn check_predefined_acl(
 }
 
 /// Header and body checks that precede every operation's own validation.
-fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), JsonError> {
+fn validate_request(headers: &HeaderMap, operation: &ObjectRequest) -> Result<(), ApiError> {
     if let Some(etags) = operation.etag_conditions() {
         json::validate_read_condition_headers(headers, etags)?;
     }
@@ -198,7 +199,7 @@ async fn add_acl(
     ctx: ObjectCtx<'_>,
     rendered: &mut Rendered,
     source: AclSource,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let snapshot = match source {
         AclSource::Live => {
             return acl::add_full_projection(
@@ -216,7 +217,7 @@ async fn add_acl(
     };
     // A replay is recorded only by an upload or a copy, which render one object.
     let mismatch = || {
-        JsonError::from(ObjectError::Unavailable(
+        ApiError::from(ObjectError::Unavailable(
             "Upload replay snapshot does not match the replayed object".into(),
         ))
     };
@@ -245,7 +246,7 @@ async fn add_acl(
 }
 
 /// The idempotency token that lets a retried write replay its first response.
-fn idempotency_token(headers: &HeaderMap) -> Result<Option<String>, JsonError> {
+fn idempotency_token(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
     Ok(json::resumable::single(headers, "x-goog-gcs-idempotency-token")?.map(str::to_owned))
 }
 
@@ -256,7 +257,7 @@ async fn restore(
     query: &BTreeMap<String, String>,
     target: ObjectTarget<i64>,
     conditions: ObjectConditions,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     json::validate_object_get_headers(request.headers())?;
     validate_bodyless_post(request, query, EmptyJsonBody::Accepted).await?;
     let create_access = ctx.authorize(auth::OBJECTS_CREATE, &target.bucket).await?;
@@ -285,7 +286,7 @@ async fn move_object(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     params: json::ObjectMoveParams,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     let json::ObjectMoveParams {
         names,
         conditions,
@@ -297,7 +298,7 @@ async fn move_object(
     if !bytes.is_empty()
         && serde_json::from_slice::<Value>(&bytes).ok() != Some(serde_json::json!({}))
     {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Move requires an empty body or an empty JSON object",
         ));
     }
@@ -335,8 +336,8 @@ async fn move_object(
                         .and_then(crate::acl::Entity::user_id)
                         .map(str::to_owned),
                 };
-                let Some(principal) = principal else { return JsonError::forbidden() };
-                JsonError::new(
+                let Some(principal) = principal else { return ApiError::forbidden() };
+                ApiError::new(
                     StatusCode::FORBIDDEN,
                     "forbidden",
                     format!(
@@ -356,7 +357,7 @@ async fn list(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     params: &json::ObjectListParams,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     json::validate_object_get_headers(headers)?;
     let page = ctx
         .state
@@ -383,7 +384,7 @@ async fn update(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     params: json::ObjectUpdateParams,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     let json::ObjectUpdateParams {
         target,
         conditions,

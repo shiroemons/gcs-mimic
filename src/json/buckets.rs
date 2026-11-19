@@ -1,4 +1,4 @@
-use super::{JsonError, Projection, WriteMode, query::validate_project};
+use super::{ApiError, Projection, WriteMode, query::validate_project};
 use crate::bucket::resource::{
     self, LEGACY_LOCATION, UNSUPPORTED_FIELDS, parse_cors, parse_lifecycle, parse_object_retention,
     parse_public_access_prevention, parse_retention_period, parse_soft_delete_retention,
@@ -19,9 +19,9 @@ use std::{collections::BTreeMap, time::SystemTime};
 /// The project number the fake-gcs-server profile reports for every bucket.
 const LEGACY_PROJECT_NUMBER: &str = "0";
 
-pub(crate) fn validate_bucket_name(name: &str) -> Result<(), JsonError> {
+pub(crate) fn validate_bucket_name(name: &str) -> Result<(), ApiError> {
     crate::bucket::name::validate(name)
-        .map_err(|_| JsonError::invalid_parameter("Invalid bucket name"))
+        .map_err(|_| ApiError::invalid_parameter("Invalid bucket name"))
 }
 
 /// Parse the native bucket metadata subset.
@@ -29,24 +29,20 @@ pub fn parse_insert(
     bytes: &[u8],
     project: &str,
     now: SystemTime,
-) -> Result<BucketRecord, JsonError> {
+) -> Result<BucketRecord, ApiError> {
     parse_insert_with_profile(bytes, project, now, CompatProfile::Native, "US")
 }
 
 /// The fake-gcs-server profile keeps fake-gcs-server's wording; Cloud Storage reports a parser position.
-fn bucket_parse_error(
-    bytes: &[u8],
-    error: &serde_json::Error,
-    profile: CompatProfile,
-) -> JsonError {
+fn bucket_parse_error(bytes: &[u8], error: &serde_json::Error, profile: CompatProfile) -> ApiError {
     if profile == CompatProfile::FakeGcsServer {
-        return JsonError::legacy_parse_error("Invalid JSON bucket resource");
+        return ApiError::legacy_parse_error("Invalid JSON bucket resource");
     }
-    JsonError::parse_error(bytes, error)
+    crate::json::parse_error(bytes, error)
 }
 
 /// fake-gcs-server reads only the first JSON value of an insert body and ignores the rest.
-fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, JsonError> {
+fn parse_insert_json(bytes: &[u8], profile: CompatProfile) -> Result<Value, ApiError> {
     let parsed = if profile == CompatProfile::FakeGcsServer {
         serde_json::Deserializer::from_slice(bytes)
             .into_iter::<Value>()
@@ -64,24 +60,24 @@ pub(crate) fn parse_insert_with_profile(
     now: SystemTime,
     profile: CompatProfile,
     default_location: &str,
-) -> Result<BucketRecord, JsonError> {
+) -> Result<BucketRecord, ApiError> {
     // An invalid project is reported before a malformed body.
     validate_project(project)?;
     let value = parse_insert_json(bytes, profile)?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;
+        .ok_or_else(|| ApiError::invalid("Bucket resource must be a JSON object"))?;
     resource::parse_insert(body, project, now, profile, default_location)
 }
 
 /// Rejects a body whose `name` disagrees with the bucket named in the path, as Cloud Storage does
 /// for PATCH and PUT. An absent or non-string name is left to the ordinary field handling.
-pub(crate) fn require_matching_bucket_name(bytes: &[u8], bucket: &str) -> Result<(), JsonError> {
+pub(crate) fn require_matching_bucket_name(bytes: &[u8], bucket: &str) -> Result<(), ApiError> {
     let Ok(Value::Object(body)) = serde_json::from_slice::<Value>(bytes) else {
         return Ok(());
     };
     match body.get("name").and_then(Value::as_str) {
-        Some(name) if name != bucket => Err(JsonError::content_disagrees(name, bucket)),
+        Some(name) if name != bucket => Err(ApiError::content_disagrees(name, bucket)),
         _ => Ok(()),
     }
 }
@@ -89,14 +85,14 @@ pub(crate) fn require_matching_bucket_name(bytes: &[u8], bucket: &str) -> Result
 pub(crate) fn parse_bucket_patch(
     bytes: &[u8],
     profile: CompatProfile,
-) -> Result<BucketMetadataUpdate, JsonError> {
+) -> Result<BucketMetadataUpdate, ApiError> {
     parse_bucket_update(bytes, profile, WriteMode::Patch)
 }
 
 pub(crate) fn parse_bucket_replacement(
     bytes: &[u8],
     profile: CompatProfile,
-) -> Result<BucketMetadataUpdate, JsonError> {
+) -> Result<BucketMetadataUpdate, ApiError> {
     parse_bucket_update(bytes, profile, WriteMode::Replace)
 }
 
@@ -106,7 +102,7 @@ fn update_labels(
     value: &Value,
     mode: WriteMode,
     profile: CompatProfile,
-) -> Result<MapPatch, JsonError> {
+) -> Result<MapPatch, ApiError> {
     // A labels member that is not a map clears every label, like null. A string was confirmed in
     // the recording (`bkt-patch-errors`, own bucket: the harness label vanished with the rest);
     // an array or other non-map type is extrapolated from the string, which the recording cannot
@@ -119,22 +115,22 @@ fn update_labels(
     }
     let labels = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid("labels must be an object or null"))?;
+        .ok_or_else(|| ApiError::invalid("labels must be an object or null"))?;
     match mode {
         WriteMode::Replace => {
             if labels.len() > crate::bucket::MAX_LABELS {
-                return Err(JsonError::invalid("A bucket can have at most 64 labels"));
+                return Err(ApiError::invalid("A bucket can have at most 64 labels"));
             }
             labels
                 .iter()
                 .map(|(key, value)| {
                     let value = value
                         .as_str()
-                        .ok_or_else(|| JsonError::invalid("Label values must be strings"))?;
+                        .ok_or_else(|| ApiError::invalid("Label values must be strings"))?;
                     check_label(key, Some(value))?;
                     Ok((key.clone(), value.to_owned()))
                 })
-                .collect::<Result<_, JsonError>>()
+                .collect::<Result<_, ApiError>>()
                 .map(MapPatch::Replace)
         }
         WriteMode::Patch => labels
@@ -143,25 +139,25 @@ fn update_labels(
                 let value = if value.is_null() {
                     None
                 } else {
-                    let value = value.as_str().ok_or_else(|| {
-                        JsonError::invalid("Label values must be strings or null")
-                    })?;
+                    let value = value
+                        .as_str()
+                        .ok_or_else(|| ApiError::invalid("Label values must be strings or null"))?;
                     Some(value.to_owned())
                 };
                 check_label(key, value.as_deref())?;
                 Ok((key.clone(), value))
             })
-            .collect::<Result<_, JsonError>>()
+            .collect::<Result<_, ApiError>>()
             .map(MapPatch::Merge),
     }
 }
 
 /// Refuses a label key or value outside the label grammar.
-fn check_label(key: &str, value: Option<&str>) -> Result<(), JsonError> {
+fn check_label(key: &str, value: Option<&str>) -> Result<(), ApiError> {
     if !valid_label(key, crate::bucket::LabelPart::Key)
         || value.is_some_and(|value| !valid_label(value, crate::bucket::LabelPart::Value))
     {
-        return Err(JsonError::invalid("Invalid bucket label"));
+        return Err(ApiError::invalid("Invalid bucket label"));
     }
     Ok(())
 }
@@ -170,13 +166,13 @@ fn parse_bucket_update(
     bytes: &[u8],
     profile: CompatProfile,
     mode: WriteMode,
-) -> Result<BucketMetadataUpdate, JsonError> {
+) -> Result<BucketMetadataUpdate, ApiError> {
     let replace = mode == WriteMode::Replace;
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|error| bucket_parse_error(bytes, &error, profile))?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid("Bucket resource must be a JSON object"))?;
+        .ok_or_else(|| ApiError::invalid("Bucket resource must be a JSON object"))?;
     reject_unsupported_update_fields(body, profile)?;
     // shortcut: legacy JSON unknown/output-only handling needs service evidence; use insert's ignored-input rule.
     let string = |field: &str| {
@@ -185,7 +181,7 @@ fn parse_bucket_update(
                 value
                     .as_str()
                     .map(str::to_owned)
-                    .ok_or_else(|| JsonError::invalid(format!("{field} must be a string")))
+                    .ok_or_else(|| ApiError::invalid(format!("{field} must be a string")))
             })
             .transpose()
     };
@@ -197,7 +193,7 @@ fn parse_bucket_update(
                 }
                 value
                     .as_bool()
-                    .ok_or_else(|| JsonError::invalid(format!("{field} must be a boolean")))
+                    .ok_or_else(|| ApiError::invalid(format!("{field} must be a boolean")))
             })
             .transpose()
     };
@@ -222,7 +218,7 @@ fn parse_bucket_update(
         Some(value) => {
             let enabled = value
                 .as_object()
-                .ok_or_else(|| JsonError::invalid("versioning must be an object"))?
+                .ok_or_else(|| ApiError::invalid("versioning must be an object"))?
                 .get("enabled");
             match boolean(enabled, "versioning.enabled")? {
                 Some(on) if enabled.is_some_and(Value::is_boolean) => {
@@ -244,7 +240,7 @@ fn parse_bucket_update(
         && string("location")?
             .is_some_and(|location| !location.eq_ignore_ascii_case(LEGACY_LOCATION))
     {
-        return Err(JsonError::unsupported("location"));
+        return Err(ApiError::unsupported("location"));
     }
     Ok(BucketMetadataUpdate {
         acl: body
@@ -293,7 +289,7 @@ fn parse_bucket_update(
 
 /// The recovery point objective of an update. Null restates the default and names none; a value
 /// Cloud Storage does not define stays unsupported.
-fn parse_rpo(value: Option<&Value>) -> Result<Option<crate::bucket::Rpo>, JsonError> {
+fn parse_rpo(value: Option<&Value>) -> Result<Option<crate::bucket::Rpo>, ApiError> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
     };
@@ -301,7 +297,7 @@ fn parse_rpo(value: Option<&Value>) -> Result<Option<crate::bucket::Rpo>, JsonEr
         .as_str()
         .and_then(|value| value.parse().ok())
         .map(Some)
-        .ok_or_else(|| JsonError::unsupported("rpo"))
+        .ok_or_else(|| ApiError::unsupported("rpo"))
 }
 
 /// Rejects the bucket settings this emulator does not model. The ACL members and, in the native
@@ -309,7 +305,7 @@ fn parse_rpo(value: Option<&Value>) -> Result<Option<crate::bucket::Rpo>, JsonEr
 fn reject_unsupported_update_fields(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
             if matches!(*field, "acl" | "defaultObjectAcl")
@@ -317,7 +313,7 @@ fn reject_unsupported_update_fields(
             {
                 continue;
             }
-            return Err(JsonError::unsupported(field));
+            return Err(ApiError::unsupported(field));
         }
     }
     Ok(())
@@ -329,13 +325,13 @@ fn reject_unsupported_update_fields(
 fn update_storage_class(
     body: &serde_json::Map<String, Value>,
     profile: CompatProfile,
-) -> Result<Option<StorageClass>, JsonError> {
+) -> Result<Option<StorageClass>, ApiError> {
     let class = match body.get("storageClass") {
         None => return Ok(None),
         Some(Value::Null) if profile == CompatProfile::Native => return Ok(None),
         Some(value) => value
             .as_str()
-            .ok_or_else(|| JsonError::invalid("storageClass must be a string"))?,
+            .ok_or_else(|| ApiError::invalid("storageClass must be a string"))?,
     };
     let class = crate::bucket::validate_update_storage_class(class)?;
     Ok(Some(class))
@@ -440,24 +436,24 @@ pub(crate) fn bucket_predefined_acls(
     uniform_access: UniformAccess,
     write: BucketAclWrite,
     profile: CompatProfile,
-) -> Result<BucketPredefinedAcls, JsonError> {
+) -> Result<BucketPredefinedAcls, ApiError> {
     let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // The fake-gcs-server profile never applied canned ACLs; it refuses them as before.
     if profile != CompatProfile::Native {
         for key in ["predefinedAcl", "predefinedDefaultObjectAcl"] {
             if query.contains_key(key) {
                 return Err(match uniform_access {
-                    UniformAccess::Enabled => JsonError::invalid(format!(
+                    UniformAccess::Enabled => ApiError::invalid(format!(
                         "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
                     )),
-                    UniformAccess::Disabled => JsonError::unsupported(key),
+                    UniformAccess::Disabled => ApiError::unsupported(key),
                 });
             }
         }
         return Ok(BucketPredefinedAcls::default());
     }
     let invalid_value = |value: &str, allowed: &str| {
-        JsonError::invalid_parameter(format!(
+        ApiError::invalid_parameter(format!(
             "Invalid string value: '{value}'. Allowed values: {allowed}"
         ))
     };
@@ -482,7 +478,7 @@ pub(crate) fn bucket_predefined_acls(
         return Ok(BucketPredefinedAcls::default());
     }
     if uniform_access == UniformAccess::Enabled {
-        return Err(JsonError::invalid(match write {
+        return Err(ApiError::invalid(match write {
             BucketAclWrite::Insert => UBLA_INSERT_ACL,
             BucketAclWrite::Update => UBLA_UPDATE_ACL,
         }));
@@ -493,7 +489,7 @@ pub(crate) fn bucket_predefined_acls(
         } else {
             "predefinedDefaultObjectAcl"
         };
-        return Err(JsonError::unsupported(key));
+        return Err(ApiError::unsupported(key));
     }
     Ok(BucketPredefinedAcls {
         acl,
@@ -508,7 +504,7 @@ pub(crate) fn reject_predefined_acl(
     uniform_access: UniformAccess,
     target: PredefinedAclTarget,
     access: &crate::bucket::BucketAccess,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let query = crate::percent::parse_query(query.unwrap_or_default())?;
     // Documented for uploads: an anonymous caller cannot name a canned ACL. Its object belongs
     // to the project owners team, so the caller would choose the ACL of an object it does not
@@ -520,7 +516,7 @@ pub(crate) fn reject_predefined_acl(
         && query.contains_key(key)
         && access.is_anonymous()
     {
-        return Err(JsonError::invalid_argument(format!(
+        return Err(ApiError::invalid_argument(format!(
             "Anonymous callers cannot specify {key}; authenticate or omit {key}"
         )));
     }
@@ -551,12 +547,12 @@ pub(crate) fn reject_predefined_acl(
                 .into());
             }
             UniformAccess::Enabled => {
-                return Err(JsonError::invalid_argument(format!(
+                return Err(ApiError::invalid_argument(format!(
                     "{key} cannot be used with uniform bucket-level access; remove {key} (for example, omit {key}=publicRead) and use bucket IAM permissions"
                 )));
             }
             UniformAccess::Disabled => {
-                return Err(JsonError::unsupported_object(key).at_parameter(key));
+                return Err(ApiError::unsupported_object(key).at_parameter(key));
             }
         }
     }
@@ -569,7 +565,7 @@ pub(crate) fn bucket_resource(
     bucket: &BucketRecord,
     base_url: &str,
     projection: Projection,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     bucket_resource_with_profile(bucket, base_url, projection, CompatProfile::Native)
 }
 
@@ -627,7 +623,7 @@ struct ProfileFields<'a> {
 fn profile_fields(
     bucket: &BucketRecord,
     profile: CompatProfile,
-) -> Result<ProfileFields<'_>, JsonError> {
+) -> Result<ProfileFields<'_>, ApiError> {
     // Both profiles render the stored update time, so one outside the RFC 3339 range fails the
     // fake-gcs-server profile too even when it reports the creation time instead.
     let updated = timestamp(bucket.updated)?;
@@ -665,7 +661,7 @@ pub(crate) fn bucket_resource_with_profile(
     base_url: &str,
     projection: Projection,
     profile: CompatProfile,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     // ACL and owner fields are not modeled, so both projections expose the same local subset.
     let (Projection::NoAcl | Projection::Full) = projection;
     let time_created = timestamp(bucket.time_created)?;
@@ -752,7 +748,7 @@ fn add_optional_bucket_fields(
     bucket: &BucketRecord,
     labels: Option<&BTreeMap<String, String>>,
     profile: CompatProfile,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if let Some(config) = &bucket.autoclass {
         let mut autoclass = Map::from_iter([
             ("enabled".into(), config.is_enabled().into()),
@@ -785,7 +781,7 @@ fn add_optional_bucket_fields(
     // Unreadable stored rules are returned as stored, so the bucket stays repairable.
     if !bucket.lifecycle.is_empty() {
         let rules = serde_json::to_value(&bucket.lifecycle)
-            .map_err(|error| JsonError::from(crate::storage::failure::unavailable(error)))?;
+            .map_err(|error| ApiError::from(crate::storage::failure::unavailable(error)))?;
         value.insert(
             "lifecycle".into(),
             Value::Object(Map::from_iter([("rule".into(), rules)])),
@@ -833,7 +829,7 @@ pub(crate) fn bucket_list_with_profile(
     base_url: &str,
     projection: Projection,
     profile: CompatProfile,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     // The recorded object list orders kind, nextPageToken, items; a bucket list was not recorded
     // and follows the same layout.
     let mut value = Map::from_iter([("kind".into(), "storage#buckets".into())]);
@@ -859,11 +855,11 @@ pub(crate) fn soft_deleted_bucket_resource(
     base_url: &str,
     projection: Projection,
     profile: CompatProfile,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let mut value = bucket_resource_with_profile(&version.record, base_url, projection, profile)?;
     let object = value
         .as_object_mut()
-        .ok_or_else(|| JsonError::service_unavailable("Bucket resource must be an object"))?;
+        .ok_or_else(|| ApiError::service_unavailable("Bucket resource must be an object"))?;
     object.insert(
         "softDeleteTime".into(),
         timestamp(version.soft_delete_time)?.into(),
@@ -881,7 +877,7 @@ pub(crate) fn soft_deleted_bucket_list(
     base_url: &str,
     projection: Projection,
     profile: CompatProfile,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let mut value = Map::from_iter([("kind".into(), "storage#buckets".into())]);
     if let Some(token) = next_page_token {
         value.insert("nextPageToken".into(), token.into());

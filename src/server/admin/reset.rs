@@ -1,7 +1,8 @@
 //! Explicit instance reset never follows or modifies an external source/sync tree.
 
+use crate::json::JsonErrorResponse;
 use crate::{
-    json::JsonError,
+    api_error::ApiError,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
 };
@@ -43,7 +44,7 @@ pub(super) async fn respond(
     super::retry_soon(
         reset(request, ctx, authorized, form)
             .await
-            .unwrap_or_else(JsonError::into_response),
+            .unwrap_or_else(ApiError::into_response),
     )
 }
 
@@ -52,21 +53,21 @@ async fn reset(
     ctx: RequestCtx<'_>,
     authorized: super::Authorized,
     form: Form,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let admin = authorized.into_admin();
     if request.method() != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use POST /_internal/reset with an explicit confirmation",
             Some("POST"),
         ));
     }
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Reset does not accept query parameters",
         ));
     }
     if ctx.config.sync_dir.is_some() {
-        return Err(JsonError::new(
+        return Err(ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Stop directory synchronization and restart without sync_dir before resetting; external files are never reset",
@@ -75,7 +76,7 @@ async fn reset(
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let confirmation: Confirmation = if matches!(form, Form::SourceAlias) {
         if !bytes.is_empty() {
-            return Err(JsonError::invalid_argument(
+            return Err(ApiError::invalid_argument(
                 "Source delete_all accepts only an empty body",
             ));
         }
@@ -85,13 +86,13 @@ async fn reset(
         }
     } else {
         serde_json::from_slice(&bytes).map_err(|_| {
-            JsonError::invalid_argument(
+            ApiError::invalid_argument(
                 "Reset deletes this local instance's state; send {\"confirm\":\"gcs-mimic\"}, optionally with \"state\":\"empty\" or \"startup\"",
             )
         })?
     };
     if confirmation.confirm != "gcs-mimic" {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Reset requires confirm set to gcs-mimic",
         ));
     }
@@ -106,7 +107,7 @@ async fn clear(
     ctx: RequestCtx<'_>,
     admin: &crate::storage::admin::Admin,
     deadline: tokio::time::Instant,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let ctx = ctx.object(None, deadline);
     // Expiry before exclusive ownership can still confirm that reset made no changes.
     let wait_deadline = deadline.min(ctx.config.catalog_wait_timeout.deadline());
@@ -123,14 +124,14 @@ async fn restore(
     ctx: RequestCtx<'_>,
     admin: crate::storage::admin::Admin,
     deadline: tokio::time::Instant,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let (config, clock) = (ctx.config, ctx.state.clock.clone());
     let initialization = crate::bucket_init::restoration(&ctx.state.catalog, config, clock.clone())
         .await
         .map_err(|diagnostics| {
             // Startup applied the same bytes, so only a changed project policy or clock can
             // refuse them; another attempt fails alike until that changes.
-            JsonError::invalid(format!(
+            ApiError::invalid(format!(
                 "Reset made no changes because the startup buckets document no longer applies: {diagnostics}"
             ))
         })?;
@@ -147,12 +148,12 @@ async fn restore(
     Ok(json_response(&super::encode(&outcome)?))
 }
 
-pub(super) fn failure(error: &AdminError) -> JsonError {
+pub(super) fn failure(error: &AdminError) -> ApiError {
     match error {
-        AdminError::Busy { .. } => JsonError::service_unavailable(
+        AdminError::Busy { .. } => ApiError::service_unavailable(
             "Reset made no changes because catalog work or an unpublished body is active; retry after it completes",
         ),
-        AdminError::Precondition => JsonError::new(
+        AdminError::Precondition => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Reset made no changes because an import is incomplete; complete or repair the import first",
@@ -172,7 +173,7 @@ pub(super) fn failure(error: &AdminError) -> JsonError {
         | AdminError::TooLarge
         | AdminError::Forbidden
         | AdminError::BodyAborted(_)
-        | AdminError::Backend(_) => JsonError::service_unavailable(
+        | AdminError::Backend(_) => ApiError::service_unavailable(
             "Reset could not confirm completion; inspect local storage and instance state before retrying",
         ),
     }

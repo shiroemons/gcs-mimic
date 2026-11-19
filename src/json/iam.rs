@@ -1,4 +1,4 @@
-use super::{BucketRequest, Fields, JsonError, Schema, objects::base64, query};
+use super::{ApiError, BucketRequest, Fields, Schema, objects::base64, query};
 use crate::auth::{
     Binding, Policy,
     policy_input::{self, PolicyInputError},
@@ -13,7 +13,7 @@ pub(super) fn route_test_permissions(
     method: &Method,
     uri: &Uri,
     profile: crate::config::CompatProfile,
-) -> Option<Result<BucketRequest, JsonError>> {
+) -> Option<Result<BucketRequest, ApiError>> {
     let segment = query::bucket_subresource(uri.path(), "/iam/testPermissions")?;
     Some(parse_test_permissions(method, segment, uri, profile))
 }
@@ -24,10 +24,10 @@ fn parse_test_permissions(
     segment: &str,
     uri: &Uri,
     profile: crate::config::CompatProfile,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     let bucket = query::path_bucket(segment, profile, query::BucketCheck::ForProfile)?;
     if *method != Method::GET {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use GET for bucket testIamPermissions",
             Some("GET"),
         ));
@@ -53,10 +53,10 @@ pub(crate) struct TestPermissionsQuery {
     undeclared: BTreeMap<String, String>,
 }
 
-pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermissionsQuery, JsonError> {
+pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermissionsQuery, ApiError> {
     let raw = raw.unwrap_or_default();
     if raw.len() > 16 * 1024 {
-        return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
+        return Err(ApiError::invalid_parameter("Query exceeds 16 KiB"));
     }
     let mut permissions = Vec::new();
     let mut rest = Vec::new();
@@ -74,7 +74,7 @@ pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermission
     }
     if permissions.is_empty() {
         return Err(
-            JsonError::required("Required parameter: permissions").at_parameter("permissions")
+            ApiError::required("Required parameter: permissions").at_parameter("permissions")
         );
     }
     let mut undeclared = percent::parse_query(&rest.join("&"))?;
@@ -87,16 +87,16 @@ pub(crate) fn test_permissions_query(raw: Option<&str>) -> Result<TestPermission
     })
 }
 
-fn invalid(message: impl Into<String>) -> JsonError {
-    JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
+fn invalid(message: impl Into<String>) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
 /// A recognized permission no supported operation checks is an unsupported setting; any other
 /// refusal is an invalid value.
-impl From<UntestablePermission> for JsonError {
+impl From<UntestablePermission> for ApiError {
     fn from(error: UntestablePermission) -> Self {
         match error {
-            UntestablePermission::Unsupported(_) => JsonError::unsupported(&error.to_string()),
+            UntestablePermission::Unsupported(_) => ApiError::unsupported(&error.to_string()),
             UntestablePermission::Unknown(_) | UntestablePermission::ProjectScoped => {
                 invalid(error.to_string())
             }
@@ -104,18 +104,18 @@ impl From<UntestablePermission> for JsonError {
     }
 }
 
-impl From<PolicyInputError> for JsonError {
+impl From<PolicyInputError> for ApiError {
     fn from(error: PolicyInputError) -> Self {
         match error {
             PolicyInputError::InvalidInput(message) => invalid(message),
-            PolicyInputError::UnsupportedInput(message) => JsonError::unsupported(&message),
+            PolicyInputError::UnsupportedInput(message) => ApiError::unsupported(&message),
         }
     }
 }
 
-pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
+pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, ApiError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
+        serde_json::from_slice(bytes).map_err(|error| crate::json::parse_error(bytes, &error))?;
     let body = value
         .as_object()
         .ok_or_else(|| invalid("Policy must be an object"))?;
@@ -127,7 +127,7 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
         return Err(invalid("Policy version must be 0, 1 or 3"));
     }
     if body.contains_key("auditConfigs") {
-        return Err(JsonError::unsupported("auditConfigs"));
+        return Err(ApiError::unsupported("auditConfigs"));
     }
     let etag = match body.get("etag") {
         None => None,
@@ -151,7 +151,7 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
                 .as_object()
                 .ok_or_else(|| invalid("binding must be an object"))?;
             if binding.contains_key("condition") {
-                return Err(JsonError::unsupported("binding condition"));
+                return Err(ApiError::unsupported("binding condition"));
             }
             let role = binding
                 .get("role")
@@ -177,7 +177,7 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
                         .ok_or_else(|| invalid("member must be a string"))?;
                     Ok(policy_input::parse_member(member)?)
                 })
-                .collect::<Result<_, JsonError>>()?;
+                .collect::<Result<_, ApiError>>()?;
             bindings.push(Binding { role, members });
         }
     }
@@ -186,7 +186,7 @@ pub(crate) fn parse_policy(bytes: &[u8]) -> Result<Policy, JsonError> {
     Ok(Policy::normalized(bindings, etag))
 }
 
-fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
+fn parse_etag(raw: &str) -> Result<Option<String>, ApiError> {
     // Google.Apis replaces a fetched policy's body etag with the response's HTTP ETag, which
     // getIamPolicy sends quoted, and sends that value back; one pair of quotes names the same tag.
     let tag = raw
@@ -205,7 +205,8 @@ fn parse_etag(raw: &str) -> Result<Option<String>, JsonError> {
         crate::base64::Padding::OptionalUncheckedBits,
     )
     .ok_or_else(|| {
-        invalid(format!("Invalid value for ByteString: {raw}")).at(&super::error::POLICY_ETAG_FIELD)
+        invalid(format!("Invalid value for ByteString: {raw}"))
+            .at(&crate::api_error::POLICY_ETAG_FIELD)
     })?;
     Ok(Some(base64(&decoded)))
 }
@@ -266,10 +267,7 @@ mod tests {
         assert_eq!(parse_etag("CAE").unwrap().as_deref(), Some("CAE="));
         let error = parse_etag("!!!").unwrap_err();
         assert_eq!(error.message, "Invalid value for ByteString: !!!");
-        assert_eq!(
-            error.location,
-            Some(&super::super::error::POLICY_ETAG_FIELD)
-        );
+        assert_eq!(error.location, Some(&crate::api_error::POLICY_ETAG_FIELD));
     }
 
     #[test]

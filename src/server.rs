@@ -1,11 +1,13 @@
+use crate::json::JsonErrorResponse;
 use crate::{
+    api_error::ApiError,
     auth::{self, Auth, Caller, ListenerRole},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
     config::{Config, ConnectionScheme},
     diagnostics::Diagnostics,
     http_conditions::{EtagError, etag_not_modified},
-    json::{self, JsonError},
+    json,
     object::{ObjectError, UploadChunk},
     storage::{
         Catalog,
@@ -252,7 +254,7 @@ enum Expiry {
 impl Expiry {
     /// The JSON error for this expiry on a request that sends `payload`, naming the setting that
     /// bounds the expired limit.
-    fn json_error(self, payload: Payload) -> JsonError {
+    fn json_error(self, payload: Payload) -> ApiError {
         match (self, payload) {
             (Self::BodyInactivity, Payload::Upload | Payload::Other) => request_body_silent(),
             // Only a transfer's whole-request limit reports a broken upload: a server that is
@@ -264,15 +266,15 @@ impl Expiry {
     }
 }
 
-fn request_timed_out() -> JsonError {
-    JsonError::service_unavailable(
+fn request_timed_out() -> ApiError {
+    ApiError::service_unavailable(
         "The request timed out before a response was ready; retry the request, or raise request_timeout_ms (0 disables it).",
     )
 }
 
 /// The JSON API documents 408 `uploadBrokenConnection` as its only request timeout.
-fn request_body_silent() -> JsonError {
-    JsonError::new(
+fn request_body_silent() -> ApiError {
+    ApiError::new(
         StatusCode::REQUEST_TIMEOUT,
         "uploadBrokenConnection",
         "The request timed out: no request body bytes arrived within body_inactivity_timeout_ms; retry the request, or raise body_inactivity_timeout_ms for slow clients (0 disables it).",
@@ -282,8 +284,8 @@ fn request_body_silent() -> JsonError {
 /// The XML API documents a silent socket as 400 `RequestTimeout`; this repeats its meaning.
 const XML_REQUEST_BODY_SILENT: &str = "Your socket connection to the server was not read from or written to within the timeout period: no request body bytes arrived within body_inactivity_timeout_ms; retry the request, or raise body_inactivity_timeout_ms for slow clients (0 disables it).";
 
-fn upload_timed_out() -> JsonError {
-    JsonError::new(
+fn upload_timed_out() -> ApiError {
+    ApiError::new(
         StatusCode::REQUEST_TIMEOUT,
         "uploadBrokenConnection",
         "The upload timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large uploads (0 disables it).",
@@ -291,8 +293,8 @@ fn upload_timed_out() -> JsonError {
 }
 
 /// A copy, rewrite, compose or media read past its whole-request limit: a server-side timeout.
-fn object_request_timed_out() -> JsonError {
-    JsonError::service_unavailable(
+fn object_request_timed_out() -> ApiError {
+    ApiError::service_unavailable(
         "The request timed out: it did not finish within object_request_timeout_ms; retry the request, or raise object_request_timeout_ms for large transfers (0 disables it).",
     )
 }
@@ -315,9 +317,9 @@ pub(crate) fn has_body(headers: &hyper::HeaderMap) -> bool {
 /// Refuses a declared body on a JSON method that takes none, read as [`has_body`] reads it.
 /// Cloud Storage accepted `Content-Length: 00` on a bucket read, an object read and an object
 /// delete (recorded 2026-11-15).
-fn require_empty_body(headers: &hyper::HeaderMap) -> Result<(), JsonError> {
+fn require_empty_body(headers: &hyper::HeaderMap) -> Result<(), ApiError> {
     if has_body(headers) {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "This method requires an empty body",
         ));
     }
@@ -1478,7 +1480,7 @@ impl ConnectionService {
             endpoints.for_request(listening.scheme, request.uri(), request.headers())
         } else {
             let mut response = boxed(
-                JsonError::service_unavailable(
+                ApiError::service_unavailable(
                     "Runtime endpoint state is unavailable; restart the emulator",
                 )
                 .into_response(),
@@ -1759,7 +1761,7 @@ pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
 }
 
-pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
+pub(crate) fn anonymous_error(error: ApiError, caller: Option<Caller<'_>>) -> ApiError {
     if matches!(caller, Some(Caller::Anonymous)) && error.status == StatusCode::FORBIDDEN {
         error.for_anonymous_caller()
     } else {
@@ -1778,7 +1780,7 @@ pub(crate) async fn authorize_bucket(
     caller: Option<Caller<'_>>,
     permission: auth::Permission,
     bucket: &str,
-) -> Result<BucketAccess, JsonError> {
+) -> Result<BucketAccess, ApiError> {
     Ok(bucket_access(state, caller, permission, bucket).await?)
 }
 
@@ -1808,7 +1810,7 @@ fn authorize_project(
     caller: Option<Caller<'_>>,
     permission: auth::Permission,
     project: &str,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     match caller {
         Some(caller) => Ok(caller.authorize(permission, Some(project))?),
         None => Ok(()),
@@ -1865,7 +1867,7 @@ async fn validate_bodyless_post(
     request: Request<RequestBody>,
     expected: &std::collections::BTreeMap<String, String>,
     empty_json: EmptyJsonBody,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     // Ruby's generated client repeats URL query parameters in form-encoded POST bodies, and the
     // C++ client sends an empty JSON object to restore. Neither carries a value the URL query
     // lacks; any other body could, so it is still refused.
@@ -1906,7 +1908,7 @@ async fn validate_bodyless_post(
             EmptyJsonBody::Accepted => "an empty body, an empty JSON object,",
             EmptyJsonBody::Refused => "an empty body,",
         };
-        return Err(JsonError::invalid_argument(format!(
+        return Err(ApiError::invalid_argument(format!(
             "Use {allowed} or form parameters identical to the URL query, for example {example}"
         )));
     }
@@ -2004,16 +2006,16 @@ pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
 
 /// Rejects headers that do not apply to a derived write (copy, compose or rewrite), naming the
 /// first of `names` the request carries.
-fn reject_headers(headers: &hyper::HeaderMap, names: &[&str]) -> Result<(), JsonError> {
+fn reject_headers(headers: &hyper::HeaderMap, names: &[&str]) -> Result<(), ApiError> {
     match names.iter().find(|name| headers.contains_key(**name)) {
-        Some(name) => Err(JsonError::unsupported_object(name)),
+        Some(name) => Err(ApiError::unsupported_object(name)),
         None => Ok(()),
     }
 }
 
 /// An `If-Match` or `If-None-Match` header that does not parse as entity tags.
-fn invalid_etag_header() -> JsonError {
-    JsonError::invalid_parameter("Invalid ETag precondition header")
+fn invalid_etag_header() -> ApiError {
+    ApiError::invalid_parameter("Invalid ETag precondition header")
 }
 
 fn not_modified_response(
@@ -2082,13 +2084,13 @@ fn read_metadata_response(
     fields: &json::Fields,
     query: QueryPrecondition,
     read: ValidatedRead,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let not_modified = match etag_not_modified(headers, etag) {
         Ok(not_modified) => not_modified || query == QueryPrecondition::NotModified,
         Err(EtagError::Invalid) => return Err(invalid_etag_header()),
         Err(EtagError::PreconditionFailed) => {
             // The header form of the failure carries a shorter message than the query form.
-            let error = JsonError::new(
+            let error = ApiError::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
                 "Precondition Failed",
@@ -2129,7 +2131,7 @@ fn read_metadata_response(
 fn response_fields(
     query: Option<&str>,
     selection: json::FieldSelection,
-) -> Result<json::Fields, JsonError> {
+) -> Result<json::Fields, ApiError> {
     match selection {
         json::FieldSelection::Ignored => Ok(json::Fields::whole()),
         json::FieldSelection::Query(schema) => json::Fields::from_query(query, schema),
@@ -2228,8 +2230,8 @@ fn insert_unsatisfied_content_range(headers: &mut hyper::HeaderMap, size: u64) {
     }
 }
 
-fn unknown_route() -> JsonError {
-    JsonError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
+fn unknown_route() -> ApiError {
+    ApiError::new(StatusCode::NOT_FOUND, "notFound", "Route not found")
 }
 
 fn probe(request: &Request<RequestBody>, state: &State) -> Option<Response<Full<Bytes>>> {

@@ -195,7 +195,7 @@ async fn read(
     if let Some((offset, length)) = range {
         if !head {
             reader.set_range(offset, length).map_err(|_| {
-                xml::Error::from(json::JsonError::service_unavailable(
+                xml::Error::from(crate::api_error::ApiError::service_unavailable(
                     "Cannot seek object data",
                 ))
             })?;
@@ -237,7 +237,7 @@ async fn gunzipped(
     if !head
         && gzip::is_plain(&mut reader, record.size)
             .await
-            .map_err(json::JsonError::from)?
+            .map_err(crate::api_error::ApiError::from)?
     {
         // The rejection is private whatever the object's own Cache-Control says.
         let mut response = gzip::plain_body_rejection(headers);

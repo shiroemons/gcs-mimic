@@ -418,7 +418,7 @@ cannot express.
 | `text::downcast` | `.downcast_ref`, `.downcast_mut` and `.downcast` calls that recover a type from a type-erased value. A panic payload takes a reasoned suppression. |
 | `text::diagnostics_in_io_error` | `io::Error::other` or `io::Error::new` whose arguments name `Diagnostics`; startup diagnostics keep their own error type. |
 | `text::immediately_invoked_closure` | `(\|\| ..)()` and `(move \|\| ..)()`, a closure called where it is written. |
-| `text::json_adapter_dependency` | References from `src/grpc` and `src/xml` production code to the crate's own `json` module: `json::..` as a path root or after `crate::`, `super::` or `self::`, `use crate::json;` and `json` in a `use crate::{..}` group. Adapters stay separate from shared logic; move the shared piece to a neutral module and lower the baseline row in the same change. This rule is a per-file ratchet. |
+| `text::json_adapter_dependency` | References from `src/grpc` and `src/xml` production code to the crate's own `json` module: `json::..` as a path root or after `crate::`, `super::` or `self::`, `use crate::json;` and `json` in a `use crate::{..}` group. Adapters stay separate from shared logic; move the shared piece to a neutral module in the same change. |
 | `text::sync_without_flush` | `.sync_all().await` or `.sync_data().await` after an awaited write in the same function with no `.flush().await` or `.shutdown().await` in between. |
 
 `unreachable_pub` and `clippy::redundant_clone` pass on every workspace target,

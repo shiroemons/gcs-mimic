@@ -78,8 +78,9 @@ const DOWNCAST: &str = "text::downcast";
 const DIAGNOSTICS_IN_IO_ERROR: &str = "text::diagnostics_in_io_error";
 const IMMEDIATELY_INVOKED_CLOSURE: &str = "text::immediately_invoked_closure";
 const JSON_ADAPTER_DEPENDENCY: &str = "text::json_adapter_dependency";
-/// Adapters stay separate from shared logic, so these rules only count down.
-pub const RATCHETED_TEXT_RULES: [&str; 1] = [JSON_ADAPTER_DEPENDENCY];
+/// Text rules whose existing findings are counted per file; see "Graduating a ratcheted rule"
+/// in `docs/en/development.md`. Empty now that every text rule is zero tolerance.
+pub const RATCHETED_TEXT_RULES: [&str; 0] = [];
 
 const ALLOW_ATTRIBUTES: &str = "clippy::allow_attributes";
 

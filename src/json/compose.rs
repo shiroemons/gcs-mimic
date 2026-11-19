@@ -1,7 +1,7 @@
 use crate::{
     bucket::StorageClass,
     decimal::Grammar,
-    json::{JsonError, WriteMode, object_metadata_from_map, validate_object_name},
+    json::{ApiError, WriteMode, object_metadata_from_map, validate_object_name},
     object::{ComposeSource, ObjectMetadataUpdate},
 };
 use serde_json::{Map, Value};
@@ -10,7 +10,7 @@ pub(crate) fn route(
     method: &hyper::Method,
     uri: &hyper::Uri,
     profile: crate::config::CompatProfile,
-) -> Option<Result<crate::json::ObjectRequest, JsonError>> {
+) -> Option<Result<crate::json::ObjectRequest, ApiError>> {
     let path = uri.path().strip_prefix(crate::json::query::BUCKET_PATH)?;
     let (bucket, rest) = path.split_once("/o/")?;
     let name = rest.strip_suffix("/compose")?;
@@ -27,9 +27,9 @@ fn parse(
     name: &str,
     uri: &hyper::Uri,
     profile: crate::config::CompatProfile,
-) -> Result<crate::json::ObjectRequest, JsonError> {
+) -> Result<crate::json::ObjectRequest, ApiError> {
     if method != hyper::Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Compose requires POST",
             Some("POST"),
         ));
@@ -48,13 +48,13 @@ fn parse(
     super::query::standard_parameters(
         &mut query,
         &["kmsKeyName", "dropContextGroups"],
-        JsonError::unsupported_object,
+        ApiError::unsupported_object,
     )?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     super::query::boolean(&mut query, "prettyPrint")?;
     match query.remove("alt").as_deref() {
         None | Some("json") => {}
-        Some(_) => return Err(JsonError::invalid_parameter("Compose requires alt=json")),
+        Some(_) => return Err(ApiError::invalid_parameter("Compose requires alt=json")),
     }
     let mut condition = |key: &str| {
         query
@@ -62,7 +62,7 @@ fn parse(
             .map(|value| {
                 Grammar::Digits
                     .parse::<i64>(&value)
-                    .ok_or_else(|| JsonError::invalid_parameter(format!("Invalid {key}")))
+                    .ok_or_else(|| ApiError::invalid_parameter(format!("Invalid {key}")))
             })
             .transpose()
     };
@@ -73,7 +73,7 @@ fn parse(
     };
     // `projection` is a defined parameter this route does not implement.
     if query.contains_key("projection") {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Unknown query parameter for this method: projection",
         ));
     }
@@ -106,9 +106,9 @@ pub struct ComposeRequest {
     pub delete_sources: bool,
 }
 
-pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonError> {
+pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, ApiError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
+        serde_json::from_slice(bytes).map_err(|cause| crate::json::parse_error(bytes, &cause))?;
     let body = object(&value, "Compose request")?;
     known_fields(
         body,
@@ -123,7 +123,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonE
         .get("kind")
         .is_some_and(|value| value.as_str() != Some("storage#composeRequest"))
     {
-        return Err(JsonError::invalid_argument("Invalid compose request kind"));
+        return Err(ApiError::invalid_argument("Invalid compose request kind"));
     }
     let delete_sources = body
         .get("deleteSourceObjects")
@@ -131,7 +131,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonE
         .map(|value| {
             value
                 .as_bool()
-                .ok_or_else(|| JsonError::invalid_argument("deleteSourceObjects must be a boolean"))
+                .ok_or_else(|| ApiError::invalid_argument("deleteSourceObjects must be a boolean"))
         })
         .transpose()?
         .unwrap_or(false);
@@ -139,7 +139,7 @@ pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonE
         .get("sourceObjects")
         .is_none_or(|sources| sources.as_array().is_some_and(Vec::is_empty))
     {
-        return Err(JsonError::required(
+        return Err(ApiError::required(
             "You must provide at least one source component.",
         ));
     }
@@ -147,11 +147,11 @@ pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonE
         .get("sourceObjects")
         .and_then(Value::as_array)
         .filter(|sources| (1..=32).contains(&sources.len()))
-        .ok_or_else(|| JsonError::invalid_argument("sourceObjects must contain 1 to 32 objects"))?;
+        .ok_or_else(|| ApiError::invalid_argument("sourceObjects must contain 1 to 32 objects"))?;
     let sources = sources
         .iter()
         .map(parse_source)
-        .collect::<Result<_, JsonError>>()?;
+        .collect::<Result<_, ApiError>>()?;
     let (destination, storage_class) = destination_metadata(body, bucket)?;
     Ok(ComposeRequest {
         sources,
@@ -161,13 +161,13 @@ pub fn parse_compose(bytes: &[u8], bucket: &str) -> Result<ComposeRequest, JsonE
     })
 }
 
-fn parse_source(value: &Value) -> Result<ComposeSource, JsonError> {
+fn parse_source(value: &Value) -> Result<ComposeSource, ApiError> {
     let source = object(value, "Source object")?;
     known_fields(source, &["name", "generation", "objectPreconditions"])?;
     let name = source
         .get("name")
         .and_then(Value::as_str)
-        .ok_or_else(|| JsonError::invalid_argument("Source name must be a string"))?;
+        .ok_or_else(|| ApiError::invalid_argument("Source name must be a string"))?;
     validate_object_name(name)?;
     let conditions = source
         .get("objectPreconditions")
@@ -194,7 +194,7 @@ fn parse_source(value: &Value) -> Result<ComposeSource, JsonError> {
 fn destination_metadata(
     body: &Map<String, Value>,
     bucket: &str,
-) -> Result<(ObjectMetadataUpdate, Option<StorageClass>), JsonError> {
+) -> Result<(ObjectMetadataUpdate, Option<StorageClass>), ApiError> {
     let mut destination = body
         .get("destination")
         .filter(|value| !value.is_null())
@@ -207,7 +207,7 @@ fn destination_metadata(
         .remove("name")
         .is_some_and(|value| !value.is_string())
     {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Destination name must be a string",
         ));
     }
@@ -215,7 +215,7 @@ fn destination_metadata(
         if let Some(value) = destination.remove(key)
             && value.as_str() != Some(expected)
         {
-            return Err(JsonError::invalid_argument(format!(
+            return Err(ApiError::invalid_argument(format!(
                 "Destination {key} differs from request"
             )));
         }
@@ -233,35 +233,35 @@ fn destination_metadata(
         .map(|value| {
             let class = value
                 .as_str()
-                .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string"))?;
-            crate::object::validate_object_storage_class(class).map_err(JsonError::from)
+                .ok_or_else(|| ApiError::invalid_argument("storageClass must be a string"))?;
+            crate::object::validate_object_storage_class(class).map_err(ApiError::from)
         })
         .transpose()?;
     let metadata = object_metadata_from_map(&destination, WriteMode::Replace)?;
     // Holds, a custom time and a retention apply as on an upload: Cloud Storage composed an
     // object held and with the requested custom time (recorded 2026-11-13, case
     // obj-unsupported-derived), and publication checks a retention against the bucket.
-    metadata.update.validate().map_err(JsonError::from)?;
+    metadata.update.validate().map_err(ApiError::from)?;
     if let Some(key) = metadata.unchanged.keys().next() {
-        return Err(JsonError::unsupported_object(key));
+        return Err(ApiError::unsupported_object(key));
     }
     Ok((metadata.update, storage_class))
 }
 
-fn object<'a>(value: &'a Value, label: &str) -> Result<&'a Map<String, Value>, JsonError> {
+fn object<'a>(value: &'a Value, label: &str) -> Result<&'a Map<String, Value>, ApiError> {
     value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument(format!("{label} must be a JSON object")))
+        .ok_or_else(|| ApiError::invalid_argument(format!("{label} must be a JSON object")))
 }
 
-fn known_fields(body: &Map<String, Value>, allowed: &[&str]) -> Result<(), JsonError> {
+fn known_fields(body: &Map<String, Value>, allowed: &[&str]) -> Result<(), ApiError> {
     if let Some(key) = body.keys().find(|key| !allowed.contains(&key.as_str())) {
-        return Err(JsonError::unsupported_object(key));
+        return Err(ApiError::unsupported_object(key));
     }
     Ok(())
 }
 
-fn integer(value: Option<&Value>, label: &str) -> Result<Option<i64>, JsonError> {
+fn integer(value: Option<&Value>, label: &str) -> Result<Option<i64>, ApiError> {
     value
         .map(|value| {
             value
@@ -269,7 +269,7 @@ fn integer(value: Option<&Value>, label: &str) -> Result<Option<i64>, JsonError>
                 .and_then(|value| Grammar::Digits.parse::<i64>(value))
                 .or_else(|| value.as_i64())
                 .filter(|value| *value >= 0)
-                .ok_or_else(|| JsonError::invalid_argument(format!("Invalid {label}")))
+                .ok_or_else(|| ApiError::invalid_argument(format!("Invalid {label}")))
         })
         .transpose()
 }

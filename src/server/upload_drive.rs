@@ -2,7 +2,7 @@
 
 use super::ObjectCtx;
 use crate::{
-    json::{self, JsonError},
+    api_error::ApiError,
     object::{ExpectedHashes, ObjectError, UploadChunk},
     storage::admin::AdminError,
 };
@@ -53,9 +53,9 @@ impl UploadFailure for AdminError {
         matches!(self, Self::BodyAborted(_))
     }
 }
-impl UploadFailure for JsonError {
+impl UploadFailure for ApiError {
     fn is_body_abort(&self) -> bool {
-        self.kind == json::ErrorKind::IncompleteBody
+        self.kind == crate::api_error::ErrorKind::IncompleteBody
     }
 }
 impl UploadFailure for crate::storage::xml_multipart::Error {

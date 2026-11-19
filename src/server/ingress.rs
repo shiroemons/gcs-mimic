@@ -1,7 +1,7 @@
 //! Transport input normalization before API routing and operation authorization.
 
 use super::{BodyRead, ObjectActivity, RESOURCE_BODY_LIMIT, RequestCtx};
-use crate::json::JsonError;
+use crate::api_error::ApiError;
 use flate2::read::MultiGzDecoder;
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -125,11 +125,11 @@ impl Body for RequestBody {
     }
 }
 
-fn bad_request(message: &'static str) -> JsonError {
-    JsonError::new(StatusCode::BAD_REQUEST, "badRequest", message)
+fn bad_request(message: &'static str) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "badRequest", message)
 }
 
-pub(super) fn override_method(request: &mut Request<RequestBody>) -> Result<(), JsonError> {
+pub(super) fn override_method(request: &mut Request<RequestBody>) -> Result<(), ApiError> {
     let mut values = request.headers().get_all("x-http-method-override").iter();
     let Some(value) = values.next() else {
         return Ok(());
@@ -163,7 +163,7 @@ pub(super) fn override_method(request: &mut Request<RequestBody>) -> Result<(), 
 pub(super) async fn decode_metadata(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
-) -> Result<Request<RequestBody>, JsonError> {
+) -> Result<Request<RequestBody>, ApiError> {
     if request.method() == Method::POST
         && request.uri().path().starts_with("/upload/storage/v1/")
         && crate::percent::parse_query(request.uri().query().unwrap_or_default())?
@@ -246,8 +246,8 @@ pub(super) async fn decode_metadata(
     ))
 }
 
-fn too_large() -> JsonError {
-    JsonError::new(
+fn too_large() -> ApiError {
+    ApiError::new(
         StatusCode::PAYLOAD_TOO_LARGE,
         "uploadTooLarge",
         format!(
@@ -257,8 +257,8 @@ fn too_large() -> JsonError {
     )
 }
 
-fn decoder_unavailable() -> JsonError {
-    JsonError::service_unavailable("Request decoder is unavailable")
+fn decoder_unavailable() -> ApiError {
+    ApiError::service_unavailable("Request decoder is unavailable")
 }
 
 #[derive(Debug)]

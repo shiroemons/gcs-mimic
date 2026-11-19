@@ -45,8 +45,8 @@ pub(super) fn object_status(error: ObjectError) -> Status {
 }
 
 /// Maps the error of an RPC that names one object with Cloud Storage's `<bucket>/<object>`
-/// not-found wording; an unsupported setting keeps JSON's description. Every other failure
-/// keeps the shared conversion, with the details the JSON error has no place for.
+/// not-found wording; an unsupported setting keeps the shared description. Every other failure
+/// keeps the shared conversion, with the details the shared error has no place for.
 pub(super) fn naming_object<'a>(
     bucket: &'a str,
     name: &'a str,

@@ -16192,6 +16192,7 @@
           "result": "PASS",
           "test_ids": [
             "multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary",
+            "json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing",
             "multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split",
             "multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split",
             "obj_multipart_http_accepts_the_gcloud_request_shape",
@@ -16253,6 +16254,7 @@
           "result": "PASS",
           "test_ids": [
             "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+            "json::multipart::tests::related_uploads_bound_the_metadata_part",
             "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
             "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -16631,6 +16633,7 @@
         "resumable_protocol_path_keeps_strict_authorization",
         "resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api",
         "multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary",
+        "json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing",
         "multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split",
         "multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split",
         "obj_multipart_http_accepts_the_gcloud_request_shape",
@@ -16690,6 +16693,7 @@
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+        "json::multipart::tests::related_uploads_bound_the_metadata_part",
         "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
         "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -16786,7 +16790,7 @@
           ]
         },
         {"command":"cargo +1.99.1 test --locked --offline --test resumable_protocol_path_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/resumable-upload.md","test_ids":["resumable_protocol_path_initiates_the_same_session_as_the_upload_path","resumable_protocol_path_rejects_other_upload_types_like_the_upload_path","resumable_protocol_path_keeps_strict_authorization","resumable_protocol_path_leaves_a_bucket_named_resumable_to_the_xml_api"]},
-        {"command":"cargo +1.99.1 test --locked --offline --lib json::multipart && cargo +1.99.1 test --locked --offline --test object_multipart_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/json-object-multipart.md","test_ids":["multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary","multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split","multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split","obj_multipart_http_accepts_the_gcloud_request_shape","obj_multipart_http_crlf_media_keeps_lf_boundary_text"]},
+        {"command":"cargo +1.99.1 test --locked --offline --lib json::multipart && cargo +1.99.1 test --locked --offline --test object_multipart_http","result":"PASS","verified_at":"2026-11-02","artifact":"docs/en/slices/json-object-multipart.md","test_ids":["multipart::tests::related_uploads_accept_the_gcloud_lf_framing_and_quoted_boundary","json::multipart::tests::related_uploads_accept_the_gcloud_lf_framing","multipart::tests::related_uploads_read_lf_framing_at_every_chunk_split","multipart::tests::related_uploads_keep_lf_boundary_text_in_crlf_media_at_every_chunk_split","obj_multipart_http_accepts_the_gcloud_request_shape","obj_multipart_http_crlf_media_keeps_lf_boundary_text"]},
         {"command":"cargo test --workspace --no-fail-fast -- --test-threads=4","result":"PASS","verified_at":"2026-11-01","artifact":"docs/en/evidence/differential-comparison.md","test_ids":["storage::resumable_http_tests::cloud_storage_parity::media_upload_ignores_declared_hashes_and_stores_the_computed_ones","storage::resumable_http_tests::cloud_storage_parity::multipart_metadata_hash_mismatch_names_both_digests","storage::resumable_http_tests::cloud_storage_parity::multipart_upload_content_types_must_agree_and_plain_bodies_are_media","storage::resumable_http_tests::cloud_storage_parity::metadata_writes_ignore_unknown_members_and_release_holds_on_put","media_upload_stores_computed_hashes_whatever_the_declared_md5"]},
         {"command":"cargo test --locked --test acl_permission_effects predefined_upload && cargo test --locked --lib acl::tests && cargo test --locked --test auth_http uniform_access","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/evidence/upload-predefined-acl.md","test_ids":["acl_permission_effects::predefined_upload::media_upload_predefined_acls_replace_the_default_object_acl","acl_permission_effects::predefined_upload::multipart_and_resumable_uploads_apply_predefined_acl_at_publication","acl_permission_effects::predefined_upload::predefined_acl_uploads_need_only_create_and_respect_access_settings","acl::tests::predefined_object_acls_round_trip_and_exclude_bucket_only_values","xml::uniform_access_metadata_and_predefined_acl_rejections"]},
         {"command":"cargo test --test http_resumable_gzip --test http_ingress --test http_multipart_gzip","result":"PASS","verified_at":"2026-10-31","artifact":"docs/en/slices/http-ingress.md","test_ids":["gzip_initiation_metadata_keeps_chunks_and_stored_encoding_separate","invalid_gzip_initiations_never_create_sessions","gzip_initiation_bounds_compressed_and_expanded_metadata","gzip_initiation_retains_strict_authentication_and_upload_permissions"]},
@@ -16906,6 +16910,7 @@
             "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
             "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+            "json::multipart::tests::related_uploads_bound_the_metadata_part",
             "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
             "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -30760,6 +30765,7 @@
           "result": "PASS",
           "test_ids": [
             "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+            "json::multipart::tests::related_uploads_bound_the_metadata_part",
             "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
             "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -30801,6 +30807,7 @@
         "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
         "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
         "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+        "json::multipart::tests::related_uploads_bound_the_metadata_part",
         "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
         "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -30847,6 +30854,7 @@
             "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
             "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
             "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+            "json::multipart::tests::related_uploads_bound_the_metadata_part",
             "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
             "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -32213,6 +32221,7 @@
           "result": "PASS",
           "test_ids": [
             "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+            "json::multipart::tests::related_uploads_bound_the_metadata_part",
             "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
             "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -32290,6 +32299,7 @@
         "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
         "obj_http_upload_tokens_reject_empty_or_duplicate_headers_before_body",
         "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+        "json::multipart::tests::related_uploads_bound_the_metadata_part",
         "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
         "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
         "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -32333,6 +32343,7 @@
             "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
             "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
             "multipart::tests::multipart_parser_bounds_preamble_epilogue_and_headers",
+            "json::multipart::tests::related_uploads_bound_the_metadata_part",
             "multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
             "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
             "obj_multipart_http_media_json_and_custom_metadata_caps",
@@ -59751,7 +59762,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]
@@ -59811,7 +59822,7 @@
         "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
         "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
         "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-        "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+        "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
         "obj_http_additional_upload_waits_for_advisory_check",
         "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission",
         "TestObjectResumableWriter",
@@ -59851,7 +59862,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]
@@ -59984,7 +59995,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]
@@ -60048,7 +60059,7 @@
         "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
         "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
         "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-        "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+        "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
         "obj_http_additional_upload_waits_for_advisory_check",
         "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission",
         "TestObjectResumableWriter",
@@ -60100,7 +60111,7 @@
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
             "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
-            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "api_error::tests::backend_causes_are_actionable_and_private_details_stay_private",
             "obj_http_additional_upload_waits_for_advisory_check",
             "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
           ]

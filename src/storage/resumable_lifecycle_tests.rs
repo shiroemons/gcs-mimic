@@ -1,13 +1,12 @@
 use crate as gcs_mimic;
+use crate::json::JsonErrorResponse;
 use crate::storage::test_fixtures::{body, publication, seed_bucket};
 use crate::test_support::{TestDir, eventually_async};
 use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use gcs_mimic::{
+    api_error::ApiError,
     clock::{Clock, ManualClock},
-    json::{
-        JsonError,
-        resumable_cancel::{Cancellation, cancel_response},
-    },
+    json::resumable_cancel::{Cancellation, cancel_response},
     storage::{Catalog, ResumableError},
 };
 use http_body_util::BodyExt;
@@ -50,7 +49,7 @@ async fn cancel_wire(catalog: &Catalog, id: &str, body: &[u8]) -> u16 {
                 async move {
                     let response = match cancel_response(request, "bucket", &id, &catalog).await {
                         Ok(Cancellation::Cancelled) => {
-                            JsonError::from(ResumableError::Cancelled).into_response()
+                            ApiError::from(ResumableError::Cancelled).into_response()
                         }
                         Ok(Cancellation::Completed { resource, .. }) => {
                             hyper::Response::new(http_body_util::Full::new(

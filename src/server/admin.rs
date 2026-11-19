@@ -1,7 +1,8 @@
 //! Opt-in local management never confers Google API permissions; sync retains its ownership authority.
 
 use super::{RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, ResponseBody, boxed, empty_response};
-use crate::{auth, config::EndpointError, json::JsonError};
+use crate::json::JsonErrorResponse;
+use crate::{api_error::ApiError, auth, config::EndpointError};
 use http_body_util::Full;
 use hyper::{Method, Request, Response, StatusCode, body::Bytes};
 use serde::Deserialize;
@@ -93,9 +94,9 @@ impl TryFrom<AdminRoute> for LocalRoute {
 async fn authority(
     request: &Request<RequestBody>,
     ctx: RequestCtx<'_>,
-) -> Result<Authorized, JsonError> {
+) -> Result<Authorized, ApiError> {
     let admin = ctx.state.catalog.local_admin().ok_or_else(|| {
-        JsonError::new(
+        ApiError::new(
             StatusCode::NOT_FOUND,
             "notFound",
             "Local administration is disabled at startup",
@@ -139,15 +140,15 @@ pub(super) async fn respond(
     boxed(match route {
         LocalRoute::Config => update(request, ctx, &authorized)
             .await
-            .unwrap_or_else(JsonError::into_response),
+            .unwrap_or_else(ApiError::into_response),
         LocalRoute::Objects => fixtures::insert(request, ctx, authorized)
             .await
-            .unwrap_or_else(JsonError::into_response),
+            .unwrap_or_else(ApiError::into_response),
         LocalRoute::Reset(form) => reset::respond(request, ctx, authorized, form).await,
         LocalRoute::Reseed => reseed::respond(request, ctx, authorized).await,
         LocalRoute::Lifecycle => run_lifecycle(request, ctx, authorized)
             .await
-            .unwrap_or_else(JsonError::into_response),
+            .unwrap_or_else(ApiError::into_response),
         LocalRoute::Bucket => purge::respond(request, ctx, authorized).await,
     })
 }
@@ -156,15 +157,15 @@ async fn run_lifecycle(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
     _authorized: Authorized,
-) -> Result<hyper::Response<http_body_util::Full<hyper::body::Bytes>>, JsonError> {
+) -> Result<hyper::Response<http_body_util::Full<hyper::body::Bytes>>, ApiError> {
     if request.method() != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use POST /_internal/lifecycle/run with an empty body",
             Some("POST"),
         ));
     }
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Lifecycle execution does not accept query parameters or time travel",
         ));
     }
@@ -172,7 +173,7 @@ async fn run_lifecycle(
         .await?
         .is_empty()
     {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Lifecycle execution accepts only an empty body",
         ));
     }
@@ -183,14 +184,14 @@ async fn run_lifecycle(
 /// Renders a management result. The outcome types hold only integers, booleans and fixed
 /// strings, so this cannot fail today; if a future field makes it fail, the server is at fault,
 /// and the client gets a server-side failure instead of a rejected request.
-fn encode(value: &impl serde::Serialize) -> Result<serde_json::Value, JsonError> {
+fn encode(value: &impl serde::Serialize) -> Result<serde_json::Value, ApiError> {
     serde_json::to_value(value).map_err(|error| {
         crate::diagnostics::emit(
             crate::diagnostics::LogLevel::Error,
             "admin_result_unencodable",
             serde_json::json!({"reason": error.to_string()}),
         );
-        JsonError::service_unavailable(
+        ApiError::service_unavailable(
             "Cannot encode the management result; inspect server diagnostics",
         )
     })
@@ -200,20 +201,20 @@ async fn update(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
     _authorized: &Authorized,
-) -> Result<hyper::Response<http_body_util::Full<hyper::body::Bytes>>, JsonError> {
+) -> Result<hyper::Response<http_body_util::Full<hyper::body::Bytes>>, ApiError> {
     if request.method() != Method::PUT {
         return Ok(
-            JsonError::method_not_allowed("Use PUT /_internal/config", Some("PUT")).into_response(),
+            ApiError::method_not_allowed("Use PUT /_internal/config", Some("PUT")).into_response(),
         );
     }
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Local configuration does not accept query parameters",
         ));
     }
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let update: Update = serde_json::from_slice(&bytes).map_err(|_| {
-        JsonError::invalid_argument(
+        ApiError::invalid_argument(
             "Send one JSON object with string externalUrl and publicHost fields",
         )
     })?;
@@ -225,11 +226,11 @@ async fn update(
             update.external_url.as_deref(),
             update.public_host.as_deref(),
         )
-        .map_err(JsonError::from)?;
+        .map_err(ApiError::from)?;
     Ok(empty_response(StatusCode::OK))
 }
 
-impl From<EndpointError> for JsonError {
+impl From<EndpointError> for ApiError {
     fn from(error: EndpointError) -> Self {
         let (status, reason) = if matches!(error, EndpointError::Poisoned) {
             (StatusCode::SERVICE_UNAVAILABLE, "backendError")
@@ -348,7 +349,7 @@ mod tests {
             Self::Resolve,
         ];
 
-        fn answer(self, error: AdminError) -> JsonError {
+        fn answer(self, error: AdminError) -> ApiError {
             match self {
                 Self::Fixtures => fixtures::failure(error),
                 Self::Reset => reset::failure(&error),

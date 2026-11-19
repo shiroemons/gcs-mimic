@@ -2,7 +2,7 @@
 //! routes, request bodies and resources, plus the ACL fields of `projection=full` resources.
 
 use super::{
-    Fields, JsonError, Schema,
+    ApiError, Fields, Schema,
     buckets::encode_segment,
     integer::take_int64,
     query::{common, finish_for_profile},
@@ -24,7 +24,7 @@ use serde_json::{Map, Value, json};
 
 /// A rejected ACL entity, role or entry list becomes the error body text; the validation
 /// error has no underlying cause to keep.
-impl From<crate::acl::AclError> for JsonError {
+impl From<crate::acl::AclError> for ApiError {
     fn from(error: crate::acl::AclError) -> Self {
         Self::invalid(crate::storage::failure::wording::acl_refusal(&error))
     }
@@ -151,7 +151,7 @@ pub(crate) fn route_acl(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<AclRequest, JsonError>> {
+) -> Option<Result<AclRequest, ApiError>> {
     let path = uri.path().strip_prefix(super::query::BUCKET_PATH)?;
     let segments: Vec<&str> = path.split('/').collect();
     if segments.iter().any(|segment| segment.is_empty()) {
@@ -186,7 +186,7 @@ fn parse_route(
     target: PathTarget<'_>,
     selection: Selection<'_>,
     profile: CompatProfile,
-) -> Result<AclRequest, JsonError> {
+) -> Result<AclRequest, ApiError> {
     let bucket = decode(bucket, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
     let served_by_fake_gcs_server = target.served_by_fake_gcs_server(selection);
@@ -250,11 +250,11 @@ pub(crate) struct AclBody {
     pub role: Option<AclRole>,
 }
 
-pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, JsonError> {
+pub(crate) fn parse_entries(value: &Value, kind: AclKind) -> Result<Vec<AclEntry>, ApiError> {
     let input = Vec::<crate::acl::AclEntryInput>::deserialize(value).map_err(|_| {
-        JsonError::invalid("ACL must be an array of objects with entity and role strings")
+        ApiError::invalid("ACL must be an array of objects with entity and role strings")
     })?;
-    crate::acl::parse_entries(kind, input).map_err(JsonError::from)
+    crate::acl::parse_entries(kind, input).map_err(ApiError::from)
 }
 
 /// Validate an insert, patch or update body against the path entity and resource kind.
@@ -264,24 +264,24 @@ pub(crate) fn parse_acl_body(
     bytes: &[u8],
     kind: AclKind,
     write: &AclWrite,
-) -> Result<AclBody, JsonError> {
+) -> Result<AclBody, ApiError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
+        serde_json::from_slice(bytes).map_err(|error| crate::json::parse_error(bytes, &error))?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid("Access control must be a JSON object"))?;
+        .ok_or_else(|| ApiError::invalid("Access control must be a JSON object"))?;
     let string = |field: &str| {
         body.get(field)
             .map(|value| {
                 value
                     .as_str()
                     .map(str::to_owned)
-                    .ok_or_else(|| JsonError::invalid(format!("{field} must be a string")))
+                    .ok_or_else(|| ApiError::invalid(format!("{field} must be a string")))
             })
             .transpose()
     };
     let required = |field: &str| {
-        JsonError::required(format!(
+        ApiError::required(format!(
             "Access control must contain {}",
             if field == "role" {
                 "a role"
@@ -296,7 +296,7 @@ pub(crate) fn parse_acl_body(
         AclWrite::Insert => body_entity.ok_or_else(|| required("entity"))?,
         AclWrite::Patch(path) | AclWrite::Update(path) => {
             if body_entity.as_ref().is_some_and(|entity| entity != path) {
-                return Err(JsonError::invalid(format!(
+                return Err(ApiError::invalid(format!(
                     "Body entity must match the path entity {path}; omit entity or send {path}"
                 )));
             }
@@ -501,7 +501,7 @@ mod tests {
         }
     }
 
-    fn route(method: Method, path: &str) -> Option<Result<AclRequest, JsonError>> {
+    fn route(method: Method, path: &str) -> Option<Result<AclRequest, ApiError>> {
         route_acl(&method, &path.parse().unwrap(), CompatProfile::Native)
     }
 

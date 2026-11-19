@@ -1,4 +1,5 @@
 use super::*;
+use crate::json::JsonErrorResponse;
 use crate::storage::test_fixtures::PERMISSIVE;
 use crate::sync::SyncError;
 use crate::{
@@ -371,7 +372,7 @@ impl Fixture {
         path: &str,
         payload: &[u8],
         token: Option<&str>,
-    ) -> Result<Response<Full<Bytes>>, JsonError> {
+    ) -> Result<Response<Full<Bytes>>, ApiError> {
         self.request_once(method, path, payload, token).await
     }
 
@@ -381,7 +382,7 @@ impl Fixture {
         path: &str,
         body: &[u8],
         token: Option<&str>,
-    ) -> Result<Response<Full<Bytes>>, JsonError> {
+    ) -> Result<Response<Full<Bytes>>, ApiError> {
         self.send(method, path, body, token, Some(crate::VERSION))
             .await
     }
@@ -394,7 +395,7 @@ impl Fixture {
         body: &[u8],
         token: Option<&str>,
         version: Option<&str>,
-    ) -> Result<Response<Full<Bytes>>, JsonError> {
+    ) -> Result<Response<Full<Bytes>>, ApiError> {
         let endpoints = self
             .config
             .runtime_endpoints
@@ -513,7 +514,7 @@ impl Fixture {
 }
 
 #[track_caller]
-fn status_of(result: Result<Response<Full<Bytes>>, JsonError>) -> StatusCode {
+fn status_of(result: Result<Response<Full<Bytes>>, ApiError>) -> StatusCode {
     result.unwrap_err().status
 }
 
@@ -1333,7 +1334,7 @@ async fn controls_reject_invalid_input_and_unsupported_routes() {
 const MANY_CONTROLS: usize = 64;
 const LONG_WAIT: &[u8] = br#"{"timeout_ms":60000}"#;
 
-type ControlTask = tokio::task::JoinHandle<Result<Response<Full<Bytes>>, JsonError>>;
+type ControlTask = tokio::task::JoinHandle<Result<Response<Full<Bytes>>, ApiError>>;
 
 /// A request on its own task, so that it can be left waiting, cancelled or awaited on its own.
 fn spawn_control(

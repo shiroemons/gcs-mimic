@@ -1,7 +1,8 @@
 //! Replays only the startup-selected read-only fixtures, never a request-supplied path.
 
+use crate::json::JsonErrorResponse;
 use crate::{
-    json::JsonError,
+    api_error::ApiError,
     seed::SeedError,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::AdminError,
@@ -17,7 +18,7 @@ pub(super) async fn respond(
     super::retry_soon(
         reseed(request, ctx, authorized)
             .await
-            .unwrap_or_else(JsonError::into_response),
+            .unwrap_or_else(ApiError::into_response),
     )
 }
 
@@ -25,26 +26,26 @@ async fn reseed(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
     authorized: super::Authorized,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let admin = authorized.into_admin();
     if !matches!(*request.method(), Method::POST | Method::PUT) {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use POST or PUT /_internal/reseed with an empty body",
             Some("POST, PUT"),
         ));
     }
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Reseed does not accept query parameters",
         ));
     }
     if ctx.config.seed_dir.is_none() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Configure seed_dir at startup before reseeding",
         ));
     }
     if ctx.config.sync_dir.is_some() {
-        return Err(JsonError::new(
+        return Err(ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Stop synchronization and restart without sync_dir before reseeding; external files are never reset",
@@ -52,7 +53,7 @@ async fn reseed(
     }
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     if !bytes.is_empty() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Reseed accepts only an empty body; the source is configured at startup",
         ));
     }
@@ -97,7 +98,7 @@ impl std::fmt::Display for Operation {
     }
 }
 
-fn failure(error: &SeedError) -> JsonError {
+fn failure(error: &SeedError) -> ApiError {
     tree_failure(error, Operation::Reseed)
 }
 
@@ -105,45 +106,45 @@ fn failure(error: &SeedError) -> JsonError {
 /// tree that breaks a configured limit, or holds content the emulator cannot import, fails the
 /// same way every time, so it answers 400 without `Retry-After`. Only work a later attempt may
 /// finish answers 503. Messages are fixed: they never echo a fixture path or an on-disk name.
-pub(super) fn tree_failure(error: &SeedError, operation: Operation) -> JsonError {
+pub(super) fn tree_failure(error: &SeedError, operation: Operation) -> ApiError {
     match error {
         // The label names the fixture entry, which stays in diagnostics only.
         SeedError::Entry { source, .. } | SeedError::Import(source) => {
             tree_failure(source, operation)
         }
         SeedError::Admin(error) => admin_failure(error, operation),
-        SeedError::EntryLimit { limit } => JsonError::invalid(format!(
+        SeedError::EntryLimit { limit } => ApiError::invalid(format!(
             "{operation} made no changes because the fixture tree has more than {limit} entries; raise max_seed_entries or reduce the tree"
         )),
-        SeedError::DepthLimit { limit } => JsonError::invalid(format!(
+        SeedError::DepthLimit { limit } => ApiError::invalid(format!(
             "{operation} made no changes because the fixture tree has more than {limit} directory levels below a bucket; raise max_seed_depth or flatten the tree"
         )),
-        SeedError::BucketLimit { limit } => JsonError::invalid(format!(
+        SeedError::BucketLimit { limit } => ApiError::invalid(format!(
             "{operation} made no changes because the fixture tree has more than {limit} buckets; raise max_buckets_per_batch or reduce the tree"
         )),
-        SeedError::BucketName(_) => JsonError::invalid(format!(
+        SeedError::BucketName(_) => ApiError::invalid(format!(
             "{operation} made no changes because a top-level fixture directory is not a valid bucket name"
         )),
-        SeedError::ObjectName(_) => JsonError::invalid(format!(
+        SeedError::ObjectName(_) => ApiError::invalid(format!(
             "{operation} made no changes because a fixture file path is not a valid object name"
         )),
-        SeedError::NonUtf8Name => JsonError::invalid(format!(
+        SeedError::NonUtf8Name => ApiError::invalid(format!(
             "{operation} made no changes because a fixture name is not UTF-8"
         )),
-        SeedError::UnsupportedFile => JsonError::invalid(format!(
+        SeedError::UnsupportedFile => ApiError::invalid(format!(
             "{operation} made no changes because a fixture entry is neither a regular file nor a directory, such as a symlink"
         )),
-        SeedError::FileLimit => JsonError::invalid(format!(
+        SeedError::FileLimit => ApiError::invalid(format!(
             "{operation} made no changes because a fixture file is not a regular file or exceeds max_object_bytes"
         )),
-        SeedError::NotDirectory => JsonError::invalid(format!(
+        SeedError::NotDirectory => ApiError::invalid(format!(
             "{operation} made no changes because seed_dir is not a directory; it must be a directory, not a symlink"
         )),
-        SeedError::Overlap => JsonError::invalid(format!(
+        SeedError::Overlap => ApiError::invalid(format!(
             "{operation} made no changes because seed_dir and data_dir overlap"
         )),
         SeedError::MissingRoot => {
-            JsonError::invalid("Configure seed_dir at startup before reseeding")
+            ApiError::invalid("Configure seed_dir at startup before reseeding")
         }
         SeedError::Io(error) => io_failure(error.kind(), operation),
         // A walk stops early only on shutdown or a panic. A path outside the root is an invariant
@@ -158,53 +159,53 @@ pub(super) fn tree_failure(error: &SeedError, operation: Operation) -> JsonError
     clippy::wildcard_enum_match_arm,
     reason = "io::ErrorKind is non_exhaustive, and every other kind may pass on a retry"
 )]
-fn io_failure(kind: std::io::ErrorKind, operation: Operation) -> JsonError {
+fn io_failure(kind: std::io::ErrorKind, operation: Operation) -> ApiError {
     match kind {
-        std::io::ErrorKind::InvalidFilename => JsonError::invalid(format!(
+        std::io::ErrorKind::InvalidFilename => ApiError::invalid(format!(
             "{operation} made no changes because a fixture path exceeds this platform's path length limit"
         )),
         // The container runs as uid 10001, so a bind-mounted fixture readable only by its owner
         // fails here until its permissions change.
-        std::io::ErrorKind::PermissionDenied => JsonError::invalid(format!(
+        std::io::ErrorKind::PermissionDenied => ApiError::invalid(format!(
             "{operation} made no changes because the emulator cannot read a fixture file or directory; make seed_dir and its contents readable by the emulator's user"
         )),
         _ => retry(operation),
     }
 }
 
-pub(super) fn admin_failure(error: &AdminError, operation: Operation) -> JsonError {
+pub(super) fn admin_failure(error: &AdminError, operation: Operation) -> ApiError {
     match error {
-        AdminError::Precondition => JsonError::new(
+        AdminError::Precondition => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             format!(
                 "{operation} made no changes because import or synchronization state is active"
             ),
         ),
-        AdminError::Hold => JsonError::new(
+        AdminError::Hold => ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
             format!(
                 "{operation} made no changes because an object is protected by a hold or retention"
             ),
         ),
-        AdminError::Invalid(_) | AdminError::SeedProjectMismatch => JsonError::invalid(format!(
+        AdminError::Invalid(_) | AdminError::SeedProjectMismatch => ApiError::invalid(format!(
             "Invalid fixture state; {} made no changes",
             operation.noun()
         )),
-        AdminError::SeedMetadataBudget { mib } => JsonError::invalid(format!(
+        AdminError::SeedMetadataBudget { mib } => ApiError::invalid(format!(
             "{operation} made no changes because fixture metadata exceeds {mib} MiB; raise max_seed_entries or reduce the tree"
         )),
-        AdminError::TooLarge => JsonError::invalid(format!(
+        AdminError::TooLarge => ApiError::invalid(format!(
             "{operation} made no changes because a fixture file exceeds max_object_bytes"
         )),
         // A retry cannot change an authorization decision.
-        AdminError::Forbidden => JsonError::new(
+        AdminError::Forbidden => ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
             format!("{operation} made no changes because a fixture write was not authorized"),
         ),
-        AdminError::Busy { .. } => JsonError::service_unavailable(format!(
+        AdminError::Busy { .. } => ApiError::service_unavailable(format!(
             "{operation} made no changes because catalog work, an unpublished body or another publication is active; retry after it completes"
         )),
         // A source that changed while it was read, a racing delete, a closing catalog and storage
@@ -221,8 +222,8 @@ pub(super) fn admin_failure(error: &AdminError, operation: Operation) -> JsonErr
     }
 }
 
-fn retry(operation: Operation) -> JsonError {
-    JsonError::service_unavailable(format!(
+fn retry(operation: Operation) -> ApiError {
+    ApiError::service_unavailable(format!(
         "{operation} failed; inspect local fixture/storage diagnostics and retry"
     ))
 }
@@ -298,7 +299,7 @@ mod tests {
                 "bucket name",
             ),
             (
-                wrapped(SeedError::ObjectName(JsonError::invalid("bad"))),
+                wrapped(SeedError::ObjectName(ApiError::invalid("bad"))),
                 "object name",
             ),
             (wrapped(SeedError::NonUtf8Name), "UTF-8"),

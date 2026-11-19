@@ -3,10 +3,11 @@
 use super::{AclSource, Written, idempotency_token};
 use crate::server::RequestBody as Incoming;
 use crate::{
+    api_error::ApiError,
     auth,
     bucket::BucketAccess,
     csek::{CopyKeys, CustomerKey},
-    json::{self, JsonError},
+    json,
     object::{ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ObjectCtx, RESOURCE_BODY_LIMIT,
@@ -22,7 +23,7 @@ pub(super) async fn copy(
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
     params: json::ObjectCopyParams,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     json::validate_keyed_object_headers(
         request.headers(),
         &[crate::csek::DESTINATION_PREFIX, crate::csek::SOURCE_PREFIX],
@@ -114,7 +115,7 @@ async fn copy_object(
     ctx: ObjectCtx<'_>,
     request: CopyRequest,
     body: &[u8],
-) -> Result<ObjectRecord, JsonError> {
+) -> Result<ObjectRecord, ApiError> {
     let CopyRequest {
         params,
         access,
@@ -137,7 +138,7 @@ async fn copy_object(
         )
         .await
         .map_err(|failure| {
-            JsonError::from(failure).naming_object(&params.source_bucket, &params.source_name)
+            ApiError::from(failure).naming_object(&params.source_bucket, &params.source_name)
         })?;
     let json::DerivedMetadata {
         update: mut metadata,
@@ -198,7 +199,7 @@ pub(super) async fn compose(
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
     params: json::ComposeParams,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     let json::ComposeParams {
         bucket,
         name,
@@ -258,7 +259,7 @@ pub(super) async fn compose(
         )
         .await
         .map_err(|error| {
-            let error = JsonError::from(error);
+            let error = ApiError::from(error);
             if error.status == hyper::StatusCode::PRECONDITION_FAILED {
                 error.at_if_match()
             } else {

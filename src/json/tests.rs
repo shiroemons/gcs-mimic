@@ -19,7 +19,7 @@ use std::{
 };
 
 #[track_caller]
-fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
+fn request(method: Method, path: &str) -> Result<BucketRequest, ApiError> {
     route(&method, &path.parse::<Uri>().unwrap()).expect("bucket route")
 }
 
@@ -27,7 +27,7 @@ fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
 fn assert_query_boolean_spellings<T: std::fmt::Debug + PartialEq>(
     case: &str,
     supported: bool,
-    parse: impl Fn(&str) -> Result<T, JsonError>,
+    parse: impl Fn(&str) -> Result<T, ApiError>,
 ) {
     for (canonical, python) in [("true", "True"), ("false", "False")] {
         let parsed = parse(python);
@@ -571,12 +571,12 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             (
                 BucketAclWrite::Update,
                 CompatProfile::FakeGcsServer,
-                JsonError::unsupported(parameter).reason,
+                ApiError::unsupported(parameter).reason,
             ),
             (
                 BucketAclWrite::Insert,
                 CompatProfile::Native,
-                JsonError::unsupported(parameter).reason,
+                ApiError::unsupported(parameter).reason,
             ),
         ] {
             assert_eq!(
@@ -1429,7 +1429,7 @@ fn bucket_location_defaults_and_unsupported_placement() {
         let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
         assert_eq!(
             error.reason,
-            JsonError::unsupported("customPlacementConfig").reason
+            ApiError::unsupported("customPlacementConfig").reason
         );
     }
 }
@@ -1614,7 +1614,7 @@ fn http_dates_render_calendar_fields_and_refuse_out_of_range_times() {
         UNIX_EPOCH + Duration::from_secs(253_402_300_800),
     ] {
         assert_eq!(
-            JsonError::from(http_date(time).unwrap_err()).status,
+            ApiError::from(http_date(time).unwrap_err()).status,
             StatusCode::SERVICE_UNAVAILABLE,
             "{time:?}"
         );
@@ -1790,7 +1790,7 @@ fn bkt_lst_002_token_tampering_and_invalid_shapes() {
         "a".repeat(4097),
     ] {
         assert_eq!(
-            JsonError::from(decode_page_token(&invalid, "p", "").unwrap_err()).reason,
+            ApiError::from(decode_page_token(&invalid, "p", "").unwrap_err()).reason,
             "invalidParameter"
         );
     }
@@ -1824,7 +1824,7 @@ async fn bkt_err_001_envelope_content_type_and_catalog_mappings() {
             "backendError",
         ),
     ] {
-        let error = JsonError::from(catalog);
+        let error = ApiError::from(catalog);
         assert_eq!(error.status, status);
         assert_eq!(error.reason, reason);
         let response = error.into_response();
@@ -1849,7 +1849,7 @@ async fn bkt_err_001_envelope_content_type_and_catalog_mappings() {
                 .contains("secret")
         );
     }
-    let error = JsonError::invalid_argument("a \"quoted\" message\nline");
+    let error = ApiError::invalid_argument("a \"quoted\" message\nline");
     assert_eq!(
         serde_json::from_str::<Value>(&error.value().to_string()).unwrap()["error"]["message"],
         error.message
@@ -1902,7 +1902,7 @@ async fn bkt_body_001_empty_exact_cap_multiframe_and_trailers() {
 #[tokio::test]
 async fn bkt_body_001_rejects_oversize_and_read_errors() {
     for cap in [0, 3] {
-        let error = JsonError::from(
+        let error = ApiError::from(
             read_body(Full::new(Bytes::from_static(b"1234")), cap)
                 .await
                 .unwrap_err(),
@@ -1919,7 +1919,7 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         .into(),
     };
     assert_eq!(
-        JsonError::from(read_body(frames, 4).await.unwrap_err()).status,
+        ApiError::from(read_body(frames, 4).await.unwrap_err()).status,
         StatusCode::PAYLOAD_TOO_LARGE
     );
     let frames = Frames {
@@ -1930,7 +1930,7 @@ async fn bkt_body_001_rejects_oversize_and_read_errors() {
         .into(),
     };
     assert_eq!(
-        JsonError::from(read_body(frames, 4).await.unwrap_err()).reason,
+        ApiError::from(read_body(frames, 4).await.unwrap_err()).reason,
         "badRequest"
     );
 }

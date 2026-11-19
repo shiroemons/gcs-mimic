@@ -9,11 +9,12 @@ use super::{
     read_metadata_response, require_empty_body, response_fields, validate_bodyless_post,
 };
 use crate::{
+    api_error::ApiError,
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord, CatalogError},
     config::CompatProfile,
     http_conditions::EtagError,
-    json::{self, BucketRequest, JsonError, WriteMode},
+    json::{self, BucketRequest, WriteMode},
     storage::failure::unavailable,
 };
 use http_body_util::Full;
@@ -40,7 +41,7 @@ pub(super) async fn respond<'a>(
     state: &'a State,
     profile: CompatProfile,
     base_url: &'a str,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let ctx = BucketCtx {
         state,
         base_url,
@@ -140,7 +141,7 @@ fn rendered_bucket(
     base_url: &str,
     projection: json::Projection,
     profile: CompatProfile,
-) -> Result<Rendered, JsonError> {
+) -> Result<Rendered, ApiError> {
     Ok(Rendered {
         value: json::bucket_resource_with_profile(record, base_url, projection, profile)?,
         subjects: AclSubjects::Bucket(record.into()),
@@ -152,7 +153,7 @@ async fn leaves_uniform_access(
     state: &State,
     access: &BucketAccess,
     operation: &BucketRequest,
-) -> Result<bool, JsonError> {
+) -> Result<bool, ApiError> {
     let (BucketRequest::Patch { bucket, .. } | BucketRequest::Update { bucket, .. }) = operation
     else {
         return Ok(false);
@@ -167,7 +168,7 @@ async fn leaves_uniform_access(
 async fn authorize(
     ctx: BucketCtx<'_>,
     operation: &BucketRequest,
-) -> Result<BucketAccess, JsonError> {
+) -> Result<BucketAccess, ApiError> {
     let BucketCtx { state, caller, .. } = ctx;
     Ok(match operation {
         BucketRequest::Insert(params) => {
@@ -221,7 +222,7 @@ async fn authorize(
 fn soft_deleted_access(
     caller: Option<Caller<'_>>,
     permission: auth::Permission,
-) -> Result<BucketAccess, JsonError> {
+) -> Result<BucketAccess, ApiError> {
     let Some(caller) = caller else {
         return Ok(BucketAccess::Permissive);
     };
@@ -241,7 +242,7 @@ fn soft_deleted_access(
 fn validate_request(
     request: &Request<Incoming>,
     operation: &BucketRequest,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     json::validate_read_condition_headers(request.headers(), operation.etag_conditions())?;
     if !operation.accepts_body() {
         require_empty_body(request.headers())?;
@@ -255,7 +256,7 @@ async fn lock_retention_policy(
     access: &BucketAccess,
     bucket: &str,
     metageneration: i64,
-) -> Result<Rendered, JsonError> {
+) -> Result<Rendered, ApiError> {
     validate_bodyless_post(
         request,
         &[("ifMetagenerationMatch".into(), metageneration.to_string())].into(),
@@ -291,7 +292,7 @@ async fn restore(
     bucket: &str,
     generation: i64,
     projection: json::Projection,
-) -> Result<Rendered, JsonError> {
+) -> Result<Rendered, ApiError> {
     let query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     validate_bodyless_post(request, &query, EmptyJsonBody::Refused).await?;
     let record = ctx
@@ -306,7 +307,7 @@ async fn test_iam_permissions(
     ctx: BucketCtx<'_>,
     bucket: &str,
     permissions: Vec<auth::Permission>,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     // This method requires no permission; existence is independent of policy visibility.
     ctx.state
         .catalog
@@ -339,7 +340,7 @@ async fn write(
     bucket: &str,
     params: json::GetParams,
     mode: WriteMode,
-) -> Result<Rendered, JsonError> {
+) -> Result<Rendered, ApiError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
@@ -383,7 +384,7 @@ async fn write(
     // Nothing is written on this path, so reading the metageneration outside the catalog's
     // transaction cannot let a mutation slip past its condition.
     if conditions.if_metageneration_not_match == Some(record.metageneration) {
-        return Err(JsonError::not_modified());
+        return Err(ApiError::not_modified());
     }
     let record = match mode {
         WriteMode::Replace => {
@@ -421,13 +422,13 @@ async fn get_iam(
     access: &BucketAccess,
     bucket: &str,
     fields: &json::Fields,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let policy = ctx.state.catalog.get_policy(bucket, access).await?;
     // The catalog renders every stored policy with an etag from its revision.
     let etag = policy
         .etag
         .as_deref()
-        .ok_or_else(|| JsonError::service_unavailable("Stored IAM policy has no etag"))?;
+        .ok_or_else(|| ApiError::service_unavailable("Stored IAM policy has no etag"))?;
     read_metadata_response(
         request.headers(),
         etag,
@@ -443,7 +444,7 @@ async fn set_iam(
     ctx: BucketCtx<'_>,
     access: &BucketAccess,
     bucket: &str,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let if_match = policy_if_match_lines(request.headers());
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
     let policy = json::parse_policy(&bytes)?;
@@ -468,7 +469,7 @@ async fn set_iam(
             // Cloud Storage names the `If-Match` header for a stale policy etag.
             .map_err(|error| {
                 let stale = matches!(error, CatalogError::PreconditionFailed);
-                let error = JsonError::from(error);
+                let error = ApiError::from(error);
                 if stale { error.at_if_match() } else { error }
             })?;
     Ok(json::policy_resource(&policy, bucket))
@@ -494,7 +495,7 @@ async fn insert(
     request: Request<Incoming>,
     ctx: BucketCtx<'_>,
     params: json::InsertParams,
-) -> Result<Rendered, JsonError> {
+) -> Result<Rendered, ApiError> {
     let BucketCtx { state, profile, .. } = ctx;
     let acl_query = request.uri().query().map(str::to_owned);
     let bytes = crate::bounded_body::read_body(request.into_body(), RESOURCE_BODY_LIMIT).await?;
@@ -506,7 +507,7 @@ async fn insert(
         &state.default_location,
     )?;
     if record.object_retention_enabled && !params.enable_object_retention {
-        return Err(JsonError::invalid(
+        return Err(ApiError::invalid(
             "objectRetention is output-only; add the enableObjectRetention=true query parameter to enable object retention",
         ));
     }
@@ -533,7 +534,7 @@ async fn get(
     bucket: &str,
     params: json::GetParams,
     fields: &json::Fields,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let BucketCtx {
         state,
         caller,
@@ -577,7 +578,7 @@ async fn get(
     )
 }
 
-async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, JsonError> {
+async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, ApiError> {
     let limit = params.max_results as usize;
     let page = ctx
         .state
@@ -614,7 +615,7 @@ async fn list(ctx: BucketCtx<'_>, params: json::ListParams) -> Result<Rendered, 
 async fn list_soft_deleted(
     ctx: BucketCtx<'_>,
     params: json::SoftDeletedListParams,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let page = ctx
         .state
         .catalog
@@ -652,7 +653,7 @@ async fn delete(
     access: &BucketAccess,
     bucket: &str,
     conditions: BucketConditions,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     ctx.state
         .catalog
         .delete_bucket(bucket, conditions, access)
@@ -679,23 +680,23 @@ fn bucket_catalog_error(
     error: CatalogError,
     profile: CompatProfile,
     name: Option<&str>,
-) -> JsonError {
+) -> ApiError {
     if profile != CompatProfile::FakeGcsServer {
         return error.into();
     }
     match error {
-        CatalogError::NotFound => JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found"),
-        CatalogError::PreconditionFailed | CatalogError::NotModified => JsonError::new(
+        CatalogError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "notFound", "Not Found"),
+        CatalogError::PreconditionFailed | CatalogError::NotModified => ApiError::new(
             StatusCode::PRECONDITION_FAILED,
             "conditionNotMet",
             "Precondition failed",
         ),
-        CatalogError::NotEmpty => JsonError::new(
+        CatalogError::NotEmpty => ApiError::new(
             StatusCode::PRECONDITION_FAILED,
             "conditionNotMet",
             "bucket must be empty prior to deletion",
         ),
-        CatalogError::AlreadyExists => JsonError::new(
+        CatalogError::AlreadyExists => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             format!(

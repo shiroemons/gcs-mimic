@@ -14,7 +14,7 @@ pub(super) async fn respond(
     caller: Option<Caller<'_>>,
     state: &State,
     base: &str,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let access = authorize_bucket(
         state,
         caller,
@@ -81,7 +81,7 @@ async fn check_topic(
     bucket: &str,
     access: &BucketAccess,
     topic: &crate::notification::Topic,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let record = state
         .catalog
         .get_bucket(bucket, access)

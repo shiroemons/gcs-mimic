@@ -9,14 +9,14 @@ pub(super) async fn list(
     root: &RootLease,
     session: &str,
     authority: ControlAuthority,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let mut query = crate::percent::parse_query(request.uri().query().unwrap_or_default())?;
     let limit = parse_limit(query.remove("limit"))?;
     let revision = query
         .remove("revision")
         .map(|value| value.parse::<OpaqueId>())
         .transpose()
-        .map_err(|_| JsonError::invalid_argument("revision must be a conflict listing revision"))?;
+        .map_err(|_| ApiError::invalid_argument("revision must be a conflict listing revision"))?;
     let ids = root.status();
     let prefix = cursor_prefix(&ids, session);
     let position = match (query.remove("cursor"), revision) {
@@ -43,7 +43,7 @@ pub(super) async fn list(
         }
     };
     if !query.is_empty() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Unknown conflict query parameter",
         ));
     }
@@ -51,7 +51,7 @@ pub(super) async fn list(
         .await?
         .is_empty()
     {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "GET synchronization controls do not accept a body",
         ));
     }
@@ -109,14 +109,14 @@ struct Resolve {
     operation_id: String,
 }
 
-fn parse(bytes: &[u8]) -> Result<ResolveRequest, JsonError> {
+fn parse(bytes: &[u8]) -> Result<ResolveRequest, ApiError> {
     let request: Resolve = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::invalid_argument(
+        ApiError::invalid_argument(
             "Send one exact conflict or recovery target, revision, action and operation_id",
         )
     })?;
     let fields: serde_json::Map<String, Value> = serde_json::from_slice(bytes)
-        .map_err(|_| JsonError::invalid_argument("Send one resolution object"))?;
+        .map_err(|_| ApiError::invalid_argument("Send one resolution object"))?;
     let mixed = if request.conflict_id.is_some() {
         ["recovery_id", "target_identity", "confirmation"]
             .iter()
@@ -127,12 +127,12 @@ fn parse(bytes: &[u8]) -> Result<ResolveRequest, JsonError> {
             .any(|key| fields.contains_key(*key))
     };
     if mixed {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Fields for the other resolution target must be absent, including null fields",
         ));
     }
     let Ok(revision) = request.revision.parse::<OpaqueId>() else {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Use the exact inspected target revision",
         ));
     };
@@ -162,14 +162,14 @@ fn parse(bytes: &[u8]) -> Result<ResolveRequest, JsonError> {
             })
         }
         (None, Some(_), None, Some(_), None) => {
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "recovery_confirmation_required",
                 "Confirm backup_verified or discard_without_backup for the exact inspected recovery identity",
             ));
         }
         _ => {
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_recovery_resolution",
                 "Select exactly one conflict or recovery target; recovery accepts only explicit confirmed discard",
@@ -188,9 +188,9 @@ pub(super) async fn resolve(
     registration: Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Synchronization mutations do not accept query parameters",
         ));
     }
@@ -210,31 +210,31 @@ pub(super) async fn resolve(
     Ok(response)
 }
 
-pub(in crate::server::admin) fn error(error: conflicts::Error) -> JsonError {
+pub(in crate::server::admin) fn error(error: conflicts::Error) -> ApiError {
     match error {
         conflicts::Error::Root(error) => root_error(&error),
         conflicts::Error::Admin(error) => admin_failure(&error),
-        conflicts::Error::RevisionMismatch => JsonError::new(
+        conflicts::Error::RevisionMismatch => ApiError::new(
             StatusCode::CONFLICT,
             "recovery_revision_mismatch",
             "Fetch the current target revision and inspect its retained body before resolving",
         ),
-        conflicts::Error::TargetChanged => JsonError::new(
+        conflicts::Error::TargetChanged => ApiError::new(
             StatusCode::CONFLICT,
             "recovery_target_changed",
             "The target changed; preserve retained bytes and inspect its current identity",
         ),
-        conflicts::Error::OperationIdReused => JsonError::new(
+        conflicts::Error::OperationIdReused => ApiError::new(
             StatusCode::CONFLICT,
             "operation_id_reused",
             "Use the original payload for this operation ID or choose a new operation ID",
         ),
-        conflicts::Error::InvalidResolution => JsonError::new(
+        conflicts::Error::InvalidResolution => ApiError::new(
             StatusCode::BAD_REQUEST,
             "invalid_recovery_resolution",
             "Use exactly one inspected target and its supported action",
         ),
-        conflicts::Error::Capacity => JsonError::new(
+        conflicts::Error::Capacity => ApiError::new(
             StatusCode::CONFLICT,
             "conflict_capacity",
             "Resolve retained conflicts before retrying; no source body was discarded",
@@ -243,17 +243,17 @@ pub(in crate::server::admin) fn error(error: conflicts::Error) -> JsonError {
 }
 
 /// A resolution is idempotent by operation ID, so a failure a retry may clear asks for the same ID.
-fn admin_failure(error: &AdminError) -> JsonError {
+fn admin_failure(error: &AdminError) -> ApiError {
     match error {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
         AdminError::Precondition | AdminError::NotFound | AdminError::Hold => stale(),
-        AdminError::DiskFull(_) => JsonError::new(
+        AdminError::DiskFull(_) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",
             "Free disk space without deleting pending synchronization data, then retry the same operation ID",
         ),
         // Contention and a closing catalog clear without a storage repair.
-        AdminError::Busy { .. } | AdminError::Closed => JsonError::service_unavailable(
+        AdminError::Busy { .. } | AdminError::Closed => ApiError::service_unavailable(
             "Synchronization control is busy or closed; retry the same operation ID after the active operation finishes",
         ),
         AdminError::Corrupt(cause) => corrupt(cause),
@@ -265,7 +265,7 @@ fn admin_failure(error: &AdminError) -> JsonError {
         | AdminError::Checksum
         | AdminError::TooLarge
         | AdminError::BodyAborted(_)
-        | AdminError::Backend(_) => JsonError::new(
+        | AdminError::Backend(_) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "io_failure",
             "Preserve retained bytes, restore storage access and retry the same operation ID",

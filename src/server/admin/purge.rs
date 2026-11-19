@@ -3,8 +3,10 @@
 //! outside the Google namespaces; `DELETE /storage/v1/b/{bucket}` keeps refusing a bucket with
 //! contents or protections.
 
+use crate::json::JsonErrorResponse;
 use crate::{
-    json::{self, JsonError},
+    api_error::ApiError,
+    json,
     server::{DeadlineWatch, RESOURCE_BODY_LIMIT, RequestBody, RequestCtx, json_response},
     storage::admin::{AdminError, BucketName, InvalidBucketName, PurgeError},
 };
@@ -22,7 +24,7 @@ pub(super) async fn respond(
     super::retry_soon(
         purge(request, ctx, authorized)
             .await
-            .unwrap_or_else(JsonError::into_response),
+            .unwrap_or_else(ApiError::into_response),
     )
 }
 
@@ -30,16 +32,16 @@ async fn purge(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
     authorized: super::Authorized,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let admin = authorized.into_admin();
     if request.method() != Method::DELETE {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use DELETE /_internal/buckets/{bucket} with an empty body",
             Some("DELETE"),
         ));
     }
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Bucket purge does not accept query parameters",
         ));
     }
@@ -48,7 +50,7 @@ async fn purge(
         .await?
         .is_empty()
     {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Bucket purge accepts only an empty body",
         ));
     }
@@ -65,33 +67,33 @@ async fn purge(
 
 /// The bucket the path names: its segment decoded as the JSON API decodes one, then held to the
 /// native bucket-name rules that every local administration route uses.
-fn bucket(path: &str) -> Result<BucketName, JsonError> {
+fn bucket(path: &str) -> Result<BucketName, ApiError> {
     let segment = path.strip_prefix(PREFIX).unwrap_or_default();
     BucketName::try_from(json::decode_bucket_segment(segment)?)
-        .map_err(|InvalidBucketName| JsonError::invalid_parameter("Invalid bucket name"))
+        .map_err(|InvalidBucketName| ApiError::invalid_parameter("Invalid bucket name"))
 }
 
-fn failure(error: &PurgeError) -> JsonError {
+fn failure(error: &PurgeError) -> ApiError {
     match error {
-        PurgeError::NotFound => JsonError::new(
+        PurgeError::NotFound => ApiError::new(
             StatusCode::NOT_FOUND,
             "notFound",
             "No live or soft-deleted bucket has this name",
         ),
-        PurgeError::Importing => JsonError::new(
+        PurgeError::Importing => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Purge made no changes because an import is incomplete; complete or repair the import first",
         ),
-        PurgeError::Synchronized => JsonError::new(
+        PurgeError::Synchronized => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Purge made no changes because directory synchronization maps this bucket; external files are never purged",
         ),
-        PurgeError::WriterBusy => JsonError::service_unavailable(
+        PurgeError::WriterBusy => ApiError::service_unavailable(
             "Purge made no changes because a request is writing to an upload session or appendable object of this bucket; retry after it completes",
         ),
-        PurgeError::Admin(AdminError::Busy { .. }) => JsonError::service_unavailable(
+        PurgeError::Admin(AdminError::Busy { .. }) => ApiError::service_unavailable(
             "Purge waited longer than catalog_wait_timeout_ms for other catalog work and made no changes; retry after that work completes, or raise catalog_wait_timeout_ms (0 disables it)",
         ),
         // The purge can only say that it changed nothing or that it cannot confirm what it changed.
@@ -112,7 +114,7 @@ fn failure(error: &PurgeError) -> JsonError {
             | AdminError::Forbidden
             | AdminError::BodyAborted(_)
             | AdminError::Backend(_),
-        ) => JsonError::service_unavailable(
+        ) => ApiError::service_unavailable(
             "Purge could not confirm completion; inspect local storage and instance state before retrying",
         ),
     }

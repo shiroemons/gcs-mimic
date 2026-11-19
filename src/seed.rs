@@ -382,7 +382,7 @@ impl<'a> Fixture<'a> {
             .join("/");
         // Startup and the reseed route report a fixed message, so the rule it broke is dropped.
         let name = ObjectName::try_from(name).map_err(|_| {
-            SeedError::ObjectName(crate::json::JsonError::invalid_parameter(
+            SeedError::ObjectName(crate::api_error::ApiError::invalid_parameter(
                 "Invalid object name",
             ))
         })?;

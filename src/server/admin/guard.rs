@@ -1,8 +1,8 @@
 //! Management is for local tools; page-initiated requests must never reach mutations.
 
 use crate::{
+    api_error::ApiError,
     config::{Config, EndpointSnapshot},
-    json::JsonError,
     server::{RequestBody, RequestCtx, browser, host},
     url::PublicOrigin,
 };
@@ -11,9 +11,9 @@ use hyper::{Request, StatusCode};
 pub(super) fn browser_or_misdirected(
     request: &Request<RequestBody>,
     ctx: RequestCtx<'_>,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if browser::initiated(request.headers()) {
-        return Err(JsonError::new(
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
             "Management routes refuse browser-initiated requests; use a local tool without Origin or Sec-Fetch-Site",
@@ -22,7 +22,7 @@ pub(super) fn browser_or_misdirected(
     if let Some(host) = request_host(request)?
         && !host_allowed(&host, ctx.config, ctx.endpoints.snapshot())
     {
-        return Err(JsonError::new(
+        return Err(ApiError::new(
             StatusCode::MISDIRECTED_REQUEST,
             "misdirected",
             "Management host is not local or configured; add its DNS name to admin_allowed_hosts",
@@ -31,9 +31,9 @@ pub(super) fn browser_or_misdirected(
     Ok(())
 }
 
-fn request_host(request: &Request<RequestBody>) -> Result<Option<String>, JsonError> {
+fn request_host(request: &Request<RequestBody>) -> Result<Option<String>, ApiError> {
     host::of_request(request.uri(), request.headers()).map_err(|host::InvalidHost| {
-        JsonError::invalid_argument("Require at most one valid management Host authority")
+        ApiError::invalid_argument("Require at most one valid management Host authority")
     })
 }
 

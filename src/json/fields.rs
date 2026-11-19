@@ -1,4 +1,4 @@
-use super::JsonError;
+use super::ApiError;
 use crate::percent::{MAX_QUERY_BYTES, parse_query};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::LazyLock};
@@ -90,7 +90,7 @@ impl Fields {
         }
     }
 
-    pub(crate) fn from_query(raw: Option<&str>, schema: Schema) -> Result<Self, JsonError> {
+    pub(crate) fn from_query(raw: Option<&str>, schema: Schema) -> Result<Self, ApiError> {
         let mut query = parse_query(raw.unwrap_or_default())?;
         Self::take(&mut query, schema)
     }
@@ -98,14 +98,14 @@ impl Fields {
     pub(crate) fn take(
         query: &mut BTreeMap<String, String>,
         schema: Schema,
-    ) -> Result<Self, JsonError> {
+    ) -> Result<Self, ApiError> {
         match query.remove("fields") {
             Some(value) => Self::parse(&value, schema),
             None => Ok(Self::whole()),
         }
     }
 
-    pub(crate) fn parse(value: &str, schema: Schema) -> Result<Self, JsonError> {
+    pub(crate) fn parse(value: &str, schema: Schema) -> Result<Self, ApiError> {
         let fields = Self::parse_syntax(value)?;
         // Cloud Storage named only the rejected field, at the `fields` parameter (observed
         // 2026-10-31 for retentionExpireTime); every `validate` error carries that location.
@@ -116,7 +116,7 @@ impl Fields {
     /// Parses a selection without a schema. A resumable upload stores the selection it was
     /// started with and parses it again here on completion, so this accepts exactly what
     /// `parse` accepted at initiation, even if the schema has changed since.
-    pub(crate) fn parse_syntax(value: &str) -> Result<Self, JsonError> {
+    pub(crate) fn parse_syntax(value: &str) -> Result<Self, ApiError> {
         // An empty selection selects nothing, unlike an absent `fields` parameter. Cloud
         // Storage answered a whitespace selection with `{}` on objects, buckets, the bucket
         // list and the IAM policy (cases obj-fields-selectors and bkt-edges-fields); the empty
@@ -147,7 +147,7 @@ impl Fields {
 
     /// Checks the selection against `schema`. `source` is the whole expression, which Cloud
     /// Storage quotes after a wildcard that has a child.
-    fn validate(&self, schema: &Value, source: &str) -> Result<(), JsonError> {
+    fn validate(&self, schema: &Value, source: &str) -> Result<(), ApiError> {
         let schema = match schema["$ref"].as_str() {
             Some(name) => definition(name),
             None => schema,
@@ -209,8 +209,8 @@ const INVALID_SELECTION: &str = "Invalid field selection";
 /// with the whole expression (case bkt-edges-fields).
 const NESTED_WILDCARD: &str = "Leading and nested wildcards are unsupported in field selection:";
 
-fn invalid(message: impl Into<String>) -> JsonError {
-    JsonError::invalid_parameter(message).at_parameter("fields")
+fn invalid(message: impl Into<String>) -> ApiError {
+    ApiError::invalid_parameter(message).at_parameter("fields")
 }
 
 /// A selector parser. Cloud Storage ignored an empty segment such as the middle of
@@ -227,13 +227,13 @@ struct Parser<'a> {
 impl Parser<'_> {
     /// Cloud Storage follows the selection wording with the expression, without a colon
     /// ("Invalid field selection metadata/", case obj-fields-selectors).
-    fn invalid_selection(&self) -> JsonError {
+    fn invalid_selection(&self) -> ApiError {
         invalid(format!("{INVALID_SELECTION} {}", self.source))
     }
 
     /// Any other syntax problem, followed by `: ` and the expression. The FieldMask wording
     /// quotes the expression itself and does not use this.
-    fn rejected(&self, problem: &str) -> JsonError {
+    fn rejected(&self, problem: &str) -> ApiError {
         invalid(format!("{problem}: {}", self.source))
     }
 
@@ -241,7 +241,7 @@ impl Parser<'_> {
         self.rest = self.rest.trim_start();
     }
 
-    fn list(&mut self, depth: usize) -> Result<Fields, JsonError> {
+    fn list(&mut self, depth: usize) -> Result<Fields, ApiError> {
         let mut fields = Fields::default();
         loop {
             self.skip_whitespace();
@@ -260,7 +260,7 @@ impl Parser<'_> {
         Ok(fields)
     }
 
-    fn path(&mut self, depth: usize) -> Result<Fields, JsonError> {
+    fn path(&mut self, depth: usize) -> Result<Fields, ApiError> {
         if depth >= MAX_DEPTH {
             return Err(self.rejected("fields exceeds depth 32"));
         }
@@ -289,7 +289,7 @@ impl Parser<'_> {
             self.rest = rest;
             let child = self.list(depth + 1)?;
             let Some(rest) = self.rest.strip_prefix(')') else {
-                return Err(JsonError::field_mask_syntax(format!(
+                return Err(ApiError::field_mask_syntax(format!(
                     "Invalid FieldMask '{}'. Cannot find matching ')' for all '('.",
                     self.source
                 )));
@@ -380,7 +380,7 @@ mod tests {
             // Syntax errors quote the selector; a rejected name is reported alone, at `fields`.
             assert!(
                 error.message.contains(selector)
-                    || error.location == crate::json::error::ErrorLocation::parameter("fields"),
+                    || error.location == crate::api_error::ErrorLocation::parameter("fields"),
                 "{}",
                 error.message
             );
@@ -406,7 +406,7 @@ mod tests {
             );
             assert_eq!(
                 error.location,
-                crate::json::error::ErrorLocation::parameter("fields")
+                crate::api_error::ErrorLocation::parameter("fields")
             );
         }
         // Whitespace inside a name is an invalid selection where whitespace around one is
@@ -419,7 +419,7 @@ mod tests {
             );
             assert_eq!(
                 error.location,
-                crate::json::error::ErrorLocation::parameter("fields")
+                crate::api_error::ErrorLocation::parameter("fields")
             );
         }
         assert_eq!(
@@ -483,7 +483,7 @@ mod tests {
             .apply(&mut value);
         assert_eq!(value, json!({"name":"o"}));
         let error = Fields::parse("metadata(a", Schema::Object).unwrap_err();
-        assert_eq!(error.kind, super::super::ErrorKind::FieldMaskSyntax);
+        assert_eq!(error.kind, crate::api_error::ErrorKind::FieldMaskSyntax);
         assert_eq!(
             error.message,
             "Invalid FieldMask 'metadata(a'. Cannot find matching ')' for all '('."

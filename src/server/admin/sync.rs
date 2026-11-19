@@ -1,9 +1,11 @@
 //! Live synchronization controls never open a data directory or confer fixture authority.
 
+use crate::json::JsonErrorResponse;
 use crate::storage::{admin::AdminError, failure::BackendCause};
 use crate::{
+    api_error::ApiError,
     auth::Identity,
-    json::{self, JsonError},
+    json,
     server::{RequestBody, RequestCtx, json_response_body},
     storage::sync_state::{
         MAX_PAGE, OpaqueId, Ordinal, PageLimit,
@@ -108,7 +110,7 @@ async fn authorize_controls(
     root: &RootLease,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
-) -> Result<tokio::time::Instant, JsonError> {
+) -> Result<tokio::time::Instant, ApiError> {
     let deadline = ctx.config.catalog_wait_timeout.deadline();
     let authorize = async {
         authorization_wait_checkpoint(ctx.activity).await;
@@ -151,14 +153,14 @@ pub(super) async fn respond(
 ) -> Response<Full<Bytes>> {
     let mut response = control(request, ctx)
         .await
-        .unwrap_or_else(JsonError::into_response);
+        .unwrap_or_else(ApiError::into_response);
     response
         .headers_mut()
         .insert(handshake::VERSION_HEADER, handshake::version());
     response
 }
 
-impl From<handshake::Mismatch> for JsonError {
+impl From<handshake::Mismatch> for ApiError {
     fn from(mismatch: handshake::Mismatch) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
@@ -171,7 +173,7 @@ impl From<handshake::Mismatch> for JsonError {
 async fn control(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let _activity = ControlActivity(ctx);
     // Before authentication and any catalog wait: a client of another release may not even
     // send its credentials the way this one expects, and the version is the cause to report.
@@ -181,9 +183,9 @@ async fn control(
         .state
         .catalog
         .sync_controls()
-        .map_err(JsonError::from)?
+        .map_err(ApiError::from)?
         .ok_or_else(|| {
-            JsonError::new(
+            ApiError::new(
                 StatusCode::NOT_FOUND,
                 "notFound",
                 "Directory synchronization is not running",
@@ -198,7 +200,7 @@ async fn control(
     authorization_checkpoint().await;
     // Only a caller that may use the controls learns which routes exist.
     let Some(control) = control else {
-        return Err(JsonError::new(
+        return Err(ApiError::new(
             StatusCode::NOT_FOUND,
             "notFound",
             "Unknown synchronization control route",
@@ -206,7 +208,7 @@ async fn control(
     };
     let method = control.method();
     if request.method() != method {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use the method documented for this synchronization control",
             Some(if method == Method::GET { "GET" } else { "POST" }),
         ));
@@ -226,7 +228,7 @@ async fn control(
             let page = Page::parse(request.uri().query())?;
             let bytes = crate::bounded_body::read_body(request.into_body(), 1).await?;
             if !bytes.is_empty() {
-                return Err(JsonError::invalid_argument(
+                return Err(ApiError::invalid_argument(
                     "GET synchronization controls do not accept a body",
                 ));
             }
@@ -251,9 +253,9 @@ async fn wait(
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
     preparation_deadline: tokio::time::Instant,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Synchronization waits do not accept query parameters",
         ));
     }
@@ -264,11 +266,11 @@ async fn wait(
     .await
     .map_err(|_| busy())??;
     let value: Wait = serde_json::from_slice(&bytes).map_err(|_| {
-        JsonError::invalid_argument("Send an empty JSON object or timeout_ms from 1 through 60000")
+        ApiError::invalid_argument("Send an empty JSON object or timeout_ms from 1 through 60000")
     })?;
     let timeout = value.timeout_ms.unwrap_or(10_000);
     if !(1..=60_000).contains(&timeout) {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "timeout_ms must be 1 through 60000",
         ));
     }
@@ -327,9 +329,9 @@ async fn mutate(
     registration: Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Synchronization mutations do not accept query parameters",
         ));
     }
@@ -348,12 +350,11 @@ async fn approve(
     registration: &Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
-) -> Result<Value, JsonError> {
-    let body: Approve = serde_json::from_slice(bytes).map_err(|_| {
-        JsonError::invalid_argument("Send exactly one string deletion_set revision")
-    })?;
+) -> Result<Value, ApiError> {
+    let body: Approve = serde_json::from_slice(bytes)
+        .map_err(|_| ApiError::invalid_argument("Send exactly one string deletion_set revision"))?;
     let Ok(revision) = body.deletion_set.parse::<OpaqueId>() else {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "deletion_set must be the exact revision from status",
         ));
     };
@@ -377,10 +378,9 @@ async fn rescan(
     registration: &Registration,
     identity: Option<Identity>,
     ctx: RequestCtx<'_>,
-) -> Result<Value, JsonError> {
-    serde_json::from_slice::<Rescan>(bytes).map_err(|_| {
-        JsonError::invalid_argument("Send an empty JSON object to request a rescan")
-    })?;
+) -> Result<Value, ApiError> {
+    serde_json::from_slice::<Rescan>(bytes)
+        .map_err(|_| ApiError::invalid_argument("Send an empty JSON object to request a rescan"))?;
     let mut operation = [0; 16];
     getrandom::fill(&mut operation).map_err(|_| busy())?;
     let (reply, receive) = tokio::sync::oneshot::channel();
@@ -405,7 +405,7 @@ async fn submit<T>(
     registration: &Registration,
     command: Command,
     receive: tokio::sync::oneshot::Receiver<T>,
-) -> Result<T, JsonError> {
+) -> Result<T, ApiError> {
     registration
         .sender
         .send(command)
@@ -419,7 +419,7 @@ async fn observe<T>(
     registration: &Registration,
     command: Command,
     receive: tokio::sync::oneshot::Receiver<T>,
-) -> Result<T, JsonError> {
+) -> Result<T, ApiError> {
     crate::server::begin_catalog_wait_until(ctx.activity, None).await;
     tokio::time::timeout_at(
         ctx.config.object_request_timeout.deadline(),
@@ -452,7 +452,7 @@ enum PagedRevision {
 }
 
 impl Page {
-    fn parse(query: Option<&str>) -> Result<Self, JsonError> {
+    fn parse(query: Option<&str>) -> Result<Self, ApiError> {
         let mut values = crate::percent::parse_query(query.unwrap_or_default())?;
         if values.is_empty() {
             return Ok(Self::Summary);
@@ -466,18 +466,18 @@ impl Page {
                 .filter(|value| crate::hex::is_lower(value, 48))
                 .map(PagedRevision::Findings),
             _ => {
-                return Err(JsonError::invalid_argument(
+                return Err(ApiError::invalid_argument(
                     "Use view=deletions or view=findings with the corresponding current revision",
                 ));
             }
         }
         .ok_or_else(|| {
-            JsonError::invalid_argument("A paged view requires its current revision from status")
+            ApiError::invalid_argument("A paged view requires its current revision from status")
         })?;
         let limit = parse_limit(values.remove("limit"))?;
         let after = values.remove("cursor");
         if !values.is_empty() {
-            return Err(JsonError::invalid_argument(
+            return Err(ApiError::invalid_argument(
                 "Unknown synchronization query parameter",
             ));
         }
@@ -497,7 +497,7 @@ impl Page {
 }
 
 /// A page size from the query; an absent one is the largest page.
-fn parse_limit(value: Option<String>) -> Result<PageLimit<MAX_PAGE>, JsonError> {
+fn parse_limit(value: Option<String>) -> Result<PageLimit<MAX_PAGE>, ApiError> {
     let Some(value) = value else {
         return Ok(PageLimit::LARGEST);
     };
@@ -505,7 +505,7 @@ fn parse_limit(value: Option<String>) -> Result<PageLimit<MAX_PAGE>, JsonError> 
         .parse::<usize>()
         .ok()
         .and_then(|limit| PageLimit::try_from(limit).ok())
-        .ok_or_else(|| JsonError::invalid_argument("limit must be 1 through 256"))
+        .ok_or_else(|| ApiError::invalid_argument("limit must be 1 through 256"))
 }
 
 /// A control document. Every one leads with the catalog and root it describes; serde_json's
@@ -545,8 +545,8 @@ enum PageFit {
 /// borrowing page type, because a page that borrows the prefix cannot outlive the call.
 fn render_halving<T>(
     mut items: Vec<T>,
-    mut document: impl FnMut(&[T], PageFit) -> Result<Value, JsonError>,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+    mut document: impl FnMut(&[T], PageFit) -> Result<Value, ApiError>,
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let mut fit = PageFit::Whole;
     loop {
         if let Some(response) = render_within_limit(&document(&items, fit)?) {
@@ -609,7 +609,7 @@ async fn status(
     state: &crate::server::State,
     session: &str,
     authority: ControlAuthority,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let mut after = Ordinal::START;
     loop {
         let recoveries = root
@@ -709,7 +709,7 @@ async fn findings_page(
     revision: &str,
     observation: &Summary,
     authority: ControlAuthority,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let ids = root.status();
     let prefix = cursor_prefix(&ids, revision);
     let after = match &query.after {
@@ -771,7 +771,7 @@ async fn deletion_page(
     query: &PageQuery<OpaqueId>,
     set: DeletionSet,
     authority: ControlAuthority,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let ids = root.status();
     let prefix = cursor_prefix(&ids, set.revision);
     let after = match &query.after {
@@ -812,7 +812,7 @@ async fn deletion_page(
     })
 }
 
-fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, JsonError> {
+fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, ApiError> {
     render_within_limit(value).ok_or_else(busy)
 }
 
@@ -820,23 +820,23 @@ fn render_within_limit(value: &Value) -> Option<Response<Full<Bytes>>> {
     let body = json::render_body(value);
     (body.len() <= RESPONSE_LIMIT).then(|| json_response_body(value, body))
 }
-fn stale() -> JsonError {
-    JsonError::new(
+fn stale() -> ApiError {
+    ApiError::new(
         StatusCode::CONFLICT,
         "conflict",
         "Synchronization revision changed; rescan, fetch status and inspect the new revision before approval",
     )
 }
-fn busy() -> JsonError {
-    JsonError::service_unavailable(
+fn busy() -> ApiError {
+    ApiError::service_unavailable(
         "Synchronization control is busy or closed; retry after the active operation finishes",
     )
 }
-pub(super) fn root_error(error: &RootError) -> JsonError {
+pub(super) fn root_error(error: &RootError) -> ApiError {
     match error {
         RootError::Admin(error) => admin_error(error).unwrap_or_else(busy),
         RootError::InUse => busy(),
-        RootError::Unsupported => JsonError::new(
+        RootError::Unsupported => ApiError::new(
             StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
             "Directory synchronization is unsupported on this platform",
@@ -845,7 +845,7 @@ pub(super) fn root_error(error: &RootError) -> JsonError {
         | RootError::MissingMarker
         | RootError::InvalidMarker
         | RootError::ForeignMarker
-        | RootError::ReinitializeDenied => JsonError::new(
+        | RootError::ReinitializeDenied => ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "Synchronization root cannot be verified; preserve the tree and workspace and inspect server diagnostics",
@@ -854,23 +854,23 @@ pub(super) fn root_error(error: &RootError) -> JsonError {
 }
 
 /// Corrupt stored state needs a restored data directory, whichever control found it.
-fn corrupt(cause: &BackendCause) -> JsonError {
+fn corrupt(cause: &BackendCause) -> ApiError {
     crate::object::ObjectError::Corrupt(cause.clone()).into()
 }
 
 /// The response an `AdminError` decides on its own; `None` leaves the decision to the caller.
-fn admin_error(error: &AdminError) -> Option<JsonError> {
+fn admin_error(error: &AdminError) -> Option<ApiError> {
     Some(match error {
         AdminError::Forbidden => crate::auth::AuthFailure::Forbidden.into(),
         // A protected or missing target means the inspected state changed, as a stale revision.
         AdminError::Precondition | AdminError::Hold | AdminError::NotFound => stale(),
         AdminError::Corrupt(cause) => corrupt(cause),
-        AdminError::DiskFull(_) => JsonError::new(
+        AdminError::DiskFull(_) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "disk_full",
             "Free disk space without deleting synchronization data, then retry",
         ),
-        AdminError::Io(_) => JsonError::new(
+        AdminError::Io(_) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "io_failure",
             "Restore storage access, then retry",
@@ -890,7 +890,7 @@ fn admin_error(error: &AdminError) -> Option<JsonError> {
 
 /// The response to a queued control that produced no result. The first root or admin failure in
 /// the chain decides it; a control that never ran answers as a closed queue does.
-pub(super) fn control_error(error: &ControlError) -> JsonError {
+pub(super) fn control_error(error: &ControlError) -> ApiError {
     match error {
         ControlError::Failed(error) => error
             .causes()

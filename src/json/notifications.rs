@@ -3,7 +3,7 @@
 //! Routing, request validation and rendering only; persistence and authorization live in the
 //! catalog. Configurations are stored and read back, but no Pub/Sub message is ever published.
 
-use super::{EtagConditions, Fields, JsonError, Schema, buckets::encode_segment, query};
+use super::{ApiError, EtagConditions, Fields, Schema, buckets::encode_segment, query};
 use crate::percent::{self, Decoding};
 use crate::{
     config::CompatProfile,
@@ -77,7 +77,7 @@ pub(crate) fn route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<(NotificationRequest, Fields), JsonError>> {
+) -> Option<Result<(NotificationRequest, Fields), ApiError>> {
     let rest = uri.path().strip_prefix(query::BUCKET_PATH)?;
     let (segment, rest) = rest.split_once('/')?;
     let notification = match rest.strip_prefix("notificationConfigs")? {
@@ -98,7 +98,7 @@ fn parse(
     notification: Option<&str>,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<(NotificationRequest, Fields), JsonError> {
+) -> Result<(NotificationRequest, Fields), ApiError> {
     let bucket = query::path_bucket(segment, profile, query::BucketCheck::NativeOnly)?;
     let allowed = if notification.is_some() {
         "GET, DELETE"
@@ -117,7 +117,7 @@ fn parse(
             notification: percent::decode(item, Decoding::Path)?,
         },
         _ => {
-            return Err(JsonError::method_not_allowed(
+            return Err(ApiError::method_not_allowed(
                 format!(
                     "HTTP method is not supported for this notification endpoint; use {allowed}"
                 ),
@@ -140,13 +140,13 @@ fn parse(
     Ok((request, fields))
 }
 
-fn invalid(message: impl Into<String>) -> JsonError {
-    JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)
+fn invalid(message: impl Into<String>) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
 /// A rejected notification field becomes the error body text; the validation error has no
 /// underlying cause to keep.
-impl From<notification::NotificationError> for JsonError {
+impl From<notification::NotificationError> for ApiError {
     fn from(error: notification::NotificationError) -> Self {
         use notification::NotificationError;
         // Cloud Storage's wording for the two commonest mistakes (recorded 2026-10-31); a bad
@@ -155,7 +155,7 @@ impl From<notification::NotificationError> for JsonError {
             NotificationError::InvalidTopic(_) => invalid(
                 "Invalid Google Cloud Pub/Sub topic. It should look like '//pubsub.googleapis.com/projects/*/topics/*.'",
             ),
-            NotificationError::InvalidPayloadFormat(_) => JsonError::required(
+            NotificationError::InvalidPayloadFormat(_) => ApiError::required(
                 "You must specify a payload format in the 'payload_format' field.",
             ),
             error @ (NotificationError::InvalidEventType(_)
@@ -172,7 +172,7 @@ impl From<notification::NotificationError> for JsonError {
 
 /// Parse a whole notifications.insert body without a topic existence check.
 #[cfg(test)]
-pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, JsonError> {
+pub(crate) fn parse_notification(bytes: &[u8]) -> Result<NotificationConfig, ApiError> {
     parse_notification_head(bytes)?.finish()
 }
 
@@ -190,7 +190,7 @@ impl PendingNotification {
     }
 
     /// Validate the fields that follow the topic existence check.
-    pub(crate) fn finish(self) -> Result<NotificationConfig, JsonError> {
+    pub(crate) fn finish(self) -> Result<NotificationConfig, ApiError> {
         parse_notification_tail(self)
     }
 }
@@ -202,9 +202,9 @@ impl PendingNotification {
 /// Cloud Storage validates in a fixed order (recorded 2026-10-31): the topic's presence and
 /// form, the payload format, the topic's existence, then the event types. Parsing therefore stops
 /// after the payload format, so the caller can check the topic before the rest is validated.
-pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotification, JsonError> {
+pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotification, ApiError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|error| JsonError::parse_error(bytes, &error))?;
+        serde_json::from_slice(bytes).map_err(|error| crate::json::parse_error(bytes, &error))?;
     let Value::Object(body) = value else {
         return Err(invalid("Notification resource must be a JSON object"));
     };
@@ -225,7 +225,7 @@ pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotificatio
     }
     let topic: Topic = string("topic")?
         .ok_or_else(|| {
-            JsonError::required("You must specify a Cloud Pub/Sub topic in the 'topic' field.")
+            ApiError::required("You must specify a Cloud Pub/Sub topic in the 'topic' field.")
         })?
         .parse()?;
     let payload_format = string("payload_format")?
@@ -237,7 +237,7 @@ pub(crate) fn parse_notification_head(bytes: &[u8]) -> Result<PendingNotificatio
     })
 }
 
-fn parse_notification_tail(pending: PendingNotification) -> Result<NotificationConfig, JsonError> {
+fn parse_notification_tail(pending: PendingNotification) -> Result<NotificationConfig, ApiError> {
     let PendingNotification {
         body,
         topic,
@@ -361,7 +361,7 @@ pub(crate) fn notification_list(
 /// recording only sent the full `//pubsub.googleapis.com/...` form, so naming the normalized
 /// topic for a short `projects/P/topics/T` request is a guess. The
 /// emulator has no permission model, so a missing topic is the only way to reach it.
-pub(crate) fn topic_not_found(topic: &str, bucket_project: &str) -> JsonError {
+pub(crate) fn topic_not_found(topic: &str, bucket_project: &str) -> ApiError {
     invalid(format!(
         "Cloud Pub/Sub topic '{topic}' not found, or user '{}' does not have permission to it.",
         super::projects::service_account_email(bucket_project)
@@ -370,13 +370,13 @@ pub(crate) fn topic_not_found(topic: &str, bucket_project: &str) -> JsonError {
 
 /// The emulator could not say whether the topic exists. Accepting the configuration anyway would
 /// hide a missing topic, so the request fails with a retryable error and creates nothing.
-pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> JsonError {
+pub(crate) fn topic_unverifiable(error: &notification::TopicCheckError) -> ApiError {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,
         "notification_topic_check_failed",
         json!({"cause": error_chain(error)}),
     );
-    JsonError::service_unavailable(
+    ApiError::service_unavailable(
         "Could not confirm that the Cloud Pub/Sub topic exists: the configured local Pub/Sub emulator is unreachable or gave an unexpected answer; start or repair the emulator (pubsub_emulator_host), then retry",
     )
 }
@@ -394,8 +394,8 @@ fn error_chain(error: &dyn std::error::Error) -> String {
     text
 }
 
-pub(crate) fn notification_not_found() -> JsonError {
-    JsonError::new(
+pub(crate) fn notification_not_found() -> ApiError {
+    ApiError::new(
         StatusCode::NOT_FOUND,
         "notFound",
         "The requested resource was not found.",
@@ -410,7 +410,7 @@ mod tests {
         path.parse().unwrap()
     }
 
-    fn routed(method: Method, path: &str) -> Option<Result<NotificationRequest, JsonError>> {
+    fn routed(method: Method, path: &str) -> Option<Result<NotificationRequest, ApiError>> {
         route(&method, &uri(path), CompatProfile::Native).map(|result| result.map(|(r, _)| r))
     }
 

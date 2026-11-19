@@ -834,7 +834,7 @@ async fn grpc_io_write_object_answers_a_refused_finishing_message_at_once() {
 #[test]
 fn grpc_io_range_and_masks() {
     assert_eq!(
-        Status::from(json::JsonError::new(
+        Status::from(crate::api_error::ApiError::new(
             hyper::StatusCode::NOT_MODIFIED,
             "notModified",
             "Object condition matched"
@@ -842,7 +842,7 @@ fn grpc_io_range_and_masks() {
         .code(),
         tonic::Code::FailedPrecondition
     );
-    let unsupported = Status::from(json::JsonError::new(
+    let unsupported = Status::from(crate::api_error::ApiError::new(
         hyper::StatusCode::NOT_IMPLEMENTED,
         "notImplemented",
         "Unsupported object option",

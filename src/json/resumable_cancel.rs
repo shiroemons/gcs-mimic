@@ -1,4 +1,4 @@
-use super::JsonError;
+use super::ApiError;
 use crate::bounded_body::read_body;
 use crate::storage::{
     Catalog, ResumableError, ResumableOptions, SessionState,
@@ -26,10 +26,10 @@ pub(crate) async fn cancel_response<B: Body + Unpin>(
     bucket: &str,
     id: &str,
     catalog: &Catalog,
-) -> Result<Cancellation, JsonError> {
+) -> Result<Cancellation, ApiError> {
     read_body(request.into_body(), 0)
         .await
-        .map_err(|_| JsonError::invalid_parameter("Cancellation requires an empty body"))?;
+        .map_err(|_| ApiError::invalid_parameter("Cancellation requires an empty body"))?;
     match catalog.cancel_resumable_session(id, bucket).await {
         Ok(()) => Ok(Cancellation::Cancelled),
         Err(ResumableError::Gone) => completion(catalog, id, bucket).await,
@@ -39,7 +39,7 @@ pub(crate) async fn cancel_response<B: Body + Unpin>(
 
 /// The stored response of a session that refused cancellation as no longer active. Completion
 /// is terminal, so a session that reads complete now was complete when it refused.
-async fn completion(catalog: &Catalog, id: &str, bucket: &str) -> Result<Cancellation, JsonError> {
+async fn completion(catalog: &Catalog, id: &str, bucket: &str) -> Result<Cancellation, ApiError> {
     let session = catalog.resumable_session(id, bucket).await?;
     match session.state {
         SessionState::Complete => session

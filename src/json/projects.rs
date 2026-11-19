@@ -5,7 +5,7 @@
 //! `docs/en/slices/project-hmac-keys.md`.
 use super::buckets::encode_segment;
 use super::query::{common, finish_for_profile};
-use super::{Fields, JsonError, Schema};
+use super::{ApiError, Fields, Schema};
 use crate::auth::ProjectId;
 use crate::config::CompatProfile;
 use crate::page_token::{self, CursorTag};
@@ -92,7 +92,7 @@ pub(crate) fn route_project(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<(ProjectRequest, Fields), JsonError>> {
+) -> Option<Result<(ProjectRequest, Fields), ApiError>> {
     let rest = uri.path().strip_prefix("/storage/v1/projects/")?;
     let mut segments = rest.split('/');
     let project = segments.next().filter(|segment| !segment.is_empty())?;
@@ -127,9 +127,9 @@ impl<'a> ProjectCall<&'a str> {
         collection: &str,
         item: Option<&'a str>,
         method: &Method,
-    ) -> Option<Result<Self, JsonError>> {
+    ) -> Option<Result<Self, ApiError>> {
         let not_allowed = |allow| {
-            Err(JsonError::method_not_allowed(
+            Err(ApiError::method_not_allowed(
                 "HTTP method is not supported for this project endpoint",
                 Some(allow),
             ))
@@ -154,14 +154,14 @@ impl<'a> ProjectCall<&'a str> {
     }
 
     /// Decodes and checks the access ID an HMAC key path names.
-    fn decode_access_id(self) -> Result<ProjectCall<String>, JsonError> {
+    fn decode_access_id(self) -> Result<ProjectCall<String>, ApiError> {
         Ok(match self {
             Self::CreateHmacKey => ProjectCall::CreateHmacKey,
             Self::ListHmacKeys => ProjectCall::ListHmacKeys,
             Self::HmacKey { method, access_id } => {
                 let access_id = decode(access_id, Decoding::Path)?;
                 if access_id.len() > 256 || access_id.chars().any(char::is_control) {
-                    return Err(JsonError::invalid_parameter(
+                    return Err(ApiError::invalid_parameter(
                         "accessId must be an HMAC key access ID",
                     ));
                 }
@@ -189,7 +189,7 @@ fn parse(
     project: &str,
     raw: &str,
     profile: CompatProfile,
-) -> Result<(ProjectRequest, Fields), JsonError> {
+) -> Result<(ProjectRequest, Fields), ApiError> {
     let project = ProjectId::try_from(decode(project, Decoding::Path)?)?;
     let call = call.decode_access_id()?;
     let mut query = parse_query(raw)?;
@@ -209,7 +209,7 @@ fn parse(
     let request = match call {
         ProjectCall::CreateHmacKey => {
             let email = query.remove("serviceAccountEmail").ok_or_else(|| {
-                JsonError::required("Required parameter: serviceAccountEmail")
+                ApiError::required("Required parameter: serviceAccountEmail")
                     .at_parameter("serviceAccountEmail")
             })?;
             validate_service_account_email(&email)?;
@@ -258,7 +258,7 @@ fn parse(
 }
 
 /// Local keys can name any syntactically valid service account; no IAM directory exists.
-fn validate_service_account_email(email: &str) -> Result<(), JsonError> {
+fn validate_service_account_email(email: &str) -> Result<(), ApiError> {
     let valid = email.len() <= MAX_EMAIL_BYTES
         && email.split_once('@').is_some_and(|(local, domain)| {
             !local.is_empty() && !domain.is_empty() && !domain.contains('@')
@@ -269,7 +269,7 @@ fn validate_service_account_email(email: &str) -> Result<(), JsonError> {
     if valid {
         Ok(())
     } else {
-        Err(JsonError::invalid_parameter(
+        Err(ApiError::invalid_parameter(
             "serviceAccountEmail must be a service account email address such as SERVICE_ACCOUNT@PROJECT.iam.gserviceaccount.com",
         ))
     }
@@ -278,12 +278,12 @@ fn validate_service_account_email(email: &str) -> Result<(), JsonError> {
 /// Parse a PUT body. Only `state` and the conditional `etag` are writable; output-only and
 /// unrecognized fields are ignored like other metadata updates, so read-modify-write clients
 /// can send back the whole resource.
-pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonError> {
+pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, ApiError> {
     let value: Value = serde_json::from_slice(bytes)
-        .map_err(|_| JsonError::legacy_parse_error("HMAC key metadata must be valid JSON"))?;
+        .map_err(|_| ApiError::legacy_parse_error("HMAC key metadata must be valid JSON"))?;
     let body = value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("HMAC key metadata must be a JSON object"))?;
+        .ok_or_else(|| ApiError::invalid_argument("HMAC key metadata must be a JSON object"))?;
     let string = |field: &str| {
         body.get(field)
             .filter(|value| !value.is_null())
@@ -291,21 +291,21 @@ pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonE
                 value
                     .as_str()
                     .map(str::to_owned)
-                    .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string")))
+                    .ok_or_else(|| ApiError::invalid_argument(format!("{field} must be a string")))
             })
             .transpose()
     };
     // Cloud Storage's reasons and wording for a missing state and for DELETED, which it reports
     // before looking the key up (case bkt-edges-hmac-keys).
     let state =
-        string("state")?.ok_or_else(|| JsonError::invalid("Must specify resource.state."))?;
+        string("state")?.ok_or_else(|| ApiError::invalid("Must specify resource.state."))?;
     let state = match HmacKeyState::parse(&state) {
         Some(HmacKeyState::Deleted) => {
-            return Err(JsonError::invalid("Cannot set state to 'DELETED'."));
+            return Err(ApiError::invalid("Cannot set state to 'DELETED'."));
         }
         Some(state) => state,
         None => {
-            return Err(JsonError::invalid_argument(
+            return Err(ApiError::invalid_argument(
                 "state must be ACTIVE or INACTIVE",
             ));
         }
@@ -316,10 +316,7 @@ pub(crate) fn parse_hmac_key_update(bytes: &[u8]) -> Result<HmacKeyUpdate, JsonE
     })
 }
 
-pub(crate) fn hmac_key_metadata(
-    record: &HmacKeyRecord,
-    base_url: &str,
-) -> Result<Value, JsonError> {
+pub(crate) fn hmac_key_metadata(record: &HmacKeyRecord, base_url: &str) -> Result<Value, ApiError> {
     Ok(json!({
         "kind": "storage#hmacKeyMetadata",
         "id": format!("{}/{}", record.project, record.access_id),
@@ -343,7 +340,7 @@ pub(crate) fn hmac_key_resource(
     record: &HmacKeyRecord,
     secret: &str,
     base_url: &str,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     Ok(json!({
         "kind": "storage#hmacKey",
         "metadata": hmac_key_metadata(record, base_url)?,
@@ -355,7 +352,7 @@ pub(crate) fn hmac_key_list(
     page: &Page<HmacKeyRecord>,
     params: &HmacKeyListParams,
     base_url: &str,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let items = &page.items;
     let mut value = Map::from_iter([("kind".into(), "storage#hmacKeysMetadata".into())]);
     // Cloud Storage omits an empty `items` (case bkt-edges-hmac-keys).
@@ -393,7 +390,7 @@ pub(crate) fn service_account_email(project: &str) -> String {
     )
 }
 
-impl From<HmacKeyError> for JsonError {
+impl From<HmacKeyError> for ApiError {
     fn from(error: HmacKeyError) -> Self {
         match error {
             HmacKeyError::NotFound => Self::new(
@@ -443,19 +440,19 @@ fn encode_list_token(params: &HmacKeyListParams, last_access_id: &str) -> String
     ))
 }
 
-fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, JsonError> {
+fn decode_list_token(token: &str, params: &HmacKeyListParams) -> Result<String, ApiError> {
     let ((tag, project, email, show_deleted_keys), last): (
         (String, String, Option<String>, bool),
         String,
     ) = page_token::open(token, page_token::HMAC_TOKEN_MAX_BYTES).ok_or_else(|| {
-        JsonError::invalid_parameter("Invalid pageToken for this HMAC key listing")
+        ApiError::invalid_parameter("Invalid pageToken for this HMAC key listing")
     })?;
     if tag != CursorTag::HmacKeys.as_str()
         || !page_token::cursor_binds(&project, params.project.as_str())
         || email != params.service_account_email
         || show_deleted_keys != params.show_deleted_keys
     {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Invalid pageToken for this HMAC key listing",
         ));
     }
@@ -494,7 +491,7 @@ mod tests {
                 CatalogError::NotFound,
                 StatusCode::NOT_FOUND,
                 "notFound",
-                super::super::error::BUCKET_NOT_FOUND,
+                crate::storage::failure::wording::BUCKET_NOT_FOUND,
             ),
             (
                 CatalogError::Forbidden,
@@ -503,14 +500,14 @@ mod tests {
                 "Forbidden",
             ),
         ] {
-            let error = JsonError::from(HmacKeyError::Catalog(cause));
+            let error = ApiError::from(HmacKeyError::Catalog(cause));
             assert_eq!(error.status, status);
             assert_eq!(error.reason, reason);
             assert!(error.message.starts_with(message), "{error:?}");
         }
     }
 
-    fn route(method: Method, path: &str) -> Result<ProjectRequest, JsonError> {
+    fn route(method: Method, path: &str) -> Result<ProjectRequest, ApiError> {
         route_in(CompatProfile::Native, method, path)
     }
 
@@ -518,7 +515,7 @@ mod tests {
         profile: CompatProfile,
         method: Method,
         path: &str,
-    ) -> Result<ProjectRequest, JsonError> {
+    ) -> Result<ProjectRequest, ApiError> {
         route_project(&method, &path.parse().unwrap(), profile)
             .expect("project route")
             .map(|(request, _)| request)

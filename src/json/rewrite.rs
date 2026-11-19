@@ -1,5 +1,5 @@
 use super::{
-    Fields, JsonError, Schema,
+    ApiError, Fields, Schema,
     integer::take_long,
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query, validate_object_name,
@@ -41,7 +41,7 @@ pub(crate) fn route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<RewriteRequest, JsonError>> {
+) -> Option<Result<RewriteRequest, ApiError>> {
     let path = uri.path().strip_prefix(query::BUCKET_PATH)?;
     let segments: Vec<_> = path.split('/').take(9).collect();
     let [
@@ -80,9 +80,9 @@ fn parse(
     path: RewritePath<'_>,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<RewriteRequest, JsonError> {
+) -> Result<RewriteRequest, ApiError> {
     if *method != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Rewrite requires POST",
             Some("POST"),
         ));
@@ -117,12 +117,12 @@ fn parse(
     let predefined_acl = take_predefined_acl(&mut remaining, "destinationPredefinedAcl")?;
     for key in ["destinationKmsKeyName", "dropContextGroups"] {
         if remaining.contains_key(key) {
-            return Err(JsonError::unsupported_object(key));
+            return Err(ApiError::unsupported_object(key));
         }
     }
     let source_generation = take_long(&mut remaining, "sourceGeneration")?;
     if source_generation.is_some_and(|generation| generation <= 0) {
-        return Err(JsonError::invalid_parameter("Invalid sourceGeneration"));
+        return Err(ApiError::invalid_parameter("Invalid sourceGeneration"));
     }
     let source_conditions = take_conditions(&mut remaining, ConditionKeys::Source)?;
     let conditions = take_conditions(&mut remaining, ConditionKeys::Plain)?;
@@ -182,21 +182,21 @@ fn parse(
 }
 
 /// `maxBytesRewrittenPerCall`, which must be a positive multiple of 1 MiB.
-fn byte_budget(number: i64) -> Result<NonZeroU64, JsonError> {
+fn byte_budget(number: i64) -> Result<NonZeroU64, ApiError> {
     let Some(budget) = u64::try_from(number).ok().and_then(NonZeroU64::new) else {
-        return Err(JsonError::invalid(
+        return Err(ApiError::invalid(
             "maxBytesRewrittenPerCall must be a positive value",
         ));
     };
     if budget.get() % 1_048_576 != 0 {
-        return Err(JsonError::invalid(
+        return Err(ApiError::invalid(
             "maxBytesRewrittenPerCall must be an integral multiple of 1 MiB (1048576)",
         ));
     }
     Ok(budget)
 }
 
-pub(crate) fn response(progress: RewriteProgress) -> Result<Value, JsonError> {
+pub(crate) fn response(progress: RewriteProgress) -> Result<Value, ApiError> {
     let mut value = Map::from_iter([
         ("kind".into(), "storage#rewriteResponse".into()),
         (

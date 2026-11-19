@@ -1,5 +1,5 @@
 use super::{
-    JsonError, ObjectRequest, Projection,
+    ApiError, ObjectRequest, Projection,
     objects::{ConditionKeys, match_and_not_match, take_conditions},
     query::{
         BUCKET_PATH, MAX_BUCKET_SEGMENT_BYTES, MAX_OBJECT_SEGMENT_BYTES, finish_for_profile,
@@ -26,7 +26,7 @@ pub(super) fn route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<ObjectRequest, JsonError>> {
+) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri.path().strip_prefix(BUCKET_PATH)?;
     let (source, destination) = path.split_once("/moveTo/o/")?;
     Some(parse(method, source, destination, uri, profile))
@@ -40,16 +40,16 @@ fn parse(
     destination: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<ObjectRequest, JsonError> {
+) -> Result<ObjectRequest, ApiError> {
     if method != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Object move requires POST",
             Some("POST"),
         ));
     }
     let (bucket, source) = source
         .split_once("/o/")
-        .ok_or_else(|| JsonError::invalid_parameter("Invalid move path"))?;
+        .ok_or_else(|| ApiError::invalid_parameter("Invalid move path"))?;
     if bucket.len() > MAX_BUCKET_SEGMENT_BYTES
         || bucket.contains('/')
         || source.contains('/')
@@ -57,7 +57,7 @@ fn parse(
         || source.len() > MAX_OBJECT_SEGMENT_BYTES
         || destination.len() > MAX_OBJECT_SEGMENT_BYTES
     {
-        return Err(JsonError::invalid_parameter("Invalid move path"));
+        return Err(ApiError::invalid_parameter("Invalid move path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;
@@ -66,7 +66,7 @@ fn parse(
     super::validate_object_name(&source)?;
     super::validate_object_name(&destination)?;
     if source == destination {
-        return Err(JsonError::invalid(
+        return Err(ApiError::invalid(
             "Source and destination object names must be different.",
         ));
     }
@@ -75,11 +75,11 @@ fn parse(
     // Cloud Storage moved an object with projection=full (recorded 2026-11-13, case
     // obj-unsupported-derived); the response adds the ACL the destination keeps.
     let projection = projection(&mut query)?;
-    standard_parameters(&mut query, &[], JsonError::unsupported_object)?;
+    standard_parameters(&mut query, &[], ApiError::unsupported_object)?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     super::query::boolean(&mut query, "prettyPrint")?;
     if query.remove("alt").is_some_and(|alt| alt != "json") {
-        return Err(JsonError::invalid_parameter("move requires alt=json"));
+        return Err(ApiError::invalid_parameter("move requires alt=json"));
     }
     let source_conditions = exclusive_conditions(&mut query, ConditionKeys::Source)?;
     let destination_conditions = exclusive_conditions(&mut query, ConditionKeys::Plain)?;
@@ -106,10 +106,10 @@ fn parse(
 fn exclusive_conditions(
     query: &mut BTreeMap<String, String>,
     keys: ConditionKeys,
-) -> Result<ObjectConditions, JsonError> {
+) -> Result<ObjectConditions, ApiError> {
     let conditions = take_conditions(query, keys)?;
     if match_and_not_match(&conditions) {
-        return Err(JsonError::conflicting_preconditions());
+        return Err(ApiError::conflicting_preconditions());
     }
     Ok(conditions)
 }

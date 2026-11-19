@@ -274,7 +274,7 @@ leaf_sources!(
     crate::auth::signature::VerificationError,
     crate::import::codec::CodecError,
     crate::import::codec::TimestampError,
-    crate::json::JsonError,
+    crate::api_error::ApiError,
     crate::notification::NotificationDecodeError,
     crate::object::HashMismatch,
     crate::source_tree::watch::WatchLimit,

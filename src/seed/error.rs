@@ -1,4 +1,4 @@
-use crate::{json::JsonError, storage::admin::AdminError};
+use crate::{api_error::ApiError, storage::admin::AdminError};
 use std::{error::Error, fmt, io, path::StripPrefixError};
 
 #[derive(Debug)]
@@ -6,7 +6,7 @@ pub enum SeedError {
     Io(io::Error),
     Admin(AdminError),
     BucketName(AdminError),
-    ObjectName(JsonError),
+    ObjectName(ApiError),
     RelativePath(StripPrefixError),
     EntryLimit { limit: usize },
     DepthLimit { limit: usize },
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn object_name_messages_keep_the_json_failure_in_the_cause_chain() {
         let error = SeedError::ObjectName(crate::json::validate_object_name("").unwrap_err());
-        let cause = error.source().unwrap().downcast_ref::<JsonError>().unwrap();
+        let cause = error.source().unwrap().downcast_ref::<ApiError>().unwrap();
         assert_eq!(error.to_string(), cause.message);
     }
 }

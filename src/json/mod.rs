@@ -6,7 +6,7 @@
 //! The caller performs catalog operations and atomic condition checks, then renders metadata
 //! with [`bucket_resource_with_profile`] / [`bucket_list_with_profile`] using its advertised endpoint.
 //! [`encode_page_token`] creates project/prefix-bound continuation cursors.
-//! [`JsonError`] maps catalog failures and produces JSON HTTP error responses.
+//! [`error`] renders the shared [`ApiError`] as the JSON error envelope and its HTTP responses.
 //! The supported subset and deviations are recorded in `docs/en/slices/json-bucket-crud.md`.
 
 pub(crate) mod acl;
@@ -37,6 +37,7 @@ pub(crate) mod resumable;
 pub(crate) mod resumable_cancel;
 pub(crate) mod rewrite;
 
+use crate::api_error::ApiError;
 pub(crate) use crate::object::WriteMode;
 pub use buckets::parse_insert;
 pub(crate) use buckets::{
@@ -60,17 +61,13 @@ pub(crate) use envelope::{
     Call as EnvelopeCall, RESOURCE_CACHE_CONTROL, ResponseCache, apply as apply_envelope,
     etag_header, forbid_caching,
 };
-pub use error::JsonError;
-pub(crate) use error::{
-    BAD_CONTENT_TYPE_TEXT, ErrorKind, MEDIA_ERROR_CACHE_CONTROL, MISSING_END_BOUNDARY_TEXT,
-    safe_backend_cause,
-};
+pub(crate) use error::{JsonErrorResponse, MEDIA_ERROR_CACHE_CONTROL, parse_error};
 pub(crate) use fields::{FieldSelection, Fields, Schema};
 pub(crate) use format::{ResponseFormat, render_body, with_format};
 pub(crate) use iam::{parse_policy, policy_resource, test_permissions_query};
 pub(crate) use multipart::{
-    MultipartMetadata, PartKind, RelatedUpload, check_declared_content_type, multipart_metadata,
-    multipart_metadata_of,
+    FRAMING_LIMIT as MULTIPART_FRAMING_LIMIT, MultipartMetadata, PartKind, RelatedUpload,
+    check_declared_content_type, multipart_metadata, multipart_metadata_of,
 };
 pub(crate) use object_copy::ObjectCopyParams;
 pub(crate) use object_list::{ObjectListParams, object_list};

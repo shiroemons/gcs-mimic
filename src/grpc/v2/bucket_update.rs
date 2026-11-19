@@ -869,7 +869,7 @@ mod tests {
                 error.message(),
                 format!("Invalid storage class \"{value}\"")
             );
-            let json = crate::json::JsonError::from(
+            let json = crate::api_error::ApiError::from(
                 bucket::validate_update_storage_class(value).unwrap_err(),
             );
             assert_eq!(json.message, error.message());

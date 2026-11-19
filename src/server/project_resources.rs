@@ -4,8 +4,9 @@ use super::{
     EmptyJsonBody, RESOURCE_BODY_LIMIT, State, authorize_project, empty_response, json_response,
     require_empty_body, validate_bodyless_post,
 };
+use crate::api_error::ApiError;
 use crate::auth::{AuthFailure, Caller, Permission};
-use crate::json::{self, Fields, JsonError, ProjectRequest};
+use crate::json::{self, Fields, ProjectRequest};
 use crate::storage::hmac_keys::HmacKeyListQuery;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Bytes};
@@ -18,10 +19,7 @@ const HMAC_KEYS_UPDATE: Permission = Permission::HmacKeysUpdate;
 
 /// `projects.serviceAccount.get` requires `resourcemanager.projects.get`, which no storage role
 /// snapshot carries; any local grant in the project stands in for project visibility.
-fn authorize_project_visibility(
-    caller: Option<Caller<'_>>,
-    project: &str,
-) -> Result<(), JsonError> {
+fn authorize_project_visibility(caller: Option<Caller<'_>>, project: &str) -> Result<(), ApiError> {
     match caller {
         None => Ok(()),
         Some(caller) if caller.principal()?.has_project_grant(project) => Ok(()),
@@ -36,7 +34,7 @@ pub(super) async fn respond(
     caller: Option<Caller<'_>>,
     state: &State,
     base_url: &str,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let project = operation.project_mut();
     *project = state.project_id(project.as_str()).await?.try_into()?;
     match &operation {

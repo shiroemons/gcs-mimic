@@ -1,12 +1,14 @@
 //! Direct local fixtures share the ordinary streaming and atomic publication protocol.
 
 use crate::config::Config;
+use crate::json::JsonErrorResponse;
 use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
+    api_error::ApiError,
     auth::AuthFailure,
-    json::{self, JsonError},
+    json,
     notification::NotificationMode,
     object::{ExpectedHashes, ObjectError, Patch, UploadChunk},
     server::{DeadlineWatch, RequestBody, RequestCtx, json_response},
@@ -55,17 +57,17 @@ pub(super) async fn insert(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
     authorized: super::Authorized,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let admin = authorized.into_admin();
     if request.method() != Method::POST {
-        return Ok(JsonError::method_not_allowed(
+        return Ok(ApiError::method_not_allowed(
             "Use POST /_internal/objects with multipart/related",
             Some("POST"),
         )
         .into_response());
     }
     if request.uri().query().is_some() {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Fixture parameters belong in the metadata JSON, not the query",
         ));
     }
@@ -119,13 +121,13 @@ async fn stream<B: Body<Data = Bytes> + Unpin>(
     sender: &UploadSender,
     expected: ExpectedHashes,
     max_bytes: u64,
-) -> Result<ExpectedHashes, JsonError> {
+) -> Result<ExpectedHashes, ApiError> {
     let mut size = 0_u64;
     while let Some(bytes) = multipart.next_chunk().await? {
         size = size
             .checked_add(bytes.len() as u64)
             .filter(|size| *size <= max_bytes)
-            .ok_or_else(|| JsonError::from(ObjectError::TooLarge))?;
+            .ok_or_else(|| ApiError::from(ObjectError::TooLarge))?;
         if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
             return Ok(expected);
         }
@@ -135,18 +137,18 @@ async fn stream<B: Body<Data = Bytes> + Unpin>(
     Ok(expected)
 }
 
-fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, JsonError> {
+fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, ApiError> {
     let mut value: Value = serde_json::from_slice(bytes)
-        .map_err(|_| JsonError::invalid_argument("Fixture metadata must be a JSON object"))?;
+        .map_err(|_| ApiError::invalid_argument("Fixture metadata must be a JSON object"))?;
     let fields = value
         .as_object_mut()
-        .ok_or_else(|| JsonError::invalid_argument("Fixture metadata must be a JSON object"))?;
+        .ok_or_else(|| ApiError::invalid_argument("Fixture metadata must be a JSON object"))?;
     let notification_mode = match fields.remove("notificationMode") {
         None => NotificationMode::Emit,
         Some(Value::String(mode)) if mode == "emit" => NotificationMode::Emit,
         Some(Value::String(mode)) if mode == "suppress" => NotificationMode::Suppress,
         _ => {
-            return Err(JsonError::invalid_argument(
+            return Err(ApiError::invalid_argument(
                 "Fixture notificationMode must be emit or suppress",
             ));
         }
@@ -154,12 +156,12 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, Json
     let bucket = fields
         .get("bucket")
         .and_then(Value::as_str)
-        .ok_or_else(|| JsonError::invalid_argument("Fixture metadata requires bucket"))?;
+        .ok_or_else(|| ApiError::invalid_argument("Fixture metadata requires bucket"))?;
     let bucket = BucketName::new(bucket).map_err(failure)?;
     let provenance = provenance(fields, now)?;
     for field in ["timeDeleted", "deleted", "etag", "size"] {
         if fields.contains_key(field) {
-            return Err(JsonError::unsupported_object(field));
+            return Err(ApiError::unsupported_object(field));
         }
     }
     let acl = fields
@@ -169,7 +171,7 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, Json
         .unwrap_or_default();
     check_fixture_members(fields)?;
     let bytes = serde_json::to_vec(&value)
-        .map_err(|_| JsonError::invalid_argument("Invalid fixture metadata"))?;
+        .map_err(|_| ApiError::invalid_argument("Invalid fixture metadata"))?;
     let json::MultipartMetadata {
         name,
         update: mut metadata,
@@ -202,7 +204,7 @@ fn parse(bytes: &[u8], now: SystemTime, config: &Config) -> Result<Fixture, Json
 /// Fields a direct fixture may set because a startup seed would otherwise choose them.
 const IDENTITY_FIELDS: [&str; 4] = ["generation", "created", "timeCreated", "updated"];
 
-fn provenance(fields: &mut Map<String, Value>, now: SystemTime) -> Result<Provenance, JsonError> {
+fn provenance(fields: &mut Map<String, Value>, now: SystemTime) -> Result<Provenance, ApiError> {
     match fields.remove("defaults").as_ref().map(Value::as_str) {
         None | Some(Some("fixture")) => identity(fields, now).map(Provenance::Fixture),
         Some(Some("seed")) => match IDENTITY_FIELDS
@@ -211,12 +213,12 @@ fn provenance(fields: &mut Map<String, Value>, now: SystemTime) -> Result<Proven
         {
             // A seed publication allocates its generation and stamps its own times, so an
             // explicit identity would be silently replaced.
-            Some(field) => Err(JsonError::invalid_argument(format!(
+            Some(field) => Err(ApiError::invalid_argument(format!(
                 "Fixture defaults seed assigns generation and times at publication; omit {field}"
             ))),
             None => Ok(Provenance::Seed),
         },
-        Some(_) => Err(JsonError::invalid_argument(
+        Some(_) => Err(ApiError::invalid_argument(
             "Fixture defaults must be fixture or seed",
         )),
     }
@@ -225,7 +227,7 @@ fn provenance(fields: &mut Map<String, Value>, now: SystemTime) -> Result<Proven
 fn identity(
     fields: &mut Map<String, Value>,
     now: SystemTime,
-) -> Result<ImportedIdentity, JsonError> {
+) -> Result<ImportedIdentity, ApiError> {
     let generation = fields
         .remove("generation")
         .map(|value| {
@@ -234,7 +236,7 @@ fn identity(
                 .and_then(|value| value.parse::<i64>().ok())
                 .filter(|value| (1..i64::MAX).contains(value))
                 .ok_or_else(|| {
-                    JsonError::invalid_argument(
+                    ApiError::invalid_argument(
                         "Fixture generation must be a positive i64 string below i64::MAX",
                     )
                 })?;
@@ -242,7 +244,7 @@ fn identity(
         })
         .transpose()?;
     if fields.contains_key("created") && fields.contains_key("timeCreated") {
-        return Err(JsonError::invalid_argument(
+        return Err(ApiError::invalid_argument(
             "Use either created or timeCreated, not both",
         ));
     }
@@ -256,7 +258,7 @@ fn identity(
 
 /// The JSON API ignores members it does not know and non-boolean holds; this emulator-only
 /// route stays strict so a mistyped fixture field is reported instead of dropped.
-fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), JsonError> {
+fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), ApiError> {
     const KNOWN: &[&str] = &[
         "kind",
         "id",
@@ -293,11 +295,11 @@ fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), 
         "timeFinalized",
     ];
     if let Some(unknown) = fields.keys().find(|key| !KNOWN.contains(&key.as_str())) {
-        return Err(JsonError::unsupported_object(unknown));
+        return Err(ApiError::unsupported_object(unknown));
     }
     for hold in ["temporaryHold", "eventBasedHold"] {
         if fields.get(hold).is_some_and(|value| !value.is_boolean()) {
-            return Err(JsonError::invalid_argument(format!(
+            return Err(ApiError::invalid_argument(format!(
                 "{hold} must be a boolean"
             )));
         }
@@ -305,7 +307,7 @@ fn check_fixture_members(fields: &serde_json::Map<String, Value>) -> Result<(), 
     Ok(())
 }
 
-fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, JsonError> {
+fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, ApiError> {
     if let Some(entries) = acl.as_array() {
         for entry in entries.iter().filter_map(Value::as_object) {
             for (field, value) in entry {
@@ -319,12 +321,12 @@ fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, JsonError> {
                 {
                     continue;
                 }
-                return Err(JsonError::unsupported_object(&format!("acl.{field}")));
+                return Err(ApiError::unsupported_object(&format!("acl.{field}")));
             }
         }
     }
     let bytes = serde_json::to_vec(&serde_json::json!({"acl": acl}))
-        .map_err(|_| JsonError::invalid_argument("Invalid fixture ACL"))?;
+        .map_err(|_| ApiError::invalid_argument("Invalid fixture ACL"))?;
     Ok(
         json::parse_object_metadata_mutation(&bytes, json::WriteMode::Patch)?
             .update
@@ -332,18 +334,18 @@ fn fixture_acl(acl: &Value) -> Result<crate::acl::AclRequest, JsonError> {
     )
 }
 
-fn timestamp(value: Option<&Value>, default: SystemTime) -> Result<SystemTime, JsonError> {
+fn timestamp(value: Option<&Value>, default: SystemTime) -> Result<SystemTime, ApiError> {
     let micros = if let Some(value) = value {
         crate::import::codec::parse_timestamp(value.as_str().ok_or_else(|| {
-            JsonError::invalid_argument("Fixture timestamps must be RFC3339 strings")
+            ApiError::invalid_argument("Fixture timestamps must be RFC3339 strings")
         })?)
-        .map_err(JsonError::invalid_argument)?
+        .map_err(ApiError::invalid_argument)?
     } else {
         let elapsed = default
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| JsonError::invalid_argument("Fixture clock precedes Unix epoch"))?;
+            .map_err(|_| ApiError::invalid_argument("Fixture clock precedes Unix epoch"))?;
         i64::try_from(elapsed.as_micros())
-            .map_err(|_| JsonError::invalid_argument("Fixture clock is out of range"))?
+            .map_err(|_| ApiError::invalid_argument("Fixture clock is out of range"))?
     };
     let duration = Duration::from_micros(micros.unsigned_abs());
     if micros < 0 {
@@ -351,10 +353,10 @@ fn timestamp(value: Option<&Value>, default: SystemTime) -> Result<SystemTime, J
     } else {
         UNIX_EPOCH.checked_add(duration)
     }
-    .ok_or_else(|| JsonError::invalid_argument("Fixture timestamp is out of range"))
+    .ok_or_else(|| ApiError::invalid_argument("Fixture timestamp is out of range"))
 }
 
-pub(super) fn failure(error: AdminError) -> JsonError {
+pub(super) fn failure(error: AdminError) -> ApiError {
     let (status, reason, message) = match error {
         AdminError::Precondition => (
             StatusCode::CONFLICT,
@@ -372,7 +374,7 @@ pub(super) fn failure(error: AdminError) -> JsonError {
             "Fixture checksum does not match the body",
         ),
         AdminError::TooLarge => return ObjectError::TooLarge.into(),
-        AdminError::Invalid(message) => return JsonError::invalid_argument(message),
+        AdminError::Invalid(message) => return ApiError::invalid_argument(message),
         AdminError::Hold => (
             StatusCode::FORBIDDEN,
             "forbidden",
@@ -400,7 +402,7 @@ pub(super) fn failure(error: AdminError) -> JsonError {
             "Fixture publication failed; inspect local storage and retry",
         ),
     };
-    JsonError::new(status, reason, message)
+    ApiError::new(status, reason, message)
 }
 
 #[cfg(test)]

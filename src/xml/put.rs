@@ -6,7 +6,6 @@ use crate::server::upload_drive::{
 use crate::{
     auth::{self, Caller},
     bucket::{InvalidStorageClass, StorageClass},
-    json,
     metadata_error::MetadataError,
     object::{
         Checksum, ChecksumConflict, ExpectedHashes, HashAlgorithm, HashMismatch, MapPatch,
@@ -251,7 +250,7 @@ pub(super) fn content_type_and_hashes(
     // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
     let mut expected =
         crate::object::upload_headers::declared_hashes(&selected).map_err(|error| {
-            if error.kind == json::ErrorKind::Unsupported {
+            if error.kind == crate::api_error::ErrorKind::Unsupported {
                 return Error::from(error);
             }
             Error::new(XmlCode::InvalidDigest, "Invalid x-goog-hash digest.")
@@ -372,7 +371,7 @@ fn crc_detail(crc32c: u32) -> String {
 
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "every other object error keeps the shared JSON error mapping"
+    reason = "every other object error keeps the shared error mapping"
 )]
 pub(super) fn storage_error(error: ObjectError, caller: Option<Caller<'_>>) -> Error {
     match error {

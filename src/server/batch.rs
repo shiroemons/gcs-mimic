@@ -7,10 +7,12 @@ use super::{
     ObjectActivity, RequestBody, RequestCtx, ResponseBody, State, boxed,
     chunk_body::{self, ChunkSender, Completion},
 };
+use crate::json::JsonErrorResponse;
 use crate::{
+    api_error::ApiError,
     auth::ListenerRole,
     config::{Config, RequestEndpoints},
-    json::{self, JsonError},
+    json,
 };
 use http_body_util::BodyExt;
 use hyper::body::{Frame, SizeHint};
@@ -71,8 +73,8 @@ struct Part {
     request: Request<RequestBody>,
 }
 
-fn invalid(message: &'static str) -> JsonError {
-    JsonError::new(StatusCode::BAD_REQUEST, "badRequest", message)
+fn invalid(message: &'static str) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "badRequest", message)
 }
 
 pub(super) async fn respond(
@@ -88,7 +90,7 @@ pub(super) async fn respond(
 async fn execute<B: Body<Data = Bytes> + Unpin>(
     request: Request<B>,
     ctx: RequestCtx<'_>,
-) -> Result<Response<BatchBody>, JsonError> {
+) -> Result<Response<BatchBody>, ApiError> {
     if request.method() != Method::POST {
         return Err(invalid("Batch requests require POST /batch/storage/v1"));
     }
@@ -101,11 +103,11 @@ async fn execute<B: Body<Data = Bytes> + Unpin>(
         tokio::time::timeout_at(deadline, ctx.state.pools.batches.clone().acquire_owned())
             .await
             .map_err(|_| {
-                JsonError::service_unavailable(
+                ApiError::service_unavailable(
                     "Timed out waiting for batch capacity; retry after an active response finishes",
                 )
             })?
-            .map_err(|_| JsonError::service_unavailable("Batch admission is unavailable"))?;
+            .map_err(|_| ApiError::service_unavailable("Batch admission is unavailable"))?;
     let (outer, mut body) = request.into_parts();
     if body.size_hint().lower() >= REQUEST_LIMIT as u64 {
         return Err(too_large());
@@ -250,16 +252,16 @@ fn dispatch<'a>(
     Box::pin(super::routing::respond(request, ctx))
 }
 
-fn parser_failed() -> JsonError {
-    JsonError::service_unavailable("Batch parser failed")
+fn parser_failed() -> ApiError {
+    ApiError::service_unavailable("Batch parser failed")
 }
 
-fn parser_unavailable() -> JsonError {
-    JsonError::service_unavailable("Batch parser unavailable")
+fn parser_unavailable() -> ApiError {
+    ApiError::service_unavailable("Batch parser unavailable")
 }
 
-fn too_large() -> JsonError {
-    JsonError::new(
+fn too_large() -> ApiError {
+    ApiError::new(
         StatusCode::PAYLOAD_TOO_LARGE,
         "uploadTooLarge",
         "Batch request must be smaller than 10 MB",
@@ -270,7 +272,7 @@ fn too_large() -> JsonError {
 async fn bounded_response(
     response: Response<ResponseBody>,
     cap: usize,
-) -> Result<Response<Vec<u8>>, JsonError> {
+) -> Result<Response<Vec<u8>>, ApiError> {
     let (parts, mut body) = response.into_parts();
     let header_bytes: usize = parts
         .headers
@@ -289,11 +291,11 @@ async fn bounded_response(
                     "batch_response_stream_failed",
                     serde_json::json!({"cause": error.kind().to_string()}),
                 );
-                JsonError::service_unavailable("Batched response stream failed")
+                ApiError::service_unavailable("Batched response stream failed")
             })?
             .into_data()
             .map_err(|_| {
-                JsonError::service_unavailable("Batched response trailers are unsupported")
+                ApiError::service_unavailable("Batched response trailers are unsupported")
             })?;
         if data.len() > cap.saturating_sub(bytes.len() + header_bytes) {
             return Err(response_too_large());
@@ -303,8 +305,8 @@ async fn bounded_response(
     Ok(Response::from_parts(parts, bytes))
 }
 
-fn response_too_large() -> JsonError {
-    JsonError::new(
+fn response_too_large() -> ApiError {
+    ApiError::new(
         StatusCode::PAYLOAD_TOO_LARGE,
         "responseTooLarge",
         "Batched response exceeds the local response budget; the operation may have completed",

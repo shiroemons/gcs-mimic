@@ -1,6 +1,7 @@
 //! HTTP framing and response-envelope contracts shared by the adapters.
 
 use super::*;
+use crate::json::JsonErrorResponse;
 
 #[test]
 fn body_presence_compares_content_length_numerically() {

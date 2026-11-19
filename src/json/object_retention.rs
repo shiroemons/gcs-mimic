@@ -1,6 +1,6 @@
 //! JSON wire form of object retention (`retention`) and bucket `objectRetention`.
 
-use super::JsonError;
+use super::ApiError;
 use crate::object::{
     retention::{ObjectRetention, RetentionMode},
     unix_nanos::UnixNanos,
@@ -12,8 +12,8 @@ const EXAMPLE: &str = "use {\"mode\":\"Unlocked\",\"retainUntilTime\":\"2030-01-
 
 /// Parses an object `retention` value. `null`, `{}` and an object whose fields are all null
 /// remove the configuration: Go sends `null` and Ruby sends `{}` for removal.
-pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError> {
-    let invalid = |detail: &str| JsonError::invalid(format!("{detail}; {EXAMPLE}"));
+pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, ApiError> {
+    let invalid = |detail: &str| ApiError::invalid(format!("{detail}; {EXAMPLE}"));
     if value.is_null() {
         return Ok(None);
     }
@@ -36,7 +36,7 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
         (None, None) => return Ok(None),
         (Some(mode), Some(until)) => (mode, until),
         _ => {
-            return Err(JsonError::invalid(
+            return Err(ApiError::invalid(
                 "Missing retain until time. Both mode and retain until time are required.",
             ));
         }
@@ -45,7 +45,7 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
         .as_str()
         .and_then(RetentionMode::parse)
         .ok_or_else(|| {
-            JsonError::invalid(format!(
+            ApiError::invalid(format!(
                 "Invalid value for: {} is not a valid value",
                 mode.as_str().unwrap_or_default()
             ))
@@ -64,7 +64,7 @@ pub(super) fn parse(value: &Value) -> Result<Option<ObjectRetention>, JsonError>
     Ok(Some(ObjectRetention { mode, retain_until }))
 }
 
-pub(super) fn render(retention: &ObjectRetention) -> Result<Value, JsonError> {
+pub(super) fn render(retention: &ObjectRetention) -> Result<Value, ApiError> {
     Ok(json!({
         "mode": retention.mode.as_str(),
         "retainUntilTime": timestamp_nanos(retention.retain_until)?,
@@ -78,7 +78,7 @@ pub(super) fn render_bucket(bucket: &crate::bucket::BucketRecord) -> Option<Valu
 }
 
 /// Returned as `retentionExpirationTime`: the later of bucket-policy and object retention.
-pub(super) fn expiration(time: Option<UnixNanos>) -> Result<Option<String>, JsonError> {
+pub(super) fn expiration(time: Option<UnixNanos>) -> Result<Option<String>, ApiError> {
     Ok(time.map(timestamp_nanos).transpose()?)
 }
 
@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    fn parsed_render(time: &str) -> Result<String, JsonError> {
+    fn parsed_render(time: &str) -> Result<String, ApiError> {
         let parsed = parse(&json!({"mode":"Unlocked","retainUntilTime":time}))?.unwrap();
         Ok(render(&parsed)?["retainUntilTime"]
             .as_str()

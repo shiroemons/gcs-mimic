@@ -10,11 +10,11 @@ use crate::server::upload_drive::{
     CatalogWait, DriveError, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
+    api_error::ApiError,
     auth::{
         self, Caller,
         signature::{self, Failure, MAX_EXPIRES},
     },
-    json::JsonError,
     multipart::{Multipart, form_data_boundary},
     object::{
         ExpectedHashes, MapPatch, ObjectConditions, ObjectError, ObjectMetadataUpdate,
@@ -60,7 +60,7 @@ fn policy_error(details: impl std::fmt::Display) -> Error {
 fn signature_error(failure: signature::VerificationError) -> Error {
     let failure = match failure {
         signature::VerificationError::Signature(failure) => failure,
-        signature::VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
+        signature::VerificationError::Catalog(error) => return Error::from(ApiError::from(error)),
         signature::VerificationError::Worker(_) => {
             return Error::new(
                 XmlCode::ServiceUnavailable,
@@ -755,7 +755,7 @@ async fn authenticate<'a>(
             .auth
             .authenticate_request(headers, None, state.clock.as_ref(), ctx.listener)
             .await
-            .map_err(|error| Error::from(JsonError::from(error)));
+            .map_err(|error| Error::from(ApiError::from(error)));
     };
     if headers.contains_key("authorization") {
         return Err(Error::invalid(

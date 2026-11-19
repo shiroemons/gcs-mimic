@@ -1,4 +1,5 @@
 mod acl;
+mod api_error;
 pub mod auth;
 mod base64;
 mod bounded_body;
@@ -56,3 +57,5 @@ mod xml;
 /// The product version from the package manifest. `--version` and the ready event report this
 /// one string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub use api_error::ApiError;

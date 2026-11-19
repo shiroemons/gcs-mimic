@@ -308,12 +308,12 @@ These IDs describe observable assertions; catalog cases remain integration oblig
 ## Adapter integration API
 
 `json::route(method, uri)` returns `None` for other namespaces, otherwise a parsed
-`BucketRequest` or `JsonError`. Request variants carry typed project, conditions, projection,
+`BucketRequest` or `ApiError`. Request variants carry typed project, conditions, projection,
 page size, prefix and decoded last-name cursor. `json::read_body(body, cap)` bounds collection;
 `json::parse_insert(bytes, project, now)` creates a `BucketRecord`. The integration layer
 executes catalog operations, checks conditions atomically, and calls `bucket_resource` or
 `bucket_list` with an advertised base URL. `encode_page_token` creates continuation cursors;
-`JsonError::from(CatalogError)` and `JsonError::into_response()` render errors. No function
+`ApiError::from(CatalogError)` and `ApiError::into_response()` render errors. No function
 in this module calls the catalog, reads wall time, binds sockets or performs authentication.
 
 ## Integrated verification on 2026-10-21

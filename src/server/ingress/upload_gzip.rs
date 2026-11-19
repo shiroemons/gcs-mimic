@@ -4,7 +4,7 @@
 
 use super::{RequestBody, RequestCtx, bad_request};
 use crate::{
-    json::JsonError,
+    api_error::ApiError,
     server::{CHUNK_BYTES, chunk_body},
 };
 use bytes::{Buf, Bytes};
@@ -22,7 +22,7 @@ use std::{
 pub(super) async fn request(
     request: Request<RequestBody>,
     ctx: RequestCtx<'_>,
-) -> Result<Request<RequestBody>, JsonError> {
+) -> Result<Request<RequestBody>, ApiError> {
     let mut encodings = request.headers().get_all(CONTENT_ENCODING).iter();
     if encodings
         .next()
@@ -48,7 +48,7 @@ pub(super) async fn request(
     let expanded_limit = ctx
         .config
         .max_object_bytes
-        .saturating_add(crate::multipart::FRAMING_LIMIT);
+        .saturating_add(crate::json::MULTIPART_FRAMING_LIMIT);
     // Stored-gzip media can be incompressible; allow bounded framing/deflate overhead on the wire.
     let compressed_limit = expanded_limit
         .saturating_add(expanded_limit / 8)

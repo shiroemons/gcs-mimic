@@ -3,10 +3,12 @@ use super::upload_drive::{CatalogWait, UploadEnd, UploadSender, drive_upload, up
 use super::{
     ObjectActivity, ObjectCtx, ResponseBody, boxed, empty_response, json_response, stream_upload,
 };
+use crate::json::JsonErrorResponse;
 use crate::{
+    api_error::ApiError,
     bucket::BucketAccess,
     json::{
-        self, JsonError, ObjectInsertParams,
+        self, ObjectInsertParams,
         resumable::{self, Range},
         resumable_cancel::Cancellation,
     },
@@ -29,7 +31,7 @@ pub(super) async fn initiate(
     encoding: Option<String>,
     access: BucketAccess,
     ctx: ObjectCtx<'_>,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let ObjectCtx { config, .. } = ctx;
     let response_fields =
         crate::percent::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
@@ -46,7 +48,7 @@ pub(super) async fn initiate(
             .eq_ignore_ascii_case("application/json")
     });
     if super::has_body(request.headers()) && !json_type {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Metadata requires application/json",
         ));
     }
@@ -56,14 +58,14 @@ pub(super) async fn initiate(
     let query = request.uri().query().unwrap_or_default().to_owned();
     location_base
         .parse::<hyper::header::HeaderValue>()
-        .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?;
+        .map_err(|_| ApiError::invalid_parameter("Invalid session endpoint"))?;
     let bytes = crate::bounded_body::read_body(
         request.into_body(),
         crate::bounded_body::RESOURCE_BODY_LIMIT,
     )
     .await?;
     if !bytes.is_empty() && !json_type {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Metadata requires application/json",
         ));
     }
@@ -90,7 +92,7 @@ pub(super) async fn initiate(
         "location",
         location
             .parse()
-            .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?,
+            .map_err(|_| ApiError::invalid_parameter("Invalid session endpoint"))?,
     );
     // Cloud Storage forbids every cache for the initiation reply, as for other JSON API calls.
     json::forbid_caching(response.headers_mut());
@@ -118,7 +120,7 @@ pub(crate) async fn create_session(
     name: &str,
     options: ResumableOptions,
     total: Option<u64>,
-) -> Result<crate::storage::SessionId, JsonError> {
+) -> Result<crate::storage::SessionId, ApiError> {
     let state = ctx.state;
     super::retention_access::authorize_upload(
         &state.catalog,
@@ -140,7 +142,7 @@ pub(crate) async fn create_session(
 pub(super) fn incomplete(
     progress: Progress,
     headers: &hyper::HeaderMap,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let override_status = resumable::single(headers, "x-guploader-no-308")? == Some("yes");
     let mut response = empty_response(if override_status {
         StatusCode::OK
@@ -248,7 +250,7 @@ struct SessionPosition {
 fn chunk_framing(
     headers: &hyper::HeaderMap,
     max_bytes: u64,
-) -> Result<(Option<Range>, Option<u64>), JsonError> {
+) -> Result<(Option<Range>, Option<u64>), ApiError> {
     let range = resumable::range(headers)?;
     let length = resumable::single(headers, "content-length")?
         .map(resumable::unsigned)
@@ -283,7 +285,7 @@ fn chunk_framing(
         _ => false,
     };
     if mismatch {
-        return Err(JsonError::session_protocol(
+        return Err(ApiError::session_protocol(
             "Content-Length does not match Content-Range",
         ));
     }
@@ -300,17 +302,17 @@ fn open_extent(
     length: Option<u64>,
     session_total: Option<u64>,
     max_bytes: u64,
-) -> Result<Extent, JsonError> {
+) -> Result<Extent, ApiError> {
     if total.is_some_and(|n| session_total.is_some_and(|t| n != t)) {
-        return Err(JsonError::session_protocol("Inconsistent upload total"));
+        return Err(ApiError::session_protocol("Inconsistent upload total"));
     }
     match (total.or(session_total), length) {
         (Some(total), length) => {
             let remaining = total
                 .checked_sub(start)
-                .ok_or_else(|| JsonError::session_protocol("Inconsistent upload total"))?;
+                .ok_or_else(|| ApiError::session_protocol("Inconsistent upload total"))?;
             if length.is_some_and(|n| n != remaining) {
-                return Err(JsonError::session_protocol(
+                return Err(ApiError::session_protocol(
                     "Content-Length does not match Content-Range",
                 ));
             }
@@ -324,7 +326,7 @@ fn open_extent(
         (None, Some(length)) => {
             let end = start
                 .checked_add(length)
-                .ok_or_else(|| JsonError::session_protocol("Upload offset overflow"))?;
+                .ok_or_else(|| ApiError::session_protocol("Upload offset overflow"))?;
             Ok(Extent {
                 start,
                 length,
@@ -344,14 +346,14 @@ fn open_extent(
 /// Why a chunk request cannot be planned.
 enum Refusal {
     /// Refuses this request and leaves the session as it was.
-    Request(JsonError),
+    Request(ApiError),
     /// A data chunk with an open total that runs past the session's total. Cloud Storage
     /// failed the JSON session on it (recorded 2026-11-15, case obj-resumable-declared-length).
     Overrun(Overrun),
 }
 
-impl From<JsonError> for Refusal {
-    fn from(error: JsonError) -> Self {
+impl From<ApiError> for Refusal {
+    fn from(error: ApiError) -> Self {
         Self::Request(error)
     }
 }
@@ -372,7 +374,7 @@ fn plan_chunk(
     } = match range {
         Some(Range::Status(total)) => {
             if length != Some(0) || headers.contains_key("transfer-encoding") {
-                return Err(JsonError::session_protocol("Status requires an empty body").into());
+                return Err(ApiError::session_protocol("Status requires an empty body").into());
             }
             Extent {
                 start: session.offset,
@@ -392,13 +394,13 @@ fn plan_chunk(
         }
         None => {
             if session.offset != 0 && session.state != SessionState::Complete {
-                return Err(JsonError::session_protocol(
+                return Err(ApiError::session_protocol(
                     "Content-Range required after the first chunk",
                 )
                 .into());
             }
             let length = length.ok_or_else(|| {
-                JsonError::session_protocol("Content-Length required without Content-Range")
+                ApiError::session_protocol("Content-Length required without Content-Range")
             })?;
             Extent {
                 start: 0,
@@ -409,13 +411,13 @@ fn plan_chunk(
         }
     };
     if start > session.offset {
-        return Err(JsonError::session_protocol("Upload offset leaves a gap").into());
+        return Err(ApiError::session_protocol("Upload offset leaves a gap").into());
     }
     let end = start
         .checked_add(length)
-        .ok_or_else(|| JsonError::session_protocol("Upload offset overflow"))?;
+        .ok_or_else(|| ApiError::session_protocol("Upload offset overflow"))?;
     if end > max_bytes || total.is_some_and(|n| n > max_bytes) {
-        return Err(JsonError::from(ObjectError::TooLarge).into());
+        return Err(ApiError::from(ObjectError::TooLarge).into());
     }
     if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset)
         || session.total.is_some_and(|n| end > n)
@@ -430,7 +432,7 @@ fn plan_chunk(
                     room: declared.saturating_sub(start),
                 })
             }
-            _ => JsonError::session_protocol("Inconsistent upload total").into(),
+            _ => ApiError::session_protocol("Inconsistent upload total").into(),
         });
     }
     let total = total.or(session.total);
@@ -448,7 +450,7 @@ fn plan_chunk(
                 "Invalid request.  The number of bytes uploaded is required to be equal or greater than 262144, except for the final request (it's recommended to be the exact multiple of 262144).  The received request contained {length} bytes, which does not meet this requirement."
             )
         };
-        return Err(JsonError::session_protocol(message).into());
+        return Err(ApiError::session_protocol(message).into());
     }
     Ok(ChunkPlan {
         start,
@@ -464,7 +466,7 @@ pub(super) async fn session_response(
     bucket: &str,
     id: &str,
     ctx: ObjectCtx<'_>,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     if request.method() == hyper::Method::DELETE {
         let cancellation = ctx
             .await_session_writer(json::resumable_cancel::cancel_response(
@@ -476,7 +478,7 @@ pub(super) async fn session_response(
             .await?;
         return Ok(match cancellation {
             Cancellation::Cancelled => {
-                boxed(JsonError::from(ResumableError::Cancelled).into_response())
+                boxed(ApiError::from(ResumableError::Cancelled).into_response())
             }
             Cancellation::Completed {
                 mut resource,
@@ -525,7 +527,7 @@ async fn session_framing(
     headers: &hyper::HeaderMap,
     target: &SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
-) -> Result<(Option<Range>, Option<u64>), JsonError> {
+) -> Result<(Option<Range>, Option<u64>), ApiError> {
     let framing = chunk_framing(headers, ctx.config.max_object_bytes);
     // The recordings prove a terminal JSON session failure for malformed syntax and for a
     // chunk that overruns its declared total.
@@ -550,7 +552,7 @@ pub(crate) async fn transfer(
     request: Request<Incoming>,
     target: SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
-) -> Result<Transfer, JsonError> {
+) -> Result<Transfer, ApiError> {
     let ObjectCtx { state, config, .. } = ctx;
     let SessionTarget { bucket, id, name } = target;
     let headers = request.headers().clone();
@@ -601,14 +603,14 @@ pub(crate) async fn transfer(
             .keys()
             .any(|k| k.as_str().starts_with("x-goog-meta-"))
     {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Final metadata requires a final request",
         ));
     }
     if (session.state == SessionState::Complete || status_only)
         && options.expected != session.options.expected
     {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Status or completed retries cannot introduce new checksum declarations",
         ));
     }
@@ -653,7 +655,7 @@ pub(crate) async fn transfer(
     let upload = state
         .catalog
         .write_resumable_session(lease, chunk, body, permit, render);
-    let upload = async { upload.await.map_err(JsonError::from) };
+    let upload = async { upload.await.map_err(ApiError::from) };
     match stream_chunk(request.into_body(), ctx, upload, sender, progress).await? {
         Written::Complete(resource) => view.respond(ctx, resource).await.map(Transfer::Complete),
         Written::Open(progress) => incomplete(progress, &headers).map(Transfer::Incomplete),
@@ -662,7 +664,7 @@ pub(crate) async fn transfer(
 
 /// The answer to a chunk that cannot be planned. An overrun first fails the session, so that
 /// every later request on it repeats the refusal.
-async fn refuse(refusal: Refusal, lease: &SessionLease, ctx: ObjectCtx<'_>) -> JsonError {
+async fn refuse(refusal: Refusal, lease: &SessionLease, ctx: ObjectCtx<'_>) -> ApiError {
     match refusal {
         Refusal::Request(error) => error,
         Refusal::Overrun(overrun) => {
@@ -708,7 +710,7 @@ struct CompletionView {
 
 impl CompletionView {
     /// Parses the initiation's field selection, so a bad one fails before any byte is stored.
-    fn of(options: &ResumableOptions) -> Result<Self, JsonError> {
+    fn of(options: &ResumableOptions) -> Result<Self, ApiError> {
         Ok(Self {
             acl_reader: (options.projection == json::Projection::Full)
                 .then(|| options.access.clone()),
@@ -724,7 +726,7 @@ impl CompletionView {
         &self,
         ctx: ObjectCtx<'_>,
         mut resource: serde_json::Value,
-    ) -> Result<serde_json::Value, JsonError> {
+    ) -> Result<serde_json::Value, ApiError> {
         if let Some(initiator) = &self.acl_reader {
             super::acl::add_full_projection_to_stored(
                 ctx.state,
@@ -746,10 +748,10 @@ impl CompletionView {
 async fn stream_chunk(
     body: Incoming,
     ctx: ObjectCtx<'_>,
-    upload: impl std::future::Future<Output = Result<Written, JsonError>>,
+    upload: impl std::future::Future<Output = Result<Written, ApiError>>,
     sender: UploadSender,
     progress: watch::Receiver<ChunkWait>,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     let producer = async {
         stream_upload(body, &sender, ctx.config.max_object_bytes, None)
             .await
@@ -762,7 +764,7 @@ async fn stream_chunk(
         producer,
     )
     .await
-    .map_err(crate::server::upload_drive::DriveError::into_error::<JsonError>)
+    .map_err(crate::server::upload_drive::DriveError::into_error::<ApiError>)
 }
 
 pub(super) async fn await_session_upload<T, E: From<ObjectError>>(
@@ -806,7 +808,7 @@ mod tests {
     async fn wait(
         waiting: ChunkWait,
     ) -> (
-        JoinHandle<Result<(), JsonError>>,
+        JoinHandle<Result<(), ApiError>>,
         watch::Sender<ChunkWait>,
         oneshot::Sender<()>,
     ) {
@@ -818,7 +820,7 @@ mod tests {
             let operation = async {
                 finished
                     .await
-                    .map_err(|_| JsonError::from(ObjectError::Unavailable("dropped".into())))
+                    .map_err(|_| ApiError::from(ObjectError::Unavailable("dropped".into())))
             };
             let budget = TimeLimit::from_millis(BUDGET.as_millis() as u64);
             await_session_upload(operation, updates, budget, deadline, &activity).await
@@ -835,7 +837,7 @@ mod tests {
 
     // Checks completion before awaiting: an idle paused runtime would otherwise
     // auto-advance to whichever later deadline is pending.
-    async fn timed_out(task: JoinHandle<Result<(), JsonError>>) -> crate::json::ErrorKind {
+    async fn timed_out(task: JoinHandle<Result<(), ApiError>>) -> crate::api_error::ErrorKind {
         settle().await;
         assert!(task.is_finished());
         let error = task.await.unwrap().unwrap_err();
@@ -859,7 +861,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::json::ErrorKind::Backend(BackendFailure::FinalizationTimeout)
+            crate::api_error::ErrorKind::Backend(BackendFailure::FinalizationTimeout)
         ));
     }
 
@@ -872,7 +874,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::json::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+            crate::api_error::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
         ));
     }
 
@@ -891,7 +893,7 @@ mod tests {
         advance(Duration::from_millis(1)).await;
         assert!(matches!(
             timed_out(task).await,
-            crate::json::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
+            crate::api_error::ErrorKind::Backend(BackendFailure::UploadWaitTimeout)
         ));
     }
 }

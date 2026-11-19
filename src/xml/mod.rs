@@ -1,9 +1,9 @@
 //! XML objects. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
+    api_error::{ApiError, ErrorKind},
     config::{Config, EndpointSnapshot},
     hashing::Hashes,
-    json::{self, JsonError},
     object::{ObjectConditions, ObjectRecord, ObjectTarget},
 };
 use http_body_util::{BodyExt, Full};
@@ -75,7 +75,7 @@ pub(crate) async fn authenticate_target<'a>(
         return auth
             .authenticate_request(headers, uri.query(), clock, listener)
             .await
-            .map_err(|e| Error::from(JsonError::from(e)));
+            .map_err(|e| Error::from(ApiError::from(e)));
     };
     let request = SignedRequest {
         kind,
@@ -130,7 +130,7 @@ fn signature_error(failure: crate::auth::signature::VerificationError) -> Error 
     use crate::auth::signature::{Failure, InvalidExpires, MAX_EXPIRES, VerificationError};
     let failure = match failure {
         VerificationError::Signature(failure) => failure,
-        VerificationError::Catalog(error) => return Error::from(JsonError::from(error)),
+        VerificationError::Catalog(error) => return Error::from(ApiError::from(error)),
         VerificationError::Worker(_) => {
             return Error::new(
                 XmlCode::ServiceUnavailable,
@@ -388,12 +388,12 @@ fn document_response(body: impl Into<Bytes>) -> Response<Full<Bytes>> {
 /// The `Cache-Control` Cloud Storage sends with XML API lists, errors and private objects.
 pub(crate) const PRIVATE_CACHE_CONTROL: &str = "private, max-age=0";
 
-impl From<JsonError> for Error {
-    fn from(error: JsonError) -> Self {
-        if error.kind == json::ErrorKind::UniformAccessAcl {
+impl From<ApiError> for Error {
+    fn from(error: ApiError) -> Self {
+        if error.kind == ErrorKind::UniformAccessAcl {
             return Self::uniform_access_acl();
         }
-        if error.kind == json::ErrorKind::ClassLocation {
+        if error.kind == ErrorKind::ClassLocation {
             return Self::class_location(error.message);
         }
         // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
@@ -402,14 +402,14 @@ impl From<JsonError> for Error {
             reason = "every other error kind keeps the shared status mapping"
         )]
         let code = match error.status {
-            StatusCode::UNAUTHORIZED if error.kind == json::ErrorKind::Required => {
+            StatusCode::UNAUTHORIZED if error.kind == ErrorKind::Required => {
                 XmlCode::AuthenticationRequired
             }
             StatusCode::UNAUTHORIZED => XmlCode::InvalidAuthentication,
-            StatusCode::FORBIDDEN if error.kind == json::ErrorKind::RetentionNotMet => {
+            StatusCode::FORBIDDEN if error.kind == ErrorKind::RetentionNotMet => {
                 XmlCode::RetentionPolicyNotMet
             }
-            StatusCode::FORBIDDEN if error.kind == json::ErrorKind::ActiveHold => {
+            StatusCode::FORBIDDEN if error.kind == ErrorKind::ActiveHold => {
                 XmlCode::ObjectUnderActiveHold
             }
             StatusCode::FORBIDDEN => XmlCode::AccessDenied,
@@ -420,7 +420,7 @@ impl From<JsonError> for Error {
             StatusCode::REQUEST_TIMEOUT => XmlCode::UploadBrokenConnection,
             StatusCode::SERVICE_UNAVAILABLE => XmlCode::ServiceUnavailable,
             _ => match error.kind {
-                json::ErrorKind::Csek(error) => XmlCode::Csek(error),
+                ErrorKind::Csek(error) => XmlCode::Csek(error),
                 _ => XmlCode::forwarded(error.status),
             },
         };

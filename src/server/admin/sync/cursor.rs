@@ -1,4 +1,4 @@
-use super::{JsonError, ObservationCursor, OpaqueId, Ordinal, stale};
+use super::{ApiError, ObservationCursor, OpaqueId, Ordinal, stale};
 use crate::storage::sync_state::observation::FindingCategory;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,7 +24,7 @@ impl SyncCursor {
         }
     }
 
-    pub(super) fn decode(raw: &str, prefix: &str) -> Result<Self, JsonError> {
+    pub(super) fn decode(raw: &str, prefix: &str) -> Result<Self, ApiError> {
         let suffix = raw.strip_prefix(prefix).ok_or_else(stale)?;
         if !crate::hex::is_lower(suffix, suffix.len()) {
             return Err(stale());

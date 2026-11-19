@@ -1,7 +1,7 @@
 //! JSON adapter rules for customer-supplied encryption keys: header parsing, error mapping and
 //! which representation fields a caller may see.
 
-use super::JsonError;
+use super::ApiError;
 use crate::{
     csek::{CopyKeys, CustomerKey, DESTINATION_PREFIX, SOURCE_PREFIX},
     object::ObjectRecord,
@@ -10,17 +10,17 @@ use hyper::HeaderMap;
 use serde_json::{Map, Value, json};
 
 /// The key for the addressed (or destination) object: `x-goog-encryption-*`.
-pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
-    CustomerKey::from_headers(headers, DESTINATION_PREFIX).map_err(JsonError::from)
+pub(crate) fn request_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, ApiError> {
+    CustomerKey::from_headers(headers, DESTINATION_PREFIX).map_err(ApiError::from)
 }
 
 /// The copy/rewrite source key: `x-goog-copy-source-encryption-*`.
-pub(crate) fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, JsonError> {
-    CustomerKey::from_headers(headers, SOURCE_PREFIX).map_err(JsonError::from)
+pub(crate) fn source_key(headers: &HeaderMap) -> Result<Option<CustomerKey>, ApiError> {
+    CustomerKey::from_headers(headers, SOURCE_PREFIX).map_err(ApiError::from)
 }
 
 /// Both keys of a copy or rewrite; the destination is parsed first, so its failure wins.
-pub(crate) fn copy_keys(headers: &HeaderMap) -> Result<CopyKeys, JsonError> {
+pub(crate) fn copy_keys(headers: &HeaderMap) -> Result<CopyKeys, ApiError> {
     Ok(CopyKeys {
         destination: request_key(headers)?,
         source: source_key(headers)?,
@@ -51,12 +51,12 @@ pub(crate) fn object_resource_keyed(
     base_url: &str,
     projection: super::Projection,
     key: Option<CustomerKey>,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let mut value = super::object_resource(object, base_url, projection)?;
     if key.is_some_and(|key| object.customer_key_sha256 == Some(key.sha256())) {
         let value = value
             .as_object_mut()
-            .ok_or_else(|| JsonError::service_unavailable("Object resource must be an object"))?;
+            .ok_or_else(|| ApiError::service_unavailable("Object resource must be an object"))?;
         value.insert(
             "crc32c".into(),
             super::base64(&object.crc32c.to_be_bytes()).into(),

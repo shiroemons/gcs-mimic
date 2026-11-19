@@ -1,5 +1,5 @@
 use super::{
-    JsonError, ObjectRequest,
+    ApiError, ObjectRequest,
     integer::take_long,
     objects::{ConditionKeys, take_conditions},
     query::{
@@ -18,7 +18,7 @@ pub(super) fn route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<ObjectRequest, JsonError>> {
+) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri
         .path()
         .strip_prefix(BUCKET_PATH)?
@@ -34,9 +34,9 @@ fn parse(
     name: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<ObjectRequest, JsonError> {
+) -> Result<ObjectRequest, ApiError> {
     if method != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Object restore requires POST",
             Some("POST"),
         ));
@@ -46,7 +46,7 @@ fn parse(
         || bucket.contains('/')
         || name.contains('/')
     {
-        return Err(JsonError::invalid_parameter("Invalid object restore path"));
+        return Err(ApiError::invalid_parameter("Invalid object restore path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
     let name = decode(name, Decoding::Path)?;
@@ -54,21 +54,21 @@ fn parse(
     super::validate_object_name(&name)?;
     let mut query = parse_query(uri.query().unwrap_or_default())?;
     super::Fields::take(&mut query, super::Schema::Object)?;
-    standard_parameters(&mut query, &["restoreToken"], JsonError::unsupported_object)?;
+    standard_parameters(&mut query, &["restoreToken"], ApiError::unsupported_object)?;
     if super::query::boolean(&mut query, "copySourceAcl")? {
-        return Err(JsonError::unsupported_object("copySourceAcl"));
+        return Err(ApiError::unsupported_object("copySourceAcl"));
     }
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     super::query::boolean(&mut query, "prettyPrint")?;
     if query.remove("alt").is_some_and(|alt| alt != "json") {
-        return Err(JsonError::invalid_parameter("restore requires alt=json"));
+        return Err(ApiError::invalid_parameter("restore requires alt=json"));
     }
     // Both documented values are accepted (the Java SDK always sends projection=full), but
     // Cloud Storage was observed to omit acl and owner from the restore response even for
     // full, so the value is validated and then has no effect on the rendered resource.
     projection(&mut query)?;
     let generation = take_long(&mut query, "generation")?.ok_or_else(|| {
-        JsonError::required(
+        ApiError::required(
             "Missing required generation; select a generation from softDeleted=true listing",
         )
     })?;

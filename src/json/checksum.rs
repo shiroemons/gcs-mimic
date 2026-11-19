@@ -1,7 +1,7 @@
 //! Declared object digests carried by the `md5Hash`/`crc32c` resource fields. The `X-Goog-Hash`
 //! header is read by `crate::object::upload_headers`.
 
-use super::JsonError;
+use super::ApiError;
 use crate::object::upload_headers::decode;
 use crate::object::{Checksum, HashAlgorithm};
 use serde_json::{Map, Value};
@@ -13,9 +13,9 @@ pub(super) const NOT_BASE64: &str = "Checksum must be a base64 string";
 /// `declare`. A value that is not a string fails with `not_a_string`.
 pub(super) fn take_resource_hashes(
     resource: &mut Map<String, Value>,
-    not_a_string: fn() -> JsonError,
-    mut declare: impl FnMut(Checksum) -> Result<(), JsonError>,
-) -> Result<(), JsonError> {
+    not_a_string: fn() -> ApiError,
+    mut declare: impl FnMut(Checksum) -> Result<(), ApiError>,
+) -> Result<(), ApiError> {
     for (algorithm, field) in [
         (HashAlgorithm::Md5, "md5Hash"),
         (HashAlgorithm::Crc32c, "crc32c"),

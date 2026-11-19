@@ -1,5 +1,5 @@
 use super::{Part, RequestBody, invalid};
-use crate::json::JsonError;
+use crate::api_error::ApiError;
 use http_body_util::Full;
 use hyper::{
     HeaderMap, Method, Request, Uri,
@@ -101,7 +101,7 @@ pub(super) fn hop_header(name: &str) -> bool {
     )
 }
 
-fn append_header(headers: &mut HeaderMap, line: &[u8]) -> Result<(), JsonError> {
+fn append_header(headers: &mut HeaderMap, line: &[u8]) -> Result<(), ApiError> {
     let line = std::str::from_utf8(line).map_err(|_| invalid("Invalid batch part headers"))?;
     let (name, value) = line
         .split_once(':')
@@ -119,7 +119,7 @@ fn append_header(headers: &mut HeaderMap, line: &[u8]) -> Result<(), JsonError> 
 
 /// Parses the header block at the start of `bytes` and returns what follows its blank line. `None`
 /// means the part ended before a blank line, so the block runs to the end of the part.
-fn header_block(bytes: &[u8]) -> Result<(HeaderMap, Option<&[u8]>), JsonError> {
+fn header_block(bytes: &[u8]) -> Result<(HeaderMap, Option<&[u8]>), ApiError> {
     let mut headers = HeaderMap::new();
     let mut size = 0;
     for line in lines(bytes) {
@@ -138,7 +138,7 @@ fn header_block(bytes: &[u8]) -> Result<(HeaderMap, Option<&[u8]>), JsonError> {
     Ok((headers, None))
 }
 
-fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, JsonError> {
+fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, ApiError> {
     let mut values = headers.get_all(key).iter();
     let Some(value) = values.next() else {
         return Ok(None);
@@ -152,7 +152,7 @@ fn single<'a>(headers: &'a HeaderMap, key: &str) -> Result<Option<&'a str>, Json
         .map_err(|_| invalid("Invalid batch framing header"))
 }
 
-fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, JsonError> {
+fn uri(raw: &str, outer_query: Option<&str>, api_base_url: &str) -> Result<Uri, ApiError> {
     // Google answers absolute request lines on its own endpoint like relative paths, and SDKs
     // such as the Java client send them. Only the advertised API origin is accepted; any other
     // origin fails the whole envelope so no part is executed or forwarded elsewhere.
@@ -204,7 +204,7 @@ fn part(
     outer: &HeaderMap,
     query: Option<&str>,
     api_base_url: &str,
-) -> Result<Part, JsonError> {
+) -> Result<Part, ApiError> {
     let (mime, Some(http)) = header_block(bytes)? else {
         return Err(invalid("Missing or oversized batch header block"));
     };
@@ -285,7 +285,7 @@ fn part(
 }
 
 /// Reads the rest of a delimiter line, starting right after its `--boundary`.
-fn delimiter_line(bytes: &[u8]) -> Result<DelimiterLine<'_>, JsonError> {
+fn delimiter_line(bytes: &[u8]) -> Result<DelimiterLine<'_>, ApiError> {
     let malformed = || invalid("Malformed batch delimiter line");
     let line = Line::split_first(bytes).ok_or_else(malformed)?;
     let (padding, delimiter) = if let Some(padding) = line.text.strip_prefix(b"--") {
@@ -330,7 +330,7 @@ pub(super) fn parts(
     outer: &HeaderMap,
     query: Option<&str>,
     api_base_url: &str,
-) -> Result<Vec<Part>, JsonError> {
+) -> Result<Vec<Part>, ApiError> {
     let boundary = format!("--{boundary}").into_bytes();
     let after_boundary = after_opening_delimiter(bytes, &boundary)
         .ok_or_else(|| invalid("Missing batch opening boundary"))?;

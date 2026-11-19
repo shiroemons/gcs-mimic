@@ -401,7 +401,7 @@ mod tests {
                     CatalogError::Metadata(MetadataError::AutoclassTerminal)
                 );
                 assert_eq!(
-                    crate::json::JsonError::from(error).message,
+                    crate::api_error::ApiError::from(error).message,
                     "Invalid value for terminalStorageClass field in Autoclass config. Valid values are NEARLINE and ARCHIVE"
                 );
             } else {

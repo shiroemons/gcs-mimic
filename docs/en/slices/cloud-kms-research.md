@@ -77,7 +77,7 @@ Sources (all 2026-11-09): [customer-managed keys](https://docs.cloud.google.com/
 - Types in `src/kms.rs`: `KmsKeyName` (`FromStr`, `location()`), `KmsKeyVersionName` (stored value) and `KmsError` shaped like `CsekError` with `reason`, `xml_code` and `message`. `ObjectMetadataUpdate` holds `KmsKeyName`; `ObjectRecord` holds `KmsKeyVersionName`.
 - Resolve the default inside the transaction at `publication.rs:43`: CSEK, explicit, default, standard. Resumable binds the explicit key at start and resolves the default at finalize; documents do not say which time applies.
 - `resumable/options.rs` needs `#[serde(default)]` for existing sessions.
-- Reuse `csek::render`, `insert_response_headers`, `From<…> for JsonError` and `sql::row`. Replacing the fields with an `ObjectEncryption` enum touches 54 uses and belongs in a separate refactor.
+- Reuse `csek::render`, `insert_response_headers`, `From<…> for ApiError` and `sql::row`. Replacing the fields with an `ObjectEncryption` enum touches 54 uses and belongs in a separate refactor.
 
 ## Acceptance cases
 

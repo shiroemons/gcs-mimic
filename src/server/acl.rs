@@ -7,10 +7,11 @@ use super::{
 };
 use crate::{
     acl::{AclEntry, AclKind, AclOwner, AclTarget},
+    api_error::ApiError,
     auth::{self, Caller},
     bucket::{BucketAccess, BucketConditions, BucketRecord},
     json::{
-        self, JsonError,
+        self,
         acl::{AclAccess, AclOperation, AclRequest},
     },
     object::{ObjectRecord, owner::ObjectOwner},
@@ -29,13 +30,13 @@ fn permission(kind: AclKind, access: AclAccess) -> auth::Permission {
     }
 }
 
-fn acl_error(error: AclError, access: AclAccess) -> JsonError {
+fn acl_error(error: AclError, access: AclAccess) -> ApiError {
     match error {
         AclError::Bucket(error) => error.into(),
         AclError::Object(error) => error.into(),
         // Cloud Storage words the refusal of a read; the write wording was not recorded, so a
         // write reuses the bucket update refusal.
-        AclError::UniformAccess => JsonError::invalid(match access {
+        AclError::UniformAccess => ApiError::invalid(match access {
             AclAccess::Read => UNIFORM_ACCESS_GET_ACL,
             AclAccess::Write => UNIFORM_ACCESS_UPDATE_ACL,
         }),
@@ -43,12 +44,12 @@ fn acl_error(error: AclError, access: AclAccess) -> JsonError {
             entity,
             project_number,
         } => entity_not_found(&entity, project_number),
-        AclError::RoleRequired => JsonError::required("Access control must contain a role"),
-        AclError::TooManyEntries => JsonError::invalid(format!(
+        AclError::RoleRequired => ApiError::required("Access control must contain a role"),
+        AclError::TooManyEntries => ApiError::invalid(format!(
             "An ACL can hold at most {} entries; delete an entry before adding another",
             crate::acl::MAX_ENTRIES
         )),
-        AclError::NotModified => JsonError::not_modified(),
+        AclError::NotModified => ApiError::not_modified(),
     }
 }
 
@@ -57,14 +58,14 @@ const UNIFORM_ACCESS_UPDATE_ACL: &str = "Cannot use ACL API to update bucket pol
 
 /// A missing entity. A project-team entity that names another project is a bad request about
 /// that project, and any other missing entity is a missing key (recorded 2026-10-31).
-fn entity_not_found(entity: &str, project_number: crate::project::ProjectNumber) -> JsonError {
+fn entity_not_found(entity: &str, project_number: crate::project::ProjectNumber) -> ApiError {
     if let Ok(entity) = crate::acl::parse_entity(entity)
         && let crate::acl::EntityRef::ProjectTeam { project, .. } = entity.parsed()
         && project != project_number.to_string()
     {
-        return JsonError::invalid(format!("Project \"{project}\" was not found."));
+        return ApiError::invalid(format!("Project \"{project}\" was not found."));
     }
-    JsonError::new(
+    ApiError::new(
         StatusCode::NOT_FOUND,
         "notFound",
         "The specified key does not exist.",
@@ -77,7 +78,7 @@ async fn read(
     target: &AclTarget,
     conditions: BucketConditions,
     access: &BucketAccess,
-) -> Result<AclState, JsonError> {
+) -> Result<AclState, ApiError> {
     state
         .catalog
         .read_acl(target.clone(), conditions, access)
@@ -91,7 +92,7 @@ pub(super) async fn respond(
     caller: Option<Caller<'_>>,
     state: &State,
     base: &str,
-) -> Result<Response<Full<Bytes>>, JsonError> {
+) -> Result<Response<Full<Bytes>>, ApiError> {
     let AclRequest {
         target,
         operation,
@@ -179,7 +180,7 @@ pub(super) async fn respond(
                 .map_err(|error| naming_object(acl_error(error, acl_access), &target))?;
             // The catalog returns the entry that every upsert writes.
             let entry = entry
-                .ok_or_else(|| JsonError::service_unavailable("ACL change returned no entry"))?;
+                .ok_or_else(|| ApiError::service_unavailable("ACL change returned no entry"))?;
             json::acl::acl_entry_resource(
                 base,
                 AclOwner::of(&acl.target, acl.metageneration),
@@ -289,7 +290,7 @@ pub(super) async fn add_full_projection(
     caller: Option<Caller<'_>>,
     rendered: &mut Rendered,
     base_url: &str,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let Rendered { value, subjects } = rendered;
     match &*subjects {
         AclSubjects::None => Ok(()),
@@ -321,24 +322,24 @@ pub(super) async fn add_full_projection(
 
 /// The `items` of a rendered list, which holds one element per subject and none when there are
 /// no subjects.
-fn rendered_items(value: &mut Value, subjects: usize) -> Result<&mut [Value], JsonError> {
+fn rendered_items(value: &mut Value, subjects: usize) -> Result<&mut [Value], ApiError> {
     if subjects == 0 {
         return Ok(&mut []);
     }
     match value.get_mut("items").and_then(Value::as_array_mut) {
         Some(items) if items.len() == subjects => Ok(items),
         // Both come from one page, so they differ only through a rendering bug.
-        Some(_) | None => Err(JsonError::service_unavailable(
+        Some(_) | None => Err(ApiError::service_unavailable(
             "Rendered items differ from their ACL subjects",
         )),
     }
 }
 
 /// The members of a rendered resource, which every resource renderer builds as a JSON object.
-fn resource_members(value: &mut Value) -> Result<&mut Map<String, Value>, JsonError> {
+fn resource_members(value: &mut Value) -> Result<&mut Map<String, Value>, ApiError> {
     value
         .as_object_mut()
-        .ok_or_else(|| JsonError::service_unavailable("Rendered resource must be an object"))
+        .ok_or_else(|| ApiError::service_unavailable("Rendered resource must be an object"))
 }
 
 pub(crate) async fn may_read(
@@ -346,7 +347,7 @@ pub(crate) async fn may_read(
     caller: Option<Caller<'_>>,
     kind: AclKind,
     bucket: &str,
-) -> Result<bool, JsonError> {
+) -> Result<bool, ApiError> {
     match bucket_access(state, caller, permission(kind, AclAccess::Read), bucket).await {
         Ok(access) => state
             .catalog
@@ -364,7 +365,7 @@ async fn add_bucket(
     value: &mut Value,
     bucket: &BucketVersion,
     base_url: &str,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if !may_read(state, caller, AclKind::Bucket, &bucket.name).await? {
         return Ok(());
     }
@@ -401,7 +402,7 @@ pub(crate) async fn readable_object_acls(
     caller: Option<Caller<'_>>,
     bucket: &str,
     generations: Vec<(String, i64)>,
-) -> Result<Option<AclProjection>, JsonError> {
+) -> Result<Option<AclProjection>, ApiError> {
     object_acls(state, AclReader::Caller(caller), bucket, generations).await
 }
 
@@ -422,7 +423,7 @@ impl AclReader<'_> {
         self,
         state: &State,
         bucket: &str,
-    ) -> Result<BucketAccess, JsonError> {
+    ) -> Result<BucketAccess, ApiError> {
         let read = permission(AclKind::Object, AclAccess::Read);
         match self {
             Self::Caller(caller) => authorize_bucket(state, caller, read, bucket).await,
@@ -436,7 +437,7 @@ async fn object_acls(
     reader: AclReader<'_>,
     bucket: &str,
     generations: Vec<(String, i64)>,
-) -> Result<Option<AclProjection>, JsonError> {
+) -> Result<Option<AclProjection>, ApiError> {
     let access = reader.object_acl_access(state, bucket).await?;
     let acl = state
         .catalog
@@ -453,7 +454,7 @@ pub(super) async fn add_full_projection_to_stored(
     reader: AclReader<'_>,
     resource: &mut Value,
     base_url: &str,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let Some(object) = ObjectVersion::of_stored(resource) else {
         return Ok(());
     };
@@ -466,7 +467,7 @@ async fn add_object(
     resource: &mut Value,
     object: &ObjectVersion,
     base_url: &str,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     add_objects(
         state,
         reader,
@@ -486,7 +487,7 @@ async fn add_objects(
     resources: &mut [Value],
     objects: &[ObjectVersion],
     base_url: &str,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if objects.is_empty() {
         return Ok(());
     }
@@ -513,7 +514,7 @@ pub(super) fn add_object_acl(
     object: &ObjectVersion,
     entries: &[AclEntry],
     owner: Option<&ObjectOwner>,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let resource = resource_members(resource)?;
     json::acl::add_object_acl_fields(resource, base_url, object.acl_owner(), entries);
     if let Some(entity) = owner.and_then(ObjectOwner::entity) {
@@ -529,7 +530,7 @@ pub(super) fn add_object_acl(
 }
 
 /// Cloud Storage names the requested object in its not-found message.
-fn naming_object(error: JsonError, target: &AclTarget) -> JsonError {
+fn naming_object(error: ApiError, target: &AclTarget) -> ApiError {
     match target {
         AclTarget::Object { bucket, name, .. } => error.naming_object(bucket, name),
         AclTarget::Bucket(_) | AclTarget::DefaultObject(_) => error,

@@ -1,5 +1,5 @@
 use super::{
-    JsonError, ObjectInsertParams, multipart::MultipartMetadata, multipart_metadata_of,
+    ApiError, ObjectInsertParams, multipart::MultipartMetadata, multipart_metadata_of,
     upload_content_type,
 };
 use crate::{
@@ -25,7 +25,7 @@ pub(crate) fn session_route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<UploadSession, JsonError>> {
+) -> Option<Result<UploadSession, ApiError>> {
     let path = uri.path().strip_prefix("/upload/storage/v1/b/")?;
     let (bucket, rest) = path.split_once('/')?;
     if rest != "o"
@@ -45,9 +45,9 @@ fn parse_session(
     bucket: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<UploadSession, JsonError> {
+) -> Result<UploadSession, ApiError> {
     if !matches!(*method, Method::PUT | Method::POST | Method::DELETE) {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Session requires PUT, POST or DELETE",
             None,
         ));
@@ -57,39 +57,39 @@ fn parse_session(
     let mut query = crate::percent::parse_query(uri.query().unwrap_or_default())?;
     let upload_id = query
         .remove("upload_id")
-        .ok_or_else(|| JsonError::invalid_parameter("Missing upload_id"))?;
+        .ok_or_else(|| ApiError::invalid_parameter("Missing upload_id"))?;
     if query.remove("uploadType").is_some_and(|v| v != "resumable") {
-        return Err(JsonError::invalid_parameter("Invalid uploadType"));
+        return Err(ApiError::invalid_parameter("Invalid uploadType"));
     }
     // The session URI repeats the initiation query (`name`, preconditions), which Cloud
     // Storage accepts and ignores on later requests.
     Ok(UploadSession { bucket, upload_id })
 }
 
-pub(crate) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, JsonError> {
+pub(crate) fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, ApiError> {
     let mut values = headers.get_all(name).iter();
     let value = values
         .next()
         .map(|v| {
             v.to_str()
-                .map_err(|_| JsonError::invalid_parameter(format!("Invalid {name}")))
+                .map_err(|_| ApiError::invalid_parameter(format!("Invalid {name}")))
         })
         .transpose()?;
     if values.next().is_some() {
-        return Err(JsonError::invalid_parameter(format!("Duplicate {name}")));
+        return Err(ApiError::invalid_parameter(format!("Duplicate {name}")));
     }
     Ok(value)
 }
 
-pub(crate) fn unsigned(value: &str) -> Result<u64, JsonError> {
+pub(crate) fn unsigned(value: &str) -> Result<u64, ApiError> {
     if !Grammar::Digits.admits(value) {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Expected an unsigned decimal integer",
         ));
     }
     value
         .parse()
-        .map_err(|_| JsonError::invalid_parameter("Upload integer overflow"))
+        .map_err(|_| ApiError::invalid_parameter("Upload integer overflow"))
 }
 
 /// What a resumable initiation declares in its headers. `X-Goog-Hash` is not among them:
@@ -105,10 +105,10 @@ pub(crate) struct UploadHeaders {
     pub(crate) total: Option<u64>,
 }
 
-pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, JsonError> {
+pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, ApiError> {
     for name in headers.keys() {
         if name.as_str().starts_with("x-goog-upload-") {
-            return Err(JsonError::unsupported_object(name.as_str()));
+            return Err(ApiError::unsupported_object(name.as_str()));
         }
     }
     // Cloud Storage leaves the total open after a declared 0: chunks may omit it and the upload
@@ -131,7 +131,7 @@ pub(crate) fn headers(headers: &HeaderMap, max: u64) -> Result<UploadHeaders, Js
         declared
             .unwrap_or(DEFAULT_CONTENT_TYPE)
             .parse()
-            .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
+            .map_err(|_| ApiError::invalid_parameter("Invalid upload content type"))?,
     );
     // Runs even without a declared type: it also validates the initiation's other headers.
     let mime = upload_content_type(&clean)?;
@@ -156,7 +156,7 @@ pub(crate) struct Initiation {
 pub(crate) fn options(
     bytes: &[u8],
     initiation: Initiation,
-) -> Result<(String, ResumableOptions), JsonError> {
+) -> Result<(String, ResumableOptions), ApiError> {
     let Initiation {
         name,
         mime,
@@ -172,7 +172,7 @@ pub(crate) fn options(
     };
     validate_duplicate_fields(bytes)?;
     let mut value: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
+        serde_json::from_slice(bytes).map_err(|cause| crate::json::parse_error(bytes, &cause))?;
     if let Some(object) = value.as_object_mut()
         && object.get("bucket").is_some_and(serde_json::Value::is_null)
     {
@@ -238,10 +238,10 @@ fn duplicate_field_scan_handles_escaped_keys_nested_objects_and_truncated_string
     }
 }
 
-fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
+fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), ApiError> {
     // JSON parsing validates syntax; this bounded scan preserves duplicate-key information.
     let _: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
+        serde_json::from_slice(bytes).map_err(|cause| crate::json::parse_error(bytes, &cause))?;
     let mut stack: Vec<Option<std::collections::BTreeSet<String>>> = Vec::new();
     let mut i = 0;
     while let Some(byte) = bytes.get(i) {
@@ -269,13 +269,13 @@ fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
                     let key: String = serde_json::from_slice(
                         bytes
                             .get(start..end)
-                            .ok_or_else(|| JsonError::invalid_parameter("Invalid JSON key"))?,
+                            .ok_or_else(|| ApiError::invalid_parameter("Invalid JSON key"))?,
                     )
-                    .map_err(|_| JsonError::invalid_parameter("Invalid JSON key"))?;
+                    .map_err(|_| ApiError::invalid_parameter("Invalid JSON key"))?;
                     if let Some(Some(keys)) = stack.last_mut()
                         && !keys.insert(key)
                     {
-                        return Err(JsonError::invalid_parameter("Duplicate metadata field"));
+                        return Err(ApiError::invalid_parameter("Duplicate metadata field"));
                     }
                 }
             }
@@ -289,7 +289,7 @@ fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
 pub(crate) fn final_options(
     headers: &HeaderMap,
     mut options: ResumableOptions,
-) -> Result<ResumableOptions, JsonError> {
+) -> Result<ResumableOptions, ApiError> {
     let mut clean = headers.clone();
     clean.remove("content-range");
     clean.remove("x-goog-hash");
@@ -297,11 +297,11 @@ pub(crate) fn final_options(
     for key in headers.keys() {
         let name = key.as_str();
         if name.starts_with("x-goog-upload-") {
-            return Err(JsonError::unsupported_object(name));
+            return Err(ApiError::unsupported_object(name));
         }
         if let Some(key) = name.strip_prefix("x-goog-meta-") {
             let value = single(headers, name)?
-                .ok_or_else(|| JsonError::invalid_parameter("Invalid final metadata"))?;
+                .ok_or_else(|| ApiError::invalid_parameter("Invalid final metadata"))?;
             custom.insert(key.into(), value.into());
             clean.remove(name);
         }
@@ -314,7 +314,7 @@ pub(crate) fn final_options(
             .expected
             .agree(upload_headers::decode(algorithm, value)?)
             .map_err(|ChecksumConflict(algorithm)| {
-                JsonError::invalid_parameter(format!(
+                ApiError::invalid_parameter(format!(
                     "Conflicting {} declarations",
                     algorithm.name()
                 ))
@@ -355,12 +355,12 @@ pub(crate) enum Range {
 
 /// A `Content-Range` Cloud Storage refused: every malformed or inconsistent one got the same
 /// bare text page.
-pub(crate) fn unusable_content_range() -> JsonError {
-    JsonError::invalid_parameter("Failed to parse Content-Range header.")
-        .with_plain(&super::error::CONTENT_RANGE_TEXT)
+pub(crate) fn unusable_content_range() -> ApiError {
+    ApiError::invalid_parameter("Failed to parse Content-Range header.")
+        .with_plain(&crate::api_error::CONTENT_RANGE_TEXT)
 }
 
-pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, JsonError> {
+pub(crate) fn range(headers: &HeaderMap) -> Result<Option<Range>, ApiError> {
     parse_range(headers).map_err(|_| unusable_content_range())
 }
 

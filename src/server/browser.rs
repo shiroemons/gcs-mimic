@@ -3,7 +3,7 @@
 //! returns.
 
 use super::host;
-use crate::{auth::ListenerRole, json::JsonError};
+use crate::{api_error::ApiError, auth::ListenerRole};
 use hyper::{HeaderMap, Request, StatusCode, header::HeaderValue};
 
 /// Whether a browser sent the request on a page's behalf. Browsers add `Origin` to every request
@@ -26,10 +26,10 @@ pub(super) fn refuse_on_trusted_listener<B>(
     listener: ListenerRole,
     request: &Request<B>,
     allowed_hosts: &[String],
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     match listener {
         ListenerRole::Public => Ok(()),
-        ListenerRole::Trusted if initiated(request.headers()) => Err(JsonError::new(
+        ListenerRole::Trusted if initiated(request.headers()) => Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "forbidden",
             "The trusted listener serves the application's own servers and refuses browser-initiated requests; send browser requests to the main listener, and send no Origin or Sec-Fetch-Site header from a server",
@@ -41,17 +41,17 @@ pub(super) fn refuse_on_trusted_listener<B>(
 /// A page that rebinds its own DNS name to this listener sends same-origin GETs without `Origin`,
 /// and over plain HTTP to an address other than loopback without `Sec-Fetch-Site` either, so the
 /// absence of those headers alone must not admit it. Its Host still names it.
-fn admit_trusted_host<B>(request: &Request<B>, allowed_hosts: &[String]) -> Result<(), JsonError> {
+fn admit_trusted_host<B>(request: &Request<B>, allowed_hosts: &[String]) -> Result<(), ApiError> {
     let host =
         host::of_request(request.uri(), request.headers()).map_err(|host::InvalidHost| {
-            JsonError::invalid_argument(
+            ApiError::invalid_argument(
                 "Require at most one valid Host authority on the trusted listener",
             )
         })?;
     if host.is_some_and(|host| trusted_host(&host, allowed_hosts)) {
         return Ok(());
     }
-    Err(JsonError::new(
+    Err(ApiError::new(
         StatusCode::MISDIRECTED_REQUEST,
         "misdirected",
         "The trusted listener accepts only IP literals, localhost names and single-label hosts such as a Compose service name; add another DNS name to trusted_allowed_hosts",

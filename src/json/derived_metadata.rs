@@ -1,4 +1,4 @@
-use super::JsonError;
+use super::ApiError;
 use crate::bucket::StorageClass;
 use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 use serde_json::{Map, Value};
@@ -40,7 +40,7 @@ pub(crate) fn derived_component_count(
 /// source metadata. Cloud Storage treats a blank or `null` body, `{}`, and a resource whose only
 /// field is a `null` or empty `metadata` map as no resource at all (recorded 2026-11-13 for a
 /// single-space body, `{"metadata":null}` and `{"metadata":{}}` on copy and rewrite).
-pub(crate) fn derived_resource(bytes: &[u8]) -> Result<Option<Value>, JsonError> {
+pub(crate) fn derived_resource(bytes: &[u8]) -> Result<Option<Value>, ApiError> {
     if bytes
         .iter()
         .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
@@ -48,7 +48,7 @@ pub(crate) fn derived_resource(bytes: &[u8]) -> Result<Option<Value>, JsonError>
         return Ok(None);
     }
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
+        serde_json::from_slice(bytes).map_err(|cause| crate::json::parse_error(bytes, &cause))?;
     let inherits = match &value {
         Value::Null => true,
         Value::Object(fields) => fields.iter().all(|(key, value)| {
@@ -73,7 +73,7 @@ pub(crate) struct DerivedMetadata {
 pub(crate) fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
-) -> Result<DerivedMetadata, JsonError> {
+) -> Result<DerivedMetadata, ApiError> {
     derived_metadata_of(derived_resource(bytes)?.as_ref(), source)
 }
 
@@ -81,11 +81,11 @@ pub(crate) fn derived_metadata(
 pub(crate) fn derived_metadata_of(
     resource: Option<&Value>,
     source: &ObjectRecord,
-) -> Result<DerivedMetadata, JsonError> {
+) -> Result<DerivedMetadata, ApiError> {
     let Some(resource) = resource else {
         let update = ObjectMetadataUpdate::inheriting(source);
         // Publishing checks this as well, but only after the whole body has been copied.
-        update.check_encoded_size().map_err(JsonError::from)?;
+        update.check_encoded_size().map_err(ApiError::from)?;
         return Ok(DerivedMetadata {
             update,
             storage_class: Some(source.storage_class),
@@ -104,18 +104,18 @@ pub(crate) fn derived_metadata_of(
         .is_some_and(|value| !value.is_null())
         && !parsed.unchanged.contains_key("name")
     {
-        return Err(JsonError::required("You must specify an object name."));
+        return Err(ApiError::required("You must specify an object name."));
     }
     // Holds, a custom time and a retention apply as on an upload: Cloud Storage copied and
     // rewrote an object held and with the requested custom time, and refused a retention in a
     // bucket without object retention as publication does (recorded 2026-11-13, case
     // obj-unsupported-derived).
-    parsed.update.validate().map_err(JsonError::from)?;
+    parsed.update.validate().map_err(ApiError::from)?;
     for key in ["name", "bucket"] {
         if let Some(value) = parsed.unchanged.remove(key)
             && !value.is_string()
         {
-            return Err(JsonError::invalid_argument(format!(
+            return Err(ApiError::invalid_argument(format!(
                 "{key} must be a string"
             )));
         }
@@ -123,7 +123,7 @@ pub(crate) fn derived_metadata_of(
     if let Some(kind) = parsed.unchanged.remove("kind")
         && kind != "storage#object"
     {
-        return Err(JsonError::unsupported_object("kind"));
+        return Err(ApiError::unsupported_object("kind"));
     }
     let storage_class = parsed
         .unchanged
@@ -131,8 +131,8 @@ pub(crate) fn derived_metadata_of(
         .map(|value| {
             let class = value
                 .as_str()
-                .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string"))?;
-            crate::bucket::validate_storage_class(class).map_err(JsonError::from)
+                .ok_or_else(|| ApiError::invalid_argument("storageClass must be a string"))?;
+            crate::bucket::validate_storage_class(class).map_err(ApiError::from)
         })
         .transpose()?;
     // Cloud Storage ignores a supplied size (recorded 2026-11-13: a rewrite body with a wrong
@@ -142,14 +142,14 @@ pub(crate) fn derived_metadata_of(
     let mut expected = ExpectedHashes::default();
     super::checksum::take_resource_hashes(
         &mut parsed.unchanged,
-        || JsonError::invalid_argument(super::checksum::NOT_BASE64),
+        || ApiError::invalid_argument(super::checksum::NOT_BASE64),
         |declared| {
             expected.set(declared);
             Ok(())
         },
     )?;
     if let Some((key, _)) = parsed.unchanged.iter().next() {
-        return Err(JsonError::unsupported_object(key));
+        return Err(ApiError::unsupported_object(key));
     }
     Ok(DerivedMetadata {
         update: parsed.update,
@@ -215,7 +215,7 @@ mod tests {
                 ),
                 (
                     "object",
-                    JsonError::from(
+                    ApiError::from(
                         crate::object::validate_object_storage_class(class).unwrap_err(),
                     ),
                 ),

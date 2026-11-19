@@ -33,10 +33,10 @@ fn bound_parameters(parameters: &serde_json::Map<String, Value>) -> serde_json::
 #[cfg(test)]
 mod tests;
 
-fn error(error: RewriteError) -> JsonError {
+fn error(error: RewriteError) -> ApiError {
     match error {
-        RewriteError::Invalid => JsonError::invalid("Invalid argument."),
-        RewriteError::Gone => JsonError::new(
+        RewriteError::Invalid => ApiError::invalid("Invalid argument."),
+        RewriteError::Gone => ApiError::new(
             StatusCode::GONE,
             "gone",
             "Rewrite token is unavailable or expired",
@@ -49,7 +49,7 @@ async fn authorize_source(
     catalog: &Catalog,
     operation: &RewriteRequest,
     access: &BucketAccess,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let source = &operation.names.source;
     if catalog
         .has_bucket_permission(&source.bucket, access)
@@ -86,7 +86,7 @@ pub(super) async fn respond(
     request: Request<Incoming>,
     operation: RewriteRequest,
     ctx: ObjectCtx<'_>,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let ObjectCtx {
         state,
         config,
@@ -156,7 +156,7 @@ pub(super) async fn respond(
     .await;
     drop(wait);
     let (mut progress, owner) =
-        result.map_err(|failure| JsonError::from(ObjectError::backend(failure)))??;
+        result.map_err(|failure| ApiError::from(ObjectError::backend(failure)))??;
     // The step is settled: a call repeating its token answers from what it stored, so the
     // transfer outlives a failure to render the response below.
     if let Some(mut owner) = owner {
@@ -198,14 +198,14 @@ async fn resolve_source(
     operation: &RewriteRequest,
     access: &BucketAccess,
     keys: CopyKeys,
-) -> Result<crate::storage::DerivedSource, JsonError> {
+) -> Result<crate::storage::DerivedSource, ApiError> {
     let target = operation.names.source_at(operation.source_generation);
     let conditions = operation.source_conditions;
     catalog
         .resolve_derived_source_keyed(target, conditions, access, keys.source)
         .await
         .map_err(|failure| {
-            JsonError::from(failure)
+            ApiError::from(failure)
                 .naming_object(&operation.names.source.bucket, &operation.names.source.name)
         })
 }
@@ -215,7 +215,7 @@ async fn execute(
     catalog: Catalog,
     max_bytes: u64,
     base: String,
-) -> Result<(RewriteProgress, Option<crate::storage::DerivedRequestGuard>), JsonError> {
+) -> Result<(RewriteProgress, Option<crate::storage::DerivedRequestGuard>), ApiError> {
     let RewriteJob {
         operation,
         body,
@@ -327,7 +327,7 @@ fn destination(
     source: &crate::object::ObjectRecord,
     request: &RewriteRequest,
     body: Option<&Value>,
-) -> Result<DerivedDestination, JsonError> {
+) -> Result<DerivedDestination, ApiError> {
     let json::DerivedMetadata {
         update: metadata,
         storage_class: class,

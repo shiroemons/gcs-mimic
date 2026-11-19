@@ -1,10 +1,12 @@
 //! JSON API object reads: media downloads and metadata.
 
+use crate::json::JsonErrorResponse;
 use crate::server::RequestBody as Incoming;
 use crate::storage::ObjectReader;
 use crate::{
+    api_error::ApiError,
     bucket::BucketAccess,
-    json::{self, JsonError},
+    json,
     object::{ObjectConditions, ObjectError, ObjectRecord, ObjectTarget},
     server::{
         ALLOWED_RESOURCES_VARY, ObjectCtx, QueryPrecondition, ResponseBody, ValidatedRead, acl,
@@ -24,7 +26,7 @@ pub(super) async fn get(
     requested: ObjectConditions,
     params: json::ObjectGetParams,
     fields: &json::Fields,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     // Match failures precede both query and HTTP cache validators on one snapshot.
     let mixed = request.headers().contains_key("if-match")
         || request.headers().contains_key("if-none-match");
@@ -64,7 +66,7 @@ async fn media(
     ctx: ObjectCtx<'_>,
     access: &BucketAccess,
     target: ReadTarget,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let ReadTarget {
         object,
         requested,
@@ -96,7 +98,7 @@ async fn media(
                 .as_deref()
                 .unwrap_or("public, max-age=3600, must-revalidate")
                 .parse()
-                .map_err(|_| JsonError::service_unavailable("Invalid stored Cache-Control"))?,
+                .map_err(|_| ApiError::service_unavailable("Invalid stored Cache-Control"))?,
         );
     }
     let transcode = json::object_media_transcoding(request.headers(), &record)?;
@@ -143,7 +145,7 @@ async fn media(
         Err(unsatisfiable) => {
             // The JSON HEAD 416 states no length: the omitted HTML body is not measured
             // (observed 2026-10-31).
-            let mut response = JsonError::from(unsatisfiable)
+            let mut response = ApiError::from(unsatisfiable)
                 .into_media_response()
                 .map(|body| {
                     if head { Full::new(Bytes::new()) } else { body }
@@ -158,7 +160,7 @@ async fn media(
         if !head {
             reader
                 .set_range(offset, length)
-                .map_err(|_| JsonError::service_unavailable("Cannot seek object data"))?;
+                .map_err(|_| ApiError::service_unavailable("Cannot seek object data"))?;
         }
         if headers.contains_key("content-length") {
             headers.insert("content-length", length.into());
@@ -188,7 +190,7 @@ async fn compressed_headers(
     record: &ObjectRecord,
     reader: &mut ObjectReader,
     headers: &mut HeaderMap,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if !record
         .content_encoding
         .as_deref()
@@ -221,7 +223,7 @@ async fn gunzipped(
     mut headers: HeaderMap,
     method: &Method,
     reason: json::Gunzip,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let head = method == Method::HEAD;
     if !head && gzip::is_plain(&mut reader, record.size).await? {
         return Ok(gzip::plain_body_rejection(headers));
@@ -322,11 +324,8 @@ fn multiple_ranges_response(representation: &HeaderMap) -> Response<Full<Bytes>>
 /// (observed 2026-10-31): the modification date, the storage class, `pragma: no-cache` and
 /// `content-disposition: attachment`. An object that sets its own disposition keeps it; XML
 /// reads send neither of the last two.
-fn insert_provider_headers(
-    record: &ObjectRecord,
-    headers: &mut HeaderMap,
-) -> Result<(), JsonError> {
-    let invalid = JsonError::invalid_stored_header;
+fn insert_provider_headers(record: &ObjectRecord, headers: &mut HeaderMap) -> Result<(), ApiError> {
+    let invalid = ApiError::invalid_stored_header;
     headers.insert(
         "last-modified",
         HeaderValue::try_from(crate::time_format::http_date(record.updated)?)
@@ -355,13 +354,13 @@ fn range_hashes(
     record: &ObjectRecord,
     offset: u64,
     length: u64,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     headers.remove("x-goog-hash");
     if offset == 0 && length == record.size {
         let crc32c = format!("crc32c={}", json::base64(&record.crc32c.to_be_bytes()));
         headers.insert(
             "x-goog-hash",
-            HeaderValue::try_from(crc32c).map_err(|_| JsonError::invalid_stored_header())?,
+            HeaderValue::try_from(crc32c).map_err(|_| ApiError::invalid_stored_header())?,
         );
     }
     Ok(())
@@ -373,7 +372,7 @@ async fn metadata(
     access: &BucketAccess,
     target: ReadTarget,
     fields: &json::Fields,
-) -> Result<Response<ResponseBody>, JsonError> {
+) -> Result<Response<ResponseBody>, ApiError> {
     let ReadTarget {
         object,
         params,
@@ -389,7 +388,7 @@ async fn metadata(
             generation,
         } = object;
         let generation = generation
-            .ok_or_else(|| JsonError::invalid_argument("softDeleted=true requires generation"))?;
+            .ok_or_else(|| ApiError::invalid_argument("softDeleted=true requires generation"))?;
         let object = ObjectTarget::new(bucket, name, generation);
         catalog
             .get_soft_deleted_object(object, conditions, access)

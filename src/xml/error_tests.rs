@@ -7,7 +7,7 @@ use crate::{
 
 #[test]
 fn storage_capacity_failures_keep_the_xml_service_unavailable_contract() {
-    let error = Error::from(JsonError::from(ObjectError::Io(
+    let error = Error::from(ApiError::from(ObjectError::Io(
         std::io::ErrorKind::StorageFull.into(),
     )));
     assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -103,7 +103,7 @@ fn xml_codes_preserve_exceptional_statuses_and_spelling() {
         StatusCode::NOT_IMPLEMENTED,
         StatusCode::GATEWAY_TIMEOUT,
     ] {
-        let error = Error::from(JsonError::new(status, "other", "message"));
+        let error = Error::from(ApiError::new(status, "other", "message"));
         assert_eq!(error.status(), status);
         assert_eq!(error.code.as_str(), "InvalidArgument");
     }
@@ -126,43 +126,43 @@ async fn typed_json_errors_keep_the_xml_status_code_and_document() {
     };
     for (mut json, status, code, message) in [
         (
-            JsonError::from(CatalogError::Denied(denied(Some("viewer@example.invalid")))),
+            ApiError::from(CatalogError::Denied(denied(Some("viewer@example.invalid")))),
             StatusCode::FORBIDDEN,
             "AccessDenied",
             "viewer@example.invalid does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).",
         ),
         (
-            JsonError::from(ObjectError::Denied(denied(None))).for_anonymous_caller(),
+            ApiError::from(ObjectError::Denied(denied(None))).for_anonymous_caller(),
             StatusCode::UNAUTHORIZED,
             "AuthenticationRequired",
             "Anonymous caller does not have storage.objects.get access to the Google Cloud Storage object. Permission 'storage.objects.get' denied on resource (or it may not exist).",
         ),
         (
-            JsonError::from(AuthFailure::LoginRequired),
+            ApiError::from(AuthFailure::LoginRequired),
             StatusCode::UNAUTHORIZED,
             "AuthenticationRequired",
             "Login Required",
         ),
         (
-            JsonError::from(AuthFailure::InvalidCredentials),
+            ApiError::from(AuthFailure::InvalidCredentials),
             StatusCode::BAD_REQUEST,
             "InvalidAuthentication",
             "Invalid Credentials",
         ),
         (
-            JsonError::from(CatalogError::NotFound),
+            ApiError::from(CatalogError::NotFound),
             StatusCode::NOT_FOUND,
             "NoSuchBucket",
             "The specified bucket does not exist.",
         ),
         (
-            JsonError::from(ObjectError::ObjectNotFound).naming_object("bucket", "object"),
+            ApiError::from(ObjectError::ObjectNotFound).naming_object("bucket", "object"),
             StatusCode::NOT_FOUND,
             "NoSuchKey",
             NO_SUCH_KEY,
         ),
         (
-            JsonError::from(CsekError::KeyIncorrect),
+            ApiError::from(CsekError::KeyIncorrect),
             StatusCode::BAD_REQUEST,
             "CustomerEncryptionKeyIsIncorrect",
             "The provided encryption key is incorrect.",
@@ -282,28 +282,28 @@ fn domain_errors_answer_as_their_json_conversion_did() {
         ]
     };
     for caller in [None, Some(Caller::Anonymous)] {
-        let json = |error: JsonError| Error::from(crate::server::anonymous_error(error, caller));
+        let json = |error: ApiError| Error::from(crate::server::anonymous_error(error, caller));
         for (direct, converted) in catalog().into_iter().zip(catalog()) {
             same(
                 Error::from(direct).for_caller(caller),
-                json(JsonError::from(converted)),
+                json(ApiError::from(converted)),
             );
         }
         for (direct, converted) in object().into_iter().zip(object()) {
             same(
                 Error::from(direct).for_caller(caller),
-                json(JsonError::from(converted)),
+                json(ApiError::from(converted)),
             );
         }
         for (direct, converted) in auth().into_iter().zip(auth()) {
             same(
                 Error::from(direct).for_caller(caller),
-                json(JsonError::from(converted)),
+                json(ApiError::from(converted)),
             );
         }
         same(
             Error::from(AuthError::Unavailable(backend())).for_caller(caller),
-            json(JsonError::from(AuthError::Unavailable(backend()))),
+            json(ApiError::from(AuthError::Unavailable(backend()))),
         );
     }
 }

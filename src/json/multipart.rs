@@ -1,13 +1,16 @@
 //! The JSON API's multipart/related upload: a JSON metadata part, a media part and an optional
 //! JSON checksum part, read through the protocol-neutral [`crate::multipart`] parser.
 
-use super::{JsonError, ObjectMetadataRequest, checksum, object_metadata_from_map};
+use super::{ApiError, ObjectMetadataRequest, checksum, object_metadata_from_map};
 use crate::multipart::{MediaType, Multipart, ParamQuotes, Parameter, invalid, part_content_type};
 use crate::object::{ChecksumConflict, ExpectedHashes, ObjectMetadataUpdate, Patch};
 use bytes::Bytes;
 use hyper::{StatusCode, body::Body};
 
 const JSON_CAP: usize = crate::bounded_body::RESOURCE_BODY_LIMIT;
+/// What a multipart upload may send besides its media: metadata and checksums at
+/// `JSON_CAP` each, and headers, delimiter padding and discarded text, which stay under 256 KiB.
+pub(crate) const FRAMING_LIMIT: u64 = 2 * JSON_CAP as u64 + 256 * 1024;
 
 /// A JSON part of a multipart upload, collected whole up to `JSON_CAP`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,7 +20,7 @@ enum JsonPart {
 }
 
 impl JsonPart {
-    fn too_large(self) -> JsonError {
+    fn too_large(self) -> ApiError {
         let message = match self {
             Self::Metadata => format!(
                 "Multipart metadata exceeds {}",
@@ -28,12 +31,12 @@ impl JsonPart {
                 crate::bounded_body::RESOURCE_BODY_LIMIT_TEXT
             ),
         };
-        JsonError::new(StatusCode::PAYLOAD_TOO_LARGE, "uploadTooLarge", message)
+        ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "uploadTooLarge", message)
     }
 }
 
 /// Requires a metadata or checksum part to be `application/json`, at most with a UTF-8 charset.
-fn json_part_type(value: Option<&str>) -> Result<(), JsonError> {
+fn json_part_type(value: Option<&str>) -> Result<(), ApiError> {
     let media = MediaType::parse(value.ok_or_else(invalid)?, ParamQuotes::Double)?;
     if media.essence != "application/json"
         || media.parameters.iter().any(|Parameter { name, value }| {
@@ -47,7 +50,7 @@ fn json_part_type(value: Option<&str>) -> Result<(), JsonError> {
 
 /// The media part and the metadata must agree on the type. The message is Cloud Storage's,
 /// which spells out where each upload type puts its type.
-pub(crate) fn check_declared_content_type(declared: &str, part: &str) -> Result<(), JsonError> {
+pub(crate) fn check_declared_content_type(declared: &str, part: &str) -> Result<(), ApiError> {
     let essence = |value: &str| {
         value
             .split(';')
@@ -59,7 +62,7 @@ pub(crate) fn check_declared_content_type(declared: &str, part: &str) -> Result<
     if essence(declared) == essence(part) {
         return Ok(());
     }
-    Err(JsonError::invalid(format!(
+    Err(ApiError::invalid(format!(
         "Content-Type specified in the upload ({part}) does not match Content-Type specified in metadata ({declared}). If it was a simple upload (uploadType=media), the Content-Type was specified as a bare header. If it was a multipart upload (uploadType=multipart), then the Content-Type was specified in the second part of the multipart. If it was a resumable upload (uploadType=resumable), then the Content-Type was specified with the X-Upload-Content-Type header with the start of the resumable session. For more information, see https://cloud.google.com/storage/docs/json_api/v1/how-tos/upload."
     ))
     .html_typed())
@@ -93,7 +96,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
         }
     }
 
-    pub(crate) async fn headers(&mut self, part: PartKind) -> Result<Option<String>, JsonError> {
+    pub(crate) async fn headers(&mut self, part: PartKind) -> Result<Option<String>, ApiError> {
         match part {
             PartKind::Metadata => {
                 let headers = self.parser.part_headers().await?;
@@ -105,13 +108,13 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
         }
     }
 
-    pub(crate) async fn metadata(&mut self) -> Result<Vec<u8>, JsonError> {
+    pub(crate) async fn metadata(&mut self) -> Result<Vec<u8>, ApiError> {
         self.parser.start().await?;
         self.metadata_type = self.headers(PartKind::Metadata).await?;
         let bytes = self.collect(JsonPart::Metadata).await?;
         // Only the metadata part arrived; Cloud Storage counts the payloads it received.
         if self.parser.closed() {
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalidPayloadSize",
                 "Payload size invalid. Expected 2-3 payloads. Actual size: 1",
@@ -121,16 +124,16 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
     }
 
     /// The next decoded bytes of the current part, or `None` once its delimiter is read.
-    pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
+    pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, ApiError> {
         self.parser.next_chunk().await
     }
 
-    pub(crate) async fn finish(&mut self) -> Result<(), JsonError> {
+    pub(crate) async fn finish(&mut self) -> Result<(), ApiError> {
         self.parser.finish().await
     }
 
     /// The rest of the current part, failing once it would pass `JSON_CAP`.
-    async fn collect(&mut self, part: JsonPart) -> Result<Vec<u8>, JsonError> {
+    async fn collect(&mut self, part: JsonPart) -> Result<Vec<u8>, ApiError> {
         let mut bytes = Vec::new();
         while let Some(chunk) = self.parser.next_chunk().await? {
             if chunk.len() > JSON_CAP - bytes.len() {
@@ -144,7 +147,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
     pub(crate) async fn checksums(
         &mut self,
         expected: ExpectedHashes,
-    ) -> Result<ExpectedHashes, JsonError> {
+    ) -> Result<ExpectedHashes, ApiError> {
         if self.parser.closed() {
             return Ok(expected);
         }
@@ -152,7 +155,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
         let value = part_content_type(&headers)?;
         if json_part_type(value.as_deref()).is_err() {
             // Cloud Storage's wording (recorded 2026-11-13 for a text/plain third part).
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalidPayloadTypes",
                 format!(
@@ -164,7 +167,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
         }
         let bytes = self.collect(JsonPart::Checksums).await?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|_| JsonError::legacy_parse_error("Invalid checksum JSON"))?;
+            .map_err(|_| ApiError::legacy_parse_error("Invalid checksum JSON"))?;
         let serde_json::Value::Object(mut values) = value else {
             return Err(invalid());
         };
@@ -172,7 +175,7 @@ impl<B: Body<Data = Bytes> + Unpin> RelatedUpload<B> {
             .keys()
             .any(|k| !matches!(k.as_str(), "md5Hash" | "crc32c"))
         {
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",
                 "Only checksum fields are supported in the third part",
@@ -194,10 +197,10 @@ pub(crate) fn multipart_metadata(
     bytes: &[u8],
     query_name: Option<String>,
     expected: ExpectedHashes,
-) -> Result<MultipartMetadata, JsonError> {
+) -> Result<MultipartMetadata, ApiError> {
     // The upload front end labelled a metadata part that is not JSON as `text/html`.
     let value: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|cause| JsonError::parse_error(bytes, &cause).html_typed())?;
+        .map_err(|cause| crate::json::parse_error(bytes, &cause).html_typed())?;
     multipart_metadata_of(super::resource_object(&value)?, query_name, expected)
 }
 
@@ -207,7 +210,7 @@ pub(crate) fn multipart_metadata_of(
     fields: &serde_json::Map<String, serde_json::Value>,
     query_name: Option<String>,
     expected: ExpectedHashes,
-) -> Result<MultipartMetadata, JsonError> {
+) -> Result<MultipartMetadata, ApiError> {
     let ObjectMetadataRequest {
         mut update,
         mut unchanged,
@@ -218,21 +221,21 @@ pub(crate) fn multipart_metadata_of(
     };
     let metadata_name = unchanged.remove("name").filter(|value| !value.is_null());
     if metadata_name.as_ref().is_some_and(|name| !name.is_string()) {
-        return Err(JsonError::invalid_argument("name must be a string or null"));
+        return Err(ApiError::invalid_argument("name must be a string or null"));
     }
     let name = match query_name {
         Some(name) => name,
         None => metadata_name
-            .ok_or_else(JsonError::missing_object_name)?
+            .ok_or_else(ApiError::missing_object_name)?
             .as_str()
-            .ok_or_else(|| JsonError::invalid_argument("name must be a string"))?
+            .ok_or_else(|| ApiError::invalid_argument("name must be a string"))?
             .to_owned(),
     };
     super::validate_object_name(&name)?;
     if let Some(bucket) = unchanged.remove("bucket")
         && !bucket.is_string()
     {
-        return Err(JsonError::invalid_argument("bucket must be a string"));
+        return Err(ApiError::invalid_argument("bucket must be a string"));
     }
     // Cloud Storage stored an insert whose `kind` named another resource as `storage#object`
     // (case obj-unsupported-inputs), so the value is output-only and ignored.
@@ -244,13 +247,13 @@ pub(crate) fn multipart_metadata_of(
     {
         let class = class
             .as_str()
-            .ok_or_else(|| JsonError::invalid_argument("storageClass must be a string or null"))?;
+            .ok_or_else(|| ApiError::invalid_argument("storageClass must be a string or null"))?;
         update.storage_class =
-            Some(crate::object::validate_object_storage_class(class).map_err(JsonError::from)?);
+            Some(crate::object::validate_object_storage_class(class).map_err(ApiError::from)?);
     }
     let expected = merge_hashes(&mut unchanged, expected)?;
     if let Some((key, _)) = unchanged.into_iter().next() {
-        return Err(JsonError::unsupported_object(&key));
+        return Err(ApiError::unsupported_object(&key));
     }
     Ok(MultipartMetadata {
         name,
@@ -262,16 +265,16 @@ pub(crate) fn multipart_metadata_of(
 fn merge_hashes(
     values: &mut serde_json::Map<String, serde_json::Value>,
     mut expected: ExpectedHashes,
-) -> Result<ExpectedHashes, JsonError> {
+) -> Result<ExpectedHashes, ApiError> {
     // An equal value agrees with the caller's declaration; a different one conflicts.
     checksum::take_resource_hashes(
         values,
-        || JsonError::invalid_parameter(checksum::NOT_BASE64),
+        || ApiError::invalid_parameter(checksum::NOT_BASE64),
         |declared| {
             expected
                 .agree(declared)
                 .map_err(|ChecksumConflict(algorithm)| {
-                    JsonError::invalid_parameter(format!(
+                    ApiError::invalid_parameter(format!(
                         "Conflicting {} checksums",
                         algorithm.name()
                     ))
@@ -366,7 +369,8 @@ mod tests {
             b"--boundary\r\nContent-Type: application/json\r\nContent-Transfer-Encoding: base64\r\n\r\ne30=\r\n--boundary--",
         ] {
             let mut upload = RelatedUpload::new(Full::new(Bytes::copy_from_slice(body)), "boundary");
-            assert!(upload.metadata().await.is_err(), "{}", String::from_utf8_lossy(body));
+            let error = upload.metadata().await.unwrap_err();
+            assert_eq!(error.reason, "invalidParameter", "{}", String::from_utf8_lossy(body));
         }
         let mut alone = RelatedUpload::new(
             Full::new(Bytes::from_static(
@@ -375,7 +379,10 @@ mod tests {
             "boundary",
         );
         let error = alone.metadata().await.unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            (error.status, error.reason),
+            (StatusCode::BAD_REQUEST, "invalidPayloadSize")
+        );
     }
 
     #[tokio::test]

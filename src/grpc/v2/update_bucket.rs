@@ -131,9 +131,10 @@ mod tests {
     use super::super::object_update::from_proto as object_patch;
     use super::super::test_support::{RESOURCE, setup, upload};
     use super::*;
+    use crate::api_error::ApiError;
     use crate::grpc::test_support::{self as fixtures, assert_code, assert_unsupported};
     use crate::grpc::validate::strict_conditions;
-    use crate::json::{self, JsonError};
+    use crate::json;
     use crate::object::{MapPatch, ObjectConditions};
     use crate::storage::test_fixtures::PERMISSIVE;
     use serde_json::{Value, json};
@@ -236,7 +237,7 @@ mod tests {
 
     #[test]
     fn grpc_masks_reject_unsupported_and_accept_defaults() {
-        let status = Status::from(JsonError::new(
+        let status = Status::from(ApiError::new(
             hyper::StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
             "Unsupported operation; use JSON instead",
@@ -251,7 +252,7 @@ mod tests {
             "type.googleapis.com/google.rpc.ErrorInfo"
         );
         assert_eq!(
-            Status::from(JsonError::new(
+            Status::from(ApiError::new(
                 hyper::StatusCode::GONE,
                 "gone",
                 "Expired session; restart the request"

@@ -5,10 +5,11 @@
 
 use super::{ObjectActivity, State, authorize_bucket, await_upload_catalog};
 use crate::{
+    api_error::ApiError,
     auth::{Caller, ListenerRole, signature::Resource},
     bucket::BucketAccess,
     config::{ApiBaseSource, Config, RequestEndpoints},
-    json::{self, JsonError},
+    json,
     object::ObjectError,
     time_limit::TimeLimit,
     xml,
@@ -61,7 +62,7 @@ impl<'a> RequestCtx<'a> {
         self,
         headers: &'r HeaderMap,
         query: Option<&'r str>,
-    ) -> impl Future<Output = Result<Option<Caller<'a>>, JsonError>> + Send + use<'a, 'r> {
+    ) -> impl Future<Output = Result<Option<Caller<'a>>, ApiError>> + Send + use<'a, 'r> {
         let RequestCtx {
             state, listener, ..
         } = self;
@@ -70,7 +71,7 @@ impl<'a> RequestCtx<'a> {
                 .auth
                 .authenticate_request(headers, query, state.clock.as_ref(), listener)
                 .await
-                .map_err(JsonError::from)
+                .map_err(ApiError::from)
         }
     }
 
@@ -189,7 +190,7 @@ impl ObjectCtx<'_> {
         &self,
         permission: crate::auth::Permission,
         bucket: &str,
-    ) -> Result<BucketAccess, JsonError> {
+    ) -> Result<BucketAccess, ApiError> {
         authorize_bucket(self.state, self.caller, permission, bucket).await
     }
 }

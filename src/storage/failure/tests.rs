@@ -1,4 +1,5 @@
 use super::*;
+use crate::json::JsonErrorResponse;
 
 #[test]
 fn object_error_keeps_authorization_from_catalog() {
@@ -164,7 +165,7 @@ async fn backend_guidance_wire_responses_are_stable_across_protocols() {
     use hyper::{HeaderMap, StatusCode};
 
     for (failure, message) in guidance_failures() {
-        let error = crate::json::JsonError::from(failure);
+        let error = crate::api_error::ApiError::from(failure);
         let grpc: hyper::Response<tonic::body::Body> =
             tonic::Status::from(error.clone()).into_http();
         assert_eq!(grpc.status(), StatusCode::OK);
@@ -263,7 +264,7 @@ fn backend_guidance_survives_changed_and_nested_contexts() {
         assert_eq!(cause.failure(), Some(BackendFailure::CatalogClosed));
         assert!(cause.source().is_some());
         assert_eq!(
-            crate::json::JsonError::from(ObjectError::Unavailable(cause)).message,
+            crate::api_error::ApiError::from(ObjectError::Unavailable(cause)).message,
             guidance_failures()[0].1
         );
     }

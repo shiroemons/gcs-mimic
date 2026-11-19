@@ -1,4 +1,4 @@
-use super::JsonError;
+use super::ApiError;
 use crate::config::ApiBaseSource;
 use crate::object::{
     MapPatch, ObjectError, ObjectMetadataUpdate, ObjectRecord, ObjectTarget, Patch, WriteMode,
@@ -16,12 +16,12 @@ impl ObjectMetadataRequest {
     /// the generation when the query names none: Cloud Storage answered a PATCH whose body
     /// named a generation that did not exist with 404 (recorded 2026-11). A query generation
     /// stays the selector, and the body must then repeat it unchanged.
-    pub(crate) fn select_target(&self, target: ObjectTarget) -> Result<ObjectTarget, JsonError> {
+    pub(crate) fn select_target(&self, target: ObjectTarget) -> Result<ObjectTarget, ApiError> {
         for (key, path) in [("bucket", &target.bucket), ("name", &target.name)] {
             if let Some(content) = self.unchanged.get(key).and_then(Value::as_str)
                 && content != path
             {
-                return Err(JsonError::content_disagrees(content, path));
+                return Err(ApiError::content_disagrees(content, path));
             }
         }
         if target.generation.is_some() {
@@ -122,7 +122,7 @@ const IGNORED_ON_MUTATION: &[&str] = &[
 pub(crate) fn parse_object_metadata(
     bytes: &[u8],
     mode: WriteMode,
-) -> Result<ObjectMetadataRequest, JsonError> {
+) -> Result<ObjectMetadataRequest, ApiError> {
     parse_metadata(bytes, mode, BodyKind::Creation)
 }
 
@@ -130,7 +130,7 @@ pub(crate) fn parse_object_metadata(
 pub(crate) fn parse_object_metadata_mutation(
     bytes: &[u8],
     mode: WriteMode,
-) -> Result<ObjectMetadataRequest, JsonError> {
+) -> Result<ObjectMetadataRequest, ApiError> {
     parse_metadata(bytes, mode, BodyKind::Mutation)
 }
 
@@ -139,24 +139,24 @@ pub(crate) fn parse_object_metadata_mutation(
 pub(crate) fn object_metadata_from_map(
     body: &Map<String, Value>,
     mode: WriteMode,
-) -> Result<ObjectMetadataRequest, JsonError> {
+) -> Result<ObjectMetadataRequest, ApiError> {
     metadata_from_map(body, mode, BodyKind::Creation)
 }
 
 /// The members of a body that must be an object resource.
-pub(crate) fn resource_object(value: &Value) -> Result<&Map<String, Value>, JsonError> {
+pub(crate) fn resource_object(value: &Value) -> Result<&Map<String, Value>, ApiError> {
     value
         .as_object()
-        .ok_or_else(|| JsonError::invalid_argument("Object resource must be a JSON object"))
+        .ok_or_else(|| ApiError::invalid_argument("Object resource must be a JSON object"))
 }
 
 fn parse_metadata(
     bytes: &[u8],
     mode: WriteMode,
     kind: BodyKind,
-) -> Result<ObjectMetadataRequest, JsonError> {
+) -> Result<ObjectMetadataRequest, ApiError> {
     let value: Value =
-        serde_json::from_slice(bytes).map_err(|cause| JsonError::parse_error(bytes, &cause))?;
+        serde_json::from_slice(bytes).map_err(|cause| crate::json::parse_error(bytes, &cause))?;
     metadata_from_map(resource_object(&value)?, mode, kind)
 }
 
@@ -164,13 +164,13 @@ fn metadata_from_map(
     body: &Map<String, Value>,
     mode: WriteMode,
     kind: BodyKind,
-) -> Result<ObjectMetadataRequest, JsonError> {
+) -> Result<ObjectMetadataRequest, ApiError> {
     for field in ["acl", "predefinedAcl", "contexts", "kmsKeyName"] {
         if field == "acl" && kind == BodyKind::Mutation {
             continue;
         }
         if body.contains_key(field) {
-            return Err(JsonError::unsupported_object(field));
+            return Err(ApiError::unsupported_object(field));
         }
     }
     let mut unchanged = unchanged_fields(body);
@@ -212,7 +212,7 @@ fn metadata_from_map(
         storage_class: None,
     };
     // A resumable initiation stores this update before anything else validates it.
-    update.check_encoded_size().map_err(JsonError::from)?;
+    update.check_encoded_size().map_err(ApiError::from)?;
     Ok(ObjectMetadataRequest { unchanged, update })
 }
 
@@ -374,7 +374,7 @@ impl From<&Value> for CustomMetadataValue {
 /// A string field of the resource. An empty string is a value: Cloud Storage stored the empty
 /// content fields a PATCH or an upload set (recorded 2026-11, cases obj-metadata-output-only and
 /// obj-gaps-json).
-fn string(body: &Map<String, Value>, key: &str) -> Result<Patch<String>, JsonError> {
+fn string(body: &Map<String, Value>, key: &str) -> Result<Patch<String>, ApiError> {
     let Some(value) = body.get(key) else {
         return Ok(Patch::Keep);
     };
@@ -383,13 +383,13 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Patch<String>, JsonErr
     }
     let value = value
         .as_str()
-        .ok_or_else(|| JsonError::invalid_argument(format!("{key} must be a string or null")))?;
+        .ok_or_else(|| ApiError::invalid_argument(format!("{key} must be a string or null")))?;
     validate_fixed_metadata(key, value)?;
     Ok(Patch::Set(value.to_owned()))
 }
 
-pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), JsonError> {
-    crate::object::validate_fixed_metadata(key, value).map_err(JsonError::from)
+pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), ApiError> {
+    crate::object::validate_fixed_metadata(key, value).map_err(ApiError::from)
 }
 
 /// Applies the objects.insert `contentEncoding` query parameter, which Discovery defines as
@@ -398,7 +398,7 @@ pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), Json
 pub(crate) fn declare_content_encoding(
     metadata: &mut ObjectMetadataUpdate,
     encoding: Option<String>,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     let Some(encoding) = encoding else {
         return Ok(());
     };
@@ -408,7 +408,7 @@ pub(crate) fn declare_content_encoding(
         .value()
         .is_some_and(|declared| declared != &encoding)
     {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "Conflicting contentEncoding declarations",
         ));
     }

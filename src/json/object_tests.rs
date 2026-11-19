@@ -97,7 +97,7 @@ fn unsatisfiable_ranges_are_their_own_error() {
     }
     assert_eq!(RangeRequest::Single("9-").resolve(10), Ok(Some((9, 1))));
     assert_eq!(RangeRequest::Single("-5").resolve(0), Ok(None));
-    let error = JsonError::from(UnsatisfiableRange);
+    let error = ApiError::from(UnsatisfiableRange);
     assert_eq!(
         (error.status, error.reason, error.message.as_str()),
         (
@@ -109,7 +109,7 @@ fn unsatisfiable_ranges_are_their_own_error() {
 }
 
 #[track_caller]
-fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
+fn request(method: Method, path: &str) -> Result<ObjectRequest, ApiError> {
     route_object(&method, &path.parse().unwrap()).expect("object route")
 }
 
@@ -1001,7 +1001,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             "Object storage is unavailable: internal storage failure (private backend details withheld)",
         ),
     ] {
-        let error = JsonError::from(error);
+        let error = ApiError::from(error);
         assert_eq!(error.status.as_u16(), status);
         // Cloud Storage names the `If-Match` header for every failed precondition.
         let mut item = json!({"message":message,"domain":"global","reason":reason});
@@ -1027,8 +1027,8 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
 #[test]
 fn a_copy_source_not_match_is_answered_as_a_failed_precondition() {
     assert_eq!(
-        JsonError::from(ObjectError::SourceNotModified),
-        JsonError::from(ObjectError::PreconditionFailed)
+        ApiError::from(ObjectError::SourceNotModified),
+        ApiError::from(ObjectError::PreconditionFailed)
     );
 }
 

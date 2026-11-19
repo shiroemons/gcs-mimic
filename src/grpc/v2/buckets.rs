@@ -2920,7 +2920,7 @@ mod tests {
             Code::Unauthenticated,
         );
         assert_eq!(
-            Status::from(json::JsonError::new(
+            Status::from(crate::api_error::ApiError::new(
                 hyper::StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",
                 "catalog unavailable"
@@ -2929,7 +2929,7 @@ mod tests {
             Code::Unavailable
         );
         assert_eq!(
-            Status::from(json::JsonError::unsupported("callback")).code(),
+            Status::from(crate::api_error::ApiError::unsupported("callback")).code(),
             Code::Unimplemented
         );
         storage.state.catalog.close().await.unwrap();

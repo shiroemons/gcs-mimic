@@ -1,6 +1,4 @@
-use super::{
-    EtagConditions, FieldSelection, JsonError, ResponseCache, Schema, integer::take_int64,
-};
+use super::{ApiError, EtagConditions, FieldSelection, ResponseCache, Schema, integer::take_int64};
 use crate::page_token::decode_page_token;
 use crate::{
     bucket::{BucketConditions, name::MAX_BUCKET_NAME_BYTES},
@@ -39,7 +37,7 @@ pub(super) fn path_bucket(
     segment: &str,
     profile: CompatProfile,
     check: BucketCheck,
-) -> Result<String, JsonError> {
+) -> Result<String, ApiError> {
     let bucket = decode_bucket_segment(segment)?;
     if check == BucketCheck::ForProfile || profile == CompatProfile::Native {
         crate::bucket::name::validate_for_profile(&bucket, profile)?;
@@ -49,9 +47,9 @@ pub(super) fn path_bucket(
 
 /// The decoded bucket of a raw path segment of at most [`MAX_BUCKET_SEGMENT_BYTES`] encoded bytes,
 /// for a caller that checks the name by its own rules.
-pub(crate) fn decode_bucket_segment(segment: &str) -> Result<String, JsonError> {
+pub(crate) fn decode_bucket_segment(segment: &str) -> Result<String, ApiError> {
     if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
-        return Err(JsonError::invalid_parameter("Invalid bucket name"));
+        return Err(ApiError::invalid_parameter("Invalid bucket name"));
     }
     Ok(decode(segment, Decoding::Path)?)
 }
@@ -316,7 +314,7 @@ impl BucketRequest {
 
 /// Match the raw URI before decoding any bucket path segment.
 #[cfg(test)]
-pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonError>> {
+pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, ApiError>> {
     route_with_profile(method, uri, CompatProfile::Native, "local-project")
 }
 
@@ -326,9 +324,9 @@ fn parse_lock_retention_policy(
     segment: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     if *method != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use POST to lock a retention policy",
             None,
         ));
@@ -339,14 +337,14 @@ fn parse_lock_retention_policy(
     super::Fields::take(&mut query, super::Schema::Bucket)?;
     common(&mut query)?;
     let metageneration = query.remove("ifMetagenerationMatch").ok_or_else(|| {
-        JsonError::required(
+        ApiError::required(
             "ifMetagenerationMatch is required; read the bucket metageneration first",
         )
     })?;
     // Unlike the other int64 parameters, this one keeps accepting a leading `+` (`%2B1`).
     let metageneration = Grammar::Signed
         .parse::<i64>(&metageneration)
-        .ok_or_else(|| JsonError::invalid_parameter("ifMetagenerationMatch must be an integer"))?;
+        .ok_or_else(|| ApiError::invalid_parameter("ifMetagenerationMatch must be an integer"))?;
     finish(&query)?;
     Ok(BucketRequest::LockRetentionPolicy {
         bucket,
@@ -360,9 +358,9 @@ fn parse_restore(
     segment: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     if *method != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use POST to restore a soft-deleted bucket",
             Some("POST"),
         ));
@@ -382,21 +380,21 @@ fn parse_restore(
     })
 }
 
-fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<i64>, JsonError> {
+fn bucket_generation(query: &mut BTreeMap<String, String>) -> Result<Option<i64>, ApiError> {
     query
         .remove("generation")
         .map(|value| {
             Grammar::SignedNoPlus
                 .parse::<i64>(&value)
                 .filter(|generation| *generation > 0)
-                .ok_or_else(|| JsonError::invalid_parameter("generation must be a positive int64"))
+                .ok_or_else(|| ApiError::invalid_parameter("generation must be a positive int64"))
         })
         .transpose()
 }
 
 /// Matches the observed Cloud Storage message for a soft-deleted read without a generation.
-fn generation_required() -> JsonError {
-    JsonError::required("Bucket generation is required.")
+fn generation_required() -> ApiError {
+    ApiError::required("Bucket generation is required.")
 }
 
 /// `GET /storage/v1/b?softDeleted=true`; called after the shared list parameters are parsed.
@@ -406,7 +404,7 @@ fn soft_deleted_list(
     projection: Projection,
     max_results: u32,
     prefix: String,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     let start_after = query
         .remove("pageToken")
         .filter(|token| !token.is_empty())
@@ -427,7 +425,7 @@ fn soft_deleted_list(
 fn soft_deleted_get(
     query: &mut BTreeMap<String, String>,
     bucket: &str,
-) -> Result<Option<BucketRequest>, JsonError> {
+) -> Result<Option<BucketRequest>, ApiError> {
     let soft_deleted = boolean(query, "softDeleted")?;
     let generation = bucket_generation(query)?;
     let generation = match (soft_deleted, generation) {
@@ -435,7 +433,7 @@ fn soft_deleted_get(
         (true, Some(generation)) => generation,
         (true, None) => return Err(generation_required()),
         (false, Some(_)) => {
-            return Err(JsonError::required(
+            return Err(ApiError::required(
                 "generation selects a soft-deleted bucket; add softDeleted=true",
             ));
         }
@@ -463,9 +461,9 @@ fn parse_storage_layout(
     segment: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     if *method != Method::GET {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Use GET to read a bucket storage layout",
             Some("GET"),
         ));
@@ -486,17 +484,17 @@ fn parse_iam(
     segment: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     // Unlike the other bucket paths, IAM decodes the segment before it checks the length.
     let bucket = decode(segment, Decoding::Path)?;
     if segment.len() > MAX_BUCKET_SEGMENT_BYTES {
-        return Err(JsonError::invalid_parameter("Invalid bucket name"));
+        return Err(ApiError::invalid_parameter("Invalid bucket name"));
     }
     if profile == CompatProfile::Native {
         crate::bucket::name::validate_for_profile(&bucket, profile)?;
     }
     if !matches!(*method, Method::GET | Method::PUT) {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "HTTP method is not supported for this IAM endpoint",
             Some("GET, PUT"),
         ));
@@ -510,7 +508,7 @@ fn parse_iam(
         if let Some(version) = query.remove("optionsRequestedPolicyVersion")
             && Grammar::Signed.parse::<i32>(&version).is_none()
         {
-            return Err(JsonError::invalid_parameter(
+            return Err(ApiError::invalid_parameter(
                 "optionsRequestedPolicyVersion must be an integer",
             ));
         }
@@ -531,7 +529,7 @@ pub(crate) fn route_with_profile(
     uri: &Uri,
     profile: CompatProfile,
     seed_project: &str,
-) -> Option<Result<BucketRequest, JsonError>> {
+) -> Option<Result<BucketRequest, ApiError>> {
     const COLLECTION: &str = "/storage/v1/b";
     let path = uri.path();
     if let Some(segment) = bucket_subresource(path, "/lockRetentionPolicy") {
@@ -575,7 +573,7 @@ fn parse_bucket_route(
     uri: &Uri,
     profile: CompatProfile,
     seed_project: &str,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     let bucket = segment
         .map(|segment| path_bucket(segment, profile, BucketCheck::NativeOnly))
         .transpose()?;
@@ -605,7 +603,7 @@ enum ItemMethod {
 }
 
 impl BucketMethod {
-    fn select(method: &Method, bucket: Option<String>) -> Result<Self, JsonError> {
+    fn select(method: &Method, bucket: Option<String>) -> Result<Self, ApiError> {
         let item = |bucket, method| Self::Item { bucket, method };
         match (method, bucket) {
             (&Method::POST, None) => Ok(Self::Insert),
@@ -614,7 +612,7 @@ impl BucketMethod {
             (&Method::PATCH, Some(bucket)) => Ok(item(bucket, ItemMethod::Patch)),
             (&Method::PUT, Some(bucket)) => Ok(item(bucket, ItemMethod::Update)),
             (&Method::DELETE, Some(bucket)) => Ok(Self::Delete { bucket }),
-            (_, bucket) => Err(JsonError::method_not_allowed(
+            (_, bucket) => Err(ApiError::method_not_allowed(
                 "HTTP method is not supported for this bucket endpoint",
                 Some(if bucket.is_some() {
                     "GET, DELETE, PATCH, PUT"
@@ -631,7 +629,7 @@ fn parse(
     raw: &str,
     profile: CompatProfile,
     seed_project: &str,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     let mut query = parse_query(raw)?;
     match &call {
         BucketMethod::Delete { .. } => {
@@ -682,7 +680,7 @@ fn parse_bucket_item(
     bucket: String,
     method: ItemMethod,
     profile: CompatProfile,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     let predefined =
         query.contains_key("predefinedAcl") || query.contains_key("predefinedDefaultObjectAcl");
     // Recorded 2026-10-31: native PATCH without projection returned acl, defaultObjectAcl and
@@ -725,7 +723,7 @@ fn parse_bucket_list(
     query: &mut BTreeMap<String, String>,
     profile: CompatProfile,
     seed_project: &str,
-) -> Result<BucketRequest, JsonError> {
+) -> Result<BucketRequest, ApiError> {
     let soft_deleted = boolean(query, "softDeleted")?;
     false_only(query, "returnPartialSuccess")?;
     if profile == CompatProfile::FakeGcsServer {
@@ -743,7 +741,7 @@ fn parse_bucket_list(
     let max_results = list_page_size(query, page_cap)?;
     let prefix = query.remove("prefix").unwrap_or_default();
     if prefix.len() > MAX_BUCKET_NAME_BYTES {
-        return Err(JsonError::invalid_parameter("prefix exceeds 222 bytes"));
+        return Err(ApiError::invalid_parameter("prefix exceeds 222 bytes"));
     }
     if soft_deleted {
         return soft_deleted_list(query, project, projection, max_results, prefix);
@@ -793,8 +791,8 @@ pub(super) fn ignore_accepted_parameters(query: &mut BTreeMap<String, String>) {
 pub(super) fn standard_parameters(
     query: &mut BTreeMap<String, String>,
     route_specific: &[&str],
-    rejection: fn(&str) -> JsonError,
-) -> Result<(), JsonError> {
+    rejection: fn(&str) -> ApiError,
+) -> Result<(), ApiError> {
     ignore_accepted_parameters(query);
     route_specific
         .iter()
@@ -803,16 +801,16 @@ pub(super) fn standard_parameters(
         .map_or(Ok(()), |name| Err(rejection(name)))
 }
 
-pub(super) fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonError> {
-    standard_parameters(query, &["uploadType"], JsonError::unsupported)?;
+pub(super) fn common(query: &mut BTreeMap<String, String>) -> Result<(), ApiError> {
+    standard_parameters(query, &["uploadType"], ApiError::unsupported)?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     boolean(query, "prettyPrint")?;
     if let Some(alt) = query.remove("alt") {
         match alt.as_str() {
             "json" => {}
-            "media" => return Err(JsonError::unsupported("alt=media")),
+            "media" => return Err(ApiError::unsupported("alt=media")),
             _ => {
-                return Err(JsonError::new(
+                return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
                     "invalidAltValue",
                     "alt must be json for bucket metadata",
@@ -823,10 +821,10 @@ pub(super) fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonErr
     Ok(())
 }
 
-fn unsupported(query: &BTreeMap<String, String>, keys: &[&str]) -> Result<(), JsonError> {
+fn unsupported(query: &BTreeMap<String, String>, keys: &[&str]) -> Result<(), ApiError> {
     for key in keys {
         if query.contains_key(*key) {
-            return Err(JsonError::unsupported(key));
+            return Err(ApiError::unsupported(key));
         }
     }
     Ok(())
@@ -834,12 +832,12 @@ fn unsupported(query: &BTreeMap<String, String>, keys: &[&str]) -> Result<(), Js
 
 /// The `maxResults` of a bucket list: `0` or absent selects the page cap, which also bounds larger
 /// values.
-fn list_page_size(query: &mut BTreeMap<String, String>, page_cap: u32) -> Result<u32, JsonError> {
+fn list_page_size(query: &mut BTreeMap<String, String>, page_cap: u32) -> Result<u32, ApiError> {
     let Some(value) = query.remove("maxResults") else {
         return Ok(page_cap);
     };
     let size = Grammar::Digits.parse::<u32>(&value).ok_or_else(|| {
-        JsonError::invalid_parameter("maxResults must be a uint32").at_parameter("maxResults")
+        ApiError::invalid_parameter("maxResults must be a uint32").at_parameter("maxResults")
     })?;
     Ok(if size == 0 {
         page_cap
@@ -848,56 +846,56 @@ fn list_page_size(query: &mut BTreeMap<String, String>, page_cap: u32) -> Result
     })
 }
 
-fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
-    let project = query.remove("project").ok_or_else(|| {
-        JsonError::required("Required parameter: project").at_parameter("project")
-    })?;
+fn project(query: &mut BTreeMap<String, String>) -> Result<String, ApiError> {
+    let project = query
+        .remove("project")
+        .ok_or_else(|| ApiError::required("Required parameter: project").at_parameter("project"))?;
     validate_project(&project)?;
     Ok(project)
 }
 
-pub(crate) fn validate_project(project: &str) -> Result<(), JsonError> {
+pub(crate) fn validate_project(project: &str) -> Result<(), ApiError> {
     Ok(crate::auth::validate_project_id(project)?)
 }
 
-pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {
+pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, ApiError> {
     projection_or(query, Projection::NoAcl)
 }
 
 fn projection_or(
     query: &mut BTreeMap<String, String>,
     default: Projection,
-) -> Result<Projection, JsonError> {
+) -> Result<Projection, ApiError> {
     match query.remove("projection").as_deref() {
         None => Ok(default),
         Some("noAcl") => Ok(Projection::NoAcl),
         Some("full") => Ok(Projection::Full),
-        Some(other) => Err(JsonError::invalid_parameter(format!(
+        Some(other) => Err(ApiError::invalid_parameter(format!(
             "Invalid string value: '{other}'. Allowed values: [full, noacl]"
         ))
         .at_parameter("projection")),
     }
 }
 
-pub(super) fn boolean(query: &mut BTreeMap<String, String>, key: &str) -> Result<bool, JsonError> {
+pub(super) fn boolean(query: &mut BTreeMap<String, String>, key: &str) -> Result<bool, ApiError> {
     match query.remove(key).as_deref() {
         None | Some("false" | "False") => Ok(false),
         Some("true" | "True") => Ok(true),
         Some(_) => Err(
-            JsonError::invalid_parameter(format!("{key} must be true or false")).at_parameter(key),
+            ApiError::invalid_parameter(format!("{key} must be true or false")).at_parameter(key),
         ),
     }
 }
 
-fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), JsonError> {
+fn false_only(query: &mut BTreeMap<String, String>, key: &str) -> Result<(), ApiError> {
     if boolean(query, key)? {
-        Err(JsonError::unsupported(key))
+        Err(ApiError::unsupported(key))
     } else {
         Ok(())
     }
 }
 
-fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, JsonError> {
+fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, ApiError> {
     Ok(BucketConditions {
         if_metageneration_match: take_int64(query, "ifMetagenerationMatch")?,
         if_metageneration_not_match: take_int64(query, "ifMetagenerationNotMatch")?,
@@ -912,7 +910,7 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<BucketConditions, 
 pub(super) fn finish_for_profile(
     query: &BTreeMap<String, String>,
     profile: CompatProfile,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if profile == CompatProfile::Native {
         Ok(())
     } else {
@@ -920,9 +918,9 @@ pub(super) fn finish_for_profile(
     }
 }
 
-pub(super) fn finish(query: &BTreeMap<String, String>) -> Result<(), JsonError> {
+pub(super) fn finish(query: &BTreeMap<String, String>) -> Result<(), ApiError> {
     match query.first_key_value() {
-        Some((key, _)) => Err(JsonError::invalid_parameter(format!(
+        Some((key, _)) => Err(ApiError::invalid_parameter(format!(
             "Unknown query parameter for this method: {key}"
         ))
         .at_parameter(key)),

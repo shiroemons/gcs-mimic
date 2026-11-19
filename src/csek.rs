@@ -603,8 +603,8 @@ mod tests {
     fn error_reasons_round_trip_to_xml_codes() {
         for error in CsekError::ALL {
             assert_eq!(
-                crate::json::JsonError::from(error).kind,
-                crate::json::ErrorKind::Csek(error)
+                crate::api_error::ApiError::from(error).kind,
+                crate::api_error::ErrorKind::Csek(error)
             );
             let mut code = error.reason().to_owned();
             code[..1].make_ascii_uppercase();

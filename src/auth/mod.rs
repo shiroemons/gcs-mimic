@@ -613,8 +613,8 @@ pub enum RegistryError {
     Project {
         entry: usize,
         project: String,
-        /// Boxed, so a JSON error does not enlarge every result that carries an identity failure.
-        source: Box<crate::json::JsonError>,
+        /// Boxed, so the shared error does not enlarge every result that carries an identity failure.
+        source: Box<crate::api_error::ApiError>,
     },
 }
 

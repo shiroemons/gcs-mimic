@@ -331,26 +331,26 @@ impl From<crate::csek::CsekError> for Status {
     }
 }
 
-impl From<crate::json::JsonError> for Status {
-    fn from(mut error: crate::json::JsonError) -> Self {
-        // A storage error that a handler turned into a JSON error, such as one that names its
+impl From<crate::api_error::ApiError> for Status {
+    fn from(mut error: crate::api_error::ApiError) -> Self {
+        // A storage error that a handler turned into the shared error, such as one that names its
         // object, must still report what the direct conversion above reports.
-        if let crate::json::ErrorKind::Csek(error) = error.kind {
+        if let crate::api_error::ErrorKind::Csek(error) = error.kind {
             return customer_encryption(error);
         }
         // The JSON API answers a write's matching not-match condition with 304; gRPC words it
         // as a read's.
-        if error.kind == crate::json::ErrorKind::WriteNotModified {
+        if error.kind == crate::api_error::ErrorKind::WriteNotModified {
             return not_modified();
         }
-        if error.kind == crate::json::ErrorKind::NotModified {
+        if error.kind == crate::api_error::ErrorKind::NotModified {
             error.message = NOT_MODIFIED.into();
         }
         // Cloud Storage repeats this refusal in a BadRequest (recorded 2026-11-17).
-        if error.kind == crate::json::ErrorKind::ClassLocation {
+        if error.kind == crate::api_error::ErrorKind::ClassLocation {
             return invalid_field(error.message);
         }
-        if error.kind == crate::json::ErrorKind::Unsupported {
+        if error.kind == crate::api_error::ErrorKind::Unsupported {
             return unsupported_message(error.message);
         }
         match error.status.as_u16() {
@@ -548,24 +548,24 @@ mod tests {
         for (label, error, message) in [
             (
                 "bucket",
-                crate::json::JsonError::unsupported("storageClass requires a region or zone"),
+                crate::api_error::ApiError::unsupported("storageClass requires a region or zone"),
                 "gcs-mimic does not support bucket API setting storageClass requires a region or zone; omit this setting (for example, create a bucket with only name).",
             ),
             (
                 "object",
-                crate::json::JsonError::unsupported_object("metadata"),
+                crate::api_error::ApiError::unsupported_object("metadata"),
                 "gcs-mimic does not support object API setting metadata; omit this option or header (for example, use projection=noAcl).",
             ),
             (
                 "custom",
-                crate::json::JsonError::unsupported_message(
+                crate::api_error::ApiError::unsupported_message(
                     "gcs-mimic does not support this setting; omit it.",
                 ),
                 "gcs-mimic does not support this setting; omit it.",
             ),
             (
                 "plain 501",
-                crate::json::JsonError::new(
+                crate::api_error::ApiError::new(
                     StatusCode::NOT_IMPLEMENTED,
                     "notImplemented",
                     "Unsupported object option",
@@ -612,7 +612,7 @@ mod tests {
         let pap = Status::from(crate::bucket::CatalogError::PublicAccessPrevention);
         assert_eq!(pap.code(), Code::FailedPrecondition);
         assert_eq!(pap.message(), "Public access prevention is enforced");
-        let not_empty = Status::from(crate::json::JsonError::new(
+        let not_empty = Status::from(crate::api_error::ApiError::new(
             StatusCode::PRECONDITION_FAILED,
             "conditionNotMet",
             "bucket must be empty prior to deletion",

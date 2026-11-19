@@ -881,7 +881,7 @@ fn authentication_failures_answer_as_their_json_conversion_did() {
     for (direct, converted) in failures().into_iter().zip(failures()) {
         assert_eq!(
             Reply::of(&Status::from(direct)),
-            Reply::of(&Status::from(crate::json::JsonError::from(converted)))
+            Reply::of(&Status::from(crate::api_error::ApiError::from(converted)))
         );
     }
 }

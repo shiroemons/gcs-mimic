@@ -5,7 +5,8 @@
 use super::{Error, HeaderKind, ObjectPath, XmlCode, accepted_parameter, put};
 use crate::server::RequestBody as Incoming;
 use crate::{
-    auth, json,
+    api_error::{ApiError, ErrorKind},
+    auth,
     server::{
         ObjectCtx, ResponseBody, anonymous_error, boxed, empty_response,
         resumable::{self, SessionTarget, Transfer},
@@ -188,7 +189,7 @@ pub(crate) async fn session(
         Ok(Some(Transfer::Complete(value))) => completed(&value),
         Ok(None) => Ok(no_content()),
         Err(error) if error.status == StatusCode::GONE => Ok(no_content()),
-        Err(error) if error.kind == json::ErrorKind::CancelledUpload => Ok(no_content()),
+        Err(error) if error.kind == ErrorKind::CancelledUpload => Ok(no_content()),
         Err(error) if error.status == StatusCode::NOT_FOUND => Err(Error::new(
             XmlCode::NoSuchUpload,
             "The upload session does not exist or has expired.",
@@ -201,11 +202,11 @@ async fn cancel(
     request: Request<Incoming>,
     target: SessionTarget<'_>,
     ctx: ObjectCtx<'_>,
-) -> Result<(), json::JsonError> {
+) -> Result<(), ApiError> {
     let catalog = &ctx.state.catalog;
     crate::bounded_body::read_body(request.into_body(), 0)
         .await
-        .map_err(|_| json::JsonError::invalid_parameter("Cancellation requires an empty body"))?;
+        .map_err(|_| ApiError::invalid_parameter("Cancellation requires an empty body"))?;
     let session = ctx
         .await_catalog(catalog.resumable_session(target.id, target.bucket))
         .await?;

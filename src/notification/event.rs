@@ -156,7 +156,7 @@ impl Message<'_> {
             (
                 "eventTime",
                 crate::time_format::timestamp(self.time)
-                    .map_err(crate::json::JsonError::from)
+                    .map_err(crate::api_error::ApiError::from)
                     .map_err(invalid_time)?,
             ),
         ] {
@@ -198,7 +198,7 @@ impl Message<'_> {
                             "timeDeleted".into(),
                             Value::String(
                                 crate::time_format::timestamp(self.time)
-                                    .map_err(crate::json::JsonError::from)
+                                    .map_err(crate::api_error::ApiError::from)
                                     .map_err(invalid_time)?,
                             ),
                         );

@@ -1,5 +1,5 @@
 use super::{
-    JsonError, ObjectRequest, Projection,
+    ApiError, ObjectRequest, Projection,
     integer::take_long,
     objects::{ConditionKeys, take_conditions, take_predefined_acl},
     query::{
@@ -33,7 +33,7 @@ pub(super) fn route(
     method: &Method,
     uri: &Uri,
     profile: CompatProfile,
-) -> Option<Result<ObjectRequest, JsonError>> {
+) -> Option<Result<ObjectRequest, ApiError>> {
     let path = uri.path().strip_prefix(BUCKET_PATH)?;
     let (source, destination) = path.split_once("/copyTo/b/")?;
     Some(parse(method, source, destination, uri, profile))
@@ -46,9 +46,9 @@ fn parse(
     destination: &str,
     uri: &Uri,
     profile: CompatProfile,
-) -> Result<ObjectRequest, JsonError> {
+) -> Result<ObjectRequest, ApiError> {
     if method != Method::POST {
-        return Err(JsonError::method_not_allowed(
+        return Err(ApiError::method_not_allowed(
             "Object copy requires POST",
             Some("POST"),
         ));
@@ -61,19 +61,19 @@ fn parse(
     standard_parameters(
         &mut query,
         &["destinationKmsKeyName", "dropContextGroups"],
-        JsonError::unsupported_object,
+        ApiError::unsupported_object,
     )?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     super::query::boolean(&mut query, "prettyPrint")?;
     if let Some(alt) = query.remove("alt")
         && alt != "json"
     {
-        return Err(JsonError::invalid_parameter("copy requires alt=json"));
+        return Err(ApiError::invalid_parameter("copy requires alt=json"));
     }
     let projection = projection(&mut query)?;
     let source_generation = take_long(&mut query, "sourceGeneration")?;
     if source_generation.is_some_and(|generation| generation <= 0) {
-        return Err(JsonError::invalid_parameter(
+        return Err(ApiError::invalid_parameter(
             "sourceGeneration must be positive",
         ));
     }
@@ -95,16 +95,16 @@ fn parse(
     }))
 }
 
-fn names(path: &str, profile: CompatProfile) -> Result<(String, String), JsonError> {
+fn names(path: &str, profile: CompatProfile) -> Result<(String, String), ApiError> {
     let (bucket, name) = path
         .split_once("/o/")
-        .ok_or_else(|| JsonError::invalid_parameter("Invalid copy path"))?;
+        .ok_or_else(|| ApiError::invalid_parameter("Invalid copy path"))?;
     if bucket.len() > MAX_BUCKET_SEGMENT_BYTES
         || name.len() > MAX_OBJECT_SEGMENT_BYTES
         || bucket.contains('/')
         || name.contains('/')
     {
-        return Err(JsonError::invalid_parameter("Invalid copy path"));
+        return Err(ApiError::invalid_parameter("Invalid copy path"));
     }
     let bucket = decode(bucket, Decoding::Path)?;
     crate::bucket::name::validate_for_profile(&bucket, profile)?;

@@ -10,11 +10,14 @@ use super::{
     notifications, objects, probe, project_resources, resumable, rewrite, unknown_route,
     unsupported, xml_read,
 };
+use crate::json::JsonErrorResponse;
 use crate::{
+    api_error::ApiError,
     auth::Caller,
     bucket::{BucketAccess, CatalogError, CorsRule, cors::CorsRequest},
     config::{CompatProfile, Config, CorsFallback, CorsFallbackChoice, EndpointSnapshot},
-    json::{self, JsonError, ObjectRequest},
+    json::{self, ObjectRequest},
+    storage::failure::wording::safe_backend_cause,
     xml,
 };
 use http_body_util::{BodyExt, Full};
@@ -266,7 +269,7 @@ async fn route_xml(
 ) -> Response<ResponseBody> {
     if request.headers().contains_key("x-http-method-override") {
         return boxed(
-            xml::Error::from(JsonError::invalid_argument(
+            xml::Error::from(ApiError::invalid_argument(
                 "Method override is supported only by the JSON API",
             ))
             .response(xml::ErrorBody::for_method(request.method())),
@@ -319,7 +322,7 @@ async fn respond_json_cors(
                 HeaderValue::from_static("true"),
             );
             boxed(
-                JsonError::new(
+                ApiError::new(
                     StatusCode::NOT_FOUND,
                     "notFound",
                     "Missing CORS request method",
@@ -463,10 +466,10 @@ fn cors_lookup_failure(bucket: &str, error: &CatalogError) -> serde_json::Value 
         reason = "every other catalog error is logged by its display text through the same allow-list"
     )]
     let cause = match error {
-        CatalogError::Unavailable(cause) => json::safe_backend_cause(cause.message()).to_owned(),
+        CatalogError::Unavailable(cause) => safe_backend_cause(cause.message()).to_owned(),
         CatalogError::Io(cause) => format!("catalog I/O: {cause}"),
         CatalogError::Corrupt(_) => "catalog corrupt".to_owned(),
-        other => json::safe_backend_cause(&other.to_string()).to_owned(),
+        other => safe_backend_cause(&other.to_string()).to_owned(),
     };
     serde_json::json!({"bucket": bucket, "cause": cause})
 }
@@ -615,8 +618,8 @@ async fn respond_routed(
 async fn authenticated<'a, T>(
     request: &Request<Incoming>,
     ctx: RequestCtx<'a>,
-    parsed: Result<T, JsonError>,
-) -> Result<(T, Option<Caller<'a>>), JsonError> {
+    parsed: Result<T, ApiError>,
+) -> Result<(T, Option<Caller<'a>>), ApiError> {
     let caller = ctx
         .authenticate(request.headers(), request.uri().query())
         .await?;
@@ -628,12 +631,12 @@ async fn authenticated<'a, T>(
 async fn dispatch<'a, T, R, F, Fut>(
     request: Request<Incoming>,
     ctx: RequestCtx<'a>,
-    parsed: Result<T, JsonError>,
+    parsed: Result<T, ApiError>,
     run: F,
-) -> Result<R, JsonError>
+) -> Result<R, ApiError>
 where
     F: FnOnce(Request<Incoming>, T, Option<Caller<'a>>) -> Fut,
-    Fut: Future<Output = Result<R, JsonError>>,
+    Fut: Future<Output = Result<R, ApiError>>,
 {
     let (operation, caller) = authenticated(&request, ctx, parsed).await?;
     run(request, operation, caller)
@@ -645,7 +648,7 @@ where
 async fn refuse_authenticated(
     request: &Request<Incoming>,
     ctx: RequestCtx<'_>,
-    refusal: JsonError,
+    refusal: ApiError,
 ) -> Response<ResponseBody> {
     let error = match ctx
         .authenticate(request.headers(), request.uri().query())
@@ -660,14 +663,14 @@ async fn refuse_authenticated(
 async fn respond_acl(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
-    parsed: Result<json::acl::AclRequest, JsonError>,
+    parsed: Result<json::acl::AclRequest, ApiError>,
 ) -> Response<ResponseBody> {
     let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
     let result = dispatch(request, ctx, parsed, |request, operation, caller| {
         acl::respond(request, operation, caller, state, base)
     })
     .await;
-    boxed(result.unwrap_or_else(JsonError::into_response))
+    boxed(result.unwrap_or_else(ApiError::into_response))
 }
 
 async fn respond_unsupported(
@@ -675,7 +678,7 @@ async fn respond_unsupported(
     ctx: RequestCtx<'_>,
     route: &str,
 ) -> Response<ResponseBody> {
-    let refusal = JsonError::unsupported_message(format!(
+    let refusal = ApiError::unsupported_message(format!(
         "gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."
     ));
     refuse_authenticated(request, ctx, refusal).await
@@ -684,7 +687,7 @@ async fn respond_unsupported(
 async fn respond_notifications(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
-    parsed: Result<(json::notifications::NotificationRequest, json::Fields), JsonError>,
+    parsed: Result<(json::notifications::NotificationRequest, json::Fields), ApiError>,
 ) -> Response<ResponseBody> {
     let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
     let result = dispatch(
@@ -696,7 +699,7 @@ async fn respond_notifications(
         },
     )
     .await;
-    boxed(result.unwrap_or_else(JsonError::into_response))
+    boxed(result.unwrap_or_else(ApiError::into_response))
 }
 
 async fn respond_xml_object(
@@ -795,7 +798,7 @@ async fn respond_xml_resumable(
 async fn respond_rewrite(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
-    parsed: Result<json::rewrite::RewriteRequest, JsonError>,
+    parsed: Result<json::rewrite::RewriteRequest, ApiError>,
 ) -> Response<ResponseBody> {
     let parsed = authenticated(&request, ctx, parsed).await;
     let deadline = ctx.start_object_deadline(DeadlineWatch::Enforced);
@@ -814,7 +817,7 @@ async fn respond_rewrite(
 async fn respond_json_object(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
-    parsed: Result<ObjectRequest, JsonError>,
+    parsed: Result<ObjectRequest, ApiError>,
 ) -> Response<ResponseBody> {
     let parsed = authenticated(&request, ctx, parsed).await;
     let operation = parsed.as_ref().ok().map(|(operation, _)| operation);
@@ -856,7 +859,7 @@ async fn respond_json_object(
 async fn respond_project(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
-    parsed: Result<(json::ProjectRequest, json::Fields), JsonError>,
+    parsed: Result<(json::ProjectRequest, json::Fields), ApiError>,
 ) -> Response<ResponseBody> {
     let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
     let result = dispatch(
@@ -868,14 +871,14 @@ async fn respond_project(
         },
     )
     .await;
-    boxed(result.unwrap_or_else(JsonError::into_response))
+    boxed(result.unwrap_or_else(ApiError::into_response))
 }
 
 async fn respond_bucket(
     request: Request<Incoming>,
     ctx: RequestCtx<'_>,
     profile: CompatProfile,
-    parsed: Result<json::BucketRequest, JsonError>,
+    parsed: Result<json::BucketRequest, ApiError>,
 ) -> Response<ResponseBody> {
     let (state, base) = (ctx.state, ctx.endpoints.api_base_url());
     let result = dispatch(request, ctx, parsed, |request, operation, caller| {
@@ -884,7 +887,7 @@ async fn respond_bucket(
     .await;
     let response = result
         .map_err(|error| legacy_bucket_error(error, profile))
-        .unwrap_or_else(JsonError::into_response);
+        .unwrap_or_else(ApiError::into_response);
     if profile == CompatProfile::FakeGcsServer && response.status() != StatusCode::NOT_MODIFIED {
         return boxed(legacy_bucket_body(response).await);
     }
@@ -892,12 +895,13 @@ async fn respond_bucket(
 }
 
 /// fake-gcs-server reports these bucket errors with its own reasons and messages.
-fn legacy_bucket_error(mut error: JsonError, profile: CompatProfile) -> JsonError {
+fn legacy_bucket_error(mut error: ApiError, profile: CompatProfile) -> ApiError {
     // Only 400 errors carry these kinds.
     if profile == CompatProfile::FakeGcsServer
         && matches!(
             error.kind,
-            json::ErrorKind::InvalidArgument | json::ErrorKind::LegacyParseError
+            crate::api_error::ErrorKind::InvalidArgument
+                | crate::api_error::ErrorKind::LegacyParseError
         )
     {
         error.reason = "invalid";

@@ -608,9 +608,9 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api_error::ApiError;
     use crate::grpc::test_support::assert_code;
     use crate::grpc::v2::access_status;
-    use crate::json::JsonError;
     use crate::storage::test_fixtures::PERMISSIVE;
     use std::sync::Arc;
 
@@ -1001,7 +1001,7 @@ mod tests {
     #[test]
     fn bidi_shared_error_status() {
         let unsupported = access_status(
-            JsonError::new(
+            ApiError::new(
                 hyper::StatusCode::NOT_IMPLEMENTED,
                 "notImplemented",
                 "Unsupported setting",
@@ -1012,7 +1012,7 @@ mod tests {
         assert!(!unsupported.details().is_empty());
         assert_eq!(
             access_status(
-                JsonError::new(
+                ApiError::new(
                     hyper::StatusCode::SERVICE_UNAVAILABLE,
                     "backendError",
                     "Storage unavailable"

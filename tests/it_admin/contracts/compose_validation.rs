@@ -1,9 +1,9 @@
-use gcs_mimic::json::{self, compose};
+use gcs_mimic::json::compose;
 use gcs_mimic::object::{MapPatch, Patch, WriteMode};
 use hyper::StatusCode;
 use serde_json::{Value, json};
 
-fn parse(value: Value) -> Result<compose::ComposeRequest, json::JsonError> {
+fn parse(value: Value) -> Result<compose::ComposeRequest, gcs_mimic::ApiError> {
     compose::parse_compose(value.to_string().as_bytes(), "compose-bucket")
 }
 

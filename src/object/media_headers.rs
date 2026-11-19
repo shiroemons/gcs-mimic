@@ -1,16 +1,16 @@
 //! Representation headers of an object media download, shared by the JSON and XML adapters.
 
 use super::ObjectRecord;
+use crate::api_error::ApiError;
 use crate::base64::encode as base64;
 use crate::etag::object_etag;
-use crate::json::JsonError;
 use hyper::{HeaderMap, header::HeaderValue};
 
 /// The `Cache-Control` Cloud Storage sends with JSON API errors and media downloads.
 pub(crate) const NO_STORE_CACHE_CONTROL: &str = "no-cache, no-store, max-age=0, must-revalidate";
 
 /// Representation headers for an untranscoded media download.
-pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
+pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, ApiError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
         // The transport substitutes stored/default cache metadata only for an allUsers read grant.
@@ -51,7 +51,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
     ] {
         headers.insert(
             key,
-            HeaderValue::from_str(&value).map_err(|_| JsonError::invalid_stored_header())?,
+            HeaderValue::from_str(&value).map_err(|_| ApiError::invalid_stored_header())?,
         );
     }
     for (key, value) in [
@@ -62,7 +62,7 @@ pub(crate) fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, J
         if let Some(value) = value {
             headers.insert(
                 key,
-                HeaderValue::from_str(value).map_err(|_| JsonError::invalid_stored_header())?,
+                HeaderValue::from_str(value).map_err(|_| ApiError::invalid_stored_header())?,
             );
         }
     }

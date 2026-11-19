@@ -1,4 +1,4 @@
-use super::JsonError;
+use super::ApiError;
 use crate::bucket::cors::{CorsRequest, origin};
 use hyper::{
     HeaderMap, Method, StatusCode, Uri,
@@ -21,16 +21,16 @@ pub(crate) fn is_route(uri: &Uri) -> bool {
     })
 }
 
-pub(crate) fn requested_headers(headers: &HeaderMap) -> Result<Vec<HeaderName>, JsonError> {
+pub(crate) fn requested_headers(headers: &HeaderMap) -> Result<Vec<HeaderName>, ApiError> {
     let mut names = Vec::new();
     for value in headers.get_all("access-control-request-headers") {
         let value = value
             .to_str()
-            .map_err(|_| JsonError::invalid_argument("Invalid CORS request headers"))?;
+            .map_err(|_| ApiError::invalid_argument("Invalid CORS request headers"))?;
         for name in value.split(',') {
             names.push(
                 HeaderName::from_bytes(name.trim().as_bytes())
-                    .map_err(|_| JsonError::invalid_argument("Invalid CORS request headers"))?,
+                    .map_err(|_| ApiError::invalid_argument("Invalid CORS request headers"))?,
             );
         }
     }
@@ -40,7 +40,7 @@ pub(crate) fn requested_headers(headers: &HeaderMap) -> Result<Vec<HeaderName>, 
 pub(crate) fn response_headers(
     headers: &HeaderMap,
     request: CorsRequest,
-) -> Result<HeaderMap, JsonError> {
+) -> Result<HeaderMap, ApiError> {
     let mut result = HeaderMap::new();
     // Cloud Storage sends these as two fields on every JSON API response, with or without an
     // Origin request header and on errors (observed 2026-10-31).

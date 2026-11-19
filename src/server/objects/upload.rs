@@ -6,9 +6,10 @@ use crate::server::upload_drive::{
     CatalogWait, UploadEnd, UploadSender, drive_upload, upload_channel,
 };
 use crate::{
+    api_error::ApiError,
     bucket::BucketAccess,
     csek::CustomerKey,
-    json::{self, JsonError, UploadRequest},
+    json::{self, UploadRequest},
     object::{ExpectedHashes, ObjectError, ObjectRecord, UploadChunk},
     server::{ObjectCtx, stream_upload},
     storage::{ObjectUpload, ReplayInvocation, UploadCheck},
@@ -40,7 +41,7 @@ impl Replay {
         request: &Request<Incoming>,
         ctx: ObjectCtx<'_>,
         key: Option<CustomerKey>,
-    ) -> Result<Self, JsonError> {
+    ) -> Result<Self, ApiError> {
         Ok(Self {
             token: idempotency_token(request.headers())?,
             request: format!(
@@ -65,7 +66,7 @@ pub(super) async fn insert(
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
     target: UploadRequest<String>,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     let UploadRequest {
         bucket,
         name,
@@ -125,7 +126,7 @@ pub(super) async fn insert(
     };
     let record = drive_upload(CatalogWait::Upload(ctx), upload, &sender, producer)
         .await
-        .map_err(crate::server::upload_drive::DriveError::into_error::<JsonError>)?;
+        .map_err(crate::server::upload_drive::DriveError::into_error::<ApiError>)?;
     Written::keyed(&record, ctx, params.projection, key, acl)
 }
 
@@ -134,7 +135,7 @@ pub(super) async fn multipart(
     ctx: ObjectCtx<'_>,
     access: BucketAccess,
     target: UploadRequest<Option<String>>,
-) -> Result<Written, JsonError> {
+) -> Result<Written, ApiError> {
     let UploadRequest {
         bucket,
         name,
@@ -144,7 +145,7 @@ pub(super) async fn multipart(
     // Cloud Storage stored an `uploadType=multipart` request whose body is not multipart as a
     // media upload (recorded 200 for `text/plain`).
     if !crate::multipart::is_multipart_content_type(request.headers()) {
-        let name = name.ok_or_else(JsonError::missing_object_name)?;
+        let name = name.ok_or_else(ApiError::missing_object_name)?;
         let target = UploadRequest {
             bucket,
             name,
@@ -159,9 +160,9 @@ pub(super) async fn multipart(
     let key = json::request_key(request.headers())?;
     let boundary = crate::multipart::multipart_boundary(request.headers())?;
     let replay = Replay::of(&request, ctx, key)?;
-    if content_length(request.headers())
-        .is_some_and(|length| length > max_bytes.saturating_add(crate::multipart::FRAMING_LIMIT))
-    {
+    if content_length(request.headers()).is_some_and(|length| {
+        length > max_bytes.saturating_add(crate::json::MULTIPART_FRAMING_LIMIT)
+    }) {
         return Err(ObjectError::TooLarge.into());
     }
     let mut permit = ctx.await_catalog(catalog.wait_object_upload()).await?;
@@ -245,7 +246,7 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     upload: impl Future<Output = Result<ObjectRecord, ObjectError>>,
     sender: UploadSender,
     expected: ExpectedHashes,
-) -> Result<ObjectRecord, JsonError> {
+) -> Result<ObjectRecord, ApiError> {
     let max_bytes = ctx.config.max_object_bytes;
     let streaming = async {
         let mut size = 0_u64;
@@ -253,9 +254,9 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
             size = size
                 .checked_add(bytes.len() as u64)
                 .filter(|size| *size <= max_bytes)
-                .ok_or_else(|| JsonError::from(ObjectError::TooLarge))?;
+                .ok_or_else(|| ApiError::from(ObjectError::TooLarge))?;
             if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
-                return Ok::<_, JsonError>(UploadEnd::EofWithHashes(expected));
+                return Ok::<_, ApiError>(UploadEnd::EofWithHashes(expected));
             }
         }
         let expected = multipart.checksums(expected).await?;
@@ -264,5 +265,5 @@ async fn stream_multipart<B: Body<Data = Bytes> + Unpin>(
     };
     drive_upload(CatalogWait::Upload(ctx), upload, &sender, streaming)
         .await
-        .map_err(crate::server::upload_drive::DriveError::into_error::<JsonError>)
+        .map_err(crate::server::upload_drive::DriveError::into_error::<ApiError>)
 }

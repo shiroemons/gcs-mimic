@@ -1,5 +1,5 @@
 use super::{
-    JsonError, Projection, object_resource,
+    ApiError, Projection, object_resource,
     query::{boolean, projection, standard_parameters},
 };
 use crate::percent::parse_query;
@@ -16,24 +16,24 @@ pub(crate) struct ObjectListParams {
     pub empty_page: bool,
 }
 
-pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
+pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, ApiError> {
     let mut params = parse_query(raw)?;
     super::Fields::take(&mut params, super::Schema::Objects)?;
-    standard_parameters(&mut params, &[], JsonError::unsupported_object)?;
+    standard_parameters(&mut params, &[], ApiError::unsupported_object)?;
     if params
         .remove("filter")
         .is_some_and(|filter| !filter.is_empty())
     {
-        return Err(JsonError::unsupported_object("filter"));
+        return Err(ApiError::unsupported_object("filter"));
     }
     let include_folders_as_prefixes = boolean(&mut params, "includeFoldersAsPrefixes")?;
     // The routing layer applies the value; prettyPrint=false selects compact bodies.
     boolean(&mut params, "prettyPrint")?;
     match params.remove("alt").as_deref() {
         None | Some("json") => {}
-        Some("media") => return Err(JsonError::unsupported_object("alt=media on objects.list")),
+        Some("media") => return Err(ApiError::unsupported_object("alt=media on objects.list")),
         Some(_) => {
-            return Err(JsonError::new(
+            return Err(ApiError::new(
                 hyper::StatusCode::BAD_REQUEST,
                 "invalidAltValue",
                 "alt must be json for object listing",
@@ -60,7 +60,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         match_glob: params
             .remove("matchGlob")
             .filter(|pattern| !pattern.is_empty())
-            .map(|pattern| crate::match_glob::Glob::parse(&pattern).map_err(JsonError::from))
+            .map(|pattern| crate::match_glob::Glob::parse(&pattern).map_err(ApiError::from))
             .transpose()?,
         start_offset: params.remove("startOffset").unwrap_or_default(),
         end_offset: params.remove("endOffset").unwrap_or_default(),
@@ -90,7 +90,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
     })
 }
 
-impl From<ListQueryError> for JsonError {
+impl From<ListQueryError> for ApiError {
     fn from(error: ListQueryError) -> Self {
         match error {
             ListQueryError::SoftDeletedWithVersions => Self::invalid_argument(
@@ -111,7 +111,7 @@ pub(crate) fn object_list(
     page: &ObjectListPage,
     params: &ObjectListParams,
     base_url: &str,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     // Recorded order: kind, nextPageToken, items. The position of prefixes is unverified.
     let mut value = Map::from_iter([("kind".into(), "storage#objects".into())]);
     if let Some(cursor) = &page.next {

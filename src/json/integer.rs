@@ -1,6 +1,6 @@
 //! JSON API integer query parameters and the wording Cloud Storage refuses each with.
 
-use super::JsonError;
+use super::ApiError;
 use crate::decimal::Grammar;
 use std::collections::BTreeMap;
 
@@ -8,13 +8,13 @@ use std::collections::BTreeMap;
 pub(super) fn take_long(
     query: &mut BTreeMap<String, String>,
     key: &str,
-) -> Result<Option<i64>, JsonError> {
+) -> Result<Option<i64>, ApiError> {
     query
         .remove(key)
         .map(|value| {
             Grammar::SignedNoPlus
                 .parse(&value)
-                .ok_or_else(|| JsonError::invalid_long(&value).at_parameter(key))
+                .ok_or_else(|| ApiError::invalid_long(&value).at_parameter(key))
         })
         .transpose()
 }
@@ -23,12 +23,12 @@ pub(super) fn take_long(
 pub(super) fn take_int64(
     query: &mut BTreeMap<String, String>,
     key: &str,
-) -> Result<Option<i64>, JsonError> {
+) -> Result<Option<i64>, ApiError> {
     query
         .remove(key)
         .map(|value| {
             Grammar::SignedNoPlus.parse(&value).ok_or_else(|| {
-                JsonError::invalid_parameter(format!("{key} must be an int64")).at_parameter(key)
+                ApiError::invalid_parameter(format!("{key} must be an int64")).at_parameter(key)
             })
         })
         .transpose()
@@ -38,13 +38,13 @@ pub(super) fn take_int64(
 /// value` wording (objects.list and hmacKeys.list; buckets.list keeps its own wording).
 pub(super) fn take_max_results(
     query: &mut BTreeMap<String, String>,
-) -> Result<Option<u32>, JsonError> {
+) -> Result<Option<u32>, ApiError> {
     query
         .remove("maxResults")
         .map(|value| {
             Grammar::Digits
                 .parse(&value)
-                .ok_or_else(|| JsonError::invalid_unsigned(&value).at_parameter("maxResults"))
+                .ok_or_else(|| ApiError::invalid_unsigned(&value).at_parameter("maxResults"))
         })
         .transpose()
 }

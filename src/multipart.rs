@@ -3,7 +3,7 @@
 //! The parser frames parts and yields their header blocks and decoded bytes without collecting a
 //! body; what a part means (JSON metadata, a form field, a media payload) is the caller's concern.
 
-use crate::json::{BAD_CONTENT_TYPE_TEXT, JsonError, MISSING_END_BOUNDARY_TEXT};
+use crate::api_error::{ApiError, BAD_CONTENT_TYPE_TEXT, MISSING_END_BOUNDARY_TEXT};
 use bytes::{Buf, Bytes, BytesMut};
 use http_body_util::BodyExt;
 use hyper::{
@@ -17,25 +17,20 @@ mod transfer;
 
 const HEADER_CAP: usize = 8192;
 const DISCARD_CAP: usize = 4096;
-/// What a multipart upload may send besides its media: the metadata and checksum parts at
-/// `RESOURCE_BODY_LIMIT` each, and the headers, delimiter padding and discarded text, which stay
-/// under 256 KiB.
-pub(crate) const FRAMING_LIMIT: u64 =
-    2 * crate::bounded_body::RESOURCE_BODY_LIMIT as u64 + 256 * 1024;
 
-pub(crate) fn invalid() -> JsonError {
-    JsonError::invalid_parameter("Invalid multipart/related framing")
+pub(crate) fn invalid() -> ApiError {
+    ApiError::invalid_parameter("Invalid multipart/related framing")
 }
 
 /// A JSON upload body that ended before its closing delimiter: the upload front end answers
 /// with a bare text page.
-fn missing_end_boundary() -> JsonError {
-    JsonError::invalid_parameter("Missing end boundary in multipart body.")
+fn missing_end_boundary() -> ApiError {
+    ApiError::invalid_parameter("Missing end boundary in multipart body.")
         .with_plain(&MISSING_END_BOUNDARY_TEXT)
 }
 
 /// A part's trimmed `Content-Type`, if it has one.
-pub(crate) fn part_content_type(headers: &HeaderMap) -> Result<Option<String>, JsonError> {
+pub(crate) fn part_content_type(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
     headers
         .get("content-type")
         .map(|v| {
@@ -87,7 +82,7 @@ pub(crate) struct Parameter {
 
 impl MediaType {
     // Quoted parameter values may contain semicolons and escaped quotes.
-    pub(crate) fn parse(value: &str, quotes: ParamQuotes) -> Result<Self, JsonError> {
+    pub(crate) fn parse(value: &str, quotes: ParamQuotes) -> Result<Self, ApiError> {
         let (mime, rest) = value.split_once(';').unwrap_or((value, ""));
         let mime = mime.trim();
         if !mime
@@ -122,7 +117,7 @@ impl MediaType {
     }
 
     /// The `boundary` parameter, checked against the RFC 2046 grammar.
-    fn boundary(&self) -> Result<String, JsonError> {
+    fn boundary(&self) -> Result<String, ApiError> {
         let boundary = self
             .parameters
             .iter()
@@ -144,7 +139,7 @@ impl MediaType {
 
 impl Parameter {
     /// The parameter at the start of `rest` and the text after its value.
-    fn parse(rest: &str, quotes: ParamQuotes) -> Result<(Self, &str), JsonError> {
+    fn parse(rest: &str, quotes: ParamQuotes) -> Result<(Self, &str), ApiError> {
         let (key, tail) = rest.split_once('=').ok_or_else(invalid)?;
         let key = key.trim().to_ascii_lowercase();
         if !token(&key) {
@@ -195,7 +190,7 @@ impl Parameter {
     }
 }
 
-pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
     let value = headers
         .get("content-type")
         .ok_or_else(invalid)?
@@ -213,7 +208,7 @@ pub(crate) fn multipart_boundary(headers: &HeaderMap) -> Result<String, JsonErro
     for Parameter { name, value } in &media.parameters {
         if name != "boundary" && !(name == "type" && value.eq_ignore_ascii_case("application/json"))
         {
-            return Err(JsonError::unsupported_object(name));
+            return Err(ApiError::unsupported_object(name));
         }
     }
     Ok(boundary)
@@ -232,7 +227,7 @@ pub(crate) fn is_multipart_content_type(headers: &HeaderMap) -> bool {
         })
 }
 
-pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
     let mut values = headers.get_all("content-type").iter();
     let value = values.next().ok_or_else(invalid)?;
     if values.next().is_some() {
@@ -251,7 +246,7 @@ pub(crate) fn batch_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
 }
 
 /// XML POST Object forms use the same RFC 2046 boundary grammar as multipart/related.
-pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, ApiError> {
     let value = headers
         .get("content-type")
         .ok_or_else(invalid)?
@@ -265,7 +260,7 @@ pub(crate) fn form_data_boundary(headers: &HeaderMap) -> Result<String, JsonErro
     // Forms must be UTF-8 encoded; another declared charset would change field values.
     for Parameter { name, value } in &media.parameters {
         if name != "boundary" && !(name == "charset" && value.eq_ignore_ascii_case("utf-8")) {
-            return Err(JsonError::unsupported_object(name));
+            return Err(ApiError::unsupported_object(name));
         }
     }
     Ok(boundary)
@@ -391,7 +386,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         if self.framing == Framing::Lf { 1 } else { 2 }
     }
 
-    async fn fill(&mut self) -> Result<(), JsonError> {
+    async fn fill(&mut self) -> Result<(), ApiError> {
         while self.pending.is_empty() && !self.eof {
             match self.body.frame().await {
                 Some(Ok(frame)) => self.pending = frame.into_data().map_err(|_| invalid())?,
@@ -405,7 +400,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(())
     }
 
-    async fn line(&mut self, cap: usize, end: LineEnd) -> Result<Vec<u8>, JsonError> {
+    async fn line(&mut self, cap: usize, end: LineEnd) -> Result<Vec<u8>, ApiError> {
         let mut scanned = 0;
         loop {
             if let Some((end, terminator)) = self.line_end(scanned) {
@@ -456,7 +451,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     /// Consumes the delimiter at the start of the buffer and the rest of its line.
-    async fn delimiter(&mut self) -> Result<(), JsonError> {
+    async fn delimiter(&mut self) -> Result<(), ApiError> {
         self.buffer.advance(self.delimiter.len());
         let line = self.line(HEADER_CAP, LineEnd::CrlfOrEof).await?;
         let tail = if let Some(tail) = line.strip_prefix(b"--") {
@@ -473,7 +468,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(())
     }
 
-    pub(crate) async fn start(&mut self) -> Result<(), JsonError> {
+    pub(crate) async fn start(&mut self) -> Result<(), ApiError> {
         let mut discarded = 0;
         loop {
             if self.framing == Framing::Detect
@@ -512,7 +507,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     /// Read one bounded part header block; form-data callers need Content-Disposition.
-    pub(crate) async fn part_headers(&mut self) -> Result<HeaderMap, JsonError> {
+    pub(crate) async fn part_headers(&mut self) -> Result<HeaderMap, ApiError> {
         let headers = self.header_block().await?;
         PartEncoding::try_from(&headers)?.require_identity()?;
         Ok(headers)
@@ -521,7 +516,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     /// Read the header block of a part whose bytes follow, applying its transfer encoding to
     /// [`Self::next_chunk`]. Returns the part's `Content-Type`, which must be a valid media type
     /// if present.
-    pub(crate) async fn media_part_headers(&mut self) -> Result<Option<String>, JsonError> {
+    pub(crate) async fn media_part_headers(&mut self) -> Result<Option<String>, ApiError> {
         let headers = self.header_block().await?;
         let value = part_content_type(&headers)?;
         self.encoding = PartEncoding::try_from(&headers)?;
@@ -531,7 +526,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Ok(value)
     }
 
-    async fn header_block(&mut self) -> Result<HeaderMap, JsonError> {
+    async fn header_block(&mut self) -> Result<HeaderMap, ApiError> {
         if self.closed {
             return Err(invalid());
         }
@@ -561,7 +556,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     /// The next decoded bytes of the current part, or `None` once its delimiter is read.
-    pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
+    pub(crate) async fn next_chunk(&mut self) -> Result<Option<Bytes>, ApiError> {
         loop {
             let Some(raw) = self.raw_chunk().await? else {
                 std::mem::take(&mut self.encoding).finish()?;
@@ -574,7 +569,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
-    async fn raw_chunk(&mut self) -> Result<Option<Bytes>, JsonError> {
+    async fn raw_chunk(&mut self) -> Result<Option<Bytes>, ApiError> {
         loop {
             if let Some(index) = self.find_delimiter() {
                 if index > 0 {
@@ -597,7 +592,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         }
     }
 
-    pub(crate) async fn finish(&mut self) -> Result<(), JsonError> {
+    pub(crate) async fn finish(&mut self) -> Result<(), ApiError> {
         if !self.closed {
             return Err(invalid());
         }
@@ -637,7 +632,7 @@ mod tests {
     const FRAMINGS: [Framing; 2] = [Framing::Crlf, Framing::Detect];
 
     /// Parses a CRLF-framed body strictly and with detected framing; both must agree on it.
-    async fn parse(body: impl Into<Bytes>) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
+    async fn parse(body: impl Into<Bytes>) -> Result<(Vec<u8>, Vec<u8>), ApiError> {
         let body = body.into();
         let strict = parse_with(Full::new(body.clone()), Framing::Crlf).await;
         let detected = parse_with(Full::new(body), Framing::Detect).await;
@@ -648,7 +643,7 @@ mod tests {
     async fn parse_with<B: Body<Data = Bytes> + Unpin>(
         body: B,
         framing: Framing,
-    ) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
+    ) -> Result<(Vec<u8>, Vec<u8>), ApiError> {
         parse_bounded(body, "boundary", framing).await
     }
 
@@ -656,7 +651,7 @@ mod tests {
         body: B,
         boundary: &str,
         framing: Framing,
-    ) -> Result<(Vec<u8>, Vec<u8>), JsonError> {
+    ) -> Result<(Vec<u8>, Vec<u8>), ApiError> {
         let mut parser = Multipart::with_framing(body, boundary, framing);
         parser.start().await?;
         parser.part_headers().await?;
@@ -673,7 +668,7 @@ mod tests {
 
     async fn read_part<B: Body<Data = Bytes> + Unpin>(
         parser: &mut Multipart<B>,
-    ) -> Result<Vec<u8>, JsonError> {
+    ) -> Result<Vec<u8>, ApiError> {
         let mut part = Vec::new();
         while let Some(chunk) = parser.next_chunk().await? {
             part.extend_from_slice(&chunk);

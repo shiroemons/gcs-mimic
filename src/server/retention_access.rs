@@ -8,7 +8,7 @@
 //! that names a retention for its destination needs storage.objects.setRetention as an upload
 //! does.
 
-use super::{BucketAccess, Catalog, JsonError, auth};
+use super::{ApiError, BucketAccess, Catalog, auth};
 use crate::object::{ObjectMetadataUpdate, Patch, retention::UnlockedOverride};
 
 async fn require(
@@ -16,7 +16,7 @@ async fn require(
     access: &BucketAccess,
     bucket: &str,
     permission: auth::Permission,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if let BucketAccess::Policy { identity, .. } = access {
         catalog
             .bucket_access(bucket, identity.as_ref(), permission)
@@ -30,7 +30,7 @@ pub(super) async fn authorize_upload(
     access: &BucketAccess,
     bucket: &str,
     metadata: &ObjectMetadataUpdate,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if metadata.retention != Patch::Keep {
         require(catalog, access, bucket, auth::OBJECTS_SET_RETENTION).await?;
     }
@@ -43,7 +43,7 @@ pub(crate) async fn authorize_update(
     bucket: &str,
     update: &mut ObjectMetadataUpdate,
     retention_override: UnlockedOverride,
-) -> Result<(), JsonError> {
+) -> Result<(), ApiError> {
     if update.retention == Patch::Keep {
         return Ok(());
     }

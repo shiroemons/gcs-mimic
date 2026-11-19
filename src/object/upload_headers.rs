@@ -4,25 +4,23 @@
 //! only reads the declarations.
 
 use super::{Checksum, ExpectedHashes, HashAlgorithm};
+use crate::api_error::ApiError;
 use crate::hashing::decode_hash;
-use crate::json::JsonError;
 use hyper::HeaderMap;
 
 /// The `Content-Type` an upload stores: empty when the header is absent (recorded: the resource
 /// omits `contentType`), otherwise a single visible-ASCII value whose media type is
 /// `type/subtype` made of token characters.
-pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonError> {
+pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
     if headers.get_all("content-type").iter().count() > 1 {
-        return Err(JsonError::invalid_parameter(
-            "Duplicate Content-Type header",
-        ));
+        return Err(ApiError::invalid_parameter("Duplicate Content-Type header"));
     }
     let content_type = headers
         .get("content-type")
         .map(|value| {
             value
                 .to_str()
-                .map_err(|_| JsonError::invalid_parameter("Invalid Content-Type header"))
+                .map_err(|_| ApiError::invalid_parameter("Invalid Content-Type header"))
         })
         .transpose()?
         .unwrap_or_default();
@@ -38,7 +36,7 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
             .split_once('/')
             .is_some_and(|(kind, subtype)| token(kind) && token(subtype))
     {
-        return Err(JsonError::invalid_parameter("Invalid Content-Type header"));
+        return Err(ApiError::invalid_parameter("Invalid Content-Type header"));
     }
     Ok(content_type.to_owned())
 }
@@ -46,12 +44,12 @@ pub(crate) fn upload_content_type(headers: &HeaderMap) -> Result<String, JsonErr
 /// The hashes an XML PUT declares with `X-Goog-Hash`. The JSON upload routes do not read the
 /// header this way: recorded media and multipart uploads and resumable initiations ignored it,
 /// and only the requests on a resumable session URI declare hashes with it.
-pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, JsonError> {
+pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, ApiError> {
     let mut hashes = ExpectedHashes::default();
     // A repeated algorithm is refused even with an equal value, before it is decoded.
     each_declared_hash(headers, "Invalid x-goog-hash header", |algorithm, value| {
         if hashes.declares(algorithm) {
-            return Err(JsonError::invalid_parameter(
+            return Err(ApiError::invalid_parameter(
                 "Duplicate x-goog-hash algorithm",
             ));
         }
@@ -62,7 +60,7 @@ pub(crate) fn declared_hashes(headers: &HeaderMap) -> Result<ExpectedHashes, Jso
 }
 
 /// Decodes a base64 digest of the algorithm's width.
-pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, JsonError> {
+pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, ApiError> {
     Ok(match algorithm {
         HashAlgorithm::Md5 => Checksum::Md5(decode_hash(text)?),
         HashAlgorithm::Crc32c => Checksum::Crc32c(u32::from_be_bytes(decode_hash(text)?)),
@@ -75,21 +73,21 @@ pub(crate) fn decode(algorithm: HashAlgorithm, text: &str) -> Result<Checksum, J
 pub(crate) fn each_declared_hash(
     headers: &HeaderMap,
     malformed: &'static str,
-    mut declare: impl FnMut(HashAlgorithm, &str) -> Result<(), JsonError>,
-) -> Result<(), JsonError> {
+    mut declare: impl FnMut(HashAlgorithm, &str) -> Result<(), ApiError>,
+) -> Result<(), ApiError> {
     for header in headers.get_all("x-goog-hash") {
         let header = header
             .to_str()
-            .map_err(|_| JsonError::invalid_parameter(malformed))?;
+            .map_err(|_| ApiError::invalid_parameter(malformed))?;
         for entry in header.split(',') {
             let (token, value) = entry
                 .trim()
                 .split_once('=')
-                .ok_or_else(|| JsonError::invalid_parameter(malformed))?;
+                .ok_or_else(|| ApiError::invalid_parameter(malformed))?;
             let algorithm = match token {
                 "md5" => HashAlgorithm::Md5,
                 "crc32c" => HashAlgorithm::Crc32c,
-                _ => return Err(JsonError::unsupported_object("x-goog-hash algorithm")),
+                _ => return Err(ApiError::unsupported_object("x-goog-hash algorithm")),
             };
             declare(algorithm, value)?;
         }

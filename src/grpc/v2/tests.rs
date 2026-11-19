@@ -17,7 +17,10 @@ fn authentication_worker_failures_keep_their_source_and_unavailable_status() {
     let status = auth_error(failure());
     assert_eq!(status.code(), tonic::Code::Unavailable);
     assert_eq!(status.source().unwrap().to_string(), "verifier failure");
-    assert_eq!(crate::json::JsonError::from(failure()).status.as_u16(), 503);
+    assert_eq!(
+        crate::api_error::ApiError::from(failure()).status.as_u16(),
+        503
+    );
 }
 
 #[tokio::test]

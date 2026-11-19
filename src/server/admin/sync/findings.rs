@@ -1,6 +1,6 @@
 use super::{ObservationCursor, SyncCursor};
 use crate::{
-    json::JsonError,
+    api_error::ApiError,
     storage::sync_state::{
         OpaqueId,
         observation::{
@@ -17,7 +17,7 @@ pub(super) fn value(
     item: &Item,
     prefix: &str,
     quota: Option<&WritebackSummary>,
-) -> Result<Value, JsonError> {
+) -> Result<Value, ApiError> {
     let (reason, remedy) = match &item.reason {
         FindingReason::RootStop(PauseReason::SourceUnrepresentable) => (
             "SourceUnrepresentable",
