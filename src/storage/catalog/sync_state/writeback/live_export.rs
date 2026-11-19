@@ -1105,10 +1105,12 @@ impl Writeback {
                 {
                     return Ok(true);
                 }
-                let current = target(root, naming, &item.path)?
-                    .as_ref()
-                    .map(fsutil::stat_identity)
-                    .transpose()?;
+                // A directory still at the target holds no installed copy. Failing on it, as
+                // opening a file there does, replaced the error that ended the attempt.
+                let current = match target_entry(root, naming, &item.path)? {
+                    TargetEntry::File(file) => Some(fsutil::stat_identity(&file)?),
+                    TargetEntry::Directory | TargetEntry::Missing => None,
+                };
                 Ok(current.is_some_and(|current| current.node() == staged.node()))
             } else {
                 Ok(item.kind == Kind::Remove && entry(workspace, item.token.id)?.is_some())

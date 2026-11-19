@@ -227,7 +227,8 @@ async fn references_beside_the_target_keep_nothing() {
 
 /// A removal the filesystem refuses, because the directory holds an entry, may not be removed or
 /// is in use, keeps the directory as a collision without failing the export. Any other error
-/// fails the attempt, and a retry removes the directory and completes.
+/// fails the attempt with its own cause, not one about the directory still at the target, and a
+/// retry removes the directory and completes.
 #[tokio::test]
 async fn a_refused_removal_is_a_collision_and_a_failed_one_is_retried() {
     for kind in [
@@ -254,7 +255,11 @@ async fn a_refused_removal_is_a_collision_and_a_failed_one_is_retried() {
         0,
         Fault::Io(io::ErrorKind::Other),
     );
-    assert!(finish(&fixture, &operation).await.is_err());
+    let failed = finish(&fixture, &operation).await;
+    let Err(Error::Admin(AdminError::Io(cause))) = &failed else {
+        panic!("{failed:?}")
+    };
+    assert_eq!(cause.kind(), io::ErrorKind::Other);
     assert!(fixture.tree.0.join(DIRECTORY).is_dir());
     let result = finish(&fixture, &operation).await.unwrap();
     assert_exported(&fixture, result).await;

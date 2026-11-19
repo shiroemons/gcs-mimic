@@ -124,6 +124,29 @@ async fn a_collision_at_installation_counts_the_object_and_holds_back_nothing() 
     catalog.close().await.unwrap();
 }
 
+/// A removal that fails for a passing reason, such as an interrupted call, keeps that cause: the
+/// export retries it and installs the object in the directory's place.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_transient_removal_failure_is_retried() {
+    let (data, tree, catalog, bucket, root) = live_fixture().await;
+    drop(root);
+    fs::create_dir_all(tree.0.join(TARGET)).unwrap();
+    let mut started = Started::start(catalog, &data.0, &tree.0).await;
+    fault::arm(
+        &tree.0,
+        Step::SyncEmptyDirectoryRemove,
+        0,
+        Fault::Io(io::ErrorKind::Interrupted),
+    );
+    let record = publish_named(&started.catalog, &bucket, "a", BODY, Origin::Api).await;
+    assert_eq!(started.wait().await.unwrap().reason, WaitReason::Ready);
+    assert_eq!(fault::pending(&tree.0), 0);
+    assert_eq!(fs::read(tree.0.join(TARGET)).unwrap(), BODY);
+    assert_eq!(tracked(&started, &bucket).await, Some(record.generation));
+    assert!(started.root.findings_page(0, 256).await.unwrap().is_empty());
+    started.close().await;
+}
+
 /// A directory that holds only a file scans ignore keeps the object out of the tree as one the
 /// tree cannot hold: the wait is ready, the baseline completes and a file deleted from the tree
 /// still deletes its object.
