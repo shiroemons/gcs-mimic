@@ -210,8 +210,9 @@ impl EntryReportSender {
         }
     }
 
-    /// The root files warned about so far, in order.
-    #[cfg(test)]
+    /// The root files warned about so far, in order. Only the mirror's tests, which run where
+    /// synchronization does, read them.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn warned_root_files(&self) -> Vec<std::path::PathBuf> {
         self.warned
             .lock()
