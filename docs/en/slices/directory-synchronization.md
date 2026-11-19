@@ -951,9 +951,18 @@ that finds exactly the members of an undecided set again confirms it under the
 same revision instead of replacing it, also after an API write moved the journal;
 an approved or rejected set, or one from before a restart, is never confirmed
 again. An observed tree change leaves a set that waits for approval in place, and
-approving or rejecting it first inventories the tree again, so the decision
-applies to the members the tree shows then and a late notification about another
-path does not make the named revision stale. A set that waits keeps waiting
+approving or rejecting it first inventories the tree again at the current
+journal fence, so the decision applies to the members the tree shows then and a
+late notification about another path does not make the named revision stale.
+An API write since the set was taken keeps the revision named, inspectable and
+decidable when it touched no member, such as a write to another object or a
+metadata change of a member (a hold only stops a deletion, which then restores
+the file); one that replaced or deleted a member's object replaces the set at
+the decision, which returns 409. An update of a member's bucket, where
+versioning and soft delete decide whether a deleted object stays recoverable,
+also refuses the pages of the revision and replaces the set at the decision or
+the next inventory, whatever the tree shows. The journal does not record which
+bucket setting an update changed, so a label update counts as well. A set that waits keeps waiting
 until it is approved or rejected or every file it holds is back: a set that
 replaces it, because some files came back, others went or the tree gained
 files, waits whenever it holds one of those files, across a restart and an

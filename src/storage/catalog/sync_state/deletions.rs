@@ -18,10 +18,48 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+/// The set `d` waits for an approval or rejection: complete, valid, guarded and neither
+/// approved nor rejected.
+macro_rules! awaiting {
+    () => {
+        "d.complete=1 AND d.valid=1 AND d.guarded=1 AND d.authorization=0"
+    };
+}
+
+/// No API change since the set `d`, joined with the journal state `j`, was taken may have made
+/// deleting its members do more than the approver saw: an update of a member's bucket in that
+/// incarnation, where versioning and soft delete decide whether a deleted object stays
+/// recoverable. The journal does not record which setting an update changed, so every such
+/// update counts, a label as much as versioning; a journal compacted past the set counts too.
+/// A hold or retention on a member's object only stops its deletion, which then restores the
+/// file, so a metadata change of a member does not count; a publish or delete of one changes
+/// its generation or liveness, which the inventory compares itself.
+macro_rules! unaffected {
+    () => {
+        "j.floor<=d.sequence AND NOT EXISTS(SELECT 1 FROM change_journal c WHERE c.sequence>d.sequence AND c.kind='bucket-update' AND EXISTS(SELECT 1 FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=0 AND m.bucket=c.bucket AND m.incarnation=c.incarnation))"
+    };
+}
+
+/// The set `d`, joined with the journal state `j`, can be read: taken in the current journal
+/// epoch and, unless it waits for a decision, at the journal's current sequence. A set that
+/// waits stays readable after an API write moved the journal, so that the status and the
+/// deletions view keep naming the revision a decision is asked for; the decision inventories
+/// the tree at the current fence before it applies (`begin_deletion_recheck`), and only a set
+/// carried to that fence is decided ([`matching`]).
+macro_rules! readable {
+    () => {
+        concat!(
+            "d.valid=1 AND d.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND (j.sequence=d.execution_sequence OR (",
+            awaiting!(),
+            " AND d.execution_sequence=d.sequence AND d.sequence<j.sequence))"
+        )
+    };
+}
+
 pub(in crate::storage) mod held;
 pub(in crate::storage) mod history;
 mod scan;
-pub(crate) use scan::{Confirmed, Inventory};
+pub(crate) use scan::{Confirmed, Inventory, Recheck};
 #[cfg(test)]
 mod tests;
 
@@ -220,10 +258,41 @@ fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
     super::enabled_fence(connection).map_err(unavailable)
 }
 
+/// Fails unless the root's set is `revision`, valid and at the journal's current sequence, as a
+/// decision and an execution need: the inventory before a decision carries a set that waits to
+/// that sequence, so nothing is decided about members the tree was not compared with since
+/// the last API write.
 fn matching(connection: &Connection, root: RootId, revision: OpaqueId) -> Result<(), CatalogError> {
     let valid: bool = sql::scalar(
         connection,
         "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND d.valid=1 AND d.complete=1 AND r.complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence)",
+        params![root, revision],
+    )?;
+    if valid {
+        Ok(())
+    } else {
+        Err(CatalogError::PreconditionFailed)
+    }
+}
+
+/// Fails unless the root's set is `revision`, [`readable!`] and [`unaffected!`], as a page of
+/// the deletions view needs: a set that waits for a decision stays inspectable after an API
+/// write that touched none of its members, and the pages of one whose members' bucket was
+/// updated are refused, since the decision on them will be.
+fn inspectable(
+    connection: &Connection,
+    root: RootId,
+    revision: OpaqueId,
+) -> Result<(), CatalogError> {
+    let valid: bool = sql::scalar(
+        connection,
+        concat!(
+            "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND r.complete=1 AND ",
+            readable!(),
+            " AND ",
+            unaffected!(),
+            ")"
+        ),
         params![root, revision],
     )?;
     if valid {
@@ -242,11 +311,13 @@ fn rejection_pending(connection: &Connection, root: RootId) -> Result<bool, Cata
     )?)
 }
 
+/// The root's set while it is [`readable!`]: at the journal's current sequence, or waiting for a
+/// decision in the current epoch.
 pub(super) fn read_set(
     connection: &Connection,
     root: RootId,
 ) -> Result<Option<DeletionSet>, CatalogError> {
-    sql::row(connection, "SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE root_id=?1 AND valid=1 AND complete=1 AND j.enabled=1 AND j.epoch=d.epoch AND j.sequence=d.execution_sequence", [root],|row|Ok(DeletionSet {
+    sql::row(connection, concat!("SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND ", readable!()), [root],|row|Ok(DeletionSet {
             revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,
         })).optional().map_err(unavailable)
 }
@@ -362,7 +433,7 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
-            matching(&tx,root,revision)?;
+            inspectable(&tx,root,revision)?;
             tx.prepare_cached("SELECT bucket,name,owner_project,incarnation,generation,path,ordinal FROM sync_deletion_members WHERE root_id=?1 AND ordinal>?2 ORDER BY ordinal LIMIT ?3")
                 .and_then(|mut statement|statement.query_map(params![root,after,limit],read_candidate)?.collect()).map_err(unavailable)
         }).await?)

@@ -15,7 +15,7 @@ use crate::{
             OpaqueId, Ordinal, PageLimit, SyncBinding,
             deletions::{
                 BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet,
-                EmptiedAtStart, Guard, Inventory, PendingRejection, Removal,
+                EmptiedAtStart, Guard, Inventory, PendingRejection, Recheck, Removal,
             },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
@@ -96,9 +96,11 @@ pub(super) enum Rechecked {
 /// notification no longer withdraws such a set. Finding the same members keeps the revision,
 /// whatever notification arrived since the last pass; finding others replaces the set, and the
 /// decision then fails as stale, naming the new one. Only the members decide, as in every
-/// inventory. A valid waiting set means the last pass let deletions be inferred, so no gate is
-/// consulted. A set that an API write moved the journal past is left to the next pass, and a
-/// change of the journal during this inventory leaves the decision to refuse the set as stale.
+/// inventory, so an API write since the set was taken keeps the revision unless it touched a
+/// member; an update of a member's bucket, which may make the deletions unrecoverable, replaces
+/// the set whatever the tree shows. A valid waiting set means the last pass let
+/// deletions be inferred, so no gate is consulted. A change of the journal during this
+/// inventory leaves the decision to refuse the set as stale.
 pub(super) async fn recheck(
     root: &RootLease,
     config: &Config,
@@ -106,8 +108,13 @@ pub(super) async fn recheck(
     interrupt: Interrupt<'_>,
 ) -> Result<Rechecked, SyncError> {
     let guard = Guard::from(config.sync_delete_guard);
-    let Some(inventory) = root.begin_deletion_recheck(guard, revision).await? else {
-        return Ok(Rechecked::NotAwaiting);
+    let inventory = match root.begin_deletion_recheck(guard, revision).await? {
+        Recheck::Confirm(inventory) => inventory,
+        Recheck::Replace => match root.begin_new_deletion_inventory(guard).await? {
+            Some(inventory) => inventory,
+            None => return Ok(Rechecked::NotAwaiting),
+        },
+        Recheck::NotAwaiting => return Ok(Rechecked::NotAwaiting),
     };
     match take_inventory(root, guard, inventory, interrupt).await {
         Ok(Some(set)) if set.revision == revision => Ok(Rechecked::Confirmed),

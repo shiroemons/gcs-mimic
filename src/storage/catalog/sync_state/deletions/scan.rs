@@ -76,12 +76,12 @@ pub(crate) enum Confirmed {
 
 /// Reads the root's set when an inventory at `current` may confirm it instead of replacing it:
 /// complete, taken in the same journal epoch at or before `current`, never executed from, under
-/// the same guard setting, and neither approved nor rejected. A decided revision is never
-/// handed out again, so a decision stays one-shot, and a restart starts a new epoch. A journal
-/// that moved since does not
-/// rule the set out: the inventory compares every member, generation and incarnation included,
-/// so a write that changed none of them, such as one to an unrelated object, keeps the revision
-/// someone may be about to approve or reject.
+/// the same guard setting, neither approved nor rejected, and [`unaffected!`] by an update of a
+/// member's bucket. A decided revision is never handed out again, so a
+/// decision stays one-shot, and a restart starts a new epoch. A journal that moved since does
+/// not rule the set out otherwise: the inventory compares every member, generation and
+/// incarnation included, so a write that changed none of them, such as one to an unrelated
+/// object, keeps the revision someone may be about to approve or reject.
 fn reusable(
     connection: &Connection,
     root: RootId,
@@ -90,10 +90,24 @@ fn reusable(
 ) -> Result<Option<OpaqueId>, CatalogError> {
     sql::optional_scalar(
         connection,
-        "SELECT revision FROM sync_deletion_sets WHERE root_id=?1 AND complete=1 AND epoch=?2 AND sequence<=?3 AND execution_sequence=sequence AND guard_enabled=?4 AND (guarded=0 OR authorization=0)",
+        concat!(
+            "SELECT d.revision FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.complete=1 AND d.epoch=?2 AND d.sequence<=?3 AND d.execution_sequence=d.sequence AND d.guard_enabled=?4 AND (d.guarded=0 OR d.authorization=0) AND ",
+            unaffected!()
+        ),
         params![root, current.revision, current.sequence, matches!(guard, Guard::Enabled)],
     )
     .map_err(unavailable)
+}
+
+/// How the inventory before a decision on a set starts.
+pub(crate) enum Recheck {
+    /// The set waits and may be confirmed: the inventory compares its members with the tree.
+    Confirm(Inventory),
+    /// The set waits, but a member's bucket was updated since, which may make its deletions
+    /// unrecoverable, so a new set must replace it whatever the tree shows.
+    Replace,
+    /// The set does not wait for a decision.
+    NotAwaiting,
 }
 
 /// Whether the candidates of `missing` are the members of the set `revision` that follow ordinal
@@ -152,16 +166,17 @@ impl RootLease {
         self.start_deletion_inventory(guard, Start::New).await
     }
 
-    /// Starts an inventory that confirms the set `revision` before an approval or rejection of
-    /// it, when that set still waits for one: valid, guarded, confirmable and taken at the
-    /// current journal fence. `None` leaves the root's set as it is, for the decision to refuse:
-    /// a set that something withdrew, or one that an API write since moved the journal past, is
-    /// confirmed only by the next pass, so a decision never follows an API change unseen.
+    /// Starts the inventory before an approval or rejection of the set `revision`, when that set
+    /// still waits for one in this journal epoch, at the current journal fence. An API write
+    /// since the set was taken does not rule it out by itself: the inventory compares every
+    /// member, generation, bucket incarnation and path included, so a write that touched a
+    /// member replaces the set and one that touched none keeps the revision. An update of a
+    /// member's bucket ([`unaffected!`]) replaces it whatever the tree shows.
     pub(crate) async fn begin_deletion_recheck(
         &self,
         guard: Guard,
         revision: OpaqueId,
-    ) -> Result<Option<Inventory>, RootError> {
+    ) -> Result<Recheck, RootError> {
         self.revalidate().await?;
         let root = self.status().root_id;
         let scope = self.control_scope();
@@ -171,15 +186,22 @@ impl RootLease {
                 let transaction = connection.transaction()?;
                 scope.authorize(&transaction)?;
                 let current = fence(&transaction)?;
-                if reusable(&transaction, root, &current, guard)? != Some(revision) {
-                    return Ok(None);
-                }
                 let waiting: bool = sql::scalar(
                     &transaction,
-                    "SELECT valid=1 AND guarded=1 AND sequence=?2 FROM sync_deletion_sets WHERE root_id=?1",
-                    params![root, current.sequence],
+                    concat!(
+                        "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d WHERE d.root_id=?1 AND d.revision=?2 AND d.epoch=?3 AND d.guard_enabled=?4 AND ",
+                        awaiting!(),
+                        ")"
+                    ),
+                    params![root, revision, current.revision, matches!(guard, Guard::Enabled)],
                 )?;
-                Ok(waiting.then(|| Inventory::confirming(revision, root, current)))
+                Ok(if !waiting {
+                    Recheck::NotAwaiting
+                } else if reusable(&transaction, root, &current, guard)? == Some(revision) {
+                    Recheck::Confirm(Inventory::confirming(revision, root, current))
+                } else {
+                    Recheck::Replace
+                })
             })
             .await?)
     }

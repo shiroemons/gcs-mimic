@@ -169,9 +169,17 @@ exactly the members of the root's unapproved set again, under the same guard
 setting and decision, confirms that set under its revision instead of replacing
 it, also after an observed change invalidated it or an API write moved the
 journal past it, which only the members decide: their objects, generations,
-incarnations and paths. The confirmed set moves to the inventory's journal fence
+incarnations and paths. An update of a member's bucket, where versioning and
+soft delete decide whether a deleted object stays recoverable, rules the set
+out instead, so the next inventory takes a new revision whatever the tree
+shows; the journal does not say which setting changed, so a label counts too.
+A hold or retention on a member only stops its deletion, which then restores
+the file, so a metadata change of a member keeps the revision. The confirmed set moves to the inventory's journal fence
 and keeps the denominator it was taken with. It never confirms an
-approved set or one from before a restart. Approval consumes exactly one
+approved set or one from before a restart. A set that waits for a decision stays
+in the status and the `deletions` view after an API write that touched none of
+its members, and an approval or rejection of it inventories the tree first at
+the current journal fence, so it is accepted under the same revision. Approval consumes exactly one
 revision, and replay or stale inspection returns 409. Each actual delete rechecks no-follow absence,
 root identity, membership, generation and incarnation. Member completion and the
 expected execution fence commit in the same transaction as the shared delete.

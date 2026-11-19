@@ -615,7 +615,7 @@ async fn decide_after_a_change(change: Change, decision: Decision) {
         decision,
     };
     match change {
-        Change::MemberBack => decided.refused_as_stale(answer).await,
+        Change::MemberBack => decided.refused_as_stale(answer, 1).await,
         Change::RootFile | Change::ExportedDirectory => {
             let accepted =
                 answer.unwrap_or_else(|error| panic!("{decision:?} after {change:?}: {error:?}"));
@@ -628,6 +628,130 @@ async fn decide_after_a_change(change: Change, decision: Decision) {
     }
     live.stop().await;
     releaser.abort();
+}
+
+/// An API change that the tree does not show, made while the set waits: one in the bucket
+/// whose directory is missing writes no file and so brings no pass.
+#[derive(Clone, Copy, Debug)]
+enum ApiWrite {
+    /// A new object beside the members.
+    Beside,
+    /// A new generation of the member `first`, so that its tracked file no longer tracks the
+    /// live generation.
+    ToMember,
+    /// Versioning enabled on the members' bucket, which decides whether their deleted objects
+    /// stay recoverable.
+    BucketUpdate,
+}
+
+impl ApiWrite {
+    async fn make(self, catalog: &Catalog, bucket: &BucketName) {
+        match self {
+            Self::Beside => {
+                publish_named(catalog, bucket, "third", b"written", Origin::Api).await;
+            }
+            Self::ToMember => {
+                publish_named(catalog, bucket, "first", b"written", Origin::Api).await;
+            }
+            Self::BucketUpdate => {
+                catalog
+                    .patch_bucket(
+                        bucket.as_str(),
+                        crate::bucket::BucketMetadataUpdate {
+                            versioning: Some(crate::bucket::VersioningUpdate::Set(
+                                crate::bucket::Versioning::Enabled,
+                            )),
+                            ..Default::default()
+                        },
+                        Default::default(),
+                        PERMISSIVE,
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    /// The members the set that replaces the named one holds, when this change refuses a
+    /// decision on it.
+    const fn refusal(self) -> Option<u64> {
+        match self {
+            Self::Beside => None,
+            Self::ToMember => Some(1),
+            Self::BucketUpdate => Some(2),
+        }
+    }
+}
+
+/// A decision right after an API write that touched no member is accepted under the revision
+/// the status still names. The status once lost the revision as soon as the journal moved,
+/// and the decision failed with 409 until a rescan or a wait ran a pass.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_decision_right_after_an_api_write_beside_the_members_is_accepted() {
+    for decision in [Decision::Reject, Decision::Approve] {
+        decide_after_an_api_write(ApiWrite::Beside, decision).await;
+    }
+}
+
+/// A decision right after an API change to a member is refused as stale: one that replaced a
+/// member's object leaves the inventory before the decision without that member, and an
+/// update of the members' bucket, which may make their deletions unrecoverable, replaces the
+/// set whatever the tree shows. The new set keeps waiting, and no object goes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_decision_right_after_an_api_write_to_a_member_is_refused_as_stale() {
+    for write in [ApiWrite::ToMember, ApiWrite::BucketUpdate] {
+        for decision in [Decision::Reject, Decision::Approve] {
+            decide_after_an_api_write(write, decision).await;
+        }
+    }
+}
+
+async fn decide_after_an_api_write(write: ApiWrite, decision: Decision) {
+    let (data, tree, bucket) = tracked_pair().await;
+    fs::remove_dir_all(tree.0.join(BUCKET)).unwrap();
+    let live = Live::start(&data.0, &tree.0).await;
+    assert_eq!(
+        wait_control(&live.commands).await.reason,
+        WaitReason::DeletionApproval
+    );
+    let set = live.root.deletion_set().await.unwrap().unwrap();
+    write.make(&live.catalog, &bucket).await;
+    // The status reads the set the decision is asked for until something decides it.
+    let named = live
+        .root
+        .deletion_set()
+        .await
+        .unwrap()
+        .map(|set| set.revision);
+    assert_eq!(named, Some(set.revision), "{decision:?} after {write:?}");
+    let (reply, answer) = tokio::sync::oneshot::channel();
+    live.commands
+        .send(decision.command(set.revision, reply))
+        .await
+        .unwrap();
+    let answer = tokio::time::timeout(HANG_GUARD, answer)
+        .await
+        .unwrap()
+        .unwrap();
+    let decided = Decided {
+        live: &live,
+        bucket: &bucket,
+        tree: &tree.0,
+        revision: set.revision,
+        decision,
+    };
+    if let Some(remaining) = write.refusal() {
+        decided.refused_as_stale(answer, remaining).await;
+    } else {
+        let accepted =
+            answer.unwrap_or_else(|error| panic!("{decision:?} after {write:?}: {error:?}"));
+        assert_eq!(
+            accepted.revision, set.revision,
+            "{decision:?} after {write:?}"
+        );
+        decided.applied().await;
+    }
+    live.stop().await;
 }
 
 /// A decision on the set `revision` that the mirror answered, and what it should have done.
@@ -660,10 +784,10 @@ impl Decided<'_> {
         }
     }
 
-    /// The decision was refused as stale and changed nothing: a new set that holds only the
-    /// member still missing replaced the named one and waits, every object remains, and nothing
-    /// wrote the missing file back.
-    async fn refused_as_stale(&self, answer: Result<DeletionSet, ControlError>) {
+    /// The decision was refused as stale and changed nothing: a new set of `remaining` members
+    /// replaced the named one and waits, every object remains, and nothing wrote the missing
+    /// file back.
+    async fn refused_as_stale(&self, answer: Result<DeletionSet, ControlError>, remaining: u64) {
         let decision = self.decision;
         assert!(
             matches!(
@@ -678,7 +802,7 @@ impl Decided<'_> {
         assert_ne!(replaced.revision, self.revision, "{decision:?}");
         assert_eq!(
             (replaced.candidate_count, replaced.guarded),
-            (1, true),
+            (remaining, true),
             "{decision:?}"
         );
         assert_eq!(
