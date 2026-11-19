@@ -72,7 +72,9 @@ Unfinished write-back stops new exports. Preserve the working tree and reserved
 workspace, inspect current conflict/recovery findings, correct storage access
 and resolve the exact retained state before an explicit rescan. No unknown
 pending body is automatically deleted. A changed journal fence, divergent file,
-unimported external-only file or unrepresentable entry prevents initial baseline completion.
+unimported external-only file or tree entry that no object can take prevents
+initial baseline completion. An API object the tree cannot hold is a finding and
+does not ([deletion inventory](external-deletion-controls.md#deletion-inventory)).
 
 Ordinary shutdown first stops accepting connections and drains HTTP requests,
 then signals the mirror and waits for its current object to finish before closing
@@ -325,8 +327,11 @@ Schema 27 adds `sync_buckets(root_id, bucket, incarnation)` because object sync
 records are removed by ordinary API bucket deletion and cannot prevent accidental
 recreation on restart. The new independent observations retain known bucket names
 after API deletion. A directory with a known but absent API bucket is skipped,
-counted as `blocked_buckets`/deferred and diagnosed with a remedy: remove/move the
-directory or explicitly recreate the API bucket. Other buckets continue. Observing
+counted as `blocked_buckets` and diagnosed with a remedy: remove/move the
+directory or explicitly recreate the API bucket. Other buckets continue. While it
+holds an entry other than an ignored name, it is also an entry no object can
+take, which stops inferred deletions; an empty one holds nothing back and stays
+in place. Observing
 the directory absent clears only that observation, permitting deliberate later
 directory recreation; it never deletes a bucket or object and never runs `rmdir`.
 Per-path read/access failures are likewise deferred with a relative path and
@@ -782,13 +787,17 @@ never materialize the complete set in RAM. `approve` takes that revision,
 not a boolean or wildcard, and grants one execution of that exact set only.
 Any observed tree change, root/marker change, relevant API change or restart
 invalidates unused approval and requires rescan and fresh approval. Replays and
-foreign/stale revisions return 409 without broadening the set.
+foreign/stale revisions return 409 without broadening the set. A later inventory
+that finds exactly the members of an unapproved set again confirms it under the
+same revision instead of replacing it; an approved set or one from before a
+restart is never confirmed again.
 
 Inspect candidates with `GET /_internal/sync?view=deletions&revision=REVISION`,
 following its cursors to completion. Every page belongs to that exact frozen set,
 with the same denominator, count and fence; `approve` executes the whole inspected
 revision, never only the last page or a recomputed current set. Any invalidation
-also makes its remaining page requests return 409. Restart invalidates both the
+also makes its remaining page requests return 409 until an inventory confirms the
+same members again. Restart invalidates both the
 inspection revision/cursors and unused approval, requiring fresh inspection.
 
 Immediately before each delete, recheck absence, root/marker identity and
@@ -1132,7 +1141,8 @@ Each kind of stop has its own exhaustive type; no single type covers them all:
   `Paused`, `JournalChanged`, `SourceChanging`, `SourceUnrepresentable`,
   `DeletionApproval` or `FindingsPending`.
 - A path finding's `reason` is `Conflict`, `Unrepresentable`,
-  `ProtectedDeletion`, `SourceChanging`, `IoFailure` or `RecoveryRequired`.
+  `ProtectedDeletion`, `SourceChanging`, `IoFailure`, `EntryReplaced` or
+  `RecoveryRequired`.
 - Status `state` is one of `Starting`, `Retrying`, `Paused`, `Stopped`,
   `ConflictCapacity`, `IoFailure`, `RecoveryRequired`, `ProtectedBody`,
   `SourceChanging`, `SourceUnrepresentable`, `Observing`, `DeletionApproval`,

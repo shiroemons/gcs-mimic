@@ -20,6 +20,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 pub(in crate::storage) mod history;
 mod scan;
+pub(crate) use scan::{Confirmed, Inventory};
 #[cfg(test)]
 mod tests;
 
@@ -79,7 +80,8 @@ pub(crate) struct DeletionSet {
 /// No release writes the third value the column check allows, so reading it fails as corrupt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeletionAuthorization {
-    /// Not yet approved (a guarded set) or invalidated.
+    /// Not yet approved (a guarded set), or withdrawn when the catalog reopened. Invalidating a
+    /// set keeps this value, but an invalid set runs nothing until an inventory confirms it.
     Withheld,
     /// Approved by an operator, or never guarded.
     Granted,
@@ -188,6 +190,10 @@ fn read_candidate(row: &rusqlite::Row<'_>) -> rusqlite::Result<Candidate> {
 }
 
 impl RootLease {
+    /// Withdraws the root's set from inspection, approval and execution. Only a valid set is
+    /// written, so invalidating twice changes nothing the second time. The set keeps whether it
+    /// was approved: an inventory that finds the same members may restore an unapproved set, but
+    /// never an approved one, which would let its approval be used twice.
     pub(crate) async fn invalidate_deletions(&self) -> Result<(), RootError> {
         let root = self.status().root_id;
         let scope = self.control_scope();
@@ -197,13 +203,34 @@ impl RootLease {
                 scope.authorize(&tx)?;
                 sql::exec(
                     &tx,
-                    "UPDATE sync_deletion_sets SET valid=0,authorization=0 WHERE root_id=?1",
+                    "UPDATE sync_deletion_sets SET valid=0 WHERE root_id=?1 AND valid=1",
                     [root],
                 )?;
                 tx.commit().map_err(unavailable)
             })
             .await?;
         Ok(())
+    }
+
+    /// The root's baseline as the catalog holds it now. The lease's status keeps what it was when
+    /// the lease was activated, which a baseline completed since then does not change.
+    pub(crate) async fn current_baseline(&self) -> Result<super::root::Baseline, RootError> {
+        let root = self.status().root_id;
+        let complete: bool = self
+            .catalog()
+            .run_admin(move |connection| {
+                Ok(sql::scalar(
+                    connection,
+                    "SELECT complete FROM sync_roots WHERE root_id=?1",
+                    [root],
+                )?)
+            })
+            .await?;
+        Ok(if complete {
+            super::root::Baseline::Complete
+        } else {
+            super::root::Baseline::Activating
+        })
     }
 
     pub(crate) async fn deletion_set(&self) -> Result<Option<DeletionSet>, RootError> {

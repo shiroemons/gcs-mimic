@@ -66,6 +66,10 @@ pub(super) fn value(
             "IoFailure",
             "Restore file permissions or free disk space, preserve pending bytes and request a rescan",
         ),
+        FindingReason::PathStop(PathStop::EntryReplaced) => (
+            "EntryReplaced",
+            "A directory or special file replaced this tracked file; move it away and put a regular file back, or delete the object through the API, then rescan",
+        ),
         FindingReason::Writeback(_) => (
             "RecoveryRequired",
             "Preserve the workspace and current target; inspect this exact pending operation before recovery or explicit disposal",

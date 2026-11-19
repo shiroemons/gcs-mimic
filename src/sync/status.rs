@@ -2,7 +2,8 @@
 //! control read it without a catalog query. A probe runs every two seconds in the container image
 //! and must answer while the catalog is busy.
 
-use std::{fmt, str::FromStr};
+use super::entries::EntryReport;
+use std::{fmt, str::FromStr, sync::Arc};
 use tokio::sync::watch;
 
 /// The directory mirror's lifecycle, as `/_internal/ready` reports it in `sync.state`. The API
@@ -93,6 +94,7 @@ type History = std::sync::Arc<std::sync::Mutex<Vec<MirrorState>>>;
 #[derive(Clone, Debug)]
 pub struct MirrorStatus {
     current: watch::Receiver<MirrorState>,
+    entries: watch::Receiver<Arc<EntryReport>>,
     #[cfg(test)]
     entered: History,
 }
@@ -100,6 +102,19 @@ pub struct MirrorStatus {
 impl MirrorStatus {
     pub(crate) fn state(&self) -> MirrorState {
         *self.current.borrow()
+    }
+
+    /// The working-tree entries the latest complete scan could not take in, which hold back
+    /// the baseline and deletion detection until they are renamed, replaced or moved away.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the status control has yet to list these entries; until it does only tests read them"
+        )
+    )]
+    pub(crate) fn unrepresentable_entries(&self) -> Arc<EntryReport> {
+        Arc::clone(&self.entries.borrow())
     }
 
     /// A status already in `state`, for tests of what reads it.
@@ -134,6 +149,7 @@ impl MirrorStatus {
 #[derive(Clone, Debug)]
 pub(crate) struct MirrorStatusSender {
     current: watch::Sender<MirrorState>,
+    entries: watch::Sender<Arc<EntryReport>>,
     #[cfg(test)]
     entered: History,
 }
@@ -142,6 +158,7 @@ impl Default for MirrorStatusSender {
     fn default() -> Self {
         Self {
             current: watch::Sender::new(MirrorState::Starting),
+            entries: watch::Sender::new(Arc::default()),
             #[cfg(test)]
             entered: std::sync::Arc::new(std::sync::Mutex::new(vec![MirrorState::Starting])),
         }
@@ -157,9 +174,21 @@ impl MirrorStatusSender {
     pub(crate) fn subscribe(&self) -> MirrorStatus {
         MirrorStatus {
             current: self.current.subscribe(),
+            entries: self.entries.subscribe(),
             #[cfg(test)]
             entered: std::sync::Arc::clone(&self.entered),
         }
+    }
+
+    /// Replaces the entries a complete scan could not take in with those of a newer one.
+    pub(crate) fn report_entries(&self, report: EntryReport) {
+        self.entries.send_if_modified(|current| {
+            if **current == report {
+                return false;
+            }
+            *current = Arc::new(report);
+            true
+        });
     }
 
     /// Moves to `state`, and returns the change, or `None` when the state stays. `Stopped` is

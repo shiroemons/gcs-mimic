@@ -286,6 +286,15 @@ guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until the exact
 set is approved with `gcs-mimic sync approve`. Recent automatic deletions also
 count toward this threshold across split scans. Deleting a bucket directory
 keeps the bucket, and deleting a bucket through the API keeps its directory.
+A file deleted while the server was stopped, or before it crashed, deletes its
+object at the next startup instead of being written back. An object whose name
+cannot become a file, described below, never holds back these deletions. An
+entry in the directory that cannot become an object, such as a symlink or a file
+left in the directory of a bucket deleted through the API, holds back every
+deletion until it is moved away, because the missing file may be there; the
+rescan result counts it and the log names it. A directory put where a synchronized
+file was stops only that path, and `gcs-mimic sync findings` lists it as
+`EntryReplaced`.
 When both the API and a file changed the same object, the API's version wins:
 the file is replaced with the API's bytes and the edit is retained as a
 conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;

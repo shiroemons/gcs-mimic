@@ -10,13 +10,26 @@ pub(crate) enum PathStop {
     ProtectedDeletion,
     SourceChanging,
     IoFailure,
+    /// A directory or special file took the place of a tracked file. Neither an export nor a
+    /// deletion reaches through it, and it stops only its own path.
+    EntryReplaced,
 }
 sql::text_enum!(pub(super) PathStop, "invalid path stop", {
     ProtectedDeletion => "ProtectedDeletion", SourceChanging => "SourceChanging", IoFailure => "IoFailure",
+    EntryReplaced => "EntryReplaced",
 });
 
-/// A path stopped by a source that was changing or failed to read, which a complete scan clears
-/// once the file is gone.
+impl PathStop {
+    pub(crate) const ALL: [Self; 4] = [
+        Self::ProtectedDeletion,
+        Self::SourceChanging,
+        Self::IoFailure,
+        Self::EntryReplaced,
+    ];
+}
+
+/// A path stopped by what the tree held there, a source that was changing, failed to read or
+/// was replaced by another kind of entry, which a complete scan clears once the path is empty.
 pub(crate) struct TransientStop {
     /// Where the stop sits in its page; the next page starts after it.
     pub ordinal: Ordinal,
@@ -35,7 +48,7 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            let stops = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure') ORDER BY ordinal LIMIT 256")
+            let stops = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure','EntryReplaced') ORDER BY ordinal LIMIT 256")
                 .and_then(|mut statement| statement.query_map(params![root,after], |row| Ok(TransientStop{ordinal:row.get(0)?,binding:SyncBinding::new(catalog,row.get::<_,BucketName>(1)?,row.get::<_,Incarnation>(2)?).with_control(scope.clone()),name:row.get(3)?}))?.collect::<rusqlite::Result<Vec<_>>>())?;
             Ok(stops)
         }).await.map_err(RootError::from)
@@ -72,17 +85,19 @@ impl RootLease {
         name: ObjectName,
         reasons: &[PathStop],
     ) -> Result<(), RootError> {
-        if reasons.is_empty() || reasons.len() > 3 {
+        if reasons.is_empty() || reasons.len() > PathStop::ALL.len() {
             return Err(AdminError::Invalid("invalid path stop reasons".into()).into());
         }
-        let reasons: [Option<PathStop>; 3] =
+        // One parameter per reason keeps the statement static; an unused one binds NULL, which
+        // `IN` never matches.
+        let reasons: [Option<PathStop>; PathStop::ALL.len()] =
             std::array::from_fn(|index| reasons.get(index).copied());
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason IN (?5,?6,?7)", params![root,binding.bucket,name,binding.incarnation,reasons[0],reasons[1],reasons[2]])?;
+            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason IN (?5,?6,?7,?8)", params![root,binding.bucket,name,binding.incarnation,reasons[0],reasons[1],reasons[2],reasons[3]])?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }

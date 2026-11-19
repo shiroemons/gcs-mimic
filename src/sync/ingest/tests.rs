@@ -1013,6 +1013,18 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
     let task = crate::sync::start(catalog.clone(), root.clone(), &config).unwrap();
     let summary = task.rescan().await.unwrap();
     assert_eq!(summary.blocked_buckets, 1);
+    // A file in it is an entry the tree holds and no bucket takes, which the user must move.
+    assert_eq!(
+        (summary.unrepresentable_entries().get(), summary.deferred),
+        (1, 0)
+    );
+    assert_eq!(
+        task.status().unrepresentable_entries().entries(),
+        [crate::sync::entries::UnrepresentableEntry {
+            path: "deleted-bucket".into(),
+            problem: crate::sync::entries::EntryProblem::DeletedBucket,
+        }]
+    );
     assert!(
         catalog
             .admin(Origin::Api)
@@ -1036,6 +1048,26 @@ async fn ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recre
         crc32c::crc32c(b"new")
     );
     fs::remove_file(tree.0.join("deleted-bucket/retained")).unwrap();
+    // The empty directory is what deleting the bucket left: it holds nothing back, and it stays.
+    let summary = task.rescan().await.unwrap();
+    assert_eq!(
+        (
+            summary.blocked_buckets,
+            summary.unrepresentable,
+            summary.deferred
+        ),
+        (0, 0, 0)
+    );
+    assert!(task.status().unrepresentable_entries().entries().is_empty());
+    assert!(tree.0.join("deleted-bucket").is_dir());
+    assert!(
+        catalog
+            .admin(Origin::Api)
+            .get_bucket(&bucket)
+            .await
+            .unwrap()
+            .is_none()
+    );
     fs::remove_dir(tree.0.join("deleted-bucket")).unwrap();
     assert_eq!(task.rescan().await.unwrap().blocked_buckets, 0);
     fs::create_dir(tree.0.join("deleted-bucket")).unwrap();

@@ -105,7 +105,7 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
             .baseline_complete
     );
     fs::remove_file(tree.0.join("test-bucket/object")).unwrap();
-    let inventory = root
+    let mut inventory = root
         .begin_deletion_inventory(Guard::Disabled)
         .await
         .unwrap();
@@ -114,10 +114,14 @@ async fn deletion_membership_progress_rolls_back_with_object_failure_and_restart
         .await
         .unwrap();
     assert_eq!(page.len(), 1);
-    root.record_deletion_candidates(inventory.clone(), 1, page)
+    root.record_deletion_candidates(&mut inventory, 1, page)
         .await
         .unwrap();
-    let set = root.finish_deletion_inventory(inventory).await.unwrap();
+    let set = root
+        .finish_deletion_inventory(inventory)
+        .await
+        .unwrap()
+        .unwrap();
     let binding = catalog.sync_state().binding(&bucket).await.unwrap();
     let binding = root.deletion_binding(binding, set.revision, Ordinal::try_from(1).unwrap());
     catalog.run_admin(|connection|connection.execute_batch("CREATE TEMP TRIGGER fail_delete BEFORE DELETE ON objects BEGIN SELECT RAISE(ABORT,'injected delete failure'); END;").map_err(unavailable)).await.unwrap();

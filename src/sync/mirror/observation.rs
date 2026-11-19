@@ -110,28 +110,21 @@ pub(super) struct HistoryScan<'a> {
     generation: io::Result<Option<u64>>,
 }
 impl HistoryScan<'_> {
-    pub(super) async fn reset(
-        self,
-        root: &RootLease,
-        summary: &Reconciliation,
-    ) -> Result<(), RootError> {
+    pub(super) async fn reset(self, root: &RootLease, pass: PassGate) -> Result<(), RootError> {
         let generation = self.generation?;
         self.watcher.poll_changes()?;
         if generation == Some(self.watcher.generation)
             && self.watcher.pending.is_none()
-            && summary.baseline_complete
-            && !summary.interrupted
-            && summary.deferred == 0
-            && summary.unrepresentable == 0
+            && pass.infers_deletions()
         {
             root.reset_empty_deletion_history().await?;
         }
         Ok(())
     }
-    pub(super) async fn finish(self, root: &RootLease, summary: &Reconciliation) {
+    pub(super) async fn finish(self, root: &RootLease, pass: PassGate) {
         #[cfg(test)]
         export_checkpoint("history-scanned").await;
-        if let Err(error) = self.reset(root, summary).await {
+        if let Err(error) = self.reset(root, pass).await {
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_history_reset_failed",

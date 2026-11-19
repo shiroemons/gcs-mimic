@@ -1,4 +1,5 @@
 use super::control::{Command, ControlError, Reply};
+use super::entries::EntryProblem;
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 use super::naming::RootNaming;
@@ -53,8 +54,12 @@ async fn export_checkpoint(phase: &str) {
 mod tests;
 
 mod descriptor;
+mod gate;
 mod observation;
 mod wait;
+
+use gate::BaselineGate;
+pub(super) use gate::PassGate;
 
 #[derive(Default, Debug, serde::Serialize)]
 pub struct Reconciliation {
@@ -67,9 +72,17 @@ pub struct Reconciliation {
     pub conflicting: u64,
     pub external_only: u64,
     pub ignored: u64,
+    /// Every name this pass could not map, on either side: the `unmapped_objects`, and the
+    /// working-tree entries it could not take in.
     pub unrepresentable: u64,
     pub baseline_complete: bool,
     pub deferred: u64,
+    /// The objects and buckets among `unrepresentable` that the API holds and the tree cannot.
+    /// They are reported only; the tree's entries alone hold back the baseline and deletions.
+    pub unmapped_objects: u64,
+    /// The working-tree entries among `unrepresentable`, by path, up to a bound.
+    #[serde(skip)]
+    pub(crate) entries: super::entries::EntryReport,
 }
 
 pub struct Task {
@@ -577,6 +590,7 @@ async fn run_live_config(
                     config,
                     writeback: &writeback,
                     stopping,
+                    status,
                 },
                 state: &mut state,
             }
@@ -621,9 +635,9 @@ async fn run_live_config(
                             if observed==watch::Change::Structure {watcher.rebuild(root,stopping,status).await?;}
                             if *stopping.borrow() {break}
                             let history=watcher.history_scan(unsettled.quiet);
-                            let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};
+                            let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping,status};
                             let summary=ingest_external(scope,&mut state.baseline,&mut state.skipped).await?;
-                            history.finish(root,&summary).await;
+                            history.finish(root,summary.gate()).await;
                             unsettled.settle();
                             if unsettled.quiet==observation::Quiet::Capped {
                                 if watcher.pending.is_none() {watcher.continue_quiet();}
@@ -637,7 +651,7 @@ async fn run_live_config(
                 Some(request) = requests.recv(), if controls.available() => {
                     let Some(request)=controls.admit(request,&watcher,unsettled.quiet) else {continue};
                     let Some(request)=controls.running(request,stopping) else {break};
-                    let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping};
+                    let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping,status};
                     LiveControl {scope,state:&mut state}.handle(request,unsettled.quiet,&mut watcher).await?;
                 }
                 result = catalog.wait_for_changes(state.cursor) => { result?; }
@@ -762,7 +776,7 @@ async fn initialize_live(
     let mut writeback = recover_writeback(operation_root).await?;
     super::naming::activate(&writeback).await?;
     root.invalidate_deletions().await?;
-    let ingested = super::ingest::rescan_with(
+    let mut ingested = super::ingest::rescan_with(
         catalog,
         operation_root,
         config,
@@ -771,7 +785,8 @@ async fn initialize_live(
     )
     .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    let ingest_complete = BaselineGate::after_ingest(&ingested);
+    gate::report_entries(status, &mut ingested);
+    let ingest_complete = BaselineGate::after_ingest(ingested.gate());
     let mut skipped = SkippedExports::default();
     let mut summary = reconcile_with(
         catalog,
@@ -789,7 +804,7 @@ async fn initialize_live(
         catalog,
         operation_root,
         config,
-        &summary,
+        summary.gate(),
         Interrupt::new(stopping),
     )
     .await?;
@@ -846,12 +861,14 @@ async fn ingest_external_with(
         root,
         config,
         writeback,
+        status,
         ..
     } = scope;
     let _publication = root.begin_observation_publication().await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
-    baseline.gate = BaselineGate::after_ingest(&summary);
+    gate::report_entries(status, &mut summary);
+    baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
         && baseline.gate == BaselineGate::Allowed
         && interrupt.check() == Interrupted::No
@@ -875,7 +892,7 @@ async fn ingest_external_with(
     if summary.interrupted {
         return Ok(summary);
     }
-    observe_deletions(catalog, root, config, &summary, interrupt).await?;
+    observe_deletions(catalog, root, config, summary.gate(), interrupt).await?;
     // Boxed like the reconciliation above, which also runs exports inside this pass.
     Box::pin(skipped.retry(scope, interrupt)).await?;
     summary.interrupted |= interrupt.check() != Interrupted::No;
@@ -886,15 +903,17 @@ async fn observe_deletions(
     catalog: &Catalog,
     root: &RootLease,
     config: &Config,
-    summary: &Reconciliation,
+    pass: PassGate,
     interrupt: Interrupt<'_>,
 ) -> Result<(), SyncError> {
-    let inventory = super::deletion::inventory_with(root, config, summary, interrupt).await;
+    let inventory = super::deletion::inventory_with(root, config, pass, interrupt).await;
     match inventory {
         Ok(Some(set)) => {
             super::deletion::execute_with(catalog, root, set, interrupt).await?;
         }
         Ok(None) => {}
+        // The journal moved or the root changed during the inventory; the next pass, which the
+        // change itself brings, inventories again.
         Err(error) if error.is_stale_deletion() => {}
         Err(error) => return Err(error),
     }
@@ -924,6 +943,8 @@ struct LiveScope<'a> {
     config: &'a Config,
     writeback: &'a Writeback,
     stopping: &'a tokio::sync::watch::Receiver<bool>,
+    /// Where an ingestion names the entries it could not take in.
+    status: &'a MirrorStatusSender,
 }
 
 struct LiveControl<'a> {
@@ -1020,7 +1041,7 @@ impl LiveControl<'_> {
                             if let (Some(history), Some(summary)) =
                                 (history, &result.reconciliation)
                             {
-                                history.finish(self.scope.root, summary).await;
+                                history.finish(self.scope.root, summary.gate()).await;
                             }
                             Ok(result)
                         }
@@ -1040,7 +1061,7 @@ impl LiveControl<'_> {
                     Ok(()) => match self.rescan().await {
                         Ok(summary) => {
                             if let Some(history) = history {
-                                history.finish(self.scope.root, &summary).await;
+                                history.finish(self.scope.root, summary.gate()).await;
                             }
                             Ok(summary)
                         }
@@ -1123,6 +1144,7 @@ async fn reconcile_live_object(
         bucket,
         name,
         summary,
+        missing: MissingFile::Inventory,
     };
     let Some(plan) = object.plan().await? else {
         return Ok(None);
@@ -1190,6 +1212,7 @@ impl SkippedExports {
                 bucket,
                 name,
                 summary: &mut uncounted,
+                missing: MissingFile::Inventory,
             };
             let outcome = match live.plan().await? {
                 Some(plan) if plan.skipped() == Some(skipped) => {
@@ -1219,6 +1242,7 @@ pub(super) async fn restore_from_catalog(
         bucket,
         name,
         summary: &mut uncounted,
+        missing: MissingFile::Restore,
     };
     let Some(plan) = object.plan().await? else {
         return Ok(());
@@ -1257,6 +1281,19 @@ struct LiveObject<'a> {
     name: &'a ObjectName,
     /// The counts of the pass this object belongs to.
     summary: &'a mut Reconciliation,
+    missing: MissingFile,
+}
+
+/// What an export does when the tracked file of an API generation that has not changed since is
+/// missing from the tree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MissingFile {
+    /// Writes it back, as the restore after a protected deletion must.
+    Restore,
+    /// Leaves it to the deletion inventory once the baseline is complete. The file was deleted
+    /// from the tree, whether the mirror ran, was paused or the server was stopped meanwhile;
+    /// writing it back would undo that deletion without asking anyone.
+    Inventory,
 }
 
 /// Whether the working-tree file already holds the catalog generation's bytes.
@@ -1308,7 +1345,7 @@ impl LiveObject<'_> {
         if reason == Reason::Ignored {
             self.summary.ignored += 1;
         } else {
-            self.summary.unrepresentable += 1;
+            self.summary.count_unmapped_object();
         }
         Ok(())
     }
@@ -1369,6 +1406,9 @@ impl LiveObject<'_> {
             let Some(tracked) = tracked else {
                 return Ok(None);
             };
+            if self.replaced(path).await? {
+                return Ok(None);
+            }
             return Ok(Some(LivePlan {
                 binding,
                 generation: tracked.generation,
@@ -1377,7 +1417,10 @@ impl LiveObject<'_> {
                 content: Content::Changed,
             }));
         };
-        let Some(content) = self.check_target(&admin, &record, path).await? else {
+        let Some(content) = self
+            .check_target(&admin, &record, path, tracked.as_ref())
+            .await?
+        else {
             return Ok(None);
         };
         let generation = Generation::new(record.generation)?;
@@ -1411,13 +1454,45 @@ impl LiveObject<'_> {
         }))
     }
 
-    /// Compares the live object with its working-tree path; `None` means a finding or
-    /// deferral was recorded instead of an export.
+    /// Whether a directory or special file took the place of the tracked file at `path`, which
+    /// then stops that path alone: removing or replacing what is there now would destroy it.
+    async fn replaced(&self, path: PathBuf) -> Result<bool, SyncError> {
+        let path = path
+            .into_os_string()
+            .into_string()
+            .map_err(|_| SyncError::Invariant("invalid export path"))?;
+        match super::deletion::presence(self.root, path).await? {
+            super::deletion::Presence::Unobservable(super::deletion::Unobservable::Replaced) => {
+                super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
+                Ok(true)
+            }
+            super::deletion::Presence::Absent
+            | super::deletion::Presence::Present
+            | super::deletion::Presence::Unobservable(_) => Ok(false),
+        }
+    }
+
+    /// Whether the tracked file of `record`, missing from the tree, is left to the deletion
+    /// inventory instead of being written back.
+    async fn missing_is_deleted(
+        &self,
+        record: &ObjectRecord,
+        tracked: Option<&SyncRecord>,
+    ) -> Result<bool, SyncError> {
+        Ok(self.missing == MissingFile::Inventory
+            && tracked.is_some_and(|tracked| tracked.generation.get() == record.generation)
+            && self.root.current_baseline().await?
+                == crate::storage::sync_state::root::Baseline::Complete)
+    }
+
+    /// Compares the live object with its working-tree path; `None` means a finding, a path stop
+    /// or a deferral was recorded, or a deletion left to the inventory, instead of an export.
     async fn check_target(
         &mut self,
         admin: &Admin,
         record: &ObjectRecord,
         path: PathBuf,
+        tracked: Option<&SyncRecord>,
     ) -> Result<Option<Content>, SyncError> {
         let collision = match hierarchy_collision(admin, self.bucket, self.name).await {
             Ok(collision) => collision,
@@ -1438,11 +1513,16 @@ impl LiveObject<'_> {
         })
         .await?
         {
-            Target::Finding(reason) => {
+            Target::Replaced(_) if tracked.is_some() => {
+                super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
+                Ok(None)
+            }
+            Target::Finding(reason) | Target::Replaced(reason) => {
                 self.finding(record, reason).await?;
                 Ok(None)
             }
             Target::Identical => Ok(Some(Content::Identical)),
+            Target::Absent if self.missing_is_deleted(record, tracked).await? => Ok(None),
             Target::Absent | Target::Conflicting => Ok(Some(Content::Changed)),
         }
     }
@@ -1784,6 +1864,9 @@ enum Target {
     Identical,
     Conflicting,
     Finding(Reason),
+    /// A directory or special file holds the path: a tracked file replaced, or a name the tree
+    /// cannot hold for an object it never tracked, for the reason given.
+    Replaced(Reason),
 }
 
 fn inspect(
@@ -1818,9 +1901,9 @@ fn inspect(
         Err(_)
             if fsutil::directory_at(&directory, name, fsutil::DirectoryOpen::Existing).is_ok() =>
         {
-            return Ok(Target::Finding(Reason::Collision));
+            return Ok(Target::Replaced(Reason::Collision));
         }
-        Err(_) => return Ok(Target::Finding(Reason::UnsafeEntry)),
+        Err(_) => return Ok(Target::Replaced(Reason::UnsafeEntry)),
     };
     let before = fsutil::stat_identity(&file)?;
     if before.size != record.size {
@@ -1936,28 +2019,6 @@ pub async fn reconcile(catalog: &Catalog, root: &RootLease) -> io::Result<Reconc
         .map_err(io::Error::from)
 }
 
-/// Whether a reconciliation may record the baseline as complete. It is deferred while the
-/// working tree still has entries that ingestion could not take in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BaselineGate {
-    Allowed,
-    Deferred,
-}
-
-impl BaselineGate {
-    fn after_ingest(ingested: &Reconciliation) -> Self {
-        if !ingested.interrupted
-            && ingested.deferred == 0
-            && ingested.unrepresentable == 0
-            && ingested.conflicting == 0
-        {
-            Self::Allowed
-        } else {
-            Self::Deferred
-        }
-    }
-}
-
 /// Whether a reconciliation step finished or saw the stop signal.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
@@ -2025,19 +2086,13 @@ async fn reconcile_with(
         reconciler.summary.interrupted = true;
         return Ok(reconciler.summary);
     }
-    let external = external_files(root, &reconciler.admin, interrupt).await?;
     let mut summary = reconciler.summary;
-    summary.external_only = external.only;
-    summary.ignored += external.ignored;
-    summary.unrepresentable += external.unrepresentable;
+    external_files(root, &reconciler.admin, interrupt, &mut summary).await?;
     summary.interrupted = interrupt.check() != Interrupted::No;
     let end = catalog.current_fence().await?;
     if baseline == BaselineGate::Allowed
-        && summary.deferred == 0
-        && interrupt.check() == Interrupted::No
-        && summary.conflicting == 0
+        && summary.gate().settled()
         && summary.external_only == 0
-        && summary.unrepresentable == 0
         && end == fence
     {
         root.complete_baseline().await?;
@@ -2080,7 +2135,7 @@ impl Reconciler<'_> {
             let next = page.items.last().map(|entry| entry.bucket.name.clone());
             for entry in page.items {
                 let Ok(bucket) = BucketName::new(entry.bucket.name.clone()) else {
-                    self.summary.unrepresentable += 1;
+                    self.summary.count_unmapped_object();
                     continue;
                 };
                 let directory = PathBuf::from(bucket.as_str());
@@ -2088,8 +2143,9 @@ impl Reconciler<'_> {
                     self.summary.deferred += 1;
                     continue;
                 }
+                // What occupies the directory's place is a tree entry, which the scans count.
                 if !create_directory(self.root, directory).await? {
-                    self.summary.unrepresentable += 1;
+                    self.summary.count_unmapped_object();
                 }
                 if self.objects(&bucket).await? == Step::Stopped
                     || self.tracked_deletions(&bucket).await? == Step::Stopped
@@ -2167,20 +2223,14 @@ impl Reconciler<'_> {
     }
 }
 
-/// Files the working tree holds that no live object accounts for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct ExternalFiles {
-    only: u64,
-    ignored: u64,
-    unrepresentable: u64,
-}
-
+/// Counts into `counts` the files the working tree holds that no live object accounts for, and
+/// the entries it holds that no object could.
 async fn external_files(
     root: &RootLease,
     admin: &Admin,
     interrupt: Interrupt<'_>,
-) -> Result<ExternalFiles, SyncError> {
-    let mut counts = ExternalFiles::default();
+    counts: &mut Reconciliation,
+) -> Result<(), SyncError> {
     let naming = root.naming()?;
     let mut scan = super::tree::TreeScan::new(root.tree_limits());
     while !scan.is_empty() && interrupt.check() == Interrupted::No {
@@ -2188,13 +2238,13 @@ async fn external_files(
         scan = next;
         for entry in page {
             if interrupt.check() != Interrupted::No {
-                return Ok(counts);
+                return Ok(());
             }
             if let Some(kind) = entry.error {
                 if kind == io::ErrorKind::ResourceBusy {
                     return Err(io::Error::from(kind).into());
                 }
-                counts.unrepresentable += 1;
+                counts.count_unrepresentable_entry(&entry.path, EntryProblem::Unreadable);
                 continue;
             }
             if entry.directory {
@@ -2218,13 +2268,13 @@ async fn external_files(
                     {
                         counts.ignored += 1;
                     } else {
-                        counts.only += 1;
+                        counts.external_only += 1;
                     }
                 }
             } else {
-                counts.unrepresentable += 1;
+                counts.count_unrepresentable_entry(&entry.path, EntryProblem::UnsafeEntry);
             }
         }
     }
-    Ok(counts)
+    Ok(())
 }

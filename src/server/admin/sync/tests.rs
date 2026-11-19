@@ -1815,9 +1815,13 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
         during["pending_deletion_count"],
         before["pending_deletion_count"]
     );
+    // A delayed native event of the removal may have withdrawn the set before the injection
+    // did, which then changes nothing more; either way the set is withdrawn now, and the
+    // status shows the latest observation.
+    assert!(root.deletion_set().await.unwrap().is_none());
     assert!(
         during["observation"]["revision"].as_i64().unwrap()
-            > before["observation"]["revision"].as_i64().unwrap()
+            >= before["observation"]["revision"].as_i64().unwrap()
     );
     assert_eq!(
         during["observation"]["tracked_objects"],
@@ -1838,11 +1842,34 @@ async fn delayed_observation_keeps_completed_deletion_status_without_reauthorizi
     );
     drop(publication);
     fixture.task.rescan().await.unwrap();
+    // The completed scan found the same members, so it confirms the set the user already reads
+    // instead of replacing it; the approval refused above authorized nothing meanwhile.
     let completed = fixture.status().await;
     assert_eq!(completed["state"], "DeletionApproval");
-    assert_ne!(
+    assert_eq!(
         completed["pending_deletion_revision"],
         before["pending_deletion_revision"]
+    );
+    assert_eq!(
+        completed["pending_deletion_count"],
+        before["pending_deletion_count"]
+    );
+    // A delayed native event may withdraw the set again until its own scan confirms it.
+    eventually_async("the confirmed revision reads again", || async {
+        fixture
+            .request(
+                "GET",
+                &format!("/_internal/sync?view=deletions&revision={revision}"),
+                b"",
+                None,
+            )
+            .await
+            .is_ok_and(|response| response.status() == StatusCode::OK)
+    })
+    .await;
+    assert_eq!(
+        root.deletion_set().await.unwrap().unwrap().authorization,
+        crate::storage::sync_state::deletions::DeletionAuthorization::Withheld
     );
     drop(root);
     fixture.finish().await;

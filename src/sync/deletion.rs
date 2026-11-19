@@ -1,22 +1,25 @@
 //! Missing tracked files become candidates only after an error-free complete scan.
 
 use super::interrupt::{Interrupt, Interrupted};
-use super::{Reconciliation, SyncError, mapping};
+use super::{SyncError, mapping, mirror::PassGate};
 use crate::{
     config::Config,
-    fsutil,
+    diagnostics::{self, LogLevel},
     storage::{
         Catalog,
         admin::{AdminError, GenerationCondition},
         sync_state::{
             Ordinal, PageLimit, SyncBinding,
-            deletions::{Candidate, DeletionAuthorization, DeletionSet},
+            deletions::{Candidate, Confirmed, DeletionAuthorization, DeletionSet, Guard},
             observation::PathStop,
             root::{RootError, RootLease},
         },
     },
 };
 use std::path::Path;
+
+mod presence;
+pub(super) use presence::{Presence, Unobservable, presence};
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
@@ -27,71 +30,56 @@ enum Deleted {
     Protected(SyncBinding),
 }
 
-pub(super) async fn absent(root: &RootLease, path: String) -> Result<bool, SyncError> {
-    let limits = root.tree_limits();
-    let naming = root.naming()?;
-    root.file_job(move |root| {
-        let path = Path::new(&path);
-        if path.is_absolute()
-            || !limits.admits_file(path)
-            || path
-                .iter()
-                .any(|part| part == "." || part == ".." || !naming.admits(part))
-        {
-            return Err(AdminError::Precondition);
-        }
-        let parent_path = path.parent().ok_or(AdminError::Precondition)?;
-        let directory =
-            match super::tree::parent(root, naming, parent_path, super::tree::ParentOpen::Existing)
-            {
-                Ok(directory) => directory,
-                Err(super::tree::ParentError::Missing) => return Ok(true),
-                Err(super::tree::ParentError::Finding(_)) => return Err(AdminError::Precondition),
-                Err(super::tree::ParentError::Io(error)) => return Err(error.into()),
-            };
-        let name = path.file_name().ok_or(AdminError::Precondition)?;
-        match fsutil::child_regular(&directory, name) {
-            Ok(fsutil::RegularChild::File(_)) => Ok(false),
-            Ok(fsutil::RegularChild::Missing) => Ok(true),
-            Ok(fsutil::RegularChild::Alias) => Err(AdminError::Precondition),
-            Err(error) => Err(AdminError::backend(error)),
-        }
-    })
-    .await
-    .map_err(SyncError::from)
-}
-
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(super) async fn inventory(
     root: &RootLease,
     config: &Config,
-    summary: &Reconciliation,
+    pass: PassGate,
     stopping: &tokio::sync::watch::Receiver<bool>,
 ) -> Result<Option<DeletionSet>, SyncError> {
-    inventory_with(root, config, summary, Interrupt::new(stopping)).await
+    inventory_with(root, config, pass, Interrupt::new(stopping)).await
 }
+
+/// Inventories the tracked files missing after `pass`, and returns the complete set. A set the
+/// root already holds keeps its revision when this inventory finds exactly its members again, so
+/// that a pass which changed nothing does not withdraw a revision someone is inspecting.
 pub(super) async fn inventory_with(
     root: &RootLease,
     config: &Config,
-    summary: &Reconciliation,
+    pass: PassGate,
     interrupt: Interrupt<'_>,
 ) -> Result<Option<DeletionSet>, SyncError> {
     if interrupt.check() != Interrupted::No {
         return Ok(None);
     }
-    root.invalidate_deletions().await?;
-    let naming = root.naming()?;
-    if !summary.baseline_complete
-        || summary.deferred != 0
-        || summary.unrepresentable != 0
-        || summary.conflicting != 0
-        || interrupt.check() != Interrupted::No
-    {
+    if !pass.infers_deletions() {
+        root.invalidate_deletions().await?;
         return Ok(None);
     }
-    let inventory = root
-        .begin_deletion_inventory(config.sync_delete_guard.into())
-        .await?;
+    let guard = Guard::from(config.sync_delete_guard);
+    let mut inventory = root.begin_deletion_inventory(guard).await?;
+    loop {
+        let Some(counted) = count_candidates(root, &mut inventory, interrupt).await? else {
+            return Ok(None);
+        };
+        if counted == Confirmed::Same
+            && let Some(set) = root.finish_deletion_inventory(inventory.clone()).await?
+        {
+            return Ok(Some(set));
+        }
+        // The root's earlier set differs from what the tree shows now, so a new one replaces it.
+        inventory = root.begin_new_deletion_inventory(guard).await?;
+    }
+}
+
+/// Walks every tracked live file and records the absent ones in `inventory`. `None` means the
+/// pass was interrupted; `Diverged` that the earlier set this inventory confirms differs.
+async fn count_candidates(
+    root: &RootLease,
+    inventory: &mut crate::storage::sync_state::deletions::Inventory,
+    interrupt: Interrupt<'_>,
+) -> Result<Option<Confirmed>, SyncError> {
+    let naming = root.naming()?;
     let mut after = String::new();
     loop {
         if interrupt.check() != Interrupted::No {
@@ -101,7 +89,7 @@ pub(super) async fn inventory_with(
             .deletion_inventory_page(inventory.clone(), after.clone())
             .await?;
         if page.is_empty() {
-            break;
+            return Ok(Some(Confirmed::Same));
         }
         let baseline = page.len() as u64;
         let mut candidates = Vec::new();
@@ -109,25 +97,70 @@ pub(super) async fn inventory_with(
             if interrupt.check() != Interrupted::No {
                 return Ok(None);
             }
-            after = candidate.path.clone();
-            let Ok((bucket, name)) = mapping::path_to_name(Path::new(&candidate.path), naming)
-            else {
-                return Ok(None);
+            after.clone_from(&candidate.path);
+            let presence = match mapping::path_to_name(Path::new(&candidate.path), naming) {
+                Ok((bucket, name)) if bucket == candidate.bucket && name == candidate.name => {
+                    presence(root, candidate.path.clone()).await?
+                }
+                Ok(_) | Err(_) => Presence::Unobservable(Unobservable::NameMismatch),
             };
-            if bucket != candidate.bucket || name != candidate.name {
-                return Ok(None);
-            }
-            if absent(root, candidate.path.clone()).await? {
-                candidates.push(candidate)
+            match presence {
+                Presence::Absent => candidates.push(candidate),
+                Presence::Present => {}
+                Presence::Unobservable(reason) => unobservable(root, &candidate, &reason).await?,
             }
         }
-        root.record_deletion_candidates(inventory.clone(), baseline, candidates)
-            .await?;
+        if root
+            .record_deletion_candidates(inventory, baseline, candidates)
+            .await?
+            == Confirmed::Diverged
+        {
+            return Ok(Some(Confirmed::Diverged));
+        }
     }
-    if interrupt.check() != Interrupted::No {
-        return Ok(None);
+}
+
+/// Reports a tracked file whose path tells nothing about it. Its object is not deleted, and the
+/// inventory goes on with the others. A file replaced by a directory or a special file also
+/// stops its own path, where the findings name it until the path is empty or regular again.
+async fn unobservable(
+    root: &RootLease,
+    candidate: &Candidate,
+    reason: &Unobservable,
+) -> Result<(), SyncError> {
+    if matches!(reason, Unobservable::Replaced) {
+        record_replaced(root, &candidate.bucket, &candidate.name).await?;
     }
-    Ok(Some(root.finish_deletion_inventory(inventory).await?))
+    diagnostics::emit(
+        LogLevel::Warn,
+        "sync_deletion_unobservable",
+        serde_json::json!({
+            "bucket":candidate.bucket,"object":candidate.name,"path":candidate.path,
+            "reason":reason.to_string(),"remedy":reason.remedy(),
+        }),
+    );
+    Ok(())
+}
+
+/// Stops the path of `name`, whose tracked file a directory or special file replaced. A bucket
+/// recreated or deleted meanwhile has no such path any more.
+pub(super) async fn record_replaced(
+    root: &RootLease,
+    bucket: &crate::storage::admin::BucketName,
+    name: &crate::storage::admin::ObjectName,
+) -> Result<(), SyncError> {
+    let binding = match root.sync_binding(bucket).await {
+        Ok(binding) => binding,
+        Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    match root
+        .record_path_stop(binding, name.clone(), PathStop::EntryReplaced)
+        .await
+    {
+        Ok(()) | Err(RootError::Admin(AdminError::Precondition | AdminError::NotFound)) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(super) async fn execute(
@@ -173,21 +206,21 @@ pub(super) async fn execute_with(
                 return Ok(completed);
             }
             after = candidate.ordinal;
-            if !absent(root, candidate.path.clone()).await? {
-                root.invalidate_deletions().await?;
-                return Ok(completed);
+            // A file that came back, or a path that no longer tells, ends this set; the next
+            // inventory leaves that member out and keeps the others.
+            match presence(root, candidate.path.clone()).await? {
+                Presence::Absent => {}
+                Presence::Present | Presence::Unobservable(_) => {
+                    root.invalidate_deletions().await?;
+                    return Ok(completed);
+                }
             }
             if interrupt.check() != Interrupted::No {
                 return Ok(completed);
             }
             match delete(root, &set, &candidate).await? {
                 Deleted::Yes(binding) => {
-                    let reasons = [
-                        PathStop::ProtectedDeletion,
-                        PathStop::SourceChanging,
-                        PathStop::IoFailure,
-                    ];
-                    root.clear_path_stops(binding, candidate.name.clone(), &reasons)
+                    root.clear_path_stops(binding, candidate.name.clone(), &PathStop::ALL)
                         .await?;
                 }
                 Deleted::Stale => {

@@ -19,6 +19,7 @@ use crate::{
 use bytes::Bytes;
 use std::fs;
 
+mod baseline;
 mod install_faults;
 
 async fn run_live(
@@ -118,15 +119,30 @@ async fn external_inventory_defers_unreadable_children_without_stopping_other_fi
     fs::write(tree.0.join("test-bucket/working"), b"working").unwrap();
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
     let (_stop, stopping) = tokio::sync::watch::channel(false);
-    let counts = external_files(&root, &root.sync_admin(), Interrupt::new(&stopping)).await;
+    let mut counts = Reconciliation::default();
+    let counted = external_files(
+        &root,
+        &root.sync_admin(),
+        Interrupt::new(&stopping),
+        &mut counts,
+    )
+    .await;
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
+    counted.unwrap();
     assert_eq!(
-        counts.unwrap(),
-        ExternalFiles {
-            only: 1,
-            ignored: 0,
-            unrepresentable: 1,
-        }
+        (
+            counts.external_only,
+            counts.ignored,
+            counts.unrepresentable_entries().get()
+        ),
+        (1, 0, 1)
+    );
+    assert_eq!(
+        counts.entries.entries(),
+        [crate::sync::entries::UnrepresentableEntry {
+            path: "test-bucket/blocked".into(),
+            problem: crate::sync::entries::EntryProblem::Unreadable,
+        }]
     );
     drop(root);
     catalog.close().await.unwrap();
@@ -275,6 +291,7 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
             config: &Config::default(),
             writeback: &writeback,
             stopping: &stop.subscribe(),
+            status: &MirrorStatusSender::default(),
         },
         &mut baseline,
         &mut SkippedExports::default(),
@@ -2534,6 +2551,7 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
+            status: &MirrorStatusSender::default(),
         },
         state: &mut state,
     };
@@ -2609,6 +2627,7 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
+            status: &MirrorStatusSender::default(),
         },
         state: &mut state,
     };
@@ -2659,6 +2678,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
+            status: &MirrorStatusSender::default(),
         },
         state: &mut state,
     };
@@ -2912,6 +2932,7 @@ async fn wait_from(
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
+            status: &MirrorStatusSender::default(),
         },
         state: &mut state,
     };

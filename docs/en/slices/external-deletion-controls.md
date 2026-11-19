@@ -16,6 +16,36 @@ incarnation contribute to the root-wide baseline. Ignored findings, stale API
 generations and incomplete/unobserved state cannot become deletion candidates.
 An incomplete scan invalidates its draft without deleting API data.
 
+What holds back the baseline and every inferred deletion is decided by the side
+of the problem. An entry in the tree that no object can take (an unsafe entry, a
+name that maps to no object, an unreadable path, a path collision, or a file in
+the directory of a bucket deleted through the API) may be where a missing file
+went, so it stops the baseline and the inventory until it is gone. The mirror
+keeps the first 256 such paths and the count of the rest in memory; the control
+status does not list them yet. An
+API object the tree cannot hold, such as a name the file system rejects or one
+deeper than `max_sync_depth`, is a mapping finding. It has no file that could
+look deleted, so it neither keeps the baseline open nor stops the deletion of
+other files. A complete baseline also spares later passes the full
+reconciliation that ran on each pass while it stayed open.
+
+Each tracked path is looked at on its own without following links. A path that
+tells nothing about its file (deeper than `max_sync_depth`, a name the file
+system refuses, a non-directory above it, a differently spelled entry, an
+unreadable path, or a directory or special file in the file's place) keeps its
+own object out of the set and logs `sync_deletion_unobservable` with a remedy;
+the inventory goes on with the other paths. A directory or special file that
+replaced a tracked file also stops that one path as `EntryReplaced`, in exports
+and inventories alike, until the path is empty or holds a regular file again;
+the root keeps running. An untracked one stays a mapping finding. The empty
+directory of a bucket deleted through the API holds nothing back and is left in
+place.
+
+With the baseline complete, a tracked file that is missing while its API
+generation is still the one last synchronized was deleted from the tree, also
+when that happened while the server was stopped or after it was killed.
+Reconciliation leaves it to the next inventory instead of writing it back.
+
 Schema 40 persists one fixed root-bound deletion revision and its members.
 Candidates are paged in batches of at most 256. The denominator, count, captured
 journal fence and thresholds stay fixed across pages. The guard stops deletion
@@ -23,8 +53,13 @@ when enabled, the candidate count is at least 100, and the fraction is strictly
 greater than one half. A disabled guard changes only that threshold decision.
 
 Observed tree changes, root/marker failures, API journal changes and restart
-invalidate unused revisions. Approval consumes exactly one revision, and replay
-or stale inspection returns 409. Each actual delete rechecks no-follow absence,
+invalidate unused revisions. Invalidating a set that is already invalid changes
+nothing, so it starts no new observation revision. An inventory that finds
+exactly the members of the root's unapproved set again, at the same journal
+fence and guard setting, confirms that set under its revision instead of
+replacing it, also after an observed change invalidated it. It never confirms an
+approved set or one from before a restart. Approval consumes exactly one
+revision, and replay or stale inspection returns 409. Each actual delete rechecks no-follow absence,
 root identity, membership, generation and incarnation. Member completion and the
 expected execution fence commit in the same transaction as the shared delete.
 An injected SQL failure rolls both back. Concurrent filesystem creation remains
@@ -82,6 +117,12 @@ tests cover 300 fixed candidates, multi-page long names within the byte cap,
 stale cursors/approval, disabled/threshold boundary decisions, API interference,
 recreated files, source symlinks and marker failure, protected restoration,
 versioned history, transactional rollback and owner retention across restart.
+Library tests also cover an object the tree cannot hold beside an external
+deletion, an unsafe entry that stops deletions until it is removed, a tracked
+file replaced by a directory, a lowered `max_sync_depth`, an unreadable tracked
+path beside a deleted file, and the reuse rules of an identical inventory. An
+integration test deletes files while the server is stopped and after it is
+killed.
 The ordinary hold-negative write-back test remains enabled and passes.
 
 The read-copy tests pair a catalog crash snapshot with a tree snapshot at file

@@ -353,6 +353,47 @@ fn live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_erro
     server.stop();
 }
 
+/// A file deleted while the server was down, whether it stopped cleanly or was killed, is a
+/// deletion: the restarted mirror neither writes the file back nor keeps its object.
+#[test]
+fn a_file_deleted_while_the_server_was_down_is_deleted_rather_than_written_back() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for name in ["kept", "stopped", "killed"] {
+        fs::write(tree.0.join("test-bucket").join(name), name).unwrap();
+    }
+    let mut server = SyncServer::start(&data.0, &tree.0);
+    server.rescan();
+    server.stop();
+    fs::remove_file(tree.0.join("test-bucket/stopped")).unwrap();
+
+    let mut server = SyncServer::start(&data.0, &tree.0);
+    server.rescan();
+    server
+        .request("GET", "/storage/v1/b/test-bucket/o/stopped", b"")
+        .json_reason(404, "notFound");
+    assert!(!tree.0.join("test-bucket/stopped").exists());
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    fs::remove_file(tree.0.join("test-bucket/killed")).unwrap();
+
+    let mut server = SyncServer::start(&data.0, &tree.0);
+    server.rescan();
+    server
+        .request("GET", "/storage/v1/b/test-bucket/o/killed", b"")
+        .json_reason(404, "notFound");
+    assert!(!tree.0.join("test-bucket/killed").exists());
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o/kept?alt=media", b"")
+            .body,
+        b"kept"
+    );
+    assert_eq!(fs::read(tree.0.join("test-bucket/kept")).unwrap(), b"kept");
+    server.stop();
+}
+
 async fn publish(catalog: &Catalog, bucket: &BucketName, name: &str, body: &[u8]) -> i64 {
     let (tx, rx) = tokio::sync::mpsc::channel(2);
     tx.try_send(Ok(UploadChunk::Data(Bytes::copy_from_slice(body))))

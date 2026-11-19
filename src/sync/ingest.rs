@@ -1,7 +1,10 @@
 use super::interrupt::{Interrupt, Interrupted};
 use super::tree::{TreeEntry as Entry, TreeScan as Scan};
 use super::{
-    Pass, SyncError, mapping,
+    Pass, SyncError,
+    deletion::Presence,
+    entries::EntryProblem,
+    mapping,
     mirror::Reconciliation,
     naming::RootNaming,
     tree::{ParentError, ParentOpen, parent},
@@ -268,11 +271,19 @@ pub(super) async fn rescan_with(
         summary.interrupted = interrupt.check() != Interrupted::No;
     }
     if !summary.interrupted {
-        root.observation_scan(summary.unrepresentable, summary.deferred)
+        root.observation_scan(summary.unrepresentable_entries().get(), summary.deferred)
             .await?;
     }
     Ok(summary)
 }
+
+/// The path stops that what the tree holds at a path decides, which a scan clears once the path
+/// holds the regular file again or nothing at all.
+const TREE_STOPS: [PathStop; 3] = [
+    PathStop::SourceChanging,
+    PathStop::IoFailure,
+    PathStop::EntryReplaced,
+];
 
 async fn clear_missing_observations(
     root: &RootLease,
@@ -295,14 +306,9 @@ async fn clear_missing_observations(
             if let mapping::PathMapping::File(path) =
                 mapping::name_to_path(binding.bucket(), &name, naming)
                 && let Some(path) = path.to_str()
-                && super::deletion::absent(root, path.to_owned()).await?
+                && let Presence::Absent = super::deletion::presence(root, path.to_owned()).await?
             {
-                root.clear_path_stops(
-                    binding,
-                    name,
-                    &[PathStop::SourceChanging, PathStop::IoFailure],
-                )
-                .await?;
+                root.clear_path_stops(binding, name, &TREE_STOPS).await?;
             }
         }
     }
@@ -310,11 +316,41 @@ async fn clear_missing_observations(
 }
 
 /// Whether a top-level directory may be ingested or belongs to a bucket deleted through the
-/// API, which blocks the whole subtree until the user resolves it.
+/// API, whose subtree is not taken in until the user resolves it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BucketDirectory {
     Ready,
     Blocked,
+}
+
+/// Whether the directory of `bucket` holds anything besides the operating system and editor
+/// files a scan ignores. One that cannot be read counts as holding entries, so that what it
+/// may hold is never passed over.
+async fn holds_entries(root: &RootLease, bucket: BucketName) -> Result<bool, SyncError> {
+    Ok(root
+        .file_job(move |root| {
+            let directory = match fsutil::directory_at(
+                root,
+                bucket.as_str().as_ref(),
+                fsutil::DirectoryOpen::Existing,
+            ) {
+                Ok(directory) => directory,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+                Err(_) => return Ok(true),
+            };
+            let mut names = fsutil::DirectoryNames::default();
+            loop {
+                match names.next_name(&directory, usize::MAX) {
+                    Ok(Some(name))
+                        if name
+                            .to_str()
+                            .is_some_and(crate::source_tree::is_ignored_regular_file) => {}
+                    Ok(Some(_)) | Err(_) => return Ok(true),
+                    Ok(None) => return Ok(false),
+                }
+            }
+        })
+        .await?)
 }
 
 /// Shared state of one ingestion rescan.
@@ -358,11 +394,13 @@ impl Ingest<'_> {
             return Ok(BucketDirectory::Ready);
         }
         let Some(text) = entry.path.to_str() else {
-            self.summary.unrepresentable += 1;
+            self.summary
+                .count_unrepresentable_entry(&entry.path, EntryProblem::UnmappableName);
             return Ok(BucketDirectory::Ready);
         };
         let Ok(bucket) = BucketName::new(text) else {
-            self.summary.unrepresentable += 1;
+            self.summary
+                .count_unrepresentable_entry(&entry.path, EntryProblem::UnmappableName);
             return Ok(BucketDirectory::Ready);
         };
         if self
@@ -372,8 +410,14 @@ impl Ingest<'_> {
         {
             return Ok(BucketDirectory::Ready);
         }
+        // Deleting a bucket through the API leaves its directory empty. Removing it here would
+        // let the next scan create the bucket again, and keeping it holds nothing back.
+        if !holds_entries(self.root, bucket).await? {
+            return Ok(BucketDirectory::Blocked);
+        }
         self.summary.blocked_buckets += 1;
-        self.summary.deferred += 1;
+        self.summary
+            .count_unrepresentable_entry(&entry.path, EntryProblem::DeletedBucket);
         diagnostics::emit(
             LogLevel::Warn,
             "sync_bucket_missing",
@@ -395,12 +439,14 @@ impl Ingest<'_> {
                 return Ok(None);
             }
             Err(_) => {
-                self.summary.unrepresentable += 1;
+                self.summary
+                    .count_unrepresentable_entry(&entry.path, EntryProblem::UnmappableName);
                 return Ok(None);
             }
         };
         let Some(identity) = entry.identity else {
-            self.summary.unrepresentable += 1;
+            self.summary
+                .count_unrepresentable_entry(&entry.path, EntryProblem::UnsafeEntry);
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_unsafe_entry",
@@ -459,7 +505,8 @@ impl Ingest<'_> {
             Err(error) => return Err(error.into()),
         };
         if super::mirror::hierarchy_collision(&self.admin, &bucket, &name).await? {
-            self.summary.unrepresentable += 1;
+            self.summary
+                .count_unrepresentable_entry(&entry.path, EntryProblem::PathCollision);
             diagnostics::emit(
                 LogLevel::Warn,
                 "sync_path_collision",
@@ -641,11 +688,7 @@ impl Ingest<'_> {
         name: ObjectName,
     ) -> Result<(), SyncError> {
         self.root
-            .clear_path_stops(
-                binding,
-                name,
-                &[PathStop::SourceChanging, PathStop::IoFailure],
-            )
+            .clear_path_stops(binding, name, &TREE_STOPS)
             .await?;
         Ok(())
     }

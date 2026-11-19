@@ -178,6 +178,7 @@ impl Started {
                 config: &self.config,
                 writeback: &self.live.writeback,
                 stopping: &stopping,
+                entries: &EntryReportSender::default(),
             },
             state: &mut self.live.state,
         }
