@@ -364,16 +364,25 @@ for platform in "$@"; do
     echo "sync_dir file $1 did not reach the expected state" >&2
     return 1
   }
-  # Ingestion of external files runs after API readiness but within the first pass, so once
-  # wait_sync_ready returns, the object is already there.
+  # After a restart an external file is already an object once
+  # wait_sync_ready returns, so that check does not poll.
   expect_ingested_object() {
     if curl --disable --noproxy '*' --fail --silent --max-time 5 \
       "http://$address/storage/v1/b/sync-bucket/o/$1?alt=media" >"$work/sync-actual" &&
       cmp -s "$2" "$work/sync-actual"; then
       return 0
     fi
-    echo "external file $1 was not ingested when the healthcheck passed after restart" >&2
+    echo "external file $1 was not ingested" >&2
     return 1
+  }
+  # The backslash object above stays an unrepresentable finding, and sync wait does not succeed
+  # while one is pending, so this stage polls for the watcher's ingestion instead.
+  poll_ingested_object() {
+    for ((attempt = 0; attempt < 40; attempt++)); do
+      if expect_ingested_object "$@" 2>/dev/null; then return 0; fi
+      sleep 0.25
+    done
+    expect_ingested_object "$@"
   }
   wait_sync_ready
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
@@ -402,15 +411,18 @@ for platform in "$@"; do
   expect_sync_file sync-bucket/copied.bin "$work/sync-replaced"
   expect_status DELETE /storage/v1/b/sync-bucket/o/copied.bin 204
   expect_sync_file sync-bucket/copied.bin absent
-  # External creates are ingested at startup; there is no file watcher.
+  # The directory is watched, so files created from outside become objects without a restart; the
+  # restart below then shows that they also survive one.
   docker run --rm --read-only --network none --user 10001:10001 --entrypoint sh \
     --mount "type=volume,src=$volume,dst=/state" "$peer_image" \
     -c 'printf external > /state/sync/sync-bucket/external.txt && printf colon > /state/sync/sync-bucket/a:b.txt'
+  printf external >"$work/sync-external"
+  poll_ingested_object external.txt "$work/sync-external"
+  poll_ingested_object a%3Ab.txt "$work/sync-colon"
   docker stop --timeout 15 "$container" >/dev/null
   [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]] || exit 1
   docker start "$container" >/dev/null
   wait_sync_ready
-  printf external >"$work/sync-external"
   expect_ingested_object external.txt "$work/sync-external"
   expect_ingested_object a%3Ab.txt "$work/sync-colon"
   expect_sync_file sync-bucket/dir/file.bin "$work/sync-replaced"
@@ -432,7 +444,7 @@ for platform in "$@"; do
   container=
   docker volume rm "$volume" >/dev/null
   volume=
-  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, colon names exported and ingested, skipped backslash names, external create ingestion at restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
+  echo "PASS: $platform sync_dir export of API create/overwrite/copy/delete, colon names exported and ingested, skipped backslash names, external create ingestion by the watcher and across a restart, 1000 concurrent uploads with the data directory moved under a read-only root and clean shutdown"
 
   # compose.sync.yaml must work as written after the one step it asks for, creating the host
   # directory: `up --wait` returns only after the first pass, and no step adds a flag or a wait.
@@ -440,6 +452,14 @@ for platform in "$@"; do
   export COMPOSE_FILE=compose.yaml:compose.http.yaml:compose.sync.yaml GCSM_PORT=0
   export GCSM_SYNC_DIR=$work/compose-sync
   mkdir "$GCSM_SYNC_DIR"
+  # The documented Linux step: run as the host user, with the data in a host directory that user
+  # owns. Docker Desktop maps ownership, so macOS skips it unless GCSM_SMOKE_AS_HOST_USER=1 asks
+  # for the Linux path, which is how that path is tried without a Linux host.
+  if [[ $(uname -s) == Linux || ${GCSM_SMOKE_AS_HOST_USER:-} == 1 ]]; then
+    mkdir "$work/compose-data"
+    export GCSM_UID GCSM_DATA_DIR=$work/compose-data
+    GCSM_UID=$(id -u)
+  fi
   docker compose -p "$project" config --quiet
   docker compose -p "$project" up --detach --no-build --wait --wait-timeout 60
   service=$(docker compose -p "$project" ps --quiet gcs)
@@ -475,7 +495,7 @@ for platform in "$@"; do
   done
   docker compose -p "$project" down --volumes
   project=
-  unset GCSM_SYNC_DIR
+  unset GCSM_SYNC_DIR GCSM_UID GCSM_DATA_DIR
   export COMPOSE_FILE=compose.yaml:compose.http.yaml
   echo "PASS: $platform compose.sync.yaml as written: up --wait returns healthy with sync.state running, API writes (colon name included) are files after sync wait, host-created files (colon name included) are objects after sync wait"
 
