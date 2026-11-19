@@ -11,6 +11,18 @@ pub(super) fn paused(error: &SyncError, pause: PauseReason) {
         ),
     );
 }
+/// Reports a rescan that was to resume a paused mirror and failed transiently: the pause and
+/// its recorded reason stay until a rescan succeeds.
+pub(super) fn resume_failed(error: &SyncError) {
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "sync_resume_failed",
+        diagnostic(
+            error,
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":"Synchronization stays paused under its recorded reason; run the rescan again"}),
+        ),
+    );
+}
 pub(super) fn retrying(error: &SyncError, delay: std::time::Duration) {
     crate::diagnostics::emit(
         crate::diagnostics::LogLevel::Warn,

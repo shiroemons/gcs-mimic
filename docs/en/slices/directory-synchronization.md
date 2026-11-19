@@ -1094,8 +1094,11 @@ catalog health failures and failing maintenance still can. While synchronization
 is enabled, a ready answer adds `sync.state`, the mirror's state, read from
 memory without a catalog query: `starting` until this process's first
 reconciliation finishes, then `running`; `retrying` while a run or a directory
-watch rebuild waits to retry; `paused` until an explicit rescan succeeds; and
-`stopped` after shutdown. The summary carries no counts, paths, names,
+watch rebuild waits to retry; `paused` until an explicit rescan succeeds, so a
+rescan that fails, even transiently, answers with its failure and leaves the
+mirror paused under the reason it recorded; and `stopped` after shutdown or
+after the mirror's thread ends unexpectedly, which also withdraws the sync
+controls. The summary carries no counts, paths, names,
 catalog/root IDs or tokens; detailed strict diagnostics require management
 authorization. While the mirror is retrying, paused or stopped without a recorded
 pause reason, status `state` is `Unhealthy`. The `sync` object is outside the

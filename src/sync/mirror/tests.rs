@@ -35,7 +35,7 @@ async fn run_live_controlled(
     stopping: &mut tokio::sync::watch::Receiver<bool>,
     requests: &mut tokio::sync::mpsc::Receiver<Command>,
 ) -> Result<(), SyncError> {
-    let status = MirrorStatus::default();
+    let status = MirrorStatusSender::default();
     let config = Config::default();
     run_live_config(
         LiveRun {
@@ -43,7 +43,7 @@ async fn run_live_controlled(
             root,
             config: &config,
             status: &status,
-            resume: None,
+            resume: &mut None,
         },
         stopping,
         requests,
@@ -153,8 +153,8 @@ async fn quiet_native_observation_keeps_split_bulk_deletions_pending_and_answers
                 catalog: &worker_catalog,
                 root: &worker_root,
                 config: &Config::default(),
-                status: &MirrorStatus::default(),
-                resume: None,
+                status: &MirrorStatusSender::default(),
+                resume: &mut None,
             },
             &mut stopping,
             &mut requests,
@@ -2133,9 +2133,72 @@ fn api_ready(catalog: &Catalog) -> bool {
 
 /// Waits until `task`'s mirror is in `state`.
 async fn mirror_reaches(task: &Task, state: MirrorState) {
-    tokio::time::timeout(HANG_GUARD, task.status().reached(state))
+    let reached = tokio::time::timeout(HANG_GUARD, task.status().reached(state))
         .await
-        .unwrap_or_else(|_| panic!("the mirror never became {state}"));
+        .unwrap_or(false);
+    assert!(reached, "the mirror never became {state}");
+}
+
+/// Trees whose mirror thread panics once it has paused, outside any supervised run.
+static PAUSE_PANICS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+pub(super) fn injected_pause_panic(config: &Config) {
+    let mut armed = PAUSE_PANICS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(index) = armed
+        .iter()
+        .position(|tree| config.sync_dir.as_ref() == Some(tree))
+    else {
+        return;
+    };
+    armed.remove(index);
+    drop(armed);
+    panic!("injected paused mirror panic");
+}
+
+/// A panic outside a supervised run, here while the mirror pauses, still reports the mirror
+/// stopped and withdraws its controls, so nothing reads as resumable that cannot resume; the
+/// Storage API stays ready.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mirror_thread_that_panics_outside_a_run_reports_stopped_and_withdraws_its_controls() {
+    use MirrorState::{Paused, Starting, Stopped};
+    let (data, tree, catalog, _, root) = live_fixture().await;
+    let config = Config {
+        data_dir: data.0.clone(),
+        sync_dir: Some(tree.0.clone()),
+        ..Default::default()
+    };
+    LIVE_FAILURES
+        .lock()
+        .unwrap()
+        .push((tree.0.clone(), LiveFailure::Error));
+    PAUSE_PANICS.lock().unwrap().push(tree.0.clone());
+    let task = start(catalog.clone(), root, &config).unwrap();
+    mirror_reaches(&task, Stopped).await;
+    assert!(catalog.sync_controls().unwrap().is_none());
+    assert!(api_ready(&catalog));
+    let panics = crate::task::tests::reported_panics("sync-mirror");
+    assert!(
+        panics
+            .iter()
+            .any(|panic| panic == "injected paused mirror panic"),
+        "{panics:?}"
+    );
+    let status = task.status();
+    assert!(
+        task.finish().await.is_err(),
+        "the thread ended without its orderly shutdown"
+    );
+    assert_eq!(status.entered(), [Starting, Paused, Stopped]);
+    // The unwound thread released the root, so the directory can be owned again.
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, crate::storage::sync_state::root::Activation::Open)
+        .await
+        .unwrap();
+    drop(root);
+    catalog.close().await.unwrap();
 }
 
 /// Queues a wait on `task`'s mirror; the receiver answers it.
@@ -2191,9 +2254,15 @@ async fn a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready() {
         assert!(api_ready(&catalog), "a stopped mirror leaves the API ready");
         catalog.close().await.unwrap();
     }
+    // Other tests' mirror threads report their own panics under the same name.
+    let panics = crate::task::tests::reported_panics("sync-mirror");
     assert_eq!(
-        crate::task::tests::reported_panics("sync-mirror"),
-        ["injected live sync panic"]
+        panics
+            .iter()
+            .filter(|panic| *panic == "injected live sync panic")
+            .count(),
+        1,
+        "{panics:?}"
     );
 }
 
@@ -2253,6 +2322,56 @@ async fn explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership
         b"preserve while paused"
     );
     drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// A rescan that would resume a paused mirror and fails on contention leaves it paused under
+/// its recorded reason and answers with the failure; the mirror does not resume on its own once
+/// a retry delay passes, which only an explicit rescan that succeeds may do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_resume_that_fails_transiently_stays_paused_until_a_rescan_succeeds() {
+    use MirrorState::{Paused, Running, Starting, Stopped};
+    let (_data, tree, catalog, task) = started_mirror(Some(LiveFailure::Error)).await;
+    mirror_reaches(&task, Paused).await;
+    let (_, root) = catalog.sync_controls().unwrap().unwrap();
+    await_paused(&root).await;
+    let recorded = root.observation().await.unwrap().paused_reason;
+    LIVE_FAILURES
+        .lock()
+        .unwrap()
+        .push((tree.0.clone(), LiveFailure::Busy));
+    let failed = tokio::time::timeout(HANG_GUARD, task.rescan())
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(
+        matches!(
+            &failed,
+            ControlError::Failed(SyncError::Admin(AdminError::Busy { .. }))
+        ),
+        "{failed:?}"
+    );
+    // A wait answers `Paused` only from the pause, so the mirror went back to it instead of
+    // retrying on its own.
+    let waited = tokio::time::timeout(HANG_GUARD, queue_wait(&task, HANG_GUARD).await)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(waited.reason, crate::sync::control::WaitReason::Paused);
+    assert_eq!(task.status().state(), Paused);
+    assert_eq!(root.observation().await.unwrap().paused_reason, recorded);
+    assert!(
+        tokio::time::timeout(HANG_GUARD, task.rescan())
+            .await
+            .unwrap()
+            .unwrap()
+            .baseline_complete
+    );
+    drop(root);
+    let status = task.status();
+    task.finish().await.unwrap();
+    assert_eq!(status.entered(), [Starting, Paused, Running, Stopped]);
     catalog.close().await.unwrap();
 }
 

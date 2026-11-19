@@ -72,16 +72,61 @@ impl FromStr for MirrorState {
     }
 }
 
-/// The mirror's current state. The mirror alone changes it; clones read the same value.
+/// Every state entered, in order, so that a test sees a state the mirror left at once.
+#[cfg(test)]
+type History = std::sync::Arc<std::sync::Mutex<Vec<MirrorState>>>;
+
+/// The mirror's current state, for those who only read it, such as the readiness probe and the
+/// status control. Clones read the same value; only the mirror's [`MirrorStatusSender`] changes it.
 #[derive(Clone, Debug)]
 pub struct MirrorStatus {
-    current: watch::Sender<MirrorState>,
-    /// Every state entered, in order, so that a test sees a state the mirror left at once.
+    current: watch::Receiver<MirrorState>,
     #[cfg(test)]
-    entered: std::sync::Arc<std::sync::Mutex<Vec<MirrorState>>>,
+    entered: History,
 }
 
-impl Default for MirrorStatus {
+impl MirrorStatus {
+    pub(crate) fn state(&self) -> MirrorState {
+        *self.current.borrow()
+    }
+
+    /// A status already in `state`, for tests of what reads it.
+    #[cfg(test)]
+    pub(crate) fn in_state(state: MirrorState) -> Self {
+        let sender = MirrorStatusSender::default();
+        sender.enter(state);
+        sender.subscribe()
+    }
+
+    /// Waits until the mirror is in `state`, and says whether it got there before the mirror
+    /// went away; the caller bounds the wait. Only the mirror's tests, which run where
+    /// synchronization does, wait for one.
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) async fn reached(&self, state: MirrorState) -> bool {
+        let mut current = self.current.clone();
+        current.wait_for(|current| *current == state).await.is_ok()
+    }
+
+    /// The states entered so far, in order, starting with `Starting`.
+    #[cfg(test)]
+    pub(crate) fn entered(&self) -> Vec<MirrorState> {
+        self.entered
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// Changes the mirror's state. The mirror keeps it and hands out [`MirrorStatus`] to readers,
+/// so that no reader can change the state.
+#[derive(Clone, Debug)]
+pub(crate) struct MirrorStatusSender {
+    current: watch::Sender<MirrorState>,
+    #[cfg(test)]
+    entered: History,
+}
+
+impl Default for MirrorStatusSender {
     fn default() -> Self {
         Self {
             current: watch::Sender::new(MirrorState::Starting),
@@ -91,14 +136,19 @@ impl Default for MirrorStatus {
     }
 }
 
-impl MirrorStatus {
-    pub(crate) fn state(&self) -> MirrorState {
-        *self.current.borrow()
+impl MirrorStatusSender {
+    /// A reader of this state.
+    pub(crate) fn subscribe(&self) -> MirrorStatus {
+        MirrorStatus {
+            current: self.current.subscribe(),
+            #[cfg(test)]
+            entered: std::sync::Arc::clone(&self.entered),
+        }
     }
 
     /// Moves to `state`. `Stopped` is final: a late transition cannot make a stopped mirror
     /// look as if it still ran.
-    pub(super) fn enter(&self, state: MirrorState) {
+    pub(crate) fn enter(&self, state: MirrorState) {
         self.current.send_if_modified(|current| {
             if *current == state || *current == MirrorState::Stopped {
                 return false;
@@ -111,31 +161,6 @@ impl MirrorStatus {
                 .push(state);
             true
         });
-    }
-
-    /// A status already in `state`, for tests of what reads it.
-    #[cfg(test)]
-    pub(crate) fn in_state(state: MirrorState) -> Self {
-        let status = Self::default();
-        status.enter(state);
-        status
-    }
-
-    /// Waits until the mirror is in `state`; the caller bounds the wait. Only the mirror's tests,
-    /// which run where synchronization does, wait for one.
-    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-    pub(crate) async fn reached(&self, state: MirrorState) {
-        let mut changes = self.current.subscribe();
-        let _ = changes.wait_for(|current| *current == state).await;
-    }
-
-    /// The states entered so far, in order, starting with `Starting`.
-    #[cfg(test)]
-    pub(crate) fn entered(&self) -> Vec<MirrorState> {
-        self.entered
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
     }
 }
 
@@ -155,13 +180,20 @@ mod tests {
 
     #[test]
     fn a_stopped_mirror_stays_stopped() {
-        let status = MirrorStatus::default();
+        let sender = MirrorStatusSender::default();
+        let status = sender.subscribe();
         assert_eq!(status.state(), MirrorState::Starting);
-        status.enter(MirrorState::Running);
-        status.enter(MirrorState::Running);
-        status.enter(MirrorState::Stopped);
-        status.enter(MirrorState::Running);
+        sender.enter(MirrorState::Running);
+        sender.enter(MirrorState::Running);
+        sender.enter(MirrorState::Stopped);
+        sender.enter(MirrorState::Running);
         assert_eq!(status.state(), MirrorState::Stopped);
+        drop(sender);
+        assert_eq!(
+            status.state(),
+            MirrorState::Stopped,
+            "a reader keeps the last state after the mirror is gone"
+        );
         assert_eq!(
             status.entered(),
             [

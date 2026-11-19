@@ -2,7 +2,7 @@ use super::control::{Command, ControlError, Reply};
 use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
-use super::{MirrorState, MirrorStatus, Pass, SyncError};
+use super::{MirrorState, MirrorStatus, MirrorStatusSender, Pass, SyncError};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
@@ -114,7 +114,7 @@ impl DirectoryWatch {
         &mut self,
         root: &RootLease,
         stopping: &tokio::sync::watch::Receiver<bool>,
-        status: &MirrorStatus,
+        status: &MirrorStatusSender,
     ) -> Result<(), SyncError> {
         let mut backoff = MIRROR_BACKOFF;
         let mut failures = 0;
@@ -246,114 +246,29 @@ const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), RETRY_DELAY
 const EXPORT_RETRIES: u32 = 2;
 
 pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<Task> {
-    let config = config.clone();
-    let runtime = tokio::runtime::Handle::current();
-    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let (stop, stopping) = tokio::sync::watch::channel(false);
     let root = std::sync::Arc::new(root.with_shutdown(stopping.clone()));
     let (done, completion) = tokio::sync::oneshot::channel();
-    let (rescan, mut requests) = tokio::sync::mpsc::channel(1);
+    let (rescan, requests) = tokio::sync::mpsc::channel(1);
     // The mirror reports its own state instead of joining the catalog's background tasks, so
-    // that a stopped mirror stops synchronization but never the Storage API's readiness.
-    // A transient failure (catalog contention, a timeout) is retried with backoff. Persistent
-    // failures pause intake but retain ownership and controls; only an explicit rescan after
-    // repair may resume synchronization.
-    let status = MirrorStatus::default();
+    // that a stopped mirror stops synchronization but never the Storage API's readiness. The
+    // controls and the readiness probe read the one handle made here.
+    let state = MirrorStatusSender::default();
+    let status = state.subscribe();
     catalog
         .register_sync_controls(&root, rescan.clone(), status.clone())
         .map_err(io::Error::other)?;
-    let mirror = status.clone();
-    crate::task::spawn_thread("sync-mirror", move || {
-        let status = mirror;
-        let mut backoff = MIRROR_BACKOFF;
-        let mut resume = None;
-        let mut controls = observation::Controls::default();
-        loop {
-            let started = std::time::Instant::now();
-            let result = crate::task::catch_job("sync-mirror", || {
-                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                tests::injected_live_failure(&config)?;
-                runtime.block_on(run_live_config(
-                    LiveRun {
-                        catalog: &catalog,
-                        root: &root,
-                        config: &config,
-                        status: &status,
-                        resume: resume.take(),
-                    },
-                    &mut stopping,
-                    &mut requests,
-                    &mut controls,
-                ))
-            });
-            let error = match result {
-                Ok(Ok(())) => break,
-                Ok(Err(error)) => error,
-                Err(error) => SyncError::Panicked(error),
-            };
-            if !error.is_transient() {
-                let reason = error.pause_reason();
-                status.enter(MirrorState::Paused);
-                descriptor::paused(&error, reason);
-                if let Err(error) = runtime.block_on(root.observation_pause(Some(reason))) {
-                    diagnostics::emit(
-                        LogLevel::Error,
-                        "sync_pause_unrecorded",
-                        serde_json::json!({"reason":error.to_string()}),
-                    );
-                }
-                resume = runtime.block_on(await_resume(
-                    &catalog,
-                    &root,
-                    &config,
-                    &mut requests,
-                    &mut stopping,
-                    &mut controls,
-                ));
-                if resume.is_none() {
-                    break;
-                }
-                backoff.reset();
-                continue;
-            }
-            status.enter(MirrorState::Retrying);
-            // A run that lasted longer than the cap had recovered, so its failure starts over.
-            if started.elapsed() >= RETRY_DELAY_MAX {
-                backoff.reset();
-            }
-            let delay = backoff.next_delay();
-            descriptor::retrying(&error, delay);
-            let stopped = runtime.block_on(async {
-                tokio::select! {
-                    _ = stopping.wait_for(|stop| *stop) => true,
-                    () = tokio::time::sleep(delay) => false,
-                }
-            });
-            if stopped {
-                break;
-            }
-        }
-        // Before the queued controls hear that synchronization stopped.
-        status.enter(MirrorState::Stopped);
-        controls.stop();
-        drop(requests);
-        if let Err(error) = catalog.clear_sync_controls() {
-            diagnostics::emit(
-                LogLevel::Error,
-                "sync_controls_closed",
-                serde_json::json!({"reason":error.to_string()}),
-            );
-        }
-        runtime.block_on(async {
-            if !*stopping.borrow() {
-                tokio::select! {
-                    _=stopping.changed()=>{},
-                    ()=catalog.wait_for_sync_shutdown()=>{},
-                }
-            }
-        });
-        drop(root);
-        let _ = done.send(());
-    })?;
+    let mirror = Mirror {
+        catalog,
+        root,
+        config: config.clone(),
+        runtime: tokio::runtime::Handle::current(),
+        state,
+        stopping,
+        requests,
+        controls: observation::Controls::default(),
+    };
+    crate::task::spawn_thread("sync-mirror", move || mirror.run(done))?;
     Ok(Task {
         stop,
         done: completion,
@@ -362,12 +277,189 @@ pub fn start(catalog: Catalog, root: RootLease, config: &Config) -> io::Result<T
     })
 }
 
+/// What the mirror thread owns. A transient failure (catalog contention, a timeout) is retried
+/// with backoff. A persistent failure pauses intake but keeps ownership and the controls; only
+/// an explicit rescan after repair may resume synchronization.
+struct Mirror {
+    catalog: Catalog,
+    root: std::sync::Arc<RootLease>,
+    config: Config,
+    runtime: tokio::runtime::Handle,
+    state: MirrorStatusSender,
+    stopping: tokio::sync::watch::Receiver<bool>,
+    requests: tokio::sync::mpsc::Receiver<Command>,
+    controls: observation::Controls,
+}
+
+impl Mirror {
+    fn run(mut self, done: tokio::sync::oneshot::Sender<()>) {
+        let _stopped = StopOnExit {
+            state: self.state.clone(),
+            catalog: self.catalog.clone(),
+        };
+        let mut backoff = MIRROR_BACKOFF;
+        let mut resume = None;
+        loop {
+            let started = std::time::Instant::now();
+            let Err(error) = self.live(&mut resume) else {
+                break;
+            };
+            // A rescan that was to resume a paused mirror is still here when its run failed. It
+            // hears the failure, and the mirror goes back to the pause even when the failure is
+            // transient: a retry would resume synchronization without a rescan that succeeded.
+            let failed = resume.take();
+            if failed.is_some() || !error.is_transient() {
+                resume = self.pause(error, failed);
+                if resume.is_none() {
+                    break;
+                }
+                backoff.reset();
+                continue;
+            }
+            if self.retry(&error, &mut backoff, started) == Step::Stopped {
+                break;
+            }
+        }
+        self.shut_down(done);
+    }
+
+    /// One supervised run, which takes `resume` once it has resumed synchronization.
+    fn live(&mut self, resume: &mut Option<Resume>) -> Result<(), SyncError> {
+        let result = crate::task::catch_job("sync-mirror", || {
+            #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+            tests::injected_live_failure(&self.config)?;
+            self.runtime.block_on(run_live_config(
+                LiveRun {
+                    catalog: &self.catalog,
+                    root: &self.root,
+                    config: &self.config,
+                    status: &self.state,
+                    resume,
+                },
+                &mut self.stopping,
+                &mut self.requests,
+                &mut self.controls,
+            ))
+        });
+        result.unwrap_or_else(|panicked| Err(SyncError::Panicked(panicked)))
+    }
+
+    /// Pauses after `error` until an explicit rescan arrives, and returns that rescan; `None`
+    /// means the mirror is stopping. `failed` is the rescan whose run ended in `error`: it hears
+    /// the failure, and a transient one keeps the reason the pause recorded before.
+    fn pause(&mut self, error: SyncError, failed: Option<Resume>) -> Option<Resume> {
+        self.state.enter(MirrorState::Paused);
+        if failed.is_some() && error.is_transient() {
+            descriptor::resume_failed(&error);
+        } else {
+            let reason = error.pause_reason();
+            descriptor::paused(&error, reason);
+            if let Err(error) = self
+                .runtime
+                .block_on(self.root.observation_pause(Some(reason)))
+            {
+                diagnostics::emit(
+                    LogLevel::Error,
+                    "sync_pause_unrecorded",
+                    serde_json::json!({"reason":error.to_string()}),
+                );
+            }
+        }
+        if let Some(request) = failed {
+            let _ = request.reply.send(Err(ControlError::Failed(error)));
+        }
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        tests::injected_pause_panic(&self.config);
+        self.runtime.block_on(await_resume(
+            &self.catalog,
+            &self.root,
+            &self.config,
+            &mut self.requests,
+            &mut self.stopping,
+            &mut self.controls,
+        ))
+    }
+
+    /// Waits out the next retry delay after a transient `error`, unless the mirror stops first.
+    fn retry(
+        &mut self,
+        error: &SyncError,
+        backoff: &mut Backoff,
+        started: std::time::Instant,
+    ) -> Step {
+        self.state.enter(MirrorState::Retrying);
+        // A run that lasted longer than the cap had recovered, so its failure starts over.
+        if started.elapsed() >= RETRY_DELAY_MAX {
+            backoff.reset();
+        }
+        let delay = backoff.next_delay();
+        descriptor::retrying(error, delay);
+        let stopping = &mut self.stopping;
+        self.runtime.block_on(async {
+            tokio::select! {
+                _ = stopping.wait_for(|stop| *stop) => Step::Stopped,
+                () = tokio::time::sleep(delay) => Step::Continue,
+            }
+        })
+    }
+
+    fn shut_down(mut self, done: tokio::sync::oneshot::Sender<()>) {
+        // Before the queued controls hear that synchronization stopped.
+        self.state.enter(MirrorState::Stopped);
+        self.controls.stop();
+        drop(self.requests);
+        if let Err(error) = self.catalog.clear_sync_controls() {
+            diagnostics::emit(
+                LogLevel::Error,
+                "sync_controls_closed",
+                serde_json::json!({"reason":error.to_string()}),
+            );
+        }
+        let (stopping, catalog) = (&mut self.stopping, &self.catalog);
+        self.runtime.block_on(async {
+            if !*stopping.borrow() {
+                tokio::select! {
+                    _=stopping.changed()=>{},
+                    ()=catalog.wait_for_sync_shutdown()=>{},
+                }
+            }
+        });
+        drop(self.root);
+        let _ = done.send(());
+    }
+}
+
+/// Reports the mirror stopped however its thread ends. A panic outside a supervised run skips
+/// [`Mirror::shut_down`], so the guard then also withdraws the controls: a status that still read
+/// as paused, behind controls that can never resume it, would mislead whoever reads it.
+struct StopOnExit {
+    state: MirrorStatusSender,
+    catalog: Catalog,
+}
+
+impl Drop for StopOnExit {
+    fn drop(&mut self) {
+        self.state.enter(MirrorState::Stopped);
+        if std::thread::panicking()
+            && let Err(error) = self.catalog.clear_sync_controls()
+        {
+            diagnostics::emit(
+                LogLevel::Error,
+                "sync_controls_closed",
+                serde_json::json!({"reason":error.to_string()}),
+            );
+        }
+    }
+}
+
 struct LiveRun<'a> {
     catalog: &'a Catalog,
     root: &'a RootLease,
     config: &'a Config,
-    status: &'a MirrorStatus,
-    resume: Option<Resume>,
+    status: &'a MirrorStatusSender,
+    /// The explicit rescan that resumes a paused mirror; a run that succeeds answers and takes
+    /// it, and one that fails leaves it to [`Mirror::pause`].
+    resume: &'a mut Option<Resume>,
 }
 
 struct Resume {
@@ -679,7 +771,7 @@ async fn initialize_live(
     // stays starting, a retrying one retrying and a paused one paused, even while its explicit
     // rescan runs.
     status.enter(MirrorState::Running);
-    if let Some(request) = resume {
+    if let Some(request) = resume.take() {
         let _ = request.reply.send(Ok(summary));
         writeback = writeback.with_root(root)?;
     }

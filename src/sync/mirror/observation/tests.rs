@@ -377,8 +377,8 @@ async fn queued_rescan_recovers_from_pause_without_closing_its_reply() {
             catalog: &catalog,
             root: &root,
             config: &config,
-            status: &MirrorStatus::default(),
-            resume: Some(resume),
+            status: &MirrorStatusSender::default(),
+            resume: &mut Some(resume),
         },
         &stopping,
     )
