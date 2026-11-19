@@ -130,6 +130,110 @@ impl Server {
     }
 }
 
+/// What one `gcs-mimic sync` run reported: whether it succeeded, its JSON answer and the lines
+/// it wrote to standard error.
+struct CliRun {
+    success: bool,
+    answer: Value,
+    stderr: Vec<Value>,
+}
+
+impl Server {
+    fn cli_run(&self, command: &str, options: &[&str]) -> CliRun {
+        let Output {
+            status,
+            stdout,
+            stderr,
+        } = common::server_command()
+            .args(["sync", command, "--endpoint", &self.endpoint])
+            .args(options)
+            .output()
+            .unwrap();
+        CliRun {
+            success: status.success(),
+            answer: serde_json::from_slice(&stdout).unwrap(),
+            stderr: stderr
+                .split(|byte| *byte == b'\n')
+                .filter(|line| !line.is_empty())
+                .map(|line| serde_json::from_slice(line).unwrap())
+                .collect(),
+        }
+    }
+}
+
+impl CliRun {
+    /// The diagnostics this run reported under `key`.
+    fn diagnostics(&self, key: &str) -> Vec<String> {
+        self.stderr
+            .iter()
+            .flat_map(|line| line["diagnostics"].as_array().cloned().unwrap_or_default())
+            .filter(|diagnostic| diagnostic["key"] == key)
+            .map(|diagnostic| diagnostic["fix"].as_str().unwrap().to_owned())
+            .collect()
+    }
+}
+
+/// An object whose name the directory cannot hold does not fail `sync wait`: it exits 0 and
+/// prints one line naming the ready-to-run command that lists it, and nothing while none
+/// remain. `--require-no-findings true` fails it as FindingsPending and says what to run next.
+#[test]
+fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists_it() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    let mut server = Server::start(&data, Some(&tree));
+    let clear = server.cli_run("wait", &["--timeout", "30s"]);
+    assert!(clear.success, "{:?}", clear.stderr);
+    assert_eq!(clear.answer["findings"]["unmapped"], 0);
+    assert!(
+        clear.diagnostics("sync-findings").is_empty(),
+        "{:?}",
+        clear.stderr
+    );
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%5Cfile",
+            None,
+            b"backslash",
+        )
+        .expect(200);
+    let waited = server.cli_run("wait", &["--timeout", "30s"]);
+    assert!(waited.success, "{:?}", waited.stderr);
+    assert_eq!(waited.answer["reason"], "Ready");
+    assert_eq!(waited.answer["findings"]["unmapped"], 1);
+    let revision = waited.answer["findings"]["revision"].as_str().unwrap();
+    let hint = waited.diagnostics("sync-findings");
+    assert_eq!(
+        hint,
+        [format!(
+            "1 object in the API cannot be written to the sync directory because of its name and stays reachable only through the API; list it with gcs-mimic sync status --view findings --revision {revision} --endpoint {}",
+            server.endpoint
+        )]
+    );
+    let listed = server.cli(
+        "status",
+        &["--view", "findings", "--revision", revision],
+        true,
+    );
+    assert_eq!(listed["items"][0]["object"], r"dir\file", "{listed}");
+    assert_eq!(server.cli("status", &[], true)["state"], "Ready");
+    let strict = server.cli_run(
+        "wait",
+        &["--timeout", "30s", "--require-no-findings", "true"],
+    );
+    assert!(!strict.success);
+    assert_eq!(strict.answer["reason"], "FindingsPending");
+    let [error] = strict.diagnostics("sync").try_into().unwrap();
+    assert!(
+        error.starts_with("sync wait ended with FindingsPending: List the findings with gcs-mimic sync status --view findings --revision REVISION --endpoint http://"),
+        "{error}"
+    );
+    assert!(!error.contains("--endpoint URL"), "{error}");
+    assert_eq!(strict.diagnostics("sync-findings").len(), 1);
+    server.stop();
+}
+
 #[test]
 fn live_cli_wait_after_writing_observes_bytes_without_retrying() {
     let data = TestDir::new();

@@ -149,9 +149,10 @@ fn timeout_durations_preserve_cli_units_bounds_and_leading_plus() {
     for (value, fix) in [
         ("0ms", Some("--timeout must be 1ms through 60s")),
         ("60001ms", Some("--timeout must be 1ms through 60s")),
+        ("2m", Some("--timeout must be 1ms through 60s")),
         (
             "5x",
-            Some("--timeout requires an integer with ms or s suffix"),
+            Some("--timeout requires an integer with ms, s or m suffix"),
         ),
         ("+5s", None),
     ] {
@@ -174,9 +175,11 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
         parse_cmd(&["status"]).unwrap().timeout,
         Duration::from_secs(10)
     );
+    // A wait asks again until its own timeout, which leaves a first pass over a
+    // local-development tree on a slow bind mount time to finish.
     assert_eq!(
         parse_cmd(&["wait"]).unwrap().timeout,
-        Duration::from_secs(11)
+        Duration::from_secs(600)
     );
     assert_eq!(
         parse_cmd(&["rescan", "--timeout", "5s"]).unwrap().timeout,
@@ -188,7 +191,8 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
             .timeout,
         Duration::from_millis(25)
     );
-    assert!(HELP.contains("SourceChanging (409)"));
+    assert!(HELP.contains("Wait takes up to 60m and defaults to 10m"));
+    assert!(HELP.contains("--require-no-findings true"));
 }
 
 #[test]
@@ -306,12 +310,47 @@ fn canonical_control_flags_map_to_the_exact_wire_contract() {
         format!("/_internal/sync?view=deletions&revision={revision}")
     );
     let options = parse_cmd(&["wait", "--timeout", "10s"]).unwrap();
-    assert_eq!(options.body, Some(json!({"timeout_ms":10000})));
-    assert_eq!(options.timeout, Duration::from_secs(11));
-    for value in ["0ms", "61s", "1.5s", "18446744073709551615s"] {
-        assert!(parse_cmd(&["wait", "--timeout", value]).is_err());
+    assert_eq!(options.path, "/_internal/sync/wait");
+    assert_eq!(options.timeout, Duration::from_secs(10));
+    assert_eq!(options.wait, Some(Unmapped::Report));
+    assert_eq!(Unmapped::Report.body(10_000), json!({"timeout_ms":10000}));
+    for value in ["0ms", "61m", "1.5s", "18446744073709551615s"] {
+        assert!(parse_cmd(&["wait", "--timeout", value]).is_err(), "{value}");
     }
     assert!(parse_cmd(&["wait", "--timeout", "1s", "--timeout-ms", "1000"]).is_err());
+    let strict = parse_cmd(&["wait", "--require-no-findings", "true"]).unwrap();
+    assert_eq!(strict.wait, Some(Unmapped::Refuse));
+    assert_eq!(
+        Unmapped::Refuse.body(25),
+        json!({"timeout_ms":25,"require_no_findings":true})
+    );
+    assert_eq!(
+        parse_cmd(&["wait", "--require-no-findings", "false"])
+            .unwrap()
+            .wait,
+        Some(Unmapped::Report)
+    );
+    assert_eq!(
+        refusal(&[
+            "wait",
+            "--endpoint",
+            "http://127.0.0.1:4443",
+            "--require-no-findings",
+            "yes"
+        ]),
+        "--require-no-findings must be true or false"
+    );
+    // Only a wait decides whether findings stop it.
+    assert_eq!(
+        refusal(&[
+            "status",
+            "--endpoint",
+            "http://127.0.0.1:4443",
+            "--require-no-findings",
+            "true"
+        ]),
+        "This sync operation does not accept the remaining options; see sync --help"
+    );
 }
 
 #[test]
@@ -364,14 +403,44 @@ fn resolution_requires_exclusive_targets_and_matching_confirmation() {
     assert!(parse_cmd(&base).is_err());
 }
 
+/// A wait may last longer than the one minute a server observes per request, up to an hour.
 #[test]
-fn waits_send_the_bounded_budget_and_allow_time_for_the_error_response() {
+fn a_wait_takes_up_to_an_hour_while_other_controls_take_a_minute() {
     let options = parse_cmd(&["wait", "--timeout-ms", "25"]).unwrap();
-    assert_eq!(options.body, Some(json!({"timeout_ms":25})));
-    assert_eq!(options.path, "/_internal/sync/wait");
-    assert_eq!(options.timeout, Duration::from_millis(1025));
-    assert!(parse_cmd(&["wait", "--timeout-ms", "0"]).is_err());
-    assert!(parse_cmd(&["wait", "--timeout-ms", "60001"]).is_err());
+    assert_eq!(options.timeout, Duration::from_millis(25));
+    assert!(options.body.is_none());
+    for (args, timeout) in [
+        (
+            vec!["wait", "--timeout-ms", "60001"],
+            Duration::from_millis(60_001),
+        ),
+        (vec!["wait", "--timeout", "61s"], Duration::from_secs(61)),
+        (vec!["wait", "--timeout", "60m"], Duration::from_secs(3600)),
+        (vec!["status", "--timeout", "1m"], Duration::from_secs(60)),
+    ] {
+        assert_eq!(parse_cmd(&args).unwrap().timeout, timeout, "{args:?}");
+    }
+    let endpoint = "http://127.0.0.1:4443";
+    for (args, fix) in [
+        (
+            vec!["wait", "--endpoint", endpoint, "--timeout-ms", "0"],
+            "--timeout-ms must be 1 through 3600000",
+        ),
+        (
+            vec!["wait", "--endpoint", endpoint, "--timeout-ms", "3600001"],
+            "--timeout-ms must be 1 through 3600000",
+        ),
+        (
+            vec!["wait", "--endpoint", endpoint, "--timeout", "3600001ms"],
+            "--timeout must be 1ms through 60m",
+        ),
+        (
+            vec!["rescan", "--endpoint", endpoint, "--timeout-ms", "60001"],
+            "--timeout-ms must be 1 through 60000",
+        ),
+    ] {
+        assert_eq!(refusal(&args), fix, "{args:?}");
+    }
 }
 
 #[test]
@@ -411,8 +480,218 @@ fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, S
         String::from_utf8(bytes).unwrap()
     });
     let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
-    let result = options.execute().map(|reply| (reply.status, reply.body));
+    let result = options
+        .execute(options.body.as_ref(), options.timeout)
+        .map(|reply| (reply.status, reply.body));
     (result, peer.join().unwrap())
+}
+
+/// The status and reason a test server answers one wait request with, at once.
+struct WaitAnswer {
+    status: &'static str,
+    reason: &'static str,
+}
+
+impl WaitAnswer {
+    /// The answer a server gives when the deadline of the request passed.
+    fn timed_out(reason: &'static str) -> Self {
+        Self {
+            status: "408 Request Timeout",
+            reason,
+        }
+    }
+
+    fn new(status: &'static str, reason: &'static str) -> Self {
+        Self { status, reason }
+    }
+}
+
+/// A server for one test that answers the n-th wait request with `answer(n)`. A connection that
+/// sends no request ends it, and `requests` returns the `timeout_ms` of every request it got.
+fn wait_server(
+    answer: impl Fn(usize) -> WaitAnswer + Send + 'static,
+) -> (String, thread::JoinHandle<Vec<u64>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let peer = thread::spawn(move || {
+        let mut requests = Vec::new();
+        loop {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 1024];
+            let body = loop {
+                let read = stream.read(&mut buffer).unwrap();
+                if read == 0 && bytes.is_empty() {
+                    return requests;
+                }
+                assert_ne!(read, 0);
+                bytes.extend_from_slice(&buffer[..read]);
+                let text = String::from_utf8_lossy(&bytes).into_owned();
+                if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                    let length: usize = head
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(str::to_owned)
+                        })
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    if body.len() >= length {
+                        break serde_json::from_str::<Value>(body).unwrap();
+                    }
+                }
+            };
+            let timeout_ms = body["timeout_ms"].as_u64().unwrap();
+            let answer = answer(requests.len());
+            requests.push(timeout_ms);
+            let json =
+                json!({"completed":answer.reason=="Ready","reason":answer.reason}).to_string();
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+                    answer.status,
+                    json.len()
+                )
+                .as_bytes(),
+            );
+        }
+    });
+    (endpoint, peer)
+}
+
+/// Ends a server from `wait_server` and returns the `timeout_ms` of every request it answered.
+fn requests(endpoint: &str, server: thread::JoinHandle<Vec<u64>>) -> Vec<u64> {
+    drop(std::net::TcpStream::connect(endpoint.strip_prefix("http://").unwrap()).unwrap());
+    server.join().unwrap()
+}
+
+/// Runs `sync wait --timeout 150s` against `endpoint`, reading the time the wait has spent, in
+/// seconds, from `elapsed` in turn instead of the clock.
+fn wait_for_150s(endpoint: &str, elapsed: &[u64]) -> Reply {
+    let options = parse(&["wait", "--endpoint", endpoint, "--timeout", "150s"]).unwrap();
+    let mut elapsed = elapsed.iter().map(|seconds| Duration::from_secs(*seconds));
+    options
+        .wait_until_settled(options.wait.unwrap(), || {
+            elapsed
+                .next()
+                .expect("the wait read the clock more often than expected")
+        })
+        .unwrap()
+}
+
+/// A wait outlasts the minute one request may take: the client asks again with the time left,
+/// a minute at most, while the tree is still changing, until the server is ready.
+#[test]
+fn a_wait_asks_again_past_one_requests_minute_until_it_is_ready() {
+    let (endpoint, server) = wait_server(|index| match index {
+        0 => WaitAnswer::timed_out("Timeout"),
+        1 => WaitAnswer::new("409 Conflict", "SourceChanging"),
+        _ => WaitAnswer::new("200 OK", "Ready"),
+    });
+    let reply = wait_for_150s(&endpoint, &[0, 60, 60, 120, 120]);
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(reply.body["reason"], "Ready");
+    assert_eq!(requests(&endpoint, server), [60_000, 60_000, 30_000]);
+}
+
+/// Waiting again stops at the wait's own deadline, past several requests' minutes; the last
+/// answer is the result.
+#[test]
+fn a_wait_keeps_asking_until_its_own_timeout() {
+    let (endpoint, server) = wait_server(|_| WaitAnswer::timed_out("Timeout"));
+    let reply = wait_for_150s(&endpoint, &[0, 60, 60, 120, 120, 150]);
+    assert_eq!(reply.status, StatusCode::REQUEST_TIMEOUT);
+    assert_eq!(reply.body["reason"], "Timeout");
+    assert_eq!(requests(&endpoint, server), [60_000, 60_000, 30_000]);
+}
+
+/// A reason that only someone acting can change ends the wait with the first answer.
+#[test]
+fn a_wait_stops_at_once_for_what_waiting_cannot_change() {
+    for reason in [
+        "Paused",
+        "FindingsPending",
+        "DeletionApproval",
+        "SourceUnrepresentable",
+        "Stopped",
+    ] {
+        let (endpoint, server) = wait_server(move |_| WaitAnswer::new("409 Conflict", reason));
+        let reply = wait_for_150s(&endpoint, &[0]);
+        assert_eq!(reply.body["reason"], reason);
+        assert_eq!(requests(&endpoint, server), [60_000], "{reason}");
+    }
+}
+
+/// A wait that succeeds names the command that lists the objects the directory cannot hold, in
+/// one line, and says nothing when none remain. One that fails names its reason and what to run
+/// next, with the options that reached the server.
+#[test]
+fn wait_advice_names_the_command_to_run_next() {
+    let connection = "--endpoint https://127.0.0.1:4443 --ca-cert ca.pem --token-file token";
+    let revision = "0123456789abcdef0123456789abcdef0123456789abcdef";
+    let ready = json!({"reason":"Ready","findings":{"unmapped":2,"revision":revision}});
+    let advice = WaitOutcome::read(&ready).advice(connection);
+    assert!(!advice.is_err());
+    let [hint] = advice.warnings.as_slice() else {
+        panic!("one hint expected: {advice:?}");
+    };
+    assert!(
+        hint.fix
+            .starts_with("2 objects in the API cannot be written"),
+        "{}",
+        hint.fix
+    );
+    assert!(
+        hint.fix.ends_with(&format!(
+            "gcs-mimic sync status --view findings --revision {revision} {connection}"
+        )),
+        "{}",
+        hint.fix
+    );
+    let clear = json!({"reason":"Ready","findings":{"unmapped":0,"revision":revision}});
+    let advice = WaitOutcome::read(&clear).advice(connection);
+    assert!(
+        advice.warnings.is_empty() && advice.errors.is_empty(),
+        "{advice:?}"
+    );
+    let paused = json!({"reason":"Paused","paused_reason":"IoFailure","findings":null,
+        "remedy":"Restore access, then run gcs-mimic sync rescan --endpoint URL"});
+    let advice = WaitOutcome::read(&paused).advice(connection);
+    let [error] = advice.errors.as_slice() else {
+        panic!("one error expected: {advice:?}");
+    };
+    assert_eq!(
+        error.fix,
+        format!(
+            "sync wait ended with Paused (paused_reason IoFailure): Restore access, then run gcs-mimic sync rescan {connection}"
+        )
+    );
+    assert!(advice.warnings.is_empty());
+    let inputs = crate::test_support::TestDir::new();
+    let token = inputs.0.join("token");
+    std::fs::write(&token, b"secret\n").unwrap();
+    let token = token.to_str().unwrap();
+    let options = parse(&[
+        "wait",
+        "--endpoint",
+        "https://127.0.0.1:4443",
+        "--ca-cert",
+        "ca.pem",
+        "--token-file",
+        token,
+    ])
+    .unwrap();
+    assert_eq!(
+        options.connection(),
+        format!("--endpoint https://127.0.0.1:4443 --ca-cert ca.pem --token-file {token}")
+    );
+    let options = parse(&["wait", "--endpoint", "http://127.0.0.1:4443"]).unwrap();
+    assert_eq!(options.connection(), "--endpoint http://127.0.0.1:4443");
 }
 
 #[test]
