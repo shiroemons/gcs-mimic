@@ -60258,7 +60258,7 @@
           "id": "shared-sync-export-interfaces",
           "description": "Descriptor-relative cross-directory replacement and durable root-bound findings with idempotent generation checks, bounded keyset pages and conditional removal. Shared APIs only; runtime mirroring remains pending. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
           "result": "PASS",
-          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations","mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record","name_findings_keep_an_export_conflict_until_the_generation_moves_on","finding_effects_block_export_conflicts_report_names_and_skip_ignored_names","an_unclassified_collision_gives_way_to_the_finding_that_classifies_it"]
+          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations","mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record","name_findings_keep_an_export_conflict_of_the_same_incarnation","finding_effects_block_export_conflicts_report_names_and_skip_ignored_names","an_unclassified_collision_gives_way_to_the_finding_that_classifies_it"]
         },
         {
           "id": "shared-sync-pending-protection",
@@ -60998,7 +60998,7 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit",
         "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict",
         "mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record",
-        "name_findings_keep_an_export_conflict_until_the_generation_moves_on",
+        "name_findings_keep_an_export_conflict_of_the_same_incarnation",
         "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names",
         "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names",
         "an_unclassified_collision_gives_way_to_the_finding_that_classifies_it",
@@ -61528,7 +61528,7 @@
           "result": "PASS",
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record", "name_findings_keep_an_export_conflict_until_the_generation_moves_on", "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names", "an_unclassified_collision_gives_way_to_the_finding_that_classifies_it", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision", "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict"]
+          "test_ids": ["mapping_findings_revision_moves_with_findings_only_and_not_for_an_identical_record", "name_findings_keep_an_export_conflict_of_the_same_incarnation", "finding_effects_block_export_conflicts_report_names_and_skip_ignored_names", "an_unclassified_collision_gives_way_to_the_finding_that_classifies_it", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision", "a_scan_records_the_edit_behind_a_carried_over_collision_as_an_export_conflict"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 storage::catalog sync:: server::admin::sync",
