@@ -69048,26 +69048,203 @@
       "interface": "Project dependency and toolchain policy",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://doc.rust-lang.org/cargo/commands/cargo-update.html",
         "https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project acceptance requirement. Record current/latest version, upstream evidence, failed tests, impact, owner, next action and review date; never silently retain an old version.",
+      "notes": "Implemented in xtask/src/dependencies/exceptions.rs, xtask/src/dependencies.rs and xtask/src/date.rs. The `exceptions` list of compatibility/dependency-status.json is parsed and applied by `cargo xtask dependencies check`. A record names current/latest version, upstream reference, evidence file, reason, impact, owner, next action and review date. In the full scope an in-date, still-accurate record reports DEFERRED, exits 0 and ends the run with a summary that dependencies are not all current; an expired, outdated, stale or duplicate record, or a schema violation, fails the check, and `--scope release` never defers. The unit tests pass; the live full-scope run against the recorded Temurin deferral has not been executed since the change. See docs/en/evidence/dependency-exceptions.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DEP-007-A1",
+          "description": "An in-date exception whose recorded current and latest match the reported update prints DEFERRED with current, latest, review_by and the manifest for each manifest it names, does not fail the check, and leaves other inputs of the same manifest reported as before.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::an_in_date_exception_defers_its_update_and_the_full_check_passes"
+          ]
+        },
+        {
+          "id": "DEP-007-A2",
+          "description": "A run that deferred updates ends with a DEFERRED line giving their count and the earliest review date and stating that dependencies are not all current, while the run itself still passes.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::an_in_date_exception_defers_its_update_and_the_full_check_passes"
+          ]
+        },
+        {
+          "id": "DEP-007-A3",
+          "description": "An exception holds through its review date and fails the check from the day after, with the usual UPDATE_AVAILABLE line followed by an EXCEPTION_EXPIRED line that says what to do.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::the_exception_holds_through_its_review_date_and_fails_the_day_after"
+          ]
+        },
+        {
+          "id": "DEP-007-A4",
+          "description": "An upstream release newer than the recorded latest fails the check with EXCEPTION_OUTDATED instead of deferring it.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::an_upstream_release_past_the_recorded_latest_fails"
+          ]
+        },
+        {
+          "id": "DEP-007-A5",
+          "description": "A pin other than the recorded current fails the check with EXCEPTION_OUTDATED instead of deferring it.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::a_pin_other_than_the_recorded_current_fails"
+          ]
+        },
+        {
+          "id": "DEP-007-A6",
+          "description": "An exception that has lapsed for several reasons at once reports every one of them, in order.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::every_reason_a_lapsed_exception_no_longer_holds_is_reported"
+          ]
+        },
+        {
+          "id": "DEP-007-A7",
+          "description": "An exception for an input that reports CURRENT, including a moving image tag that matches on its declared platforms, fails the check with EXCEPTION_STALE.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::an_exception_for_a_current_input_is_stale"
+          ]
+        },
+        {
+          "id": "DEP-007-A8",
+          "description": "An exception that matches no input the check reports, because its input label or manifest is wrong, fails the check with EXCEPTION_STALE at the end of the run.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::an_exception_that_matches_no_input_fails"
+          ]
+        },
+        {
+          "id": "DEP-007-A9",
+          "description": "Two records for one input and manifest, or a manifest listed twice in one record, are rejected; the same label in another manifest is a separate input.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::two_exceptions_for_one_input_fail"
+          ]
+        },
+        {
+          "id": "DEP-007-A10",
+          "description": "Parsing rejects a record with a missing, unknown, empty or wrongly typed field, a non-object record and a non-list `exceptions` value, naming the record and the field.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::each_missing_unknown_or_empty_field_is_named"
+          ]
+        },
+        {
+          "id": "DEP-007-A11",
+          "description": "Parsing rejects a `review_by` that is not a YYYY-MM-DD calendar date, including an impossible day, other separators and a timestamp.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::a_review_date_must_be_a_calendar_date"
+          ]
+        },
+        {
+          "id": "DEP-007-A12",
+          "description": "Parsing rejects an `evidence` value that is not a repository-relative path to an existing file, and accepts a path without a fragment.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::evidence_must_be_a_file_in_the_repository"
+          ]
+        },
+        {
+          "id": "DEP-007-A13",
+          "description": "Under the release scope an exception never defers a release input: the update fails with EXCEPTION_REFUSED, a current release input stays current, and the exception of a skipped development-only input is neither applied nor reported stale.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::release_scope_never_defers_a_release_input"
+          ]
+        },
+        {
+          "id": "DEP-007-A14",
+          "description": "Without exceptions every input is reported exactly as before in both scopes (CURRENT, UPDATE_AVAILABLE, and the declared-platform forms) and the run adds no summary line.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::without_exceptions_every_input_is_reported_as_before"
+          ]
+        },
+        {
+          "id": "DEP-007-A15",
+          "description": "A deferred moving image tag keeps the platform its update was found on in the DEFERRED line.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::a_deferred_moving_image_tag_names_its_platforms"
+          ]
+        },
+        {
+          "id": "DEP-007-A16",
+          "description": "The exceptions committed in compatibility/dependency-status.json parse and name only manifests the check reports.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::exceptions::tests::committed_exceptions_parse_and_name_manifests_the_check_reports"
+          ]
+        },
+        {
+          "id": "DEP-007-P1",
+          "description": "The live full-scope check reports the recorded Temurin deferral as DEFERRED and exits 0.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "dependencies::exceptions::tests::an_in_date_exception_defers_its_update_and_the_full_check_passes",
+        "dependencies::exceptions::tests::the_exception_holds_through_its_review_date_and_fails_the_day_after",
+        "dependencies::exceptions::tests::an_upstream_release_past_the_recorded_latest_fails",
+        "dependencies::exceptions::tests::a_pin_other_than_the_recorded_current_fails",
+        "dependencies::exceptions::tests::every_reason_a_lapsed_exception_no_longer_holds_is_reported",
+        "dependencies::exceptions::tests::an_exception_for_a_current_input_is_stale",
+        "dependencies::exceptions::tests::an_exception_that_matches_no_input_fails",
+        "dependencies::exceptions::tests::two_exceptions_for_one_input_fail",
+        "dependencies::exceptions::tests::each_missing_unknown_or_empty_field_is_named",
+        "dependencies::exceptions::tests::a_review_date_must_be_a_calendar_date",
+        "dependencies::exceptions::tests::evidence_must_be_a_file_in_the_repository",
+        "dependencies::exceptions::tests::release_scope_never_defers_a_release_input",
+        "dependencies::exceptions::tests::without_exceptions_every_input_is_reported_as_before",
+        "dependencies::exceptions::tests::a_deferred_moving_image_tag_names_its_platforms",
+        "dependencies::exceptions::tests::committed_exceptions_parse_and_name_manifests_the_check_reports"
+      ],
+      "verification": [
+        {
+          "command": "cargo test -p xtask",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/evidence/dependency-exceptions.md",
+          "test_ids": [
+            "dependencies::exceptions::tests::an_in_date_exception_defers_its_update_and_the_full_check_passes",
+            "dependencies::exceptions::tests::the_exception_holds_through_its_review_date_and_fails_the_day_after",
+            "dependencies::exceptions::tests::an_upstream_release_past_the_recorded_latest_fails",
+            "dependencies::exceptions::tests::a_pin_other_than_the_recorded_current_fails",
+            "dependencies::exceptions::tests::every_reason_a_lapsed_exception_no_longer_holds_is_reported",
+            "dependencies::exceptions::tests::an_exception_for_a_current_input_is_stale",
+            "dependencies::exceptions::tests::an_exception_that_matches_no_input_fails",
+            "dependencies::exceptions::tests::two_exceptions_for_one_input_fail",
+            "dependencies::exceptions::tests::each_missing_unknown_or_empty_field_is_named",
+            "dependencies::exceptions::tests::a_review_date_must_be_a_calendar_date",
+            "dependencies::exceptions::tests::evidence_must_be_a_file_in_the_repository",
+            "dependencies::exceptions::tests::release_scope_never_defers_a_release_input",
+            "dependencies::exceptions::tests::without_exceptions_every_input_is_reported_as_before",
+            "dependencies::exceptions::tests::a_deferred_moving_image_tag_names_its_platforms",
+            "dependencies::exceptions::tests::committed_exceptions_parse_and_name_manifests_the_check_reports"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "DEP-007-P1 is pending: no one has run the live full-scope `cargo xtask dependencies check` since exceptions were implemented, so the recorded Temurin deferral has not been observed as DEFERRED with exit 0 against the network. The unit tests drive the report with fixed inputs and a fixed date; they do not run the command, its exit status or its output. That parsing happens before any network access follows from the order of calls in xtask/src/dependencies.rs and has no test of its own."
+      ],
+      "implemented_in": "b92475e82a72e3a2abc5813f694d2834879bd27f",
+      "last_verified": "2026-11-19"
     },
     {
       "id": "DEP-008",

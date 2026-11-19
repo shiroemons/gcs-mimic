@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 310 | 203 | 0 | 97 | 10 | 0 | 0 |
 | behavior | 201 | 80 | 0 | 79 | 42 | 0 | 0 |
-| project_requirement | 99 | 21 | 0 | 44 | 34 | 0 | 0 |
+| project_requirement | 99 | 20 | 0 | 45 | 34 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 203 | 61 | 28 | 18 | 0 | 0 |
 | behavior | 80 | 70 | 48 | 3 | 0 | 0 |
-| project_requirement | 21 | 0 | 0 | 0 | 1 | 77 |
+| project_requirement | 20 | 0 | 0 | 0 | 1 | 78 |
 
 ## api_operation
 
@@ -852,7 +852,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DEP-004 | 解決済みlockfileのコミット・固定ビルド | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-005 | 複数エコシステムの毎日更新検出 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | 作業開始・リリース前確認と毎週の例外見直し | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| DEP-007 | 期限付きの非互換例外管理 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DEP-007 | 期限付きの非互換例外管理 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-008 | 更新されるdigest固定の複数arch Docker入力 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-009 | 固定版と最新stableのCI検証 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
