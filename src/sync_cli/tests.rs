@@ -1025,6 +1025,26 @@ fn a_wait_that_ended_on_source_entries_names_the_first_of_them() {
     );
 }
 
+/// `sync status` names the first five source entries the latest scan could not take in, with
+/// how many there were, in one warning beside its JSON answer, and says nothing of them when
+/// there are none.
+#[test]
+fn a_status_names_the_first_source_entries_the_latest_scan_could_not_take_in() {
+    assert_eq!(parse(&["status"]).unwrap().plan, Plan::Status);
+    let entries: Vec<_> = (0..7)
+        .map(|index| json!({"path":format!("bucket/link{index}"),"reason":"unsafe-entry"}))
+        .collect();
+    let many = json!({"source_entries":{"total":9,"omitted":2,"entries":entries}});
+    let advice = status_advice(&many);
+    assert!(advice.errors.is_empty(), "{advice:?}");
+    assert_eq!(
+        advice.warnings[0].fix,
+        "The latest scan could not take in some source entries (9 source entries: bucket/link0 [unsafe-entry], bucket/link1 [unsafe-entry], bucket/link2 [unsafe-entry], bucket/link3 [unsafe-entry], bucket/link4 [unsafe-entry], and 4 more); until each is renamed, replaced or moved away, no deletion in the directory is detected. source_entries in this status lists them with their reasons"
+    );
+    let none = json!({"source_entries":{"total":0,"omitted":0,"entries":[]}});
+    assert!(status_advice(&none).warnings.is_empty());
+}
+
 /// A file name in the sync directory reaches the terminal of whoever runs the command, through
 /// the entries a wait names, its remedy and a failed request's message. Every control character
 /// in them is escaped, so none reaches the terminal raw, even after the JSON envelope, which
@@ -1569,7 +1589,7 @@ fn a_decision_without_a_revision_reads_the_set_the_status_reports_as_waiting() {
 fn once(options: &Options) -> (&str, Option<&Value>) {
     match &options.plan {
         Plan::Once { path, body } => (path, body.as_ref()),
-        plan @ (Plan::Wait(_) | Plan::Latest(_) | Plan::Waiting(_)) => {
+        plan @ (Plan::Status | Plan::Wait(_) | Plan::Latest(_) | Plan::Waiting(_)) => {
             panic!("not one request: {plan:?}")
         }
     }

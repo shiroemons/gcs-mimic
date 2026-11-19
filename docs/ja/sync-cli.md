@@ -127,7 +127,10 @@ waitは、反映できる変更をすべて反映した時点で成功します�
 `SourceUnrepresentable`で終わったwaitの応答には、`source_entries`も入ります。
 全体の件数`total`、そのwait自身の照合で取り込めなかったエントリのうち先頭の5件`entries`（それぞれ`path`と`reason`）、示さなかった件数`omitted`です。
 エラーは対処の前にそれらを示します。例えば`sync wait ended with SourceUnrepresentable (2 source entries: INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`です。
-statusは走査の停止だけを返し、エントリは列挙しません。
+statusも、最後に最後まで終えた走査について、同じ形の`source_entries`を返します。waitがそれで終わったかどうかは問いません。
+`entries`は最大256件で、パスが長く256 KiBの応答に収まらないときは減らし、残りを`omitted`に数えます。走査が何も見つけなければ、`total`は0で`entries`は空です。
+`sync status`は、先頭の5件を示す`warn`の診断を標準エラーへ1行出します。
+例えば`The latest scan could not take in some source entries (1 source entry: test-bucket/link [unsafe-entry]); until each is renamed, replaced or moved away, no deletion in the directory is detected. ...`です。エントリがなければ何も出しません。
 `DeletionApproval`で終わったwaitの応答には`deletions`が入ります。承認待ちの削除一覧の先頭10件のパス`paths`、示さなかった件数`omitted`、丸ごと消えたバケット`removed_buckets`とその省略件数`removed_buckets_omitted`で、`sync_deletion_approval_required`のログと同じです。対処は待っている理由から始まります。
 UTF-8でないパス（走査が取り込めない名前の典型）は、不正なバイト列ごとにU+FFFDに置き換えて示します。応答でも、そのパスを示すログや対処文でも同じです。
 

@@ -23,7 +23,7 @@ use crate::{
         control::{
             Command, ControlError, PauseChange, Registration, Unfinished, WaitReason, WaitResult,
         },
-        entries::EntryListing,
+        entries::{EntryListing, EntryReport},
         handshake,
     },
 };
@@ -732,6 +732,10 @@ struct StatusSummary<'a> {
     root_change: Option<&'a RootChange>,
     findings_revision: &'a str,
     observation: &'a Summary,
+    /// The entries the latest complete scan could not take in, which hold back the baseline and
+    /// deletion detection: their `total` and the first of them by path and reason, as a wait
+    /// that ends on them lists them, with the `omitted` count.
+    source_entries: EntryListing<'a>,
     pending_deletion_revision: Option<OpaqueId>,
     pending_deletion_count: u64,
     /// While the pending set waits for approval, the commands that inspect, approve and reject
@@ -828,7 +832,8 @@ async fn status(
                     ..AtHand::default()
                 })
             });
-            let summary = StatusSummary {
+            let entries = registration.status.unrepresentable_entries();
+            let mut summary = StatusSummary {
                 auth_mode: state.auth.mode().as_str(),
                 state: ControlState::of(mirror, &observation, set),
                 mirror_state: mirror,
@@ -837,6 +842,7 @@ async fn status(
                 root_change: root.change(),
                 findings_revision: &findings_revision,
                 observation: &observation,
+                source_entries: entries.listing(0),
                 pending_deletion_revision: set.filter(|_| pending > 0).map(|set| set.revision),
                 pending_deletion_count: pending,
                 pending_deletion_remedy: remedy,
@@ -845,8 +851,30 @@ async fn status(
                 conflict_resolution_available: true,
                 stable_wait_available: true,
             };
-            bounded(&super::encode(&RootDocument::new(&root.status(), summary))?)
+            render_listing(&entries, |listing| {
+                summary.source_entries = listing;
+                super::encode(&RootDocument::new(&root.status(), &summary))
+            })
         }
+    }
+}
+
+/// Renders the document `document` builds around the first entries of `entries`: every one the
+/// report names, or as many as fit `RESPONSE_LIMIT`. A path has no length bound of its own, so
+/// the list halves until the answer fits, and the count of omitted entries takes up the rest.
+fn render_listing<'e>(
+    entries: &'e EntryReport,
+    mut document: impl FnMut(EntryListing<'e>) -> Result<Value, ApiError>,
+) -> Result<Response<Full<Bytes>>, ApiError> {
+    let mut listed = EntryReport::LIMIT;
+    loop {
+        if let Some(response) = render_within_limit(&document(entries.listing(listed))?) {
+            return Ok(response);
+        }
+        if listed == 0 {
+            return Err(busy());
+        }
+        listed /= 2;
     }
 }
 

@@ -108,13 +108,6 @@ impl MirrorStatus {
 
     /// The working-tree entries the latest complete scan could not take in, which hold back
     /// the baseline and deletion detection until they are renamed, replaced or moved away.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the status control has yet to read this report, which serializes to the list it shows; until it does only tests read it"
-        )
-    )]
     pub(crate) fn unrepresentable_entries(&self) -> Arc<EntryReport> {
         Arc::clone(&self.entries.borrow())
     }

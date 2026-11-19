@@ -243,7 +243,15 @@ with its `path` and `reason`, and how many it `omitted`. Its error names them
 before the remedy, for
 example `sync wait ended with SourceUnrepresentable (2 source entries:
 INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`.
-The status reports only the scan stop and lists no entries. A wait that ends
+The status answers `source_entries` in the same form for the latest complete
+scan, whether or not a wait ended on them: up to 256 `entries`, fewer when
+their paths would not fit the 256 KiB answer, with `omitted` counting the rest,
+and a `total` of 0 with no entries once a scan finds none. `sync status` then
+prints one `warn` diagnostic on standard error that names the first five,
+for example `The latest scan could not take in some source entries (1 source
+entry: test-bucket/link [unsafe-entry]); until each is renamed, replaced or
+moved away, no deletion in the directory is detected. ...`, and nothing when
+there are none. A wait that ends
 with `DeletionApproval` answers `deletions`: the `paths` of the first ten files
 of the set that waits, how many more it `omitted`, the `removed_buckets` that
 went whole and `removed_buckets_omitted`, as the

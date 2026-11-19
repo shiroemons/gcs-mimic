@@ -926,17 +926,16 @@ async fn unmappable_source_entries_have_a_durable_root_finding_until_repaired() 
     assert!(page["items"][0]["bucket"].is_null());
     assert!(page["items"][0]["object"].is_null());
     assert!(page["next_cursor"].is_null());
-    // A wait names the entries its own pass could not take in; the status names none.
+    // A wait names the entries its own pass could not take in, and the status those of the
+    // latest complete scan.
     let (code, waited) = fixture.wait(br#"{"timeout_ms":10000}"#).await;
     assert_eq!(code, StatusCode::CONFLICT, "{waited}");
     assert_eq!(waited["reason"], "SourceUnrepresentable");
-    assert_eq!(
-        waited["source_entries"],
-        json!({"total":2,"entries":[
-            {"path":"INVALID-BUCKET","reason":"unmappable-name"},
-            {"path":"INVALID-BUCKET/body","reason":"unmappable-name"}],"omitted":0})
-    );
-    assert!(status.get("source_entries").is_none());
+    let entries = json!({"total":2,"entries":[
+        {"path":"INVALID-BUCKET","reason":"unmappable-name"},
+        {"path":"INVALID-BUCKET/body","reason":"unmappable-name"}],"omitted":0});
+    assert_eq!(waited["source_entries"], entries);
+    assert_eq!(status["source_entries"], entries);
     fs::rename(
         fixture.tree.0.join("INVALID-BUCKET"),
         fixture.tree.0.join("valid-bucket"),
@@ -991,6 +990,69 @@ async fn a_wait_names_source_entries_whose_names_are_not_utf8() {
         ]
     );
     fixture.finish().await;
+}
+
+/// The status lists the source entries the latest complete scan could not take in by path and
+/// reason, and none once a scan no longer finds them.
+#[tokio::test]
+async fn a_status_lists_the_source_entries_the_latest_scan_could_not_take_in() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    let directory = fixture.tree.0.join("test-bucket");
+    fs::create_dir(&directory).unwrap();
+    std::os::unix::fs::symlink("target", directory.join("link")).unwrap();
+    fixture.task.rescan().await.unwrap();
+    assert_eq!(
+        fixture.status().await["source_entries"],
+        json!({"total":1,"entries":[{"path":"test-bucket/link","reason":"unsafe-entry"}],"omitted":0})
+    );
+    fs::remove_file(directory.join("link")).unwrap();
+    fixture.task.rescan().await.unwrap();
+    assert_eq!(
+        fixture.status().await["source_entries"],
+        json!({"total":0,"entries":[],"omitted":0})
+    );
+    fixture.finish().await;
+}
+
+/// A status names only as many source entries as fit its answer, at most the bound the report
+/// keeps, and counts the rest as omitted rather than failing.
+#[tokio::test]
+async fn a_status_names_as_many_source_entries_as_fit_its_answer() {
+    let mut report = EntryReport::default();
+    let long = "x".repeat(2000);
+    for index in 0..EntryReport::LIMIT + 10 {
+        report.record(
+            std::path::Path::new(&format!("bucket/{long}{index}")),
+            crate::sync::entries::EntryProblem::UnsafeEntry,
+        );
+    }
+    let response = render_listing(&report, |listing| {
+        super::super::encode(&json!({ "source_entries": listing }))
+    })
+    .unwrap();
+    let listing = body(response).await["source_entries"].take();
+    let named = listing["entries"].as_array().unwrap().len();
+    assert!((1..EntryReport::LIMIT).contains(&named), "{named}");
+    assert_eq!(listing["total"], EntryReport::LIMIT + 10);
+    assert_eq!(listing["omitted"], EntryReport::LIMIT + 10 - named);
+
+    let mut short = EntryReport::default();
+    for index in 0..EntryReport::LIMIT + 10 {
+        short.record(
+            std::path::Path::new(&format!("bucket/link{index}")),
+            crate::sync::entries::EntryProblem::UnsafeEntry,
+        );
+    }
+    let response = render_listing(&short, |listing| {
+        super::super::encode(&json!({ "source_entries": listing }))
+    })
+    .unwrap();
+    let listing = body(response).await["source_entries"].take();
+    assert_eq!(
+        listing["entries"].as_array().unwrap().len(),
+        EntryReport::LIMIT
+    );
+    assert_eq!(listing["omitted"], 10);
 }
 
 #[tokio::test]

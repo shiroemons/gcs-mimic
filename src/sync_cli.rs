@@ -906,6 +906,8 @@ struct Options {
 /// What a command asks of the server.
 #[derive(Debug, PartialEq, Eq)]
 enum Plan {
+    /// `sync status`: the summary, whose source entries the command also names on standard error.
+    Status,
     /// One request to `path`, with `body` for a control.
     Once { path: String, body: Option<Value> },
     /// `sync wait`, which asks again until its timeout, treating objects whose names the tree
@@ -959,13 +961,17 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     let connection = options.connection(&endpoint);
     match options.plan {
         Plan::Wait(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
+        Plan::Status if reply.status.is_success() => {
+            status_advice(&reply.body).write(io::stderr().lock())?;
+            Ok(())
+        }
         Plan::Once { .. } | Plan::Latest(_) | Plan::Waiting(_) if reply.status.is_success() => {
             if let Some(decision) = options.decision {
                 decided(decision, &reply.body, &connection).write(io::stderr().lock())?;
             }
             Ok(())
         }
-        Plan::Once { .. } | Plan::Latest(_) | Plan::Waiting(_) => {
+        Plan::Status | Plan::Once { .. } | Plan::Latest(_) | Plan::Waiting(_) => {
             Err(http_failure(reply.status, error_message(&reply.body), &connection).into())
         }
     }
@@ -1051,21 +1057,7 @@ impl<'a> WaitOutcome<'a> {
                 .and_then(Value::as_u64)
                 .zip(findings.and_then(|findings| text(findings, "revision"))),
             paused_reason: text(body, "paused_reason"),
-            source_entries: body.get("source_entries").and_then(|source| {
-                let first = source
-                    .get("entries")?
-                    .as_array()?
-                    .iter()
-                    .filter_map(|entry| {
-                        Some(format!(
-                            "{} [{}]",
-                            text(entry, "path")?,
-                            text(entry, "reason")?
-                        ))
-                    })
-                    .collect();
-                Some((first, source.get("total")?.as_u64()?))
-            }),
+            source_entries: body.get("source_entries").and_then(listed_source_entries),
             remedy: text(body, "remedy"),
             message: error_message(body),
         }
@@ -1141,6 +1133,55 @@ impl<'a> WaitOutcome<'a> {
             warnings,
             errors,
         }
+    }
+}
+
+/// The first entries of a `source_entries` listing, each as `path [reason]`, and their total.
+fn listed_source_entries(listing: &Value) -> Option<(Vec<String>, u64)> {
+    let text = |value: &Value, key| value.get(key).and_then(Value::as_str).map(str::to_owned);
+    let first = listing
+        .get("entries")?
+        .as_array()?
+        .iter()
+        .take(LISTED_ENTRIES)
+        .filter_map(|entry| {
+            Some(format!(
+                "{} [{}]",
+                text(entry, "path")?,
+                text(entry, "reason")?
+            ))
+        })
+        .collect();
+    Some((first, listing.get("total")?.as_u64()?))
+}
+
+/// The source entries one line names; the rest are counted.
+const LISTED_ENTRIES: usize = 5;
+
+/// For `sync status`, a warning that names the first source entries the latest complete scan
+/// could not take in, which hold back deletion detection for the whole directory until each is
+/// corrected; nothing when there are none. Standard output keeps the JSON answer, which lists
+/// more of them.
+fn status_advice(body: &Value) -> Diagnostics {
+    let warnings = body
+        .get("source_entries")
+        .and_then(listed_source_entries)
+        .filter(|(_, total)| *total > 0)
+        .map(|(first, total)| {
+            diagnostic(
+                "sync-entries",
+                format!(
+                    "The latest scan could not take in some source entries{}; until each is renamed, replaced or moved away, no deletion in the directory is detected. source_entries in this status lists them with their reasons",
+                    listed_entries(&first, total)
+                ),
+            )
+        })
+        .into_iter()
+        .collect();
+    Diagnostics {
+        info: Vec::new(),
+        warnings,
+        errors: Vec::new(),
     }
 }
 
@@ -1352,6 +1393,7 @@ impl Options {
             }
             Plan::Latest(page) => self.latest_page(endpoint, page),
             Plan::Waiting(decision) => self.decide_waiting(endpoint, *decision),
+            Plan::Status => self.execute(endpoint, STATUS_PATH, None, self.timeout),
             Plan::Once { path, body } => self.execute(endpoint, path, body.as_ref(), self.timeout),
         }
     }
@@ -1627,7 +1669,7 @@ fn request(
     flags: &mut Flags<'_>,
 ) -> Result<Plan, Diagnostics> {
     Ok(match (command, revision) {
-        (Some(Command::Status), None) => Plan::once(STATUS_PATH, None),
+        (Some(Command::Status), None) => Plan::Status,
         (Some(Command::Rescan), None) => Plan::once("/_internal/sync/rescan", Some(json!({}))),
         // Each request of a wait carries its own body, with the time left at that request.
         (Some(Command::Wait), None) => Plan::Wait(if flags.switched(Flag::RequireNoFindings) {
