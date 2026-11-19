@@ -90,15 +90,16 @@ impl RootLease {
             return Err(AdminError::Invalid("invalid path stop reasons".into()).into());
         }
         // One parameter per reason keeps the statement static; an unused one binds NULL, which
-        // `IN` never matches.
-        let reasons: [Option<PathStop>; PathStop::ALL.len()] =
+        // `IN` never matches. The pattern names one binding per parameter, so a reason added to
+        // `PathStop::ALL` fails to compile here instead of going unmatched.
+        let [first, second, third, fourth]: [Option<PathStop>; PathStop::ALL.len()] =
             std::array::from_fn(|index| reasons.get(index).copied());
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason IN (?5,?6,?7,?8)", params![root,binding.bucket,name,binding.incarnation,reasons[0],reasons[1],reasons[2],reasons[3]])?;
+            sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason IN (?5,?6,?7,?8)", params![root,binding.bucket,name,binding.incarnation,first,second,third,fourth])?;
             tx.commit().map_err(unavailable)
         }).await.map_err(RootError::from)
     }
