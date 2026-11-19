@@ -450,9 +450,13 @@ reference and journals any old blob for deletion. An upload's error or panic rol
 only its savepoint, and every upload is answered only after the commit. When an upload's
 error makes SQLite roll back the whole transaction, as an I/O, full-disk or out-of-memory
 error may, nothing was committed: each upload of that batch is published again, in queue
-order, in its own transaction, so only the one that fails again fails. A failed batch
-commit may have published everything, so it is not retried and fails each upload in it;
-a transaction that cannot start fails them too. An upload whose commit is still queued is withdrawn
+order, in its own transaction, so an upload fails only if its own transaction does. A
+transient failure need not recur, so the one that ended the batch is first logged as an
+`upload_batch_retried` warning with its SQLite extended result code. If one of these
+commits fails, the uploads committed before it stay published and those not yet tried fail
+with it. A failed batch commit may have published everything, so it is not retried and
+fails each upload in it; a transaction that cannot start fails them too. An upload whose
+commit is still queued is withdrawn
 before it reports a failure, so it cannot publish after its cleanup.
 File publication and SQL commit are separate operations.
 An ambiguous commit error is followed by a reference check before cleanup; committed

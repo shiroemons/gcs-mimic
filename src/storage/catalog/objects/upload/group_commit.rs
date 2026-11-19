@@ -6,10 +6,12 @@
 //! durable. Nothing waits for a batch to fill: a lone upload commits as soon as the writer is free.
 //! An upload whose failure ends the whole transaction, as SQLite may after an I/O, full-disk or
 //! out-of-memory error, would fail the others with it; since nothing was committed, each upload of
-//! that batch is published again in its own transaction, and only the failing one fails.
+//! that batch is published again in its own transaction, and an upload fails only if its own
+//! transaction does. A transient failure need not recur, and then no reply reports it, so the one
+//! that ended the batch is logged as `upload_batch_retried` before the retry.
 
 use super::*;
-use crate::storage::failure::StorageCause;
+use crate::storage::failure::{BackendCause, StorageCause, wording::BackendFailureEvent};
 use std::{
     collections::VecDeque,
     panic::AssertUnwindSafe,
@@ -32,6 +34,16 @@ enum BatchFailure {
     Shared(ObjectError),
     /// Publishing one upload ended the transaction before its commit, so nothing was published.
     Interrupted(ObjectError),
+}
+
+/// The fields of an `upload_batch_retried` event.
+#[derive(serde::Serialize)]
+struct BatchRetried {
+    /// How many uploads are published again, each in its own transaction.
+    uploads: usize,
+    /// The failure that ended the batch's transaction.
+    #[serde(flatten)]
+    failure: BackendFailureEvent,
 }
 
 /// Uploads whose blobs are durable and whose commits wait for the writer.
@@ -180,9 +192,19 @@ fn publish_batch(
         Ok(outcomes) => Ok(outcomes),
         Err(BatchFailure::Shared(failure)) => Err(failure),
         Err(BatchFailure::Interrupted(failure)) if commits.len() == 1 => Ok(vec![Err(failure)]),
-        // Nothing was published. The upload that caused the failure meets it again on its own
-        // and reports it there.
-        Err(BatchFailure::Interrupted(_)) => Ok(publish_each(connection, commits)),
+        Err(BatchFailure::Interrupted(failure)) => {
+            // Nothing was published. A transient failure need not recur when its upload is
+            // published again, and then no reply reports it, so it is logged here.
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "upload_batch_retried",
+                BatchRetried {
+                    uploads: commits.len(),
+                    failure: BackendFailureEvent::from(&BackendCause::from_error(failure)),
+                },
+            );
+            Ok(publish_each(connection, commits))
+        }
     }
 }
 

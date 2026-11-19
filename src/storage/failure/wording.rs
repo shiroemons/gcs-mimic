@@ -214,9 +214,10 @@ fn guidance(backend: &BackendCause) -> Option<(BackendFailure, &'static str)> {
     None
 }
 
-/// The fields of an `object_backend_failure` event.
+/// The fields of an `object_backend_failure` event, and of other events that log a backend
+/// failure.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
-pub(super) struct BackendFailureEvent {
+pub(crate) struct BackendFailureEvent {
     /// The allowlisted cause, or a fixed text that withholds it.
     cause: &'static str,
     /// One message such as `disk I/O error` stands for many failures (no usable temporary

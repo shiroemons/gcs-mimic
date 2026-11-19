@@ -151,8 +151,52 @@ async fn a_panicking_upload_fails_alone_and_its_changes_roll_back() {
     catalog.close().await.unwrap();
 }
 
+/// Marks the child process of
+/// [`an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publish`].
+const RETRIED_BATCH: &str = "GCSM_TEST_RETRIED_BATCH";
+
+/// The child runs the batch, and the parent reads the event it logged to its own stderr.
 #[tokio::test]
 async fn an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publish() {
+    if std::env::var_os(RETRIED_BATCH).is_some() {
+        return retry_an_interrupted_batch().await;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "storage::catalog::objects::upload::group_commit::tests::an_upload_that_ends_the_batch_transaction_fails_alone_and_the_rest_publish",
+            "--nocapture",
+        ])
+        .env(RETRIED_BATCH, "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{stderr}"
+    );
+    let retried: Vec<serde_json::Value> = stderr
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| event["event"] == "upload_batch_retried")
+        .collect();
+    // One event for the batch; the upload that fails again alone is not retried and reports
+    // its failure itself.
+    assert_eq!(
+        retried,
+        [serde_json::json!({
+            "event": "upload_batch_retried",
+            "level": "warn",
+            "uploads": NAMES.len(),
+            "cause": "disk I/O error",
+            "sqlite_extended_code": rusqlite::ffi::SQLITE_IOERR,
+        })],
+        "{stderr}"
+    );
+}
+
+async fn retry_an_interrupted_batch() {
     let data = TestDir::new();
     let catalog = open(&data.0).await;
     // The second upload of the batch ends the whole transaction, as SQLite may after an I/O,
