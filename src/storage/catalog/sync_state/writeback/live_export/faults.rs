@@ -27,6 +27,13 @@ impl Paths {
         fault::file_synced(&self.tree, &file.metadata()?);
         Ok(())
     }
+    pub(in crate::storage::catalog::sync_state::writeback) fn truncated(
+        &self,
+        file: &File,
+    ) -> Result<(), Error> {
+        fault::truncated(&self.tree, &file.metadata()?);
+        Ok(())
+    }
     #[cfg_attr(
         not(unix),
         expect(

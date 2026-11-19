@@ -301,7 +301,9 @@ fn changed(before: fsutil::FileIdentity, after: fsutil::FileIdentity) -> Result<
     if fields.is_empty() {
         Ok(())
     } else {
-        Err(AdminError::SourceChanged { fields })
+        Err(AdminError::SourceChanged {
+            fields: fields.iter().collect(),
+        })
     }
 }
 

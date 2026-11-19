@@ -49,6 +49,10 @@ pub fn open_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+pub(crate) fn open_regular_writable_at(_: &File, _: &OsStr) -> io::Result<File> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 pub(crate) fn create_regular_at(_: &File, _: &OsStr) -> io::Result<File> {
     Err(io::ErrorKind::Unsupported.into())
 }

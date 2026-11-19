@@ -61736,10 +61736,10 @@
           "id": "shared-sync-writeback-durability",
           "description": "The production live export/recovery state machine gates atomic tracking and intent removal on durable identity checks; stale/hold/root/owner failures, protected entries, ENOSPC, restart and cancelled/drained work retain intent and ownership. Writeback does not publish a separate journal progress cursor. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried","live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation","live_export_rejects_held_and_stale_tracked_inputs","live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry","restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery","live_export_other_root_completion_cannot_clear_a_failed_operation","live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains"]
+          "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried","live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation","live_export_rejects_held_and_stale_tracked_inputs","live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry","restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery","live_export_other_root_completion_cannot_clear_a_failed_operation","live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains","live_export_installs_a_staged_copy_whose_inode_number_alone_changed","live_export_cancels_a_renumbered_unchanged_copy_as_obsolete","live_export_protects_a_private_copy_whose_bytes_changed_after_staging","a_retried_copy_refills_the_partial_private_copy_in_place","a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power_loss","copying_after_an_unsupported_clone_keeps_the_new_entry","refilling_an_emptied_file_keeps_its_inode"]
         },
         {
-          "id": "shared-sync-observation-cancellation",
+          "id":"shared-sync-observation-cancellation",
           "description": "Effect-free waits retain no catalog permits while asleep, tolerate false/rollback signals without false changes or busy loops, cancel safely and return Closed on shutdown. Scope: docs/en/slices/shared-sync-observation.md.",
           "result": "PASS",
           "test_ids": ["sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits"]
@@ -62033,6 +62033,13 @@
         "live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry",
         "restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries",
         "live_export_installed_copy_is_never_cancelled_after_arming",
+        "live_export_installs_a_staged_copy_whose_inode_number_alone_changed",
+        "live_export_cancels_a_renumbered_unchanged_copy_as_obsolete",
+        "live_export_protects_a_private_copy_whose_bytes_changed_after_staging",
+        "a_retried_copy_refills_the_partial_private_copy_in_place",
+        "a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power_loss",
+        "copying_after_an_unsupported_clone_keeps_the_new_entry",
+        "refilling_an_emptied_file_keeps_its_inode",
         "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
         "sync_root_activation_failure_boundaries_never_publish_partial_markers",
@@ -62199,6 +62206,13 @@
           "verified_at": "2026-11-04",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
           "test_ids": ["live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes","live_export_ack_sql_failure_rolls_back_tracking_and_can_be_retried","live_export_rejects_foreign_handles_and_obsoletes_a_changed_api_generation","live_export_rejects_held_and_stale_tracked_inputs","live_export_sqlite_full_preserves_displaced_bytes_until_accounting_can_retry","restart_live_copy_at_prepare_copy_install_durable_and_ack_boundaries","live_export_installed_copy_is_never_cancelled_after_arming","live_export_workspace_replacement_preserves_owned_bytes_and_requires_recovery","live_export_other_root_completion_cannot_clear_a_failed_operation","live_export_cancelled_install_serializes_other_handles_until_the_owned_job_drains"]
+        },
+        {
+          "command": "cargo test --locked --offline --lib -- --test-threads=4 fsutil:: sync_state::writeback::",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["live_export_installs_a_staged_copy_whose_inode_number_alone_changed","live_export_cancels_a_renumbered_unchanged_copy_as_obsolete","live_export_protects_a_private_copy_whose_bytes_changed_after_staging","a_retried_copy_refills_the_partial_private_copy_in_place","a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power_loss","copying_after_an_unsupported_clone_keeps_the_new_entry","refilling_an_emptied_file_keeps_its_inode"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",

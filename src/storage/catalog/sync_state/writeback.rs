@@ -610,7 +610,18 @@ fn target(root: &File, path: &str) -> Result<Option<File>, Error> {
     }
 }
 fn entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
-    match fsutil::open_regular_at(workspace, id.to_hex().as_ref()) {
+    present(fsutil::open_regular_at(workspace, id.to_hex().as_ref()))
+}
+/// Like [`entry`], but open for writing.
+fn writable_entry(workspace: &File, id: OpaqueId) -> Result<Option<File>, Error> {
+    present(fsutil::open_regular_writable_at(
+        workspace,
+        id.to_hex().as_ref(),
+    ))
+}
+/// A missing workspace entry is `None`; any other failure to open it is an error.
+fn present(opened: io::Result<File>) -> Result<Option<File>, Error> {
+    match opened {
         Ok(f) => Ok(Some(f)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),

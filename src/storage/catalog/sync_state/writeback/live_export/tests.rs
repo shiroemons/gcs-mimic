@@ -406,6 +406,176 @@ async fn live_export_obsolete_copy_never_cancels_a_modified_workspace_body() {
     fixture.close().await;
 }
 
+/// Docker Desktop's shared folders can report one inode number for a file just created and
+/// another for it later. A staged copy recorded under a number that no later observation repeats
+/// still installs once the same handle proves its bytes, and tracking records the installed file.
+#[tokio::test]
+async fn live_export_installs_a_staged_copy_whose_inode_number_alone_changed() {
+    let fixture = Fixture::new().await;
+    let record = fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    inject_renumbered_copy(fixture.root.status().root_id, 1);
+    assert_eq!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap(),
+        LiveResult::Pending
+    );
+    let item = pending(&operation).await;
+    let staged = operation.0.lock().await.progress.staged().unwrap();
+    let copy = fixture
+        .tree
+        .0
+        .join(mapping::WORKSPACE)
+        .join(item.token.id.to_string());
+    let observed = fsutil::stat_identity(&File::open(&copy).unwrap()).unwrap();
+    assert!(staged.changed_fields(&observed).is_inode_only());
+    for expected in [
+        LiveResult::Pending,
+        LiveResult::Pending,
+        LiveResult::Complete,
+    ] {
+        assert_eq!(
+            fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap(),
+            expected
+        );
+    }
+    let path = fixture.tree.0.join(&item.path);
+    assert_eq!(fs::read(&path).unwrap(), b"api");
+    let binding = fixture
+        .catalog
+        .sync_state()
+        .binding(&fixture.bucket)
+        .await
+        .unwrap();
+    let tracked = fixture
+        .catalog
+        .sync_state()
+        .get_path(binding, item.path.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (tracked.generation.get(), tracked.fingerprint.inode),
+        (
+            record.generation,
+            fsutil::stat_identity(&File::open(&path).unwrap())
+                .unwrap()
+                .inode
+        )
+    );
+    let usage = fixture.writeback.status().await.unwrap();
+    assert_eq!((usage.entries, usage.stop()), (0, Stop::Ready));
+    drop(operation);
+    fixture.close().await;
+}
+
+/// A renumbered but unchanged private copy is still this operation's own: an API change before
+/// arming cancels it as obsolete and releases its reservation instead of protecting it.
+#[tokio::test]
+async fn live_export_cancels_a_renumbered_unchanged_copy_as_obsolete() {
+    let fixture = Fixture::new().await;
+    fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    inject_renumbered_copy(fixture.root.status().root_id, 1);
+    fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await
+        .unwrap();
+    let item = pending(&operation).await;
+    fixture.publish("object", b"later api").await;
+    assert_eq!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap(),
+        LiveResult::Obsolete
+    );
+    assert!(
+        !fixture
+            .tree
+            .0
+            .join(mapping::WORKSPACE)
+            .join(item.token.id.to_string())
+            .exists()
+    );
+    assert!(!fixture.tree.0.join(&item.path).exists());
+    let usage = fixture.writeback.status().await.unwrap();
+    assert_eq!(
+        (usage.entries, usage.reserved_bytes, usage.stop()),
+        (0, 0, Stop::Ready)
+    );
+    drop(operation);
+    fixture.close().await;
+}
+
+/// Only the inode number may change, never the bytes. A private copy rewritten after staging is
+/// protected at installation and at cancellation alike: when only its inode number differs from
+/// the staged record, its bytes are hashed and differ; when its size differs too, nothing needs
+/// reading.
+#[tokio::test]
+async fn live_export_protects_a_private_copy_whose_bytes_changed_after_staging() {
+    for check in [CopyCheck::Install, CopyCheck::Cancel] {
+        for inode_only in [true, false] {
+            let fixture = Fixture::new().await;
+            fixture.publish("object", b"api").await;
+            let operation = fixture.begin("object").await;
+            if !inode_only {
+                inject_renumbered_copy(fixture.root.status().root_id, 1);
+            }
+            fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap();
+            let item = pending(&operation).await;
+            let owned = fixture
+                .tree
+                .0
+                .join(mapping::WORKSPACE)
+                .join(item.token.id.to_string());
+            let rewritten: &[u8] = if inode_only { b"API" } else { b"longer body" };
+            fs::write(&owned, rewritten).unwrap();
+            if inode_only {
+                let current = fsutil::stat_identity(&File::open(&owned).unwrap()).unwrap();
+                operation.0.lock().await.progress = Progress::Staged(Some(fsutil::FileIdentity {
+                    inode: !current.inode,
+                    ..current
+                }));
+            }
+            if matches!(check, CopyCheck::Cancel) {
+                fixture.publish("object", b"later api").await;
+            }
+            let result = fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await;
+            let case = (check.as_str(), inode_only);
+            assert!(
+                matches!(result, Err(Error::Protected)),
+                "{case:?} {result:?}"
+            );
+            assert_eq!(fs::read(&owned).unwrap(), rewritten, "{case:?}");
+            assert!(!fixture.tree.0.join(&item.path).exists(), "{case:?}");
+            assert_eq!(
+                fixture.writeback.status().await.unwrap().stop(),
+                Stop::ProtectedBody,
+                "{case:?}"
+            );
+            drop(operation);
+            fixture.close().await;
+        }
+    }
+}
+
 #[tokio::test]
 async fn live_export_installed_copy_is_never_cancelled_after_arming() {
     let fixture = Fixture::new().await;

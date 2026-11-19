@@ -45,7 +45,9 @@ All six existing mapping reasons round-trip, including `Ignored`; mapping remain
 the adapter's decision and ordinary API names are never changed to fit disk paths.
 
 The live export worker uses `fsutil::clone_or_copy_into` with the opened
-`ObjectReader::into_file().await` descriptor and opaque workspace name.
+`ObjectReader::into_file().await` descriptor and opaque workspace name. A retry
+after a failed copy step empties that entry and refills it with
+`fsutil::clone_or_copy_onto`.
 Installation traverses the target parent through `sync::tree::parent`, checking
 actual spelling and no-follow identities, then uses
 `fsutil::durable_replace_between(workspace, pending_name, parent, target_name,

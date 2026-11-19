@@ -315,6 +315,152 @@ async fn protected_read_copy_rejects_a_new_external_file_and_failed_writes_or_sy
     fixture.shut_down().await;
 }
 
+/// The one entry of `directory`.
+fn only_entry(directory: &Path) -> std::path::PathBuf {
+    let mut entries = fs::read_dir(directory).unwrap();
+    let entry = entries.next().unwrap().unwrap().path();
+    assert!(entries.next().is_none(), "{}", directory.display());
+    entry
+}
+
+/// A retry refills the private copy that a failed attempt left, in place: the workspace entry
+/// keeps its inode through a failed sync and through a failed write after the refill emptied it,
+/// and the export then completes with the API bytes.
+#[tokio::test]
+async fn a_retried_copy_refills_the_partial_private_copy_in_place() {
+    use std::os::unix::fs::MetadataExt;
+    let fixture = Fixture::new().await;
+    let operation = fixture.begin().await;
+    let copied = |path: &Path| {
+        let metadata = fs::metadata(path).unwrap();
+        (metadata.ino(), fs::read(path).unwrap())
+    };
+    fixture.catalog.inject(
+        Step::SyncCopySync,
+        0,
+        fault::Fault::Io(io::ErrorKind::WriteZero),
+    );
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .is_err()
+    );
+    let copy = only_entry(&fixture.tree.0.join(mapping::WORKSPACE));
+    let (inode, bytes) = copied(&copy);
+    assert_eq!(bytes, BODY);
+    fixture.catalog.inject(
+        Step::SyncCopyWrite,
+        0,
+        fault::Fault::Io(io::ErrorKind::WriteZero),
+    );
+    assert!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .is_err()
+    );
+    assert_eq!(copied(&copy), (inode, Vec::new()));
+    assert_eq!(
+        fixture
+            .writeback
+            .advance_live_export(operation.clone())
+            .await
+            .unwrap(),
+        LiveResult::Pending
+    );
+    assert_eq!(copied(&copy), (inode, BODY.to_vec()));
+    drain(&fixture.writeback, operation).await;
+    assert_eq!(
+        fs::read(fixture.tree.0.join("test-bucket/object")).unwrap(),
+        BODY
+    );
+    unchanged_api(&fixture.catalog, &fixture.record).await;
+    fixture.shut_down().await;
+}
+
+/// Refilled bytes are volatile until the refill syncs them: a crash or power loss while a retry
+/// refills the private copy keeps no more than that, and restart recovery removes the unarmed copy
+/// and resumes with the API unchanged and the target absent.
+#[tokio::test]
+async fn a_refilled_private_copy_keeps_only_synced_bytes_through_crash_and_power_loss() {
+    for step in [
+        Step::SyncCopyWrite,
+        Step::SyncCopySync,
+        Step::SyncCopyDurable,
+    ] {
+        for &crash in fault::Crash::ALL {
+            let fixture = Fixture::new().await;
+            let operation = fixture.begin().await;
+            fixture.catalog.inject(
+                Step::SyncCopySync,
+                0,
+                fault::Fault::Io(io::ErrorKind::WriteZero),
+            );
+            assert!(
+                fixture
+                    .writeback
+                    .advance_live_export(operation.clone())
+                    .await
+                    .is_err()
+            );
+            let snapshots = TestDir::new();
+            let data_snapshot = snapshots.0.join("catalog");
+            let tree_snapshot = snapshots.0.join("tree");
+            fault::arm(&fixture.tree.0, step, 0, crash.fault(tree_snapshot.clone()));
+            fixture
+                .catalog
+                .inject(step, 0, fault::Fault::Snapshot(data_snapshot.clone()));
+            drain(&fixture.writeback, operation).await;
+            assert_eq!(fixture.catalog.pending_faults(), 0, "{step:?} {crash:?}");
+            assert_eq!(fault::pending(&fixture.tree.0), 0, "{step:?} {crash:?}");
+            let refilled = step != Step::SyncCopyWrite;
+            let synced = step == Step::SyncCopyDurable;
+            let kept: &[u8] = if synced || (refilled && crash == fault::Crash::Abort) {
+                BODY
+            } else {
+                b""
+            };
+            assert_eq!(
+                fs::read(only_entry(&tree_snapshot.join(mapping::WORKSPACE))).unwrap(),
+                kept,
+                "{step:?} {crash:?}"
+            );
+            let (_data, tree, record) = fixture.shut_down().await;
+            restore_tree(&tree_snapshot, &tree.0);
+            let recovered = Catalog::open(&data_snapshot).await.unwrap();
+            let root = recovered
+                .sync_state()
+                .activate_root(&tree.0, super::super::super::super::root::Activation::Open)
+                .await
+                .unwrap();
+            let writeback = root.writeback(limits()).await.unwrap();
+            assert_eq!(
+                writeback.recover_pending().await.unwrap().stop(),
+                Stop::Ready,
+                "{step:?} {crash:?}"
+            );
+            assert!(
+                fs::read_dir(tree.0.join(mapping::WORKSPACE))
+                    .unwrap()
+                    .next()
+                    .is_none(),
+                "{step:?} {crash:?}"
+            );
+            assert!(
+                !tree.0.join("test-bucket/object").exists(),
+                "{step:?} {crash:?}"
+            );
+            unchanged_api(&recovered, &record).await;
+            drop(writeback);
+            drop(root);
+            recovered.close().await.unwrap();
+        }
+    }
+}
+
 fn restore_tree(snapshot: &Path, tree: &Path) {
     for relative in [mapping::MARKER, "test-bucket/object"] {
         let target = tree.join(relative);

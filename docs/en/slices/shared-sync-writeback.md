@@ -21,7 +21,16 @@ deletion or recreation.
 2. A copy step streams or clones an already opened immutable API descriptor into
    the private workspace, verifies its hashes and syncs the file and workspace.
    An identical observation needs no object-body handle or workspace copy.
-3. Installation commits Armed before changing the namespace. Descriptor-relative
+   A retry empties the copy a failed attempt left and refills it in place, and a
+   filesystem that cannot clone receives the copy in the entry created for the
+   clone. Neither removes the entry and creates its name again: Docker Desktop
+   shared folders can report a new inode number for a recreated name.
+3. Installation commits Armed before changing the namespace. It compares the
+   private copy's complete stat identity with the staged one. When only the inode
+   number differs, the same handle rehashes the copy, and matching hashes record
+   the new identity for the rest of the operation. Any other difference, or
+   different bytes, stops the operation as Protected and logs
+   `sync_writeback_copy_changed` with the changed fields. Descriptor-relative
    traversal checks actual spelling, rejects aliases and symlinks, and checks the
    selected ancestors again. Installation syncs both affected parents. Reading or
    inspecting an existing parent never creates directories or calls fsync.
@@ -87,6 +96,16 @@ jobs across separate handles. Recovery and conflict-transfer tests cover sparse
 quota overflow, original-owner retention, multiple keyset pages, failed writes
 and syncs, restart, and paired crash/power-loss snapshots. Schema tests retain
 negative rollback, SQLite FULL and retry cases.
+
+Copy-step tests run without Docker. A test seam records a staged inode number
+that later observations do not repeat, which reproduces the Docker Desktop
+report. With the seam, installation and obsolete cancellation complete when the
+bytes are unchanged. A copy whose bytes changed stays Protected at both checks,
+alone or together with other stat changes. A retry after a failed sync and a
+failed write keeps the private copy's inode, and crash and power-loss snapshots
+taken while it refills the copy keep only synced bytes and recover to Ready.
+With cloning disabled, the copy uses the entry created for the clone, and no
+unlink runs.
 
 These are cooperative fault-model tests, not physical host-power-loss evidence.
 `durable_rehash_rejects_same_inode_edits_with_restored_mtime` fails when private

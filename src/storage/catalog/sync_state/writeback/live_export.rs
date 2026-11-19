@@ -20,19 +20,51 @@ pub(crate) fn inject_failure(root: RootId, phase: &'static str, count: usize) {
         .push((root, phase, count));
 }
 
+/// Makes the next `count` staged copies of `root` record an inode number that no later
+/// observation repeats. Docker Desktop's shared folders can report one number for a file just
+/// created and another for it later; this reproduces that without them.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) fn inject_renumbered_copy(root: RootId, count: usize) {
+    inject_failure(root, RENUMBERED_COPY, count);
+}
+
 #[cfg(test)]
-fn failure(root: RootId, phase: &str) -> Result<(), Error> {
+const RENUMBERED_COPY: &str = "renumbered-copy";
+
+/// Whether a test armed `phase` for `root`; each armed count fires once.
+#[cfg(test)]
+fn armed(root: RootId, phase: &str) -> Result<bool, Error> {
     let mut failure = FAILURE
         .lock()
         .map_err(|_| AdminError::Backend("live-export failure injection poisoned".into()))?;
-    if let Some((_, _, count)) = failure
+    let Some((_, _, count)) = failure
         .iter_mut()
         .find(|(selected, step, count)| *selected == root && *step == phase && *count > 0)
-    {
-        *count -= 1;
+    else {
+        return Ok(false);
+    };
+    *count -= 1;
+    Ok(true)
+}
+
+#[cfg(test)]
+fn failure(root: RootId, phase: &str) -> Result<(), Error> {
+    if armed(root, phase)? {
         return Err(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into()).into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+fn renumbered(root: RootId, identity: fsutil::FileIdentity) -> Result<fsutil::FileIdentity, Error> {
+    Ok(if armed(root, RENUMBERED_COPY)? {
+        fsutil::FileIdentity {
+            inode: !identity.inode,
+            ..identity
+        }
+    } else {
+        identity
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +227,7 @@ struct LiveOperation {
 struct Install {
     item: Pending,
     tracked: Option<SyncRecord>,
+    /// The staged copy's identity; installation replaces it with the one it confirmed.
     staged: Option<fsutil::FileIdentity>,
     purpose: Purpose,
 }
@@ -213,16 +246,83 @@ fn matches_tracked(file: &File, tracked: &SyncRecord) -> Result<bool, Error> {
 }
 
 fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result<bool, Error> {
+    Ok(verified_identity(file, size, md5, crc32c)?.is_some())
+}
+
+/// The identity of `file` when it holds exactly `size` bytes with these hashes and did not change
+/// while they were read; `None` otherwise.
+fn verified_identity(
+    file: &File,
+    size: u64,
+    md5: [u8; 16],
+    crc32c: u32,
+) -> Result<Option<fsutil::FileIdentity>, Error> {
     let before = fsutil::stat_identity(file)?;
     if before.size != size {
-        return Ok(false);
+        return Ok(None);
     }
     let fsutil::HashOutcome::Complete(hashes) =
         fsutil::hash_exact(file, size, |_| Ok::<_, io::Error>(()))?
     else {
-        return Ok(false);
+        return Ok(None);
     };
-    Ok(before == fsutil::stat_identity(file)? && hashes.md5 == md5 && hashes.crc32c == crc32c)
+    let unchanged =
+        before == fsutil::stat_identity(file)? && hashes.md5 == md5 && hashes.crc32c == crc32c;
+    Ok(unchanged.then_some(before))
+}
+
+/// The step that checks a private copy against its staged identity.
+#[derive(Clone, Copy)]
+enum CopyCheck {
+    Install,
+    Cancel,
+}
+
+impl CopyCheck {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Install => "install",
+            Self::Cancel => "cancel",
+        }
+    }
+}
+
+/// Confirms that the private copy `file` still holds what was staged as `staged`, and returns
+/// the identity to compare it with from now on. Every field must match, except that the inode
+/// number alone may differ ([`fsutil::IdentityChanges::is_inode_only`]); the same handle then
+/// proves the bytes by size and hashes. Any other difference, or different bytes, is `Protected`,
+/// logged with the changed fields and whether the bytes were checked.
+fn confirm_copy(
+    file: &File,
+    staged: fsutil::FileIdentity,
+    item: &Pending,
+    check: CopyCheck,
+) -> Result<fsutil::FileIdentity, Error> {
+    let current = fsutil::stat_identity(file)?;
+    let changes = staged.changed_fields(&current);
+    if changes.is_empty() {
+        return Ok(current);
+    }
+    let content = if changes.is_inode_only() {
+        if let Some(confirmed) = verified_identity(file, item.size, item.md5, item.crc32c)? {
+            return Ok(confirmed);
+        }
+        "differs"
+    } else {
+        "not_checked"
+    };
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Warn,
+        "sync_writeback_copy_changed",
+        serde_json::json!({
+            "path": item.path,
+            "operation": item.token.id.to_hex(),
+            "check": check.as_str(),
+            "changed": changes.iter().map(fsutil::IdentityField::as_str).collect::<Vec<_>>(),
+            "content": content,
+        }),
+    );
+    Err(Error::Protected)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -296,9 +396,17 @@ fn validate_capture(tx: &Transaction<'_>, item: &Pending, purpose: &Purpose) -> 
     Ok(())
 }
 
+/// Whether the target already holds the live body an observation expects.
+fn observe_target(root: &File, item: &Pending) -> Result<bool, Error> {
+    match target(root, &item.path)? {
+        Some(file) => content_matches(&file, item.size, item.md5, item.crc32c),
+        None => Ok(false),
+    }
+}
+
 /// Installs the staged copy at the target path (or moves a removed file into the workspace)
 /// unless an earlier attempt already did; `Ok(false)` reports an external change.
-fn install_target(root: &File, workspace: &File, install: &Install) -> Result<bool, Error> {
+fn install_target(root: &File, workspace: &File, install: &mut Install) -> Result<bool, Error> {
     let selected = &install.item;
     let expected = install.tracked.as_ref();
     let staged = install.staged;
@@ -326,9 +434,7 @@ fn install_target(root: &File, workspace: &File, install: &Install) -> Result<bo
         }
         if let Some(staged) = staged {
             let copy = retained.as_ref().ok_or(Error::Protected)?;
-            if fsutil::stat_identity(copy)? != staged {
-                return Err(Error::Protected);
-            }
+            install.staged = Some(confirm_copy(copy, staged, selected, CopyCheck::Install)?);
         }
         let identity = match (&current, expected) {
             (None, _) => None,
@@ -516,37 +622,47 @@ impl Writeback {
         let selected = operation.item.clone();
         let staged = self
             .fs(move |_, workspace| {
-                if let Some(source) = source {
+                let Some(source) = source else {
+                    return Ok(None);
+                };
+                #[cfg(test)]
+                failure(selected.token.root, "copy")?;
+                // Only this unarmed operation can own this private, possibly partial API copy. A
+                // retry refills it in place rather than removing and creating the name again;
+                // `fsutil::clone_or_copy_into` says why.
+                let partial = writable_entry(workspace, selected.token.id)?;
+                if let Some(file) = &partial {
+                    file.set_len(0)?;
                     #[cfg(test)]
-                    failure(selected.token.root, "copy")?;
-                    // Only this unarmed operation can own this private, possibly partial API copy.
-                    if entry(workspace, selected.token.id)?.is_some() {
-                        fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
-                    }
-                    #[cfg(test)]
-                    faults.hit(Step::SyncCopyWrite)?;
-                    fsutil::clone_or_copy_into(
+                    faults.truncated(file)?;
+                }
+                #[cfg(test)]
+                faults.hit(Step::SyncCopyWrite)?;
+                match &partial {
+                    Some(file) => fsutil::clone_or_copy_onto(&source, file)?,
+                    None => fsutil::clone_or_copy_into(
                         &source,
                         workspace,
                         selected.token.id.to_hex().as_ref(),
-                    )?;
-                    let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
-                    if !content_matches(&file, selected.size, selected.md5, selected.crc32c)? {
-                        return Err(AdminError::Checksum.into());
-                    }
-                    #[cfg(test)]
-                    faults.hit(Step::SyncCopySync)?;
-                    file.sync_all()?;
-                    workspace.sync_all()?;
-                    #[cfg(test)]
-                    {
-                        faults.synced(&file)?;
-                        faults.hit(Step::SyncCopyDurable)?;
-                    }
-                    Ok(Some(fsutil::stat_identity(&file)?))
-                } else {
-                    Ok(None)
+                    )?,
+                };
+                let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
+                if !content_matches(&file, selected.size, selected.md5, selected.crc32c)? {
+                    return Err(AdminError::Checksum.into());
                 }
+                #[cfg(test)]
+                faults.hit(Step::SyncCopySync)?;
+                file.sync_all()?;
+                workspace.sync_all()?;
+                #[cfg(test)]
+                {
+                    faults.synced(&file)?;
+                    faults.hit(Step::SyncCopyDurable)?;
+                }
+                let staged = fsutil::stat_identity(&file)?;
+                #[cfg(test)]
+                let staged = renumbered(selected.token.root, staged)?;
+                Ok(Some(staged))
             })
             .await?;
         operation.progress = Progress::Staged(staged);
@@ -606,28 +722,31 @@ impl Writeback {
         let observing = matches!(operation.body, Body::Observe { .. });
         #[cfg(test)]
         let faults = self.fault_paths();
-        let installed = self
+        // The job hands back the staged identity installation confirmed even when it fails
+        // afterwards, so a retry, a cancellation and the displacement check compare against it.
+        let attempt = self
             .fs(move |root, workspace| {
-                let selected = &install.item;
+                let mut install = install;
                 #[cfg(test)]
-                failure(selected.token.root, "install")?;
-                if observing {
-                    return match target(root, &selected.path)? {
-                        Some(file) => {
-                            content_matches(&file, selected.size, selected.md5, selected.crc32c)
-                        }
-                        None => Ok(false),
-                    };
-                }
-                let installed = install_target(root, workspace, &install)?;
+                failure(install.item.token.root, "install")?;
+                let installed = if observing {
+                    observe_target(root, &install.item)
+                } else {
+                    install_target(root, workspace, &mut install)
+                };
                 #[cfg(test)]
-                if installed {
-                    faults.installed(selected);
-                    faults.hit(Step::SyncCopyInstalled)?;
-                }
-                Ok(installed)
+                let installed = installed.and_then(|installed| {
+                    if installed && !observing {
+                        faults.installed(&install.item);
+                        faults.hit(Step::SyncCopyInstalled)?;
+                    }
+                    Ok(installed)
+                });
+                Ok((install.staged, installed))
             })
             .await;
+        let (staged, installed) = attempt.unwrap_or_else(|error| (staged, Err(error)));
+        operation.progress = Progress::Staged(staged);
         match installed {
             Ok(false) => {
                 operation.progress = operation.progress.cancel(LiveResult::Conflict);
@@ -836,11 +955,10 @@ impl Writeback {
                     return Err(Error::Protected);
                 }
                 if let Some(file) = entry(workspace, selected.token.id)? {
-                    if selected.kind != Kind::Publish
-                        || staged != Some(fsutil::stat_identity(&file)?)
-                    {
+                    let (Kind::Publish, Some(staged)) = (selected.kind, staged) else {
                         return Err(Error::Protected);
-                    }
+                    };
+                    confirm_copy(&file, staged, &selected, CopyCheck::Cancel)?;
                     fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
                     workspace.sync_all()?;
                 }

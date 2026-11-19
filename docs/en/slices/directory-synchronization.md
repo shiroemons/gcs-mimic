@@ -179,8 +179,11 @@ The source generation is opened before preparing an intent. A disappeared or
 changed generation is deferred, and `deferred` counts also prevent baseline
 completion. API copies are staged under durable Prepared intent before arm;
 staging does not touch the target. Private copy provenance permits abandonment
-only when the copy was never installed and its workspace inode/body remain
-unchanged, or when an identical-file observation made no copy. Existing external
+only when the copy was never installed and its workspace stat identity and body
+remain unchanged, or when an identical-file observation made no copy. A changed
+inode number alone is accepted once the same handle rehashes the expected body,
+because Docker Desktop shared folders can report a new number for an unchanged
+file; installation applies the same check. Existing external
 targets are never unlinked. Installed copies cannot be abandoned. The legacy
 unpublished-copy interface can complete an obsolete installed API copy without
 claiming a synchronized fingerprint or progress. Continuous live export instead

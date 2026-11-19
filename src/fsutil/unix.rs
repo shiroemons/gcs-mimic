@@ -130,6 +130,8 @@ pub fn directory_writable(directory: &File) -> io::Result<()> {
 pub(crate) fn unlink_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
     validate_name(name)?;
     let name = component(name)?;
+    #[cfg(test)]
+    super::count_unlink();
     // SAFETY: a validated single component is relative to the live directory descriptor.
     if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
         return Err(io::Error::last_os_error());
@@ -150,6 +152,11 @@ pub fn open_directory_nofollow(path: &Path) -> io::Result<File> {
 /// Opens only a regular single-component entry under the pinned directory.
 pub fn open_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {
     open_at(directory, &component(name)?, FileOpen::Existing)
+}
+
+/// Opens only an existing regular single-component entry under the pinned directory, for writing.
+pub(crate) fn open_regular_writable_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    open_at(directory, &component(name)?, FileOpen::ExistingWritable)
 }
 
 pub(crate) fn create_regular_at(directory: &File, name: &OsStr) -> io::Result<File> {

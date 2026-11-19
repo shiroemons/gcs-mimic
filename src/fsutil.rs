@@ -16,7 +16,7 @@ use unsupported as imp;
 
 use imp::directory_names_within;
 pub(crate) use imp::{child_directory, child_regular};
-pub(crate) use imp::{create_regular_at, directory_at, unlink_file_at};
+pub(crate) use imp::{create_regular_at, directory_at, open_regular_writable_at, unlink_file_at};
 pub use imp::{
     directory_names_after, directory_writable, open_directory_nofollow, open_regular_at,
 };
@@ -234,18 +234,18 @@ pub(crate) struct FileIdentity {
 }
 
 impl FileIdentity {
-    /// The fields that differ in `after`, in declaration order.
-    pub(crate) fn changed_fields(&self, after: &Self) -> Vec<IdentityField> {
-        [
-            (IdentityField::Device, self.device != after.device),
-            (IdentityField::Inode, self.inode != after.inode),
-            (IdentityField::Size, self.size != after.size),
-            (IdentityField::Mtime, self.modified_ns != after.modified_ns),
-            (IdentityField::Ctime, self.changed_ns != after.changed_ns),
-        ]
-        .into_iter()
-        .filter_map(|(field, changed)| changed.then_some(field))
-        .collect()
+    /// The fields that differ in `after`.
+    pub(crate) fn changed_fields(&self, after: &Self) -> IdentityChanges {
+        IdentityField::ALL
+            .into_iter()
+            .filter(|field| match field {
+                IdentityField::Device => self.device != after.device,
+                IdentityField::Inode => self.inode != after.inode,
+                IdentityField::Size => self.size != after.size,
+                IdentityField::Mtime => self.modified_ns != after.modified_ns,
+                IdentityField::Ctime => self.changed_ns != after.changed_ns,
+            })
+            .collect()
     }
 }
 
@@ -260,6 +260,15 @@ pub enum IdentityField {
 }
 
 impl IdentityField {
+    /// Every field, in declaration order.
+    const ALL: [Self; 5] = [
+        Self::Device,
+        Self::Inode,
+        Self::Size,
+        Self::Mtime,
+        Self::Ctime,
+    ];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Device => "device",
@@ -268,6 +277,53 @@ impl IdentityField {
             Self::Mtime => "mtime_ns",
             Self::Ctime => "ctime_ns",
         }
+    }
+
+    fn bit(self) -> u8 {
+        match self {
+            Self::Device => 1,
+            Self::Inode => 2,
+            Self::Size => 4,
+            Self::Mtime => 8,
+            Self::Ctime => 16,
+        }
+    }
+}
+
+/// The set of `FileIdentity` fields that differ between two observations of a file.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct IdentityChanges(u8);
+
+impl IdentityChanges {
+    pub(crate) fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether the inode number is the only difference. Docker Desktop's shared folders can
+    /// report one number for a file just created and another for it later, so a different
+    /// number with the same size and times does not by itself show that the bytes changed.
+    pub(crate) fn is_inode_only(self) -> bool {
+        self.0 == IdentityField::Inode.bit()
+    }
+
+    /// The changed fields, in declaration order.
+    pub(crate) fn iter(self) -> impl Iterator<Item = IdentityField> {
+        IdentityField::ALL
+            .into_iter()
+            .filter(move |field| self.0 & field.bit() != 0)
+    }
+}
+
+impl FromIterator<IdentityField> for IdentityChanges {
+    fn from_iter<I: IntoIterator<Item = IdentityField>>(fields: I) -> Self {
+        Self(fields.into_iter().fold(0, |bits, field| bits | field.bit()))
+    }
+}
+
+/// Lists the quoted field names, as a `Vec<IdentityField>` would.
+impl std::fmt::Debug for IdentityChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -434,6 +490,19 @@ impl std::error::Error for CloneFailure {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 thread_local! {
     static FAIL_CLONE_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Reports that the filesystem cannot clone, as ext4 and Docker Desktop's shared folders do.
+    static CLONE_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(all(test, unix))]
+thread_local! {
+    /// The entries this thread asked this module to remove.
+    static UNLINKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, unix))]
+fn count_unlink() {
+    UNLINKS.set(UNLINKS.get() + 1);
 }
 
 #[cfg_attr(
@@ -529,11 +598,13 @@ fn component(name: &std::ffi::OsStr) -> io::Result<std::ffi::CString> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
-/// Whether `open_at` opens an existing regular file read-only or creates a new one.
+/// Whether `open_at` opens an existing regular file, read-only or for writing, or creates a new
+/// one.
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileOpen {
     Existing,
+    ExistingWritable,
     CreateNew,
 }
 
@@ -547,10 +618,10 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
     let flags = libc::O_CLOEXEC
         | libc::O_NOFOLLOW
         | libc::O_NONBLOCK
-        | if open == FileOpen::CreateNew {
-            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL
-        } else {
-            libc::O_RDONLY
+        | match open {
+            FileOpen::Existing => libc::O_RDONLY,
+            FileOpen::ExistingWritable => libc::O_RDWR,
+            FileOpen::CreateNew => libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
         };
     // SAFETY: directory is live and name is a validated terminated single component.
     let fd = unsafe {
@@ -575,13 +646,51 @@ fn open_at(directory: &File, name: &std::ffi::CStr, open: FileOpen) -> io::Resul
     Ok(file)
 }
 
+fn regular_source(src: &File) -> io::Result<()> {
+    if src.metadata()?.is_file() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected a regular source",
+        ))
+    }
+}
+
+/// Clones `src` into `dst`, an empty regular file open for writing, and syncs it. `Ok(false)`
+/// means the filesystem cannot clone; `dst` is then still empty and ready for a copy.
+#[cfg(target_os = "linux")]
+#[expect(unsafe_code, reason = "FICLONE has no safe std equivalent")]
+fn clone_onto(src: &File, dst: &File) -> io::Result<bool> {
+    use std::os::fd::AsRawFd;
+    #[cfg(test)]
+    if FAIL_CLONE_SYNC.replace(false) {
+        return Err(io::ErrorKind::Other.into());
+    }
+    #[cfg(test)]
+    if CLONE_UNSUPPORTED.get() {
+        return Ok(false);
+    }
+    // SAFETY: FICLONE receives the two live regular-file descriptors, with an empty target.
+    if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
+        dst.sync_all()?;
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if copy_fallback(&error) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
 /// Creates a clone without copying; Unsupported leaves no new entry.
 /// Mutable-source staging can then fall back to its own single-pass copy and hash.
 #[cfg_attr(
     any(target_os = "linux", target_os = "macos"),
     expect(
         unsafe_code,
-        reason = "fclonefileat, FICLONE and unlinkat have no safe std equivalent"
+        reason = "fclonefileat and unlinkat have no safe std equivalent"
     )
 )]
 pub(crate) fn clone_into(
@@ -590,17 +699,17 @@ pub(crate) fn clone_into(
     name: &std::ffi::OsStr,
 ) -> Result<(), CloneFailure> {
     validate_name(name)?;
-    if !src.metadata()?.is_file() {
-        return Err(
-            io::Error::new(io::ErrorKind::InvalidInput, "expected a regular source").into(),
-        );
-    }
+    regular_source(src)?;
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::os::fd::AsRawFd;
         let name = component(name)?;
         #[cfg(target_os = "macos")]
         {
+            #[cfg(test)]
+            if CLONE_UNSUPPORTED.get() {
+                return Err(CloneFailure::NotCreated(FsError::Unsupported));
+            }
             // SAFETY: live descriptors and a validated destination component; clone creates a new entry.
             if unsafe {
                 libc::fclonefileat(src.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0)
@@ -626,22 +735,11 @@ pub(crate) fn clone_into(
         #[cfg(target_os = "linux")]
         {
             let dst = open_at(directory, &name, FileOpen::CreateNew)?;
-            #[cfg(test)]
-            if FAIL_CLONE_SYNC.replace(false) {
-                return Err(CloneFailure::Created(
-                    io::Error::from(io::ErrorKind::Other).into(),
-                ));
-            }
-            // SAFETY: FICLONE receives the two live regular-file descriptors, with a new empty target.
-            if unsafe { libc::ioctl(dst.as_raw_fd(), libc::FICLONE as _, src.as_raw_fd()) } == 0 {
-                dst.sync_all()
-                    .map_err(|error| CloneFailure::Created(error.into()))?;
+            if clone_onto(src, &dst).map_err(|error| CloneFailure::Created(error.into()))? {
                 return Ok(());
             }
-            let error = io::Error::last_os_error();
-            if !copy_fallback(&error) {
-                return Err(CloneFailure::Created(error.into()));
-            }
+            #[cfg(test)]
+            count_unlink();
             // SAFETY: only this call owns the newly created target; the component and directory are live.
             if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
                 return Err(CloneFailure::Created(io::Error::last_os_error().into()));
@@ -656,72 +754,38 @@ pub(crate) fn clone_into(
     }
 }
 
-/// Copies an immutable open blob. Mutable-source staging must hash its own read/write pass.
-/// The source offset is unchanged; a failed copy leaves its new entry for caller cleanup.
-#[cfg_attr(
-    target_os = "linux",
-    expect(unsafe_code, reason = "copy_file_range has no safe std equivalent")
-)]
+/// Copies an immutable open blob into the new entry `name`. Mutable-source staging must hash its
+/// own read/write pass. The source offset is unchanged; a failed clone removes its new entry, and
+/// a failed copy leaves it for caller cleanup.
 pub(crate) fn clone_or_copy_into(
     src: &File,
     directory: &File,
     name: &std::ffi::OsStr,
 ) -> Result<CopyMethod, FsError> {
+    #[cfg(not(target_os = "linux"))]
     match clone_into(src, directory, name) {
         Ok(()) => return Ok(CopyMethod::Clone),
         Err(CloneFailure::NotCreated(FsError::Unsupported)) => (),
         Err(CloneFailure::NotCreated(error)) => return Err(error),
-        Err(CloneFailure::Created(error)) => {
-            if let Err(cleanup) = unlink_file_at(directory, name) {
-                crate::diagnostics::emit(
-                    crate::diagnostics::LogLevel::Error,
-                    "clone_cleanup_failed",
-                    serde_json::json!({"message": cleanup.to_string()}),
-                );
-            }
-            return Err(error);
-        }
+        Err(CloneFailure::Created(error)) => return Err(discard_clone(directory, name, error)),
     }
     #[cfg(unix)]
     {
-        let name = component(name)?;
-        let dst = open_at(directory, &name, FileOpen::CreateNew)?;
         #[cfg(target_os = "linux")]
-        {
-            use std::os::fd::AsRawFd;
-            let mut offset: libc::loff_t = 0;
-            loop {
-                // SAFETY: descriptors remain live, input offset is writable, and no userspace buffer is passed.
-                let copied = unsafe {
-                    libc::copy_file_range(
-                        src.as_raw_fd(),
-                        &mut offset,
-                        dst.as_raw_fd(),
-                        std::ptr::null_mut(),
-                        1024 * 1024,
-                        0,
-                    )
-                };
-                if copied == 0 {
-                    dst.sync_all()?;
-                    return Ok(CopyMethod::CopyFileRange);
-                }
-                if copied < 0 {
-                    let error = io::Error::last_os_error();
-                    if error.kind() == io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    if !copy_fallback(&error) {
-                        return Err(error.into());
-                    }
-                    dst.set_len(0)?;
-                    break;
-                }
-            }
+        regular_source(src)?;
+        let dst = open_at(directory, &component(name)?, FileOpen::CreateNew)?;
+        // Linux has to create the entry before it can ask for a clone, so a filesystem that
+        // cannot clone gets the copy in that same file. Removing it and creating the name again
+        // would change the directory twice more, and Docker Desktop's shared folders can then
+        // report one inode number for the new file and another later, which write-back's check
+        // of its staged copy reads as an external change.
+        #[cfg(target_os = "linux")]
+        match clone_onto(src, &dst) {
+            Ok(true) => return Ok(CopyMethod::Clone),
+            Ok(false) => {}
+            Err(error) => return Err(discard_clone(directory, name, error.into())),
         }
-        copy_read_write(src, &dst)?;
-        dst.sync_all()?;
-        Ok(CopyMethod::ReadWrite)
+        copy_into_empty(src, &dst)
     }
     #[cfg(windows)]
     {
@@ -730,10 +794,84 @@ pub(crate) fn clone_or_copy_into(
             .write(true)
             .create_new(true)
             .open(path)?;
-        copy_read_write(src, &dst)?;
-        dst.sync_all()?;
-        Ok(CopyMethod::ReadWrite)
+        copy_into_empty(src, &dst)
     }
+}
+
+/// Fills `dst`, an empty regular file open for writing, with the immutable open blob `src` and
+/// syncs it, as `clone_or_copy_into` fills a new entry. Write-back refills its own private copy
+/// this way after a failed attempt instead of removing it and creating the name again.
+pub(crate) fn clone_or_copy_onto(src: &File, dst: &File) -> Result<CopyMethod, FsError> {
+    regular_source(src)?;
+    if dst.metadata()?.len() != 0 {
+        return Err(
+            io::Error::new(io::ErrorKind::InvalidInput, "expected an empty destination").into(),
+        );
+    }
+    #[cfg(target_os = "linux")]
+    if clone_onto(src, dst)? {
+        return Ok(CopyMethod::Clone);
+    }
+    copy_into_empty(src, dst)
+}
+
+/// Removes the entry a failed clone created and returns the clone's error; a failed removal is
+/// logged, since the clone's error is the one the caller acts on.
+fn discard_clone(directory: &File, name: &std::ffi::OsStr, error: FsError) -> FsError {
+    if let Err(cleanup) = unlink_file_at(directory, name) {
+        crate::diagnostics::emit(
+            crate::diagnostics::LogLevel::Error,
+            "clone_cleanup_failed",
+            serde_json::json!({"message": cleanup.to_string()}),
+        );
+    }
+    error
+}
+
+/// Copies `src` into `dst`, an empty regular file open for writing, and syncs it. Both offsets
+/// are explicit, so neither file's position matters or changes.
+#[cfg_attr(
+    target_os = "linux",
+    expect(unsafe_code, reason = "copy_file_range has no safe std equivalent")
+)]
+fn copy_into_empty(src: &File, dst: &File) -> Result<CopyMethod, FsError> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let mut offset: libc::loff_t = 0;
+        let mut written: libc::loff_t = 0;
+        loop {
+            // SAFETY: descriptors remain live, both offsets are writable, and no userspace buffer is passed.
+            let copied = unsafe {
+                libc::copy_file_range(
+                    src.as_raw_fd(),
+                    &mut offset,
+                    dst.as_raw_fd(),
+                    &mut written,
+                    1024 * 1024,
+                    0,
+                )
+            };
+            if copied == 0 {
+                dst.sync_all()?;
+                return Ok(CopyMethod::CopyFileRange);
+            }
+            if copied < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                if !copy_fallback(&error) {
+                    return Err(error.into());
+                }
+                dst.set_len(0)?;
+                break;
+            }
+        }
+    }
+    copy_read_write(src, dst)?;
+    dst.sync_all()?;
+    Ok(CopyMethod::ReadWrite)
 }
 
 #[cfg(unix)]
@@ -1289,9 +1427,57 @@ mod tests {
             r#"["device", "inode", "size", "mtime_ns", "ctime_ns"]"#
         );
         assert_eq!(
-            before.changed_fields(&FileIdentity { size: 9, ..before }),
+            before
+                .changed_fields(&FileIdentity { size: 9, ..before })
+                .iter()
+                .collect::<Vec<_>>(),
             [IdentityField::Size]
         );
+    }
+
+    /// Only a lone inode change counts as a renumbering; any other changed field, alone or
+    /// beside the inode, does not.
+    #[test]
+    fn only_a_lone_inode_change_is_inode_only() {
+        let before = FileIdentity {
+            device: 1,
+            inode: 2,
+            size: 3,
+            modified_ns: 4,
+            changed_ns: 5,
+        };
+        assert!(!before.changed_fields(&before).is_inode_only());
+        assert!(
+            before
+                .changed_fields(&FileIdentity { inode: 7, ..before })
+                .is_inode_only()
+        );
+        for after in [
+            FileIdentity {
+                device: 9,
+                ..before
+            },
+            FileIdentity { size: 9, ..before },
+            FileIdentity {
+                modified_ns: 9,
+                ..before
+            },
+            FileIdentity {
+                changed_ns: 9,
+                ..before
+            },
+            FileIdentity {
+                inode: 7,
+                changed_ns: 9,
+                ..before
+            },
+        ] {
+            let changes = before.changed_fields(&after);
+            assert!(
+                !changes.is_empty() && !changes.is_inode_only(),
+                "{changes:?}"
+            );
+        }
     }
 
     /// Callers that report `io::Error` see the native failure itself, and an unsupported
@@ -1428,6 +1614,72 @@ mod tests {
             std::fs::read(directory.0.join("existing")).unwrap(),
             b"other owner"
         );
+    }
+
+    /// A filesystem that cannot clone, such as ext4 or Docker Desktop's shared folders, gets the
+    /// copy in the entry already created for the clone, so nothing is removed. `clone_into`
+    /// still leaves no entry behind, as its callers expect.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn copying_after_an_unsupported_clone_keeps_the_new_entry() {
+        let directory = crate::test_support::TestDir::new();
+        std::fs::write(directory.0.join("source"), b"source").unwrap();
+        let source = File::open(directory.0.join("source")).unwrap();
+        let root = File::open(&directory.0).unwrap();
+        CLONE_UNSUPPORTED.set(true);
+        let unlinks = UNLINKS.get();
+        let copied = clone_or_copy_into(&source, &root, "copy".as_ref());
+        let unlinked = UNLINKS.get() - unlinks;
+        let refused = clone_into(&source, &root, "clone".as_ref());
+        CLONE_UNSUPPORTED.set(false);
+        assert_ne!(copied.unwrap(), CopyMethod::Clone);
+        assert_eq!(unlinked, 0);
+        assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), b"source");
+        assert!(matches!(
+            refused,
+            Err(CloneFailure::NotCreated(FsError::Unsupported))
+        ));
+        assert!(!directory.0.join("clone").exists());
+    }
+
+    /// Refilling an emptied file keeps its inode and position-independent bytes, whether or not
+    /// the filesystem clones; a file that is not empty is refused before anything is written.
+    #[cfg(unix)]
+    #[test]
+    fn refilling_an_emptied_file_keeps_its_inode() {
+        use std::io::Write as _;
+        let directory = crate::test_support::TestDir::new();
+        let bytes: Vec<u8> = (0..150_003).map(|i| (i % 251) as u8).collect();
+        std::fs::write(directory.0.join("source"), &bytes).unwrap();
+        let source = File::open(directory.0.join("source")).unwrap();
+        let mut copy = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(directory.0.join("copy"))
+            .unwrap();
+        copy.write_all(b"partial").unwrap();
+        let inode = stat_identity(&copy).unwrap().inode;
+        assert!(
+            matches!(clone_or_copy_onto(&source, &copy), Err(FsError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), b"partial");
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let unsupported = [false, true];
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        let unsupported = [false];
+        for unsupported in unsupported {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            CLONE_UNSUPPORTED.set(unsupported);
+            copy.set_len(0).unwrap();
+            let refilled = clone_or_copy_onto(&source, &copy);
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            CLONE_UNSUPPORTED.set(false);
+            let method = refilled.unwrap();
+            assert!(!unsupported || method != CopyMethod::Clone, "{method:?}");
+            assert_eq!(std::fs::read(directory.0.join("copy")).unwrap(), bytes);
+            assert_eq!(stat_identity(&copy).unwrap().inode, inode);
+        }
     }
 
     #[test]
