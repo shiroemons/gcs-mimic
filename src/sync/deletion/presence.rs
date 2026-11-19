@@ -3,7 +3,7 @@
 
 use crate::{
     fsutil,
-    storage::sync_state::root::RootLease,
+    storage::sync_state::{deletions::Candidate, root::RootLease},
     sync::{
         SyncError,
         tree::{self, ParentError, ParentOpen},
@@ -11,15 +11,54 @@ use crate::{
 };
 use std::{fmt, io, path::Path};
 
-/// What a tracked file's path holds now.
+/// What a tracked file's path holds now. Whether it holds anything is one of three answers,
+/// never a `bool`: a path that cannot be observed is neither present nor absent.
 #[derive(Debug)]
 pub(in crate::sync) enum Presence {
     /// Nothing: the file is gone, or a directory above it is.
-    Absent,
+    Absent(Absence),
     /// The regular file is there.
     Present,
     /// The path cannot be observed, or holds another kind of entry.
     Unobservable(Unobservable),
+}
+
+/// Proof that a tracked path was seen empty, which only [`presence`] gives. Recording a deletion
+/// candidate and deleting its object each take one, so that neither runs for a path nobody
+/// looked at.
+#[derive(Debug)]
+pub(in crate::sync) struct Absence(());
+
+impl Absence {
+    /// `candidate`, whose path this proof saw empty.
+    pub(in crate::sync) fn of(self, candidate: Candidate) -> Missing {
+        Missing {
+            candidate,
+            absence: self,
+        }
+    }
+}
+
+/// A deletion candidate together with the proof that its path was seen empty.
+#[derive(Debug)]
+pub(in crate::sync) struct Missing {
+    candidate: Candidate,
+    absence: Absence,
+}
+
+impl Missing {
+    pub(in crate::sync) fn candidate(&self) -> &Candidate {
+        &self.candidate
+    }
+
+    /// The candidate, for the inventory page that records it; the proof ends here.
+    pub(in crate::sync) fn into_candidate(self) -> Candidate {
+        let Self {
+            candidate,
+            absence: Absence(()),
+        } = self;
+        candidate
+    }
 }
 
 /// Why a tracked path tells nothing about its file. Its object is neither deleted nor kept from
@@ -123,7 +162,7 @@ pub(in crate::sync) async fn presence(
         };
         let directory = match tree::parent(root, naming, parent, ParentOpen::Existing) {
             Ok(directory) => directory,
-            Err(ParentError::Missing) => return Ok(Presence::Absent),
+            Err(ParentError::Missing) => return Ok(Presence::Absent(Absence(()))),
             Err(ParentError::Finding(_)) => {
                 return Ok(Presence::Unobservable(Unobservable::ParentBlocked));
             }
@@ -131,7 +170,7 @@ pub(in crate::sync) async fn presence(
         };
         Ok(match fsutil::child_regular(&directory, name) {
             Ok(fsutil::RegularChild::File(_)) => Presence::Present,
-            Ok(fsutil::RegularChild::Missing) => Presence::Absent,
+            Ok(fsutil::RegularChild::Missing) => Presence::Absent(Absence(())),
             Ok(fsutil::RegularChild::Alias) => Presence::Unobservable(Unobservable::Alias),
             Err(error) => lookup_failure(error),
         })

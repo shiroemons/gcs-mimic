@@ -20,7 +20,9 @@ What holds back the baseline and every inferred deletion is decided by the side
 of the problem. An entry in the tree that no object can take (an unsafe entry, a
 name that maps to no object, an unreadable path, a path collision, or a file in
 the directory of a bucket deleted through the API) may be where a missing file
-went, so it stops the baseline and the inventory until it is gone. The mirror
+went, so it stops the baseline and the inventory until it is gone. So do an
+interrupted pass, deferred or conflicting files, and files no object accounts
+for yet, such as the new name of a renamed file. The mirror
 keeps the first 256 such paths and the count of the rest in memory; the control
 status does not list them yet. An
 API object the tree cannot hold, such as a name the file system rejects or one

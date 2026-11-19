@@ -144,12 +144,12 @@ impl MirrorStatus {
     }
 }
 
-/// Changes the mirror's state. The mirror keeps it and hands out [`MirrorStatus`] to readers,
-/// so that no reader can change the state.
+/// Changes the mirror's state. The mirror's outer loop keeps it and hands out [`MirrorStatus`] to
+/// readers, so that no reader can change the state.
 #[derive(Clone, Debug)]
 pub(crate) struct MirrorStatusSender {
     current: watch::Sender<MirrorState>,
-    entries: watch::Sender<Arc<EntryReport>>,
+    entries: EntryReportSender,
     #[cfg(test)]
     entered: History,
 }
@@ -158,10 +158,35 @@ impl Default for MirrorStatusSender {
     fn default() -> Self {
         Self {
             current: watch::Sender::new(MirrorState::Starting),
-            entries: watch::Sender::new(Arc::default()),
+            entries: EntryReportSender::default(),
             #[cfg(test)]
             entered: std::sync::Arc::new(std::sync::Mutex::new(vec![MirrorState::Starting])),
         }
+    }
+}
+
+/// Replaces the working-tree entries a complete scan could not take in. Passes hold this
+/// instead of the [`MirrorStatusSender`], so that only the mirror's outer loop changes the
+/// mirror's state.
+#[derive(Clone, Debug)]
+pub(crate) struct EntryReportSender(watch::Sender<Arc<EntryReport>>);
+
+impl Default for EntryReportSender {
+    fn default() -> Self {
+        Self(watch::Sender::new(Arc::default()))
+    }
+}
+
+impl EntryReportSender {
+    /// Replaces the entries of the previous complete scan with those of `report`.
+    pub(crate) fn report(&self, report: EntryReport) {
+        self.0.send_if_modified(|current| {
+            if **current == report {
+                return false;
+            }
+            *current = Arc::new(report);
+            true
+        });
     }
 }
 
@@ -174,21 +199,15 @@ impl MirrorStatusSender {
     pub(crate) fn subscribe(&self) -> MirrorStatus {
         MirrorStatus {
             current: self.current.subscribe(),
-            entries: self.entries.subscribe(),
+            entries: self.entries.0.subscribe(),
             #[cfg(test)]
             entered: std::sync::Arc::clone(&self.entered),
         }
     }
 
-    /// Replaces the entries a complete scan could not take in with those of a newer one.
-    pub(crate) fn report_entries(&self, report: EntryReport) {
-        self.entries.send_if_modified(|current| {
-            if **current == report {
-                return false;
-            }
-            *current = Arc::new(report);
-            true
-        });
+    /// The sender of the entry report alone, for the passes the mirror runs.
+    pub(crate) fn entries(&self) -> &EntryReportSender {
+        &self.entries
     }
 
     /// Moves to `state`, and returns the change, or `None` when the state stays. `Stopped` is

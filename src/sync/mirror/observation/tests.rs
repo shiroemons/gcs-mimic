@@ -149,7 +149,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
-            status: &MirrorStatusSender::default(),
+            entries: &EntryReportSender::default(),
         },
         &mut baseline,
         &mut SkippedExports::default(),
@@ -167,7 +167,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 config: &config,
                 writeback: &writeback,
                 stopping: &stopping,
-                status: &MirrorStatusSender::default(),
+                entries: &EntryReportSender::default(),
             },
             &mut baseline,
             &mut SkippedExports::default(),
@@ -182,7 +182,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
         ));
         watcher
             .history_scan(Quiet::Established)
-            .reset(&root, summary.gate())
+            .reset(&root, &summary)
             .await
             .unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 20);
@@ -194,7 +194,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 config: &config,
                 writeback: &writeback,
                 stopping: &stopping,
-                status: &MirrorStatusSender::default(),
+                entries: &EntryReportSender::default(),
             },
             &mut baseline,
             &mut SkippedExports::default(),
@@ -207,13 +207,13 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
         );
         watcher
             .history_scan(Quiet::Capped)
-            .reset(&root, summary.gate())
+            .reset(&root, &summary)
             .await
             .unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 20);
         watcher
             .history_scan(Quiet::Established)
-            .reset(&root, summary.gate())
+            .reset(&root, &summary)
             .await
             .unwrap();
         assert_eq!(root.automatic_deletion_count().await.unwrap(), 0);
@@ -228,7 +228,7 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
                 config: &config,
                 writeback: &writeback,
                 stopping: &stopping,
-                status: &MirrorStatusSender::default(),
+                entries: &EntryReportSender::default(),
             },
             &mut baseline,
             &mut SkippedExports::default(),

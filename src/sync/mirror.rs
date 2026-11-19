@@ -4,7 +4,7 @@ use super::interrupt::{Interrupt, Interrupted};
 use super::mapping::{self, PathMapping, Reason};
 use super::naming::RootNaming;
 pub(super) use super::tree::{ParentError, ParentOpen, parent, structural_entry_error};
-use super::{MirrorState, MirrorStatus, MirrorStatusSender, Pass, SyncError};
+use super::{EntryReportSender, MirrorState, MirrorStatus, MirrorStatusSender, Pass, SyncError};
 use crate::{
     config::Config,
     diagnostics::{self, LogLevel},
@@ -590,7 +590,7 @@ async fn run_live_config(
                     config,
                     writeback: &writeback,
                     stopping,
-                    status,
+                    entries: status.entries(),
                 },
                 state: &mut state,
             }
@@ -635,9 +635,9 @@ async fn run_live_config(
                             if observed==watch::Change::Structure {watcher.rebuild(root,stopping,status).await?;}
                             if *stopping.borrow() {break}
                             let history=watcher.history_scan(unsettled.quiet);
-                            let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping,status};
+                            let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping,entries:status.entries()};
                             let summary=ingest_external(scope,&mut state.baseline,&mut state.skipped).await?;
-                            history.finish(root,summary.gate()).await;
+                            history.finish(root,&summary).await;
                             unsettled.settle();
                             if unsettled.quiet==observation::Quiet::Capped {
                                 if watcher.pending.is_none() {watcher.continue_quiet();}
@@ -651,7 +651,7 @@ async fn run_live_config(
                 Some(request) = requests.recv(), if controls.available() => {
                     let Some(request)=controls.admit(request,&watcher,unsettled.quiet) else {continue};
                     let Some(request)=controls.running(request,stopping) else {break};
-                    let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping,status};
+                    let scope=LiveScope {catalog,root,config,writeback:&writeback,stopping,entries:status.entries()};
                     LiveControl {scope,state:&mut state}.handle(request,unsettled.quiet,&mut watcher).await?;
                 }
                 result = catalog.wait_for_changes(state.cursor) => { result?; }
@@ -785,7 +785,7 @@ async fn initialize_live(
     )
     .await?;
     diagnostics::emit(LogLevel::Info, "sync_ingested", &ingested);
-    gate::report_entries(status, &mut ingested);
+    gate::report_entries(status.entries(), &mut ingested);
     let ingest_complete = BaselineGate::after_ingest(ingested.gate());
     let mut skipped = SkippedExports::default();
     let mut summary = reconcile_with(
@@ -861,13 +861,13 @@ async fn ingest_external_with(
         root,
         config,
         writeback,
-        status,
+        entries,
         ..
     } = scope;
     let _publication = root.begin_observation_publication().await?;
     let mut summary =
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
-    gate::report_entries(status, &mut summary);
+    gate::report_entries(entries, &mut summary);
     baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
         && baseline.gate == BaselineGate::Allowed
@@ -943,8 +943,9 @@ struct LiveScope<'a> {
     config: &'a Config,
     writeback: &'a Writeback,
     stopping: &'a tokio::sync::watch::Receiver<bool>,
-    /// Where an ingestion names the entries it could not take in.
-    status: &'a MirrorStatusSender,
+    /// Where an ingestion names the entries it could not take in. It changes nothing else of the
+    /// mirror's status, which only the outer loop changes.
+    entries: &'a EntryReportSender,
 }
 
 struct LiveControl<'a> {
@@ -1041,7 +1042,7 @@ impl LiveControl<'_> {
                             if let (Some(history), Some(summary)) =
                                 (history, &result.reconciliation)
                             {
-                                history.finish(self.scope.root, summary.gate()).await;
+                                history.finish(self.scope.root, summary).await;
                             }
                             Ok(result)
                         }
@@ -1061,7 +1062,7 @@ impl LiveControl<'_> {
                     Ok(()) => match self.rescan().await {
                         Ok(summary) => {
                             if let Some(history) = history {
-                                history.finish(self.scope.root, summary.gate()).await;
+                                history.finish(self.scope.root, &summary).await;
                             }
                             Ok(summary)
                         }
@@ -1466,7 +1467,7 @@ impl LiveObject<'_> {
                 super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
                 Ok(true)
             }
-            super::deletion::Presence::Absent
+            super::deletion::Presence::Absent(_)
             | super::deletion::Presence::Present
             | super::deletion::Presence::Unobservable(_) => Ok(false),
         }
@@ -2088,11 +2089,12 @@ async fn reconcile_with(
     }
     let mut summary = reconciler.summary;
     external_files(root, &reconciler.admin, interrupt, &mut summary).await?;
-    summary.interrupted = interrupt.check() != Interrupted::No;
     let end = catalog.current_fence().await?;
+    summary.interrupted = interrupt.check() != Interrupted::No;
+    // An API change during the pass may not have reached the tree yet, which the pass itself
+    // cannot see; everything else that holds the baseline back is the pass's own hold.
     if baseline == BaselineGate::Allowed
-        && summary.gate().settled()
-        && summary.external_only == 0
+        && summary.gate().hold().completes_baseline()
         && end == fence
     {
         root.complete_baseline().await?;

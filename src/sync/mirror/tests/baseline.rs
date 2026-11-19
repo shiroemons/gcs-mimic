@@ -40,7 +40,7 @@ async fn ingest(
             config: &Config::default(),
             writeback: &writeback,
             stopping: &stopping,
-            status,
+            entries: status.entries(),
         },
         baseline,
         &mut SkippedExports::default(),

@@ -291,7 +291,7 @@ async fn delayed_native_event_retains_the_completed_deletion_observation_until_i
             config: &Config::default(),
             writeback: &writeback,
             stopping: &stop.subscribe(),
-            status: &MirrorStatusSender::default(),
+            entries: &EntryReportSender::default(),
         },
         &mut baseline,
         &mut SkippedExports::default(),
@@ -2551,7 +2551,7 @@ async fn failed_explicit_rescan_records_the_pause_before_replying() {
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
-            status: &MirrorStatusSender::default(),
+            entries: &EntryReportSender::default(),
         },
         state: &mut state,
     };
@@ -2627,7 +2627,7 @@ async fn wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
-            status: &MirrorStatusSender::default(),
+            entries: &EntryReportSender::default(),
         },
         state: &mut state,
     };
@@ -2678,7 +2678,7 @@ async fn wait_captures_a_fixed_post_scan_fence_and_does_not_chase_later_writes()
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
-            status: &MirrorStatusSender::default(),
+            entries: &EntryReportSender::default(),
         },
         state: &mut state,
     };
@@ -2932,7 +2932,7 @@ async fn wait_from(
             config: &config,
             writeback: &writeback,
             stopping: &stopping,
-            status: &MirrorStatusSender::default(),
+            entries: &EntryReportSender::default(),
         },
         state: &mut state,
     };

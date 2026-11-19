@@ -306,7 +306,8 @@ async fn clear_missing_observations(
             if let mapping::PathMapping::File(path) =
                 mapping::name_to_path(binding.bucket(), &name, naming)
                 && let Some(path) = path.to_str()
-                && let Presence::Absent = super::deletion::presence(root, path.to_owned()).await?
+                && let Presence::Absent(_) =
+                    super::deletion::presence(root, path.to_owned()).await?
             {
                 root.clear_path_stops(binding, name, &TREE_STOPS).await?;
             }

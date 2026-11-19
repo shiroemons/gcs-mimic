@@ -13,7 +13,7 @@ struct Fixture {
     root: RootLease,
     config: Config,
     writeback: Writeback,
-    status: MirrorStatusSender,
+    entries: EntryReportSender,
 }
 impl Fixture {
     async fn new() -> Self {
@@ -31,7 +31,7 @@ impl Fixture {
             root,
             config,
             writeback,
-            status: MirrorStatusSender::default(),
+            entries: EntryReportSender::default(),
         };
         fixture.scan().await;
         for index in 0..60 {
@@ -59,7 +59,7 @@ impl Fixture {
             config: &self.config,
             writeback: &self.writeback,
             stopping,
-            status: &self.status,
+            entries: &self.entries,
         }
     }
     /// A live run's state at the current journal position, with a complete baseline.
@@ -210,7 +210,7 @@ async fn history_reset_failure_keeps_its_cause_and_answers_wait_and_rescan() {
     };
     let error = watcher
         .history_scan(Quiet::Established)
-        .reset(&fixture.root, summary.gate())
+        .reset(&fixture.root, &summary)
         .await
         .unwrap_err();
     assert!(std::error::Error::source(&error).is_some());

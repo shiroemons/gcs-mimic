@@ -19,7 +19,7 @@ use crate::{
 use std::path::Path;
 
 mod presence;
-pub(super) use presence::{Presence, Unobservable, presence};
+pub(super) use presence::{Missing, Presence, Unobservable, presence};
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
@@ -52,7 +52,7 @@ pub(super) async fn inventory_with(
     if interrupt.check() != Interrupted::No {
         return Ok(None);
     }
-    if !pass.infers_deletions() {
+    if !pass.hold().infers_deletions() {
         root.invalidate_deletions().await?;
         return Ok(None);
     }
@@ -92,7 +92,7 @@ async fn count_candidates(
             return Ok(Some(Confirmed::Same));
         }
         let baseline = page.len() as u64;
-        let mut candidates = Vec::new();
+        let mut missing = Vec::new();
         for candidate in page {
             if interrupt.check() != Interrupted::No {
                 return Ok(None);
@@ -105,19 +105,29 @@ async fn count_candidates(
                 Ok(_) | Err(_) => Presence::Unobservable(Unobservable::NameMismatch),
             };
             match presence {
-                Presence::Absent => candidates.push(candidate),
+                Presence::Absent(absence) => missing.push(absence.of(candidate)),
                 Presence::Present => {}
                 Presence::Unobservable(reason) => unobservable(root, &candidate, &reason).await?,
             }
         }
-        if root
-            .record_deletion_candidates(inventory, baseline, candidates)
-            .await?
-            == Confirmed::Diverged
-        {
+        if record_missing(root, inventory, baseline, missing).await? == Confirmed::Diverged {
             return Ok(Some(Confirmed::Diverged));
         }
     }
+}
+
+/// Records one page of the inventory: `baseline` tracked live files, of which `missing` were
+/// seen absent. Only a path seen empty becomes a candidate.
+async fn record_missing(
+    root: &RootLease,
+    inventory: &mut crate::storage::sync_state::deletions::Inventory,
+    baseline: u64,
+    missing: Vec<Missing>,
+) -> Result<Confirmed, SyncError> {
+    let candidates = missing.into_iter().map(Missing::into_candidate).collect();
+    Ok(root
+        .record_deletion_candidates(inventory, baseline, candidates)
+        .await?)
 }
 
 /// Reports a tracked file whose path tells nothing about it. Its object is not deleted, and the
@@ -208,17 +218,18 @@ pub(super) async fn execute_with(
             after = candidate.ordinal;
             // A file that came back, or a path that no longer tells, ends this set; the next
             // inventory leaves that member out and keeps the others.
-            match presence(root, candidate.path.clone()).await? {
-                Presence::Absent => {}
+            let missing = match presence(root, candidate.path.clone()).await? {
+                Presence::Absent(absence) => absence.of(candidate),
                 Presence::Present | Presence::Unobservable(_) => {
                     root.invalidate_deletions().await?;
                     return Ok(completed);
                 }
-            }
+            };
             if interrupt.check() != Interrupted::No {
                 return Ok(completed);
             }
-            match delete(root, &set, &candidate).await? {
+            let candidate = missing.candidate();
+            match delete(root, &set, &missing).await? {
                 Deleted::Yes(binding) => {
                     root.clear_path_stops(binding, candidate.name.clone(), &PathStop::ALL)
                         .await?;
@@ -263,11 +274,13 @@ pub(super) async fn execute_with(
     Ok(completed)
 }
 
+/// Deletes the object of a member whose path was just seen empty.
 async fn delete(
     root: &RootLease,
     set: &DeletionSet,
-    candidate: &Candidate,
+    missing: &Missing,
 ) -> Result<Deleted, SyncError> {
+    let candidate = missing.candidate();
     let binding = match root.sync_binding(&candidate.bucket).await {
         Ok(binding) => binding,
         Err(AdminError::NotFound | AdminError::Precondition) => return Ok(Deleted::Stale),

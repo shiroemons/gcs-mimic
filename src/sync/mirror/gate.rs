@@ -1,9 +1,11 @@
-//! What decides whether a pass may complete the baseline, infer deletions from missing files or
-//! reset the deletion history. Only the working tree's side of a pass takes part: an object the
-//! API holds and the tree cannot represent has no file, so no file of it can look deleted, and
-//! counting it here stopped deletion detection for the whole root over one unexportable name.
+//! The one answer to what holds back the baseline and the deletion inventory after a pass:
+//! whether a reconciliation may complete the baseline, and whether missing files may become
+//! deletion candidates or reset the deletion history. Only the working tree's side of a pass
+//! takes part: an object the API holds and the tree cannot represent has no file, so no file of
+//! it can look deleted, and counting it here stopped deletion detection for the whole root over
+//! one unexportable name.
 
-use super::{MirrorStatusSender, Reconciliation};
+use super::{EntryReportSender, Reconciliation};
 use crate::{storage::sync_state::root::Baseline, sync::entries::EntryProblem};
 use std::path::Path;
 
@@ -20,9 +22,9 @@ impl UnrepresentableEntries {
     }
 }
 
-/// The tree side of a finished pass, which is all that the baseline, deletion and history
-/// decisions read. Deferred work and conflicts count on either side: an API change still owed to
-/// the tree keeps the baseline open as before, and so does an interrupted pass.
+/// The tree side of a finished pass, which is all that [`PassGate::hold`] reads. Deferred work
+/// and conflicts count on either side: an API change still owed to the tree keeps the baseline
+/// open as before, and so does an interrupted pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::sync) struct PassGate {
     baseline: Baseline,
@@ -30,19 +32,78 @@ pub(in crate::sync) struct PassGate {
     deferred: u64,
     conflicting: u64,
     entries: UnrepresentableEntries,
+    unimported: u64,
+}
+
+/// What holds back the baseline and the deletion inventory after a pass, in the order
+/// [`PassGate::hold`] looks for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::sync) enum Hold {
+    /// The pass stopped before it saw the whole tree.
+    Interrupted,
+    /// Files the pass left for a later one: still changing, unreadable, or racing an API write.
+    Deferred,
+    /// Files that differ from their objects and wait for a conflict decision.
+    Conflicting,
+    /// Tree entries no object can take, where a missing file may have gone.
+    TreeEntries,
+    /// Files no object accounts for yet, such as the new name of a renamed file.
+    Unimported,
+    /// Nothing in the pass holds anything back, but the baseline is not complete, so a missing
+    /// file is not yet a deletion.
+    BaselineOpen,
+    /// Nothing holds anything back.
+    Clear,
 }
 
 impl PassGate {
-    /// Whether nothing kept the pass from observing the whole tree: it ran to the end, deferred
-    /// nothing, met no conflict and left no entry it could not take in.
-    pub(super) fn settled(self) -> bool {
-        !self.interrupted && self.deferred == 0 && self.conflicting == 0 && self.entries.0 == 0
+    /// What holds back the baseline and the deletion inventory after this pass. Every decision
+    /// reads this answer instead of testing the counts again.
+    pub(in crate::sync) fn hold(self) -> Hold {
+        match (
+            self.interrupted,
+            self.deferred,
+            self.conflicting,
+            self.entries.0,
+            self.unimported,
+            self.baseline,
+        ) {
+            (true, ..) => Hold::Interrupted,
+            (false, 1.., ..) => Hold::Deferred,
+            (false, 0, 1.., ..) => Hold::Conflicting,
+            (false, 0, 0, 1.., ..) => Hold::TreeEntries,
+            (false, 0, 0, 0, 1.., _) => Hold::Unimported,
+            (false, 0, 0, 0, 0, Baseline::Activating) => Hold::BaselineOpen,
+            (false, 0, 0, 0, 0, Baseline::Complete) => Hold::Clear,
+        }
+    }
+}
+
+impl Hold {
+    /// Whether a reconciliation after this pass may record the baseline as complete.
+    pub(in crate::sync) fn completes_baseline(self) -> bool {
+        match self {
+            Self::BaselineOpen | Self::Clear => true,
+            Self::Interrupted
+            | Self::Deferred
+            | Self::Conflicting
+            | Self::TreeEntries
+            | Self::Unimported => false,
+        }
     }
 
     /// Whether the tracked files this pass found missing may become deletion candidates, and
     /// whether a deletion set it leaves without candidates may reset the deletion history.
     pub(in crate::sync) fn infers_deletions(self) -> bool {
-        self.baseline == Baseline::Complete && self.settled()
+        match self {
+            Self::Clear => true,
+            Self::Interrupted
+            | Self::Deferred
+            | Self::Conflicting
+            | Self::TreeEntries
+            | Self::Unimported
+            | Self::BaselineOpen => false,
+        }
     }
 }
 
@@ -66,7 +127,8 @@ impl Reconciliation {
         self.entries.record(path, problem);
     }
 
-    /// The working-tree entries among `unrepresentable`.
+    /// The working-tree entries among `unrepresentable`: what a wait reports as an
+    /// unrepresentable source, unlike the unmapped objects.
     pub(crate) fn unrepresentable_entries(&self) -> UnrepresentableEntries {
         UnrepresentableEntries(self.unrepresentable.saturating_sub(self.unmapped_objects))
     }
@@ -83,6 +145,7 @@ impl Reconciliation {
             deferred: self.deferred,
             conflicting: self.conflicting,
             entries: self.unrepresentable_entries(),
+            unimported: self.external_only,
         }
     }
 }
@@ -90,14 +153,13 @@ impl Reconciliation {
 /// Hands the entries an ingestion could not take in to the mirror's status, replacing those of
 /// the previous one. An interrupted ingestion saw only part of the tree, so it keeps the last
 /// complete list.
-pub(super) fn report_entries(status: &MirrorStatusSender, ingested: &mut Reconciliation) {
+pub(super) fn report_entries(entries: &EntryReportSender, ingested: &mut Reconciliation) {
     if !ingested.interrupted {
-        status.report_entries(std::mem::take(&mut ingested.entries));
+        entries.report(std::mem::take(&mut ingested.entries));
     }
 }
 
-/// Whether a reconciliation may record the baseline as complete. It is deferred while the
-/// working tree still has entries that ingestion could not take in.
+/// Whether a reconciliation may record the baseline as complete, as the latest ingestion left it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BaselineGate {
     Allowed,
@@ -106,7 +168,7 @@ pub(super) enum BaselineGate {
 
 impl BaselineGate {
     pub(super) fn after_ingest(ingested: PassGate) -> Self {
-        if ingested.settled() {
+        if ingested.hold().completes_baseline() {
             Self::Allowed
         } else {
             Self::Deferred
@@ -118,8 +180,8 @@ impl BaselineGate {
 mod tests {
     use super::*;
 
-    /// Only the tree side decides: any number of unmapped objects leaves a pass settled, and one
-    /// entry the tree could not take in unsettles it.
+    /// Only the tree side decides: any number of unmapped objects leaves a pass clear, and one
+    /// entry the tree could not take in holds it back.
     #[test]
     fn unmapped_objects_never_hold_back_the_baseline_or_deletions() {
         let mut pass = Reconciliation {
@@ -131,7 +193,7 @@ mod tests {
         }
         assert_eq!(pass.unrepresentable, 1000);
         assert_eq!(pass.unrepresentable_entries().get(), 0);
-        assert!(pass.gate().infers_deletions());
+        assert_eq!(pass.gate().hold(), Hold::Clear);
         assert_eq!(
             BaselineGate::after_ingest(pass.gate()),
             BaselineGate::Allowed
@@ -140,8 +202,7 @@ mod tests {
         pass.count_unrepresentable_entry(Path::new("bucket/link"), EntryProblem::UnsafeEntry);
         assert_eq!(pass.unrepresentable_entries().get(), 1);
         assert_eq!(pass.entries.total(), 1);
-        assert!(!pass.gate().settled());
-        assert!(!pass.gate().infers_deletions());
+        assert_eq!(pass.gate().hold(), Hold::TreeEntries);
         assert_eq!(
             BaselineGate::after_ingest(pass.gate()),
             BaselineGate::Deferred
@@ -157,41 +218,70 @@ mod tests {
             unrepresentable: 1,
             ..Default::default()
         };
-        assert!(!pass.gate().infers_deletions());
+        assert_eq!(pass.gate().hold(), Hold::TreeEntries);
     }
 
-    /// Deferred work, a conflict and an interruption keep their effect on either side, and an
-    /// incomplete baseline infers no deletion however settled the pass is.
+    /// Each cause holds back both decisions on its own, and an incomplete baseline holds back
+    /// only the deletions.
     #[test]
-    fn deferred_conflicting_interrupted_and_incomplete_passes_infer_no_deletion() {
-        let settled = Reconciliation {
+    fn each_cause_holds_back_the_baseline_and_deletions_and_an_open_baseline_only_deletions() {
+        for (pass, hold) in [
+            (
+                Reconciliation {
+                    interrupted: true,
+                    deferred: 1,
+                    ..Default::default()
+                },
+                Hold::Interrupted,
+            ),
+            (
+                Reconciliation {
+                    deferred: 1,
+                    conflicting: 1,
+                    ..Default::default()
+                },
+                Hold::Deferred,
+            ),
+            (
+                Reconciliation {
+                    conflicting: 1,
+                    ..Default::default()
+                },
+                Hold::Conflicting,
+            ),
+            (
+                Reconciliation {
+                    unrepresentable: 1,
+                    external_only: 1,
+                    ..Default::default()
+                },
+                Hold::TreeEntries,
+            ),
+            (
+                Reconciliation {
+                    external_only: 1,
+                    ..Default::default()
+                },
+                Hold::Unimported,
+            ),
+        ] {
+            let mut pass = pass;
+            for baseline_complete in [false, true] {
+                pass.baseline_complete = baseline_complete;
+                assert_eq!(pass.gate().hold(), hold);
+                assert!(!hold.completes_baseline(), "{hold:?}");
+                assert!(!hold.infers_deletions(), "{hold:?}");
+            }
+        }
+        let open = Reconciliation::default().gate().hold();
+        assert_eq!(open, Hold::BaselineOpen);
+        assert!(open.completes_baseline());
+        assert!(!open.infers_deletions());
+        let clear = Reconciliation {
             baseline_complete: true,
             ..Default::default()
         };
-        assert!(settled.gate().infers_deletions());
-        for pass in [
-            Reconciliation {
-                deferred: 1,
-                ..Default::default()
-            },
-            Reconciliation {
-                conflicting: 1,
-                ..Default::default()
-            },
-            Reconciliation {
-                interrupted: true,
-                ..Default::default()
-            },
-        ] {
-            let pass = Reconciliation {
-                baseline_complete: true,
-                ..pass
-            };
-            assert!(!pass.gate().settled());
-            assert!(!pass.gate().infers_deletions());
-        }
-        let incomplete = Reconciliation::default();
-        assert!(incomplete.gate().settled());
-        assert!(!incomplete.gate().infers_deletions());
+        assert!(clear.gate().hold().completes_baseline());
+        assert!(clear.gate().hold().infers_deletions());
     }
 }
