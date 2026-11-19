@@ -2,7 +2,7 @@ use crate::{
     storage::sync_state::{
         deletions::DeletionSet,
         observation::{PauseReason, Summary},
-        writeback::Stop,
+        writeback::Halt,
     },
     sync::{
         MirrorState,
@@ -108,7 +108,7 @@ impl ControlState {
     fn running(observation: &Summary, set: Option<&DeletionSet>) -> Self {
         match Outstanding::of_status(observation, set).first() {
             Holdup::Paused(reason) => Self::paused(reason),
-            Holdup::Writeback(stop) => Self::writeback(stop),
+            Holdup::Writeback(halt) => Self::writeback(halt),
             Holdup::SourceChanging => Self::SourceChanging,
             Holdup::SourceUnrepresentable | Holdup::SourceUnreadable => Self::SourceUnrepresentable,
             Holdup::Observing => Self::Observing,
@@ -133,15 +133,13 @@ impl ControlState {
         }
     }
 
-    /// The judgment reports only a write-back state that is not `Ready`, which then reads as
-    /// nothing to wait for.
-    const fn writeback(stop: Stop) -> Self {
-        match stop {
-            Stop::Ready => Self::Ready,
-            Stop::RecoveryRequired => Self::RecoveryRequired,
-            Stop::ProtectedBody => Self::ProtectedBody,
-            Stop::ConflictCapacity => Self::ConflictCapacity,
-            Stop::IoFailure => Self::IoFailure,
+    /// The state a write-back that stopped for `halt` shows.
+    const fn writeback(halt: Halt) -> Self {
+        match halt {
+            Halt::RecoveryRequired => Self::RecoveryRequired,
+            Halt::ProtectedBody => Self::ProtectedBody,
+            Halt::ConflictCapacity => Self::ConflictCapacity,
+            Halt::IoFailure => Self::IoFailure,
         }
     }
 }

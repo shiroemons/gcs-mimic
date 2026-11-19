@@ -281,6 +281,27 @@ impl std::fmt::Display for Stop {
     }
 }
 impl std::error::Error for Stop {}
+/// Why write-back stopped: every state but `Ready`, each of which an operator must repair, so
+/// that what holds synchronization back cannot name a ready write-back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Halt {
+    RecoveryRequired,
+    ProtectedBody,
+    ConflictCapacity,
+    IoFailure,
+}
+impl Stop {
+    /// Why write-back stopped, or nothing while it is ready.
+    pub(crate) const fn halt(self) -> Option<Halt> {
+        match self {
+            Self::Ready => None,
+            Self::RecoveryRequired => Some(Halt::RecoveryRequired),
+            Self::ProtectedBody => Some(Halt::ProtectedBody),
+            Self::ConflictCapacity => Some(Halt::ConflictCapacity),
+            Self::IoFailure => Some(Halt::IoFailure),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub(crate) struct Status {
     pub reserved_bytes: u128,

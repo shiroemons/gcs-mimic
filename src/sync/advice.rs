@@ -12,7 +12,7 @@ use super::{
     entries::EntryProblem,
     outstanding::Holdup,
 };
-use crate::storage::sync_state::{observation::PauseReason, writeback::Stop};
+use crate::storage::sync_state::{observation::PauseReason, writeback::Halt};
 use std::fmt;
 
 /// The endpoint option every advised command ends with: the one placeholder advice keeps, since
@@ -168,7 +168,7 @@ pub fn catalog() -> Vec<String> {
         },
     ];
     let holdups = PauseReason::ALL.into_iter().map(Holdup::Paused).chain([
-        Holdup::Writeback(Stop::RecoveryRequired),
+        Holdup::Writeback(Halt::RecoveryRequired),
         Holdup::SourceChanging,
         Holdup::SourceUnrepresentable,
         Holdup::SourceUnreadable,

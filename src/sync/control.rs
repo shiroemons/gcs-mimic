@@ -723,7 +723,7 @@ mod tests {
     /// read alike.
     #[test]
     fn only_work_in_progress_is_waited_for_again_and_the_rest_name_a_remedy() {
-        use crate::storage::sync_state::writeback::Stop;
+        use crate::storage::sync_state::writeback::Halt;
         use WaitReason::{JournalChanged, Ready, SourceChanging, Timeout};
         for reason in WaitReason::ALL {
             assert_eq!(
@@ -734,7 +734,7 @@ mod tests {
         }
         for holdup in [
             Holdup::Paused(PauseReason::IoFailure),
-            Holdup::Writeback(Stop::ProtectedBody),
+            Holdup::Writeback(Halt::ProtectedBody),
             Holdup::SourceChanging,
             Holdup::SourceUnrepresentable,
             Holdup::SourceUnreadable,

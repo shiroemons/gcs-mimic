@@ -118,9 +118,9 @@ fn status_state_follows_the_mirror_state() {
         PauseReason::from(ScanStop::SourceChanging),
         PauseReason::SourceChanging
     );
-    let protected = Summary {
-        writeback: Some(crate::storage::sync_state::observation::WritebackSummary {
-            state: Stop::ProtectedBody,
+    let writeback = |state| {
+        Some(crate::storage::sync_state::observation::WritebackSummary {
+            state,
             reserved_bytes: 0,
             retained_bytes: 0,
             entries: 1,
@@ -128,11 +128,21 @@ fn status_state_follows_the_mirror_state() {
             max_bytes: 10,
             max_entries: 10,
             over_limit: false,
-        }),
+        })
+    };
+    let protected = Summary {
+        writeback: writeback(Stop::ProtectedBody),
         scan_stop: Some(ScanStop::SourceChanging),
         ..observation(None)
     };
     assert_eq!(state(Running, &protected), ControlState::ProtectedBody);
+    // A ready write-back holds nothing back, so the condition after it shows.
+    let ready = Summary {
+        writeback: writeback(Stop::Ready),
+        scan_stop: Some(ScanStop::SourceChanging),
+        ..observation(None)
+    };
+    assert_eq!(state(Running, &ready), ControlState::SourceChanging);
     let observing = Summary {
         baseline_complete: false,
         ..observation(None)

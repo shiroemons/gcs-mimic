@@ -15,7 +15,7 @@ use super::{
 use crate::storage::sync_state::{
     deletions::{DeletionAuthorization, DeletionSet},
     observation::{PauseReason, ScanStop, Summary},
-    writeback::Stop,
+    writeback::Halt,
 };
 
 /// What the working tree's side leaves undone, from the hold of a pass: the one that also
@@ -67,8 +67,8 @@ impl TreeSide {
 pub(crate) struct Outstanding {
     /// The pause the catalog records.
     paused: Option<PauseReason>,
-    /// The write-back state, when it is not `Ready`.
-    writeback: Option<Stop>,
+    /// Why write-back stopped, if it did.
+    writeback: Option<Halt>,
     tree: TreeSide,
     /// A guarded deletion set waits for an operator's approval.
     deletion_approval: bool,
@@ -80,7 +80,7 @@ pub(crate) struct Outstanding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Holdup {
     Paused(PauseReason),
-    Writeback(Stop),
+    Writeback(Halt),
     SourceChanging,
     SourceUnrepresentable,
     /// Entries a pass could not read for a reason waiting does not clear.
@@ -170,8 +170,7 @@ impl Outstanding {
             writeback: observation
                 .writeback
                 .as_ref()
-                .map(|writeback| writeback.state)
-                .filter(|state| *state != Stop::Ready),
+                .and_then(|writeback| writeback.state.halt()),
             tree,
             // A guarded set waits only until an operator grants it. A granted set runs in the
             // pass that completes it, so it waits for nobody.
@@ -193,8 +192,8 @@ impl Outstanding {
         if let Some(reason) = self.paused {
             return Holdup::Paused(reason);
         }
-        if let Some(stop) = self.writeback {
-            return Holdup::Writeback(stop);
+        if let Some(halt) = self.writeback {
+            return Holdup::Writeback(halt);
         }
         match self.tree {
             TreeSide::Changing => Holdup::SourceChanging,

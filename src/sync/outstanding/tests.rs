@@ -33,8 +33,8 @@ fn conditions() -> [Condition; 9] {
             Holdup::Paused(PauseReason::IoFailure),
         ),
         (
-            |outstanding| outstanding.writeback = Some(Stop::ProtectedBody),
-            Holdup::Writeback(Stop::ProtectedBody),
+            |outstanding| outstanding.writeback = Some(Halt::ProtectedBody),
+            Holdup::Writeback(Halt::ProtectedBody),
         ),
         (
             |outstanding| outstanding.tree = TreeSide::Changing,
