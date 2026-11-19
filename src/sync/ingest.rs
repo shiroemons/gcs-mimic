@@ -70,9 +70,12 @@ impl TrackedCheck {
 enum HashCheck {
     /// The file holds the tracked body, and its observed identity is now recorded.
     Recorded,
-    /// The file holds the tracked body, but the API generation moved on or the object is gone.
-    /// The file is no external edit: the export or removal of the API change replaces it, so
-    /// ingesting it would report that change as a conflict.
+    /// The file holds the tracked body, but the API generation moved on or the object is gone,
+    /// so the observed identity is not recorded. The file is no external edit, and the pass
+    /// handles it like an unchanged file: the export or removal of the API change replaces it.
+    /// Ingesting it would report that change as a conflict. Counting it as deferred would keep
+    /// a wait reporting the source as changing, because only that export records a new
+    /// fingerprint, and a finding can hold the export back indefinitely.
     Superseded,
     /// The bytes differ, or the file changed while it was read.
     Differs,
@@ -432,10 +435,7 @@ impl Ingest<'_> {
                         self.summary.identical += 1;
                         true
                     }
-                    HashCheck::Superseded => {
-                        self.summary.deferred += 1;
-                        true
-                    }
+                    HashCheck::Superseded => true,
                     HashCheck::Differs => false,
                 },
                 TrackedCheck::Changed => false,

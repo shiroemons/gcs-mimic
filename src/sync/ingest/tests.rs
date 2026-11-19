@@ -4,7 +4,7 @@
 )]
 use super::*;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::sync::test_support::hooked_worker;
+use crate::sync::test_support::{Retrack, hooked_worker, retrack};
 use crate::{
     object::{MapPatch, ObjectMetadataUpdate, Patch, UploadChunk},
     storage::admin::Origin,
@@ -199,43 +199,10 @@ async fn racy_exported_bytes_are_verified_without_staging_again() {
     catalog.close().await.unwrap();
 }
 
-/// Records the current size and times of `test-bucket/<name>` as its stable tracked fingerprint
-/// under another inode number, keeping the tracked hashes and generation: what a later scan sees
-/// when Docker Desktop's shared folders report a new number for the file.
-async fn renumber(catalog: &Catalog, root: &RootLease, tree: &std::path::Path, name: &str) {
-    let path = format!("test-bucket/{name}");
-    let binding = root
-        .sync_binding(&BucketName::new("test-bucket").unwrap())
-        .await
-        .unwrap();
-    let state = catalog.sync_state();
-    let tracked = state
-        .get_path(binding.clone(), path.clone())
-        .await
-        .unwrap()
-        .unwrap();
-    let identity = fsutil::stat_identity(&File::open(tree.join(&path)).unwrap()).unwrap();
-    let fingerprint = SyncFingerprint {
-        size: identity.size,
-        mtime_ns: identity.modified_ns,
-        ctime_ns: identity.changed_ns,
-        inode: !identity.inode,
-        racy: false,
-        ..tracked.fingerprint
-    };
-    state
-        .acknowledge(
-            &ObjectName::new(name).unwrap(),
-            tracked.generation,
-            SyncUpdate::new(binding, SyncPath::try_from(path).unwrap(), fingerprint).unwrap(),
-        )
-        .await
-        .unwrap();
-}
-
 /// A file whose stable tracked fingerprint differs only in its inode number is hashed, not
 /// staged. The tracked bytes count as identical and record the observed number. While a newer
-/// API generation awaits export, they are deferred rather than reported as a conflict.
+/// API generation awaits export, they count as nothing at all, like an unchanged file: neither
+/// a conflict nor a deferral that would keep a wait reporting the source as changing.
 /// Different bytes with the same size and times are still ingested.
 #[tokio::test]
 async fn a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested() {
@@ -246,9 +213,23 @@ async fn a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested() {
     clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
     assert_eq!(scan(&catalog, &root, &config).await.ingested, 2);
     let edited = object(&catalog, "test-bucket/edited").await;
-    renumber(&catalog, &root, &tree.0, "body").await;
+    retrack(
+        &catalog,
+        &root,
+        &tree.0,
+        "test-bucket/body",
+        Retrack::Renumbered,
+    )
+    .await;
     fs::write(tree.0.join("test-bucket/edited"), b"ORIGINAL").unwrap();
-    renumber(&catalog, &root, &tree.0, "edited").await;
+    retrack(
+        &catalog,
+        &root,
+        &tree.0,
+        "test-bucket/edited",
+        Retrack::Renumbered,
+    )
+    .await;
     // Both files then record stable fingerprints, so the next pass reads neither.
     clock.set(std::time::SystemTime::now() + Duration::from_secs(3));
     let stages = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -282,7 +263,14 @@ async fn a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested() {
     assert_eq!((stats.identical, stats.ingested), (0, 0));
     assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 1);
 
-    renumber(&catalog, &root, &tree.0, "body").await;
+    retrack(
+        &catalog,
+        &root,
+        &tree.0,
+        "test-bucket/body",
+        Retrack::Renumbered,
+    )
+    .await;
     api_put(&catalog, "test-bucket/body", b"api newer").await;
     let api = object(&catalog, "test-bucket/body").await.generation;
     let stats = STAGES
@@ -295,7 +283,7 @@ async fn a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested() {
             stats.conflicting,
             stats.deferred
         ),
-        (0, 0, 0, 1)
+        (0, 0, 0, 0)
     );
     assert_eq!(stages.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(root.findings_page(0, 256).await.unwrap().is_empty());

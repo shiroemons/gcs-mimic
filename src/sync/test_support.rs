@@ -7,13 +7,73 @@ use super::{Hook, RootLease};
 use crate::{
     clock::SystemClock,
     config::Config,
+    fsutil,
     storage::{
         Catalog,
         admin::{BucketDefinition, BucketName, Origin},
+        sync_state::{SyncFingerprint, SyncPath, SyncUpdate},
     },
     test_support::TestDir,
 };
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{fs::File, future::Future, path::Path, sync::Arc, time::Duration};
+
+/// How [`retrack`] records a file's tracked fingerprint.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Retrack {
+    /// Stable, under the file's own inode number: a scan skips the file without reading it.
+    Stable,
+    /// Stable, under another inode number: what a later scan sees when Docker Desktop's shared
+    /// folders report a new number for the file.
+    Renumbered,
+    /// Racy, under the file's own inode number: an observation too close to its last change.
+    Racy,
+}
+
+/// Records the current size and times of the tracked file at `path`, relative to the tree, as
+/// its tracked fingerprint, keeping the tracked hashes and generation.
+pub(super) async fn retrack(
+    catalog: &Catalog,
+    root: &RootLease,
+    tree: &Path,
+    path: &str,
+    record: Retrack,
+) {
+    let (bucket, name) = super::mapping::path_to_name(Path::new(path)).unwrap();
+    let binding = root.sync_binding(&bucket).await.unwrap();
+    let state = catalog.sync_state();
+    let tracked = state
+        .get_path(binding.clone(), path.to_owned())
+        .await
+        .unwrap()
+        .unwrap();
+    let identity = fsutil::stat_identity(&File::open(tree.join(path)).unwrap()).unwrap();
+    let (inode, racy) = match record {
+        Retrack::Stable => (identity.inode, false),
+        Retrack::Renumbered => (!identity.inode, false),
+        Retrack::Racy => (identity.inode, true),
+    };
+    let fingerprint = SyncFingerprint {
+        size: identity.size,
+        mtime_ns: identity.modified_ns,
+        ctime_ns: identity.changed_ns,
+        inode,
+        racy,
+        ..tracked.fingerprint
+    };
+    state
+        .acknowledge(
+            &name,
+            tracked.generation,
+            SyncUpdate::new(
+                binding,
+                SyncPath::try_from(path.to_owned()).unwrap(),
+                fingerprint,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+}
 
 pub(super) async fn fixture(
     bucket: Option<&BucketName>,

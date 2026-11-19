@@ -60367,7 +60367,7 @@
           "id": "sync-owned-filesystem-observation",
           "description": "Production sync uses 256-entry descriptor-relative scans with read-only inspection, stages sources outside their opening file job, hashes matching racy files in place, preserves workspace I/O causes, and observes more than 1000 files through macOS FSEvents without one descriptor per file. Cooperative wait deadlines interrupt settling and bound new work between owned steps; explicit failed rescans record an inspectable pause. Parent rows remain PARTIAL and Linux runtime/physical power-loss parity are not claimed. Scope: docs/en/slices/continuous-directory-observation.md and docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
-          "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying", "a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested"]
+          "test_ids": ["scans_cross_pages_once_and_reject_replaced_directories", "parent_sync_failure_retries_existing_ancestors_while_reads_never_sync", "staging_finishes_while_another_file_worker_is_occupied", "racy_exported_bytes_are_verified_without_staging_again", "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors", "descriptor_exhaustion_does_not_persist_workspace_recovery", "wait_deadline_interrupts_settling_without_publishing_an_incomplete_scan", "expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candidate", "failed_explicit_rescan_records_the_pause_before_replying", "a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested", "wait_exports_over_an_unchanged_file_whatever_its_fingerprint_needs", "wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_file", "wait_reports_different_bytes_behind_a_renumbered_fingerprint_as_a_conflict", "wait_removes_an_unchanged_file_deleted_through_the_api_whatever_its_fingerprint_needs"]
         },
         {
           "id": "sync-cumulative-deletion-guard",
@@ -60762,6 +60762,10 @@
         "racy_exported_bytes_are_verified_without_staging_again",
         "a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested",
         "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed",
+        "wait_exports_over_an_unchanged_file_whatever_its_fingerprint_needs",
+        "wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_file",
+        "wait_reports_different_bytes_behind_a_renumbered_fingerprint_as_a_conflict",
+        "wait_removes_an_unchanged_file_deleted_through_the_api_whatever_its_fingerprint_needs",
         "native_watch_covers_more_than_a_thousand_files_without_per_file_descriptors",
         "durable_rehash_rejects_same_inode_edits_with_restored_mtime",
         "wait_authorization_claims_a_bounded_catalog_wait_and_releases_it_on_errors",
@@ -61065,7 +61069,7 @@
           "result": "PASS",
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/shared-sync-writeback.md",
-          "test_ids": ["a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed"]
+          "test_ids": ["a_renumbered_file_is_hashed_and_only_changed_bytes_are_ingested", "live_export_replaces_a_tracked_target_whose_inode_number_alone_changed", "wait_exports_over_an_unchanged_file_whatever_its_fingerprint_needs", "wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_file", "wait_reports_different_bytes_behind_a_renumbered_fingerprint_as_a_conflict", "wait_removes_an_unchanged_file_deleted_through_the_api_whatever_its_fingerprint_needs"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_watch -- --test-threads=4",

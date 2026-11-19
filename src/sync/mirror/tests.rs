@@ -5,7 +5,7 @@
 use super::*;
 use crate::storage::sync_state::conflicts::ConflictTarget;
 use crate::storage::test_fixtures::{PERMISSIVE, live};
-use crate::sync::test_support::hooked_worker;
+use crate::sync::test_support::{Retrack, hooked_worker, retrack};
 use crate::{
     clock::SystemClock,
     object::{Patch, UploadChunk},
@@ -2745,4 +2745,201 @@ async fn native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_
         .unwrap();
     std::fs::set_permissions(&bucket, std::fs::Permissions::from_mode(0o700)).unwrap();
     catalog.close().await.unwrap();
+}
+
+/// Answers one `sync wait` that replays the journal from `cursor`.
+async fn wait_from(
+    catalog: &Catalog,
+    root: &RootLease,
+    cursor: JournalFence,
+) -> crate::sync::control::WaitResult {
+    let config = Config::default();
+    let mut state = LiveState {
+        cursor,
+        baseline: BaselineProgress {
+            gate: BaselineGate::Allowed,
+            complete: true,
+        },
+        skipped: SkippedExports::default(),
+    };
+    let (_sender, stopping) = tokio::sync::watch::channel(false);
+    let writeback = root.default_writeback().await.unwrap();
+    let mut control = LiveControl {
+        scope: LiveScope {
+            catalog,
+            root,
+            config: &config,
+            writeback: &writeback,
+            stopping: &stopping,
+        },
+        state: &mut state,
+    };
+    control
+        .wait(crate::test_support::hang_deadline())
+        .await
+        .unwrap()
+}
+
+/// Exports `object` with `body` and tracks it as `record` describes; returns the journal fence
+/// after the export.
+async fn tracked_export(
+    catalog: &Catalog,
+    bucket: &BucketName,
+    root: &RootLease,
+    tree: &std::path::Path,
+    record: Retrack,
+) -> JournalFence {
+    catalog.enable_change_journal().await.unwrap();
+    publish_origin(catalog, bucket, b"before", Origin::Api).await;
+    reconcile(catalog, root).await.unwrap();
+    let cursor = catalog.current_fence().await.unwrap();
+    retrack(catalog, root, tree, "test-bucket/object", record).await;
+    cursor
+}
+
+/// A tracked file that still holds its tracked bytes is no external edit while a newer API
+/// generation awaits export, whether the scan skips it or must hash it because its fingerprint
+/// names another inode number or is racy. The wait's scan counts it as nothing, the export
+/// replaces it with the newer generation, and the wait is ready without a conflict.
+#[tokio::test]
+async fn wait_exports_over_an_unchanged_file_whatever_its_fingerprint_needs() {
+    use crate::sync::control::WaitReason;
+    for record in [Retrack::Stable, Retrack::Renumbered, Retrack::Racy] {
+        let (_data, tree, catalog, bucket, root) = live_fixture().await;
+        let cursor = tracked_export(&catalog, &bucket, &root, &tree.0, record).await;
+        publish_origin(&catalog, &bucket, b"newer", Origin::Api).await;
+        let result = wait_from(&catalog, &root, cursor).await;
+        let summary = result.reconciliation.unwrap();
+        assert_eq!(
+            (
+                result.reason,
+                summary.exported,
+                summary.conflicting,
+                summary.deferred
+            ),
+            (WaitReason::Ready, 1, 0, 0),
+            "{record:?}"
+        );
+        assert_eq!(
+            fs::read(tree.0.join("test-bucket/object")).unwrap(),
+            b"newer",
+            "{record:?}"
+        );
+        assert!(root.findings_page(0, 256).await.unwrap().is_empty());
+        assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+}
+
+/// When a finding holds back the export of the newer generation, the unchanged renumbered file
+/// still counts as nothing, so the wait reports that finding at once instead of a source that
+/// keeps changing until its deadline.
+#[tokio::test]
+async fn wait_reports_the_finding_that_holds_back_the_export_over_a_renumbered_file() {
+    use crate::sync::control::WaitReason;
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    let cursor = tracked_export(&catalog, &bucket, &root, &tree.0, Retrack::Renumbered).await;
+    publish_origin(&catalog, &bucket, b"newer", Origin::Api).await;
+    publish_named(&catalog, &bucket, "object/child", b"child", Origin::Api).await;
+    let result = wait_from(&catalog, &root, cursor).await;
+    let summary = result.reconciliation.unwrap();
+    assert_eq!(
+        (result.reason, summary.conflicting, summary.deferred),
+        (WaitReason::FindingsPending, 0, 0)
+    );
+    let findings = root.findings_page(0, 256).await.unwrap();
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.name == "object" && finding.reason == Reason::Collision),
+        "{findings:?}"
+    );
+    assert_eq!(
+        fs::read(tree.0.join("test-bucket/object")).unwrap(),
+        b"before"
+    );
+    assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// Different bytes behind a renumbered fingerprint, with the same size and times, are still an
+/// external edit: against a newer API generation the wait reports a conflict.
+#[tokio::test]
+async fn wait_reports_different_bytes_behind_a_renumbered_fingerprint_as_a_conflict() {
+    use crate::sync::control::WaitReason;
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    publish_origin(&catalog, &bucket, b"before", Origin::Api).await;
+    reconcile(&catalog, &root).await.unwrap();
+    let cursor = catalog.current_fence().await.unwrap();
+    let path = tree.0.join("test-bucket/object");
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, b"BEFORE").unwrap();
+    File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    retrack(
+        &catalog,
+        &root,
+        &tree.0,
+        "test-bucket/object",
+        Retrack::Renumbered,
+    )
+    .await;
+    publish_origin(&catalog, &bucket, b"newer", Origin::Api).await;
+    let result = wait_from(&catalog, &root, cursor).await;
+    let summary = result.reconciliation.unwrap();
+    // The scan records the conflict. The export of the newer generation meets the edit too,
+    // keeps it as a conflict revision and installs the API bytes.
+    assert_eq!(
+        (result.reason, summary.conflicting, summary.exported),
+        (WaitReason::FindingsPending, 2, 1)
+    );
+    assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 1);
+    assert_eq!(fs::read(&path).unwrap(), b"newer");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// After the API deletes the object, a tracked file that still holds its tracked bytes is
+/// removed the same way whether the scan skips it or must hash it: the scan counts it as
+/// nothing, and the removal export deletes it.
+#[tokio::test]
+async fn wait_removes_an_unchanged_file_deleted_through_the_api_whatever_its_fingerprint_needs() {
+    use crate::sync::control::WaitReason;
+    for record in [Retrack::Stable, Retrack::Renumbered, Retrack::Racy] {
+        let (_data, tree, catalog, bucket, root) = live_fixture().await;
+        let cursor = tracked_export(&catalog, &bucket, &root, &tree.0, record).await;
+        let name = ObjectName::new("object").unwrap();
+        let live = catalog
+            .admin(Origin::Api)
+            .get_object(&bucket, &name, None)
+            .await
+            .unwrap();
+        catalog
+            .admin(Origin::Api)
+            .delete_object(
+                &bucket,
+                &name,
+                GenerationCondition::Is(Generation::new(live.generation).unwrap()),
+            )
+            .await
+            .unwrap();
+        let result = wait_from(&catalog, &root, cursor).await;
+        let summary = result.reconciliation.unwrap();
+        assert_eq!(
+            (result.reason, summary.conflicting, summary.deferred),
+            (WaitReason::Ready, 0, 0),
+            "{record:?}"
+        );
+        assert!(!tree.0.join("test-bucket/object").exists(), "{record:?}");
+        assert_eq!(root.observation().await.unwrap().unresolved_conflicts, 0);
+        drop(root);
+        catalog.close().await.unwrap();
+    }
 }

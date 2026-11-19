@@ -61,8 +61,13 @@ the racy flag. This interval conservatively covers filesystem timestamp granular
 A file that differs from its fingerprint only in the inode number is hashed the
 same way, because Docker Desktop shared folders can report a new number for an
 unchanged file; equal hashes record the observed number. When the API generation
-moved on before that acknowledgement, equal hashes still show no external edit:
-the pass defers the file to the pending export instead of reporting a conflict.
+moved on or the object was deleted before that acknowledgement, equal hashes
+still show no external edit, whether the fingerprint was racy or named another
+inode number. The pass then handles the file like an unchanged one: it neither
+reports a conflict nor counts the file as deferred, and the export or removal of
+the API change replaces it. Counting it as deferred would keep `sync wait`
+reporting a changing source, and a finding that holds that export back would
+leave the wait to time out instead of reporting the finding.
 
 ## Conflict, cancellation and recovery
 
@@ -125,7 +130,10 @@ Ingest and export tests record a tracked fingerprint under another inode number.
 Unchanged bytes are hashed without staging and are not reported as a conflict
 while a newer API generation awaits export, and that export replaces them.
 Different bytes with the same size and mtime are still ingested, and the export
-still reports them as a conflict.
+still reports them as a conflict. Wait tests record the fingerprint as stable,
+under another inode number or racy: a wait over a newer API generation exports
+it and is ready, one over an API deletion removes the file, and one whose export
+a collision holds back reports that finding instead of timing out.
 
 These are cooperative fault-model tests, not physical host-power-loss evidence.
 `durable_rehash_rejects_same_inode_edits_with_restored_mtime` fails when private
