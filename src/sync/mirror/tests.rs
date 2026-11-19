@@ -1518,7 +1518,7 @@ async fn a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict() {
         PageLimit,
         authority::ControlAuthority,
         conflicts::{Action, ConflictPosition, ResolveRequest, ResolveTarget},
-        observation::PauseReason,
+        observation::ScanStop,
     };
     use std::sync::{
         Arc,
@@ -1592,7 +1592,7 @@ async fn a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict() {
         assert!(held.has_hold());
         assert_eq!(fs::read(&path).unwrap(), b"external edit");
         let observed = root.observation().await.unwrap();
-        assert_eq!(observed.scan_stop, Some(PauseReason::SourceChanging));
+        assert_eq!(observed.scan_stop, Some(ScanStop::SourceChanging));
         assert_eq!(observed.mapping_findings, 0);
         assert_eq!(observed.unresolved_conflicts, 0);
 

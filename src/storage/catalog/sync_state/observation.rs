@@ -27,6 +27,29 @@ pub(crate) use stops::{PathStop, TransientStop};
 mod types;
 pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 
+/// Why the last scan ended without pausing: the root keeps running and the next scan tries
+/// again. Only these two source conditions end a scan this way; anything else pauses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScanStop {
+    SourceChanging,
+    SourceUnrepresentable,
+}
+sql::text_enum!(pub(crate) ScanStop, "invalid synchronization scan stop", {
+    SourceChanging => "SourceChanging", SourceUnrepresentable => "SourceUnrepresentable",
+});
+
+crate::serde_util::serialize_as_str!(ScanStop);
+
+/// A scan stop and a pause name the same source condition alike.
+impl From<ScanStop> for PauseReason {
+    fn from(stop: ScanStop) -> Self {
+        match stop {
+            ScanStop::SourceChanging => Self::SourceChanging,
+            ScanStop::SourceUnrepresentable => Self::SourceUnrepresentable,
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct Summary {
     pub revision: i64,
@@ -43,7 +66,7 @@ pub(crate) struct Summary {
     pub path_stops: u64,
     pub unresolved_conflicts: u64,
     pub paused_reason: Option<PauseReason>,
-    pub scan_stop: Option<PauseReason>,
+    pub scan_stop: Option<ScanStop>,
     pub writeback: Option<WritebackSummary>,
 }
 
@@ -186,7 +209,7 @@ struct Totals {
     paused_reason: Option<PauseReason>,
     path_stops: u64,
     unresolved_conflicts: u64,
-    scan_stop: Option<PauseReason>,
+    scan_stop: Option<ScanStop>,
 }
 
 impl Totals {
@@ -378,9 +401,9 @@ impl RootLease {
         deferred: u64,
     ) -> Result<(), RootError> {
         let reason = if unrepresentable > 0 {
-            Some(PauseReason::SourceUnrepresentable)
+            Some(ScanStop::SourceUnrepresentable)
         } else if deferred > 0 {
-            Some(PauseReason::SourceChanging)
+            Some(ScanStop::SourceChanging)
         } else {
             None
         };

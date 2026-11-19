@@ -11,7 +11,7 @@ use crate::{
         Catalog,
         admin::{BucketDefinition, BucketName, Generation, ObjectName, Origin},
         sync_state::{
-            observation::PauseReason,
+            observation::{PauseReason, ScanStop},
             writeback::{Limits, Stop, Writeback},
         },
     },
@@ -95,12 +95,29 @@ fn status_state_follows_the_mirror_state() {
         assert_eq!(state(Running, &observation(Some(reason))), expected);
     }
     // A scan stop does not pause, so it shows only while the mirror runs.
-    let stopped = Summary {
-        scan_stop: Some(PauseReason::SourceChanging),
-        ..observation(None)
-    };
-    assert_eq!(state(Running, &stopped), ControlState::SourceChanging);
-    assert_eq!(state(Paused, &stopped), ControlState::Paused);
+    for (stop, expected) in [
+        (ScanStop::SourceChanging, ControlState::SourceChanging),
+        (
+            ScanStop::SourceUnrepresentable,
+            ControlState::SourceUnrepresentable,
+        ),
+    ] {
+        let stopped = Summary {
+            scan_stop: Some(stop),
+            ..observation(None)
+        };
+        assert_eq!(state(Running, &stopped), expected);
+        assert_eq!(state(Paused, &stopped), ControlState::Paused);
+    }
+    // The status keeps naming a scan stop as it always has.
+    assert_eq!(
+        serde_json::to_value(ScanStop::SourceUnrepresentable).unwrap(),
+        "SourceUnrepresentable"
+    );
+    assert_eq!(
+        PauseReason::from(ScanStop::SourceChanging),
+        PauseReason::SourceChanging
+    );
     let protected = Summary {
         writeback: Some(crate::storage::sync_state::observation::WritebackSummary {
             state: Stop::ProtectedBody,
@@ -112,7 +129,8 @@ fn status_state_follows_the_mirror_state() {
             max_entries: 10,
             over_limit: false,
         }),
-        ..stopped
+        scan_stop: Some(ScanStop::SourceChanging),
+        ..observation(None)
     };
     assert_eq!(state(Running, &protected), ControlState::ProtectedBody);
     let observing = Summary {

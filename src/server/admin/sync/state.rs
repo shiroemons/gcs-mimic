@@ -1,7 +1,7 @@
 use crate::{
     storage::sync_state::{
         deletions::{DeletionAuthorization, DeletionSet},
-        observation::{PauseReason, Summary},
+        observation::{PauseReason, ScanStop, Summary},
         writeback::Stop,
     },
     sync::MirrorState,
@@ -143,16 +143,10 @@ impl ControlState {
         }
     }
 
-    /// The catalog keeps only the two source reasons as a scan stop; another one would be a
-    /// pause, so it answers as one.
-    const fn scan_stopped(reason: PauseReason) -> Self {
-        match reason {
-            PauseReason::SourceChanging => Self::SourceChanging,
-            PauseReason::SourceUnrepresentable => Self::SourceUnrepresentable,
-            PauseReason::ConflictCapacity
-            | PauseReason::IoFailure
-            | PauseReason::RecoveryRequired
-            | PauseReason::ObserverFailure => Self::paused(reason),
+    const fn scan_stopped(stop: ScanStop) -> Self {
+        match stop {
+            ScanStop::SourceChanging => Self::SourceChanging,
+            ScanStop::SourceUnrepresentable => Self::SourceUnrepresentable,
         }
     }
 
