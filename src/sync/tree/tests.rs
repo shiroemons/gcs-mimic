@@ -224,11 +224,7 @@ fn a_scan_confirms_no_spelling_of_the_names_it_lists() {
     let clock = crate::clock::ManualClock::new(
         std::time::SystemTime::now() + std::time::Duration::from_secs(3600),
     );
-    let lookup = Lookup::probed(
-        fsutil::stat_identity(&root).unwrap().device,
-        fsutil::Matching::Folding,
-        std::sync::Arc::new(clock),
-    );
+    let lookup = Lookup::probed(fsutil::Matching::Folding, std::sync::Arc::new(clock));
     let mut scan = TreeScan::new(TreeLimits::default(), lookup.clone());
     let mut files = 0;
     let mut pages = 0;

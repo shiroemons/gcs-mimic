@@ -4,13 +4,13 @@
 //! Whether a name that opens has that spelling is something only some directories say. macOS
 //! reports an open file's own name; Linux reports a directory's casefold flag, and a directory
 //! whose flag is clear keeps names apart; elsewhere, and where neither answers, only a listing of
-//! the parent shows the spelling. What a probe of the root found decides where those answers are
-//! not needed or not believed: on a root whose filesystem folds neither letter case nor
-//! normalization, a name that opens on the root's device is spelled that way; on a root that
-//! folds either, a clear casefold flag is not believed, because a mount that folds without that
-//! flag, such as a Docker Desktop bind mount, reports the same. A directory's own casefold flag
-//! still wins over the root's rules: ext4 sets it per directory, so a root that keeps names apart
-//! can hold a directory that folds them.
+//! the parent shows the spelling. What a probe of the root found only makes that check stricter,
+//! never looser: on a root that folds letter case or normalization, a clear casefold flag is not
+//! believed, because a mount that folds without that flag, such as a Docker Desktop bind mount,
+//! reports the same. On a root that folds neither, each directory still answers for itself. The
+//! probe measured one directory the mirror created, and a mount can fold names per directory
+//! without saying so: on a WSL2 `drvfs` mount with `case=dir`, a directory created from Windows
+//! folds case while one created from Linux does not, on one device.
 //!
 //! A listing is read in one pass over the directory and kept for the lookups that follow in the
 //! same pass of the synchronization, such as one ingestion rescan, one deletion inventory or one
@@ -42,36 +42,24 @@ const KEPT_LISTINGS: usize = 4;
 /// larger directory is read again for each lookup, up to the name looked up.
 const KEPT_NAMES: usize = 4096;
 
-/// How the filesystem of a probed root matches a name it opens against the names its directories
-/// list.
+/// How the filesystem of a probed root matched a name the probe opened against the names its
+/// directory lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Matching {
-    /// Names that differ in letter case or Unicode normalization name different files.
+    /// Names that differ in letter case or Unicode normalization named different files.
     Exact,
-    /// A name can open an entry that its directory lists under another letter case or
+    /// A name opened an entry that its directory lists under another letter case or
     /// normalization.
     Folding,
 }
 
-/// What a lookup knows about the filesystem it opens names on, beyond each directory's own answer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Rules {
-    /// Nobody probed it, as for a lookup outside a synchronization root or the probe itself.
-    Unprobed,
-    /// The root on `device` folds neither letter case nor normalization.
-    Exact { device: u64 },
-    /// The root folds letter case or normalization.
-    Folding,
-}
-
-/// What the rules of a lookup say about one directory.
+/// What a lookup knows about the directories it opens names in, beyond each directory's own
+/// answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Known {
-    /// Nothing: only the directory's own answer tells.
+    /// Nothing: only the directory's own answer tells, as below a root the probe found to fold
+    /// nothing, outside a synchronization root, or for the probe itself.
     Nothing,
-    /// The directory lies on the device of a root that folds neither letter case nor
-    /// normalization.
-    Exact,
     /// The directory lies below a root that folds letter case or normalization.
     Folding,
 }
@@ -80,7 +68,14 @@ pub(super) enum Known {
 /// the listings they read.
 #[derive(Clone)]
 pub(crate) struct Lookup {
-    rules: Rules,
+    #[cfg_attr(
+        not(any(target_os = "linux", all(test, unix))),
+        expect(
+            dead_code,
+            reason = "only a Linux casefold flag answers a spelling that the root's rules can overrule"
+        )
+    )]
+    known: Known,
     listings: Arc<Mutex<Listings>>,
     /// Tells when a listing was read, to keep only listings of a directory that has settled.
     clock: Arc<dyn Clock>,
@@ -122,22 +117,22 @@ impl Listings {
 impl Lookup {
     /// Lookups that know nothing about the filesystem: each directory's own answer decides.
     pub(crate) fn unprobed() -> Self {
-        Self::with(Rules::Unprobed, Arc::new(SystemClock))
+        Self::with(Known::Nothing, Arc::new(SystemClock))
     }
 
-    /// Lookups below the root on `device` whose filesystem matches names as `matching` says,
-    /// telling the time of a listing by `clock`.
-    pub(crate) fn probed(device: u64, matching: Matching, clock: Arc<dyn Clock>) -> Self {
-        let rules = match matching {
-            Matching::Exact => Rules::Exact { device },
-            Matching::Folding => Rules::Folding,
+    /// Lookups below a root whose probe matched names as `matching` says, telling the time of a
+    /// listing by `clock`.
+    pub(crate) fn probed(matching: Matching, clock: Arc<dyn Clock>) -> Self {
+        let known = match matching {
+            Matching::Exact => Known::Nothing,
+            Matching::Folding => Known::Folding,
         };
-        Self::with(rules, clock)
+        Self::with(known, clock)
     }
 
-    fn with(rules: Rules, clock: Arc<dyn Clock>) -> Self {
+    fn with(known: Known, clock: Arc<dyn Clock>) -> Self {
         Self {
-            rules,
+            known,
             listings: Arc::default(),
             clock,
         }
@@ -224,48 +219,16 @@ impl Lookup {
         imp::child_regular(parent, name, self)
     }
 
-    /// What the rules say about `directory`. Only a root that keeps names apart needs the
-    /// directory's device: a mount below it can fold them.
+    /// What the root's rules say about the directories below it.
     #[cfg_attr(
-        not(unix),
+        not(any(target_os = "linux", all(test, unix))),
         expect(
             dead_code,
-            reason = "descriptor-relative child lookup is unsupported on this platform"
+            reason = "only a Linux casefold flag answers a spelling that the root's rules can overrule"
         )
     )]
-    pub(super) fn known(&self, directory: &File) -> io::Result<Known> {
-        Ok(match self.rules {
-            Rules::Folding => Known::Folding,
-            Rules::Exact { device } if stat_identity(directory)?.device == device => Known::Exact,
-            Rules::Unprobed | Rules::Exact { .. } => Known::Nothing,
-        })
-    }
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-
-    /// The rules of a root that keeps names apart cover only directories on its device, since a
-    /// mount below it can fold names; the rules of a root that folds them cover every directory.
-    #[test]
-    fn only_the_root_device_takes_the_rules_of_a_root_that_keeps_names_apart() {
-        let dir = crate::test_support::TestDir::new();
-        let directory = File::open(&dir.0).unwrap();
-        let device = stat_identity(&directory).unwrap().device;
-        let other = device.wrapping_add(1);
-        let known = |device, matching| {
-            Lookup::probed(device, matching, Arc::new(SystemClock))
-                .known(&directory)
-                .unwrap()
-        };
-        assert_eq!(known(device, Matching::Exact), Known::Exact);
-        assert_eq!(known(other, Matching::Exact), Known::Nothing);
-        assert_eq!(known(other, Matching::Folding), Known::Folding);
-        assert_eq!(
-            Lookup::unprobed().known(&directory).unwrap(),
-            Known::Nothing
-        );
+    pub(super) fn known(&self) -> Known {
+        self.known
     }
 }
 
@@ -281,6 +244,16 @@ mod listing_tests {
         fs,
         time::{Duration, SystemTime},
     };
+
+    /// Lookups whose clock reads `now`.
+    fn lookup_at(now: SystemTime) -> Lookup {
+        Lookup::probed(Matching::Folding, Arc::new(ManualClock::new(now)))
+    }
+
+    /// Lookups of a pass that starts long after the directory last changed.
+    fn settled() -> Lookup {
+        lookup_at(SystemTime::now() + Duration::from_secs(3600))
+    }
 
     /// Fields drop in order, so the directory goes once nothing holds it open.
     struct Listed {
@@ -302,17 +275,6 @@ mod listing_tests {
                 _unchecked,
                 dir,
             }
-        }
-
-        /// Lookups whose clock reads `now`.
-        fn lookup(&self, now: SystemTime) -> Lookup {
-            let device = stat_identity(&self.parent).unwrap().device;
-            Lookup::probed(device, Matching::Folding, Arc::new(ManualClock::new(now)))
-        }
-
-        /// Lookups of a pass that starts long after the directory last changed.
-        fn settled(&self) -> Lookup {
-            self.lookup(SystemTime::now() + Duration::from_secs(3600))
         }
 
         /// Dates the directory's last modification an hour back, as if it had settled before the
@@ -339,14 +301,14 @@ mod listing_tests {
     fn a_pass_reads_an_unchanged_directory_once() {
         let names = ["File-0", "File-1", "File-2", "File-3"];
         let listed = Listed::new(&names);
-        let lookup = listed.settled();
+        let lookup = settled();
         for name in names {
             assert!(listed.opens(&lookup, name), "{name}");
             assert!(listed.opens(&lookup.clone(), name), "{name}");
         }
         assert!(!listed.opens(&lookup, "file-0"));
         assert_eq!(lookup.reads(), 1);
-        let next = listed.settled();
+        let next = settled();
         assert!(listed.opens(&next, "File-0"));
         assert_eq!(next.reads(), 1);
     }
@@ -358,7 +320,7 @@ mod listing_tests {
     fn a_directory_changed_during_a_pass_is_read_again() {
         let listed = Listed::new(&["Actual"]);
         listed.settle();
-        let lookup = listed.settled();
+        let lookup = settled();
         assert!(listed.opens(&lookup, "Actual"));
         assert_eq!(lookup.reads(), 1);
         fs::rename(listed.dir.0.join("Actual"), listed.dir.0.join("actual")).unwrap();
@@ -382,7 +344,7 @@ mod listing_tests {
             .collect();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let listed = Listed::new(&names);
-        let lookup = listed.settled();
+        let lookup = settled();
         assert!(listed.opens(&lookup, "File-0"));
         assert!(listed.opens(&lookup, &format!("File-{KEPT_NAMES}")));
         assert_eq!(lookup.reads(), 2);
@@ -394,7 +356,7 @@ mod listing_tests {
     fn a_directory_that_just_changed_is_read_for_each_lookup() {
         let listed = Listed::new(&["Actual"]);
         let changed = listed.parent.metadata().unwrap().modified().unwrap();
-        let lookup = listed.lookup(changed + Duration::from_secs(1));
+        let lookup = lookup_at(changed + Duration::from_secs(1));
         assert!(listed.opens(&lookup, "Actual"));
         assert!(listed.opens(&lookup, "Actual"));
         assert_eq!(lookup.reads(), 2);

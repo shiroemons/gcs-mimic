@@ -530,16 +530,17 @@ A lookup below the root opens a name without following a symlink and confirms
 that the entry it reached has that exact spelling; an entry reached under
 another letter case or normalization is an alias. macOS reports the name of an
 open file and a Linux directory reports its casefold flag; where neither
-answers, the lookup lists the parent. The recorded rules decide where that
-listing is unneeded and where the platform's answer is not believed. On a root
-that folds neither letter case nor normalization, a name that opens on the
-root's device is spelled that way, so a mount whose casefold flag query fails
-with `ENOTTY` is not listed; a directory whose casefold flag is set, which ext4
-sets per directory, is still listed, and so is a directory on another device.
-On a root that folds either, a clear casefold flag is not believed, because a
-mount that folds without that flag reports the same, and the parent is listed.
-A Docker Desktop bind mount from a macOS host folds case and answers the flag
-query with `ENOTTY`, so its lookups list the parent.
+answers, the lookup lists the parent. The recorded rules only make that check
+stricter, never looser: on a root that folds letter case or normalization, a
+clear casefold flag is not believed, because a mount that folds without that
+flag reports the same, and the parent is listed. On a root that folds neither,
+each directory still answers for itself, and a directory whose casefold flag
+query fails is listed: the probe measured one directory the mirror created, and
+a mount that cannot report the flag can fold names in some directories and not
+in others on one device, as a WSL2 `drvfs` mount with `case=dir` does for
+directories created from Windows. A Docker Desktop bind mount from a macOS host
+folds case and answers the flag query with `ENOTTY`, so its lookups list the
+parent.
 
 A listing is read in one pass over the directory and kept for the rest of one
 pass of the mirror, such as one ingestion scan, one deletion inventory or one

@@ -1,5 +1,5 @@
 use super::*;
-use crate::fsutil::{Child, Created, Lookup, RegularChild, lookup::Known};
+use crate::fsutil::{Child, Created, Lookup, RegularChild};
 
 pub(crate) fn child_directory(
     parent: &File,
@@ -87,8 +87,8 @@ fn spelled_as_opened(
 }
 
 /// APFS and HFS+ are case- and normalization-insensitive or sensitive per volume, and the name
-/// they report for an open file is the one its directory lists, so the root's rules only spare
-/// asking on a root that keeps names apart.
+/// they report for an open file is the one its directory lists. A mount below the root can fold
+/// names although the root does not, so each file is asked whatever the root's rules say.
 #[cfg(target_os = "macos")]
 #[expect(
     unsafe_code,
@@ -96,10 +96,6 @@ fn spelled_as_opened(
 )]
 fn exact_spelling(parent: &File, name: &OsStr, file: &File, lookup: &Lookup) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
-    match lookup.known(parent)? {
-        Known::Exact => return Ok(true),
-        Known::Nothing | Known::Folding => {}
-    }
     let metadata = file.metadata()?;
     if metadata.is_file() && metadata.nlink() > 1 {
         return lookup.listed(parent, name);
@@ -154,9 +150,11 @@ fn exact_spelling(parent: &File, name: &OsStr, _: &File, lookup: &Lookup) -> io:
 }
 
 /// Decides a spelling from the parent's casefold flag, `None` where the filesystem does not
-/// report flags (`ENOTTY` on FUSE and network mounts), and what the root's rules say about the
-/// parent. A set flag always needs the listing: ext4 sets it per directory, so the rules of a
-/// root that keeps names apart do not cover such a directory.
+/// report flags (`ENOTTY` on FUSE, 9p and network mounts), and what the root's rules say. Only a
+/// clear flag spares the listing, and only below a root that the probe did not find to fold
+/// names. A mount that cannot report the flag cannot report that one directory folds names while
+/// another does not either, as a WSL2 `drvfs` mount with `case=dir` does on one device, so the
+/// probe of one directory says nothing about the others there.
 #[cfg(any(target_os = "linux", test))]
 fn flags_spelling(
     parent: &File,
@@ -164,22 +162,20 @@ fn flags_spelling(
     flags: Option<libc::c_int>,
     lookup: &Lookup,
 ) -> io::Result<bool> {
+    use crate::fsutil::lookup::Known;
     const CASEFOLD: libc::c_int = 0x4000_0000;
     let casefolded = flags.map(|flags| flags & CASEFOLD != 0);
-    match (casefolded, lookup.known(parent)?) {
-        (Some(true), Known::Nothing | Known::Exact | Known::Folding)
-        | (None, Known::Nothing | Known::Folding)
-        | (Some(false), Known::Folding) => lookup.listed(parent, name),
-        (None | Some(false), Known::Exact) | (Some(false), Known::Nothing) => Ok(true),
+    match (casefolded, lookup.known()) {
+        (Some(false), Known::Nothing) => Ok(true),
+        (Some(true) | None, Known::Nothing | Known::Folding) | (Some(false), Known::Folding) => {
+            lookup.listed(parent, name)
+        }
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn exact_spelling(parent: &File, name: &OsStr, _: &File, lookup: &Lookup) -> io::Result<bool> {
-    match lookup.known(parent)? {
-        Known::Exact => Ok(true),
-        Known::Nothing | Known::Folding => lookup.listed(parent, name),
-    }
+    lookup.listed(parent, name)
 }
 
 #[cfg(test)]
@@ -202,24 +198,25 @@ mod tests {
         }
     }
 
-    /// Below a root that folds names, a clear casefold flag is not believed, as a mount that folds
-    /// without the flag reports one; below a root that keeps names apart, an unavailable flag
-    /// needs no listing, while a set flag, which ext4 sets per directory, still does. A name the
-    /// rules accept without a listing is one that opened, so `actual` passes there.
+    /// The root's rules only make the check stricter. Below a root that folds names, a clear
+    /// casefold flag is not believed, as a mount that folds without the flag reports one. Below a
+    /// root that keeps names apart, only a clear flag spares the listing: an unavailable flag is
+    /// listed, since a mount that cannot report it can fold names in some directories and not in
+    /// the one the probe measured. A name accepted without a listing is one that opened, so
+    /// `actual` passes there.
     #[test]
     fn root_rules_decide_only_what_the_casefold_flag_leaves_open() {
         let dir = crate::test_support::TestDir::new();
         std::fs::write(dir.0.join("Actual"), b"bytes").unwrap();
         let parent = File::open(&dir.0).unwrap();
-        let device = crate::fsutil::stat_identity(&parent).unwrap().device;
-        let probed = |matching| Lookup::probed(device, matching, Arc::new(SystemClock));
+        let probed = |matching| Lookup::probed(matching, Arc::new(SystemClock));
         let spelled =
             |flags, lookup: Lookup| flags_spelling(&parent, "actual".as_ref(), flags, &lookup);
         assert!(!spelled(Some(0), probed(Matching::Folding)).unwrap());
         assert!(!spelled(None, probed(Matching::Folding)).unwrap());
         assert!(!spelled(Some(0x4000_0000), probed(Matching::Folding)).unwrap());
         assert!(!spelled(Some(0x4000_0000), probed(Matching::Exact)).unwrap());
-        assert!(spelled(None, probed(Matching::Exact)).unwrap());
+        assert!(!spelled(None, probed(Matching::Exact)).unwrap());
         assert!(spelled(Some(0), probed(Matching::Exact)).unwrap());
         assert!(spelled(Some(0), Lookup::unprobed()).unwrap());
     }

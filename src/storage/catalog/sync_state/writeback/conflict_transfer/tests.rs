@@ -76,7 +76,7 @@ impl Fixture {
             .activate_root(&tree.0, Activation::Open)
             .await
             .unwrap()
-            .assume_naming(crate::sync::naming::RootNaming::host());
+            .assume_naming(crate::sync::naming::RootNaming::posix());
         let writeback = lease
             .writeback(Limits::new(bytes, entries).unwrap())
             .await
@@ -164,7 +164,7 @@ impl Fixture {
             .activate_root(&tree.0, Activation::Open)
             .await
             .unwrap()
-            .assume_naming(crate::sync::naming::RootNaming::host());
+            .assume_naming(crate::sync::naming::RootNaming::posix());
         let writeback = lease.writeback(limits).await.unwrap();
         Self {
             data,

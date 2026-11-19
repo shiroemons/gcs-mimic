@@ -640,7 +640,6 @@ impl RootLease {
     /// directory listings they read until the pass drops them.
     pub(crate) fn lookup(&self) -> Result<crate::fsutil::Lookup, AdminError> {
         Ok(crate::fsutil::Lookup::probed(
-            self.ownership.identity.device,
             self.naming()?.matching(),
             Arc::clone(&self.catalog().0.clock),
         ))
