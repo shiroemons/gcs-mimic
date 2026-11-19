@@ -30,7 +30,9 @@ or stopped mirror stops synchronization only. While synchronization is enabled,
 a ready answer adds `sync.state`, which the
 [synchronization contract](directory-synchronization.md#stops-findings-and-remedies)
 defines and which is outside the public contract until synchronization is
-complete. `/_internal/health` keeps its existing liveness behavior.
+complete. `gcs-mimic healthcheck --require-sync true` also requires that state
+to be `running` and refuses a `/_internal/health` URL, which carries no state.
+`/_internal/health` keeps its existing liveness behavior.
 Probe bodies return 413 and unsupported methods return 405 with `Allow`.
 The CLI accepts the old healthcheck path with an explicit `--url`.
 

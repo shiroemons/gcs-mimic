@@ -269,6 +269,9 @@ APIでバケットを削除してもディレクトリは残ります。同じ�
 アクセスできないサブツリーがあると同期を一時停止し、権限を直して明示的な再走査（`gcs-mimic sync rescan`）が成功するまで再開しません。
 その間もStorage APIはreadyのままです。`/_internal/ready`は同期の状態を別に`sync.state`（`starting`、`running`、`retrying`、`paused`、`stopped`）で返します。
 この項目は、同期が完成するまで公開契約の対象外です。
+Composeのヘルスチェックで同期も待つには、`gcs-mimic healthcheck --require-sync true`を使います。
+`sync.state`が`running`になるまで失敗し、同期が再試行・一時停止・停止している間も失敗します。
+イメージ自体のヘルスチェックはこのオプションを付けません。
 
 書き出したファイルとディレクトリは、サーバーのユーザーだけが読めるモード（`0600`・`0700`）です。
 Docker Desktopはbind mountの所有者を対応付けるため、macOSのホストでは読めます。

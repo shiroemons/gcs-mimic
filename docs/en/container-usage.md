@@ -300,7 +300,11 @@ search access. An inaccessible subtree pauses synchronization until access is
 repaired and an explicit rescan (`gcs-mimic sync rescan`) succeeds. The Storage API
 stays ready meanwhile; `/_internal/ready` reports the mirror apart as `sync.state`
 (`starting`, `running`, `retrying`, `paused` or `stopped`), a field outside the
-public contract until synchronization is complete.
+public contract until synchronization is complete. To make a Compose healthcheck
+wait for synchronization as well, run
+`gcs-mimic healthcheck --require-sync true`: it fails until `sync.state` is
+`running`, and fails again while synchronization retries, pauses or stops. The
+image's own healthcheck does not set it.
 
 Exported files and directories are private to the server user (modes `0600` and
 `0700`). Docker Desktop maps ownership on bind mounts, so the files are readable

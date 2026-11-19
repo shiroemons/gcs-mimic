@@ -1091,6 +1091,9 @@ catalog/root IDs or tokens; detailed strict diagnostics require management
 authorization. While the mirror is retrying, paused or stopped without a recorded
 pause reason, status `state` is `Unhealthy`. The `sync` object is outside the
 public contract until directory synchronization is complete.
+`gcs-mimic healthcheck --require-sync true` succeeds only while it reports
+`running`, so a container healthcheck can wait for synchronization; without the
+option, or with `false`, the healthcheck follows the API alone.
 
 ## Resources, ownership and remaining approval
 

@@ -81,6 +81,21 @@ impl SyncServer {
         assert_eq!(value["completed"], true);
         reply
     }
+    /// Runs `gcs-mimic healthcheck` against `path`, with `--require-sync` set to `require` when
+    /// given, and returns its exit status and standard error.
+    fn healthcheck(&self, path: &str, require: Option<&str>) -> (std::process::ExitStatus, String) {
+        let url = format!("http://{}{path}", self.address);
+        let mut command = common::server_command();
+        command.args(["healthcheck", "--url", &url]);
+        if let Some(value) = require {
+            command.args(["--require-sync", value]);
+        }
+        let output = command.output().unwrap();
+        (
+            output.status,
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    }
     /// The `sync.state` of a readiness probe that answers 200.
     fn sync_state(&self) -> String {
         let ready = self.request("GET", "/_internal/ready", b"").json_ok();
@@ -131,6 +146,36 @@ fn a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_st
         );
         server.stop();
     }
+}
+
+/// The plain healthcheck follows the API, and `--require-sync true` also follows the mirror.
+#[test]
+fn the_healthcheck_requires_running_synchronization_only_when_asked() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    fs::create_dir(tree.0.join("test-bucket")).unwrap();
+    for name in ["one", "two", "three"] {
+        fs::write(tree.0.join("test-bucket").join(name), b"body").unwrap();
+    }
+    let mut server = SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "3"]);
+    server.wait(br#"{"timeout_ms":30000}"#).0.expect(409);
+    assert_eq!(server.sync_state(), "paused");
+    let (plain, _) = server.healthcheck("/_internal/healthcheck", None);
+    assert!(plain.success(), "a paused mirror leaves the API ready");
+    let (required, stderr) = server.healthcheck("/_internal/healthcheck", Some("true"));
+    assert!(!required.success());
+    assert!(
+        stderr.contains("found the API ready, but synchronization is paused, not running"),
+        "{stderr}"
+    );
+    let (unrequired, _) = server.healthcheck("/_internal/ready", Some("false"));
+    assert!(unrequired.success());
+    server.stop();
+    let mut server = SyncServer::start_with_args(&data.0, &tree.0, &["--max-sync-entries", "4"]);
+    server.wait(br#"{"timeout_ms":30000}"#).0.expect(200);
+    let (required, stderr) = server.healthcheck("/_internal/ready", Some("true"));
+    assert!(required.success(), "{stderr}");
+    server.stop();
 }
 
 #[test]

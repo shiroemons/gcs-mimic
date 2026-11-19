@@ -88,7 +88,8 @@ sync` command instead. Since 0.20.0 each side sends its version in the
 versions. Directory synchronization is not complete, so the options
 and the output of `gcs-mimic sync` are not covered either; only its exit status
 is. For the same reason, the `sync` object that a ready answer carries while
-synchronization is enabled is not covered.
+synchronization is enabled, and the healthcheck's `--require-sync` option that
+reads it, are not covered.
 
 `--host`, `--port`, `--port-http`, `--scheme` and `--log-level` are native
 options and are covered like every other documented option. The other flags in

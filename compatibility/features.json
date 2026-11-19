@@ -60394,6 +60394,12 @@
           "test_ids": ["a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready", "explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership", "persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root", "a_transient_mirror_failure_is_retried_until_it_clears", "a_mirror_stopped_by_shutdown_stays_ready", "a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation", "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root", "readiness_reports_the_mirror_state_without_a_catalog_query", "failing_maintenance_still_turns_readiness_off_beside_a_running_mirror", "status_state_follows_the_mirror_state", "states_parse_from_the_names_they_report", "a_stopped_mirror_stays_stopped", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
         },
         {
+          "id": "sync-healthcheck-requirement",
+          "description": "gcs-mimic healthcheck --require-sync BOOL is opt-in: without it, or with false, any ready answer passes as before, including from a server whose mirror is paused. With true the ready answer's sync.state must be running: a starting, retrying, paused or stopped state, an answer without sync, an unknown state or an unreadable body fails, each with its own reason, and the process diagnostic for a paused mirror says the API is ready but synchronization is paused. A value other than true or false, an empty value, and true with a /_internal/health URL are refused before connecting. The option is outside the public contract until synchronization is complete. Scope: docs/en/slices/directory-synchronization.md and docs/en/container-usage.md.",
+          "result": "PASS",
+          "test_ids": ["a_sync_requirement_accepts_only_a_running_mirror", "a_sync_requirement_takes_a_boolean_and_a_readiness_url", "the_healthcheck_requires_running_synchronization_only_when_asked"]
+        },
+        {
           "id": "sync-installed-body-durability",
           "description": "Durable always verifies installed body hashes, including same-inode/size edits with restored mtime; acknowledgement checks the complete recorded stat instead of hashing again. Reusing private copy hashes cannot establish the installed bytes after namespace exposure. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
@@ -60798,6 +60804,9 @@
         "states_parse_from_the_names_they_report",
         "a_stopped_mirror_stays_stopped",
         "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up",
+        "a_sync_requirement_accepts_only_a_running_mirror",
+        "a_sync_requirement_takes_a_boolean_and_a_readiness_url",
+        "the_healthcheck_requires_running_synchronization_only_when_asked",
         "delayed_native_event_retains_the_completed_deletion_observation_until_its_scan_finishes",
         "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval",
         "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling",
@@ -61097,6 +61106,13 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/directory-synchronization.md",
           "test_ids": ["a_stopped_mirror_pauses_synchronization_and_keeps_the_api_ready", "explicit_rescan_resumes_a_paused_mirror_and_shutdown_releases_ownership", "persistent_disk_full_pauses_sync_for_controls_keeps_the_api_ready_and_shutdown_releases_the_root", "a_transient_mirror_failure_is_retried_until_it_clears", "a_mirror_stopped_by_shutdown_stays_ready", "a_wait_sent_while_starting_succeeds_only_after_the_first_reconciliation", "native_watch_permission_retry_reports_retrying_keeps_the_api_ready_and_shutdown_releases_the_root", "readiness_reports_the_mirror_state_without_a_catalog_query", "failing_maintenance_still_turns_readiness_off_beside_a_running_mirror", "status_state_follows_the_mirror_state", "states_parse_from_the_names_they_report", "a_stopped_mirror_stays_stopped", "a_tree_past_the_entry_limit_pauses_until_a_restart_raises_the_limit_and_it_stays_up"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- a_sync_requirement --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- help_output_keeps_its_exact_bytes --test-threads=4; CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- the_healthcheck_requires_running_synchronization_only_when_asked --test-threads=4",
+          "result": "PASS",
+          "verified_at": "2026-11-19",
+          "artifact": "docs/en/container-usage.md",
+          "test_ids": ["a_sync_requirement_accepts_only_a_running_mirror", "a_sync_requirement_takes_a_boolean_and_a_readiness_url", "the_healthcheck_requires_running_synchronization_only_when_asked"]
         },
         {
           "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib native_quiet_scans_keep_repeated_small_deletions_automatic_across_restart",
