@@ -21,10 +21,10 @@ fn the_range_below_a_name_takes_in_no_sibling() {
     }
 }
 
-/// Proves `path` under the directory `parent` of `tree`.
-fn prove(tree: &TestDir, parent: &str, path: &str) -> Result<RemovableDirectory, Kept> {
+/// Proves `path` in `tree`.
+fn prove(tree: &TestDir, path: &str) -> Result<RemovableDirectory, Kept> {
     RemovableDirectory::prove(
-        File::open(tree.0.join(parent)).unwrap(),
+        &File::open(&tree.0).unwrap(),
         RootNaming::posix(),
         Unreferenced { path: path.into() },
     )
@@ -38,15 +38,9 @@ fn no_proof_names_a_bucket_directory_or_a_reserved_one() {
     let tree = TestDir::new();
     fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
     fs::create_dir_all(tree.0.join(mapping::WORKSPACE).join("empty")).unwrap();
-    assert_eq!(
-        prove(&tree, "", "test-bucket").err(),
-        Some(Kept::NotAnObject)
-    );
+    assert_eq!(prove(&tree, "test-bucket").err(), Some(Kept::NotAnObject));
     let reserved = format!("{}/empty", mapping::WORKSPACE);
-    assert_eq!(
-        prove(&tree, mapping::WORKSPACE, &reserved).err(),
-        Some(Kept::NotAnObject)
-    );
+    assert_eq!(prove(&tree, &reserved).err(), Some(Kept::NotAnObject));
     assert!(tree.0.join("test-bucket").is_dir());
     assert!(tree.0.join(mapping::WORKSPACE).join("empty").is_dir());
 }
@@ -67,12 +61,12 @@ fn no_proof_names_a_symlink_a_file_or_another_spelling() {
     for name in ["link", "dangling", "file", "cased", "missing"] {
         let path = format!("test-bucket/{name}");
         assert_eq!(
-            prove(&tree, "test-bucket", &path).err(),
+            prove(&tree, &path).err(),
             Some(Kept::NotDirectory),
             "{name}"
         );
     }
-    let proof = prove(&tree, "test-bucket", "test-bucket/empty").unwrap();
+    let proof = prove(&tree, "test-bucket/empty").unwrap();
     assert_eq!(proof.name, "empty");
     assert!(bucket.join("link").is_symlink());
     assert!(bucket.join("dangling").is_symlink());

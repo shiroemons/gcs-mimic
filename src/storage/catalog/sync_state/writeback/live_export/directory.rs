@@ -109,12 +109,19 @@ fn below(name: &str) -> (String, String) {
 }
 
 /// Reads whether anything the catalog records refers to `item`'s target or a path below it, and
-/// returns the catalog's half of the removal proof when nothing does. Letter case and Unicode
-/// aliases on a folding root are not matched: names compare byte for byte.
+/// returns the catalog's half of the removal proof when nothing does. Only an ordinary export
+/// (`purpose`) that replaces no `tracked` body may remove a directory: a tracked body, a restore
+/// into an absent target and a preserved conflict each expect a file there. Letter case and
+/// Unicode aliases on a folding root are not matched: names compare byte for byte.
 pub(super) fn unreferenced(
     c: &Connection,
     item: &Pending,
+    tracked: Option<&SyncRecord>,
+    purpose: &Purpose,
 ) -> Result<Result<Unreferenced, Kept>, Error> {
+    if tracked.is_some() || !matches!(purpose, Purpose::Ordinary) {
+        return Ok(Err(Kept::Replaces));
+    }
     let name = item.name.as_str();
     let (first, last) = below(name);
     let tracked: bool = c
@@ -153,42 +160,43 @@ pub(super) fn unreferenced(
 /// catalog's half ([`Unreferenced`]) completed with what the tree holds. Only
 /// [`RemovableDirectory::prove`] makes one, and [`remove`] needs one.
 pub(super) struct RemovableDirectory {
-    /// The directory the proof read the entry in, which the removal names it in.
+    /// The target path the proof answers for, `bucket/object`.
+    path: String,
+    /// The directory the proof read the entry in. The removal names the entry in it, and
+    /// installation renames the copy into it.
     parent: File,
     /// The directory's name in `parent`.
     name: OsString,
 }
 
 impl RemovableDirectory {
-    /// Completes `catalog` with what `parent`, the directory that holds the target, holds under
-    /// the target's name. The path must decode to an object below its bucket's directory, which
-    /// rules out the bucket's directory itself as well as the workspace and the marker: a removed
-    /// bucket directory would let a directory created later under that name bring a deleted
-    /// bucket back. The entry must open as a directory under its exact spelling without following
-    /// a symlink, and on a root that folds letter case `parent` must also list that spelling.
+    /// Completes `catalog` with what the tree under `root` holds at the target. The path must
+    /// decode to an object below its bucket's directory, which rules out the bucket's directory
+    /// itself as well as the workspace and the marker: a removed bucket directory would let a
+    /// directory created later under that name bring a deleted bucket back. The entry must open
+    /// as a directory under its exact spelling without following a symlink, and on a root that
+    /// folds letter case the directory that holds it must also list that spelling.
     pub(super) fn prove(
-        parent: File,
+        root: &File,
         naming: RootNaming,
         catalog: Unreferenced,
     ) -> Result<Result<Self, Kept>, Error> {
         let Unreferenced { path } = catalog;
-        let path = std::path::Path::new(&path);
-        if mapping::path_to_name(path, naming).is_err() {
+        let relative = std::path::Path::new(&path);
+        if mapping::path_to_name(relative, naming).is_err() {
             return Ok(Err(Kept::NotAnObject));
         }
-        let Some(name) = path.file_name() else {
+        let Some(name) = relative.file_name().map(std::ffi::OsStr::to_owned) else {
             return Ok(Err(Kept::NotAnObject));
         };
-        match fsutil::child_directory(&parent, name, fsutil::DirectoryOpen::Existing) {
+        let parent = parent(root, naming, &path, ParentSync::Skip)?.ok_or_else(stale)?;
+        match fsutil::child_directory(&parent, &name, fsutil::DirectoryOpen::Existing) {
             Ok(fsutil::Child::Directory { .. })
-                if naming.folds_case() && !listed(&parent, name)? =>
+                if naming.folds_case() && !listed(&parent, &name)? =>
             {
                 Ok(Err(Kept::NotDirectory))
             }
-            Ok(fsutil::Child::Directory { .. }) => Ok(Ok(Self {
-                parent,
-                name: name.to_owned(),
-            })),
+            Ok(fsutil::Child::Directory { .. }) => Ok(Ok(Self { path, parent, name })),
             Ok(fsutil::Child::Alias | fsutil::Child::Missing) => Ok(Err(Kept::NotDirectory)),
             Err(error) if crate::sync::tree::structural_entry_error(&error) => {
                 Ok(Err(Kept::NotDirectory))
@@ -239,12 +247,17 @@ fn refused(error: &io::Error) -> bool {
 }
 
 /// Removes the directory `proof` names if it is empty, then syncs the directory that held it, so
-/// the removal is durable before installation takes the name. A refused removal changes nothing.
+/// the removal is durable before installation takes the name, and returns that directory for
+/// installation to rename into. A refused removal changes nothing.
 pub(super) fn remove(
     proof: RemovableDirectory,
     install: &Install,
-) -> Result<Result<(), Kept>, Error> {
-    let RemovableDirectory { parent, name } = proof;
+) -> Result<Result<File, Kept>, Error> {
+    let RemovableDirectory { path, parent, name } = proof;
+    // A proof answers for the target it was read at, not for another operation's.
+    if path != install.item.path {
+        return Err(stale());
+    }
     #[cfg(test)]
     let reached = install.faults.hit_io(Step::SyncEmptyDirectoryRemove);
     #[cfg(not(test))]
@@ -262,9 +275,7 @@ pub(super) fn remove(
     parent.sync_all()?;
     #[cfg(test)]
     install.faults.target_dir_synced(&install.item);
-    #[cfg(not(test))]
-    let _ = install;
-    Ok(Ok(()))
+    Ok(Ok(parent))
 }
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]

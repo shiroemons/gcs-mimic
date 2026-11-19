@@ -5,10 +5,12 @@ use std::ops::ControlFlow;
 mod directory;
 #[cfg(test)]
 pub(super) mod faults;
+mod owned;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) mod tests;
 #[cfg(test)]
 use crate::storage::catalog::fault::Step;
+pub(super) use owned::OwnedBody;
 
 #[cfg(test)]
 static FAILURE: std::sync::Mutex<Vec<(RootId, &'static str, usize)>> =
@@ -272,59 +274,6 @@ fn matches_tracked(
     Ok(verified_identity(file, fp.size, fp.md5, fp.crc32c)?.filter(|hashed| *hashed == before))
 }
 
-/// Proof that an operation's private entry holds a body whose removal loses nothing: the
-/// operation's own API copy, which the API still holds, the tracked body that the API change
-/// replaced, or the copy of an operation not yet armed. Installation and restart recovery unlink
-/// an entry only through [`OwnedBody::unlink`]; the constructors are the only rules.
-pub(super) struct OwnedBody(fsutil::FileIdentity);
-
-impl OwnedBody {
-    /// `file` when it holds exactly `item`'s API copy. Only a publication has one: a removal's
-    /// row records the tracked body it removes, which only [`Self::tracked`] may prove.
-    pub(super) fn api_copy(file: &File, item: &Pending) -> Result<Option<Self>, Error> {
-        if item.kind != Kind::Publish {
-            return Ok(None);
-        }
-        Ok(verified_identity(file, item.size, item.md5, item.crc32c)?.map(Self))
-    }
-
-    /// `file` when it still holds the tracked body, by [`matches_tracked`].
-    pub(super) fn tracked(file: &File, tracked: &SyncRecord) -> Result<Option<Self>, Error> {
-        Ok(matches_tracked(file, tracked)?.map(Self))
-    }
-
-    /// `file` as the private copy of `item` before it is armed. Only the copy step wrote it and
-    /// no target has been replaced yet, so whatever it holds, even a partial copy, is the
-    /// emulator's.
-    pub(super) fn unarmed(file: &File, item: &Pending) -> Result<Option<Self>, Error> {
-        if item.phase != Phase::Prepared || item.kind != Kind::Publish {
-            return Ok(None);
-        }
-        Ok(Some(Self(fsutil::stat_identity(file)?)))
-    }
-
-    /// Unlinks `item`'s private entry if its name still holds the body this proof names, and
-    /// returns whether it did. A name that holds anything else by now keeps it, for the caller
-    /// to protect.
-    pub(super) fn unlink(
-        self,
-        workspace: &File,
-        item: &Pending,
-        #[cfg(test)] faults: &faults::Paths,
-    ) -> Result<bool, Error> {
-        let Some(current) = entry(workspace, item.token.id)? else {
-            return Ok(false);
-        };
-        if fsutil::stat_identity(&current)? != self.0 {
-            return Ok(false);
-        }
-        #[cfg(test)]
-        faults.unlinking(item, &current)?;
-        fsutil::unlink_file_at(workspace, item.token.id.to_hex().as_ref())?;
-        Ok(true)
-    }
-}
-
 fn content_matches(file: &File, size: u64, md5: [u8; 16], crc32c: u32) -> Result<bool, Error> {
     Ok(verified_identity(file, size, md5, crc32c)?.is_some())
 }
@@ -560,11 +509,18 @@ fn target_directory(
     }
 }
 
-/// What holds an installation's target name before it installs.
+/// What holds an installation's target name before it installs, with the directory that takes
+/// the name.
 enum Current {
-    /// The regular file there, if any.
-    File(Option<File>),
-    /// A directory that the installation may remove if it is empty.
+    /// The regular file at the target, if any, and the directory that holds the target; `None`
+    /// is a removal's missing directory.
+    File {
+        file: Option<File>,
+        directory: Option<File>,
+    },
+    /// A directory that the installation may remove if it is empty. The proof holds the
+    /// directory it read that entry in, and installation renames into that same handle, so the
+    /// name the copy takes is the one the proof checked.
     Directory(directory::RemovableDirectory),
 }
 
@@ -578,27 +534,27 @@ fn current_target(
     removal: Option<directory::Unreferenced>,
 ) -> Result<ControlFlow<Installed, Current>, Error> {
     let selected = &install.item;
-    if selected.kind == Kind::Remove {
-        let file = target(root, install.naming, &selected.path)?;
-        return Ok(ControlFlow::Continue(Current::File(file)));
-    }
-    match target_entry(root, install.naming, &selected.path)? {
-        TargetEntry::File(file) => Ok(ControlFlow::Continue(Current::File(Some(file)))),
-        TargetEntry::Missing => Ok(ControlFlow::Continue(Current::File(None))),
-        TargetEntry::Directory => {
-            let Some(removal) = removal else {
-                return Ok(ControlFlow::Break(Installed::Directory));
-            };
-            let holder = parent(root, install.naming, &selected.path, ParentSync::Skip)?
-                .ok_or_else(stale)?;
-            Ok(
-                match directory::RemovableDirectory::prove(holder, install.naming, removal)? {
-                    Ok(proof) => ControlFlow::Continue(Current::Directory(proof)),
-                    Err(kept) => ControlFlow::Break(Installed::Kept(kept)),
-                },
-            )
+    let file = if selected.kind == Kind::Remove {
+        target(root, install.naming, &selected.path)?
+    } else {
+        match target_entry(root, install.naming, &selected.path)? {
+            TargetEntry::File(file) => Some(file),
+            TargetEntry::Missing => None,
+            TargetEntry::Directory => {
+                let Some(removal) = removal else {
+                    return Ok(ControlFlow::Break(Installed::Directory));
+                };
+                return Ok(
+                    match directory::RemovableDirectory::prove(root, install.naming, removal)? {
+                        Ok(proof) => ControlFlow::Continue(Current::Directory(proof)),
+                        Err(kept) => ControlFlow::Break(Installed::Kept(kept)),
+                    },
+                );
+            }
         }
-    }
+    };
+    let directory = target_directory(root, install.naming, selected)?;
+    Ok(ControlFlow::Continue(Current::File { file, directory }))
 }
 
 /// Installs the staged copy at the target path (or moves a removed file into the workspace)
@@ -610,95 +566,150 @@ fn install_target(
     install: &mut Install,
     removal: Option<directory::Unreferenced>,
 ) -> Result<Installed, Error> {
-    let (current, removable) = match current_target(root, install, removal)? {
-        ControlFlow::Continue(Current::File(current)) => (current, None),
-        ControlFlow::Continue(Current::Directory(proof)) => (None, Some(proof)),
+    let current = match current_target(root, install, removal)? {
+        ControlFlow::Continue(current) => current,
         ControlFlow::Break(ended) => return Ok(ended),
     };
-    let selected = &install.item;
-    let expected = install.tracked.as_ref();
-    let staged = install.staged;
-    let source_device = install.purpose.source_device();
-    let directory = target_directory(root, install.naming, selected)?;
-    let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
-    let retained = entry(workspace, selected.token.id)?;
-    let already_installed = match staged {
-        Some(staged) => current
-            .as_ref()
-            .map(fsutil::stat_identity)
-            .transpose()?
-            .is_some_and(|f| f.node() == staged.node()),
-        None => retained.is_some(),
-    };
-    if !already_installed {
-        if matches!(install.purpose, Purpose::RestoreAbsent) && current.is_some() {
-            return Ok(Installed::Changed);
-        }
-        if let Some(staged) = staged {
-            let copy = retained.as_ref().ok_or(Error::Protected)?;
-            install.staged = Some(confirm_copy(copy, staged, selected, CopyCheck::Install)?);
-        }
-        let identity = match (&current, expected) {
-            (None, _) => None,
-            (Some(file), Some(expected)) => {
-                let Some(identity) =
-                    matches_source(file, expected, source_device, IdentityStage::BeforeExchange)?
-                else {
-                    return Ok(Installed::Changed);
+    let retained = entry(workspace, install.item.token.id)?;
+    let directory = match current {
+        Current::File { file, directory } => {
+            if !already_installed(install.staged, file.as_ref(), retained.as_ref())? {
+                let identity = match expected_target(install, file.as_ref(), retained.as_ref())? {
+                    ControlFlow::Continue(identity) => identity,
+                    ControlFlow::Break(ended) => return Ok(ended),
                 };
-                Some(identity)
+                if file.is_some() || install.item.kind == Kind::Publish {
+                    rename(workspace, install, directory.as_ref(), identity.as_ref())?;
+                }
             }
-            (Some(_), None) => return Ok(Installed::Changed),
-        };
-        if let Some(proof) = removable
-            && let Err(kept) = directory::remove(proof, install)?
-        {
-            return Ok(Installed::Kept(kept));
+            directory
         }
-        let outcome = if selected.kind == Kind::Remove && current.is_none() {
-            fsutil::ReplaceOutcome::Created
-        } else {
-            let directory = directory.as_ref().ok_or_else(stale)?;
-            let outcome = if selected.kind == Kind::Publish {
-                fsutil::durable_replace_between(
-                    workspace,
-                    selected.token.id.to_hex().as_ref(),
-                    directory,
-                    name.as_ref(),
-                    identity.as_ref(),
-                )?
-            } else {
-                fsutil::durable_replace_between(
-                    directory,
-                    name.as_ref(),
-                    workspace,
-                    selected.token.id.to_hex().as_ref(),
-                    None,
-                )?
+        // A directory at the target holds no installed copy and no file the export replaces. It
+        // goes only after every other check, and the directory that held it takes the copy.
+        Current::Directory(proof) => {
+            if let ControlFlow::Break(ended) = expected_target(install, None, retained.as_ref())? {
+                return Ok(ended);
+            }
+            let parent = match directory::remove(proof, install)? {
+                Ok(parent) => parent,
+                Err(kept) => return Ok(Installed::Kept(kept)),
             };
-            #[cfg(test)]
-            install.faults.renamed()?;
-            outcome
-        };
-        if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
-            return Err(Error::Protected);
+            rename(workspace, install, Some(&parent), None)?;
+            Some(parent)
         }
+    };
+    settle(root, workspace, install, directory.as_ref())
+}
+
+/// Whether an earlier attempt installed already: the target holds the `staged` copy, or, for a
+/// removal, which stages nothing, the private entry holds the body it moved out.
+fn already_installed(
+    staged: Option<fsutil::FileIdentity>,
+    current: Option<&File>,
+    retained: Option<&File>,
+) -> Result<bool, Error> {
+    let Some(staged) = staged else {
+        return Ok(retained.is_some());
+    };
+    Ok(current
+        .map(fsutil::stat_identity)
+        .transpose()?
+        .is_some_and(|current| current.node() == staged.node()))
+}
+
+/// Checks that the target, holding `file`, still holds what the export expects and that the
+/// `retained` private copy is still the staged one, before anything moves. Continues with the
+/// identity of the tracked body the copy replaces, if any.
+fn expected_target(
+    install: &mut Install,
+    file: Option<&File>,
+    retained: Option<&File>,
+) -> Result<ControlFlow<Installed, Option<fsutil::FileIdentity>>, Error> {
+    if matches!(install.purpose, Purpose::RestoreAbsent) && file.is_some() {
+        return Ok(ControlFlow::Break(Installed::Changed));
     }
+    if let Some(staged) = install.staged {
+        let copy = retained.ok_or(Error::Protected)?;
+        install.staged = Some(confirm_copy(
+            copy,
+            staged,
+            &install.item,
+            CopyCheck::Install,
+        )?);
+    }
+    let identity = match (file, install.tracked.as_ref()) {
+        (None, _) => None,
+        (Some(file), Some(expected)) => {
+            let device = install.purpose.source_device();
+            let Some(identity) =
+                matches_source(file, expected, device, IdentityStage::BeforeExchange)?
+            else {
+                return Ok(ControlFlow::Break(Installed::Changed));
+            };
+            Some(identity)
+        }
+        (Some(_), None) => return Ok(ControlFlow::Break(Installed::Changed)),
+    };
+    Ok(ControlFlow::Continue(identity))
+}
+
+/// Moves the staged copy into the target in `directory` (or a removed file out of it), exchanging
+/// it with the tracked body of `identity` when there is one.
+fn rename(
+    workspace: &File,
+    install: &Install,
+    directory: Option<&File>,
+    identity: Option<&fsutil::FileIdentity>,
+) -> Result<(), Error> {
+    let selected = &install.item;
+    let target = directory.ok_or_else(stale)?;
+    let name = selected.path.rsplit('/').next().ok_or_else(stale)?;
+    let outcome = match selected.kind {
+        Kind::Publish => fsutil::durable_replace_between(
+            workspace,
+            selected.token.id.to_hex().as_ref(),
+            target,
+            name.as_ref(),
+            identity,
+        )?,
+        Kind::Remove => fsutil::durable_replace_between(
+            target,
+            name.as_ref(),
+            workspace,
+            selected.token.id.to_hex().as_ref(),
+            None,
+        )?,
+    };
+    #[cfg(test)]
+    install.faults.renamed()?;
+    if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
+        return Err(Error::Protected);
+    }
+    Ok(())
+}
+
+/// Unlinks the tracked body that installation moved out of the target, if any, then syncs what
+/// installation changed: the directory that holds the target, the workspace and the tree's root.
+fn settle(
+    root: &File,
+    workspace: &File,
+    install: &Install,
+    directory: Option<&File>,
+) -> Result<Installed, Error> {
+    let selected = &install.item;
     #[cfg(test)]
     failure(selected.token.root, "installed")?;
     if let Some(file) = entry(workspace, selected.token.id)? {
-        let displaced = match expected {
-            Some(expected) => {
-                matches_source(&file, expected, source_device, IdentityStage::Displaced)?
-            }
-            None => None,
-        };
+        let device = install.purpose.source_device();
+        let displaced = install.tracked.as_ref().map_or(Ok(None), |expected| {
+            OwnedBody::displaced(&file, expected, device)
+        })?;
         let Some(displaced) = displaced else {
             return Err(Error::Protected);
         };
         #[cfg(test)]
         failure(selected.token.root, "displaced-unlink")?;
-        if !OwnedBody(displaced).unlink(
+        if !displaced.unlink(
             workspace,
             selected,
             #[cfg(test)]
@@ -709,7 +720,7 @@ fn install_target(
     }
     #[cfg(test)]
     failure(selected.token.root, "displaced-parent-sync")?;
-    if let Some(directory) = &directory {
+    if let Some(directory) = directory {
         directory.sync_all()?;
         #[cfg(test)]
         install.faults.target_dir_synced(selected);
@@ -908,13 +919,13 @@ impl Writeback {
         let Some(item) = self.arm_live(operation).await? else {
             return Ok(LiveResult::Obsolete);
         };
-        let mut installed = self.attempt_install(operation, &item, None).await;
-        if matches!(installed, Ok(Installed::Directory)) {
-            installed = match self.unreferenced_target(operation, &item).await? {
+        let installed = match self.attempt_install(operation, &item, None).await {
+            Ok(Installed::Directory) => match self.unreferenced_target(operation, &item).await? {
                 Ok(removal) => self.attempt_install(operation, &item, Some(removal)).await,
                 Err(kept) => Ok(Installed::Kept(kept)),
-            };
-        }
+            },
+            installed => installed,
+        };
         let staged = operation.progress.staged();
         match installed {
             Ok(Installed::Changed) => {
@@ -1063,21 +1074,19 @@ impl Writeback {
     }
 
     /// The catalog's half of the proof that installation may remove the directory at `item`'s
-    /// target. Only an ordinary export that replaces no tracked body may: a tracked body, a
-    /// restore into an absent target and a preserved conflict each expect a file there.
+    /// target, by [`directory::unreferenced`].
     async fn unreferenced_target(
         &self,
         operation: &LiveOperation,
         item: &Pending,
     ) -> Result<Result<directory::Unreferenced, directory::Kept>, Error> {
-        if operation.tracked.is_some() || !matches!(operation.purpose, Purpose::Ordinary) {
-            return Ok(Err(directory::Kept::Replaces));
-        }
         let selected = item.clone();
+        let tracked = operation.tracked.clone();
+        let purpose = operation.purpose.clone();
         self.db(move |c| {
             // One read transaction, so the four reads see one state of the catalog.
             let tx = c.transaction()?;
-            let unreferenced = directory::unreferenced(&tx, &selected)?;
+            let unreferenced = directory::unreferenced(&tx, &selected, tracked.as_ref(), &purpose)?;
             tx.commit()?;
             Ok(unreferenced)
         })
@@ -1268,6 +1277,8 @@ impl Writeback {
         let selected = item.clone();
         let staged = operation.progress.staged();
         let naming = self.lease.naming()?;
+        #[cfg(test)]
+        let faults = self.fault_paths();
         let cancelled = self
             .fs(move |root, workspace| {
                 // A directory that a cancelled export left at its target is not its copy.
@@ -1278,12 +1289,18 @@ impl Writeback {
                     return Err(Error::Protected);
                 }
                 if let Some(file) = entry(workspace, selected.token.id)? {
-                    let (Kind::Publish, Some(staged)) = (selected.kind, staged) else {
+                    let owned = OwnedBody::staged(&file, &selected, staged)?;
+                    if !owned.unlink(
+                        workspace,
+                        &selected,
+                        #[cfg(test)]
+                        &faults,
+                    )? {
                         return Err(Error::Protected);
-                    };
-                    confirm_copy(&file, staged, &selected, CopyCheck::Cancel)?;
-                    fsutil::unlink_file_at(workspace, selected.token.id.to_hex().as_ref())?;
+                    }
                     workspace.sync_all()?;
+                    #[cfg(test)]
+                    faults.workspace_synced();
                 }
                 Ok(())
             })
