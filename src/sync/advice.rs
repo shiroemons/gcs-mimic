@@ -69,6 +69,45 @@ pub fn with_connection(advice: &str, connection: &str) -> String {
     }
 }
 
+/// Objects in the API whose names the tree cannot hold, worded alike wherever a line names
+/// them: the remedy of a wait that refuses them and the warning of a command that reports them.
+/// Its display is the clause that opens such a line, in the singular for one object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnmappedCount(u64);
+
+impl From<u64> for UnmappedCount {
+    fn from(count: u64) -> Self {
+        Self(count)
+    }
+}
+
+impl UnmappedCount {
+    /// The pronoun that refers back to the objects.
+    pub const fn them(self) -> &'static str {
+        if self.0 == 1 { "it" } else { "them" }
+    }
+
+    /// "stay", agreeing with the objects.
+    pub const fn stay(self) -> &'static str {
+        if self.0 == 1 { "stays" } else { "stay" }
+    }
+}
+
+impl fmt::Display for UnmappedCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (objects, names) = if self.0 == 1 {
+            ("object", "its name")
+        } else {
+            ("objects", "their names")
+        };
+        write!(
+            f,
+            "{} {objects} in the API cannot be written to the sync directory because of {names}",
+            self.0
+        )
+    }
+}
+
 /// The revisions an answer has at hand, which the advice it gives fills in.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct AtHand<'a> {

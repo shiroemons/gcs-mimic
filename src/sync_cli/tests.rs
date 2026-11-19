@@ -1138,18 +1138,11 @@ fn wait_advice_names_the_command_to_run_next() {
     let [hint] = advice.warnings.as_slice() else {
         panic!("one hint expected: {advice:?}");
     };
-    assert!(
-        hint.fix
-            .starts_with("2 objects in the API cannot be written"),
-        "{}",
-        hint.fix
-    );
-    assert!(
-        hint.fix.ends_with(&format!(
-            "gcs-mimic sync status --view findings --revision {revision} {connection}"
-        )),
-        "{}",
-        hint.fix
+    assert_eq!(
+        hint.fix,
+        format!(
+            "2 objects in the API cannot be written to the sync directory because of their names and stay reachable only through the API; list them with gcs-mimic sync status --view findings --revision {revision} {connection}"
+        )
     );
     let clear = json!({"reason":"Ready","findings":{"unmapped":0,"revision":revision}});
     let advice = WaitOutcome::read(&clear).advice(connection);

@@ -962,15 +962,13 @@ impl<'a> WaitOutcome<'a> {
             .unmapped
             .filter(|(count, _)| *count > 0 && self.reason == Some(WaitReason::Ready))
             .map(|(count, revision)| {
-                let (objects, names, stay, them) = if count == 1 {
-                    ("object", "its name", "stays", "it")
-                } else {
-                    ("objects", "their names", "stay", "them")
-                };
+                let objects = advice::UnmappedCount::from(count);
                 diagnostic(
                     "sync-findings",
                     format!(
-                        "{count} {objects} in the API cannot be written to the sync directory because of {names} and {stay} reachable only through the API; list {them} with {}",
+                        "{objects} and {} reachable only through the API; list {} with {}",
+                        objects.stay(),
+                        objects.them(),
                         advice::with_connection(
                             &advice::Advised::Findings(Some(revision)).to_string(),
                             connection

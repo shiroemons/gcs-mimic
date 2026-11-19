@@ -2,7 +2,7 @@
 
 use super::{
     Reconciliation, SyncError,
-    advice::{Advised, AtHand},
+    advice::{Advised, AtHand, UnmappedCount},
     entries::{EntryProblem, path_text},
     outstanding::{Holdup, UnmappedObjects},
 };
@@ -259,13 +259,10 @@ pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
 /// What lets a wait that refuses objects whose names the tree cannot hold succeed while `count`
 /// of them remain.
 pub(crate) fn unmapped_objects_remedy(count: u64, at_hand: AtHand<'_>) -> String {
-    let (objects, names, them) = if count == 1 {
-        ("object", "its name", "it")
-    } else {
-        ("objects", "their names", "them")
-    };
+    let objects = UnmappedCount::from(count);
+    let them = objects.them();
     format!(
-        "{count} {objects} in the API cannot be written to the sync directory because of {names}, and this wait requires that none remain. Rename or delete {them} through the API, or wait without --require-no-findings, which reports {them} instead; the findings view lists {them}: {}",
+        "{objects}, and this wait requires that none remain. Rename or delete {them} through the API, or wait without --require-no-findings, which reports {them} instead; the findings view lists {them}: {}",
         Advised::Findings(at_hand.findings_revision)
     )
 }
