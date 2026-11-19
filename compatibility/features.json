@@ -60365,7 +60365,7 @@
           "id": "sync-runtime-export-mapping",
           "description": "PASS: initial export records lexical/ignored, prefix/type, host length and symlink findings without following redirects or modifying API/external bytes; descriptor directory pages are bounded. Exhaustive case/Unicode alias groups before first export, stale-finding reconciliation, legacy invalid-bucket per-object findings and non-Linux conflict guarantees remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision"]
+          "test_ids": ["initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_length_file_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects", "reconciliation_classifies_a_carried_over_collision_that_is_a_name_collision"]
         },
         {
           "id": "sync-name-mapping",
@@ -60866,7 +60866,7 @@
         "live_export_obsolete_copy_never_cancels_a_modified_workspace_body",
         "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence",
         "initial_export_preserves_external_conflicts_and_records_mapping_findings",
-        "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them",
+        "runtime_mapping_reports_length_file_and_symlink_conflicts_without_following_them",
         "descriptor_directory_pages_are_bounded_and_never_follow_redirects",
         "export_replace_between_directories_retains_displaced_entries",
         "sync_findings_idempotent_pages_conditional_removal_and_restart",
@@ -61104,7 +61104,7 @@
           "result": "PASS",
           "verified_at": "2026-10-25",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects"]
+          "test_ids": ["initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_length_file_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
