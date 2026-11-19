@@ -165,12 +165,58 @@ DROP TABLE temp.downgrade_owners;
 DROP TABLE temp.downgrade_stops;
 DROP TABLE temp.downgrade_sequences;";
 
+/// Replays the triggers schema 41 created and schema 59 dropped, word for word.
+const OBSERVATION_REVISION_DOWNGRADE: &str =
+    "CREATE TRIGGER sync_observation_root_update AFTER UPDATE ON sync_roots BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_deletion_insert AFTER INSERT ON sync_deletion_sets BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_deletion_update AFTER UPDATE ON sync_deletion_sets BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_deletion_delete AFTER DELETE ON sync_deletion_sets BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=OLD.root_id;
+END;
+CREATE TRIGGER sync_observation_member_update AFTER UPDATE ON sync_deletion_members BEGIN
+ UPDATE sync_observations SET revision=revision+1 WHERE root_id=NEW.root_id;
+END;
+CREATE TRIGGER sync_observation_object_insert AFTER INSERT ON sync_objects BEGIN
+ UPDATE sync_observations SET revision=revision+1;
+END;
+CREATE TRIGGER sync_observation_object_update AFTER UPDATE ON sync_objects BEGIN
+ UPDATE sync_observations SET revision=revision+1;
+END;
+CREATE TRIGGER sync_observation_object_delete AFTER DELETE ON sync_objects BEGIN
+ UPDATE sync_observations SET revision=revision+1;
+END;";
+
+/// Restores schema 58, whose observation revision also followed the baseline flag, the deletion
+/// sets and the tracked files. Fixtures built before schema 41 have no observations, and those
+/// built from 41 through 58 still hold the triggers.
+pub(crate) fn downgrade_observation_revision_schema(connection: &rusqlite::Connection) {
+    let dropped: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_observations') AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'sync_observation_root_update')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if dropped {
+        connection
+            .execute_batch(OBSERVATION_REVISION_DOWNGRADE)
+            .unwrap();
+    }
+}
+
 /// Restores schema 57, before an export conflict had a finding reason apart from a name
 /// collision and findings had a revision of their own. An export conflict and a collision
 /// carried over from schema 57 go back to `collision`, the reason schema 57 recorded both with.
 /// Fixtures hold no `alias` finding and no `EntryReplaced` or `AliasEdited` stop, which schema
 /// 57 cannot store.
 pub(crate) fn downgrade_finding_reason_schema(connection: &rusqlite::Connection) {
+    downgrade_observation_revision_schema(connection);
     let present: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('sync_observations') WHERE name = 'mapping_findings_revision')",

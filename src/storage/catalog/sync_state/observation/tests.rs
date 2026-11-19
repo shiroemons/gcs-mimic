@@ -227,6 +227,86 @@ async fn findings_count_by_what_each_does_to_a_wait() {
     catalog.close().await.unwrap();
 }
 
+/// The observation revision is the `findings_revision` a client pages the findings view by, so
+/// it stays where it is while nothing that view lists changes. A late directory notification
+/// invalidates the deletion set, and the next inventory confirms or replaces it; a full pass
+/// completes the baseline again; tracked files change on every synchronized save. None of that
+/// is in the view, and a page a wait had just named must stay readable through it. A scan that
+/// records the stop already recorded changes nothing either, and one that records another does.
+#[tokio::test]
+async fn the_findings_revision_moves_only_with_what_the_findings_view_lists() {
+    let (_data, _tree, catalog, root) = fixture().await;
+    crate::storage::test_fixtures::seed_bucket(&catalog).await;
+    root.observation_scan(Some(ScanStop::SourceChanging))
+        .await
+        .unwrap();
+    let start = root.observation().await.unwrap().revision;
+    let unchanged = |step: &str| {
+        let root = root.clone();
+        let step = step.to_owned();
+        async move {
+            let now = root.observation().await.unwrap().revision;
+            assert_eq!(now, start, "{step}");
+            assert!(
+                root.observation_page(
+                    start,
+                    ObservationCursor::START,
+                    PageLimit::try_from(256).unwrap()
+                )
+                .await
+                .is_ok(),
+                "{step}"
+            );
+        }
+    };
+    let id = root.status().root_id;
+    let execute = |statement: &'static str| {
+        catalog.run_admin(move |connection| {
+            connection
+                .execute(statement, [id])
+                .map(|_| ())
+                .map_err(unavailable)
+        })
+    };
+    let track = |statement: &'static str| {
+        catalog
+            .run_admin(move |connection| connection.execute_batch(statement).map_err(unavailable))
+    };
+
+    root.observation_scan(Some(ScanStop::SourceChanging))
+        .await
+        .unwrap();
+    unchanged("the same scan stop").await;
+    root.complete_baseline().await.unwrap();
+    root.complete_baseline().await.unwrap();
+    unchanged("baseline completion").await;
+    execute("INSERT INTO sync_deletion_sets(root_id,revision,scan_revision,sequence,epoch,execution_sequence,baseline_count,candidate_count,guard_enabled,guarded,complete,valid,authorization) VALUES(?1,'dddddddddddddddddddddddddddddddd','eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',0,0,0,1,1,1,1,1,1,0)").await.unwrap();
+    execute("INSERT INTO sync_deletion_members(root_id,ordinal,bucket,name,owner_project,incarnation,generation,path,done) VALUES(?1,1,'bucket','gone','project','00000000000000000000000000000000',1,'bucket/gone',0)").await.unwrap();
+    unchanged("a new deletion set").await;
+    root.invalidate_deletions().await.unwrap();
+    unchanged("an invalidated deletion set").await;
+    execute("UPDATE sync_deletion_sets SET valid=1 WHERE root_id=?1 AND valid=0")
+        .await
+        .unwrap();
+    execute("UPDATE sync_deletion_members SET done=1 WHERE root_id=?1")
+        .await
+        .unwrap();
+    execute("DELETE FROM sync_deletion_sets WHERE root_id=?1")
+        .await
+        .unwrap();
+    unchanged("a confirmed, completed and replaced deletion set").await;
+    track("INSERT INTO sync_objects VALUES('bucket','tracked','00000000000000000000000000000000','bucket/tracked',1,0,zeroblob(16),zeroblob(16),zeroblob(8),zeroblob(16),0,0); UPDATE sync_objects SET generation=2; DELETE FROM sync_objects;").await.unwrap();
+    unchanged("a tracked file").await;
+
+    root.observation_scan(None).await.unwrap();
+    let cleared = root.observation().await.unwrap().revision;
+    assert!(cleared > start);
+    execute("INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason,owner_project) VALUES(?1,'bucket','name','00000000000000000000000000000000',1,'collision','project')").await.unwrap();
+    assert!(root.observation().await.unwrap().revision > cleared);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn observation_schema_migrates_existing_roots_and_resets_with_catalog() {
     let (data, tree, catalog, root) = fixture().await;
@@ -255,4 +335,56 @@ async fn observation_schema_migrates_existing_roots_and_resets_with_catalog() {
         .unwrap();
     catalog.close().await.unwrap();
     Catalog::open(&data.0).await.unwrap().close().await.unwrap();
+}
+
+/// Schema 59 only drops triggers: a schema 58 catalog keeps its revision, and afterwards a
+/// deletion set, the baseline flag and a tracked file change it no more, while a finding still
+/// does.
+#[tokio::test]
+async fn schema_59_keeps_the_revision_and_stops_following_what_the_findings_view_omits() {
+    use crate::storage::catalog::{
+        test_support::downgrade_observation_revision_schema, validate_schema,
+    };
+    let (data, tree, catalog, root) = fixture().await;
+    root.observation_pause(Some(PauseReason::ObserverFailure))
+        .await
+        .unwrap();
+    let before = root.observation().await.unwrap().revision;
+    drop(root);
+    catalog
+        .run_admin(|connection| {
+            downgrade_observation_revision_schema(connection);
+            connection.pragma_update(None, "user_version", 58).unwrap();
+            validate_schema(connection, 58).unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let root = catalog
+        .sync_state()
+        .activate_root(&tree.0, Activation::Open)
+        .await
+        .unwrap();
+    assert_eq!(root.observation().await.unwrap().revision, before);
+    root.complete_baseline().await.unwrap();
+    let id = root.status().root_id;
+    catalog
+        .run_admin(move |connection| {
+            connection
+                .execute("INSERT INTO sync_deletion_sets(root_id,revision,scan_revision,sequence,epoch,execution_sequence,baseline_count,candidate_count,guard_enabled,guarded,complete,valid,authorization) VALUES(?1,'dddddddddddddddddddddddddddddddd','eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',0,0,0,1,1,1,1,1,1,0)", [id])
+                .map_err(unavailable)?;
+            connection
+                .execute_batch("INSERT INTO sync_objects VALUES('bucket','tracked','00000000000000000000000000000000','bucket/tracked',1,0,zeroblob(16),zeroblob(16),zeroblob(8),zeroblob(16),0,0);")
+                .map_err(unavailable)
+        })
+        .await
+        .unwrap();
+    assert_eq!(root.observation().await.unwrap().revision, before);
+    root.observation_pause(None).await.unwrap();
+    assert!(root.observation().await.unwrap().revision > before);
+    drop(root);
+    catalog.close().await.unwrap();
 }

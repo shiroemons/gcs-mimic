@@ -268,7 +268,7 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
     let catalog = Catalog::open(&data.0).await.unwrap();
     let after = catalog
         .run_admin(|connection| {
-            assert_eq!(user_version(connection), 58);
+            assert_eq!(user_version(connection), CATALOG_SCHEMA_VERSION);
             let broken: i64 = connection
                 .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
                     row.get(0)
@@ -279,10 +279,10 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
         })
         .await
         .unwrap();
-    // Recovery at open marks the pending write-back and invalidates the deletion set, which
-    // advances the observation revision; the migration alone leaves it, as the rollback test
-    // shows by migrating without opening.
-    assert_eq!(before.revision + 2, after.revision);
+    // Recovery at open marks the pending write-back, which advances the observation revision,
+    // and invalidates the deletion set, which since schema 59 does not; the migration alone
+    // leaves it, as the rollback test shows by migrating without opening.
+    assert_eq!(before.revision + 1, after.revision);
     assert_eq!(
         after,
         Rows {
@@ -403,10 +403,11 @@ async fn schema_58_keeps_owners_ordinals_and_retained_work_and_marks_collisions_
     drop(lease);
     catalog.close().await.unwrap();
 
-    // The next open validates the stored catalog against schema 58.
+    // The next open validates the stored catalog against the current schema, and a binary
+    // that supports only schema 57 refuses schema 58.
     Catalog::open(&data.0).await.unwrap().close().await.unwrap();
     assert!(matches!(
-        validate_schema_version(CATALOG_SCHEMA_VERSION, 57),
+        validate_schema_version(super::super::REASON_SCHEMA_VERSION, 57),
         Err(CatalogError::NewerSchema {
             version: 58,
             supported: 57

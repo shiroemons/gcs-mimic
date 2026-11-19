@@ -20,6 +20,23 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub(in crate::storage) const SCHEMA: &str = include_str!("observation/schema.sql");
 
+/// Schema 59 stops advancing the observation revision for state the findings view does not
+/// list: the baseline flag on `sync_roots`, the deletion sets and their members, and the
+/// tracked files. The revision is the `findings_revision` a client pages the findings view by,
+/// so a change it cannot see there made a page it had just been given stale: a late directory
+/// notification invalidated and then confirmed an unchanged deletion set, and the findings view
+/// a wait had named answered 409. The deletion view pages by the set's own revision.
+pub(in crate::storage) const REVISION_SCHEMA_VERSION: i64 = 59;
+pub(in crate::storage) const REVISION_SCHEMA: &str = "DROP TRIGGER sync_observation_root_update;
+DROP TRIGGER sync_observation_deletion_insert;
+DROP TRIGGER sync_observation_deletion_update;
+DROP TRIGGER sync_observation_deletion_delete;
+DROP TRIGGER sync_observation_member_update;
+DROP TRIGGER sync_observation_object_insert;
+DROP TRIGGER sync_observation_object_update;
+DROP TRIGGER sync_observation_object_delete;
+PRAGMA user_version = 59;";
+
 pub(super) mod publication;
 pub(crate) use publication::Publication;
 mod stops;
@@ -190,7 +207,8 @@ fn revision(connection: &Connection, root: RootId) -> Result<i64, CatalogError> 
 
 /// Advances only when a mapping finding of `root` (a `sync_findings` row) is added, changed or
 /// removed. The observation revision, which the status `findings_revision` reports, also follows
-/// every tracked file, stop, write-back and conflict, so it changes on each synchronized save.
+/// every stop, write-back operation and conflict that the findings view lists, so an export
+/// moves it while its write-back is under way.
 fn mapping_findings_revision(connection: &Connection, root: RootId) -> Result<i64, CatalogError> {
     sql::scalar(
         connection,

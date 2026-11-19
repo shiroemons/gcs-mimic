@@ -1620,6 +1620,54 @@ async fn a_wait_reports_names_the_tree_cannot_hold_and_fails_only_when_asked_to(
     fixture.finish().await;
 }
 
+/// The findings revision a wait names stays readable while nothing the findings view lists
+/// changes. A late notification about the directory the wait's own export made invalidates
+/// the deletion set, and the next inventory confirms it; the view a wait had just named once
+/// answered 409 then, and named an approval that the findings view does not lead to. A page
+/// at a revision that did change still answers 409, naming the status to fetch again.
+#[tokio::test]
+async fn a_findings_revision_a_wait_names_outlives_changes_the_view_does_not_list() {
+    let fixture = Fixture::new(Tree::Empty).await;
+    fixture.publish(r"dir\file", b"backslash").await;
+    let (status, waited) = fixture.wait(br#"{"timeout_ms":30000}"#).await;
+    assert_eq!(status, StatusCode::OK, "{waited}");
+    let revision = waited["findings"]["revision"].as_str().unwrap().to_owned();
+    let (_, root) = fixture.state.catalog.sync_controls().unwrap().unwrap();
+    root.invalidate_deletions().await.unwrap();
+    root.complete_baseline().await.unwrap();
+    let findings = |revision: String| {
+        let fixture = &fixture;
+        async move {
+            fixture
+                .request(
+                    "GET",
+                    &format!("/_internal/sync?view=findings&revision={revision}"),
+                    b"",
+                    None,
+                )
+                .await
+        }
+    };
+    let page = body(findings(revision.clone()).await.unwrap()).await;
+    assert_eq!(page["total_count"], 1, "{page}");
+    assert_eq!(page["revision"], revision.as_str());
+
+    root.observation_pause(Some(PauseReason::ObserverFailure))
+        .await
+        .unwrap();
+    let stale = findings(revision).await.unwrap_err();
+    assert_eq!(stale.status, StatusCode::CONFLICT);
+    assert!(
+        stale.message.contains("findings_revision"),
+        "{}",
+        stale.message
+    );
+    assert!(!stale.message.contains("approval"), "{}", stale.message);
+    root.observation_pause(None).await.unwrap();
+    drop(root);
+    fixture.finish().await;
+}
+
 /// Twice the 32 control requests the server once handled before refusing the next one.
 const MANY_CONTROLS: usize = 64;
 const LONG_WAIT: &[u8] = br#"{"timeout_ms":60000}"#;

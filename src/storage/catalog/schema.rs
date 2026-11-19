@@ -278,6 +278,11 @@ pub(super) const STEPS: &[Step] = &[
         None,
         sync_state::findings::migrate_reasons,
     ),
+    Step::statements(
+        sync_state::observation::REVISION_SCHEMA_VERSION,
+        sync_state::observation::REVISION_SCHEMA,
+        None,
+    ),
 ];
 
 #[expect(

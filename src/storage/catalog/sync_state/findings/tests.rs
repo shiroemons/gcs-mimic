@@ -583,7 +583,7 @@ async fn mapping_findings_revision_moves_with_findings_only_and_not_for_an_ident
     let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
     let start = revisions(&lease).await;
 
-    // A tracked file changing is not a finding change.
+    // A tracked file changing is not a finding change, nor anything the findings view lists.
     catalog
         .run_admin(|connection| {
             connection
@@ -593,8 +593,7 @@ async fn mapping_findings_revision_moves_with_findings_only_and_not_for_an_ident
         .await
         .unwrap();
     let tracked = revisions(&lease).await;
-    assert_eq!(tracked.0, start.0);
-    assert!(tracked.1 > start.1);
+    assert_eq!(tracked, start);
 
     let record = |reason| lease.record_finding(binding.clone(), name.clone(), generation, reason);
     record(Reason::InvalidName).await.unwrap();

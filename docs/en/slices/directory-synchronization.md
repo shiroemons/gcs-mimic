@@ -1114,6 +1114,14 @@ notifications/deadlines, not polling. Disconnect cancels only its observer.
 
 Both status detail views require a nonempty `revision` from the summary:
 `pending_deletion_revision` for `deletions`, `findings_revision` for `findings`.
+The findings revision, which a wait also returns, moves only when something the
+findings view lists changes: a mapping finding, a pause or scan stop, a path
+stop, a write-back operation or its quota, a conflict or a recovery workspace.
+Since catalog schema 59 the baseline flag, the deletion sets and the tracked
+files no longer move it, so a late directory notification that invalidates an
+unchanged deletion set leaves a findings page readable. A findings page at a
+revision that did change answers 409 and asks for the status again, which
+reports the current `findings_revision`.
 Accept `limit` in `1..=256` (default 256) and an optional opaque `cursor`; reject
 duplicate/unknown query keys, an unknown view, wrong types, or pagination keys
 without a detail view with 400. A cursor binds the view, catalog/root identities,

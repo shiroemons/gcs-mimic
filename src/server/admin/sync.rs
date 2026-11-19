@@ -733,7 +733,7 @@ async fn status(
     match page {
         Page::Findings(query) => {
             if query.revision != findings_revision {
-                return Err(stale());
+                return Err(stale_findings());
             }
             findings_page(&root, query, &findings_revision, &observation, authority).await
         }
@@ -781,8 +781,10 @@ async fn findings_page(
     let after = match &query.after {
         None => ObservationCursor::START,
         Some(cursor) => {
-            let SyncCursor::Findings(after) = SyncCursor::decode(cursor, &prefix)? else {
-                return Err(stale());
+            // A cursor names its view and revision, so one that does not decode here belongs to
+            // another revision or view, which the findings answer names alike.
+            let Ok(SyncCursor::Findings(after)) = SyncCursor::decode(cursor, &prefix) else {
+                return Err(stale_findings());
             };
             after
         }
@@ -795,7 +797,13 @@ async fn findings_page(
             authority,
         )
         .await
-        .map_err(|error| root_error(&error))?;
+        .map_err(|error| {
+            if matches!(error, RootError::Admin(AdminError::Precondition)) {
+                stale_findings()
+            } else {
+                root_error(&error)
+            }
+        })?;
     let full = items.len() > query.limit.get();
     items.truncate(query.limit.get());
     let total_count = observation.mapping_findings
@@ -891,6 +899,15 @@ fn stale() -> ApiError {
         StatusCode::CONFLICT,
         "conflict",
         "Synchronization revision changed; rescan, fetch status and inspect the new revision before approval",
+    )
+}
+/// A findings page leads to no approval, so its stale answer names only the status to read
+/// again for the revision that lists the findings now.
+fn stale_findings() -> ApiError {
+    ApiError::new(
+        StatusCode::CONFLICT,
+        "conflict",
+        "Synchronization findings changed after status reported this findings_revision; fetch status again and list the findings at the findings_revision it reports",
     )
 }
 fn busy() -> ApiError {
