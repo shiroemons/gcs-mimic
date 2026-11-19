@@ -561,30 +561,34 @@ member without treating its disappearance as an external deletion. Existing
 files in an ambiguous group remain untouched pending operator resolution.
 
 An external directory at an exported object's target name gives way only when
-it holds nothing but Finder's `.DS_Store` and nothing the catalog records refers
-to it or to a path below it: no tracked file, path stop, unfinished write-back
-operation or retained conflict. The export lists that directory, never below it
-and at most eight names, and goes on only when every name is a regular file
-named exactly `.DS_Store`; any other entry, more names, or a listing that fails
-keeps it. The export then removes that one directory under its armed operation:
-it unlinks each `.DS_Store` relative to the directory's descriptor without
-following a symlink, and only while the name still holds the file the listing
-opened, and syncs the directory. It then checks that the name still holds the
-directory the listing read, lists that directory once more, and removes it with
-`rmdir` relative to the parent's descriptor, which never follows a symlink and
-never removes a directory that holds an entry. A name that holds another
-directory by then fails the attempt, and the retry proves that one. It syncs
-the parent and installs the object in its place. This is how an object `a`
-created through the API after `a/x` was deleted there reaches the tree without
-operator action, even after Finder has shown `a/`. A directory that someone else removed first (`ENOENT`) counts as
+it holds nothing but Finder's metadata files and nothing the catalog records
+refers to it or to a path below it: no tracked file, path stop, unfinished
+write-back operation or retained conflict. Finder's metadata files are
+`.DS_Store` and `._.DS_Store`, the AppleDouble file that holds the former's
+extended attributes on a volume that cannot store them. The export lists that
+directory, never below it and at most eight names, and goes on only when every
+name is a regular file named exactly one of those; any other entry, more names,
+or a listing that fails keeps it. The export then removes that one directory
+under its armed operation: it unlinks each metadata file relative to the
+directory's descriptor without following a symlink, and only while the name
+still holds the file the listing opened, and syncs the directory. It then
+checks that the name still holds the directory the listing read, lists that
+directory once more, and removes it with `rmdir` relative to the parent's
+descriptor, which never follows a symlink and never removes a directory that
+holds an entry. A name that holds another directory by then fails the attempt,
+and the retry proves that one. It syncs the parent and installs the object in
+its place. This is how an object `a` created through the API after `a/x` was
+deleted there reaches the tree without operator action, even after Finder has
+shown `a/`. A directory that someone else removed first (`ENOENT`) counts as
 removed: the installing rename never replaces an entry, so a file or directory
 that took the name meanwhile fails that attempt and keeps its contents.
-`.DS_Store` is the only entry ever removed from such a directory; nothing else
-in it is removed, no ancestor that the removal empties is removed, and neither
-a bucket's own directory nor a reserved name is ever removed. The set of
-removable names lives in one constant, and each is a name that scans ignore, so
-removing one loses nothing the tree would publish. Other ignored names, such as
-`._*` or an editor's swap file, may hold a user's data and keep the directory. The listings, not `rmdir`, are what keep a directory of
+Those two names are the only entries ever removed from such a directory;
+nothing else in it is removed, no ancestor that the removal empties is removed,
+and neither a bucket's own directory nor a reserved name is ever removed. The
+set of removable names lives in one constant, and each is a name that scans
+ignore, so removing one loses nothing the tree would publish. Other ignored
+names, such as any other `._*` or an editor's swap file, may hold a user's data
+and keep the directory. The listings, not `rmdir`, are what keep a directory of
 AppleDouble files: on macOS, `rmdir` removes a directory that holds only `._*`
 files of names it does not hold, and those files with it. A `._*` file created
 between the second listing and `rmdir` can still be removed that way; no check
@@ -594,7 +598,7 @@ symlink, a directory the catalog still refers to, and a removal the filesystem
 refuses (`ENOTEMPTY`, `EEXIST`, `EBUSY`, `EACCES` or `EPERM`) all stay as they
 are and leave a `directory-occupied` finding (catalog schema 60) for that object
 alone, whose remedy asks to move the directory's entries out rather than to
-rename the object; other objects continue. A `.DS_Store` already unlinked when
+rename the object; other objects continue. A metadata file already unlinked when
 the removal finds another entry, such as one Finder wrote again, stays
 unlinked; Finder recreates it. A crash or power loss between the unlinks and
 the removal leaves the directory empty, and the next pass removes it. A
@@ -605,7 +609,7 @@ target: it stops that path as `EntryReplaced`. A `sync_directory_kept` warning
 names the bucket, the object, the check that kept the directory (such as
 `tracked`, `not_empty`, `unlisted` with its error and system error code, `busy` or
 `permission_denied`) and the finding's remedy; an info `sync_directory_removed`
-event names each directory the export removed and how many `.DS_Store` files
+event names each directory the export removed and how many metadata files
 went with it (`metadata_removed`).
 Catalog references compare names
 byte for byte, so a reference under another letter case on a root that folds

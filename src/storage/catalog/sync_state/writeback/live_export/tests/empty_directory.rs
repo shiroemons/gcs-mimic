@@ -175,19 +175,29 @@ async fn a_directory_that_holds_anything_stays_a_collision() {
     }
 }
 
-/// A directory that holds only a regular `.DS_Store`, which Finder writes into every directory it
-/// shows, gives way like an empty one: the export removes that file and the directory and
-/// installs the object in their place.
+/// A directory that holds only Finder's metadata files, a regular `.DS_Store` that Finder writes
+/// into every directory it shows and the `._.DS_Store` beside it on a volume that cannot store
+/// extended attributes, gives way like an empty one: the export removes those files and the
+/// directory and installs the object in their place.
 #[tokio::test]
-async fn a_directory_that_holds_only_ds_store_gives_way() {
-    let fixture = Fixture::new().await;
-    let operation = begin_over_directory(&fixture).await;
-    fs::write(fixture.tree.0.join(DIRECTORY).join(".DS_Store"), b"finder").unwrap();
-    let result = finish(&fixture, &operation).await.unwrap();
-    assert_exported(&fixture, result).await;
-    assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
-    drop(operation);
-    fixture.close().await;
+async fn a_directory_that_holds_only_finder_metadata_gives_way() {
+    let cases: [&[&str]; 3] = [
+        &[".DS_Store"],
+        &["._.DS_Store"],
+        &[".DS_Store", "._.DS_Store"],
+    ];
+    for held in cases {
+        let fixture = Fixture::new().await;
+        let operation = begin_over_directory(&fixture).await;
+        for name in held {
+            fs::write(fixture.tree.0.join(DIRECTORY).join(name), b"finder").unwrap();
+        }
+        let result = finish(&fixture, &operation).await.unwrap();
+        assert_exported(&fixture, result).await;
+        assert_eq!(fixture.writeback.status().await.unwrap().entries, 0);
+        drop(operation);
+        fixture.close().await;
+    }
 }
 
 /// What the catalog records about a path at or below the target.

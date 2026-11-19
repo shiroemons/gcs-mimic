@@ -31,11 +31,11 @@ fn every_finder_metadata_name_is_one_scans_ignore() {
     }
 }
 
-/// A directory with no entry, or with only a regular `.DS_Store`, is empty; a `.DS_Store` that is
-/// a directory or a symlink, another hidden file, and more names than are read each make it hold
-/// something.
+/// A directory with no entry, or with only a regular `.DS_Store` and its `._.DS_Store`, is empty;
+/// a `.DS_Store` that is a directory or a symlink, another AppleDouble file, and more names than
+/// are read each make it hold something.
 #[test]
-fn only_nothing_or_a_regular_ds_store_counts_as_empty() {
+fn only_nothing_or_regular_finder_metadata_counts_as_empty() {
     let contents_of = |setup: &dyn Fn(&std::path::Path)| {
         let tree = TestDir::new();
         setup(&tree.0);
@@ -46,6 +46,16 @@ fn only_nothing_or_a_regular_ds_store_counts_as_empty() {
     assert!(
         matches!(&finder, Contents::Empty(found) if found.len() == 1 && found[0].name == ".DS_Store")
     );
+    let both = contents_of(&|path| {
+        fs::write(path.join(".DS_Store"), b"finder").unwrap();
+        fs::write(path.join("._.DS_Store"), b"apple double").unwrap();
+    });
+    let Contents::Empty(found) = both else {
+        panic!("a .DS_Store and its ._.DS_Store hold something")
+    };
+    let mut names = found.iter().map(|file| file.name).collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(names, [".DS_Store", "._.DS_Store"]);
     let held: [&dyn Fn(&std::path::Path); 4] = [
         &|path| fs::create_dir(path.join(".DS_Store")).unwrap(),
         &|path| std::os::unix::fs::symlink("elsewhere", path.join(".DS_Store")).unwrap(),

@@ -8,7 +8,8 @@
 //! the root reserves ([`RemovableDirectory::prove`]). [`remove`] takes that proof.
 //!
 //! Only Finder's metadata files are ever removed from the directory: a regular `.DS_Store` that
-//! Finder writes into every directory it shows, which would otherwise keep a directory holding
+//! Finder writes into every directory it shows, and the `._.DS_Store` that holds its extended
+//! attributes on a volume that cannot store them, which would otherwise keep a directory holding
 //! nothing of the user's. The proof lists the directory, never below it and only a few names, to
 //! find whether that is all it holds ([`empty::contents`]); any other entry, or a listing that
 //! fails, keeps the directory with everything in it. The listing is also what keeps AppleDouble

@@ -8,11 +8,12 @@ use crate::fsutil;
 use std::{fs::File, io};
 
 /// The names of the only entries a directory may hold and still count as empty, when they are
-/// regular files: Finder's `.DS_Store`, which it writes into every directory it shows. Each is a
-/// name that scans ignore, so none of them would become an object. Other names scans ignore,
-/// such as `._*` or an editor's swap file, may hold a user's data, and a directory that holds one
-/// is not empty.
-const FINDER_METADATA: [&str; 1] = [".DS_Store"];
+/// regular files: Finder's `.DS_Store`, which it writes into every directory it shows, and the
+/// AppleDouble `._.DS_Store` that holds that file's extended attributes on a volume that cannot
+/// store them. Each is a name that scans ignore, so none of them would become an object. Other
+/// names scans ignore, such as any other `._*` or an editor's swap file, may hold a user's data,
+/// and a directory that holds one is not empty.
+const FINDER_METADATA: [&str; 2] = [".DS_Store", "._.DS_Store"];
 
 /// The most names [`contents`] reads. Any name but a Finder metadata file makes a directory hold
 /// something, so one that lists more is never empty, and the bound keeps a large directory from
