@@ -3,11 +3,12 @@
 //! one update that needs no migration decision; the proposal's checks decide whether it is safe.
 //! A newer version behind a moving tag stays a deliberate manual adoption, so `check` keeps
 //! reporting it.
-use super::{Result, fetch, fetch_manifest, is_digest, json, registry_manifest_source, text};
+use super::{
+    LEDGER, Result, fetch, fetch_manifest, is_digest, json, registry_manifest_source, text,
+};
 use serde_json::Value;
 use std::{path::Path, process::Command};
 
-const LEDGER: &str = "compatibility/dependency-status.json";
 const EVIDENCE: &str = "docs/en/evidence/dependency-refresh.md";
 /// The Debian snapshot pinned by the apt install scripts is the one this image was built from.
 const SNAPSHOT_IMAGE: &str = "library/rust";

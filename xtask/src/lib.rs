@@ -1,5 +1,6 @@
 use serde_json::Value;
 pub mod container;
+mod date;
 pub mod dependencies;
 pub mod differential;
 mod ledger;
@@ -131,29 +132,7 @@ fn strings<'a>(value: &'a Value, key: &str) -> Result<BTreeSet<&'a str>> {
 }
 
 fn date(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    if bytes.len() != 10
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || bytes
-            .iter()
-            .enumerate()
-            .any(|(i, c)| i != 4 && i != 7 && !c.is_ascii_digit())
-    {
-        return false;
-    }
-    let year: u32 = text[..4].parse().unwrap();
-    let month: u32 = text[5..7].parse().unwrap();
-    let day: u32 = text[8..].parse().unwrap();
-    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
-    let days = match month {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        1..=12 => 31,
-        _ => 0,
-    };
-    year > 0 && day > 0 && day <= days
+    text.parse::<date::Date>().is_ok()
 }
 
 fn artifact(root: &Path, name: &str) -> Result<()> {

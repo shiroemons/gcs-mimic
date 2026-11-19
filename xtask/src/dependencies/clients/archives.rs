@@ -5,7 +5,9 @@
 //! belong to.
 
 use super::{numeric_release, read};
-use crate::dependencies::{Result, code_lines, compare, fetch_github_api, is_digest, json, text};
+use crate::dependencies::{
+    Result, code_lines, exceptions::Inputs, fetch_github_api, is_digest, json, text,
+};
 use serde_json::Value;
 use std::{fmt, path::Path, str::FromStr};
 
@@ -395,6 +397,7 @@ fn latest_release_tag(release: &Value) -> Result<&str> {
 /// published release latest, so a patch for an older release line can hold the mark; that is an
 /// error, because a newer release could exist without the mark and CURRENT would be false.
 fn compare_release(
+    inputs: &mut Inputs<'_>,
     repository: &str,
     current: &str,
     latest: &str,
@@ -407,16 +410,12 @@ fn compare_release(
             latest: latest.to_owned(),
         });
     }
-    Ok(compare(
-        &format!("source-archive:{repository}"),
-        current,
-        latest,
-    ))
+    Ok(inputs.compare(&format!("source-archive:{repository}"), current, latest))
 }
 
 /// Offline, the Dockerfile's `ADD` pins and its compiler image must match the snapshot; online,
 /// each recorded release is compared with the latest GitHub release of its repository.
-pub(super) fn check(root: &Path, scope: &Value) -> Result<bool> {
+pub(super) fn check(root: &Path, scope: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     let manifest = text(scope, "manifest")?;
     let dockerfile = read(root, manifest)?;
     let dependencies = dependencies(scope)?;
@@ -432,7 +431,7 @@ pub(super) fn check(root: &Path, scope: &Value) -> Result<bool> {
             dependency.repository
         ))?)?;
         let latest = latest_release_tag(&release)?;
-        drift |= compare_release(dependency.repository, dependency.current, latest)
+        drift |= compare_release(inputs, dependency.repository, dependency.current, latest)
             .map_err(|error| error.to_string())?;
     }
     Ok(drift)

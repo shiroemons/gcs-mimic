@@ -701,13 +701,17 @@ The Go harness requires Go and jq; it pins Go 1.27.4, storage v1.71.0 and API v0
 public GCR metadata. Other Rust tests are offline and use only loopback. All direct
 dependencies are compared against non-yanked stable releases, including new majors;
 Docker tags/digests and Debian stable codename are checked separately. Exit 1 means
-updates; exit 2 means verification failed. `--scope release` compares only the inputs
-that build or ship release artifacts, as the release workflow does; see the
+updates or a lapsed exception; exit 2 means verification failed, including a malformed
+exception record. An update that a recorded, in-date exception defers reports `DEFERRED`
+and does not fail the full scope; see the
+[dependency policy](dependency-policy.md#how-the-freshness-check-applies-an-exception).
+`--scope release` compares only the inputs that build or ship release artifacts, as the
+release workflow does, and never defers one; see the
 [dependency policy](dependency-policy.md#ci-lanes). Run at slice start and before release
 and review exceptions weekly. No manifests are modified and nothing is published
 automatically.
 
-Pinned/current-stable Rust CI, cross-target checks and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day without cooldown after reaching the default branch; scheduled runs have been observed since 2026-10-30, and a run that finds an update fails until the update is adopted. Latest-dependency candidate builds and upgrade submission are not implemented. Local arm64 runs natively; local amd64 uses emulation.
+Pinned/current-stable Rust CI, cross-target checks and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day without cooldown after reaching the default branch; scheduled runs have been observed since 2026-10-30, and a run that finds an update fails until the update is adopted or deferred under a recorded, in-date exception. Latest-dependency candidate builds and upgrade submission are not implemented. Local arm64 runs natively; local amd64 uses emulation.
 
 `compatibility/features.json` is the only implementation-status authority. English and Japanese views are generated together under `docs/en` and `docs/ja`. Japanese user documentation starts at [docs/ja](../ja/README.md); historical planning material remains under [planning/](../../planning/README.md). Ledger tooling validates evidence structure and links, not the truth of submitted logs. No GCS behavior is claimed by internal probes.
 

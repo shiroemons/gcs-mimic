@@ -1,7 +1,7 @@
 //! Additional client graphs stay outside the application dependency graph.
 
 use super::{
-    ClientEcosystem, Result, compare, direct_crate_resolutions, fetch, index_path, json,
+    ClientEcosystem, Result, direct_crate_resolutions, exceptions::Inputs, fetch, index_path, json,
     latest_crate, text, version,
 };
 use serde_json::Value;
@@ -48,15 +48,20 @@ pub(super) const MANIFESTS: &[(ClientEcosystem, &str)] = &[
     ),
 ];
 
-pub(super) fn check(root: &Path, scope: &Value, ecosystem: ClientEcosystem) -> Result<bool> {
+pub(super) fn check(
+    root: &Path,
+    scope: &Value,
+    ecosystem: ClientEcosystem,
+    inputs: &mut Inputs<'_>,
+) -> Result<bool> {
     if !MANIFESTS.contains(&(ecosystem, text(scope, "manifest")?)) {
         return Err("unsupported additional SDK manifest".into());
     }
     match ecosystem {
-        ClientEcosystem::Cargo => cargo(root, scope),
-        ClientEcosystem::Maven => maven(root, scope),
-        ClientEcosystem::Nuget => nuget(root, scope),
-        ClientEcosystem::SourceArchive => archives::check(root, scope),
+        ClientEcosystem::Cargo => cargo(root, scope, inputs),
+        ClientEcosystem::Maven => maven(root, scope, inputs),
+        ClientEcosystem::Nuget => nuget(root, scope, inputs),
+        ClientEcosystem::SourceArchive => archives::check(root, scope, inputs),
     }
 }
 
@@ -81,7 +86,7 @@ fn optional_sibling(root: &Path, scope: &Value, name: &str) -> Result<Option<Str
     }
 }
 
-fn cargo(root: &Path, scope: &Value) -> Result<bool> {
+fn cargo(root: &Path, scope: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     let output = Command::new("cargo")
         .args([
             "metadata",
@@ -115,7 +120,7 @@ fn cargo(root: &Path, scope: &Value) -> Result<bool> {
         );
     }
     snapshot_pins(scope, &pins)?;
-    let toolchain = super::scalar(&read(root, "rust-toolchain.toml")?, "channel")?;
+    let toolchain = super::scalar(&read(root, super::RUST_TOOLCHAIN)?, "channel")?;
     let package = metadata["packages"]
         .as_array()
         .ok_or("missing SDK Cargo packages")?
@@ -141,7 +146,7 @@ fn cargo(root: &Path, scope: &Value) -> Result<bool> {
             &format!("https://index.crates.io/{}", index_path(&name)),
             &[],
         )?)?;
-        drift |= compare(&format!("cargo:{name} (SDK)"), &pin, &latest);
+        drift |= inputs.compare(&format!("cargo:{name} (SDK)"), &pin, &latest);
     }
     Ok(drift)
 }
@@ -227,7 +232,7 @@ fn numeric_release(pin: &str) -> Option<[u64; 4]> {
     Some(result)
 }
 
-fn maven(root: &Path, scope: &Value) -> Result<bool> {
+fn maven(root: &Path, scope: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     let (packages, plugins) = maven_pins(&read(root, text(scope, "manifest")?)?)?;
     snapshot_pins(scope, &packages)?;
     snapshot_pins(
@@ -250,13 +255,13 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
             ),
             &[],
         )?)?;
-        drift |= compare(&format!("maven:{name}"), &pin, &latest);
+        drift |= inputs.compare(&format!("maven:{name}"), &pin, &latest);
     }
     let maven = read_sibling(root, scope, ".maven-version")?;
     if scope["maven_version"] != maven.trim() {
         return Err("Maven runtime snapshot mismatch".into());
     }
-    drift |= compare(
+    drift |= inputs.compare(
         "Maven toolchain",
         maven.trim(),
         &latest_maven(&fetch(
@@ -283,7 +288,7 @@ fn maven(root: &Path, scope: &Value) -> Result<bool> {
         &[],
     )?)?;
     let latest = temurin_version(&releases)?;
-    drift |= compare("Temurin toolchain", java.trim(), latest);
+    drift |= inputs.compare("Temurin toolchain", java.trim(), latest);
     Ok(drift)
 }
 
@@ -632,7 +637,7 @@ fn supported(release: &Value) -> bool {
     )
 }
 
-fn nuget(root: &Path, scope: &Value) -> Result<bool> {
+fn nuget(root: &Path, scope: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     let manifest = read(root, text(scope, "manifest")?)?;
     let pins = nuget_pins(&manifest)?;
     snapshot_pins(scope, &pins)?;
@@ -660,7 +665,7 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
             &[],
         )?)?;
         let latest = latest_nuget(&source, base, &mut |url| fetch(url, &[]))?;
-        drift |= compare(&format!("nuget:{name}"), &pin, &latest);
+        drift |= inputs.compare(&format!("nuget:{name}"), &pin, &latest);
     }
     let global = json(&read_sibling(root, scope, "global.json")?)?;
     let pin = text(&global["sdk"], "version")?;
@@ -677,9 +682,9 @@ fn nuget(root: &Path, scope: &Value) -> Result<bool> {
         "https://builds.dotnet.microsoft.com/dotnet/release-metadata/releases-index.json",
         &[],
     )?)?;
-    drift |= compare(".NET SDK", pin, newest_sdk(&releases)?);
+    drift |= inputs.compare(".NET SDK", pin, newest_sdk(&releases)?);
     if let Some(lts) = lts {
-        drift |= compare(".NET LTS SDK", lts, lts_channel_sdk(&releases, lts)?);
+        drift |= inputs.compare(".NET LTS SDK", lts, lts_channel_sdk(&releases, lts)?);
     }
     Ok(drift)
 }

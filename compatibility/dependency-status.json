@@ -714,13 +714,17 @@
   ],
   "exceptions": [
     {
-      "package": "Temurin toolchain (sdk-tests/java/.java-version, sdk-scorecard/java/.java-version)",
+      "input": "Temurin toolchain",
+      "manifests": [
+        "sdk-tests/java/pom.xml",
+        "sdk-scorecard/java/pom.xml"
+      ],
       "current": "27.0.1.0.2+1",
       "latest": "27.0.1.1+4",
       "reference": "https://github.com/adoptium/temurin27-binaries/releases/tag/jdk-27.0.1.1%2B4",
       "evidence": "docs/en/evidence/dependency-refresh.md#refresh-2026-11-19",
       "reason": "The release, published 2026-11-18, held only the linux/x64 and alpine-linux/x64 archives on 2026-11-19. No macOS archive existed, so the development host could not install it and the Java scorecard probe could not run on it. This is an availability gap, not a failing test: the Java SDK suite passed on 27.0.1.1+4 in a linux/amd64 container.",
-      "impact": "Development-only. `cargo xtask dependencies check` reports UPDATE_AVAILABLE for the Temurin toolchain of both Java manifests and exits 1; release inputs are unaffected.",
+      "impact": "Development-only. Through review_by, `cargo xtask dependencies check` reports the Temurin toolchain of both Java manifests as DEFERRED instead of UPDATE_AVAILABLE and ends with a DEFERRED summary, so the project is not all current; from the day after, it fails on them again. Release inputs are unaffected.",
       "owner": "project owner",
       "next_action": "Adopt 27.0.1.1+4 in both `.java-version` files and `sdk-tests/java/.java-sha256` once the macOS archive is published and installable, then run the Java suite and scorecard probe on it.",
       "review_by": "2026-11-26"

@@ -1,4 +1,5 @@
 use super::*;
+use crate::dependencies::exceptions::Report;
 use serde_json::json;
 
 const ARM: &str =
@@ -315,12 +316,23 @@ fn the_toolchain_is_the_digest_pinned_image_the_dockerfile_builds_from() {
 
 #[test]
 fn a_newer_latest_release_is_an_update_and_an_older_one_an_error() {
-    assert_eq!(compare_release("o/r", "v4.5.0", "v4.5.0"), Ok(false));
-    assert_eq!(compare_release("o/r", "v4.5.0", "v4.5.1"), Ok(true));
-    assert_eq!(compare_release("o/r", "v3.13.0", "v4.0.0"), Ok(true));
-    assert_eq!(compare_release("o/r", "20260817.0", "20270215.0"), Ok(true));
+    let mut report = Report::without_exceptions();
+    let inputs = &mut report.inputs_of("sdk-scorecard/cpp/Dockerfile");
     assert_eq!(
-        compare_release("o/r", "v4.5.0", "v4.4.6"),
+        compare_release(inputs, "o/r", "v4.5.0", "v4.5.0"),
+        Ok(false)
+    );
+    assert_eq!(compare_release(inputs, "o/r", "v4.5.0", "v4.5.1"), Ok(true));
+    assert_eq!(
+        compare_release(inputs, "o/r", "v3.13.0", "v4.0.0"),
+        Ok(true)
+    );
+    assert_eq!(
+        compare_release(inputs, "o/r", "20260817.0", "20270215.0"),
+        Ok(true)
+    );
+    assert_eq!(
+        compare_release(inputs, "o/r", "v4.5.0", "v4.4.6"),
         Err(ArchiveError::OlderLatest {
             repository: "o/r".to_owned(),
             current: "v4.5.0".to_owned(),
@@ -328,7 +340,7 @@ fn a_newer_latest_release_is_an_update_and_an_older_one_an_error() {
         })
     );
     assert_eq!(
-        compare_release("o/r", "v4.5.0", "v4.6.0-rc1"),
+        compare_release(inputs, "o/r", "v4.5.0", "v4.6.0-rc1"),
         Err(ArchiveError::UnsupportedTag("v4.6.0-rc1".to_owned()))
     );
 }

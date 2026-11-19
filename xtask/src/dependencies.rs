@@ -1,4 +1,5 @@
-use crate::{UnknownName, Verdict, named};
+use crate::{UnknownName, Verdict, date::Date, named};
+use exceptions::{Deferrals, Exceptions, Inputs, Report};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -7,8 +8,10 @@ use std::{
     path::Path,
     process::{Command, Stdio},
     str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
 };
 mod clients;
+mod exceptions;
 mod images;
 mod platforms;
 
@@ -16,6 +19,14 @@ pub use images::update_images;
 
 type Result<T> = std::result::Result<T, String>;
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
+
+/// The dependency snapshot. It also declares the GitHub Actions, Docker images and apt packages
+/// the check compares, so an exception for one of them names it as the manifest.
+const LEDGER: &str = "compatibility/dependency-status.json";
+/// The manifest of the pinned Rust toolchain.
+const RUST_TOOLCHAIN: &str = "rust-toolchain.toml";
+/// The workspace manifest, which declares the direct crates the check compares.
+const WORKSPACE: &str = "Cargo.toml";
 
 named! {
     /// Ecosystems whose pins live in a registry manifest checked by `check_registry_sdk`.
@@ -481,7 +492,7 @@ fn go_language_baseline(
     Some(format!("{major}.{minor}.0"))
 }
 
-fn check_go(root: &Path, scope: &Value) -> Result<bool> {
+fn check_go(root: &Path, scope: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     if !matches!(
         text(scope, "manifest")?,
         "sdk-tests/go/go.mod" | "sdk-scorecard/go/go.mod" | "go/go.mod" | "go/sourceexport/go.mod"
@@ -522,8 +533,8 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
         .ok_or("no stable Go release")?;
     let baseline = go_language_baseline(text(scope, "manifest")?, stable.iter().map(|(v, _)| *v))
         .ok_or("no stable Go release")?;
-    let mut drift = compare("Go language baseline", &module.go, &baseline);
-    drift |= compare("Go toolchain", &module.toolchain, latest);
+    let mut drift = inputs.compare("Go language baseline", &module.go, &baseline);
+    drift |= inputs.compare("Go toolchain", &module.toolchain, latest);
     for (name, current) in module.direct {
         let proxy = |url: &str| {
             let (status, body) = fetch_response(url, &[], CurlOutput::Body)?;
@@ -547,7 +558,7 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
             );
             continue;
         }
-        drift |= compare(&name, &current, &latest);
+        drift |= inputs.compare(&name, &current, &latest);
     }
     Ok(drift)
 }
@@ -629,7 +640,7 @@ fn gem_version(pin: &str) -> Option<Vec<u64>> {
         .collect()
 }
 
-fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
+fn check_ruby(root: &Path, scope: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     let directory = ruby_directory(root, text(scope, "manifest")?)?;
     let direct = ruby_manifest(
         &std::fs::read_to_string(directory.join("Gemfile")).map_err(|e| e.to_string())?,
@@ -640,7 +651,7 @@ fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
         return Err("invalid pinned Ruby version".into());
     }
     let releases = fetch("https://www.ruby-lang.org/en/downloads.md", &[])?;
-    let mut drift = compare("Ruby toolchain", current.trim(), latest_ruby(&releases)?);
+    let mut drift = inputs.compare("Ruby toolchain", current.trim(), latest_ruby(&releases)?);
     let lock =
         std::fs::read_to_string(directory.join("Gemfile.lock")).map_err(|e| e.to_string())?;
     let bundler = lock
@@ -660,7 +671,7 @@ fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
             &format!("https://rubygems.org/api/v1/versions/{name}.json"),
             &[],
         )?)?;
-        drift |= compare(name, current, &latest);
+        drift |= inputs.compare(name, current, &latest);
     }
     Ok(drift)
 }
@@ -725,15 +736,6 @@ fn latest_crate(source: &str) -> Result<String> {
         .max_by_key(|(v, _)| *v)
         .map(|(_, name)| name.to_owned())
         .ok_or("no non-yanked stable crate release".into())
-}
-
-fn compare(label: &str, current: &str, latest: &str) -> bool {
-    let drift = current != latest;
-    println!(
-        "{label}: {} current={current} latest={latest}",
-        if drift { "UPDATE_AVAILABLE" } else { "CURRENT" }
-    );
-    drift
 }
 
 /// A package-registry SDK manifest the daily check reads.
@@ -844,7 +846,12 @@ fn latest_python(source: &str) -> Result<String> {
         .ok_or("no published stable Python release".into())
 }
 
-fn check_python_runtime(root: &Path, scope: &Value, pin: &str) -> Result<bool> {
+fn check_python_runtime(
+    root: &Path,
+    scope: &Value,
+    pin: &str,
+    inputs: &mut Inputs<'_>,
+) -> Result<bool> {
     let current = std::fs::read_to_string(root.join(pin)).map_err(|e| e.to_string())?;
     let current = current.trim();
     if version(current).is_none() {
@@ -858,7 +865,7 @@ fn check_python_runtime(root: &Path, scope: &Value, pin: &str) -> Result<bool> {
         "https://www.python.org/api/v2/downloads/release/?is_published=true&pre_release=false",
         &[],
     )?;
-    Ok(compare(
+    Ok(inputs.compare(
         &format!("Python toolchain ({pin})"),
         current,
         &latest_python(&releases)?,
@@ -981,7 +988,12 @@ fn latest_registry_dependency(
         .ok_or("no stable SDK dependency release".into())
 }
 
-fn check_registry_sdk(root: &Path, scope: &Value, ecosystem: RegistryEcosystem) -> Result<bool> {
+fn check_registry_sdk(
+    root: &Path,
+    scope: &Value,
+    ecosystem: RegistryEcosystem,
+    inputs: &mut Inputs<'_>,
+) -> Result<bool> {
     let entry = registry_manifest(ecosystem, text(scope, "manifest")?)?;
     let pins = registry_pins(
         &std::fs::read_to_string(root.join(entry.manifest)).map_err(|e| e.to_string())?,
@@ -1005,7 +1017,7 @@ fn check_registry_sdk(root: &Path, scope: &Value, ecosystem: RegistryEcosystem) 
         ));
     }
     let mut drift = match entry.runtime_pin {
-        Some(pin) => check_python_runtime(root, scope, pin)?,
+        Some(pin) => check_python_runtime(root, scope, pin, inputs)?,
         None => false,
     };
     for (name, pin) in pins {
@@ -1028,7 +1040,7 @@ fn check_registry_sdk(root: &Path, scope: &Value, ecosystem: RegistryEcosystem) 
                 format!("{ecosystem}:{name} ({}, major {major})", entry.manifest)
             }
         };
-        drift |= compare(&label, &pin, &latest);
+        drift |= inputs.compare(&label, &pin, &latest);
     }
     Ok(drift)
 }
@@ -1146,7 +1158,12 @@ fn verify_apt_pin(package: &Value, script: &str, callers: &[(&str, &str)]) -> Re
 /// their install script, and the snapshot must record the same values. Returns whether the live
 /// Debian suite now carries a different version. The release scope compares only packages that
 /// build a release artifact, but still verifies every recorded pin offline.
-fn check_apt_packages(root: &Path, status: &Value, scope: Scope) -> Result<bool> {
+fn check_apt_packages(
+    root: &Path,
+    status: &Value,
+    scope: Scope,
+    inputs: &mut Inputs<'_>,
+) -> Result<bool> {
     let mut drift = false;
     for package in status["docker"]["apt_packages"]
         .as_array()
@@ -1183,7 +1200,7 @@ fn check_apt_packages(root: &Path, status: &Value, scope: Scope) -> Result<bool>
             })
             .and_then(|entry| entry["version"].as_str())
             .ok_or("package not found in Debian suite")?;
-        drift |= compare(
+        drift |= inputs.compare(
             &format!("debian {suite} {name}"),
             text(package, "version")?,
             latest,
@@ -1268,13 +1285,18 @@ fn compare_platforms(
 /// The version tag must match the pinned index exactly. A moving tag such as `latest` is judged
 /// only on the declared platforms, because its index may carry extra platforms the project does
 /// not use. Returns whether any drift was found.
-fn check_image_tags(image: &Value, manifest_source: &str, headers: &[String]) -> Result<bool> {
+fn check_image_tags(
+    image: &Value,
+    manifest_source: &str,
+    headers: &[String],
+    inputs: &mut Inputs<'_>,
+) -> Result<bool> {
     let repository = text(image, "repository")?;
     let digest = text(image, "digest")?;
     let tag = text(image, "tag")?;
     let latest_tag = text(image, "latest_tag")?;
     let (actual, pinned_index) = fetch_manifest(&format!("{manifest_source}{tag}"), headers)?;
-    let mut drift = compare(&format!("docker {repository}:{tag}"), digest, &actual);
+    let mut drift = inputs.compare(&format!("docker {repository}:{tag}"), digest, &actual);
     if actual == digest {
         for (platform, pinned) in image["platforms"]
             .as_object()
@@ -1302,17 +1324,15 @@ fn check_image_tags(image: &Value, manifest_source: &str, headers: &[String]) ->
         fetch_manifest(&format!("{manifest_source}{latest_tag}"), headers)?;
     let label = format!("docker {repository}:{latest_tag}");
     if latest_digest == digest {
-        return Ok(drift | compare(&label, digest, &latest_digest));
+        return Ok(drift | inputs.compare(&label, digest, &latest_digest));
     }
     let declared = image["platforms"]
         .as_object()
         .ok_or("missing platform pins")?;
     let outcome = compare_platforms(declared, &pinned_index, &latest_index)?;
     if outcome.drifted.is_empty() {
-        println!(
-            "{label}: CURRENT on declared platforms {}",
-            declared.keys().cloned().collect::<Vec<_>>().join(", ")
-        );
+        let declared: Vec<&str> = declared.keys().map(String::as_str).collect();
+        drift |= inputs.latest_on(&label, &declared.join(", "));
         if !outcome.undeclared_differences.is_empty() {
             println!(
                 "INFO: {latest_tag} differs only on {}",
@@ -1320,11 +1340,7 @@ fn check_image_tags(image: &Value, manifest_source: &str, headers: &[String]) ->
             );
         }
     } else {
-        println!(
-            "{label}: UPDATE_AVAILABLE on {} current={digest} latest={latest_digest}",
-            outcome.drifted.join(", ")
-        );
-        drift = true;
+        drift |= inputs.update_on(&label, &outcome.drifted.join(", "), digest, &latest_digest);
     }
     Ok(drift)
 }
@@ -1460,7 +1476,7 @@ fn release_input(input: &Value) -> Result<bool> {
 /// Offline: the ledger `platforms` of every release-input image must equal the architectures the
 /// release workflows and scripts ship.
 pub fn check_release_platforms(root: &Path) -> Result<()> {
-    let status = crate::read_json(&root.join("compatibility/dependency-status.json"))?;
+    let status = crate::read_json(&root.join(LEDGER))?;
     platforms::check(root, &status)
 }
 
@@ -1483,40 +1499,62 @@ fn stable_rust_version(channel: &str) -> Result<String> {
     Ok(latest)
 }
 
-/// Fails when any tracked input has a newer release than its pin.
+/// Fails when any tracked input has a newer release than its pin, unless the full scope runs and
+/// a recorded exception still defers that update; fails as well when an exception has lapsed.
 pub fn check(root: &Path, scope: Scope) -> Result<Verdict> {
     println!("scope={scope:?}");
     check_release_platforms(root)?;
-    println!(
-        "checked_at_unix_seconds={}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_secs()
-    );
-    let mut drift = check_rust_toolchain(root)?;
-    let status = crate::read_json(&root.join("compatibility/dependency-status.json"))?;
-    drift |= check_github_actions(root, &status)?;
-    drift |= check_docker_images(root, &status, scope)?;
-    drift |= check_apt_packages(root, &status, scope)?;
+    let checked_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    println!("checked_at_unix_seconds={checked_at}");
+    let status = crate::read_json(&root.join(LEDGER))?;
+    let exceptions =
+        Exceptions::parse(root, &status["exceptions"]).map_err(|error| with_causes(&error))?;
+    let deferrals = match scope {
+        Scope::All => Deferrals::Honored {
+            today: Date::from_unix_seconds(checked_at),
+        },
+        Scope::Release => Deferrals::Refused,
+    };
+    let mut report = Report::new(exceptions, deferrals);
+    let mut drift = check_rust_toolchain(root, &mut report)?;
+    drift |= check_github_actions(root, &status, &mut report.inputs_of(LEDGER))?;
+    drift |= check_docker_images(root, &status, scope, &mut report.inputs_of(LEDGER))?;
+    drift |= check_apt_packages(root, &status, scope, &mut report.inputs_of(LEDGER))?;
     match scope {
         Scope::Release => println!("SDK ecosystems: SKIPPED development-only inputs"),
-        Scope::All => drift |= check_sdk_ecosystems(root, &status)?,
+        Scope::All => drift |= check_sdk_ecosystems(root, &status, &mut report)?,
     }
-    Ok(Verdict::fail_if(drift))
+    let summary = report.finish();
+    for line in &summary.lines {
+        println!("{line}");
+    }
+    Ok(Verdict::fail_if(drift || summary.fails))
+}
+
+/// An error followed by each of its causes, for the one `CHECK_FAILED` line.
+fn with_causes(error: &(dyn std::error::Error + 'static)) -> String {
+    std::iter::successors(Some(error), |error| error.source())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ")
 }
 
 /// The pinned toolchain and every direct crate of the workspace against their newest releases.
-fn check_rust_toolchain(root: &Path) -> Result<bool> {
+fn check_rust_toolchain(root: &Path, report: &mut Report) -> Result<bool> {
     let pin = scalar(
-        &std::fs::read_to_string(root.join("rust-toolchain.toml")).map_err(|e| e.to_string())?,
+        &std::fs::read_to_string(root.join(RUST_TOOLCHAIN)).map_err(|e| e.to_string())?,
         "channel",
     )?;
     let latest = stable_rust_version(&fetch(
         "https://static.rust-lang.org/dist/channel-rust-stable.toml",
         &[],
     )?)?;
-    let mut drift = compare("rust", &pin, &latest);
+    let mut drift = report
+        .inputs_of(RUST_TOOLCHAIN)
+        .compare("rust", &pin, &latest);
     let output = Command::new("cargo")
         .args(["metadata", "--format-version=1", "--locked", "--offline"])
         .env("RUSTUP_TOOLCHAIN", &pin)
@@ -1530,6 +1568,7 @@ fn check_rust_toolchain(root: &Path) -> Result<bool> {
         ));
     }
     let metadata: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    let mut crates = report.inputs_of(WORKSPACE);
     for (name, versions) in direct_crate_resolutions(&metadata)? {
         let mut resolved = versions.iter();
         let (Some(version), None) = (resolved.next(), resolved.next()) else {
@@ -1539,14 +1578,14 @@ fn check_rust_toolchain(root: &Path) -> Result<bool> {
             &format!("https://index.crates.io/{}", index_path(&name)),
             &[],
         )?)?;
-        drift |= compare(&name, version, &latest);
+        drift |= crates.compare(&name, version, &latest);
     }
     Ok(drift)
 }
 
 /// Each pinned action against the commit of its latest release, after every workflow that
 /// uses it is checked to pin that same commit.
-fn check_github_actions(root: &Path, status: &Value) -> Result<bool> {
+fn check_github_actions(root: &Path, status: &Value, inputs: &mut Inputs<'_>) -> Result<bool> {
     let mut drift = false;
     for action in status["github_actions"]
         .as_array()
@@ -1585,7 +1624,7 @@ fn check_github_actions(root: &Path, status: &Value) -> Result<bool> {
                 }
             }
         }
-        drift |= compare(repo, pinned, sha);
+        drift |= inputs.compare(repo, pinned, sha);
     }
     Ok(drift)
 }
@@ -1627,7 +1666,12 @@ fn container_sources(root: &Path) -> Result<String> {
 
 /// Each pinned image digest against its registry, after the scripts and workflows that run
 /// it are checked to carry the same pin.
-fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool> {
+fn check_docker_images(
+    root: &Path,
+    status: &Value,
+    scope: Scope,
+    inputs: &mut Inputs<'_>,
+) -> Result<bool> {
     let container_sources = container_sources(root)?;
     let mut drift = false;
     for image in status["docker"]["digests"]
@@ -1650,17 +1694,17 @@ fn check_docker_images(root: &Path, status: &Value, scope: Scope) -> Result<bool
                 .lines()
                 .find_map(|line| line.strip_prefix("Codename: "))
                 .ok_or("missing Debian stable codename")?;
-            drift |= compare("Debian stable codename", expected, codename);
+            drift |= inputs.compare("Debian stable codename", expected, codename);
         }
         let (manifest_source, headers) = registry_manifest_source(image, |url| fetch(url, &[]))?;
-        drift |= check_image_tags(image, &manifest_source, &headers)?;
+        drift |= check_image_tags(image, &manifest_source, &headers, inputs)?;
     }
     Ok(drift)
 }
 
 /// Every declared SDK manifest against its registry, after the declarations are checked to
 /// cover each manifest the repository keeps exactly once.
-fn check_sdk_ecosystems(root: &Path, status: &Value) -> Result<bool> {
+fn check_sdk_ecosystems(root: &Path, status: &Value, report: &mut Report) -> Result<bool> {
     let scopes = status["sdk_ecosystems"]
         .as_array()
         .ok_or("missing sdk_ecosystems")?;
@@ -1669,18 +1713,20 @@ fn check_sdk_ecosystems(root: &Path, status: &Value) -> Result<bool> {
     let mut drift = false;
     for scope in scopes {
         let declared = text(scope, "ecosystem")?;
-        if !manifests.insert(text(scope, "manifest")?) {
+        let manifest = text(scope, "manifest")?;
+        if !manifests.insert(manifest) {
             return Err("duplicate SDK manifest".into());
         }
         let ecosystem: Ecosystem = declared
             .parse()
             .map_err(|UnknownName| format!("unsupported SDK ecosystem: {declared}"))?;
         ecosystems.insert(ecosystem);
+        let inputs = &mut report.inputs_of(manifest);
         drift |= match ecosystem {
-            Ecosystem::Go => check_go(root, scope)?,
-            Ecosystem::Ruby => check_ruby(root, scope)?,
-            Ecosystem::Registry(registry) => check_registry_sdk(root, scope, registry)?,
-            Ecosystem::Client(client) => clients::check(root, scope, client)?,
+            Ecosystem::Go => check_go(root, scope, inputs)?,
+            Ecosystem::Ruby => check_ruby(root, scope, inputs)?,
+            Ecosystem::Registry(registry) => check_registry_sdk(root, scope, registry, inputs)?,
+            Ecosystem::Client(client) => clients::check(root, scope, client, inputs)?,
         };
     }
     if !ecosystems.contains(&Ecosystem::Go) || !ecosystems.contains(&Ecosystem::Ruby) {
@@ -2257,8 +2303,10 @@ mod tests {
         ] {
             assert_eq!(index_path(name), path);
         }
-        assert!(!compare("test", "1.0.0", "1.0.0"));
-        assert!(compare("test", "1.0.0", "2.0.0"));
+        let mut report = Report::without_exceptions();
+        let mut inputs = report.inputs_of("test/Cargo.toml");
+        assert!(!inputs.compare("test", "1.0.0", "1.0.0"));
+        assert!(inputs.compare("test", "1.0.0", "2.0.0"));
     }
 
     #[test]
