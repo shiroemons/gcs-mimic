@@ -60491,7 +60491,7 @@
           "id": "sync-known-bucket-observations",
           "description": "Schema 27 adds independent root/bucket/incarnation observations because ordinary API deletion removes object sync state. Known absent API buckets are not recreated on restart/rescan; their directory is skipped with a reason/remedy, while observed directory removal clears only the observation to allow intentional recreation. Other paths progress, unreadable files are deferred with actionable paths, unchanged files do not settle, and shutdown wakes pending settle. Existing catalog migration preserves bucket metadata. Scope: docs/en/slices/directory-synchronization.md.",
           "result": "PASS",
-          "test_ids": ["ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated", "ingest_unreadable_file_is_deferred_while_other_files_progress", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "sync_bucket_schema_migration_preserves_existing_catalog"]
+          "test_ids": ["ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated", "ingest_counts_an_unreadable_file_as_unreadable_while_other_files_progress", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "sync_bucket_schema_migration_preserves_existing_catalog"]
         },
         {
           "id": "sync-conflict-preservation",
@@ -60774,7 +60774,7 @@
         "recovery_sparse_over_limit_requires_exact_identity_and_confirmation",
         "export_directory_walk_rejects_redirects_and_unsafe_components",
         "ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated",
-        "ingest_unreadable_file_is_deferred_while_other_files_progress",
+        "ingest_counts_an_unreadable_file_as_unreadable_while_other_files_progress",
         "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle",
         "sync_bucket_schema_migration_preserves_existing_catalog",
         "ingest_preserves_metadata_patch_and_api_body_racing_publication",
@@ -61083,7 +61083,7 @@
           "result": "PASS",
           "verified_at": "2026-10-27",
           "artifact": "docs/en/slices/directory-synchronization.md",
-          "test_ids": ["ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated", "ingest_unreadable_file_is_deferred_while_other_files_progress", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "sync_bucket_schema_migration_preserves_existing_catalog"]
+          "test_ids": ["ingest_deleted_bucket_stays_deleted_after_restart_until_directory_recreated", "ingest_counts_an_unreadable_file_as_unreadable_while_other_files_progress", "ingest_unchanged_files_skip_settle_and_shutdown_interrupts_changed_settle", "sync_bucket_schema_migration_preserves_existing_catalog"]
         },
         {
           "command": "just check",
