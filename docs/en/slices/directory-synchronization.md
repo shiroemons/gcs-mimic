@@ -57,7 +57,8 @@ findings for those legacy buckets require a later shared typed interface.
 A tree has no entry or depth limit by default (`max_sync_entries` and `max_sync_depth` are 0),
 so time grows with the tree. A named `max_sync_entries` (up to 2^64−1) also bounds one
 directory, and a named `max_sync_depth` (up to 1024) counts levels below the root, the bucket
-included. Pages stay at 256 and individual components at 255 bytes. A scan, a watch and export
+included. Pages stay at 256 and individual components at 255 bytes, or the root filesystem's
+lower limit where the startup probe finds one. A scan, a watch and export
 all accept exactly that depth. Without a limit a walk still stops at 1024 levels, which keeps its
 descriptors bounded and is deeper than any object name can nest. Past 10,000 entries without a
 limit, the process logs one `sync_tree_large` warning. Exceeding an inventory bound
@@ -204,8 +205,9 @@ An obsolete completion counts as `deferred` in that pass and leaves baseline inc
 ### Initial-export verification
 
 The validation-only suites now share the `it_admin` integration binary. Run
-`cargo test --locked --offline --test it_admin sync_configuration` or
-`cargo test --locked --offline --test it_admin sync_mapping` to select one.
+`cargo test --locked --offline --test it_admin sync_configuration` to select
+one. The name-mapping cases moved into `cargo test --locked --offline --lib
+sync::mapping` once the mapping took the root's probed naming rules.
 Historical verification commands below retain their original binary names.
 
 Verified on 2026-10-25, macOS ARM64, Rust 1.99.1 against the two-setting configuration.
@@ -366,6 +368,10 @@ returns `HostRestriction` for those components on every OS, so export records a
 finding and continues and ingestion counts such files as unrepresentable instead
 of stopping the root. The storage validator is unchanged.
 
+Superseded on 2026-11-19 for colons: the catalog validator now rejects only
+backslash and NUL, and a colon maps wherever the root's probed filesystem stores
+it; see [Name and path reversibility](#name-and-path-reversibility).
+
 ### Container and Linux verification
 
 Checks on 2026-10-28 against the source that skips backslash/colon names:
@@ -388,6 +394,28 @@ A replaced data volume with the old directory fails before bind with
 `ForeignMarker`. Ingested files become visible about one second after readiness.
 External deletion, conflict transfer, watcher events, Linux exchange races and
 host-power-loss behavior are not covered.
+
+The colon checks above describe the source of that date. Since 2026-11-19 the
+renamed `live_export_exports_colon_names_and_skips_backslash_names` and the
+container smoke expect colon names to export and external colon files to be
+ingested; only backslash names are skipped.
+
+### Root naming probe verification
+
+Checks on 2026-11-19, macOS ARM64 on APFS, against the source that probes the
+root's naming rules (see [Name and path reversibility](#name-and-path-reversibility)):
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --offline --lib -- sync:: storage::catalog::sync_state storage::catalog::lifecycle server::admin::sync fsutil source_tree` | PASS: 434 tests, including the probe, mapping, parent-walk and catalog-path cases. |
+| `cargo test --locked --offline --test it_sync -- sync_live_export` | PASS: 10 tests, including `live_export_exports_colon_names_and_skips_backslash_names`. |
+
+Colon-refusing, case-folding and name-rewriting roots are injected
+observations, since the host has none of them; the host probe itself reported
+case folding, a stored colon and a 255-byte limit. A crash or power loss at each
+of the probe's nine boundaries, followed by restart, recovery and a scan, leaves
+nothing taken for data. Linux, Docker bind mounts and the container smoke were
+not run for this change.
 
 ### Initial export delivery scope
 
@@ -457,15 +485,42 @@ Apply existing bucket/object validators first, then this mapping. Paths contain
 one literal UTF-8 bucket component followed by object components split on `/`.
 No percent decoding/encoding, separator cleaning, case folding, Unicode
 normalization, escaping or truncation is allowed. `%2F` names a literal `%2F`
-file component. `/` is the logical separator on every OS. Backslash and colon
-components are unrepresentable on every OS because the catalog sync-path validator
-rejects them; a backslash never acts as an implicit separator.
+file component. `/` is the logical separator on every OS. Backslash components
+are unrepresentable on every OS because the catalog sync-path validator rejects
+them; a backslash never acts as an implicit separator.
 Do not change the API's wider accepted-name set to fit a filesystem.
+
+A colon is mapped literally where the root's filesystem stores it. Each time the
+mirror activates the root, after write-back recovery and before its first scan,
+it probes the filesystem with fixed names in the fixed `naming-probe`
+subdirectory of `.gcs-mimic-sync-work` and records one set of naming rules for
+the root: whether `:` is stored as created, whether letter case folds, and the
+component byte limit that `fpathconf(_PC_NAME_MAX)` reports, capped at 255. An
+info-level `sync_root_naming` log event reports them (`colon`, `case`,
+`name_max`). No setting chooses or overrides these rules. Both mapping directions, parent walks,
+target checks and deletion checks read that one value, and each rule is decided
+on its own: a filesystem that refuses `:` makes only colon components
+`HostRestriction`. A colon `HostRestriction` finding that an earlier start
+recorded clears when a later start exports the object. The probe starts by unlinking its own fixed names, never
+lists and deletes what it finds, and never removes its subdirectory; none of its
+names has the 32-digit hexadecimal form of a write-back operation, so recovery
+never takes a leftover for an interrupted operation.
+
+A filesystem that stores a created name under another spelling, in letter case
+or Unicode normalization, cannot keep the mapping reversible. The mirror pauses
+with reason `observer-failure` and a `sync_paused` remedy naming the cause
+instead of scanning it. A probe that cannot write its workspace pauses with
+`io-failure`. The Storage API stays ready in both cases.
+
+A file created outside the API with `:` in its name is ingested as a new object
+with that literal name. macOS Finder displays a `:` in a file name as `/`, a
+remnant of classic Mac OS paths; the name on disk, which the mirror reads and
+writes, keeps the colon.
 
 | Reason | Cases and behavior |
 | --- | --- |
 | `InvalidName` | Invalid UTF-8 on disk, invalid API name, NUL, leading/trailing `/`, empty component, `.` or `..` component; report, do not clean into another name. |
-| `HostRestriction` | Backslash/colon on every OS, host-invalid characters, Windows device names/drive/UNC syntax, trailing spaces/dots where not reversible, component/path length limits; retain API state, report the exact restriction. |
+| `HostRestriction` | Backslash on every OS, a colon where the root's filesystem refuses or rewrites it, host-invalid characters, Windows device names/drive/UNC syntax, trailing spaces/dots where not reversible, components over the probed limit (at most 255 bytes) and path length limits; retain API state, report the exact restriction. |
 | `Reserved` | Root marker `.gcs-mimic-sync.json`, staging marker `.gcs-mimic-sync.json.staging`, workspace `.gcs-mimic-sync-work` and any reserved component at any object depth; reserve root names against legacy bucket names too. |
 | `Ignored` | Regular files named `.DS_Store` or `4913`, beginning `._`, ending `.swp` or `~`. Use one shared predicate for ingestion and API write-back. Traverse ordinary matching directories such as `._assets/`; they are not ignored files. |
 | `Collision` | `a` and `a/b`, aliases differing only by case or Unicode normalization on the actual filesystem, bucket aliases, or a conflicting directory/file type. Report all members, never choose one silently or delete either API object. |

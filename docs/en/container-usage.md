@@ -283,10 +283,15 @@ keeps the bucket, and deleting a bucket through the API keeps its directory.
 When both the API and a file changed the same object, the API's version wins:
 the file is replaced with the API's bytes and the edit is retained as a
 conflict, listed by `gcs-mimic sync conflicts` for explicit resolution;
-restoring it publishes the edit. Object names containing `\` or `:`, such as
-`logs/2026-10-28T12:00:00.log`, and other names that cannot be mapped to host
-file names are skipped without stopping the mirror; they stay available through
-the API.
+restoring it publishes the edit. Object names containing `\`, and other names
+that cannot be mapped to host file names, are skipped without stopping the
+mirror; they stay available through the API. A name containing `:`, such as
+`logs/2026-10-28T12:00:00.log`, becomes a file of the same name wherever the
+directory's filesystem stores colons, which the server checks at startup with no
+setting. Linux local filesystems and APFS store them; the `sync_root_naming` log
+event reports what the check found for the mounted directory. A file with `:` created outside
+the server is imported under that name. macOS Finder shows that `:` as `/`; the
+name on disk keeps the colon.
 
 The directory holds `.gcs-mimic-sync.json` and `.gcs-mimic-sync-work`, which tie
 it to one data directory; add both and `.gcs-mimic-sync.json.staging` to
