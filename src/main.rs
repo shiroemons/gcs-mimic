@@ -14,6 +14,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 mod buckets_cli;
+mod local_server;
 mod startup;
 mod sync_cli;
 // Binary tests cannot access the library's cfg(test) module.
@@ -118,9 +119,9 @@ enum CliError {
     /// A `sync wait` that did not end ready: its diagnostics, and the exit status that tells
     /// how it ended.
     Wait(Diagnostics, sync_cli::WaitExit),
-    /// A server that could not be reached or did not answer: advice that names where the
-    /// command looked and what to check, and the I/O failure as the cause.
-    Unreachable(Diagnostics, io::Error),
+    /// A request to the synchronization server that got no answer the command can read: advice
+    /// that names where the command looked and what to check, and the failure as the cause.
+    Unreachable(Diagnostics, sync_cli::ExchangeFailure),
     /// Authentication setup failed at startup: its diagnostics are reported, and its catalog
     /// causes remain the error's source. Boxed because it holds two catalog errors.
     Authentication(Box<startup::CatalogAuthenticationFailure>),
@@ -174,7 +175,8 @@ impl std::error::Error for CliError {
         match self {
             Self::Diagnostics(diagnostics) | Self::Wait(diagnostics, _) => Some(diagnostics),
             Self::Authentication(failure) => Some(failure.as_ref()),
-            Self::Io(error) | Self::Unreachable(_, error) => Some(error),
+            Self::Io(error) => Some(error),
+            Self::Unreachable(_, failure) => Some(failure),
             Self::Import(error) => Some(error),
         }
     }
@@ -644,31 +646,19 @@ fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
             ),
         )
     };
-    // A ready API whose synchronization is still starting answered, so the PID 1 fallback below
-    // never runs for it.
+    // A ready API whose synchronization is still starting answered, so the PID 1 fallback never
+    // runs for it.
     if let Some(url) = &options.url {
         let body = probe(url, ca_cert).map_err(|error| failed(url, error))?;
         return synchronization_started(url, ca_cert, &body);
     }
-    let url = probe_url(&[], &repair)?;
-    let error = match probe(&url, ca_cert) {
-        Ok(body) => return synchronization_started(&url, ca_cert, &body),
-        Err(error) => error,
-    };
-    // Only a failed probe consults PID 1: Rosetta emulates /proc/<pid>/cmdline with a temporary
-    // file, which crashes the probe on a read-only root, so ordinary setups never read it.
-    let Some(server_args) = std::fs::read("/proc/1/cmdline")
-        .ok()
-        .and_then(|cmdline| container_server_args(&cmdline))
-    else {
-        return Err(failed(&url, error));
-    };
-    let fallback = probe_url(&server_args, &repair)?;
-    if fallback == url {
-        return Err(failed(&url, error));
-    }
-    let body = probe(&fallback, ca_cert).map_err(|error| failed(&fallback, error))?;
-    synchronization_started(&fallback, ca_cert, &body)
+    let (url, body) = local_server::with_container_fallback(
+        probe_url(&[], &repair)?,
+        |url| probe(url, ca_cert).map_err(|error| failed(url, error)),
+        |_| true,
+        |server_args| probe_url(server_args, &repair),
+    )?;
+    synchronization_started(&url, ca_cert, &body)
 }
 
 /// The options of `gcs-mimic healthcheck`.
@@ -931,47 +921,34 @@ impl std::error::Error for UnreadableSync {
     }
 }
 
-/// The probe URL for the environment, JSON file and the given server options.
+/// The probe URL of the server the environment, the config file it selects and the given server
+/// options configure, found as [`local_server::origin`] finds it.
 fn probe_url(
     server_args: &[String],
     repair: &dyn Fn(&str) -> String,
 ) -> Result<ProbeUrl, Diagnostics> {
-    let mut report = Config::preflight_os(server_args, std::env::vars_os());
-    let url = report.config.healthcheck_url();
-    match url.parse() {
-        Ok(probe) if !report.diagnostics.is_err() => Ok(probe),
-        Ok(_) | Err(InvalidProbeUrl) => {
-            report.diagnostics.errors.push(Diagnostic::new(
-                DiagnosticSource::Cli,
-                "healthcheck",
-                format!(
-                    "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
-                    repair(&url)
-                ),
-            ));
-            Err(report.diagnostics)
+    let (url, mut diagnostics) = match local_server::origin(server_args, std::env::vars_os()) {
+        Ok(origin) => {
+            let url = format!("{origin}{}", Config::HEALTHCHECK_PATH);
+            match url.parse() {
+                Ok(probe) => return Ok(probe),
+                Err(InvalidProbeUrl) => (url, Diagnostics::default()),
+            }
         }
-    }
-}
-
-/// The server options in `cmdline`, the NUL-separated `/proc/1/cmdline` of a container's PID 1,
-/// when that process is gcs-mimic running the server with at least one option, as in the
-/// container image. A Compose `command` such as `--scheme http` reaches only that process, so
-/// the healthcheck falls back to them when the environment's defaults do not answer.
-fn container_server_args(cmdline: &[u8]) -> Option<Vec<String>> {
-    let cmdline = cmdline.strip_suffix(b"\0").unwrap_or(cmdline);
-    let args = cmdline
-        .split(|byte| *byte == 0)
-        .map(|arg| String::from_utf8(arg.to_vec()))
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    let (program, args) = args.split_first()?;
-    if Path::new(program).file_name() != Some("gcs-mimic".as_ref()) {
-        return None;
-    }
-    gcs_mimic::config_input::server_arguments(args)
-        .filter(|options| !options.is_empty())
-        .map(<[String]>::to_vec)
+        Err(unreliable) => (
+            format!("{}{}", unreliable.origin, Config::HEALTHCHECK_PATH),
+            unreliable.diagnostics,
+        ),
+    };
+    diagnostics.errors.push(Diagnostic::new(
+        DiagnosticSource::Cli,
+        "healthcheck",
+        format!(
+            "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
+            repair(&url)
+        ),
+    ));
+    Err(diagnostics)
 }
 
 /// The body of the HTTP 200 answer to `url`.
@@ -1101,34 +1078,6 @@ async fn probe_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn healthcheck_falls_back_only_to_a_gcs_mimic_server_with_options() {
-        let options = |args: &[&str]| Some(args.iter().map(|arg| (*arg).to_owned()).collect());
-        for (cmdline, expected) in [
-            (
-                b"/usr/local/bin/gcs-mimic\0--scheme\0http\0".as_slice(),
-                options(&["--scheme", "http"]),
-            ),
-            (
-                b"gcs-mimic\0serve\0--listen\x000.0.0.0:9000\0",
-                options(&["--listen", "0.0.0.0:9000"]),
-            ),
-            // The image's own command carries no option, so the first probe already covered it.
-            (b"/usr/local/bin/gcs-mimic\0serve\0", None),
-            (b"/usr/local/bin/gcs-mimic\0healthcheck\0", None),
-            (b"/bin/sh\0-c\0gcs-mimic --scheme http\0", None),
-            (b"/usr/local/bin/gcs-mimic\0--scheme\0\xff\0", None),
-            (b"", None),
-        ] {
-            assert_eq!(
-                container_server_args(cmdline),
-                expected,
-                "{}",
-                String::from_utf8_lossy(cmdline)
-            );
-        }
-    }
 
     /// Only a ready answer whose mirror is still starting fails, and its diagnostic gives the
     /// command that follows the mirror. An answer without `sync`, as from a server without a sync

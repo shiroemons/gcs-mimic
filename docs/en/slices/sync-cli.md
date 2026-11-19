@@ -3,8 +3,9 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Since 0.8.0, this CLI extends the control subset of DESIGN-072 and
-DESIGN-074. It connects to the running server and never opens `data_dir` or a server config
-file, repairs a stopped catalog or grants administrative power.
+DESIGN-074. It connects to the running server and never opens `data_dir`, repairs a stopped
+catalog or grants administrative power; it reads a server config file only to find the server
+when no endpoint is given.
 The server's [current control contract](external-deletion-controls.md) owns
 authorization, fixed revisions and mutation semantics. Parent statuses remain
 PARTIAL; the native CLI/server operator journeys below pass, while exhaustive
@@ -68,16 +69,28 @@ Mixed targets, missing generations, ambiguous confirmations and mismatched IDs
 fail before a request. Reusing an operation ID with changed input fails; a missing response
 does not prove that an accepted operation rolled back.
 
-Without `--endpoint`, the command controls the server that the environment
-configures, found the way `gcs-mimic healthcheck` finds it: `GCS_MIMIC_LISTEN`
-and `GCS_MIMIC_SCHEME` (with `GCS_MIMIC_LISTEN_HTTP` under `both`), plain HTTP
+Without `--endpoint`, the command controls the server that the configuration
+gives, found by the same code as `gcs-mimic healthcheck` finds it:
+`GCS_MIMIC_LISTEN` and `GCS_MIMIC_SCHEME` (with `GCS_MIMIC_LISTEN_HTTP` under
+`both`) and the config file that `GCS_MIMIC_CONFIG` selects, plain HTTP
 wherever a listener accepts it, and a wildcard listen address reached on
-loopback. It does not open the config file that `GCS_MIMIC_CONFIG` selects, so
-it asks for `--endpoint` while that variable is set, and also while the
-environment's server configuration has errors or gives an origin it cannot
-reach. An explicit `--endpoint` always wins. The commands its own advice names
-then leave `--endpoint` out, since they find the server the same way; the
-server's log events and answers keep the `--endpoint URL` placeholder.
+loopback. When no request reaches a server there, because nothing listens or
+what answers speaks neither its TLS nor its HTTP, it tries once more at the
+server that the options of a gcs-mimic server running as the container's PID 1
+give, such as `docker run IMAGE --scheme https`, which the environment of
+`docker exec` does not see. A request that may have reached a server, such as
+one that timed out, is not sent again. The command asks for `--endpoint` while
+the configuration has errors or gives an origin it cannot reach. An explicit
+`--endpoint` always wins. The commands its own advice names then leave
+`--endpoint` out, since they find the server the same way; the server's log
+events and answers keep the `--endpoint URL` placeholder.
+
+A request that gets no answer the command can read fails with the URL it
+tried, what went wrong and its cause (the name did not resolve, the connection
+or the TLS handshake failed, the HTTP exchange failed, the answer was too large
+or not JSON, or no answer came in time), and the setting to check: `--endpoint`,
+or the configuration when that gave the server. A timeout or a broken HTTP
+exchange adds that an accepted control may still be running.
 
 `--endpoint` requires a bare HTTP(S) origin with an explicit nonzero port.
 All resolved addresses must be loopback, RFC1918 IPv4 or IPv6 unique-local;

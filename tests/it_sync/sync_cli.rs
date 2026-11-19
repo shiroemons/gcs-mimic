@@ -58,11 +58,12 @@ impl Server {
 
     fn start_with(data: &TestDir, tree: Option<&TestDir>, options: &[&str]) -> Self {
         let mut command = common::server_command();
+        command.arg("serve");
+        if !options.contains(&"--scheme") {
+            command.args(["--scheme", "http"]);
+        }
         command
             .args([
-                "serve",
-                "--scheme",
-                "http",
                 "--listen",
                 "127.0.0.1:0",
                 "--api-base-url",
@@ -257,6 +258,59 @@ fn live_cli_wait_succeeds_past_an_unmapped_name_and_names_the_command_that_lists
     );
     assert!(!error.contains("--endpoint URL"), "{error}");
     assert!(strict.diagnostics("sync-findings").is_empty());
+    server.stop();
+}
+
+/// Without --endpoint, `sync wait` reaches an HTTPS server where the healthcheck does: through
+/// GCS_MIMIC_SCHEME, or through the config file GCS_MIMIC_CONFIG selects. When the configuration
+/// gives plain HTTP instead, the failure names the URL it tried, what went wrong, and the scheme
+/// setting to check, rather than a generic failure; in a container, the options of the server
+/// running as PID 1 are tried next, which the unit tests cover.
+#[test]
+fn live_cli_wait_without_an_endpoint_finds_an_https_server_as_the_healthcheck_does() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let mut server = Server::start_with(&data, Some(&tree), &["--scheme", "https"]);
+    let listen = server.ready["listen"].as_str().unwrap().to_owned();
+    let wait = |environment: &[(&str, &str)]| {
+        common::server_command()
+            .envs(environment.iter().copied())
+            .args(["sync", "wait", "--timeout", "30s"])
+            .output()
+            .unwrap()
+    };
+    let config = TestDir::new();
+    let file = config.0.join("server.json");
+    fs::write(
+        &file,
+        serde_json::to_vec(&serde_json::json!({"scheme":"https","listen":listen})).unwrap(),
+    )
+    .unwrap();
+    let configured: [&[(&str, &str)]; 2] = [
+        &[("GCS_MIMIC_LISTEN", &listen), ("GCS_MIMIC_SCHEME", "https")],
+        &[("GCS_MIMIC_CONFIG", file.to_str().unwrap())],
+    ];
+    for environment in configured {
+        let output = wait(environment);
+        assert!(output.status.success(), "{environment:?}: {output:?}");
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["reason"], "Ready", "{answer}");
+    }
+    let output = wait(&[("GCS_MIMIC_LISTEN", listen.as_str())]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stderr: Value = serde_json::from_slice(&output.stderr).unwrap();
+    let fix = stderr["diagnostics"][0]["fix"].as_str().unwrap();
+    assert!(
+        fix.starts_with(&format!(
+            "Cannot use the synchronization server at http://{listen}: "
+        )),
+        "{fix}"
+    );
+    assert!(
+        fix.contains("check that the server serves HTTP, the scheme in the server configuration (GCS_MIMIC_LISTEN, GCS_MIMIC_SCHEME or the config file GCS_MIMIC_CONFIG selects)"),
+        "{fix}"
+    );
+    assert!(!fix.contains("Command failed"), "{fix}");
     server.stop();
 }
 

@@ -1,9 +1,8 @@
 //! One-shot live controls share the server's authorization and never open its catalog.
 
-use super::CliError;
+use super::{CliError, local_server};
 use gcs_mimic::{
     bounded_file,
-    config::Config,
     config_input::{DurationError, RenamedEnvironmentVariable, duration},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     net::is_local_address,
@@ -22,6 +21,7 @@ use std::{
     io,
     io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -36,11 +36,13 @@ const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait [--endpoint http(s)
        gcs-mimic sync resolve [--endpoint URL] --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
        gcs-mimic sync resolve [--endpoint URL] --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
 
-Without --endpoint, the command controls the server that the environment
-configures, as the healthcheck finds it: GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME,
-with a wildcard listen address reached on loopback. It does not open the config
-file GCS_MIMIC_CONFIG selects and asks for --endpoint while that is set. The
-commands it advises then leave --endpoint out as well.
+Without --endpoint, the command controls the server the configuration gives,
+as the healthcheck finds it: GCS_MIMIC_LISTEN, GCS_MIMIC_SCHEME and the config
+file GCS_MIMIC_CONFIG selects, with a wildcard listen address reached on
+loopback. When no request reaches a server there, it tries once more where the
+options of a gcs-mimic server running as the container's PID 1 point, as for
+docker run IMAGE --scheme https. The commands it advises then leave --endpoint
+out as well. A failed request names the URL it tried and the setting to check.
 Options: --ca-cert PATH, --token-file PATH, --timeout Nms|Ns|Nm (1ms..60s),
 or the numeric --timeout-ms N. Rescan defaults to 30s; other controls default
 to 10s. Explicit timeout values replace these defaults.
@@ -72,7 +74,8 @@ Status and deletions print one bounded JSON page. Without --revision, a view
 reads the status first and lists the page at the revision it reports. Copy
 next_cursor unchanged with the revision of its page; approval requires the
 exact inspected revision, and stale revisions fail.
-No data directory, server config file, ambient proxy or Google credentials are opened.
+No data directory, ambient proxy or Google credentials are opened; the server
+config file is read only to find the server when --endpoint is not given.
 Rescan and approval are not retried; a timeout may leave accepted work running.
 Inspect status before retrying. Recovery discard requires exactly one matching
 --confirm-backup-verified ID or --confirm-discard-without-backup ID.
@@ -482,6 +485,7 @@ fn revision_len(command: Option<Command>) -> usize {
 }
 
 /// Where a control request goes. The scheme decided the transport when the endpoint was parsed.
+#[derive(Clone, Debug)]
 struct Endpoint {
     authority: Authority,
     /// The host for TLS name verification, without IPv6 brackets.
@@ -490,6 +494,15 @@ struct Endpoint {
     source: EndpointSource,
 }
 
+/// Two endpoints are the same when requests to them go to the same origin, wherever the command
+/// found them.
+impl PartialEq for Endpoint {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin() == other.origin()
+    }
+}
+
+#[derive(Clone, Debug)]
 enum Transport {
     Http,
     Https { ca_cert: Option<PathBuf> },
@@ -502,6 +515,26 @@ impl Transport {
             Self::Https { .. } => "https",
         }
     }
+
+    /// The CA certificate `--ca-cert` named.
+    fn ca_cert(&self) -> Option<&Path> {
+        match self {
+            Self::Https { ca_cert } => ca_cert.as_deref(),
+            Self::Http => None,
+        }
+    }
+
+    /// The TLS configuration that verifies the server, or `None` for plain HTTP.
+    fn client(&self) -> Result<Option<Arc<tokio_rustls::rustls::ClientConfig>>, ExchangeFailure> {
+        match self {
+            Self::Https {
+                ca_cert: Some(path),
+            } => tls::client_config(path).map(Some),
+            Self::Https { ca_cert: None } => tls::development_client_config().map(Some),
+            Self::Http => Ok(None),
+        }
+        .map_err(ExchangeFailure::Trust)
+    }
 }
 
 /// Where the command found its endpoint.
@@ -509,8 +542,116 @@ impl Transport {
 enum EndpointSource {
     /// `--endpoint`, which a suggested command names again.
     Given,
-    /// The server configuration in the environment, where a suggested command finds it again.
+    /// The server configuration in the environment and the config file it selects, where a
+    /// suggested command finds it again.
     Environment,
+    /// The options of the gcs-mimic server running as the container's PID 1, which the command
+    /// tried after the configured server could not be reached, and so does a suggested command.
+    Container,
+}
+
+impl EndpointSource {
+    /// What gave the endpoint, as advice names it.
+    const fn named_by(self) -> &'static str {
+        match self {
+            Self::Given => "--endpoint",
+            Self::Environment => {
+                "the server configuration (GCS_MIMIC_LISTEN, GCS_MIMIC_SCHEME or the config file GCS_MIMIC_CONFIG selects)"
+            }
+            Self::Container => "the command line of the gcs-mimic server running as PID 1",
+        }
+    }
+
+    /// What else the user can do when the endpoint was found rather than given.
+    const fn instead(self) -> &'static str {
+        match self {
+            Self::Given => "",
+            Self::Environment | Self::Container => ", or supply --endpoint",
+        }
+    }
+}
+
+/// Why one request to the synchronization server got no answer the command can read. Each
+/// keeps its cause as `source()`; [`Endpoint::failed`] names the server and what to check.
+#[derive(Debug)]
+pub(super) enum ExchangeFailure {
+    /// The CA certificate that verifies the server could not be loaded.
+    Trust(io::Error),
+    Resolve(io::Error),
+    /// The host resolved to an address outside loopback and private networks, or to more than
+    /// eight, which the command refuses before connecting.
+    NotLocal,
+    NoAddress,
+    /// No address of the host accepted a connection.
+    Connect(io::Error),
+    TlsName(tokio_rustls::rustls::pki_types::InvalidDnsNameError),
+    Tls(io::Error),
+    Request(hyper::http::Error),
+    Http(hyper::Error),
+    TooLarge,
+    NonJson(NonJsonResponse),
+    Timeout(Duration),
+}
+
+impl ExchangeFailure {
+    /// Whether the request reached no server that could act on it, so that another server may
+    /// be tried: nothing answered, or what answered spoke neither the TLS nor the HTTP the
+    /// command spoke, as a TLS listener does to plain HTTP.
+    fn reached_no_server(&self) -> bool {
+        match self {
+            Self::Resolve(_) | Self::NoAddress | Self::Connect(_) | Self::Tls(_) => true,
+            Self::Http(error) => error.is_parse(),
+            Self::Trust(_)
+            | Self::NotLocal
+            | Self::TlsName(_)
+            | Self::Request(_)
+            | Self::TooLarge
+            | Self::NonJson(_)
+            | Self::Timeout(_) => false,
+        }
+    }
+}
+
+impl std::fmt::Display for ExchangeFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Trust(_) => f.write_str("the CA certificate that verifies it cannot be loaded"),
+            Self::Resolve(_) => f.write_str("its host name does not resolve"),
+            Self::NotLocal => f.write_str(
+                "its host resolves to an address outside loopback and private networks, or to more than eight",
+            ),
+            Self::NoAddress => f.write_str("its host resolves to no address"),
+            Self::Connect(_) => f.write_str("the connection failed"),
+            Self::TlsName(_) => f.write_str("its host is not a name TLS can verify"),
+            Self::Tls(_) => f.write_str("the TLS handshake failed"),
+            Self::Request(_) => f.write_str("the request cannot be formed"),
+            Self::Http(_) => f.write_str("the HTTP exchange failed"),
+            Self::TooLarge => write!(f, "its answer exceeds {} KiB", RESPONSE_LIMIT / 1024),
+            Self::NonJson(answer) => write!(
+                f,
+                "it answered HTTP {} with a body that is not JSON",
+                answer.status.as_u16()
+            ),
+            Self::Timeout(timeout) => {
+                write!(f, "it did not answer within {:.1}s", timeout.as_secs_f64())
+            }
+        }
+    }
+}
+
+impl std::error::Error for ExchangeFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Trust(error) | Self::Resolve(error) | Self::Connect(error) | Self::Tls(error) => {
+                Some(error)
+            }
+            Self::TlsName(error) => Some(error),
+            Self::Request(error) => Some(error),
+            Self::Http(error) => Some(error),
+            Self::NonJson(answer) => Some(answer),
+            Self::NotLocal | Self::NoAddress | Self::TooLarge | Self::Timeout(_) => None,
+        }
+    }
 }
 
 impl Endpoint {
@@ -519,46 +660,94 @@ impl Endpoint {
         format!("{}://{}", self.transport.scheme(), self.authority)
     }
 
-    /// What to check when the server cannot be reached here, which depends on what named it.
-    const fn check(&self) -> &'static str {
-        match self.source {
-            EndpointSource::Given => {
-                "check that the server is running and that --endpoint names it"
+    /// A connection to the first address of the host that accepts one. Every address must be
+    /// local, and there may be at most eight, before any is tried.
+    async fn connect(&self) -> Result<tokio::net::TcpStream, ExchangeFailure> {
+        let addresses = tokio::net::lookup_host(self.authority.as_str())
+            .await
+            .map_err(ExchangeFailure::Resolve)?;
+        let mut checked = Vec::new();
+        for address in addresses {
+            if !is_local_address(address.ip()) || checked.len() == 8 {
+                return Err(ExchangeFailure::NotLocal);
             }
-            EndpointSource::Environment => {
-                "check that the server is running and that GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME give its address, or supply --endpoint"
+            checked.push(address);
+        }
+        let mut refused = None;
+        for address in checked {
+            match tokio::net::TcpStream::connect(address).await {
+                Ok(stream) => return Ok(stream),
+                Err(error) => refused = Some(error),
             }
         }
+        Err(refused.map_or(ExchangeFailure::NoAddress, ExchangeFailure::Connect))
     }
 
-    /// The failure to connect, which names the origin and what to check, keeping `cause`.
-    fn unreachable(&self, cause: io::Error) -> CliError {
-        let advice = fail(format!(
-            "Cannot connect to the synchronization server at {} ({cause}); {}",
-            self.origin(),
-            self.check()
-        ));
-        CliError::Unreachable(advice, cause)
-    }
-
-    /// A request that got no answer within `timeout`. The server may have accepted it, so the
-    /// advice says to inspect its status before retrying a control.
-    fn unanswered(&self, timeout: Duration) -> CliError {
-        let advice = fail(format!(
-            "The synchronization server at {} did not answer within {:.1}s; {}. A control it accepted may still be running, so inspect its status before retrying",
-            self.origin(),
-            timeout.as_secs_f64(),
-            self.check()
-        ));
-        let cause = io::Error::new(io::ErrorKind::TimedOut, "synchronization request timed out");
-        CliError::Unreachable(advice, cause)
+    /// The one failure of a request to this server: the origin, what went wrong with its cause,
+    /// and the setting to check, which depends on the failure and on what named the server.
+    fn failed(&self, failure: ExchangeFailure) -> CliError {
+        let named_by = self.source.named_by();
+        let instead = self.source.instead();
+        let check = match &failure {
+            ExchangeFailure::Trust(_) => "check that --ca-cert names a readable PEM certificate of the CA that issued the server's certificate".to_owned(),
+            ExchangeFailure::Resolve(_)
+            | ExchangeFailure::NotLocal
+            | ExchangeFailure::NoAddress
+            | ExchangeFailure::TlsName(_) => {
+                format!("check the address in {named_by}{instead}")
+            }
+            ExchangeFailure::Connect(_) | ExchangeFailure::Timeout(_) => {
+                format!("check that the server is running at the address in {named_by}{instead}")
+            }
+            ExchangeFailure::Tls(_) => format!(
+                "check that the server serves HTTPS, the scheme in {named_by}, and that --ca-cert names the CA that issued its certificate when it has its own{instead}"
+            ),
+            ExchangeFailure::Http(_) => format!(
+                "check that the server serves {}, the scheme in {named_by}{instead}",
+                self.transport.scheme().to_uppercase()
+            ),
+            ExchangeFailure::TooLarge | ExchangeFailure::NonJson(_) => {
+                format!("check that {named_by} names a gcs-mimic server{instead}")
+            }
+            ExchangeFailure::Request(_) => "report this as a defect of gcs-mimic".to_owned(),
+        };
+        // An answer that never arrived may still be on its way, unless what answered spoke
+        // another protocol: the server may have accepted the request.
+        let accepted = match &failure {
+            ExchangeFailure::Http(_) | ExchangeFailure::Timeout(_)
+                if !failure.reached_no_server() =>
+            {
+                ". A control it accepted may still be running, so inspect its status before retrying"
+            }
+            ExchangeFailure::Trust(_)
+            | ExchangeFailure::Resolve(_)
+            | ExchangeFailure::NotLocal
+            | ExchangeFailure::NoAddress
+            | ExchangeFailure::Connect(_)
+            | ExchangeFailure::TlsName(_)
+            | ExchangeFailure::Tls(_)
+            | ExchangeFailure::Request(_)
+            | ExchangeFailure::Http(_)
+            | ExchangeFailure::TooLarge
+            | ExchangeFailure::NonJson(_)
+            | ExchangeFailure::Timeout(_) => "",
+        };
+        let causes =
+            std::iter::successors(std::error::Error::source(&failure), |cause| cause.source())
+                .map(|cause| format!(" ({cause})"))
+                .collect::<String>();
+        let advice = fail(printable(&format!(
+            "Cannot use the synchronization server at {}: {failure}{causes}; {check}{accepted}",
+            self.origin()
+        )));
+        CliError::Unreachable(advice, failure)
     }
 
     /// The options that reach this endpoint again, as a suggested command spells them.
     fn options(&self) -> Vec<String> {
         let endpoint = match self.source {
             EndpointSource::Given => Some(format!("--endpoint {}", self.origin())),
-            EndpointSource::Environment => None,
+            EndpointSource::Environment | EndpointSource::Container => None,
         };
         let ca_cert = match &self.transport {
             Transport::Https {
@@ -570,45 +759,38 @@ impl Endpoint {
     }
 }
 
-/// The environment variable that selects a server config file, which this command never opens.
-const CONFIG_VARIABLE: &str = "GCS_MIMIC_CONFIG";
-
-/// The endpoint of the server that `environment` configures, found the way the healthcheck finds
-/// its server, through [`Config::local_origin`]. A config file could move the server, so an
-/// environment that selects one, which this command never opens, gives no endpoint.
+/// The endpoint of the server that `environment`, the config file it selects and `server_args`
+/// configure, found as the healthcheck finds its server, through [`local_server::origin`].
 fn configured_endpoint(
+    server_args: &[String],
     environment: Vec<(OsString, OsString)>,
-    ca_cert: Option<&str>,
+    ca_cert: Option<&Path>,
+    source: EndpointSource,
 ) -> Result<Endpoint, Diagnostics> {
     const SUPPLY: &str = "supply --endpoint http(s)://HOST:PORT";
-    if environment.iter().any(|(name, _)| name == CONFIG_VARIABLE) {
-        return Err(fail(format!(
-            "{CONFIG_VARIABLE} selects a config file, which sync does not open to find the server; {SUPPLY}"
-        )));
-    }
-    let report = Config::preflight_os(&[], environment);
-    let origin = report.config.local_origin();
-    if report.diagnostics.is_err() {
-        let mut errors = report.diagnostics.errors;
+    let origin = local_server::origin(server_args, environment).map_err(|unreliable| {
+        let mut errors = unreliable.diagnostics.errors;
         errors.push(Diagnostic::new(
             DiagnosticSource::Cli,
             "sync",
             format!(
-                "The server configuration in the environment has errors, so sync cannot rely on the endpoint it gives ({origin}); correct them or {SUPPLY}"
+                "The server configuration has errors, so sync cannot rely on the endpoint it gives ({}); correct them or {SUPPLY}",
+                unreliable.origin
             ),
         ));
-        return Err(Diagnostics {
+        Diagnostics {
             errors,
             ..Diagnostics::default()
-        });
-    }
-    endpoint(&origin, ca_cert, EndpointSource::Environment).map_err(|refusal| {
+        }
+    })?;
+    let named_by = source.named_by();
+    endpoint(&origin, ca_cert, source).map_err(|refusal| {
         fail(match refusal {
             EndpointRefusal::CaCertOverHttp => format!(
-                "--ca-cert requires an HTTPS endpoint, and the environment gives {origin}; set GCS_MIMIC_SCHEME as the server has it or {SUPPLY}"
+                "--ca-cert requires an HTTPS endpoint, and {named_by} gives {origin}; set GCS_MIMIC_SCHEME as the server has it or {SUPPLY}"
             ),
             EndpointRefusal::Unparsable | EndpointRefusal::NotBare => format!(
-                "The environment gives the endpoint {origin}, which sync cannot reach; set GCS_MIMIC_LISTEN as the server has it or {SUPPLY}"
+                "The endpoint {origin}, which {named_by} gives, is not one sync can reach; set GCS_MIMIC_LISTEN as the server has it or {SUPPLY}"
             ),
         })
     })
@@ -638,7 +820,8 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
         println!("{HELP}");
         return Ok(());
     }
-    let mut options = Options::parse(args, std::env::vars_os().collect())?;
+    let environment: Vec<_> = std::env::vars_os().collect();
+    let mut options = Options::parse(args, environment.clone())?;
     if options.token.is_none() {
         let name = variable.name();
         options.token = std::env::var_os(&name)
@@ -650,14 +833,7 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
             })
             .transpose()?;
     }
-    let reply = match (options.wait, &options.latest) {
-        (Some(unmapped), _) => {
-            let started = std::time::Instant::now();
-            options.wait_until_settled(unmapped, || started.elapsed())?
-        }
-        (None, Some(page)) => options.latest_page(page)?,
-        (None, None) => options.execute(&options.path, options.body.as_ref(), options.timeout)?,
-    };
+    let (endpoint, reply) = options.reply(environment)?;
     // The JSON document is printed whatever the outcome, as the command always has.
     let bytes = serde_json::to_vec(&reply.body).map_err(io::Error::other)?;
     let mut output = io::stdout().lock();
@@ -668,7 +844,7 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     if let Err(mismatch) = handshake::check(&reply.headers, handshake::Peer::Server) {
         return Err(fail(mismatch).into());
     }
-    let connection = options.connection();
+    let connection = options.connection(&endpoint);
     match options.wait {
         Some(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
         None if reply.status.is_success() => Ok(()),
@@ -883,10 +1059,10 @@ impl Options {
         if command == Some(Command::Approve) && flags.contains(Flag::Revision) {
             return Err(fail("sync approve takes --deletion-set REVISION, not --revision").into());
         }
-        let ca_cert = flags.take(Flag::CaCert);
+        let ca_cert = flags.take(Flag::CaCert).map(Path::new);
         let endpoint = match flags.take(Flag::Endpoint) {
             Some(value) => endpoint(value, ca_cert, EndpointSource::Given).map_err(fail)?,
-            None => configured_endpoint(environment, ca_cert)?,
+            None => configured_endpoint(&[], environment, ca_cert, EndpointSource::Environment)?,
         };
         let duration = flags.take(Flag::Timeout);
         if duration.is_some() && flags.contains(Flag::TimeoutMs) {
@@ -946,16 +1122,54 @@ impl Options {
         })
     }
 
-    /// The options that reach this server again, as a suggested command spells them: none when
-    /// the command found the server in the environment and needs no CA or token file.
-    fn connection(&self) -> String {
+    /// The options that reach `endpoint` again, as a suggested command spells them: none when
+    /// the command found the server without --endpoint and needs no CA or token file.
+    fn connection(&self, endpoint: &Endpoint) -> String {
         let token_file = self
             .token_file
             .as_ref()
             .map(|path| format!("--token-file {}", path.display()));
-        let mut options = self.endpoint.options();
+        let mut options = endpoint.options();
         options.extend(token_file);
         options.join(" ")
+    }
+
+    /// The command's answer, and the server that gave it. Without --endpoint that is the server
+    /// the configuration gives, or, when no request reached a server there, the one the
+    /// container's PID 1 runs, as the healthcheck finds it.
+    fn reply(&self, environment: Vec<(OsString, OsString)>) -> Result<(Endpoint, Reply), CliError> {
+        match self.endpoint.source {
+            EndpointSource::Environment => local_server::with_container_fallback(
+                self.endpoint.clone(),
+                |endpoint| self.answer(endpoint),
+                |error| matches!(error, CliError::Unreachable(_, failure) if failure.reached_no_server()),
+                |server_args| {
+                    let ca_cert = self.endpoint.transport.ca_cert();
+                    configured_endpoint(
+                        server_args,
+                        environment,
+                        ca_cert,
+                        EndpointSource::Container,
+                    )
+                    .map_err(CliError::from)
+                },
+            ),
+            EndpointSource::Given | EndpointSource::Container => {
+                Ok((self.endpoint.clone(), self.answer(&self.endpoint)?))
+            }
+        }
+    }
+
+    /// The answer of the command's requests to `endpoint`.
+    fn answer(&self, endpoint: &Endpoint) -> Result<Reply, CliError> {
+        match (self.wait, &self.latest) {
+            (Some(unmapped), _) => {
+                let started = std::time::Instant::now();
+                self.wait_until_settled(endpoint, unmapped, || started.elapsed())
+            }
+            (None, Some(page)) => self.latest_page(endpoint, page),
+            (None, None) => self.execute(endpoint, &self.path, self.body.as_ref(), self.timeout),
+        }
     }
 
     /// Asks the server to wait, at most a minute at a time, until the wait succeeds, ends for a
@@ -964,6 +1178,7 @@ impl Options {
     /// so standard output keeps one JSON answer.
     fn wait_until_settled(
         &self,
+        endpoint: &Endpoint,
         unmapped: UnmappedObjects,
         mut elapsed: impl FnMut() -> Duration,
     ) -> Result<Reply, CliError> {
@@ -976,6 +1191,7 @@ impl Options {
                 .clamp(Duration::from_millis(1), SERVER_WAIT);
             let millis = u64::try_from(slice.as_millis()).unwrap_or(u64::MAX);
             let reply = self.execute(
+                endpoint,
                 &self.path,
                 Some(&wait_body(unmapped, millis)),
                 slice + WAIT_MARGIN,
@@ -1008,16 +1224,20 @@ impl Options {
 
     /// Reads `page` at the revision that the status reports, and once more if that revision
     /// changed before the page was read, at the one the status then reports.
-    fn latest_page(&self, page: &LatestPage) -> Result<Reply, CliError> {
-        let reply = self.page_at_reported_revision(page)?;
+    fn latest_page(&self, endpoint: &Endpoint, page: &LatestPage) -> Result<Reply, CliError> {
+        let reply = self.page_at_reported_revision(endpoint, page)?;
         if reply.status == StatusCode::CONFLICT {
-            return self.page_at_reported_revision(page);
+            return self.page_at_reported_revision(endpoint, page);
         }
         Ok(reply)
     }
 
-    fn page_at_reported_revision(&self, page: &LatestPage) -> Result<Reply, CliError> {
-        let status = self.execute(STATUS_PATH, None, self.timeout)?;
+    fn page_at_reported_revision(
+        &self,
+        endpoint: &Endpoint,
+        page: &LatestPage,
+    ) -> Result<Reply, CliError> {
+        let status = self.execute(endpoint, STATUS_PATH, None, self.timeout)?;
         // A status the command cannot read a revision from is the answer: it is printed, and a
         // server of another release is reported as such.
         if !status.status.is_success()
@@ -1027,125 +1247,101 @@ impl Options {
         }
         let revision = page.view.revision_in(&status.body)?;
         let path = page.paging.path(Listing::View(page.view), Some(revision));
-        self.execute(&path, None, self.timeout)
+        self.execute(endpoint, &path, None, self.timeout)
     }
 
+    /// One request to `endpoint` and its answer, within `timeout`.
     fn execute(
         &self,
+        endpoint: &Endpoint,
         path: &str,
         body: Option<&Value>,
         timeout: Duration,
     ) -> Result<Reply, CliError> {
-        let client = match &self.endpoint.transport {
-            Transport::Https {
-                ca_cert: Some(path),
-            } => Some(tls::client_config(path)?),
-            Transport::Https { ca_cert: None } => Some(tls::development_client_config()?),
-            Transport::Http => None,
-        };
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
         let result = runtime.block_on(async {
-            tokio::time::timeout(timeout, async {
-                let addresses = tokio::net::lookup_host(self.endpoint.authority.as_str()).await?;
-                let mut checked = Vec::new();
-                for address in addresses {
-                    if !is_local_address(address.ip()) || checked.len() == 8 {
-                        return Err(CliError::from(fail(
-                            "Endpoint must resolve only to local addresses, at most eight",
-                        )));
-                    }
-                    checked.push(address);
-                }
-                let mut connected = None;
-                let mut refused = None;
-                for address in checked {
-                    match tokio::net::TcpStream::connect(address).await {
-                        Ok(stream) => {
-                            connected = Some(stream);
-                            break;
-                        }
-                        Err(error) => refused = Some(error),
-                    }
-                }
-                let stream = match (connected, refused) {
-                    (Some(stream), _) => stream,
-                    (None, Some(error)) => return Err(self.endpoint.unreachable(error)),
-                    (None, None) => return Err(fail("Endpoint has no local address").into()),
-                };
-                if let Some(client) = client {
-                    let name = tokio_rustls::rustls::pki_types::ServerName::try_from(
-                        self.endpoint.host.clone(),
-                    )
-                    .map_err(|_| fail("Invalid TLS hostname"))?;
-                    let stream = tokio_rustls::TlsConnector::from(client)
-                        .connect(name, stream)
-                        .await?;
-                    self.exchange(stream, path, body).await
-                } else {
-                    self.exchange(stream, path, body).await
-                }
-            })
-            .await
-            .map_err(|_| self.endpoint.unanswered(timeout))?
+            tokio::time::timeout(timeout, self.round_trip(endpoint, path, body))
+                .await
+                .unwrap_or(Err(ExchangeFailure::Timeout(timeout)))
         });
         // A timed-out resolver must not keep this one-shot command alive.
         runtime.shutdown_background();
-        result
+        result.map_err(|failure| endpoint.failed(failure))
+    }
+
+    async fn round_trip(
+        &self,
+        endpoint: &Endpoint,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Reply, ExchangeFailure> {
+        let client = endpoint.transport.client()?;
+        let stream = endpoint.connect().await?;
+        let Some(client) = client else {
+            return self.exchange(endpoint, stream, path, body).await;
+        };
+        let name = tokio_rustls::rustls::pki_types::ServerName::try_from(endpoint.host.clone())
+            .map_err(ExchangeFailure::TlsName)?;
+        let stream = tokio_rustls::TlsConnector::from(client)
+            .connect(name, stream)
+            .await
+            .map_err(ExchangeFailure::Tls)?;
+        self.exchange(endpoint, stream, path, body).await
     }
 
     async fn exchange(
         &self,
+        endpoint: &Endpoint,
         stream: impl AsyncRead + AsyncWrite + Unpin,
         path: &str,
         body: Option<&Value>,
-    ) -> Result<Reply, CliError> {
+    ) -> Result<Reply, ExchangeFailure> {
         let (mut sender, connection) = http1::Builder::new()
             .max_headers(64)
             .max_buf_size(16 * 1024)
             .handshake(TokioIo::new(stream))
             .await
-            .map_err(io::Error::other)?;
+            .map_err(ExchangeFailure::Http)?;
         let mut request = Request::builder()
             .method(if body.is_some() { "POST" } else { "GET" })
             .uri(path)
-            .header("Host", self.endpoint.authority.as_str())
+            .header("Host", endpoint.authority.as_str())
             .header("Connection", "close")
             .header("Accept", "application/json")
             .header(handshake::VERSION_HEADER, handshake::version());
         if let Some(token) = &self.token {
             request = request.header("Authorization", token);
         }
+        // A JSON value renders as JSON text, which cannot fail.
         let body = match body {
             Some(body) => {
                 request = request.header("Content-Type", "application/json");
-                serde_json::to_vec(body).map_err(io::Error::other)?
+                body.to_string()
             }
-            None => Vec::new(),
+            None => String::new(),
         };
         let request = request
             .body(Full::new(Bytes::from(body)))
-            .map_err(io::Error::other)?;
+            .map_err(ExchangeFailure::Request)?;
         let response = async {
             let response = sender
                 .send_request(request)
                 .await
-                .map_err(io::Error::other)?;
+                .map_err(ExchangeFailure::Http)?;
             let (head, mut body) = response.into_parts();
             let mut bytes = Vec::new();
             while let Some(frame) = body.frame().await {
-                if let Ok(data) = frame.map_err(io::Error::other)?.into_data() {
+                if let Ok(data) = frame.map_err(ExchangeFailure::Http)?.into_data() {
                     if data.len() > RESPONSE_LIMIT - bytes.len() {
-                        return Err(fail("Synchronization response exceeds 256 KiB").into());
+                        return Err(ExchangeFailure::TooLarge);
                     }
                     bytes.extend_from_slice(&data);
                 }
             }
-            // A non-JSON answer has no advice of its own, so it is reported generically.
-            let body = response_json(head.status, &bytes)
-                .map_err(|error| CliError::Io(io::Error::new(io::ErrorKind::InvalidData, error)))?;
-            Ok::<_, CliError>(Reply {
+            let body = response_json(head.status, &bytes).map_err(ExchangeFailure::NonJson)?;
+            Ok(Reply {
                 status: head.status,
                 body,
                 headers: head.headers,
@@ -1153,11 +1349,7 @@ impl Options {
         };
         // Driving both futures locally avoids an unobserved connection task.
         let (_, response) = tokio::try_join!(
-            async {
-                connection
-                    .await
-                    .map_err(|error| CliError::Io(io::Error::other(error)))
-            },
+            async { connection.await.map_err(ExchangeFailure::Http) },
             response
         )?;
         Ok(response)
@@ -1165,7 +1357,7 @@ impl Options {
 }
 
 #[derive(Debug)]
-struct NonJsonResponse {
+pub(super) struct NonJsonResponse {
     status: StatusCode,
     cause: serde_json::Error,
 }
@@ -1346,7 +1538,7 @@ impl std::fmt::Display for EndpointRefusal {
 /// needs the HTTPS scheme, which is checked after the origin itself.
 fn endpoint(
     value: &str,
-    ca_cert: Option<&str>,
+    ca_cert: Option<&Path>,
     source: EndpointSource,
 ) -> Result<Endpoint, EndpointRefusal> {
     enum Scheme {
@@ -1374,7 +1566,7 @@ fn endpoint(
         (Scheme::Http, None) => Transport::Http,
         (Scheme::Http, Some(_)) => return Err(EndpointRefusal::CaCertOverHttp),
         (Scheme::Https, ca_cert) => Transport::Https {
-            ca_cert: ca_cert.map(PathBuf::from),
+            ca_cert: ca_cert.map(Path::to_path_buf),
         },
     };
     Ok(Endpoint {

@@ -65,7 +65,7 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
         // endpoint found in the environment.
         (
             vec!["stop", "--ca-cert", "ca"],
-            "--ca-cert requires an HTTPS endpoint, and the environment gives http://127.0.0.1:4443; set GCS_MIMIC_SCHEME as the server has it or supply --endpoint http(s)://HOST:PORT",
+            "--ca-cert requires an HTTPS endpoint, and the server configuration (GCS_MIMIC_LISTEN, GCS_MIMIC_SCHEME or the config file GCS_MIMIC_CONFIG selects) gives http://127.0.0.1:4443; set GCS_MIMIC_SCHEME as the server has it or supply --endpoint http(s)://HOST:PORT",
         ),
         (
             vec!["stop"],
@@ -496,31 +496,43 @@ fn local_endpoints_reject_credential_redirect_and_metadata_targets() {
     assert!(parse_cmd(&["status", "--timeout-ms", "60001"]).is_err());
 }
 
-/// Without --endpoint, the command controls the server that the environment configures, as the
+/// Without --endpoint, the command controls the server that the configuration gives, as the
 /// healthcheck finds it, and the commands it advises leave the endpoint out. An explicit endpoint
-/// wins. A config file, which the command does not open, a configuration with errors and an
-/// origin the command cannot reach each say what to supply instead.
-/// A server that does not listen, or that never answers, fails the command with the URL it
-/// tried and what to check, which names the environment when that gave the endpoint, keeping
-/// the I/O failure as the cause. A refused request names the server's message, whose commands
-/// get the options that reached the server.
+/// wins. A configuration with errors and an origin the command cannot reach each say what to
+/// supply instead.
+/// Every way one request can fail to get an answer the command reads, from a server that does
+/// not listen, speaks another protocol, answers too much or nothing at all, fails the command
+/// with the URL it tried, what went wrong with its cause, and the setting to check, which names
+/// the configuration when that gave the endpoint, keeping the typed failure as the cause. A
+/// refused request names the server's message, whose commands get the options that reached the
+/// server.
 #[test]
 fn a_failed_request_names_the_url_it_tried_and_the_servers_message() {
-    let unreachable = |options: &Options, timeout| match options.execute(STATUS_PATH, None, timeout)
-    {
-        Err(CliError::Unreachable(advice, cause)) => (advice.errors[0].fix.clone(), cause.kind()),
+    let failed = |options: &Options, timeout| match options.execute(
+        &options.endpoint,
+        STATUS_PATH,
+        None,
+        timeout,
+    ) {
+        Err(CliError::Unreachable(advice, failure)) => (advice.errors[0].fix.clone(), failure),
         Err(error) => panic!("{error:?}"),
         Ok(reply) => panic!("answered: {}", reply.body),
     };
     let closed = parse(&["status", "--endpoint", "http://127.0.0.1:1"]).unwrap();
-    let (fix, cause) = unreachable(&closed, Duration::from_secs(5));
-    assert_eq!(cause, io::ErrorKind::ConnectionRefused);
+    let (fix, failure) = failed(&closed, Duration::from_secs(5));
     assert!(
-        fix.starts_with("Cannot connect to the synchronization server at http://127.0.0.1:1 ("),
+        matches!(&failure, ExchangeFailure::Connect(cause) if cause.kind() == io::ErrorKind::ConnectionRefused),
+        "{failure:?}"
+    );
+    assert!(failure.reached_no_server());
+    assert!(
+        fix.starts_with(
+            "Cannot use the synchronization server at http://127.0.0.1:1: the connection failed ("
+        ),
         "{fix}"
     );
     assert!(
-        fix.ends_with("); check that the server is running and that --endpoint names it"),
+        fix.ends_with("); check that the server is running at the address in --endpoint"),
         "{fix}"
     );
     let configured = Options::parse(
@@ -531,23 +543,27 @@ fn a_failed_request_names_the_url_it_tried_and_the_servers_message() {
         )],
     )
     .unwrap();
-    let (fix, _) = unreachable(&configured, Duration::from_secs(5));
+    let (fix, _) = failed(&configured, Duration::from_secs(5));
     assert!(
         fix.ends_with(
-            "check that the server is running and that GCS_MIMIC_LISTEN and GCS_MIMIC_SCHEME give its address, or supply --endpoint"
+            "check that the server is running at the address in the server configuration (GCS_MIMIC_LISTEN, GCS_MIMIC_SCHEME or the config file GCS_MIMIC_CONFIG selects), or supply --endpoint"
         ),
         "{fix}"
     );
     let silent = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", silent.local_addr().unwrap());
     let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
-    let (fix, cause) = unreachable(&options, Duration::from_millis(200));
+    let (fix, failure) = failed(&options, Duration::from_millis(200));
     drop(silent);
-    assert_eq!(cause, io::ErrorKind::TimedOut);
+    assert!(
+        matches!(failure, ExchangeFailure::Timeout(_)),
+        "{failure:?}"
+    );
+    assert!(!failure.reached_no_server());
     assert_eq!(
         fix,
         format!(
-            "The synchronization server at {endpoint} did not answer within 0.2s; check that the server is running and that --endpoint names it. A control it accepted may still be running, so inspect its status before retrying"
+            "Cannot use the synchronization server at {endpoint}: it did not answer within 0.2s; check that the server is running at the address in --endpoint. A control it accepted may still be running, so inspect its status before retrying"
         )
     );
 
@@ -587,10 +603,10 @@ fn without_an_endpoint_the_command_controls_the_server_the_environment_configure
     let options = parse_in(&["status"], &[]).unwrap();
     assert_eq!(options.endpoint.authority.as_str(), "127.0.0.1:4443");
     assert!(matches!(options.endpoint.transport, Transport::Http));
-    assert_eq!(options.connection(), "");
+    assert_eq!(options.connection(&options.endpoint), "");
     let paused = json!({"reason":"Paused","paused_reason":"IoFailure",
         "remedy":"Restore access; then resume synchronization: gcs-mimic sync rescan --endpoint URL"});
-    let advice = WaitOutcome::read(&paused).advice(&options.connection());
+    let advice = WaitOutcome::read(&paused).advice(&options.connection(&options.endpoint));
     assert!(
         advice.errors[0]
             .fix
@@ -608,48 +624,59 @@ fn without_an_endpoint_the_command_controls_the_server_the_environment_configure
         options.endpoint.transport,
         Transport::Https { ca_cert: Some(_) }
     ));
-    assert_eq!(options.connection(), "--ca-cert ca.pem");
-    let config = [("GCS_MIMIC_CONFIG", "server.json")];
+    assert_eq!(options.connection(&options.endpoint), "--ca-cert ca.pem");
+    // The config file the environment selects moves the server, as it does for the healthcheck.
+    let inputs = crate::test_support::TestDir::new();
+    let file = inputs.0.join("server.json");
+    std::fs::write(&file, r#"{"scheme":"https","listen":"0.0.0.0:9443"}"#).unwrap();
+    let config = [("GCS_MIMIC_CONFIG", file.to_str().unwrap())];
+    let options = parse_in(&["status"], &config).unwrap();
+    assert_eq!(options.endpoint.origin(), "https://127.0.0.1:9443");
+    assert_eq!(options.connection(&options.endpoint), "");
     let options = parse_in(&["status", "--endpoint", "http://127.0.0.1:4000"], &config).unwrap();
-    assert_eq!(options.connection(), "--endpoint http://127.0.0.1:4000");
+    assert_eq!(
+        options.connection(&options.endpoint),
+        "--endpoint http://127.0.0.1:4000"
+    );
 
     let supply = "supply --endpoint http(s)://HOST:PORT";
-    for (environment, fix) in [
+    let Err(CliError::Diagnostics(refused)) =
+        parse_in(&["status"], &[("GCS_MIMIC_LISTEN", "127.0.0.1:0")])
+    else {
+        panic!("an endpoint without a port was accepted");
+    };
+    assert_eq!(
+        refused
+            .errors
+            .iter()
+            .map(|error| &error.fix)
+            .collect::<Vec<_>>(),
+        [&format!(
+            "The endpoint http://127.0.0.1:0, which the server configuration (GCS_MIMIC_LISTEN, GCS_MIMIC_SCHEME or the config file GCS_MIMIC_CONFIG selects) gives, is not one sync can reach; set GCS_MIMIC_LISTEN as the server has it or {supply}"
+        )]
+    );
+    for (environment, key) in [
+        (&[("GCS_MIMIC_LISTEN", "garbage")], "GCS_MIMIC_LISTEN"),
         (
-            config.as_slice(),
-            format!(
-                "GCS_MIMIC_CONFIG selects a config file, which sync does not open to find the server; {supply}"
-            ),
-        ),
-        (
-            &[("GCS_MIMIC_LISTEN", "127.0.0.1:0")],
-            format!(
-                "The environment gives the endpoint http://127.0.0.1:0, which sync cannot reach; set GCS_MIMIC_LISTEN as the server has it or {supply}"
-            ),
+            &[("GCS_MIMIC_CONFIG", "missing-config.json")],
+            "GCS_MIMIC_CONFIG",
         ),
     ] {
         let Err(CliError::Diagnostics(refused)) = parse_in(&["status"], environment) else {
-            panic!("{environment:?}: refused without a diagnostic");
+            panic!("{environment:?}: a configuration with errors was relied on");
         };
-        assert_eq!(refused.errors.len(), 1, "{refused:?}");
-        assert_eq!(refused.errors[0].fix, fix);
+        let [setting, endpoint] = refused.errors.as_slice() else {
+            panic!("the setting and the endpoint expected: {refused:?}");
+        };
+        assert_eq!(setting.key, key);
+        assert!(
+            endpoint
+                .fix
+                .starts_with("The server configuration has errors"),
+            "{endpoint:?}"
+        );
+        assert!(endpoint.fix.ends_with(supply), "{endpoint:?}");
     }
-    let Err(CliError::Diagnostics(refused)) =
-        parse_in(&["status"], &[("GCS_MIMIC_LISTEN", "garbage")])
-    else {
-        panic!("a listen address that does not parse was accepted");
-    };
-    let [setting, endpoint] = refused.errors.as_slice() else {
-        panic!("the setting and the endpoint expected: {refused:?}");
-    };
-    assert_eq!(setting.key, "GCS_MIMIC_LISTEN");
-    assert!(
-        endpoint
-            .fix
-            .starts_with("The server configuration in the environment has errors"),
-        "{endpoint:?}"
-    );
-    assert!(endpoint.fix.ends_with(supply), "{endpoint:?}");
 }
 
 fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, String) {
@@ -672,7 +699,12 @@ fn mock_response(response: Vec<u8>) -> (Result<(StatusCode, Value), CliError>, S
     });
     let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
     let result = options
-        .execute(&options.path, options.body.as_ref(), options.timeout)
+        .execute(
+            &options.endpoint,
+            &options.path,
+            options.body.as_ref(),
+            options.timeout,
+        )
         .map(|reply| (reply.status, reply.body));
     (result, peer.join().unwrap())
 }
@@ -741,7 +773,7 @@ fn a_view_without_a_revision_lists_the_page_at_the_revision_status_reports() {
     .unwrap();
     assert_eq!(options.path, "/_internal/sync");
     let page = options.latest.as_ref().unwrap();
-    let reply = options.latest_page(page).unwrap();
+    let reply = options.latest_page(&options.endpoint, page).unwrap();
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(reply.body["revision"], newer);
     assert_eq!(
@@ -757,7 +789,8 @@ fn a_view_without_a_revision_lists_the_page_at_the_revision_status_reports() {
     let (endpoint, server) =
         page_server(vec![("200 OK", json!({"pending_deletion_revision":null}))]);
     let options = parse(&["deletions", "--endpoint", &endpoint]).unwrap();
-    let Err(CliError::Diagnostics(refused)) = options.latest_page(options.latest.as_ref().unwrap())
+    let Err(CliError::Diagnostics(refused)) =
+        options.latest_page(&options.endpoint, options.latest.as_ref().unwrap())
     else {
         panic!("a deletion view without a pending set must be refused with a diagnostic");
     };
@@ -858,7 +891,7 @@ fn wait_for_150s(endpoint: &str, elapsed: &[u64]) -> Reply {
     let options = parse(&["wait", "--endpoint", endpoint, "--timeout", "150s"]).unwrap();
     let mut elapsed = elapsed.iter().map(|seconds| Duration::from_secs(*seconds));
     options
-        .wait_until_settled(options.wait.unwrap(), || {
+        .wait_until_settled(&options.endpoint, options.wait.unwrap(), || {
             elapsed
                 .next()
                 .expect("the wait read the clock more often than expected")
@@ -1113,11 +1146,14 @@ fn wait_advice_names_the_command_to_run_next() {
     ])
     .unwrap();
     assert_eq!(
-        options.connection(),
+        options.connection(&options.endpoint),
         format!("--endpoint https://127.0.0.1:4443 --ca-cert ca.pem --token-file {token}")
     );
     let options = parse(&["wait", "--endpoint", "http://127.0.0.1:4443"]).unwrap();
-    assert_eq!(options.connection(), "--endpoint http://127.0.0.1:4443");
+    assert_eq!(
+        options.connection(&options.endpoint),
+        "--endpoint http://127.0.0.1:4443"
+    );
 }
 
 /// Every command that advice can name parses as this command line once the options that
@@ -1284,20 +1320,89 @@ fn non_json_responses_keep_the_status_without_echoing_the_body() {
     }
 }
 
+/// An oversized, truncated or non-JSON answer, and a server that does not speak the TLS the
+/// command speaks, each fail with their own failure, the URL and what to check. Only the
+/// failures that reached no server that could act on the request let another server be tried.
 #[test]
-fn wire_client_rejects_oversized_and_truncated_responses() {
+fn wire_client_rejects_oversized_truncated_and_foreign_responses() {
+    let failed = |response: Vec<u8>| match mock_response(response).0 {
+        Err(CliError::Unreachable(advice, failure)) => (advice.errors[0].fix.clone(), failure),
+        other => panic!("{other:?}"),
+    };
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         RESPONSE_LIMIT + 1
     )
     .into_bytes();
     response.extend(vec![b' '; RESPONSE_LIMIT + 1]);
-    assert!(mock_response(response).0.is_err());
+    let (fix, failure) = failed(response);
+    assert!(matches!(failure, ExchangeFailure::TooLarge), "{failure:?}");
     assert!(
-        mock_response(
-            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{}".to_vec()
-        )
-        .0
-        .is_err()
+        fix.ends_with(
+            ": its answer exceeds 256 KiB; check that --endpoint names a gcs-mimic server"
+        ),
+        "{fix}"
+    );
+    let (fix, failure) =
+        failed(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{}".to_vec());
+    assert!(matches!(failure, ExchangeFailure::Http(_)), "{failure:?}");
+    assert!(fix.contains(": the HTTP exchange failed ("), "{fix}");
+    assert!(
+        fix.ends_with("so inspect its status before retrying"),
+        "{fix}"
+    );
+    let (fix, failure) = failed(
+        b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 5\r\nConnection: close\r\n\r\nproxy".to_vec(),
+    );
+    assert!(
+        matches!(failure, ExchangeFailure::NonJson(_)),
+        "{failure:?}"
+    );
+    assert!(!failure.reached_no_server());
+    assert!(
+        fix.contains(": it answered HTTP 502 with a body that is not JSON ("),
+        "{fix}"
+    );
+    assert!(!fix.contains("proxy"), "{fix}");
+    // A TLS server answers a plain HTTP request with an alert, so it cannot have acted on it.
+    let (fix, failure) = failed(b"\x15\x03\x03\x00\x02\x02\x46".to_vec());
+    assert!(
+        matches!(&failure, ExchangeFailure::Http(error) if error.is_parse()),
+        "{failure:?}"
+    );
+    assert!(failure.reached_no_server());
+    assert!(
+        fix.ends_with(": the HTTP exchange failed (invalid HTTP version parsed); check that the server serves HTTP, the scheme in --endpoint"),
+        "{fix}"
+    );
+
+    // A plain HTTP server, reached over HTTPS.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("https://{}", listener.local_addr().unwrap());
+    let peer = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    });
+    let options = parse(&["status", "--endpoint", &endpoint]).unwrap();
+    let Err(CliError::Unreachable(advice, failure)) =
+        options.execute(&options.endpoint, STATUS_PATH, None, Duration::from_secs(5))
+    else {
+        panic!("a plain HTTP server answered over HTTPS");
+    };
+    peer.join().unwrap();
+    assert!(matches!(failure, ExchangeFailure::Tls(_)), "{failure:?}");
+    assert!(failure.reached_no_server());
+    let fix = &advice.errors[0].fix;
+    assert!(
+        fix.starts_with(&format!(
+            "Cannot use the synchronization server at {endpoint}: the TLS handshake failed ("
+        )),
+        "{fix}"
+    );
+    assert!(
+        fix.ends_with(
+            "check that the server serves HTTPS, the scheme in --endpoint, and that --ca-cert names the CA that issued its certificate when it has its own"
+        ),
+        "{fix}"
     );
 }

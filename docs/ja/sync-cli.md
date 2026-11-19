@@ -5,7 +5,7 @@
 [English](../en/slices/sync-cli.md) · [機能表](feature-matrix.md)
 
 0.8.0で追加した`sync`コマンドは、稼働中サーバーの管理APIへ接続します。
-別プロセスからdata_dirやサーバーの設定ファイルを開かず、サーバーの設定や権限を変更しません。
+別プロセスからdata_dirを開かず、サーバーの設定や権限を変更しません。サーバーの設定ファイルは、endpointを省略したときにサーバーを探すためだけに読みます。
 DESIGN-072・DESIGN-074全体はPARTIALです。0.7.0以前にはこのCLIはありません。
 
 ```sh
@@ -52,10 +52,13 @@ CLIでは競合に`--conflict ID --revision REV --action restore|discard --expec
 discardの前に必要なbackupを保持してください。同じoperation_idで異なる入力を再送すると失敗します。
 応答が途切れても、受け付け済みの操作が取り消されたとは限りません。
 
-`--endpoint`を省略すると、`gcs-mimic healthcheck`と同じ方法で、環境変数が指すサーバーを操作します。
-`GCS_MIMIC_LISTEN`と`GCS_MIMIC_SCHEME`（`both`では`GCS_MIMIC_LISTEN_HTTP`も）から求め、HTTPを受け付けるlistenerがあればHTTPを使い、ワイルドカードのlistenアドレスはloopbackで接続します。
-`GCS_MIMIC_CONFIG`が選ぶ設定ファイルは開きません。この変数があるとき、環境のサーバー設定に誤りがあるとき、接続できないoriginになるときは、`--endpoint`の指定を求めて失敗します。
+`--endpoint`を省略すると、`gcs-mimic healthcheck`と同じコードで探したサーバーを操作します。
+`GCS_MIMIC_LISTEN`と`GCS_MIMIC_SCHEME`（`both`では`GCS_MIMIC_LISTEN_HTTP`も）、`GCS_MIMIC_CONFIG`が選ぶ設定ファイルから求め、HTTPを受け付けるlistenerがあればHTTPを使い、ワイルドカードのlistenアドレスはloopbackで接続します。
+そこでどのサーバーにも要求が届かなかったとき（何も待ち受けていない、または応答がTLSでもHTTPでもない）は、コンテナのPID 1で動くgcs-mimicサーバーのオプションが示すサーバーで1回だけ試し直します。`docker run IMAGE --scheme https`のように指定したオプションは、`docker exec`の環境変数には現れないためです。時間切れのように、サーバーに届いたかもしれない要求は送り直しません。
+設定に誤りがあるとき、接続できないoriginになるときは、`--endpoint`の指定を求めて失敗します。
 明示した`--endpoint`が常に優先します。省略したときにCLIが示すコマンドも`--endpoint`を省きます。サーバーのログと応答の対処文は`--endpoint URL`のプレースホルダーのままです。
+
+読める応答が得られなかった要求は、試したURL、何が起きたかとその原因（名前解決、接続、TLSのハンドシェイク、HTTPのやり取りの失敗、大きすぎる応答、JSONでない応答、時間切れ）、確かめる設定（`--endpoint`、またはサーバーを決めた設定）を示して失敗します。時間切れとHTTPのやり取りの失敗では、受け付けられた操作がまだ動いているかもしれないことも示します。
 
 `--endpoint`はポート付きのHTTP(S) originです。パス・query・認証情報を含めません。
 名前解決した全アドレスがloopback、RFC1918 IPv4、IPv6 unique-localのいずれかである必要があります。
