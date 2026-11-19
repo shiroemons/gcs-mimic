@@ -154,17 +154,13 @@ impl Held {
 
     /// What the snapshot at `step` holds: the private API copy until installation moves it,
     /// and at the target the directory until a sync of the target's parent makes its removal
-    /// durable. One does before the rename's checkpoint, so a power loss that undoes the rename
-    /// leaves the name free.
+    /// durable. The rename's own parent syncs make both durable before its checkpoint.
     fn expected(step: Step, crash: Crash) -> (usize, Self) {
         match (step, crash) {
             (Step::SyncEmptyDirectoryRemove, _)
             | (Step::SyncEmptyDirectoryRemoved, Crash::PowerLoss) => (1, Self::Directory),
-            (Step::SyncEmptyDirectoryRemoved, Crash::Abort)
-            | (Step::SyncCopyRenamed, Crash::PowerLoss) => (1, Self::Missing),
-            (Step::SyncCopyRenamed, Crash::Abort) | (Step::SyncCopyInstalled, _) => {
-                (0, Self::Object)
-            }
+            (Step::SyncEmptyDirectoryRemoved, Crash::Abort) => (1, Self::Missing),
+            (Step::SyncCopyRenamed | Step::SyncCopyInstalled, _) => (0, Self::Object),
             (step, _) => panic!("no removal checkpoint: {step:?}"),
         }
     }
@@ -175,8 +171,8 @@ impl Held {
 /// restart: no conflict, `sync wait` succeeds and the object stands where the directory was. A
 /// power loss that undoes the removal leaves the empty directory, which the restart's
 /// reconciliation removes the same way. The snapshot holds exactly what each checkpoint
-/// promises. The removal's own sync of the parent is not observable here: the rename syncs the
-/// same directory before any later checkpoint, so removing that sync passes this test.
+/// promises. The removal's own sync of the parent is not observable here: the rename's call syncs
+/// the same directory before any later checkpoint, so removing that sync passes this test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn crashes_and_power_losses_around_the_removal_recover_to_the_api_state() {
     for step in [

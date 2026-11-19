@@ -54,38 +54,26 @@ impl Paths {
         fault::truncated(&self.tree, &file.metadata()?);
         Ok(())
     }
-    /// Records the rename installation just made for `item`, which `outcome` reports, and stops
-    /// at the step before the directory syncs that make it durable. Installation records it only
-    /// after `fsutil::durable_replace_between` returns, so the model leaves it volatile until
-    /// installation's own syncs, and a test detects one of them missing; the syncs inside that
-    /// call have their own seams, which `fsutil` tests check.
-    pub(super) fn renamed(
-        &self,
-        item: &Pending,
-        outcome: &fsutil::ReplaceOutcome,
-    ) -> Result<(), Error> {
+    /// Records that the copy step created `item`'s private entry, which stays volatile until the
+    /// workspace is synced.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            clippy::unused_self,
+            reason = "only Unix models new entries under the fault roots"
+        )
+    )]
+    pub(super) fn copy_created(&self, item: &Pending) {
         #[cfg(unix)]
-        {
-            let copy = self.copy(item);
-            let target = self.tree.join(&item.path);
-            match (item.kind, outcome) {
-                (Kind::Publish, fsutil::ReplaceOutcome::Created) => fault::moved(&copy, &target),
-                // A conflicting exchange has swapped the names all the same.
-                (
-                    Kind::Publish,
-                    fsutil::ReplaceOutcome::Replaced { .. }
-                    | fsutil::ReplaceOutcome::Conflict { .. },
-                ) => fault::exchanged(&copy, &target),
-                (Kind::Remove, fsutil::ReplaceOutcome::Created) => fault::moved(&target, &copy),
-                (
-                    Kind::Remove,
-                    fsutil::ReplaceOutcome::Replaced { .. }
-                    | fsutil::ReplaceOutcome::Conflict { .. },
-                ) => panic!("a removal moves its target without replacing anything: {outcome:?}"),
-            }
-        }
+        fault::file_created(&self.copy(item));
         #[cfg(not(unix))]
-        let _ = (item, outcome);
+        let _ = item;
+    }
+
+    /// Stops at the step after installation's rename. `fsutil::durable_replace_between` records
+    /// the rename in the model before the parent syncs inside it, so a power loss here keeps the
+    /// rename only when those syncs ran.
+    pub(super) fn renamed(&self) -> Result<(), Error> {
         self.hit(Step::SyncCopyRenamed)
     }
 

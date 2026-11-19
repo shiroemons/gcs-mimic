@@ -55,15 +55,15 @@ impl Change {
     }
 
     /// The bytes in the private workspace entry and at the target that the snapshot at `step`
-    /// holds.
+    /// holds. The parent syncs inside the rename's call make it durable before its checkpoint;
+    /// when one of them failed, a power loss undoes the rename whole.
     fn snapshot(self, step: Step, crash: Crash) -> (Option<&'static [u8]>, Option<&'static [u8]>) {
         match (step, crash) {
-            // Before installation, or after a power loss undid the volatile rename whole.
-            (Step::SyncCopyDurable, _) | (Step::SyncCopyRenamed, Crash::PowerLoss) => {
+            (Step::SyncCopyDurable, _) | (Step::SyncCopyFailed, Crash::PowerLoss) => {
                 (self.after(), self.before())
             }
-            // An abort keeps the rename, with the displaced or removed body not yet unlinked.
-            (Step::SyncCopyRenamed, Crash::Abort) => (self.before(), self.after()),
+            // The rename stands, with the displaced or removed body not yet unlinked.
+            (Step::SyncCopyRenamed | Step::SyncCopyFailed, _) => (self.before(), self.after()),
             (Step::SyncCopyInstalled | Step::SyncCopyCommit, _) => (None, self.after()),
             (step, _) => panic!("no installation checkpoint: {step:?}"),
         }
@@ -211,6 +211,27 @@ async fn assert_converged(started: &Started, bucket: &BucketName, expected: Opti
     assert!(workspace_bodies(tree).is_empty());
 }
 
+/// Fails the syncs inside a replacement's call of one directory until it drops, also when the test
+/// panics, without touching the directories other tests running at the same time make fail.
+struct FailingSync((u64, u64));
+
+impl FailingSync {
+    fn of(directory: &Path) -> Self {
+        let identity = fsutil::stat_identity(&fs::File::open(directory).unwrap()).unwrap();
+        let failing = (identity.device, identity.inode);
+        fsutil::FAIL_REPLACE_SYNC.lock().unwrap().push(failing);
+        Self(failing)
+    }
+}
+
+impl Drop for FailingSync {
+    fn drop(&mut self) {
+        if let Ok(mut failing) = fsutil::FAIL_REPLACE_SYNC.lock() {
+            failing.retain(|directory| *directory != self.0);
+        }
+    }
+}
+
 /// The tree and catalog left by a crash or power loss during an export, restored from the
 /// snapshot it took.
 struct Crashed {
@@ -227,12 +248,25 @@ impl Crashed {
     /// Crashes or loses power at `step` of `change`'s export and restores the snapshot, checking
     /// that it holds exactly the state the checkpoint promises.
     async fn at(change: Change, step: Step, crash: Crash) -> Self {
-        let case = format!("{change:?} {step:?} {crash:?}");
+        Self::run(change, step, crash, None).await
+    }
+
+    /// Like [`Self::at`] at [`Step::SyncCopyFailed`], after the export failed because the sync of
+    /// `failing`, a parent of the rename, failed inside the rename's call.
+    async fn failing(change: Change, failing: &str, crash: Crash) -> Self {
+        Self::run(change, Step::SyncCopyFailed, crash, Some(failing)).await
+    }
+
+    async fn run(change: Change, step: Step, crash: Crash, failing: Option<&str>) -> Self {
+        let case = format!("{change:?} {step:?} {crash:?} {failing:?}");
         let (data, tree, catalog, bucket, _) = live_fixture().await;
         let before = match change.before() {
             Some(body) => Some(publish_origin(&catalog, &bucket, body, Origin::Api).await),
             None => None,
         };
+        if failing.is_some() {
+            fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
+        }
         let mut started = Started::start(catalog, &data.0, &tree.0).await;
         assert_eq!(
             fs::read(tree.0.join(TARGET)).ok().as_deref(),
@@ -244,12 +278,14 @@ impl Crashed {
         started
             .catalog
             .inject(step, 0, Fault::Snapshot(snapshot_data.clone()));
+        let failing_sync = failing.map(|failing| FailingSync::of(&tree.0.join(failing)));
         let api = change_api(&started.catalog, &bucket, change, before.as_ref()).await;
-        assert_eq!(
-            started.wait().await.unwrap().reason,
-            WaitReason::Ready,
-            "{case}"
-        );
+        let waited = started.wait().await;
+        drop(failing_sync);
+        match failing {
+            None => assert_eq!(waited.unwrap().reason, WaitReason::Ready, "{case}"),
+            Some(_) => assert!(waited.is_err(), "{case}"),
+        }
         assert_eq!(fault::pending(&tree.0), 0, "{case}");
         assert_eq!(started.catalog.pending_faults(), 0, "{case}");
         started.close().await;
@@ -309,7 +345,8 @@ impl Crashed {
 /// the API copy or the tracked body the rename displaced or removed, which recovery reclaims. The
 /// restart recovers write-back, rescans and reconciles, `sync wait` succeeds, and the target
 /// converges to the API state. The snapshot holds exactly the state the checkpoint promises, so
-/// dropping one of installation's directory syncs fails this test.
+/// dropping the copy step's workspace sync, either parent sync inside the rename's call or the
+/// workspace sync after the unlink fails this test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn installation_crashes_and_power_losses_recover_to_the_api_state() {
     for change in Change::ALL {
@@ -325,19 +362,41 @@ async fn installation_crashes_and_power_losses_recover_to_the_api_state() {
     }
 }
 
+/// A parent sync that fails inside the rename's call leaves the rename volatile. A crash or power
+/// loss right after the failed attempt, before the failure is recorded, recovers to the API state
+/// on restart without a conflict: a power loss undoes the rename whole, so the private entry holds
+/// the API copy again, and an abort keeps the rename with the displaced or removed body in the
+/// entry. Recovery reclaims either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly() {
+    for change in Change::ALL {
+        for failing in [mapping::WORKSPACE, "test-bucket"] {
+            for &crash in Crash::ALL {
+                let case = format!("{change:?} {failing} {crash:?}");
+                Crashed::failing(change, failing, crash)
+                    .await
+                    .recovers_cleanly(&case)
+                    .await;
+            }
+        }
+    }
+}
+
 /// Recovery reclaims a private entry only when it holds exactly the API copy or the tracked body.
 /// One changed byte in the API copy, in the body an overwrite displaced or in the body a removal
 /// moved aside keeps it protected: the restart moves it into the conflict store and reports it,
-/// and the target still converges to the API state.
+/// and the target still converges to the API state. The API copy stays in an armed export's entry
+/// when a power loss undoes a rename whose parent sync failed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_entry_one_byte_off_stays_protected_through_restart() {
-    for (change, crash) in [
-        (Change::Create, Crash::PowerLoss),
-        (Change::Overwrite, Crash::Abort),
-        (Change::Remove, Crash::Abort),
-    ] {
-        let case = format!("{change:?} {crash:?}");
-        let crashed = Crashed::at(change, Step::SyncCopyRenamed, crash).await;
+    for change in Change::ALL {
+        let case = format!("{change:?}");
+        let crashed = match change {
+            Change::Create => Crashed::failing(change, "test-bucket", Crash::PowerLoss).await,
+            Change::Overwrite | Change::Remove => {
+                Crashed::at(change, Step::SyncCopyRenamed, Crash::Abort).await
+            }
+        };
         let entry = operation_entries(&crashed.tree.0.join(mapping::WORKSPACE))
             .into_iter()
             .next()
@@ -391,14 +450,15 @@ async fn a_tracked_body_with_another_modification_time_stays_protected_through_r
 /// A crash or power loss while recovery reclaims a private entry, at each of its unlink, sync and
 /// completion boundaries, leaves a state the next restart reclaims the same way: no conflict,
 /// `sync wait` succeeds and the target converges. The two cases reclaim the API copy that a power
-/// loss kept from installation and the tracked body an overwrite displaced.
+/// loss put back after a parent sync failed inside the rename's call, and the tracked body an
+/// overwrite displaced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() {
-    for (change, crash) in [
-        (Change::Overwrite, Crash::PowerLoss),
-        (Change::Overwrite, Crash::Abort),
+    for (step, crash, failing) in [
+        (Step::SyncCopyFailed, Crash::PowerLoss, Some("test-bucket")),
+        (Step::SyncCopyRenamed, Crash::Abort, None),
     ] {
-        for step in [
+        for again_at in [
             Step::SyncRecoveryUnlink,
             Step::SyncRecoveryUnlinked,
             Step::SyncRecoveryParentSync,
@@ -407,14 +467,19 @@ async fn crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart() 
             Step::SyncRecoveryCompleted,
         ] {
             for &again in Crash::ALL {
-                let case = format!("{change:?} {crash:?} then {step:?} {again:?}");
-                let crashed = Crashed::at(change, Step::SyncCopyRenamed, crash).await;
+                let case = format!("{step:?} {crash:?} then {again_at:?} {again:?}");
+                let crashed = Crashed::run(Change::Overwrite, step, crash, failing).await;
                 let snapshots = TestDir::new();
                 let (snapshot_data, snapshot_tree) =
                     (snapshots.0.join("data"), snapshots.0.join("tree"));
                 let catalog = crashed.open().await;
-                fault::arm(&crashed.tree.0, step, 0, again.fault(snapshot_tree.clone()));
-                catalog.inject(step, 0, Fault::Snapshot(snapshot_data.clone()));
+                fault::arm(
+                    &crashed.tree.0,
+                    again_at,
+                    0,
+                    again.fault(snapshot_tree.clone()),
+                );
+                catalog.inject(again_at, 0, Fault::Snapshot(snapshot_data.clone()));
                 let started = crashed.start(catalog).await;
                 assert_eq!(fault::pending(&crashed.tree.0), 0, "{case}");
                 assert_eq!(started.catalog.pending_faults(), 0, "{case}");
@@ -448,12 +513,10 @@ async fn a_parent_sync_failing_after_the_rename_recovers_on_restart() {
             };
             fs::create_dir_all(tree.0.join("test-bucket")).unwrap();
             let mut started = Started::start(catalog, &data.0, &tree.0).await;
-            let directory =
-                fsutil::stat_identity(&fs::File::open(tree.0.join(failing)).unwrap()).unwrap();
-            *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() = Some((directory.device, directory.inode));
+            let failing_sync = FailingSync::of(&tree.0.join(failing));
             let api = change_api(&started.catalog, &bucket, change, before.as_ref()).await;
             let failed = started.wait().await;
-            *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() = None;
+            drop(failing_sync);
             assert!(
                 failed.is_err(),
                 "{case}: {:?}",

@@ -136,9 +136,11 @@ pub(crate) enum Step {
     SyncEmptyDirectoryRemove,
     /// After that directory is removed, before its parent is synced.
     SyncEmptyDirectoryRemoved,
-    /// After installation renamed, exchanged or moved the target, before the directory syncs
-    /// that make the change durable.
+    /// After installation renamed, exchanged or moved the target and the parent syncs inside
+    /// that call ran, before installation's own directory syncs.
     SyncCopyRenamed,
+    /// After an installation attempt failed, before the failure is recorded in the catalog.
+    SyncCopyFailed,
     /// After checked installation and its directory syncs.
     SyncCopyInstalled,
     /// After the sync fingerprint and completion transaction commits.

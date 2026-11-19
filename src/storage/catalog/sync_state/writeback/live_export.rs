@@ -676,7 +676,7 @@ fn install_target(
                 )?
             };
             #[cfg(test)]
-            install.faults.renamed(selected, &outcome)?;
+            install.faults.renamed()?;
             outcome
         };
         if matches!(outcome, fsutil::ReplaceOutcome::Conflict { .. }) {
@@ -864,14 +864,17 @@ impl Writeback {
                 }
                 #[cfg(test)]
                 faults.hit(Step::SyncCopyWrite)?;
-                match &partial {
-                    Some(file) => fsutil::clone_or_copy_onto(&source, file)?,
-                    None => fsutil::clone_or_copy_into(
+                if let Some(file) = &partial {
+                    fsutil::clone_or_copy_onto(&source, file)?;
+                } else {
+                    fsutil::clone_or_copy_into(
                         &source,
                         workspace,
                         selected.token.id.to_hex().as_ref(),
-                    )?,
-                };
+                    )?;
+                    #[cfg(test)]
+                    faults.copy_created(&selected);
+                }
                 let file = entry(workspace, selected.token.id)?.ok_or_else(stale)?;
                 if !content_matches(&file, selected.size, selected.md5, selected.crc32c)? {
                     return Err(AdminError::Checksum.into());
@@ -883,6 +886,7 @@ impl Writeback {
                 #[cfg(test)]
                 {
                     faults.synced(&file)?;
+                    faults.workspace_synced();
                     faults.hit(Step::SyncCopyDurable)?;
                 }
                 let staged = fsutil::stat_identity(&file)?;
@@ -931,6 +935,9 @@ impl Writeback {
                 return Err(Error::Protected);
             }
             Err(error) => {
+                // Not on a file worker, whose root and workspace checks could replace `error`.
+                #[cfg(test)]
+                self.fault_paths().hit(Step::SyncCopyFailed)?;
                 let selected = item.clone();
                 let displaced = self.displaced_live(selected, staged).await?;
                 if displaced {

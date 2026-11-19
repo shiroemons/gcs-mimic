@@ -1012,19 +1012,21 @@ pub(crate) fn durable_replace(
     )
 }
 
+/// The directories, by device and inode number, whose sync inside a replacement fails. Tests run
+/// in parallel, so each adds its own directory and removes only that one again.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Option<(u64, u64)>> =
-    std::sync::Mutex::new(None);
+pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Vec<(u64, u64)>> =
+    std::sync::Mutex::new(Vec::new());
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn sync_replace_parent(directory: &File) -> io::Result<()> {
     #[cfg(test)]
     {
         let identity = stat_identity(directory)?;
-        if *FAIL_REPLACE_SYNC
+        if FAIL_REPLACE_SYNC
             .lock()
             .map_err(|_| io::Error::other("sync injection poisoned"))?
-            == Some((identity.device, identity.inode))
+            .contains(&(identity.device, identity.inode))
         {
             return Err(io::Error::other("injected replacement parent sync failure"));
         }
@@ -1202,6 +1204,20 @@ pub(crate) fn durable_replace_between(
                     RenameMode::NoReplace
                 },
             )?;
+            // Recorded before the parent syncs, so the power-loss model keeps the rename volatile
+            // until they run and a missing or failed one shows.
+            #[cfg(test)]
+            {
+                use crate::storage::fault;
+                let staged = fault::descriptor_path(source_directory)?.join(staged_name);
+                let destination =
+                    fault::descriptor_path(destination_directory)?.join(destination_name);
+                if expected.is_some() {
+                    fault::exchanged(&staged, &destination);
+                } else {
+                    fault::moved(&staged, &destination);
+                }
+            }
             sync_replace_parent(source_directory)?;
             if !same_directory {
                 sync_replace_parent(destination_directory)?;
@@ -1972,8 +1988,8 @@ mod tests {
 
     /// A power loss right after the replacement returns keeps the staged bytes under the
     /// destination name, and an exchange keeps the displaced bytes under the staged name. The
-    /// test records the rename before the call, so only the syncs inside the call can make it
-    /// durable: dropping the staged file's sync or either parent's sync fails this test.
+    /// call records its rename before its parent syncs, so only the syncs inside the call can
+    /// make it durable: dropping the staged file's sync or either parent's sync fails this test.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn replacement_between_directories_is_durable_when_it_returns() {
@@ -2002,13 +2018,8 @@ mod tests {
             // Written after arming, so neither its bytes nor its entry are durable yet.
             std::fs::write(&staged, b"staged").unwrap();
             fault::file_created(&staged);
-            let expected = if exchange {
-                fault::exchanged(&staged, &destination);
-                Some(stat_identity(&File::open(&destination).unwrap()).unwrap())
-            } else {
-                fault::moved(&staged, &destination);
-                None
-            };
+            let expected =
+                exchange.then(|| stat_identity(&File::open(&destination).unwrap()).unwrap());
             let outcome = durable_replace_between(
                 &workspace,
                 "body".as_ref(),
