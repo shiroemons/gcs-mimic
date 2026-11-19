@@ -233,7 +233,7 @@ fn listed(parent: &File, name: &std::ffi::OsStr) -> Result<bool, Error> {
 
 /// Whether a failed removal leaves a collision rather than an error to retry: the directory holds
 /// an entry (`ENOTEMPTY`, or `EEXIST` where the system reports that), is in use (`EBUSY`), may not
-/// be removed (`EACCES`, `EPERM`), or changed into something else or vanished since it was proved.
+/// be removed (`EACCES`, `EPERM`), or changed into something else since it was proved.
 fn refused(error: &io::Error) -> bool {
     matches!(
         error.kind(),
@@ -242,13 +242,13 @@ fn refused(error: &io::Error) -> bool {
             | io::ErrorKind::ResourceBusy
             | io::ErrorKind::PermissionDenied
             | io::ErrorKind::NotADirectory
-            | io::ErrorKind::NotFound
     )
 }
 
 /// Removes the directory `proof` names if it is empty, then syncs the directory that held it, so
 /// the removal is durable before installation takes the name, and returns that directory for
-/// installation to rename into. A refused removal changes nothing.
+/// installation to rename into. A refused removal changes nothing. A directory already gone
+/// counts as removed.
 pub(super) fn remove(
     proof: RemovableDirectory,
     install: &Install,
@@ -263,15 +263,23 @@ pub(super) fn remove(
     #[cfg(not(test))]
     let reached: io::Result<()> = Ok(());
     match reached.and_then(|()| fsutil::remove_empty_directory_at(&parent, &name)) {
-        Ok(()) => {}
+        Ok(()) => {
+            #[cfg(test)]
+            install.faults.directory_removed(&install.item)?;
+        }
+        // Someone removed the directory since the proof read it. Installation takes the name
+        // only through a rename that never replaces an entry, so whatever took the name since,
+        // a file or a new directory, fails installation and keeps its bytes. The parent's sync
+        // below still makes the removal durable before the copy takes the name.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            #[cfg(test)]
+            install.faults.hit(Step::SyncEmptyDirectoryRemoved)?;
+        }
         Err(error) if refused(&error) => return Ok(Err(Kept::Refused(error.kind()))),
         Err(error) => return Err(error.into()),
     }
     #[cfg(test)]
-    {
-        install.faults.directory_removed(&install.item)?;
-        failure(install.item.token.root, "directory-parent-sync")?;
-    }
+    failure(install.item.token.root, "directory-parent-sync")?;
     parent.sync_all()?;
     #[cfg(test)]
     install.faults.target_dir_synced(&install.item);

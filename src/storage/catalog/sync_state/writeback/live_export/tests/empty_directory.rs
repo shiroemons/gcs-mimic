@@ -282,16 +282,18 @@ async fn a_failed_parent_sync_after_the_removal_is_retried() {
     fixture.close().await;
 }
 
-/// An entry that arrives after every check and before the removal keeps the directory: the
-/// removal itself is the last check, and it removes only an empty directory.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_entry_that_arrives_before_the_removal_keeps_the_directory() {
-    let fixture = Fixture::new().await;
-    let operation = begin_over_directory(&fixture).await;
+/// Advances `operation` until it ends, running `change` on the target's path while the attempt
+/// that removes the directory there waits at `step`: just before the removal, or just after it.
+async fn race_removal(
+    fixture: &Fixture,
+    operation: &LiveExport,
+    step: Step,
+    change: impl FnOnce(&std::path::Path),
+) -> Result<LiveResult, Error> {
     let (entered, started) = tokio::sync::oneshot::channel();
     let (release, blocked) = std::sync::mpsc::channel();
     fixture.catalog.inject(
-        Step::SyncEmptyDirectoryRemove,
+        step,
         0,
         Fault::Block {
             entered: Arc::new(std::sync::Mutex::new(Some(entered))),
@@ -310,12 +312,71 @@ async fn an_entry_that_arrives_before_the_removal_keeps_the_directory() {
         panic!("the export did not end")
     });
     started.await.unwrap();
-    let late = fixture.tree.0.join(DIRECTORY).join("late");
-    fs::write(&late, b"late").unwrap();
+    change(&fixture.tree.0.join(DIRECTORY));
     release.send(()).unwrap();
-    let result: Result<LiveResult, Error> = work.await.unwrap();
+    work.await.unwrap()
+}
+
+/// An entry that arrives after every check and before the removal keeps the directory: the
+/// removal itself is the last check, and it removes only an empty directory.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_entry_that_arrives_before_the_removal_keeps_the_directory() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    let late = fixture.tree.0.join(DIRECTORY).join("late");
+    let result = race_removal(
+        &fixture,
+        &operation,
+        Step::SyncEmptyDirectoryRemove,
+        |directory| fs::write(directory.join("late"), b"late").unwrap(),
+    )
+    .await;
     assert_kept(&fixture, result.unwrap(), &["late"]).await;
     assert_eq!(fs::read(&late).unwrap(), b"late");
+    drop(operation);
+    fixture.close().await;
+}
+
+/// A directory someone removes after the proof read it counts as removed, and the export
+/// installs the object in its place. A file put at the name after the removal found it gone
+/// stays, with its bytes: installation never replaces an entry at a name it found free, so that
+/// attempt fails instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_directory_removed_before_the_removal_counts_as_gone() {
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    let result = race_removal(
+        &fixture,
+        &operation,
+        Step::SyncEmptyDirectoryRemove,
+        |directory| fs::remove_dir(directory).unwrap(),
+    )
+    .await;
+    assert_exported(&fixture, result.unwrap()).await;
+    assert_eq!(fixture.catalog.pending_faults(), 0);
+    drop(operation);
+    fixture.close().await;
+
+    // The removal reports the directory gone, and a file takes the name before the rename.
+    let fixture = Fixture::new().await;
+    let operation = begin_over_directory(&fixture).await;
+    fixture.catalog.inject(
+        Step::SyncEmptyDirectoryRemove,
+        0,
+        Fault::Io(io::ErrorKind::NotFound),
+    );
+    let result = race_removal(
+        &fixture,
+        &operation,
+        Step::SyncEmptyDirectoryRemoved,
+        |directory| {
+            fs::remove_dir(directory).unwrap();
+            fs::write(directory, b"user").unwrap();
+        },
+    )
+    .await;
+    assert!(result.is_err(), "{result:?}");
+    assert_eq!(fs::read(fixture.tree.0.join(DIRECTORY)).unwrap(), b"user");
     drop(operation);
     fixture.close().await;
 }

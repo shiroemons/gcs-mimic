@@ -567,7 +567,10 @@ conflict. The export then removes that one directory under its armed operation,
 with `rmdir` relative to the parent's descriptor, which never follows a symlink
 and never removes a directory that holds an entry; it syncs the parent and
 installs the object in its place. This is how an object `a` created through the
-API after `a/x` was deleted there reaches the tree without operator action.
+API after `a/x` was deleted there reaches the tree without operator action. A
+directory that someone else removed first (`ENOENT`) counts as removed: the
+installing rename never replaces an entry, so a file or directory that took the
+name meanwhile fails that attempt and keeps its contents.
 Nothing lists the directory or removes what it holds, no ancestor that the
 removal empties is removed, and neither a bucket's own directory nor a reserved
 name is ever removed. A directory that holds anything, even a file that scans
