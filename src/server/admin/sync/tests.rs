@@ -44,6 +44,30 @@ fn nested_control_errors_keep_status_and_text() {
     }
 }
 
+/// Each decision route takes its own decision, spelled out here rather than taken from the code
+/// under test: a rejection taken as an approval would delete the objects it was to keep. A
+/// route that only resembles one takes none.
+#[test]
+fn each_decision_route_takes_its_own_decision() {
+    for (path, decision) in [
+        ("/_internal/sync/approve", Decision::Approve),
+        ("/_internal/sync/reject", Decision::Reject),
+    ] {
+        assert!(
+            Control::parse(path) == Some(Control::Decide(decision)),
+            "{path}"
+        );
+    }
+    for path in [
+        "/_internal/sync/approve/",
+        "/_internal/sync/rejected",
+        "/_internal/sync/decide",
+        "/_internal/sync/Reject",
+    ] {
+        assert!(Control::parse(path).is_none(), "{path}");
+    }
+}
+
 /// The mirror's own state decides `state` until it runs: a mirror that has not finished its
 /// first pass reports `Starting` whatever reason an earlier process recorded, and only a paused
 /// one names its recorded reason. A running one reports the first condition that holds.

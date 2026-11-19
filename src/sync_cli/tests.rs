@@ -56,10 +56,14 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
             vec!["status", "--view", "other"],
             "--view must be deletions or findings",
         ),
-        // Approval refuses --revision before it looks for an endpoint.
+        // A decision refuses --revision before it looks for an endpoint.
         (
             vec!["approve", "--revision", revision],
             "sync approve takes --deletion-set REVISION, not --revision",
+        ),
+        (
+            vec!["reject", "--revision", revision],
+            "sync reject takes --deletion-set REVISION, not --revision",
         ),
         // An unknown operation is reported only after the shared options are read, and an
         // endpoint found in the environment.
@@ -139,6 +143,10 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
             "sync approve requires --deletion-set REVISION from an inspected deletion set",
         ),
         (
+            vec!["reject", "--endpoint", endpoint],
+            "sync reject requires --deletion-set REVISION from an inspected deletion set",
+        ),
+        (
             vec!["resolve", "--endpoint", endpoint],
             "Resolve requires the inspected --revision",
         ),
@@ -206,29 +214,41 @@ fn rescan_default_leaves_time_for_quiet_and_honors_explicit_deadlines() {
     assert!(HELP.contains("--require-no-findings, which takes no\nvalue"));
 }
 
+/// Each decision goes to its own route, spelled out here rather than taken from the code under
+/// test: a rejection sent to the approval route would delete the objects it was to keep.
 #[test]
 fn approval_requires_an_explicit_exact_revision() {
     let revision = "0123456789abcdef0123456789abcdef";
-    let options = parse_cmd(&["approve", "--deletion-set", revision]).unwrap();
-    assert_eq!(
-        once(&options),
-        (
-            "/_internal/sync/approve",
-            Some(&json!({"deletion_set":revision}))
-        )
-    );
-    // --revision names the pages approval was read from, not the set it approves.
-    let Err(CliError::Diagnostics(refused)) = parse_cmd(&["approve", "--revision", revision])
-    else {
-        panic!("approval with --revision must be refused with a diagnostic");
-    };
-    assert!(
-        refused.errors[0].fix.contains("--deletion-set"),
-        "{refused:?}"
-    );
+    for (command, route, decision) in [
+        ("approve", "/_internal/sync/approve", Decision::Approve),
+        ("reject", "/_internal/sync/reject", Decision::Reject),
+    ] {
+        let options = parse_cmd(&[command, "--deletion-set", revision]).unwrap();
+        assert_eq!(
+            once(&options),
+            (route, Some(&json!({"deletion_set":revision}))),
+            "{command}"
+        );
+        assert_eq!(options.decision, Some(decision), "{command}");
+        // --revision names the pages a decision was read from, not the set it decides on.
+        let Err(CliError::Diagnostics(refused)) = parse_cmd(&[command, "--revision", revision])
+        else {
+            panic!("{command} with --revision must be refused with a diagnostic");
+        };
+        assert!(
+            refused.errors[0].fix.contains("--deletion-set"),
+            "{refused:?}"
+        );
+        assert!(parse_cmd(&[command]).is_err(), "{command}");
+        assert!(
+            parse_cmd(&[command, "--deletion-set", "all"]).is_err(),
+            "{command}"
+        );
+    }
+    for command in ["status", "rescan", "wait"] {
+        assert_eq!(parse_cmd(&[command]).unwrap().decision, None, "{command}");
+    }
     for args in [
-        vec!["approve"],
-        vec!["approve", "--deletion-set", "all"],
         vec!["rescan", "--revision", revision],
         vec!["status", "--cursor", "x"],
         vec!["stop"],
@@ -313,18 +333,12 @@ fn conflicts_keep_their_own_endpoint_revision_and_opaque_cursor() {
 #[test]
 fn canonical_control_flags_map_to_the_exact_wire_contract() {
     let revision = "0123456789abcdef0123456789abcdef";
-    let options = parse_cmd(&["approve", "--deletion-set", revision]).unwrap();
-    assert_eq!(once(&options).1, Some(&json!({"deletion_set":revision})));
-    assert!(
-        parse_cmd(&[
-            "approve",
-            "--deletion-set",
-            revision,
-            "--revision",
-            revision
-        ])
-        .is_err()
-    );
+    for command in ["approve", "reject"] {
+        assert!(
+            parse_cmd(&[command, "--deletion-set", revision, "--revision", revision]).is_err(),
+            "{command}"
+        );
+    }
     let options = parse_cmd(&["status", "--view", "deletions", "--revision", revision]).unwrap();
     assert_eq!(
         once(&options).0,
