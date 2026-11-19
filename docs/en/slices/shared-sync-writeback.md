@@ -148,6 +148,11 @@ a collision holds back reports that finding instead of timing out.
 These are cooperative fault-model tests, not physical host-power-loss evidence.
 `durable_rehash_rejects_same_inode_edits_with_restored_mtime` fails when private
 copy hashes are reused at Durable and passes with installed-body verification.
+Installation renames the private entry by name after confirming the copy
+through an open handle, so a file put in that entry in between would be
+installed. That window stays open; the Durable hash keeps such a file out of
+tracking, which `durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy`
+checks with a same-size file in the target's place.
 Only the acknowledgement's extra body hash is removed; checksum verification
 at Durable remains mandatory.
 See [continuous observation](continuous-directory-observation.md) and

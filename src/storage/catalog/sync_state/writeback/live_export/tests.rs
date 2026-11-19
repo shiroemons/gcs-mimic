@@ -287,6 +287,58 @@ async fn durable_rehash_rejects_same_inode_edits_with_restored_mtime() {
     assert_eq!(bytes, b"bad");
 }
 
+/// Installation renames the private entry by name after it confirmed the copy through an open
+/// handle, so another file put in that entry meanwhile would be installed instead. Durability
+/// hashes whatever the target holds, so such a file, here one of the same size, fails it and
+/// never reaches tracking.
+#[tokio::test]
+async fn durable_rehash_never_tracks_a_file_installed_in_place_of_the_copy() {
+    let fixture = Fixture::new().await;
+    fixture.publish("object", b"api").await;
+    let operation = fixture.begin("object").await;
+    for _ in 0..2 {
+        assert_eq!(
+            fixture
+                .writeback
+                .advance_live_export(operation.clone())
+                .await
+                .unwrap(),
+            LiveResult::Pending
+        );
+    }
+    let path = fixture.tree.0.join("test-bucket/object");
+    let substitute = fixture.tree.0.join("test-bucket/substitute");
+    fs::write(&substitute, b"API").unwrap();
+    fs::rename(&substitute, &path).unwrap();
+    let result = fixture
+        .writeback
+        .advance_live_export(operation.clone())
+        .await;
+    assert!(
+        matches!(result, Err(Error::Admin(AdminError::Precondition))),
+        "{result:?}"
+    );
+    assert_eq!(pending(&operation).await.phase, Phase::Armed);
+    let binding = fixture
+        .catalog
+        .sync_state()
+        .binding(&fixture.bucket)
+        .await
+        .unwrap();
+    assert!(
+        fixture
+            .catalog
+            .sync_state()
+            .get_path(binding, "test-bucket/object".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"API");
+    drop(operation);
+    fixture.close().await;
+}
+
 #[tokio::test]
 async fn live_export_durable_then_ack_tracks_the_installed_fingerprint_and_finishes() {
     for body in [&b""[..], &b"\0\xff binary"[..]] {
