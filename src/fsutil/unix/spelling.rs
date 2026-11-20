@@ -63,15 +63,12 @@ pub(crate) fn child_regular(
     }
 }
 
-/// The names [`listed_spelling`] reads at most before it gives up: past them a directory is
-/// larger than the local-development scale an alias is looked up at.
-const SPELLING_SCAN_LIMIT: usize = 4096;
-
 /// The spelling under which `parent` lists the regular file that opening `name` reaches, found
-/// by comparing each listed entry's inode with the opened file's, since only a listing tells a
-/// Linux casefolded directory's spelling. `None` when the entry went, more than one name links
-/// the file, the name is not UTF-8 or the directory holds more names than this reads: none of
-/// them names one spelling to report.
+/// by comparing each listed entry's device and inode with the opened file's, since only a
+/// listing tells a Linux casefolded directory's spelling. `None` when the entry went, more than
+/// one name links the file or the name is not UTF-8: none of them names one spelling to report.
+/// A listed entry that cannot be read is skipped: with one link only, it cannot be a second
+/// name of the file, and a spelling found elsewhere is still the file's one.
 #[expect(
     unsafe_code,
     reason = "fstatat on a pinned descriptor has no safe std equivalent"
@@ -83,20 +80,13 @@ pub(crate) fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<Option<
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
-    let metadata = file.metadata()?;
-    if metadata.nlink() != 1 {
+    if !super::sole_regular_link(&file)? {
         return Ok(None);
     }
+    let metadata = file.metadata()?;
     let mut found: Option<OsString> = None;
-    let mut ambiguous = false;
-    let mut read = 0usize;
     super::each_name(parent, |listed| {
-        read += 1;
-        if read > SPELLING_SCAN_LIMIT {
-            ambiguous = true;
-            return Ok(ControlFlow::Break(()));
-        }
-        let Ok(component) = std::ffi::CString::new(listed.as_bytes()) else {
+        let Ok(component) = component(listed) else {
             return Ok(ControlFlow::Continue(()));
         };
         let mut status = std::mem::MaybeUninit::<libc::stat>::zeroed();
@@ -111,28 +101,33 @@ pub(crate) fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<Option<
             )
         };
         if result != 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::NotFound {
-                return Ok(ControlFlow::Continue(()));
-            }
-            return Err(error);
+            return Ok(ControlFlow::Continue(()));
         }
         // SAFETY: fstatat succeeded, and the zeroed buffer was valid for every field before it
         // wrote.
         let status = unsafe { status.assume_init() };
-        if status.st_mode & libc::S_IFMT == libc::S_IFREG && status.st_ino == metadata.ino() {
-            if found.is_some() {
-                ambiguous = true;
-                return Ok(ControlFlow::Break(()));
-            }
+        if status.st_mode & libc::S_IFMT == libc::S_IFREG
+            && listed_device(&status) == metadata.dev()
+            && status.st_ino == metadata.ino()
+        {
             found = Some(listed.to_owned());
+            return Ok(ControlFlow::Break(()));
         }
         Ok(ControlFlow::Continue(()))
     })?;
-    if ambiguous {
-        return Ok(None);
-    }
     Ok(found.and_then(|spelling| spelling.into_string().ok()))
+}
+
+/// A listed entry's device as [`std::os::unix::fs::MetadataExt::dev`] reports it, which widens
+/// macOS's signed `dev_t` the way a cast does, so that the two compare equal.
+#[cfg(target_os = "macos")]
+fn listed_device(status: &libc::stat) -> u64 {
+    i64::from(status.st_dev).cast_unsigned()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn listed_device(status: &libc::stat) -> u64 {
+    status.st_dev
 }
 
 /// Whether `file`, opened as `name` in `parent`, has that exact spelling there. Tests can take
