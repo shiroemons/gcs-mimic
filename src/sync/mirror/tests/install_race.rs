@@ -204,3 +204,129 @@ async fn a_restore_raced_by_a_change_on_its_path_plans_again() {
     drop(root);
     catalog.close().await.unwrap();
 }
+
+/// Puts the user's own file at `sub/b` once the race is found: the file that took the place of
+/// the directory goes, and a new directory holds the file.
+fn user_file_at_the_target(directory: &Path) {
+    fs::remove_file(directory).unwrap();
+    fs::create_dir(directory).unwrap();
+    fs::write(directory.join("b"), b"mine").unwrap();
+}
+
+/// A restore raced on its path plans again from the tree, and the tree it reads then holds the
+/// user's own file at the target, put there after the race was found and before the retry. The
+/// retry reads that file rather than the tree the raced attempt read, so it writes nothing over
+/// it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_retry_reads_the_tree_again_and_keeps_a_file_put_at_the_target() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    let directory = tree.0.join("test-bucket/sub");
+    publish_named(&catalog, &bucket, "sub/b", BODY, Origin::Api).await;
+    reconcile(&catalog, &root).await.unwrap();
+    fs::remove_file(directory.join("b")).unwrap();
+    let raced = Held::arm(&tree.0, Step::SyncCopyDurable);
+    let found = Held::arm(&tree.0, Step::SyncCopyFailed);
+    let restoring = {
+        let (catalog, root, bucket) = (catalog.clone(), root.clone(), bucket.clone());
+        crate::task::spawn_supervised("restore-retry-test", async move {
+            let name = ObjectName::new("sub/b").unwrap();
+            restore_from_catalog(&catalog, &root, &bucket, &name).await
+        })
+    };
+    raced
+        .change(|| {
+            fs::remove_dir(&directory).unwrap();
+            fs::write(&directory, b"replaced").unwrap();
+        })
+        .await;
+    found.change(|| user_file_at_the_target(&directory)).await;
+    let restored = tokio::time::timeout(HANG_GUARD, restoring)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    // The retry found the user's file at the target and kept it, as a restore keeps any file
+    // put at the path meanwhile for the inventory to take in; the copy never reached the
+    // target, so nothing was captured as a conflict either.
+    assert_eq!(restored, Restored::Kept);
+    assert_eq!(fs::read(directory.join("b")).unwrap(), b"mine");
+    assert!(install_faults::workspace_bodies(&tree.0).is_empty());
+    assert!(conflict_page(&root).await.items.is_empty());
+    assert_eq!(
+        root.default_writeback()
+            .await
+            .unwrap()
+            .status()
+            .await
+            .unwrap()
+            .entries,
+        0
+    );
+    assert_eq!(fault::pending(&tree.0), 0);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// The sync conflicts the root retains.
+async fn conflict_page(root: &RootLease) -> crate::storage::sync_state::conflicts::ConflictPage {
+    root.conflict_page(
+        crate::storage::sync_state::conflicts::ConflictPosition::Start,
+        crate::storage::sync_state::PageLimit::LARGEST,
+        crate::storage::sync_state::authority::ControlAuthority::Permissive,
+    )
+    .await
+    .unwrap()
+}
+
+/// The live mirror's counterpart: an export raced on its path is planned again at the end of
+/// the pass, from the tree as it is then, which holds the user's own file at the target. That
+/// plan sees the file, so the export treats it as any export treats a file it finds at its
+/// target: the API object takes the path, and the user's bytes are captured first as a retained
+/// sync conflict, never written over. The mirror never pauses.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_export_planned_again_after_a_race_keeps_a_file_put_at_the_target() {
+    let (data, tree, catalog, task) = started_mirror(None).await;
+    task.rescan().await.unwrap();
+    let (_, root) = catalog.sync_controls().unwrap().unwrap();
+    let directory = tree.0.join("test-bucket/sub");
+    fs::create_dir_all(&directory).unwrap();
+    let raced = Held::arm(&tree.0, Step::SyncCopyDurable);
+    let found = Held::arm(&tree.0, Step::SyncCopyFailed);
+    let bucket = BucketName::new("test-bucket").unwrap();
+    publish_named(&catalog, &bucket, "sub/b", BODY, Origin::Api).await;
+
+    let waited = queue_wait(&task, HANG_GUARD).await;
+    raced
+        .change(|| {
+            fs::remove_dir(&directory).unwrap();
+            fs::write(&directory, b"replaced").unwrap();
+        })
+        .await;
+    found.change(|| user_file_at_the_target(&directory)).await;
+    let waited = tokio::time::timeout(HANG_GUARD, waited)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    // The retained conflict is pending for the user to resolve; the race held nothing back.
+    assert_eq!(waited.reason, WaitReason::FindingsPending);
+    still_running(&task, &root).await;
+    assert_eq!(fs::read(directory.join("b")).unwrap(), BODY);
+    let page = conflict_page(&root).await;
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].name, "sub/b");
+    assert_eq!(
+        fs::read(
+            data.0
+                .join("sync-conflicts")
+                .join(page.items[0].conflict_id.to_string())
+        )
+        .unwrap(),
+        b"mine"
+    );
+    assert!(install_faults::workspace_bodies(&tree.0).is_empty());
+    assert_eq!(fault::pending(&tree.0), 0);
+    drop(root);
+    task.finish().await.unwrap();
+    catalog.close().await.unwrap();
+}
