@@ -137,6 +137,12 @@ pub(crate) enum Correction {
     AliasedName,
     /// A path whose permissions keep a deletion check from reading it.
     UnreadablePath,
+    /// An object whose name the root's file system takes for another object's, which the
+    /// alias findings of both name. Only an API change ends it: renaming the file would make it
+    /// the other object's file, and deleting it deletes no object.
+    AliasedObjects,
+    /// The file of an aliased pair that changed while frozen, which a path stop names.
+    EditedAlias,
 }
 
 impl Correction {
@@ -169,6 +175,12 @@ impl Correction {
             }
             Self::UnreadablePath => {
                 "Restore read and search permissions on this path and its parents"
+            }
+            Self::AliasedObjects => {
+                "Another object's name differs from this one only in letter case or Unicode normalization, and the directory holds one file for both, under the spelling this finding shows. That file stays as it is: neither object is exported over it or ingested from it, and deleting it deletes neither object. Delete or rename one of the two objects through the API"
+            }
+            Self::EditedAlias => {
+                "This file changed while it was frozen as the file of two objects whose names differ only in letter case or Unicode normalization, and the edit was not taken in, since it may be meant for either. Keep the file, and delete or rename through the API the object it is not meant for; the edit is then taken in for the other"
             }
         }
     }

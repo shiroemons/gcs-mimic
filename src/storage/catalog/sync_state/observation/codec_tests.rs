@@ -3,12 +3,14 @@ use super::*;
 #[test]
 fn finding_rows_reject_unknown_persisted_reasons_instead_of_using_a_remedy_fallback() {
     let connection = Connection::open_in_memory().unwrap();
-    let query = "SELECT 0,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL";
+    let query = "SELECT 0,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL";
     for (category, reason) in [
         ("mapping", "collision"),
         ("mapping", "export-conflict"),
         ("mapping", "unclassified-collision"),
+        ("mapping", "alias"),
         ("path-stop", "IoFailure"),
+        ("path-stop", "AliasEdited"),
         ("root-stop", "observer-failure"),
     ] {
         let item = sql::row(&connection, query, [category, reason], read_item).unwrap();
@@ -174,7 +176,7 @@ fn conflict_states_and_deletion_authorizations_keep_their_stored_integers() {
 #[test]
 fn writeback_and_conflict_findings_spell_their_stored_integers() {
     let connection = Connection::open_in_memory().unwrap();
-    let query = "SELECT 1,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,'0123456789abcdef0123456789abcdef','fedcba9876543210fedcba9876543210',CAST('{\"size\":3,\"hashes\":null}' AS BLOB),?3,NULL,NULL";
+    let query = "SELECT 1,1,?1,NULL,NULL,NULL,NULL,?2,NULL,NULL,'0123456789abcdef0123456789abcdef','fedcba9876543210fedcba9876543210',CAST('{\"size\":3,\"hashes\":null}' AS BLOB),?3,NULL,NULL,NULL";
     for (category, stored, spelling) in [
         ("writeback", 0, "prepared"),
         ("writeback", 1, "armed"),

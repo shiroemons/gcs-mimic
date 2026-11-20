@@ -136,8 +136,22 @@ DROP TABLE temp.downgrade_occupied_findings;
 DROP TABLE temp.downgrade_occupied_owners;
 DROP TABLE temp.downgrade_occupied_sequences;";
 
+/// Restores the schema before an alias finding kept the spelling of its file. Fixtures hold no
+/// `alias` finding, which keeps its meaning without the spelling.
+pub(super) fn downgrade_alias_schema(connection: &rusqlite::Connection) {
+    connection
+        .execute_batch(
+            "DROP TRIGGER IF EXISTS sync_observation_finding_alias_update;
+DROP TRIGGER IF EXISTS sync_finding_alias_reason;
+DROP TABLE IF EXISTS sync_finding_aliases;",
+        )
+        .unwrap();
+}
+
 /// Restores the schema before the files of a set waiting for a decision were kept apart from it.
+/// A catalog that keeps alias spellings drops them first.
 pub(super) fn downgrade_held_schema(connection: &rusqlite::Connection) {
+    downgrade_alias_schema(connection);
     connection
         .execute_batch("DROP TABLE IF EXISTS sync_deletion_held;")
         .unwrap();

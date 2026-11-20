@@ -64,6 +64,7 @@ pub(crate) use tests::state::{RescanFault, arm_rescan_fault};
 
 mod descriptor;
 mod findings;
+use findings::Freeze;
 mod gate;
 mod lifecycle;
 mod observation;
@@ -788,6 +789,7 @@ async fn replay_page_with(
             keys.insert((change.bucket, change.object));
         }
     }
+    let mut changed = std::collections::BTreeSet::new();
     for (bucket, name) in keys {
         if interrupt.check() != Interrupted::No {
             summary.interrupted = true;
@@ -808,7 +810,8 @@ async fn replay_page_with(
                 &mut summary,
             )
             .await?;
-            skipped.record((bucket, name), outcome);
+            skipped.record((bucket.clone(), name), outcome);
+            changed.insert(bucket);
         } else {
             if !root.remember_sync_bucket(&bucket).await? {
                 summary.count_deferred(Path::new(bucket.as_str()));
@@ -818,6 +821,18 @@ async fn replay_page_with(
                 create_directory(root, PathBuf::from(bucket.as_str())).await?;
             }
         }
+    }
+    let mut observing = findings::Observing {
+        catalog,
+        root,
+        writeback,
+        fence: page.fence,
+        summary: &mut summary,
+    };
+    for bucket in &changed {
+        skipped
+            .observe_aliases(&mut observing, bucket, interrupt)
+            .await?;
     }
     Ok(summary)
 }
@@ -1820,18 +1835,47 @@ impl LiveObject<'_> {
                 Err(error) => return Err(error.into()),
             },
         };
-        match target {
+        let content = match target {
+            Target::Alias(spelling) => {
+                self.alias(record, spelling).await?;
+                return Ok(None);
+            }
             Target::Directory | Target::Replaced(_) if tracked.is_some() => {
                 super::deletion::record_replaced(self.root, self.bucket, self.name).await?;
-                Ok(None)
+                return Ok(None);
             }
             Target::Finding(reason) | Target::Replaced(reason) => {
                 self.finding(record, reason).await?;
+                return Ok(None);
+            }
+            Target::Identical => TargetContent::Identical,
+            Target::Absent => TargetContent::Absent,
+            Target::Conflicting | Target::Directory => TargetContent::Changed,
+        };
+        let released = match self.hold_alias(record).await? {
+            Freeze::None => false,
+            Freeze::Held => return Ok(None),
+            // The tree already tracks this generation, so a file that differs holds an edit the
+            // freeze kept out, which ingestion takes in now.
+            Freeze::Released
+                if content == TargetContent::Changed
+                    && tracked
+                        .is_some_and(|tracked| tracked.generation.get() == record.generation) =>
+            {
+                return Ok(None);
+            }
+            Freeze::Released => true,
+        };
+        match content {
+            TargetContent::Identical => Ok(Some(Content::Identical)),
+            // A file that went while it stood for several objects tells nothing about this one,
+            // which gets its file back like any object with a finding.
+            TargetContent::Absent
+                if !released && self.missing_is_deleted(record, tracked).await? =>
+            {
                 Ok(None)
             }
-            Target::Identical => Ok(Some(Content::Identical)),
-            Target::Absent if self.missing_is_deleted(record, tracked).await? => Ok(None),
-            Target::Absent | Target::Conflicting | Target::Directory => Ok(Some(Content::Changed)),
+            TargetContent::Absent | TargetContent::Changed => Ok(Some(Content::Changed)),
         }
     }
 
@@ -2202,6 +2246,19 @@ enum Target {
     /// A directory or special file holds the path: a tracked file replaced, or a name the tree
     /// cannot hold for an object it never tracked, for the reason given.
     Replaced(Reason),
+    /// The directory holds a regular file under another letter case or normalization of the
+    /// name, at this path.
+    Alias(PathBuf),
+}
+
+/// What an export target that no finding keeps out holds, which an alias that still holds
+/// keeps the export from acting on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TargetContent {
+    Identical,
+    Absent,
+    /// A file with other bytes, or a directory that installation may remove.
+    Changed,
 }
 
 fn inspect(
@@ -2232,7 +2289,14 @@ fn inspect(
     };
     let file = match lookup.regular(&directory, name) {
         Ok(fsutil::RegularChild::File(file)) => file,
-        Ok(fsutil::RegularChild::Alias) => return Ok(Target::Finding(Reason::Collision)),
+        // Without one spelling to name, such as for a file other names link to, the entry
+        // stays a collision of this object alone.
+        Ok(fsutil::RegularChild::Alias) => {
+            return Ok(match fsutil::listed_spelling(&directory, name)? {
+                Some(spelling) => Target::Alias(path.with_file_name(spelling)),
+                None => Target::Finding(Reason::Collision),
+            });
+        }
         Ok(fsutil::RegularChild::Missing) => return Ok(Target::Absent),
         Err(error) if !structural_entry_error(&error) => return Err(error.into()),
         Err(_)

@@ -24,7 +24,7 @@ use crate::{
         sync_state::{
             Ordinal, SyncBinding, SyncFingerprint, SyncPath, SyncRecord, SyncUpdate,
             durable::{self, Durable, NotDurable, SyncedDirectories},
-            observation::{PathStop, TransientStop},
+            observation::{AliasEdit, PathStop, TransientStop, Transition},
             root::{RootError, RootLease},
         },
     },
@@ -304,11 +304,13 @@ pub(super) async fn rescan_with(
 }
 
 /// The path stops that what the tree holds at a path decides, which a scan clears once the path
-/// holds the regular file again or nothing at all.
-const TREE_STOPS: [PathStop; 3] = [
+/// holds the regular file again or nothing at all. An alias edit goes once the file is back to
+/// the bytes the tree tracked or gone, since no edit is left to take in.
+const TREE_STOPS: [PathStop; 4] = [
     PathStop::SourceChanging,
     PathStop::IoFailure,
     PathStop::EntryReplaced,
+    PathStop::AliasEdited,
 ];
 
 async fn clear_missing_observations(
@@ -534,6 +536,9 @@ impl Ingest<'_> {
                 self.clear_observation(binding, name).await?;
                 return Ok(None);
             }
+            if self.frozen(&binding, &name, &path).await? {
+                return Ok(None);
+            }
         }
         let live = match self.admin.get_object(&bucket, &name, None).await {
             Ok(record) => Some(record),
@@ -752,6 +757,42 @@ impl Ingest<'_> {
                     .await?;
                 Ok(None)
             }
+        }
+    }
+
+    /// Whether the changed tracked file of `name` stands for an alias, whose edit ingestion does
+    /// not take in: it may be meant for either object, and taking it in would pick one silently.
+    /// The edit stops the path until the alias ends or the file goes back, and is reported once.
+    async fn frozen(
+        &mut self,
+        binding: &SyncBinding,
+        name: &ObjectName,
+        path: &std::path::Path,
+    ) -> Result<bool, SyncError> {
+        match self
+            .root
+            .observe_alias_edit(binding.clone(), name.clone())
+            .await
+        {
+            Ok(AliasEdit::Free) => Ok(false),
+            Ok(AliasEdit::Frozen(transition)) => {
+                if transition == Transition::New {
+                    diagnostics::emit(
+                        LogLevel::Warn,
+                        "sync_alias_edited",
+                        serde_json::json!({
+                            "path":path_text(path),"bucket":binding.bucket().as_str(),
+                            "object":name.as_str(),"remedy":Correction::EditedAlias.remedy()
+                        }),
+                    );
+                }
+                Ok(true)
+            }
+            Err(error) if super::error::superseded(&error) => {
+                self.summary.count_deferred(path);
+                Ok(true)
+            }
+            Err(error) => Err(error.into()),
         }
     }
 

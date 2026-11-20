@@ -395,7 +395,13 @@ ever removed from one. A directory that holds anything else, even only a hidden
 file such as `._x` or an editor's swap file, stays as it is, and that object is
 reported as a `directory-occupied` finding. Once its entries, or a symlink or
 file that kept an object out, are moved away, the next `gcs-mimic sync wait` (or
-`rescan`) exports that object without a restart. Object names
+`rescan`) exports that object without a restart. On a directory that ignores
+letter case or Unicode normalization, as a macOS bind mount usually does, two
+objects such as `Photo.jpg` and `photo.jpg` share one file. Both are reported as
+`alias` findings that name the file, which stays as it is: an edit of it is not
+taken in and stops `gcs-mimic sync wait` as `AliasEdited` (exit status 2), and
+deleting it deletes neither object. Delete or rename one of them through the
+API; the other is then synchronized again without a restart. Object names
 containing `\`, and other names
 that cannot be mapped to host file names, are skipped without stopping
 synchronization; they stay available through the API. `gcs-mimic sync wait` succeeds

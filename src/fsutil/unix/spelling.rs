@@ -63,6 +63,78 @@ pub(crate) fn child_regular(
     }
 }
 
+/// The names [`listed_spelling`] reads at most before it gives up: past them a directory is
+/// larger than the local-development scale an alias is looked up at.
+const SPELLING_SCAN_LIMIT: usize = 4096;
+
+/// The spelling under which `parent` lists the regular file that opening `name` reaches, found
+/// by comparing each listed entry's inode with the opened file's, since only a listing tells a
+/// Linux casefolded directory's spelling. `None` when the entry went, more than one name links
+/// the file, the name is not UTF-8 or the directory holds more names than this reads: none of
+/// them names one spelling to report.
+#[expect(
+    unsafe_code,
+    reason = "fstatat on a pinned descriptor has no safe std equivalent"
+)]
+pub(crate) fn listed_spelling(parent: &File, name: &OsStr) -> io::Result<Option<String>> {
+    use std::os::unix::fs::MetadataExt;
+    let file = match super::open_regular_at(parent, name) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let metadata = file.metadata()?;
+    if metadata.nlink() != 1 {
+        return Ok(None);
+    }
+    let mut found: Option<OsString> = None;
+    let mut ambiguous = false;
+    let mut read = 0usize;
+    super::each_name(parent, |listed| {
+        read += 1;
+        if read > SPELLING_SCAN_LIMIT {
+            ambiguous = true;
+            return Ok(ControlFlow::Break(()));
+        }
+        let Ok(component) = std::ffi::CString::new(listed.as_bytes()) else {
+            return Ok(ControlFlow::Continue(()));
+        };
+        let mut status = std::mem::MaybeUninit::<libc::stat>::zeroed();
+        // SAFETY: the live descriptor, the terminated component and the writable buffer are valid
+        // for the call, which keeps none of them.
+        let result = unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                component.as_ptr(),
+                status.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(ControlFlow::Continue(()));
+            }
+            return Err(error);
+        }
+        // SAFETY: fstatat succeeded, and the zeroed buffer was valid for every field before it
+        // wrote.
+        let status = unsafe { status.assume_init() };
+        if status.st_mode & libc::S_IFMT == libc::S_IFREG && status.st_ino == metadata.ino() {
+            if found.is_some() {
+                ambiguous = true;
+                return Ok(ControlFlow::Break(()));
+            }
+            found = Some(listed.to_owned());
+        }
+        Ok(ControlFlow::Continue(()))
+    })?;
+    if ambiguous {
+        return Ok(None);
+    }
+    Ok(found.and_then(|spelling| spelling.into_string().ok()))
+}
+
 /// Whether `file`, opened as `name` in `parent`, has that exact spelling there. Tests can take
 /// the platform to answer that it does ([`crate::fsutil::UNCHECKED_SPELLING`]), which a lookup
 /// below a root that folds names does not believe.
@@ -183,6 +255,24 @@ mod tests {
     use super::*;
     use crate::{clock::SystemClock, fsutil::Matching};
     use std::sync::Arc;
+
+    /// A listing names the spelling of the file a name reached, also under another letter case
+    /// where the directory folds it, and no spelling when nothing is there or another name links
+    /// the file too, since either name could be the one to report.
+    #[test]
+    fn a_listing_names_the_spelling_of_the_file_a_name_reached() {
+        let dir = crate::test_support::TestDir::new();
+        std::fs::write(dir.0.join("Actual"), b"bytes").unwrap();
+        let parent = File::open(&dir.0).unwrap();
+        let spelling = |name: &str| listed_spelling(&parent, name.as_ref()).unwrap();
+        assert_eq!(spelling("Actual").as_deref(), Some("Actual"));
+        assert_eq!(spelling("missing"), None);
+        if dir.0.join("actual").exists() {
+            assert_eq!(spelling("actual").as_deref(), Some("Actual"));
+        }
+        std::fs::hard_link(dir.0.join("Actual"), dir.0.join("Linked")).unwrap();
+        assert_eq!(spelling("Actual"), None);
+    }
 
     /// A flag answer that does not settle the spelling falls back to the parent's listing, which
     /// tells the exact spelling apart from another one.

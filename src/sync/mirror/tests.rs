@@ -20,6 +20,7 @@ use bytes::Bytes;
 use std::fs;
 
 mod acknowledgement;
+mod alias;
 mod baseline;
 mod decision_race;
 mod empty_directory;

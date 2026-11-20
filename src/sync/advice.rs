@@ -266,6 +266,8 @@ pub fn catalog() -> Vec<String> {
         Correction::BlockedParent,
         Correction::AliasedName,
         Correction::UnreadablePath,
+        Correction::AliasedObjects,
+        Correction::EditedAlias,
     ];
     let correction_listed = |correction: Correction| match correction {
         Correction::UnrepresentableEntries
@@ -284,25 +286,9 @@ pub fn catalog() -> Vec<String> {
         | Correction::ReplacedEntry
         | Correction::BlockedParent
         | Correction::AliasedName
-        | Correction::UnreadablePath => correction.remedy(),
-    };
-    let refusals = [
-        Refusal::Approved,
-        Refusal::Rejected,
-        Refusal::Replaced {
-            revision: OpaqueId::SAMPLE,
-            missing: SAMPLE_AWAITING_SET.missing,
-            tracked: SAMPLE_AWAITING_SET.tracked,
-        },
-        Refusal::Moved,
-        Refusal::Settled,
-    ];
-    let refusal_listed = |refusal: Refusal| match refusal {
-        Refusal::Approved
-        | Refusal::Rejected
-        | Refusal::Replaced { .. }
-        | Refusal::Moved
-        | Refusal::Settled => refusal,
+        | Correction::UnreadablePath
+        | Correction::AliasedObjects
+        | Correction::EditedAlias => correction.remedy(),
     };
     holdups
         .map(listed)
@@ -312,17 +298,7 @@ pub fn catalog() -> Vec<String> {
                 .filter_map(move |at_hand| holdup.remedy(at_hand))
         })
         .chain(corrections.map(correction_listed))
-        .chain(
-            refusals
-                .map(refusal_listed)
-                .into_iter()
-                .flat_map(|refusal| {
-                    Decision::ALL
-                        .map(|decision| stale_decision_remedy(decision, OpaqueId::SAMPLE, refusal))
-                        .into_iter()
-                        .chain([stale_deletions_view_remedy(OpaqueId::SAMPLE, refusal)])
-                }),
-        )
+        .chain(refusal_remedies())
         .chain([
             unsettled_remedy(None, None, 0),
             unsettled_remedy(Some(Holdup::Observing), None, 2),
@@ -334,4 +310,33 @@ pub fn catalog() -> Vec<String> {
             occupied_directory_remedy(),
         ])
         .collect()
+}
+
+/// The advice of every refusal of each decision on a deletion set that no longer waits for it,
+/// and of a page of the deletions view of such a set, as [`catalog`] lists it.
+fn refusal_remedies() -> impl Iterator<Item = String> {
+    let refusals = [
+        Refusal::Approved,
+        Refusal::Rejected,
+        Refusal::Replaced {
+            revision: OpaqueId::SAMPLE,
+            missing: SAMPLE_AWAITING_SET.missing,
+            tracked: SAMPLE_AWAITING_SET.tracked,
+        },
+        Refusal::Moved,
+        Refusal::Settled,
+    ];
+    let listed = |refusal: Refusal| match refusal {
+        Refusal::Approved
+        | Refusal::Rejected
+        | Refusal::Replaced { .. }
+        | Refusal::Moved
+        | Refusal::Settled => refusal,
+    };
+    refusals.map(listed).into_iter().flat_map(|refusal| {
+        Decision::ALL
+            .map(|decision| stale_decision_remedy(decision, OpaqueId::SAMPLE, refusal))
+            .into_iter()
+            .chain([stale_deletions_view_remedy(OpaqueId::SAMPLE, refusal)])
+    })
 }

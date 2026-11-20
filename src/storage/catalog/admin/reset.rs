@@ -243,6 +243,7 @@ const RETAINED: &[&str] = &[
 const CASCADED: &[&str] = &[
     "sync_deletion_history",
     "sync_deletion_held",
+    "sync_finding_aliases",
     "acl_bucket_entries",
     "acl_object_entries",
     "bucket_notifications",

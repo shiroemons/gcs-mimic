@@ -50,8 +50,9 @@ availability. The later acceptance sections remain the safety contract.
 Initial export does not choose a winner by overwriting an existing target.
 Filesystem aliases detected by exact directory spelling or no-replace failure
 leave existing bytes intact. A case/Unicode alias discovered after a preceding
-catalog member was exported can leave that first file in place; classifying all
-members before any export is PENDING. Legacy buckets rejected by the native
+catalog member was exported leaves that first file in place and reports both
+objects as `alias` findings (see the alias paragraph under the mapping
+reasons); classifying all members before any export is PENDING. Legacy buckets rejected by the native
 typed bucket API are counted as unrepresentable and skipped; per-object durable
 findings for those legacy buckets require a later shared typed interface.
 A tree has no entry or depth limit by default (`max_sync_entries` and `max_sync_depth` are 0),
@@ -601,7 +602,8 @@ writes, keeps the colon.
 | `HostRestriction` | Backslash on every OS, a colon where the root's filesystem refuses or rewrites it, host-invalid characters, Windows device names/drive/UNC syntax, trailing spaces/dots where not reversible, components over the probed limit (at most 255 bytes) and path length limits; retain API state, report the exact restriction. |
 | `Reserved` | Root marker `.gcs-mimic-sync.json`, staging marker `.gcs-mimic-sync.json.staging`, workspace `.gcs-mimic-sync-work` and any reserved component at any object depth; reserve root names against legacy bucket names too. |
 | `Ignored` | Regular files named `.DS_Store` or `4913`, beginning `._`, ending `.swp` or `~`. Use one shared predicate for ingestion and API write-back. Traverse ordinary matching directories such as `._assets/`; they are not ignored files. |
-| `Collision` | `a` and `a/b`, aliases differing only by case or Unicode normalization on the actual filesystem, bucket aliases, or a conflicting directory/file type. Report all members, never choose one silently or delete either API object. |
+| `Collision` | `a` and `a/b`, a directory on the object's path reached under another letter case or Unicode normalization, a file alias with no single spelling to name, bucket aliases, or a conflicting directory/file type. Report all members, never choose one silently or delete either API object. |
+| `Alias` | A regular file the directory holds under another letter case or Unicode normalization of the object's file name. Report the object and the object tracked at that spelling, each with the file's `tree_path`; leave the file as it is, take in no edit of it and delete nothing for its deletion until an API change leaves one object. |
 | `UnsafeEntry` | Symlink, junction/reparse redirect, special file, or changed ancestor/root identity. Never follow it or infer deletion from unreadable/unsafe traversal. |
 
 Atomic marker publication additionally reserves `.gcs-mimic-sync.json.staging`
@@ -613,10 +615,45 @@ Reserved workspace subtrees alone are excluded as directories. An API regular
 object whose final component matches an ignored-file rule is `Ignored`, even
 if present from old seed input. A matching directory in a prefix is traversed;
 its child may be representable. Two API names causing a file/directory collision
-are both unrepresentable until the collision is removed. Detect aliases before
-writing, including an existing external alias, and revoke any previously mapped
-member without treating its disappearance as an external deletion. Existing
-files in an ambiguous group remain untouched pending operator resolution.
+are both unrepresentable until the collision is removed.
+
+An export whose file name the directory holds as a regular file under another
+letter case or Unicode normalization meets an alias. The lookup reads the
+spelling the directory lists for that file from a listing, comparing inode
+numbers, on every platform; a file that other names link to, a directory over
+4,096 names or a spelling that is not UTF-8 names no single spelling and leaves
+a `collision` finding for this object alone, as before. Otherwise the object and
+the API object the tree tracks at that spelling both get an `alias` finding
+(catalog schema 62), whose `tree_path` in the findings view names the file by
+its spelling. A third object of the same group joins the same way. The file
+then stays frozen while more than one of these objects lives: no export
+writes over it or removes it for them, an edit of it is not ingested, since it
+may be meant for any of them, and its deletion deletes none of them and writes
+none back. A frozen edit leaves an
+`AliasEdited` path stop on the tracked object, which ends a wait as a
+tree-side `FindingsPending` (exit status 2) until the alias ends or the file
+holds the tracked bytes again or goes. Only an API change ends an alias:
+renaming the file would make it the other object's. Deleting or renaming one
+object through the API releases the object left in the replay of that change,
+and every ingestion observes alias findings again too, so no restart is needed;
+the object left then gets its file back if it went, a frozen edit is ingested
+for the object the file was tracked for, and when the deleted object was that
+one, its unedited file goes and the object left is exported under its own
+spelling. A `sync_alias_frozen` warning names each object as its finding
+begins, with the file's `path`, the `partner` and the remedy; an info
+`sync_alias_released` event names each object as its finding ends; a
+`sync_alias_edited` warning names the file the first time an edit is kept out.
+Repeated observations write and report nothing. An external file at the alias
+spelling that no object tracks is ingested under its own name, as any new file
+is, and the next observation pairs it. A directory reached under another
+spelling stays a `collision` finding of the object whose path runs through it.
+
+Renaming a tracked file to another letter case leaves its old path an alias,
+which the deletion inventory takes as no evidence either way: the old object is
+neither deleted nor counted as gone. The renamed spelling is ingested as a new
+object before the inventory runs, so its file counts as present, and a deletion
+made in the same directory at the same time proceeds without approval.
+Reporting the old and the new object as one alias group is PENDING.
 
 An external directory at an exported object's target name gives way only when
 it holds nothing but Finder's metadata files and nothing the catalog records
@@ -660,8 +697,9 @@ rename the object; other objects continue. A metadata file already unlinked when
 the removal finds another entry, such as one Finder wrote again, stays
 unlinked; Finder recreates it. A crash or power loss between the unlinks and
 the removal leaves the directory empty, and the next pass removes it. A
-directory under another spelling stays and leaves a `collision` finding, as any
-alias does. A symlink at the name is never followed or removed and leaves an
+directory under another spelling stays and leaves a `collision` finding, as a
+directory alias on the object's path does; only a regular file under another
+spelling is an `alias`. A symlink at the name is never followed or removed and leaves an
 `unsafe-entry` finding. A directory where a tracked file was is no export
 target: it stops that path as `EntryReplaced`. A `sync_directory_kept` warning
 names the bucket, the object, the check that kept the directory (such as

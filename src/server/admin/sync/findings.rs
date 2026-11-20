@@ -66,6 +66,12 @@ pub(super) fn value(
             "Unrepresentable",
             crate::sync::control::occupied_directory_remedy().into(),
         ),
+        // Renaming the entry would only make it the file of the other object, so the remedy
+        // asks for the API change that ends the alias.
+        FindingReason::Mapping(FindingKind::Unmapped(Reason::Alias)) => (
+            "Unrepresentable",
+            Correction::AliasedObjects.remedy().into(),
+        ),
         FindingReason::PathStop(PathStop::ProtectedDeletion) => (
             "ProtectedDeletion",
             "Release the API hold or retention through a supported operation, then delete the restored file again".into(),
@@ -81,6 +87,10 @@ pub(super) fn value(
         FindingReason::PathStop(PathStop::EntryReplaced) => (
             "EntryReplaced",
             Correction::ReplacedEntry.remedy().into(),
+        ),
+        FindingReason::PathStop(PathStop::AliasEdited) => (
+            "AliasEdited",
+            Correction::EditedAlias.remedy().into(),
         ),
         FindingReason::Writeback(_) => (
             "RecoveryRequired",
@@ -103,6 +113,12 @@ pub(super) fn value(
         "bucket":item.bucket,"object":item.object,"bucket_incarnation":item.bucket_incarnation,"generation":item.generation,
         "owner_project":item.owner_project,"detail_code":item.reason,"remedy":remedy,"operation_id":item.operation_id,
         "conflict_id":item.conflict_id,"conflict_revision":item.conflict_revision});
+    // Only an alias finding has a file under another spelling than its object's own path.
+    if let Some(tree_path) = &item.tree_path
+        && let Some(value) = value.as_object_mut()
+    {
+        value.insert("tree_path".into(), Value::from(tree_path.as_str()));
+    }
     if let Some(recovery) = &item.recovery
         && let Some(value) = value.as_object_mut()
     {
@@ -164,6 +180,7 @@ mod tests {
             }),
             conflict_id: None,
             conflict_revision: None,
+            tree_path: None,
         }
     }
 
@@ -221,6 +238,7 @@ mod tests {
             recovery: None,
             conflict_id: None,
             conflict_revision: None,
+            tree_path: None,
         }
     }
 
@@ -290,6 +308,42 @@ mod tests {
         assert!(remedy.contains("Move everything in it out"), "{remedy}");
         assert!(remedy.contains("gcs-mimic sync rescan"), "{remedy}");
         assert!(!remedy.contains("API name"), "{remedy}");
+    }
+
+    /// An alias finding names the file both objects share by its spelling in the tree, and its
+    /// remedy asks for the API change that ends the alias, since renaming the file would only
+    /// make it the other object's. A frozen edit names its own stop. Other findings have no
+    /// spelling to show.
+    #[test]
+    fn an_alias_renders_the_spelling_of_its_file_and_asks_for_an_api_change() {
+        let alias = Item {
+            tree_path: Some("bucket/Object".into()),
+            ..mapping_finding(FindingKind::Unmapped(Reason::Alias))
+        };
+        let rendered = value(&alias, "prefix", None, AtHand::default()).unwrap();
+        assert_eq!(
+            (
+                &rendered["reason"],
+                &rendered["detail_code"],
+                &rendered["tree_path"]
+            ),
+            (
+                &json!("Unrepresentable"),
+                &json!("alias"),
+                &json!("bucket/Object")
+            )
+        );
+        let remedy = rendered["remedy"].as_str().unwrap();
+        assert!(remedy.contains("through the API"), "{remedy}");
+        assert!(remedy.contains("deleting it deletes neither"), "{remedy}");
+        let edited = Item {
+            category: FindingCategory::PathStop,
+            reason: FindingReason::PathStop(PathStop::AliasEdited),
+            ..mapping_finding(FindingKind::ExportConflict)
+        };
+        let rendered = value(&edited, "prefix", None, AtHand::default()).unwrap();
+        assert_eq!(rendered["reason"], json!("AliasEdited"));
+        assert!(rendered.get("tree_path").is_none());
     }
 
     /// A root stop's remedy names the findings view at the revision of the page that lists it,

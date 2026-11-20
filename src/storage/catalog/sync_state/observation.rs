@@ -40,7 +40,7 @@ PRAGMA user_version = 59;";
 pub(super) mod publication;
 pub(crate) use publication::Publication;
 mod stops;
-pub(crate) use stops::{PathStop, TransientStop};
+pub(crate) use stops::{AliasEdit, PathStop, TransientStop, Transition};
 mod types;
 pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 
@@ -134,6 +134,9 @@ pub(crate) struct Item {
     pub recovery: Option<RecoveryDetails>,
     pub conflict_id: Option<OpaqueId>,
     pub conflict_revision: Option<OpaqueId>,
+    /// The path under which the tree holds the file of an alias finding's object.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_path: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -198,6 +201,7 @@ fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
         recovery,
         conflict_id: row.get(14)?,
         conflict_revision: row.get(15)?,
+        tree_path: row.get(16)?,
     })
 }
 
@@ -442,13 +446,13 @@ impl RootLease {
     }
 }
 
-const PAGE:&str="SELECT kind,ordinal,category,bucket,name,incarnation,generation,reason,id,owner,recovery_revision,target_identity,observation,recovery_phase,conflict_id,conflict_revision FROM (
- SELECT 0 AS kind,ordinal,'mapping' AS category,bucket,name,incarnation,generation,reason,NULL AS id,owner_project AS owner,NULL AS recovery_revision,NULL AS target_identity,NULL AS observation,NULL AS recovery_phase,NULL AS conflict_id,NULL AS conflict_revision FROM sync_findings WHERE root_id=?1
- UNION ALL SELECT 1,w.ordinal,'writeback',w.bucket,w.name,w.incarnation,w.generation,w.phase,w.id,w.owner,r.revision,r.target_identity,r.observation,r.phase,NULL,NULL FROM sync_writeback_ops w LEFT JOIN sync_recovery_workspaces r ON r.root_id=w.root_id AND r.id=w.id WHERE w.root_id=?1 AND w.phase!=4
- UNION ALL SELECT 2,0,'root-stop',NULL,NULL,NULL,NULL,paused_reason,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND paused_reason IS NOT NULL
- UNION ALL SELECT 2,1,'root-stop',NULL,NULL,NULL,NULL,scan_stop,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND scan_stop IS NOT NULL
- UNION ALL SELECT 3,ordinal,'path-stop',bucket,name,incarnation,generation,reason,NULL,owner_project,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_path_stops WHERE root_id=?1
- UNION ALL SELECT 4,ordinal,'conflict',bucket,name,incarnation,generation,state,id,owner,NULL,NULL,NULL,NULL,id,revision FROM sync_conflicts WHERE root_id=?1 AND state!=2
+const PAGE:&str="SELECT kind,ordinal,category,bucket,name,incarnation,generation,reason,id,owner,recovery_revision,target_identity,observation,recovery_phase,conflict_id,conflict_revision,tree_path FROM (
+ SELECT 0 AS kind,ordinal,'mapping' AS category,bucket,name,incarnation,generation,reason,NULL AS id,owner_project AS owner,NULL AS recovery_revision,NULL AS target_identity,NULL AS observation,NULL AS recovery_phase,NULL AS conflict_id,NULL AS conflict_revision,(SELECT spelling FROM sync_finding_aliases a WHERE a.ordinal=sync_findings.ordinal) AS tree_path FROM sync_findings WHERE root_id=?1
+ UNION ALL SELECT 1,w.ordinal,'writeback',w.bucket,w.name,w.incarnation,w.generation,w.phase,w.id,w.owner,r.revision,r.target_identity,r.observation,r.phase,NULL,NULL,NULL FROM sync_writeback_ops w LEFT JOIN sync_recovery_workspaces r ON r.root_id=w.root_id AND r.id=w.id WHERE w.root_id=?1 AND w.phase!=4
+ UNION ALL SELECT 2,0,'root-stop',NULL,NULL,NULL,NULL,paused_reason,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND paused_reason IS NOT NULL
+ UNION ALL SELECT 2,1,'root-stop',NULL,NULL,NULL,NULL,scan_stop,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND scan_stop IS NOT NULL
+ UNION ALL SELECT 3,ordinal,'path-stop',bucket,name,incarnation,generation,reason,NULL,owner_project,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_path_stops WHERE root_id=?1
+ UNION ALL SELECT 4,ordinal,'conflict',bucket,name,incarnation,generation,state,id,owner,NULL,NULL,NULL,NULL,id,revision,NULL FROM sync_conflicts WHERE root_id=?1 AND state!=2
 ) WHERE kind>?2 OR (kind=?2 AND ordinal>?3) ORDER BY kind,ordinal LIMIT ?4";
 
 #[cfg(all(test, unix))]

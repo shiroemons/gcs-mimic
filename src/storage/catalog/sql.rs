@@ -539,11 +539,13 @@ mod tests {
             (Reason::Collision, "collision"),
             (Reason::UnsafeEntry, "unsafe-entry"),
             (Reason::DirectoryOccupied, "directory-occupied"),
+            (Reason::Alias, "alias"),
         ]);
         text_values(&[
             (PathStop::ProtectedDeletion, "ProtectedDeletion"),
             (PathStop::SourceChanging, "SourceChanging"),
             (PathStop::IoFailure, "IoFailure"),
+            (PathStop::AliasEdited, "AliasEdited"),
         ]);
         integer_values(&[(Kind::Publish, 0), (Kind::Remove, 1)], 2);
         integer_values(

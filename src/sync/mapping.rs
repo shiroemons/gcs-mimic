@@ -25,6 +25,11 @@ pub enum Reason {
     /// Unlike a [`Self::Collision`], only moving those entries out frees the name: no API name
     /// is at fault.
     DirectoryOccupied,
+    /// The directory holds the object's file under another letter case or Unicode
+    /// normalization of its name, which the root's file system takes for the same name. The
+    /// object and the one tracked at that spelling are both reported, and the file is frozen:
+    /// neither is exported over it nor ingested from it until one of them goes.
+    Alias,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

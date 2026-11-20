@@ -197,11 +197,11 @@ async fn wait_succeeds_past_names_the_tree_cannot_hold_and_counts_them() {
             catalog.enable_change_journal().await.unwrap();
             fs::create_dir(tree.0.join("test-bucket")).unwrap();
             // A file and a directory of one name hold each other out of the tree, and only a
-            // tree that folds case aliases the two spellings.
+            // tree that folds case aliases the two spellings, which reports both objects.
             let expected = match label {
-                "ignored" => 0,
                 "file and directory" => 2,
-                "case alias" if !folds_case(&tree.0.join("test-bucket")) => 0,
+                "case alias" if folds_case(&tree.0.join("test-bucket")) => 2,
+                "ignored" | "case alias" => 0,
                 _ => 1,
             };
             if matches!(arrival, Arrival::AfterBaseline) {
