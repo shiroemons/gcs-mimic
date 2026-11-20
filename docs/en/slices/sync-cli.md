@@ -248,15 +248,27 @@ scan, whether or not a wait ended on them: up to 256 `entries`, fewer when
 their paths would not fit the 256 KiB answer, with `omitted` counting the rest,
 and a `total` of 0 with no entries once a scan finds none. `sync status` then
 prints one `warn` diagnostic on standard error that names the first five,
-for example `The latest scan could not take in some source entries (1 source
-entry: test-bucket/link [unsafe-entry]); until each is renamed, replaced or
-moved away, no deletion in the directory is detected. ...`, and nothing when
-there are none. A wait that ends
-with `DeletionApproval` answers `deletions`: the `paths` of the first ten files
-of the set that waits, how many more it `omitted`, the `removed_buckets` that
-went whole and `removed_buckets_omitted`, as the
+for example `The latest scan could not take in some files or directories of the
+sync directory (1 entry: test-bucket/link [unsafe-entry]); until each is
+renamed, replaced or moved away, or made readable where it says [unreadable], no
+deletion in the directory is detected. ...`, and nothing when there are none.
+
+A wait that ends with `DeletionApproval` answers `deletions`: the `paths` of the
+first ten files of the set that waits, how many more it `omitted`, the
+`removed_buckets` that went whole and `removed_buckets_omitted`, as the
 `sync_deletion_approval_required` event names them; its remedy opens with why
-the set waits. A path that is not
+the set waits. A wait that ends with `FindingsPending` while path stops hold it
+answers `path_stops` in the form of `source_entries`: their `total`, the first five `entries`, each
+with the `path` it stops and its `reason`, and the `omitted` count. Its error
+names them before the remedy, for example `sync wait ended with
+FindingsPending (1 path stop: test-bucket/Photo.jpg [AliasEdited]): ...`. A
+wait that succeeds while a file of the sync directory stands for several
+objects whose names differ only in letter case or Unicode normalization answers
+`frozen_files`: their `total`, the first five `entries`, each with the file's
+`path` and how many `objects` it stands for, and the `omitted` count. The
+command then prints one more `warn` diagnostic, for example `1 file in the sync
+directory stands for 2 objects and is frozen (test-bucket/Photo.jpg); edits to
+it are not uploaded`, and counts the objects only when it names every file. A path that is not
 UTF-8, the kind of name a scan cannot take in, shows U+FFFD for each invalid
 sequence, in the answer as in the logs and remedies that name it.
 

@@ -127,11 +127,19 @@ waitは、反映できる変更をすべて反映した時点で成功します�
 `SourceUnrepresentable`で終わったwaitの応答には、`source_entries`も入ります。
 全体の件数`total`、そのwait自身の照合で取り込めなかったエントリのうち先頭の5件`entries`（それぞれ`path`と`reason`）、示さなかった件数`omitted`です。
 エラーは対処の前にそれらを示します。例えば`sync wait ended with SourceUnrepresentable (2 source entries: INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`です。
-statusも、最後に最後まで終えた走査について、同じ形の`source_entries`を返します。waitがそれで終わったかどうかは問いません。
+statusも、直近で最後まで終えた走査について、同じ形の`source_entries`を返します。waitがそれで終わったかどうかは問いません。
 `entries`は最大256件で、パスが長く256 KiBの応答に収まらないときは減らし、残りを`omitted`に数えます。走査が何も見つけなければ、`total`は0で`entries`は空です。
 `sync status`は、先頭の5件を示す`warn`の診断を標準エラーへ1行出します。
-例えば`The latest scan could not take in some source entries (1 source entry: test-bucket/link [unsafe-entry]); until each is renamed, replaced or moved away, no deletion in the directory is detected. ...`です。エントリがなければ何も出しません。
+例えば`The latest scan could not take in some files or directories of the sync directory (1 entry: test-bucket/link [unsafe-entry]); until each is renamed, replaced or moved away, or made readable where it says [unreadable], no deletion in the directory is detected. ...`です。エントリがなければ何も出しません。
+
 `DeletionApproval`で終わったwaitの応答には`deletions`が入ります。承認待ちの削除一覧の先頭10件のパス`paths`、示さなかった件数`omitted`、丸ごと消えたバケット`removed_buckets`とその省略件数`removed_buckets_omitted`で、`sync_deletion_approval_required`のログと同じです。対処は待っている理由から始まります。
+パスの停止が残って`FindingsPending`で終わったwaitの応答には、`source_entries`と同じ形の`path_stops`が入ります。
+全体の件数`total`、先頭の5件`entries`（それぞれ止めているパスの`path`と`reason`）、示さなかった件数`omitted`です。
+エラーは対処の前にそれらを示します。例えば`sync wait ended with FindingsPending (1 path stop: test-bucket/Photo.jpg [AliasEdited]): ...`です。
+大文字・小文字やUnicodeの正規化（NFCとNFD。濁点・半濁点を1文字で持つか、分けて持つか）だけが違う名前の複数のオブジェクトを、同期ディレクトリの1つのファイルが表しているとき、成功したwaitの応答には`frozen_files`が入ります。
+全体の件数`total`、先頭の5件`entries`（それぞれファイルの`path`と、表しているオブジェクトの数`objects`）、示さなかった件数`omitted`です。
+このときCLIは`warn`の診断をもう1行出します。例えば`1 file in the sync directory stands for 2 objects and is frozen (test-bucket/Photo.jpg); edits to it are not uploaded`です。
+オブジェクトの数は、すべてのファイルを示せたときだけ数えます。
 UTF-8でないパス（走査が取り込めない名前の典型）は、不正なバイト列ごとにU+FFFDに置き換えて示します。応答でも、そのパスを示すログや対処文でも同じです。
 
 サーバーの応答から組み立てる行（エントリ、対処、findingsのリビジョン、エラーメッセージ）は、端末に出す前に制御文字をエスケープします（ESCなら`\u{1b}`）。

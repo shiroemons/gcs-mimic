@@ -1041,9 +1041,23 @@ struct WaitOutcome<'a> {
     /// The first source entries a wait that ended on them names, each as `path [reason]`, and
     /// how many there were.
     source_entries: Option<(Vec<String>, u64)>,
+    /// The first path stops a wait that ended on findings names, each as `path [reason]`, and
+    /// how many there were.
+    path_stops: Option<(Vec<String>, u64)>,
+    /// The first files a successful wait names as frozen for several objects, how many there
+    /// were, and how many objects the named ones stand for.
+    frozen_files: Option<FrozenFiles>,
     remedy: Option<&'a str>,
     /// The message of an answer that is a request's failure rather than a wait's end.
     message: Option<&'a str>,
+}
+
+/// The files that stand for several objects, as a successful wait's answer lists them.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct FrozenFiles {
+    paths: Vec<String>,
+    total: u64,
+    objects: u64,
 }
 
 impl<'a> WaitOutcome<'a> {
@@ -1058,6 +1072,8 @@ impl<'a> WaitOutcome<'a> {
                 .zip(findings.and_then(|findings| text(findings, "revision"))),
             paused_reason: text(body, "paused_reason"),
             source_entries: body.get("source_entries").and_then(listed_source_entries),
+            path_stops: body.get("path_stops").and_then(listed_source_entries),
+            frozen_files: body.get("frozen_files").and_then(listed_frozen_files),
             remedy: text(body, "remedy"),
             message: error_message(body),
         }
@@ -1083,30 +1099,36 @@ impl<'a> WaitOutcome<'a> {
     }
 
     /// For a wait that succeeded, one line naming the command that lists the objects the tree
-    /// cannot hold, if any remain; for one that failed, an error naming its reason and what to
-    /// run next, which names those objects itself when they failed it. The options that reached
-    /// this server are filled in.
+    /// cannot hold, if any remain, and one naming the files frozen for several objects, whose
+    /// edits are not uploaded; for one that failed, an error naming its reason, the first path
+    /// stops or source entries it ended on, and what to run next, which names those objects
+    /// itself when they failed it. The options that reached this server are filled in.
     fn advice(&self, connection: &str) -> Diagnostics {
-        let warnings = self
-            .unmapped
-            .filter(|(count, _)| *count > 0 && self.reason == Some(WaitReason::Ready))
-            .map(|(count, revision)| {
-                let objects = advice::UnmappedCount::from(count);
-                diagnostic(
-                    "sync-findings",
-                    format!(
-                        "{objects} and {} reachable only through the API; list {} with {}",
-                        objects.stay(),
-                        objects.them(),
-                        advice::with_connection(
-                            &advice::Advised::Findings(Some(revision)).to_string(),
-                            connection
-                        )
-                    ),
-                )
-            })
-            .into_iter()
-            .collect();
+        let ready = self.reason == Some(WaitReason::Ready);
+        let unmapped =
+            self.unmapped
+                .filter(|(count, _)| *count > 0 && ready)
+                .map(|(count, revision)| {
+                    let objects = advice::UnmappedCount::from(count);
+                    diagnostic(
+                        "sync-findings",
+                        format!(
+                            "{objects} and {} reachable only through the API; list {} with {}",
+                            objects.stay(),
+                            objects.them(),
+                            advice::with_connection(
+                                &advice::Advised::Findings(Some(revision)).to_string(),
+                                connection
+                            )
+                        ),
+                    )
+                });
+        let frozen = self
+            .frozen_files
+            .as_ref()
+            .filter(|frozen| frozen.total > 0 && ready)
+            .map(|frozen| diagnostic("sync-frozen", frozen.line()));
+        let warnings = unmapped.into_iter().chain(frozen).collect();
         let errors = self
             .reason
             .filter(|reason| *reason != WaitReason::Ready)
@@ -1114,10 +1136,15 @@ impl<'a> WaitOutcome<'a> {
                 let paused = self
                     .paused_reason
                     .map_or_else(String::new, |paused| format!(" (paused_reason {paused})"));
-                let entries = self
-                    .source_entries
-                    .as_ref()
-                    .map_or_else(String::new, |(first, total)| listed_entries(first, *total));
+                let entries =
+                    self.source_entries
+                        .as_ref()
+                        .map(|(first, total)| listed_entries(first, *total))
+                        .into_iter()
+                        .chain(self.path_stops.as_ref().map(|(first, total)| {
+                            listed(first, *total, ("path stop", "path stops"))
+                        }))
+                        .collect::<String>();
                 let remedy = self.remedy.map_or_else(String::new, |remedy| {
                     format!(": {}", advice::with_connection(remedy, connection))
                 });
@@ -1158,6 +1185,53 @@ fn listed_source_entries(listing: &Value) -> Option<(Vec<String>, u64)> {
 /// The source entries one line names; the rest are counted.
 const LISTED_ENTRIES: usize = 5;
 
+/// The first files of a `frozen_files` listing, how many there are, and how many objects the
+/// named ones stand for.
+fn listed_frozen_files(listing: &Value) -> Option<FrozenFiles> {
+    let mut frozen = FrozenFiles {
+        total: listing.get("total")?.as_u64()?,
+        ..FrozenFiles::default()
+    };
+    for entry in listing
+        .get("entries")?
+        .as_array()?
+        .iter()
+        .take(LISTED_ENTRIES)
+    {
+        let (Some(path), Some(objects)) = (
+            entry.get("path").and_then(Value::as_str),
+            entry.get("objects").and_then(Value::as_u64),
+        ) else {
+            continue;
+        };
+        frozen.paths.push(path.to_owned());
+        frozen.objects = frozen.objects.saturating_add(objects);
+    }
+    Some(frozen)
+}
+
+impl FrozenFiles {
+    /// The warning line of a wait that succeeded with these files frozen. The objects are
+    /// counted only when every file is named.
+    fn line(&self) -> String {
+        let paths = named(&self.paths, self.total);
+        let named_all = u64::try_from(self.paths.len()).is_ok_and(|named| named == self.total);
+        match (self.total, named_all) {
+            (1, true) => format!(
+                "1 file in the sync directory stands for {} objects and is frozen ({paths}); edits to it are not uploaded",
+                self.objects
+            ),
+            (total, true) => format!(
+                "{total} files in the sync directory stand for {} objects and are frozen ({paths}); edits to them are not uploaded",
+                self.objects
+            ),
+            (total, false) => format!(
+                "{total} files in the sync directory each stand for several objects and are frozen ({paths}); edits to them are not uploaded"
+            ),
+        }
+    }
+}
+
 /// For `sync status`, a warning that names the first source entries the latest complete scan
 /// could not take in, which hold back deletion detection for the whole directory until each is
 /// corrected; nothing when there are none. Standard output keeps the JSON answer, which lists
@@ -1171,8 +1245,8 @@ fn status_advice(body: &Value) -> Diagnostics {
             diagnostic(
                 "sync-entries",
                 format!(
-                    "The latest scan could not take in some source entries{}; until each is renamed, replaced or moved away, no deletion in the directory is detected. source_entries in this status lists them with their reasons",
-                    listed_entries(&first, total)
+                    "The latest scan could not take in some files or directories of the sync directory{}; until each is renamed, replaced or moved away, or made readable where it says [unreadable], no deletion in the directory is detected. source_entries in this status lists them with their reasons",
+                    listed(&first, total, ("entry", "entries"))
                 ),
             )
         })
@@ -1187,14 +1261,24 @@ fn status_advice(body: &Value) -> Diagnostics {
 
 /// The `first` source entries of `total` that a wait ended on, as its error line names them.
 fn listed_entries(first: &[String], total: u64) -> String {
-    let noun = if total == 1 { "entry" } else { "entries" };
+    listed(first, total, ("source entry", "source entries"))
+}
+
+/// The `first` items of `total`, which `(one, many)` name, as a line names them.
+fn listed(first: &[String], total: u64, (one, many): (&str, &str)) -> String {
+    let noun = if total == 1 { one } else { many };
+    format!(" ({total} {noun}: {})", named(first, total))
+}
+
+/// The `first` items of `total`, and how many more there are.
+fn named(first: &[String], total: u64) -> String {
     let more = total.saturating_sub(u64::try_from(first.len()).unwrap_or(u64::MAX));
     let more = if more > 0 {
         format!(", and {more} more")
     } else {
         String::new()
     };
-    format!(" ({total} source {noun}: {}{more})", first.join(", "))
+    format!("{}{more}", first.join(", "))
 }
 
 /// A synchronization control's answer, with the headers that carry the server's version.

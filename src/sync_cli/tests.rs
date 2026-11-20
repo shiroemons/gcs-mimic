@@ -1025,6 +1025,67 @@ fn a_wait_that_ended_on_source_entries_names_the_first_of_them() {
     );
 }
 
+/// A wait that ended on findings names the first path stops with their reasons, and how many
+/// there were, before its remedy.
+#[test]
+fn a_wait_that_ended_on_path_stops_names_the_first_of_them() {
+    let connection = "--endpoint http://127.0.0.1:4443";
+    let remedy = "Inspect the findings; then wait again: gcs-mimic sync wait --endpoint URL";
+    let stops = json!({"reason":"FindingsPending","remedy":remedy,
+        "path_stops":{"total":6,"omitted":5,"entries":[
+            {"path":"test-bucket/Photo.jpg","reason":"AliasEdited"}]}});
+    assert_eq!(
+        WaitOutcome::read(&stops).advice(connection).errors[0].fix,
+        "sync wait ended with FindingsPending (6 path stops: test-bucket/Photo.jpg [AliasEdited], and 5 more): Inspect the findings; then wait again: gcs-mimic sync wait --endpoint http://127.0.0.1:4443"
+    );
+}
+
+/// A wait that succeeded with files that stand for several objects names them in a warning,
+/// since edits to them are not uploaded, and counts the objects when it names every file.
+#[test]
+fn a_ready_wait_names_the_files_frozen_for_several_objects() {
+    let connection = "--endpoint http://127.0.0.1:4443";
+    let warning = |files: Value| {
+        let body = json!({"reason":"Ready","frozen_files":files});
+        let advice = WaitOutcome::read(&body).advice(connection);
+        assert!(advice.errors.is_empty());
+        advice
+            .warnings
+            .into_iter()
+            .map(|warning| warning.fix)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        warning(json!({"total":1,"omitted":0,"entries":[
+            {"path":"test-bucket/Photo.jpg","objects":2}]})),
+        [
+            "1 file in the sync directory stands for 2 objects and is frozen (test-bucket/Photo.jpg); edits to it are not uploaded"
+        ]
+    );
+    assert_eq!(
+        warning(json!({"total":2,"omitted":0,"entries":[
+            {"path":"b/A","objects":2},{"path":"b/\u{e9}","objects":3}]})),
+        [
+            "2 files in the sync directory stand for 5 objects and are frozen (b/A, b/\u{e9}); edits to them are not uploaded"
+        ]
+    );
+    assert_eq!(
+        warning(json!({"total":7,"omitted":6,"entries":[{"path":"b/A","objects":2}]})),
+        [
+            "7 files in the sync directory each stand for several objects and are frozen (b/A, and 6 more); edits to them are not uploaded"
+        ]
+    );
+    assert!(warning(json!({"total":0,"omitted":0,"entries":[]})).is_empty());
+    let pending = json!({"reason":"FindingsPending","frozen_files":{"total":1,"omitted":0,
+        "entries":[{"path":"b/A","objects":2}]}});
+    assert!(
+        WaitOutcome::read(&pending)
+            .advice(connection)
+            .warnings
+            .is_empty()
+    );
+}
+
 /// `sync status` names the first five source entries the latest scan could not take in, with
 /// how many there were, in one warning beside its JSON answer, and says nothing of them when
 /// there are none.
@@ -1039,7 +1100,7 @@ fn a_status_names_the_first_source_entries_the_latest_scan_could_not_take_in() {
     assert!(advice.errors.is_empty(), "{advice:?}");
     assert_eq!(
         advice.warnings[0].fix,
-        "The latest scan could not take in some source entries (9 source entries: bucket/link0 [unsafe-entry], bucket/link1 [unsafe-entry], bucket/link2 [unsafe-entry], bucket/link3 [unsafe-entry], bucket/link4 [unsafe-entry], and 4 more); until each is renamed, replaced or moved away, no deletion in the directory is detected. source_entries in this status lists them with their reasons"
+        "The latest scan could not take in some files or directories of the sync directory (9 entries: bucket/link0 [unsafe-entry], bucket/link1 [unsafe-entry], bucket/link2 [unsafe-entry], bucket/link3 [unsafe-entry], bucket/link4 [unsafe-entry], and 4 more); until each is renamed, replaced or moved away, or made readable where it says [unreadable], no deletion in the directory is detected. source_entries in this status lists them with their reasons"
     );
     let none = json!({"source_entries":{"total":0,"omitted":0,"entries":[]}});
     assert!(status_advice(&none).warnings.is_empty());
