@@ -199,8 +199,9 @@ A hold or retention on a member only stops its deletion, which then restores
 the file, so a metadata change of a member keeps the revision. The confirmed set moves to the inventory's journal fence
 and keeps the denominator it was taken with. It never confirms an
 approved set or one from before a restart. A set that waits for a decision stays
-in the status and the `deletions` view after an API write that touched none of
-its members, and an approval or rejection of it inventories the tree first at
+in the status and the `deletions` view after any API write, an update of a
+member's bucket included, since listing deletes nothing, and an approval or
+rejection of it inventories the tree first at
 the current journal fence, so it is accepted under the same revision. Approval consumes exactly one
 revision, and replay or stale inspection returns 409. Each actual delete rechecks no-follow absence,
 root identity, membership, generation and incarnation. Member completion and the

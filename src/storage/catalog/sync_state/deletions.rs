@@ -311,10 +311,12 @@ fn matching(connection: &Connection, root: RootId, revision: OpaqueId) -> Result
     }
 }
 
-/// Fails unless the root's set is `revision`, [`readable!`] and [`unaffected!`], as a page of
-/// the deletions view needs: a set that waits for a decision stays inspectable after an API
-/// write that touched none of its members, and the pages of one whose members' bucket was
-/// updated are refused, since the decision on them will be.
+/// Fails unless the root's set is `revision` and [`readable!`], as a page of the deletions view
+/// needs: the pages list exactly the set the status names. A set that waits for a decision stays
+/// listed after any API write, an update of a member's bucket included. Listing it deletes
+/// nothing, and the decision on it inventories the tree again and replaces it then
+/// ([`unaffected!`]); refusing the pages while the status still named the set sent a listing
+/// without a revision, which reads the status first, into the same refusal again.
 fn inspectable(
     connection: &Connection,
     root: RootId,
@@ -325,8 +327,6 @@ fn inspectable(
         concat!(
             "SELECT EXISTS(SELECT 1 FROM sync_deletion_sets d JOIN sync_roots r ON r.root_id=d.root_id JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND d.revision=?2 AND r.complete=1 AND ",
             readable!(),
-            " AND ",
-            unaffected!(),
             ")"
         ),
         params![root, revision],
@@ -538,8 +538,17 @@ impl RootLease {
     /// decision now, if one does. A root holds one set, so a set that another replaced reads as
     /// replaced or settled whether or not it was decided first.
     pub(crate) async fn refusal(&self, revision: OpaqueId) -> Result<Refusal, RootError> {
+        self.refusal_for(revision, self.authority()).await
+    }
+
+    /// [`Self::refusal`] for `authority`, as a page of the deletions view whose set is no longer
+    /// the one the status reads names it.
+    pub(crate) async fn refusal_for(
+        &self,
+        revision: OpaqueId,
+        authority: super::authority::ControlAuthority,
+    ) -> Result<Refusal, RootError> {
         let root = self.status().root_id;
-        let authority = self.authority();
         Ok(self
             .catalog()
             .run_admin(move |connection| {

@@ -524,6 +524,43 @@ pub(crate) fn stale_decision_remedy(
     }
 }
 
+/// The refusal of a page of the deletions view for the set `revision`, which is no longer the set
+/// the status reads, and what `refusal` says became of it. A listing decides nothing, so it names
+/// the view of the set that waits instead, if one does, and never a decision.
+pub(crate) fn stale_deletions_view_remedy(revision: OpaqueId, refusal: Refusal) -> String {
+    let revision = revision.to_hex();
+    match refusal {
+        Refusal::Approved => format!(
+            "Deletion set {revision} was approved, and its objects are deleted or being deleted, so its pages are no longer listed. The status names any deletion set that waits for a decision: {}",
+            Advised::Status
+        ),
+        Refusal::Rejected => format!(
+            "Deletion set {revision} was rejected, and its files are written back from their objects, so its pages are no longer listed; wait for the write-back to finish: {}",
+            Advised::Wait
+        ),
+        Refusal::Replaced {
+            revision: current,
+            missing,
+            tracked,
+        } => {
+            let current = current.to_hex();
+            format!(
+                "Deletion set {revision} is not the deletion set that waits for a decision now (it was replaced, decided before, taken before a restart, or not issued by this server). Deletion set {current} waits instead, and {}; list it: {}",
+                missing_of(missing, tracked),
+                Advised::Deletions(Some(&current))
+            )
+        }
+        Refusal::Moved => format!(
+            "Deletion set {revision} still waits for a decision, but this page cannot continue from the cursor it was given; list the set again from its first page: {}",
+            Advised::Deletions(Some(&revision))
+        ),
+        Refusal::Settled => format!(
+            "Deletion set {revision} is not listed: no deletion set waits for a decision now. The missing files may have come back, a later pass may have found nothing that needs a decision, or the inventory that replaces the set has not finished. Wait for synchronization, which names any deletion set that waits then: {}",
+            Advised::Wait
+        ),
+    }
+}
+
 pub(crate) enum Command {
     Resolve {
         request: crate::storage::sync_state::conflicts::ResolveRequest,

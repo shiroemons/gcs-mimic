@@ -2229,18 +2229,41 @@ async fn long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all
         )
         .await
         .unwrap();
+    // The update leaves the pages of the set the status names readable, since listing deletes
+    // nothing; the approval inventories the tree again, which replaces the set, and is refused.
+    // The old revision's pages then name the set that waits instead.
+    let old_page = format!("/_internal/sync?view=deletions&revision={old}&cursor={cursor}");
+    assert_eq!(
+        fixture
+            .request("GET", &old_page, b"", None)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let old_approval = serde_json::to_vec(&json!({"deletion_set":old})).unwrap();
     assert_eq!(
         status_of(
             fixture
-                .request(
-                    "GET",
-                    &format!("/_internal/sync?view=deletions&revision={old}&cursor={cursor}"),
-                    b"",
-                    None
-                )
+                .request("POST", "/_internal/sync/approve", &old_approval, None)
                 .await
         ),
         StatusCode::CONFLICT
+    );
+    let refused = fixture
+        .request("GET", &old_page, b"", None)
+        .await
+        .unwrap_err();
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    let message = refused.message;
+    let waiting = fixture.status().await["pending_deletion_revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(waiting, old);
+    assert!(
+        message.contains(&format!("Deletion set {waiting} waits instead")),
+        "{message}"
     );
     fixture
         .request("POST", "/_internal/sync/rescan", b"{}", None)

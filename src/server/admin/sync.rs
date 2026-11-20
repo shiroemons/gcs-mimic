@@ -757,8 +757,10 @@ async fn status(
                 .deletion_set_for(authority.clone())
                 .await
                 .map_err(|error| root_error(&error))?
-                .filter(|set| query.revision == set.revision)
-                .ok_or_else(stale)?;
+                .filter(|set| query.revision == set.revision);
+            let Some(set) = set else {
+                return Err(stale_deletions(&root, query.revision, authority).await);
+            };
             deletion_page(&root, query, set, authority).await
         }
         Page::Summary => {
@@ -878,17 +880,25 @@ async fn deletion_page(
     let prefix = cursor_prefix(&ids, set.revision);
     let after = match &query.after {
         None => Ordinal::START,
-        Some(cursor) => {
-            let SyncCursor::Deletions(ordinal) = SyncCursor::decode(cursor, &prefix)? else {
-                return Err(stale());
-            };
-            ordinal
-        }
+        // A cursor names its view and revision, so one that does not decode here belongs to
+        // another set, and the answer says which set the view lists now.
+        Some(cursor) => match SyncCursor::decode(cursor, &prefix) {
+            Ok(SyncCursor::Deletions(ordinal)) => ordinal,
+            Ok(SyncCursor::Findings(_) | SyncCursor::Conflicts { .. }) | Err(_) => {
+                return Err(stale_deletions(root, set.revision, authority).await);
+            }
+        },
     };
-    let items = root
-        .deletion_page_for(set.revision, after, query.limit, authority)
+    let items = match root
+        .deletion_page_for(set.revision, after, query.limit, authority.clone())
         .await
-        .map_err(|error| root_error(&error))?;
+    {
+        Ok(items) => items,
+        Err(RootError::Admin(AdminError::Precondition)) => {
+            return Err(stale_deletions(root, set.revision, authority).await);
+        }
+        Err(error) => return Err(root_error(&error)),
+    };
     render_halving(items, |items, _| {
         let last = items.last().map_or(after, |item| item.ordinal);
         let next_cursor = u64::try_from(last.get())
@@ -912,6 +922,25 @@ async fn deletion_page(
             },
         ))
     })
+}
+
+/// The 409 of a page of the deletions view for the set `revision` that the status no longer
+/// reads, or that a cursor does not belong to, which names what became of the set as a refused
+/// decision does. It names the view of the set that waits instead, if one does, so a listing is
+/// never sent to look for a revision that does not exist.
+async fn stale_deletions(
+    root: &RootLease,
+    revision: OpaqueId,
+    authority: ControlAuthority,
+) -> ApiError {
+    match root.refusal_for(revision, authority).await {
+        Ok(refusal) => ApiError::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            crate::sync::control::stale_deletions_view_remedy(revision, refusal),
+        ),
+        Err(error) => root_error(&error),
+    }
 }
 
 fn bounded(value: &Value) -> Result<Response<Full<Bytes>>, ApiError> {

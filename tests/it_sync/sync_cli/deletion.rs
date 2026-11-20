@@ -31,14 +31,30 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
             br#"{"labels":{"k":"v"}}"#,
         )
         .json_ok();
-    assert_eq!(
-        server.cli("deletions", &["--revision", old, "--cursor", cursor], false)["error"]["code"],
-        409
-    );
+    // Listing the set the status names deletes nothing, so a bucket update leaves its pages
+    // readable, with or without the revision; the decision on it inventories the tree again,
+    // which replaces the set, and is refused.
+    let rest = server.cli("deletions", &["--revision", old, "--cursor", cursor], true);
+    assert_eq!(rest["revision"], old);
+    assert_eq!(rest["items"].as_array().unwrap().len(), 63);
+    assert_eq!(server.cli("deletions", &[], true)["revision"], old);
     assert_eq!(
         server.cli("approve", &["--deletion-set", old], false)["error"]["code"],
         409
     );
+    let replaced = server.cli("status", &[], true);
+    let new = replaced["pending_deletion_revision"].as_str().unwrap();
+    assert_ne!(new, old);
+    let gone = server.cli("deletions", &["--revision", old], false);
+    assert_eq!(gone["error"]["code"], 409, "{gone}");
+    let message = gone["error"]["message"].as_str().unwrap();
+    for part in [
+        format!("Deletion set {new} waits instead, and 100 of the 100 files"),
+        format!("list it: gcs-mimic sync status --view deletions --revision {new}"),
+    ] {
+        assert!(message.contains(&part), "{message}");
+    }
+    assert!(!message.contains("gcs-mimic sync approve"), "{message}");
     server.cli("rescan", &[], true);
     let status = server.cli("status", &[], true);
     let revision = status["pending_deletion_revision"].as_str().unwrap();

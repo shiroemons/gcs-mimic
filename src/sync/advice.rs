@@ -7,7 +7,7 @@ use super::{
     control::{
         Correction, Decision, export_retry_remedy, newer_edit_remedy, occupied_directory_remedy,
         paused_control_remedy, resume_retry_remedy, stale_decision_remedy,
-        unclassified_collision_remedy, unsettled_remedy,
+        stale_deletions_view_remedy, unclassified_collision_remedy, unsettled_remedy,
     },
     entries::EntryProblem,
     outstanding::Holdup,
@@ -195,7 +195,8 @@ pub fn commands() -> Vec<String> {
 /// remedy of every holdup with and without the revisions at hand, which a wait's answer gives,
 /// and for a pause also the `sync_paused` event, the root-stop finding and a failed rescan; of
 /// a wait that ran out of time; of every correction outside a pause, which findings and events
-/// give; of every refusal of each decision on a deletion set that no longer waits for it; of
+/// give; of every refusal of each decision on a deletion set that no longer waits for it, and
+/// of a page of the deletions view of such a set; of
 /// the export events and the finding carried over from an older release; of a failed resume,
 /// which the `sync_resume_failed` event also gives; of a control a pause refuses; and of a
 /// directory that holds an object's file name.
@@ -302,6 +303,8 @@ pub fn catalog() -> Vec<String> {
                 .flat_map(|refusal| {
                     Decision::ALL
                         .map(|decision| stale_decision_remedy(decision, OpaqueId::SAMPLE, refusal))
+                        .into_iter()
+                        .chain([stale_deletions_view_remedy(OpaqueId::SAMPLE, refusal)])
                 }),
         )
         .chain([

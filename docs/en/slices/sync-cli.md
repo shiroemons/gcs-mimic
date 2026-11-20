@@ -123,7 +123,10 @@ rejection first inventory again a set that waits for them, at the current
 journal fence, so neither a native notification nor an API write that left its
 members as they were makes the revision the status named stale. An API write
 that replaced or deleted a member's object, or updated a member's bucket, does:
-the decision answers 409 and names the set that waits instead. A refused decision
+the decision answers 409 and names the set that waits instead. The pages of the
+set the status names stay listed until then, a bucket update included, since
+listing deletes nothing; a page of a revision the status no longer names answers
+409 with what became of it and the view of the set that waits instead. A refused decision
 says what became of the set: approved or rejected already; not the set that
 waits now, which it names and counts without saying why, since a replaced, an
 earlier, a mistyped and another server's revision look the same; still waiting
