@@ -92,7 +92,7 @@ pub(super) async fn wait_control(commands: &tokio::sync::mpsc::Sender<Command>) 
 }
 
 /// The command that takes `decision` on the set `revision` without an identity.
-fn decide(
+pub(super) fn decide(
     decision: Decision,
     revision: crate::storage::sync_state::OpaqueId,
     reply: Reply<DeletionSet>,
@@ -610,7 +610,7 @@ async fn decide_after_a_change(change: Change, decision: Decision) {
 /// An API change that the tree does not show, made while the set waits: one in the bucket
 /// whose directory is missing writes no file and so brings no pass.
 #[derive(Clone, Copy, Debug)]
-enum ApiWrite {
+pub(super) enum ApiWrite {
     /// A new object beside the members.
     Beside,
     /// A new generation of the member `first`, so that its tracked file no longer tracks the
@@ -622,7 +622,7 @@ enum ApiWrite {
 }
 
 impl ApiWrite {
-    async fn make(self, catalog: &Catalog, bucket: &BucketName) {
+    pub(super) async fn make(self, catalog: &Catalog, bucket: &BucketName) {
         match self {
             Self::Beside => {
                 publish_named(catalog, bucket, "third", b"written", Origin::Api).await;

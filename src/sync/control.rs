@@ -518,8 +518,8 @@ pub(crate) fn stale_decision_remedy(
             Advised::Decide(decision, &revision)
         ),
         Refusal::Settled => format!(
-            "Deletion set {revision} was not {past}: no deletion set waits for a decision now, because the missing files came back or a later pass found nothing that needs one. The status shows what synchronization does now: {}",
-            Advised::Status
+            "Deletion set {revision} was not {past}: no deletion set waits for a decision now. The missing files may have come back, a later pass may have found nothing that needs a decision, or the inventory that replaces the set has not finished. Wait for synchronization, which names any deletion set that waits then: {}",
+            Advised::Wait
         ),
     }
 }
@@ -1017,7 +1017,8 @@ mod tests {
                     Refusal::Settled,
                     vec![
                         "no deletion set waits for a decision now".to_owned(),
-                        "gcs-mimic sync status --endpoint URL".to_owned(),
+                        "or the inventory that replaces the set has not finished".to_owned(),
+                        "gcs-mimic sync wait --endpoint URL".to_owned(),
                     ],
                 ),
             ] {

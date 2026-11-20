@@ -81,15 +81,18 @@ pub(super) async fn inventory_with(
 }
 
 /// What the inventory before a decision found about the set the decision names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) enum Rechecked {
     /// The tree shows the set's members as they were, so the revision stands.
     Confirmed,
     /// The tree shows other members, and a new set under a new revision replaced it.
     Replaced,
-    /// The set did not wait for a decision, or a change of the journal during the inventory
-    /// withdrew it; the set stays as stored.
+    /// The set did not wait for a decision; the set stays as stored.
     NotAwaiting,
+    /// An API or bucket change moved the journal while the inventory compared the members, as
+    /// the error says, so the set was not compared with the tree at the current fence. The
+    /// decision is refused without being recorded.
+    Superseded(SyncError),
     /// A stop ended the inventory before it compared every member, so nothing is known about
     /// the set.
     Interrupted,
@@ -104,7 +107,7 @@ pub(super) enum Rechecked {
 /// member; an update of a member's bucket, which may make the deletions unrecoverable, replaces
 /// the set whatever the tree shows. A valid waiting set means the last pass let
 /// deletions be inferred, so no gate is consulted. A change of the journal during this
-/// inventory leaves the decision to refuse the set as stale.
+/// inventory supersedes it, and the decision is refused without trying to record it.
 pub(super) async fn recheck(
     root: &RootLease,
     config: &Config,
@@ -124,7 +127,7 @@ pub(super) async fn recheck(
         Ok(Some(set)) if set.revision == revision => Ok(Rechecked::Confirmed),
         Ok(Some(_)) => Ok(Rechecked::Replaced),
         Ok(None) => Ok(Rechecked::Interrupted),
-        Err(error) if error.is_stale_deletion() => Ok(Rechecked::NotAwaiting),
+        Err(error) if error.is_stale_deletion() => Ok(Rechecked::Superseded(error)),
         Err(error) => Err(error),
     }
 }

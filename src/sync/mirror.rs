@@ -1230,13 +1230,15 @@ impl LiveControl<'_> {
         Ok(())
     }
 
-    /// Authorizes a decision on the deletion set `revision` for `identity`, then inventories the
+    /// Authorizes `decision` on the deletion set `revision` for `identity`, then inventories the
     /// tree again if the set still waits for the decision, so that a native notification since
-    /// the last pass that left its members as they were does not make it stale. A stop during
-    /// that inventory refuses the decision: the set was not compared with the tree, so
-    /// recording a decision on it would apply to members nobody confirmed.
+    /// the last pass that left its members as they were does not make it stale. A stop or an
+    /// API change during that inventory refuses the decision: the set was not compared with the
+    /// tree at the current fence, so recording a decision on it would apply to members nobody
+    /// confirmed. The refusal does not rely on the decision's own check of the fence.
     async fn decidable(
         &self,
+        decision: Decision,
         revision: crate::storage::sync_state::OpaqueId,
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), ControlError> {
@@ -1255,14 +1257,34 @@ impl LiveControl<'_> {
         .map_err(ControlError::Failed)?
         {
             Rechecked::Interrupted => Err(ControlError::Shutdown),
+            Rechecked::Superseded(error) => Err(self.refuse(decision, revision, error).await),
             // The decision itself refuses a set that is no longer the one waiting.
             Rechecked::Confirmed | Rechecked::Replaced | Rechecked::NotAwaiting => Ok(()),
         }
     }
 
-    /// Records `decision` on the set `revision`. A set that no longer waits for it is refused
-    /// with what became of it, read right after on this worker, which alone takes inventories,
+    /// Refuses `decision` on the set `revision`, which `error` found no longer decidable, with
+    /// what became of the set, read right after on this worker, which alone takes inventories,
     /// so that the answer can say what to do instead of trying again.
+    async fn refuse(
+        &self,
+        decision: Decision,
+        revision: crate::storage::sync_state::OpaqueId,
+        error: SyncError,
+    ) -> ControlError {
+        match self.scope.root.refusal(revision).await {
+            Ok(refusal) => ControlError::Stale {
+                decision,
+                revision,
+                refusal,
+                error,
+            },
+            Err(failed) => failed.into(),
+        }
+    }
+
+    /// Records `decision` on the set `revision`. A set that no longer waits for it is refused
+    /// with what became of it.
     async fn apply(
         &self,
         decision: Decision,
@@ -1280,12 +1302,7 @@ impl LiveControl<'_> {
         if !matches!(error, RootError::Admin(AdminError::Precondition)) {
             return Err(error.into());
         }
-        Err(ControlError::Stale {
-            decision,
-            revision,
-            refusal: root.refusal(revision).await?,
-            error: error.into(),
-        })
+        Err(self.refuse(decision, revision, error.into()).await)
     }
 
     /// Approves or rejects the deletion set `revision`, as `decision` says, answers, and then
@@ -1298,7 +1315,7 @@ impl LiveControl<'_> {
         identity: Option<crate::auth::Identity>,
     ) -> Result<(), SyncError> {
         let root = self.scope.root;
-        let decided = match self.decidable(revision, identity).await {
+        let decided = match self.decidable(decision, revision, identity).await {
             Ok(()) => self.apply(decision, revision).await,
             Err(error) => Err(error),
         };
