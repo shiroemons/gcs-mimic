@@ -199,12 +199,13 @@ the mirror was not watching, such as while the server was stopped; later passes
 and an approved set log them at the info level. The rescan result and the
 `sync_ingested` and `sync_reconciled` events do not count deletions.
 
-Observed tree changes, root/marker failures, API journal changes and restart
-invalidate unused revisions, except that an observed tree change leaves a set
-that waits for approval in place: approving or rejecting it first inventories
-the tree again, so the decision applies to what the tree shows then, and a
-notification about another path that arrives just before it does not make it
-fail as stale. An API or bucket change during an inventory makes
+Root/marker failures and restart invalidate unused revisions. An observed tree
+change or an API journal change leaves a set that waits for a decision in
+place: approving or rejecting it first inventories the tree again at the
+current journal fence, so the decision applies to what the tree shows then and
+is accepted under the same revision unless that inventory replaces the set, as
+described below, and a notification about another path that arrives just
+before it does not make it fail as stale. An API or bucket change during an inventory makes
 it stale: it stops, logs `sync_deletion_inventory_superseded` at the info
 level, and the next pass inventories again. A change that writes the
 tree brings that pass through the native events of its own writes, which the
@@ -227,7 +228,7 @@ approved set or one from before a restart. A set that waits for a decision stays
 in the status and the `deletions` view after any API write, an update of a
 member's bucket included, since listing deletes nothing, and an approval or
 rejection of it inventories the tree first at
-the current journal fence, so it is accepted under the same revision. Approval consumes exactly one
+the current journal fence, so it is accepted under the same revision. A decision consumes exactly one
 revision, and replay or stale inspection returns 409. Each actual delete rechecks no-follow absence,
 root identity, membership, generation and incarnation. Member completion and the
 expected execution fence commit in the same transaction as the shared delete.

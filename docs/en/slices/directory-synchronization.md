@@ -916,8 +916,8 @@ the threshold also includes the retained automatic history.
 Native notifications wait for one second of quiet, restarting that interval
 after another notification, with a ten-second total cap. Controls remain
 available during this interval. Wait and rescan stay in a bounded actor queue;
-status, approval and resolution remain available; approval and resolution return
-busy if the bounded control queue is full. Wait retains its original
+status, approval, rejection and resolution remain available; decisions and
+resolution return busy if the bounded control queue is full. Wait retains its original
 deadline and only reports SourceChanging if still settling at that deadline;
 otherwise it completes observation in the same request. Rescan waits for quiet
 or the cap before actually scanning; clients do not retry a false completion.
@@ -945,7 +945,7 @@ never materialize the complete set in RAM. `approve` takes that revision,
 not a boolean or wildcard, and grants one execution of that exact set only.
 For a set that does not wait for approval, any observed tree change, and for
 every set a root/marker change, relevant API change or restart, invalidates
-unused approval and requires rescan and fresh approval. Replays and
+an unused revision and requires a rescan and a fresh decision. Replays and
 foreign/stale revisions return 409 without broadening the set. A later inventory
 that finds exactly the members of an undecided set again confirms it under the
 same revision instead of replacing it, also after an API write moved the journal;
@@ -1204,7 +1204,7 @@ not prescribe tables or an internal transaction design.
 ## Management API and CLI
 
 Reserve the following emulator-only routes outside Google API namespaces.
-`gcs-mimic sync status|approve|conflicts|resolve|rescan|wait` calls them through
+`gcs-mimic sync status|reject|approve|conflicts|resolve|rescan|wait` calls them through
 the live server and never opens the data directory. CLI accepts `--endpoint`
 and `--ca-cert`, verifies TLS using the shared connector and accepts a bearer token
 from `--token-file` or `GCSM_SYNC_TOKEN` without printing it. It must not follow
@@ -1241,9 +1241,10 @@ without authentication and must be identified as such in status.
 | `POST /_internal/sync/rescan` | Empty JSON object; return coalesced scan revision/operation ID. It requests observation, never approval or an override of a stop. |
 | `POST /_internal/sync/wait` | JSON `timeout_ms`, default 10000, `1..=60000`, and an optional boolean `require_no_findings`; capture a requested stable scan plus journal fence and wait for that bounded barrier. Return barrier/revisions/counts with `findings` (`unmapped` and the findings `revision` that lists them, null unless the barrier was observed), `paused_reason` for a pause, `source_entries` (their `total`, the first five `entries` the pass could not take in, each with `path`, U+FFFD for each sequence that is not UTF-8, and `reason`, and the `omitted` count) for `SourceUnrepresentable`, `deletions` (the `paths` of the first ten files of the set that waits, the `omitted` count, the `removed_buckets` that went whole and `removed_buckets_omitted`) for `DeletionApproval`, and the `remedy` for the reason, or an explicit timeout/stopped result. Later unrelated edits do not move the fence forever. |
 
-CLI `approve --deletion-set ID` and `resolve --conflict ID --revision ID --action
-restore|discard --expected-generation N --operation-id ID` map exactly to these
-requests. `wait --timeout 10m --require-no-findings` sends wait requests of
+CLI `reject --deletion-set ID`, `approve --deletion-set ID` and `resolve --conflict
+ID --revision ID --action restore|discard --expected-generation N --operation-id
+ID` map exactly to these requests; `reject` without `--deletion-set` reads the
+summary first and sends the revision of the set it reports as waiting. `wait --timeout 10m --require-no-findings` sends wait requests of
 at most a minute each until its own deadline, as described below. `status --view deletions|findings --revision
 ID --limit N --cursor ID` maps to the GET query; without `--revision`, the CLI
 reads the summary first and requests the page at the `findings_revision` or
@@ -1258,7 +1259,7 @@ input 400, oversize 413, stale conditions 409, closed service or a catalog wait 
 Accepted asynchronous mutations return 202 with operation ID; completed reads
 and wait return 200, wait deadline 408 and an existing stop 409. A rescan that
 fails and leaves synchronization paused answers 409 with the `paused_reason`, the
-cause and the remedy, and an approval while paused answers 409 and asks for a
+cause and the remedy, and an approval or rejection while paused answers 409 and asks for a
 rescan first; neither answers 503, which would invite a blind retry. The CLI exits
 nonzero on errors, timeout or stopped work and prints actionable diagnostics; a
 wait that ends for another reason than `Ready` names it, with the recorded
@@ -1352,7 +1353,7 @@ healthcheck's start period, not the wait's default, covers the first pass. It as
 only while the answer says the work is still in progress, `Timeout`,
 `SourceChanging` or, after a one-second pause, `JournalChanged`, and reports each
 repeat on standard error; a pause, source entries no object can take, findings,
-an approval or a stop end it at once.
+a deletion set waiting for a decision or a stop end it at once.
 A `Ready` answer that counts unmapped objects exits 0 and prints one warning with
 the ready-to-run `gcs-mimic sync status --view findings` command that lists them;
 it prints nothing when the count is zero. The exit status tells the other ends
