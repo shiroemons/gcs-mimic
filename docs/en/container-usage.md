@@ -344,7 +344,22 @@ back.
 
 In CI, `gcs-mimic sync wait` exits 2 with `DeletionApproval` while a set waits,
 and its error names these commands with the set's revision, so a run stops there
-instead of going on with files missing.
+instead of going on with files missing. What the job does about it depends on
+why the files went:
+
+- If a step removed files by mistake, `gcs-mimic sync reject && gcs-mimic sync
+  wait` writes them back. Without `--deletion-set`, `reject` takes the set that
+  waits and names it on standard error; it fails when none waits.
+- If a step clears files on purpose, delete their objects through the API
+  instead, which deletes the files without a decision, or delete the files
+  inside the bucket directory rather than the directory itself, which waits
+  only when at least 100 files go and they are more than half of those tracked.
+- If the tree is a throwaway copy, such as one the job checks out, start the
+  server with `GCS_MIMIC_SYNC_DELETE_GUARD=false`. Deleting files then deletes
+  their objects without waiting, a whole bucket directory or a mount that came
+  up empty included, so do not set it for a tree that a mount provides or that
+  holds the only copy of the files. The marker, complete-scan and generation
+  checks stay.
 
 A file deleted while the server was stopped, or before it crashed, deletes its
 object at the next startup instead of being written back; only the guard above
