@@ -370,6 +370,18 @@ async fn served_after_a_silent_connection(address: &str, protocol: Protocol, ca:
     }
 }
 
+/// Waits for the server to close a connection that sent nothing, which it does at the header read
+/// limit. Letting the connection go first closes it before that limit, which reports nothing, so
+/// the timeouts the server reports would depend on how soon the next client was served.
+fn timed_out_by_the_server(mut silent: TcpStream) {
+    silent
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    if let Err(error) = std::io::copy(&mut silent, &mut std::io::sink()) {
+        assert!(closed_by_server(&error), "{error}");
+    }
+}
+
 /// A connection that has sent nothing holds its slot until the header read limit, so with every
 /// slot held that way the next client of either protocol waits, and is served once one ends.
 #[test]
@@ -392,7 +404,7 @@ fn silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times
         .build()
         .unwrap();
     for protocol in [Protocol::Http, Protocol::Https] {
-        let _silent: Vec<_> = (0..SLOTS)
+        let silent: Vec<_> = (0..SLOTS)
             .map(|_| TcpStream::connect(&server.address).unwrap())
             .collect();
         let response = runtime.block_on(served_after_a_silent_connection(
@@ -405,6 +417,9 @@ fn silent_connections_fill_the_port_and_the_next_client_is_served_when_one_times
             "{protocol:?}: {}",
             String::from_utf8_lossy(&response)
         );
+        for connection in silent {
+            timed_out_by_the_server(connection);
+        }
     }
     // A probe that closes before its first byte is not a client fault, so it reports nothing.
     drop(TcpStream::connect(&server.address).unwrap());
