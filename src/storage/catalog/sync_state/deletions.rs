@@ -57,6 +57,15 @@ macro_rules! readable {
     };
 }
 
+/// The member `m` of the set `d` has its file still to write back: the set was rejected and the
+/// member's write-back has not ended. The count the status reads, the pending rejection and the
+/// write-back's pages all ask this, so that they agree on what is left.
+macro_rules! rejected_left {
+    () => {
+        "d.authorization=2 AND m.done=0"
+    };
+}
+
 pub(in crate::storage) mod held;
 pub(in crate::storage) mod history;
 mod scan;
@@ -367,7 +376,10 @@ pub(super) fn rejected_remaining(
 ) -> Result<u64, CatalogError> {
     Ok(sql::scalar(
         connection,
-        "SELECT count(*) FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND d.authorization=2 AND m.done=0",
+        concat!(
+            "SELECT count(*) FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND ",
+            rejected_left!()
+        ),
         [root],
     )?)
 }
@@ -622,7 +634,7 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
-            sql::row(&tx, "SELECT d.revision,count(*) FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND d.authorization=2 AND m.done=0 GROUP BY d.revision", [root], |row| Ok(PendingRejection{revision:row.get(0)?,remaining:row.get(1)?}))
+            sql::row(&tx, concat!("SELECT d.revision,count(*) FROM sync_deletion_sets d JOIN sync_deletion_members m ON m.root_id=d.root_id WHERE d.root_id=?1 AND ", rejected_left!(), " GROUP BY d.revision"), [root], |row| Ok(PendingRejection{revision:row.get(0)?,remaining:row.get(1)?}))
                 .optional().map_err(unavailable)
         }).await?)
     }
@@ -639,7 +651,7 @@ impl RootLease {
         Ok(self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             authority.authorize(&tx,root)?;
-            tx.prepare_cached("SELECT m.bucket,m.name,m.owner_project,m.incarnation,m.generation,m.path,m.ordinal FROM sync_deletion_members m JOIN sync_deletion_sets d ON d.root_id=m.root_id WHERE m.root_id=?1 AND d.authorization=2 AND m.done=0 AND m.ordinal>?2 ORDER BY m.ordinal LIMIT ?3")
+            tx.prepare_cached(concat!("SELECT m.bucket,m.name,m.owner_project,m.incarnation,m.generation,m.path,m.ordinal FROM sync_deletion_members m JOIN sync_deletion_sets d ON d.root_id=m.root_id WHERE m.root_id=?1 AND ", rejected_left!(), " AND m.ordinal>?2 ORDER BY m.ordinal LIMIT ?3"))
                 .and_then(|mut statement|statement.query_map(params![root,after,limit],read_candidate)?.collect()).map_err(unavailable)
         }).await?)
     }
