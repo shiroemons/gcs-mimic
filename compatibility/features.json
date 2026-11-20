@@ -60250,6 +60250,30 @@
           "test_ids": ["live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart"]
         },
         {
+          "id": "sync-cli-deletion-rejection",
+          "description": "The native CLI rejects the waiting deletion set without --deletion-set: it reads the set the status reports as waiting, names it and its file count on stderr, and sends that revision, which the server refuses with 409 if another set replaced it meanwhile; with no set waiting it sends nothing and fails. Approval still requires an exact revision. An accepted decision counts the files it deletes or writes back and names the wait to run; a decision refused after an API write to a member names the set that waits instead without offering its approval.",
+          "result": "PASS",
+          "test_ids": ["live_cli_rejects_the_waiting_set_without_a_revision", "live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set", "a_decision_without_a_revision_reads_the_set_the_status_reports_as_waiting", "an_accepted_decision_counts_what_it_touches_and_names_the_wait"]
+        },
+        {
+          "id": "sync-deletion-rejection",
+          "description": "POST /_internal/sync/reject closes a deletion set that waits for a decision and writes its files back from their objects instead of deleting them. The rejection is durable: a write-back that fails part way, stops or loses power resumes at the next rescan, start or restart, deletes nothing and never lets the rejected revision be approved; a file a user puts at a member's path during the write-back stays and is taken in. While files remain, every wait stays in progress as SourceChanging, the status counts them and the advice names the sync_deletions_rejected log; deleting the object of a member that keeps failing leaves it out. A waiting set's remedy names the ways that keep the objects first and says why it waits; each decision route takes its own decision.",
+          "result": "PASS",
+          "test_ids": ["a_write_back_that_fails_part_way_resumes_on_rescan_and_deletes_nothing", "a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wait", "deleting_the_object_of_a_failing_member_leaves_it_out_of_the_write_back", "the_status_counts_the_files_a_write_back_has_left", "a_write_back_stopped_part_way_resumes_at_the_next_start", "a_power_loss_during_the_write_back_resumes_it_at_restart", "a_file_put_behind_the_write_back_stays_and_the_rest_are_written_back", "a_rejected_revision_is_never_approved_after_a_failed_write_back", "rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_revision", "files_left_to_write_back_open_the_advice_of_a_wait", "a_set_awaiting_a_decision_names_the_ways_that_keep_the_objects_first", "a_set_awaiting_a_decision_says_first_why_it_waits", "decisions_parse_from_the_command_their_route_ends_with", "each_decision_route_takes_its_own_decision"]
+        },
+        {
+          "id": "sync-bucket-directory-deletion-guard",
+          "description": "A bucket directory that went as a whole, or a bucket emptied while the server was stopped, waits for a decision however few files it held, with a warning that names the mount to check before any decision. A bucket emptied while running is left to the ordinary count thresholds, and a file deleted while stopped from a bucket that keeps another tracked file deletes its object without approval. A file put back, or an API write into such a bucket, keeps the rest of the set waiting; an object written through the API while stopped is not exported, so the directory stays missing and its files wait until the directory is back. Rejecting the set writes the files back and brings the directory back.",
+          "result": "PASS",
+          "test_ids": ["a_bucket_directory_gone_as_a_whole_needs_approval_whatever_its_size", "a_bucket_gone_warning_names_the_mount_before_any_decision", "a_bucket_emptied_while_stopped_waits_for_approval", "a_bucket_emptied_while_running_needs_no_approval", "one_file_deleted_while_stopped_still_deletes_its_object", "a_file_back_in_a_bucket_emptied_while_stopped_keeps_the_rest_waiting", "an_api_write_into_a_bucket_emptied_while_stopped_keeps_the_rest_waiting", "an_api_write_into_a_missing_bucket_directory_waits_for_the_approval", "an_object_written_while_stopped_waits_with_its_missing_bucket_directory", "rejecting_a_bucket_emptied_while_stopped_writes_its_files_back", "rejecting_a_set_held_for_a_missing_bucket_directory_brings_the_directory_back"]
+        },
+        {
+          "id": "sync-deletion-decision-races",
+          "description": "A decision is checked against the set at the moment it runs. A member that came back, an API write to a member or to the members' bucket, or an inventory a stop ended refuses it as stale with 409, naming what became of the set and the set that waits instead; an API write beside the members or a change to another path leaves the set and accepts the decision the first time. An API write during the recheck refuses the decision until it is sent again, and a stop while a bucket update replaces the set leaves nothing to run.",
+          "result": "PASS",
+          "test_ids": ["a_decision_right_after_a_member_came_back_is_refused_as_stale", "a_decision_right_after_an_api_write_to_a_member_is_refused_as_stale", "a_decision_right_after_an_api_write_beside_the_members_is_accepted", "a_decision_right_after_a_change_to_another_path_is_accepted_the_first_time", "a_decision_whose_inventory_a_stop_ended_is_refused", "an_api_write_during_the_recheck_refuses_the_decision_until_it_is_sent_again", "an_api_write_while_a_bucket_update_replaces_the_set_refuses_the_decision", "a_stop_while_a_bucket_update_replaces_the_set_leaves_nothing_to_run", "a_refused_decision_reads_what_became_of_its_set", "a_refused_decision_names_what_became_of_its_set"]
+        },
+        {
           "id": "sync-cli-conflict-resolution",
           "description": "Native CLI restores retained binary bytes through the API-origin journal into both API state and the working tree, discards a retained empty conflict, and replays the same recorded result across restart. Stale generation, active hold and changed operation payload preserve the winner and retained bytes. Broad conflict/alias/shutdown acceptance remains pending.",
           "result": "PASS",
@@ -60560,7 +60584,7 @@
           "id": "sync-bounded-observation",
           "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and record one short measurement at about 1,000 entries (a full rescan and one wait) as a fact, without a gate or inferred performance claims; owners sync-watcher and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Recorded so far, on 2026-11-20 with Docker Desktop 29.9.3 running linux/arm64 containers on an arm64 macOS host: the container smoke's Compose stage bind-mounts a host directory as compose.sync.yaml documents and, after gcs-mimic sync wait each time, reflects a host create, edit and deletion and an API overwrite without a restart; after compose stop and up --no-recreate, an edit and a deletion made while stopped arrive as an update and a deletion, sync status reports root_change null and the log holds two starts and no sync_root_switched. It passed on the default path and again on the host-user path that Linux takes (docs/en/evidence/sync-bind-mount-containers.txt). One measurement, a fact and not a gate: a bind mount of an APFS directory that folds letter case and normalization, with 1,000 files in one bucket, took 38.59 s from start to healthy, 3.44 s for a first rescan followed by a wait and 2.64 s for a second (docs/en/evidence/sync-listing-attribute-cache.txt). The same script against an image of the sources before the listing changes, equivalent to 41d8a38c, took 155.81 s, 48.85 s and 33.89 s; that run's output is not in the record. Still PENDING: a run on a native Linux host, the full-rescan fallback for overflowed, duplicate, self-caused and missed notifications, and the other bounded-worker and queue cases this row lists.",
           "result": "PENDING",
-          "test_ids": ["scripts/smoke-containers.sh:sync-compose:linux/arm64", "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64", "sync-listing-bench:bind-mount-1000-files:linux/arm64"]
+          "test_ids": ["every_lost_history_or_root_change_rebuilds_the_watch", "a_structural_change_among_content_changes_settles_as_structural", "scripts/smoke-containers.sh:sync-compose:linux/arm64", "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64", "sync-listing-bench:bind-mount-1000-files:linux/arm64"]
         },
         {
           "id": "CATALOG-INDEX",
@@ -61108,7 +61132,48 @@
         "scripts/smoke-containers.sh:sync-compose:linux/arm64",
         "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64",
         "sync-listing-bench:bind-mount-1000-files:linux/arm64",
-        "sync-listing-attribute-cache:docker-desktop:linux/arm64"
+        "sync-listing-attribute-cache:docker-desktop:linux/arm64",
+        "a_write_back_that_fails_part_way_resumes_on_rescan_and_deletes_nothing",
+        "a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wait",
+        "deleting_the_object_of_a_failing_member_leaves_it_out_of_the_write_back",
+        "the_status_counts_the_files_a_write_back_has_left",
+        "a_write_back_stopped_part_way_resumes_at_the_next_start",
+        "a_power_loss_during_the_write_back_resumes_it_at_restart",
+        "a_file_put_behind_the_write_back_stays_and_the_rest_are_written_back",
+        "a_rejected_revision_is_never_approved_after_a_failed_write_back",
+        "an_api_write_during_the_recheck_refuses_the_decision_until_it_is_sent_again",
+        "a_stop_while_a_bucket_update_replaces_the_set_leaves_nothing_to_run",
+        "an_api_write_while_a_bucket_update_replaces_the_set_refuses_the_decision",
+        "an_object_written_while_stopped_waits_with_its_missing_bucket_directory",
+        "an_api_write_into_a_missing_bucket_directory_waits_for_the_approval",
+        "an_api_write_into_a_bucket_emptied_while_stopped_keeps_the_rest_waiting",
+        "a_bucket_emptied_while_stopped_waits_for_approval",
+        "a_file_back_in_a_bucket_emptied_while_stopped_keeps_the_rest_waiting",
+        "one_file_deleted_while_stopped_still_deletes_its_object",
+        "a_bucket_emptied_while_running_needs_no_approval",
+        "rejecting_a_bucket_emptied_while_stopped_writes_its_files_back",
+        "rejecting_a_set_held_for_a_missing_bucket_directory_brings_the_directory_back",
+        "a_decision_right_after_a_change_to_another_path_is_accepted_the_first_time",
+        "a_decision_right_after_a_member_came_back_is_refused_as_stale",
+        "a_decision_whose_inventory_a_stop_ended_is_refused",
+        "a_decision_right_after_an_api_write_beside_the_members_is_accepted",
+        "a_decision_right_after_an_api_write_to_a_member_is_refused_as_stale",
+        "a_refused_decision_reads_what_became_of_its_set",
+        "a_bucket_directory_gone_as_a_whole_needs_approval_whatever_its_size",
+        "a_bucket_gone_warning_names_the_mount_before_any_decision",
+        "a_set_awaiting_a_decision_names_the_ways_that_keep_the_objects_first",
+        "a_set_awaiting_a_decision_says_first_why_it_waits",
+        "a_refused_decision_names_what_became_of_its_set",
+        "decisions_parse_from_the_command_their_route_ends_with",
+        "files_left_to_write_back_open_the_advice_of_a_wait",
+        "each_decision_route_takes_its_own_decision",
+        "rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_revision",
+        "a_structural_change_among_content_changes_settles_as_structural",
+        "every_lost_history_or_root_change_rebuilds_the_watch",
+        "a_decision_without_a_revision_reads_the_set_the_status_reports_as_waiting",
+        "an_accepted_decision_counts_what_it_touches_and_names_the_wait",
+        "live_cli_rejects_the_waiting_set_without_a_revision",
+        "live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set"
       ],
       "verification": [
         {"command":"cargo test --locked --all-targets --no-fail-fast (2,653 passed, 1 ignored)","result":"PASS","verified_at":"2026-11-07","artifact":"docs/en/evidence/zero-config-defaults.md","test_ids":["an_import_identity_tells_no_limit_from_the_former_defaults_and_can_reach_both","the_default_object_size_is_cloud_storages_own_and_a_named_limit_stops_short_of_it","a_snapshot_past_ten_thousand_rows_reaches_the_body_listing_unless_a_limit_stops_it"]},
@@ -61753,6 +61818,27 @@
           "verified_at": "2026-11-20",
           "artifact": "docs/en/evidence/sync-listing-attribute-cache.txt",
           "test_ids": ["sync-listing-attribute-cache:docker-desktop:linux/arm64"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 sync server::admin fault storage::catalog schema config::help source_tree watch (1,386 passed, on macOS)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/external-deletion-controls.md",
+          "test_ids": ["a_write_back_that_fails_part_way_resumes_on_rescan_and_deletes_nothing", "a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wait", "deleting_the_object_of_a_failing_member_leaves_it_out_of_the_write_back", "the_status_counts_the_files_a_write_back_has_left", "a_write_back_stopped_part_way_resumes_at_the_next_start", "a_power_loss_during_the_write_back_resumes_it_at_restart", "a_file_put_behind_the_write_back_stays_and_the_rest_are_written_back", "a_rejected_revision_is_never_approved_after_a_failed_write_back", "an_api_write_during_the_recheck_refuses_the_decision_until_it_is_sent_again", "a_stop_while_a_bucket_update_replaces_the_set_leaves_nothing_to_run", "an_api_write_while_a_bucket_update_replaces_the_set_refuses_the_decision", "an_object_written_while_stopped_waits_with_its_missing_bucket_directory", "an_api_write_into_a_missing_bucket_directory_waits_for_the_approval", "an_api_write_into_a_bucket_emptied_while_stopped_keeps_the_rest_waiting", "a_bucket_emptied_while_stopped_waits_for_approval", "a_file_back_in_a_bucket_emptied_while_stopped_keeps_the_rest_waiting", "one_file_deleted_while_stopped_still_deletes_its_object", "a_bucket_emptied_while_running_needs_no_approval", "rejecting_a_bucket_emptied_while_stopped_writes_its_files_back", "rejecting_a_set_held_for_a_missing_bucket_directory_brings_the_directory_back", "a_decision_right_after_a_change_to_another_path_is_accepted_the_first_time", "a_decision_right_after_a_member_came_back_is_refused_as_stale", "a_decision_whose_inventory_a_stop_ended_is_refused", "a_decision_right_after_an_api_write_beside_the_members_is_accepted", "a_decision_right_after_an_api_write_to_a_member_is_refused_as_stale", "a_refused_decision_reads_what_became_of_its_set", "a_bucket_directory_gone_as_a_whole_needs_approval_whatever_its_size", "a_bucket_gone_warning_names_the_mount_before_any_decision", "a_set_awaiting_a_decision_names_the_ways_that_keep_the_objects_first", "a_set_awaiting_a_decision_says_first_why_it_waits", "a_refused_decision_names_what_became_of_its_set", "decisions_parse_from_the_command_their_route_ends_with", "files_left_to_write_back_open_the_advice_of_a_wait", "each_decision_route_takes_its_own_decision", "rejecting_a_held_set_writes_its_files_back_and_refuses_a_stale_or_used_revision", "a_structural_change_among_content_changes_settles_as_structural", "every_lost_history_or_root_change_rebuilds_the_watch"]
+        },
+        {
+          "command": "cargo test --locked --offline --bin gcs-mimic (88 passed, on macOS)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/sync-cli.md",
+          "test_ids": ["a_decision_without_a_revision_reads_the_set_the_status_reports_as_waiting", "an_accepted_decision_counts_what_it_touches_and_names_the_wait"]
+        },
+        {
+          "command": "cargo test --locked --offline --test it_sync (50 passed, on macOS)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/sync-cli.md",
+          "test_ids": ["live_cli_rejects_the_waiting_set_without_a_revision", "live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set"]
         }
       ],
       "sdk_evidence": [],
