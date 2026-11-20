@@ -60432,15 +60432,27 @@
         },
         {
           "id": "sync-name-mapping",
-          "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent, backslash HostRestriction on every OS, colon HostRestriction only where the root's probed filesystem refuses or rewrites it, versus other Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive alias groups and non-Linux conflict guarantees remain PENDING.",
+          "description": "Remaining from the name and path mapping contract: findings for every member of a case or Unicode alias group, classified before any member is exported, and FIFOs and sockets in the tree reported as unsafe entries without opening, reading or replacing them on macOS. Property round trips or explicit Unrepresentable, literal percent, backslash HostRestriction (a lexical rule that does not depend on the host), dot and empty components and reserved or ignored regular files pass in sync-lexical-name-mapping; colon HostRestriction where the probed filesystem refuses or rewrites it and the probed component limits in sync-root-naming-probe; prefix/type collisions, host length and symlink findings in sync-runtime-export-mapping; actual directory spelling, a directory replacing a tracked file and no-follow parents in sync-runtime-path-checks. These run on macOS and Linux; the Windows device and special-component rules have a test that compiles only for Windows, and native Windows is not claimed (known deviations). Owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
+          "id": "sync-runtime-path-checks",
+          "description": "PASS: opening a parent that must already exist never creates a missing directory, so a missing bucket directory fails as missing and stays absent. On a root that folds letter case, a parent reached only through another spelling is a collision; a symlinked parent is an unsafe entry, and hard-linked regular files stay ordinary files. A directory where a tracked file was stops that one path as EntryReplaced, in the inventory and in exports alike, while another file's deletion goes ahead and the pass ends without pausing or retrying the root; the directory stays. Scope: docs/en/slices/directory-synchronization.md#name-and-path-reversibility.",
+          "result": "PASS",
+          "test_ids": ["existing_parents_never_create_missing_directories_and_reject_aliases_and_symlinks", "a_tracked_file_replaced_by_a_directory_stops_only_its_own_path"]
+        },
+        {
           "id": "sync-bidirectional-mutations",
-          "description": "Verify multiple buckets and API create/overwrite/delete/copy/compose plus external create/edit/delete/rename, zero-byte/binary bodies, independent bucket settings and version history; external bucket-directory removal deletes tracked objects only and recreates the empty directory; owners sync-mirror and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Remaining: a round trip through the Go SDK (deferred); buckets with different settings synchronized side by side; and after an approved deletion of a bucket directory removed as a whole, the empty directory created again when no API write brings it back. Multiple buckets, API create/overwrite/delete/copy/compose, external create/edit/delete/rename, binary and zero-byte bodies, holds and version history pass in sync-live-api-export, sync-external-create-edit and sync-two-way-round-trip; a bucket directory removed as a whole deletes only tracked objects after approval in sync-bucket-directory-deletion-guard. Owners sync-mirror and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "sync-two-way-round-trip",
+          "description": "PASS: the native watcher takes in an external create, an in-place edit, an atomic replacement and a rename without a manual rescan, each edit as a newer generation and the rename as the new path with the old object deleted, and a later external deletion removes the renamed object. Initial export pages every owner's buckets, creates an empty bucket's directory and writes binary and zero-byte bodies byte for byte; an external edit afterwards leaves the API body unchanged. Deleting the file of an object under a temporary hold is a ProtectedDeletion that restores the file and keeps the generation and the hold; once the hold is gone and the bucket keeps versions, the deletion keeps the removed generation as history. An object the tree cannot hold is reported without holding back the baseline or the deletion of a file removed from the tree. Scope: docs/en/slices/directory-synchronization.md and docs/en/slices/external-deletion-controls.md.",
+          "result": "PASS",
+          "test_ids": ["native_watcher_ingests_external_create_edit_replace_and_rename_without_manual_rescan", "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "protected_external_deletion_restores_bytes_and_versioned_removal_keeps_history", "an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_external_deletions"]
         },
         {
           "id": "sync-unpublished-cancellation",
@@ -60522,7 +60534,7 @@
         },
         {
           "id": "sync-api-writeback",
-          "description": "sync-live-export acceptance: notification-driven fenced journal replay, bounded coalescing and gap reconciliation, fingerprint-checked API create/overwrite/delete/copy/compose, retained externally edited bodies with findings, pending-work-only I/O retry, object-boundary shutdown and restart reconciliation. Bucket deletion retains directories; ingestion, conflict transfer and control routes remain PENDING. Scope: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Remaining: an API write and an external change at the same path racing between the export's last check and its installation on a running server (runtime race scenarios, deferred). Notification-driven fenced journal replay, fingerprint-checked API create/overwrite/delete/copy/compose and retained externally edited bodies pass in sync-live-api-export; bounded coalescing and gap reconciliation in sync-live-export-observation; pending-work-only I/O retry in sync-live-export-retry and object-boundary shutdown with restart reconciliation in sync-live-export-shutdown (DESIGN-074); ingestion in sync-external-create-edit and sync-metadata-and-loops; conflict transfer in sync-protected-conflict-transfer; control routes in sync-live-cli and sync-strict-control-refusals. Bucket deletion keeps the bucket's directory. Scope: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -60558,33 +60570,69 @@
         },
         {
           "id": "sync-conflict-preservation",
-          "description": "Preserve known divergent bytes before API-priority replacement; after a last-check displacement race protect the actual body in workspace until durable conflict registration or explicitly authorized recovery discard, even at/exceeding byte/entry quotas or ENOSPC, fully account retained bytes/entries and stop ingestion/destructive write-back without automatic cleanup or blind exchange-back; verify kill/restart while stopped, operator retrieval/resumption, zero-byte entries, cancellation/ambiguous commit and revision/generation-bound restore/discard without retargeting or overwriting newer API state; a 1 TiB + 1 byte sparse displaced body must have a pre-registration discard path bound to original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, while foreign-project/stale/unconfirmed requests retain bytes/quota and only durable authorized completion permits root resumption; owners sync-mirror, sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. The 1 TiB sparse-body recovery target remains PENDING.",
+          "description": "Remaining: a 1 TiB + 1 byte sparse body that an exchange displaced, held until its pre-registration discard (in progress), and a last-check displacement race on a running server (runtime race scenarios, deferred). Divergent bytes preserved before API-priority replacement, conditional restore and idempotent discard bound to revision and generation, quota including workspace copies and the sparse pre-registration discard target pass in sync-conflict-storage; binary and empty bodies keeping their original owner in sync-protected-conflict-transfer; operator retrieval and resumption in sync-cli-conflict-resolution; a hold-deferred edit and refused recovery discards in sync-conflict-hold-and-recovery-authority; and, in DESIGN-074, an ambiguous commit in sync-cli-lost-committed-response, an inspected and retained sparse survivor through restart with exact confirmed discard in sync-cli-stopped-sparse-recovery, and write, sync, registration and discard faults in sync-conflict-storage-recovery. Owners sync-mirror, sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
-          "test_ids": ["a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict"]
+          "test_ids": []
+        },
+        {
+          "id": "sync-conflict-hold-and-recovery-authority",
+          "description": "PASS: a temporary or event-based hold keeps ingestion from publishing a local edit, so the pass defers it and leaves the file as edited. The hold's release, a metadata-only API change, preserves the edit as a conflict and returns the file to the API bytes, which do not change; another metadata change while the hold stays does the same, and the edit reaches the API only through an explicit restore once the hold is gone. A recovery discard without the original owner's authority is refused as forbidden, and one whose target changed after inspection is refused as a changed target; both leave the retained entry and the external bytes as they were, and a confirmed discard against the refreshed recovery entry completes with the API object unchanged. Scope: docs/en/slices/directory-synchronization.md#ingestion-metadata-and-conflicts.",
+          "result": "PASS",
+          "test_ids": ["a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict", "recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes"]
         },
         {
           "id": "sync-deletion-approval",
-          "description": "Test inclusive count/strict percentage thresholds, zero denominator and disabled guard; inspect complete-scan-only candidates using GET /_internal/sync?view=deletions with fixed revision/limit/cursor, verifying all pages match the exact approved set and denominator/fence/incarnations/generations; API/tree/root/incarnation changes or restart reject stale cursors and stale/replayed/foreign approvals with 409; preserve recreated external files across final absence-check races, restore protected deletions and retain version history; owners sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Remaining: a file recreated between the final absence check and its object's deletion on a running server keeps the file (runtime race scenarios, deferred). Thresholds, paged inspection, stale cursors and approvals, protected deletions and version history pass in sync-deletion-thresholds-and-pages, sync-cli-deletion-approval, sync-deletion-decision-races, sync-cumulative-deletion-guard and sync-two-way-round-trip. Owners sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "sync-deletion-thresholds-and-pages",
+          "description": "PASS: the guard counts the whole root and holds a set only from 100 candidates that are strictly more than half of the baseline; an empty baseline holds nothing, and a disabled guard holds no set. A frozen inventory of 300 candidates pages through the deletions view with a fixed revision, limit and cursor, and one approval deletes exactly its members once. Pages of long names stay within the byte cap and refuse stale cursors before every member is approved. A failed object deletion rolls the set's membership progress back, and a restart invalidates its revision. An incomplete scan, a file recreated after the set was taken and an API change never authorize an old deletion, and a delayed observation keeps a completed deletion's status without authorizing a stale approval again. An API write keeps the revision only while the members stay the same. Protected-deletion findings page over every target and end with a null cursor. Scope: docs/en/slices/external-deletion-controls.md.",
+          "result": "PASS",
+          "test_ids": ["threshold_is_root_wide_strictly_above_half_and_has_an_absolute_floor", "frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members", "long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members", "deletion_membership_progress_rolls_back_with_object_failure_and_restart_invalidates_revision", "incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_delete", "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval", "an_api_write_keeps_the_revision_only_while_the_members_stay_the_same", "protected_findings_pages_cover_every_target_with_a_final_null_cursor"]
         },
         {
           "id": "sync-management-authorization",
-          "description": "Every sync route/CLI requires explicit registered project storage.admin authority for seed_project, all existing synchronized owners and original owner projects retained by unresolved conflicts/recovery in strict mode; retain original project/incarnation through last-bucket deletion, restart and cross-project same-name recreation; list and restore/discard return 403 to a seed admin missing that original project's grant before/after each transition, and authorized restore still rejects stale incarnations; include reads/waits and queued-operation authority/target rechecks, reject missing/invalid/insufficient identities before disclosure and deny public/signed/bucket-only grants; pre-registration recovery discard requires that same original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, rejects foreign-project/stale/unconfirmed requests without changing retained bytes and rechecks authority on execution/restart retry before any unlink or stop release; permissive controls are explicitly unauthenticated; owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Detailed strict retained-owner authorization remains PENDING.",
+          "description": "Remaining: the slice's final combined platform and SDK evidence, which waits for the deferred Go SDK round trip. Retained original owners through last-bucket deletion, restart and cross-project same-name recreation pass in sync-cli-retained-owner; credential handling in sync-live-cli; pre-registration discard authority, revision, identity and confirmation in sync-conflict-hold-and-recovery-authority and in sync-cli-stopped-sparse-recovery (DESIGN-074); refusals before disclosure, public, signed, HMAC and bucket-only grants, queued rechecks and permissive controls in sync-strict-control-refusals. Owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
+          "id": "sync-strict-control-refusals",
+          "description": "PASS: in strict mode, credentials that work for storage never confer synchronization administration on any control: a bucket IAM binding or an allAuthenticatedUsers binding gets 403, no credential under an allUsers binding gets 401, and a V4 signed URL or HMAC signature of a project storage.admin identity gets 401 or 403. A refused caller sees the refusal before any 400, 404, 405 or 413 from the control's own body, query, method or route validation, and an unknown control route answers authentication before not found. A declared project admin reaches every control. Each control requires explicit storage.admin on every owner project before it parses the body, status checks the owner union again after admission, queued native operations keep the HTTP status of their authority and condition errors, and HTTP conflict resolution requires exact targets and keeps API preconditions. In permissive mode the controls answer without credentials, the status reports auth_mode permissive, and the routes keep their 405, 400 and 409 answers. Scope: docs/en/slices/directory-synchronization.md#management-api-and-cli.",
+          "result": "PASS",
+          "test_ids": ["credentials_that_work_for_storage_never_confer_sync_administration", "every_credential_class_gets_the_documented_refusal", "refusal_precedes_body_query_method_and_route_validation", "unknown_control_routes_answer_authentication_before_not_found", "a_declared_project_admin_still_reaches_every_control", "strict_control_authority_precedes_body_parsing_and_requires_each_explicit_project_admin", "status_rechecks_the_owner_union_after_admission_authorization", "queued_native_authority_and_condition_errors_keep_their_http_status", "strict_http_conflict_resolution_requires_exact_targets_and_preserves_api_conditions", "live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_errors"]
+        },
+        {
           "id": "sync-status-and-wait",
-          "description": "Implement all documented stop scopes/remedies and GET /_internal/sync fixed-revision views for deletions and findings with limit/cursor, exact candidate/Unrepresentable/ProtectedDeletion/recovery fields and remedies; verify multi-page inspection equals the approved set, intermediate changes reject stale cursors/approval with 409, bounded responses/request admission and sanitized readiness without changing API-ready status; wait on captured stable-scan/journal barriers with timeout/disconnect/shutdown behavior and inspectable stopped state; owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
+          "description": "Remaining: the slice's final combined platform and SDK evidence, which waits for the deferred Go SDK round trip. Status views, stop remedies, bounded pages, admission, waits and the stopped state pass in sync-status-pages-and-wait-queue, sync-ready-state, sync-status-state-vocabulary, sync-paused-control-answers, sync-cli-wait-outcomes, sync-wait-preparation-budget and sync-live-cli; deletion pages, stale cursors and approvals in sync-deletion-thresholds-and-pages and sync-cli-deletion-approval. Owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
-          "test_ids": ["export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names","carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again"]
+          "test_ids": []
+        },
+        {
+          "id": "sync-status-pages-and-wait-queue",
+          "description": "PASS: storage failures stop with remedies that ask to repair capacity or access. A response counts its exact rendered bytes against the limit, and a large conflict page fits that limit and resumes after the last item it returned. Findings pages refuse a cursor after an in-place change or from another session, and the recovery view refreshes a workspace identity that changed and requires the exact discard confirmation. Export conflicts render as conflicts and name collisions as unrepresentable names, and a carried-over collision renders as a conflict that asks to observe the object again. Commands past the mirror queue wait their turn and all succeed, a cancelled command gives up its place, each command in line ends at its own deadline, and stopping the mirror wakes every command waiting in the queue. A wait stops for every holdup the status shows, the first condition that holds names it, and every command that advice names parses as this command line. Scope: docs/en/slices/directory-synchronization.md#stops-findings-and-remedies.",
+          "result": "PASS",
+          "test_ids": ["storage_failures_require_capacity_or_access_repairs", "response_limit_counts_the_exact_rendered_bytes", "large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_returned_item", "findings_pages_reject_in_place_changes_and_foreign_sessions", "recovery_http_refreshes_changed_workspace_identity_and_requires_exact_discard_confirmation", "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names", "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again", "commands_past_the_mirror_queue_wait_their_turn_and_all_succeed", "a_cancelled_command_gives_up_its_place_in_the_mirror_queue", "commands_in_line_end_at_their_own_deadlines", "stopping_the_mirror_wakes_every_command_waiting_in_its_queue", "a_wait_stops_for_every_holdup_the_status_shows", "the_first_condition_that_holds_names_the_holdup", "every_advised_command_parses_as_this_command_line"]
         },
         {
           "id": "sync-bounded-observation",
-          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and record one short measurement at about 1,000 entries (a full rescan and one wait) as a fact, without a gate or inferred performance claims; owners sync-watcher and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Recorded so far, on 2026-11-20 with Docker Desktop 29.9.3 running linux/arm64 containers on an arm64 macOS host: the container smoke's Compose stage bind-mounts a host directory as compose.sync.yaml documents and, after gcs-mimic sync wait each time, reflects a host create, edit and deletion and an API overwrite without a restart; after compose stop and up --no-recreate, an edit and a deletion made while stopped arrive as an update and a deletion, sync status reports root_change null and the log holds two starts and no sync_root_switched. It passed on the default path and again on the host-user path that Linux takes (docs/en/evidence/sync-bind-mount-containers.txt). One measurement, a fact and not a gate: a bind mount of an APFS directory that folds letter case and normalization, with 1,000 files in one bucket, took 38.59 s from start to healthy, 3.44 s for a first rescan followed by a wait and 2.64 s for a second (docs/en/evidence/sync-listing-attribute-cache.txt). The same script against an image of the sources before the listing changes, equivalent to 41d8a38c, took 155.81 s, 48.85 s and 33.89 s; that run's output is not in the record. Still PENDING: a run on a native Linux host, the full-rescan fallback for overflowed, duplicate, self-caused and missed notifications, and the other bounded-worker and queue cases this row lists.",
+          "description": "Remaining: the inotify path on Linux. The CI musl lane ran its tests for a lost queue or watch with a directory change, an overflowed queue and a watched directory that goes, but the overflow test passes without overflowing on a host whose queue limit it cannot exceed, so the full-rescan fallback for overflowed, duplicate, self-caused and missed inotify notifications is not shown. Bounded OS-worker scans, hashing and copies, paged state, journal and diagnostics, stat and racy filtering and coalesced path queues pass in sync-owned-filesystem-observation, sync-observation-io-diagnostics, sync-observer-queue-recovery, sync-live-export-observation and sync-history-scan-continuity; self-caused echoes in sync-metadata-and-loops; the native macOS watch without idle polling in sync-native-watch-coverage; bind mounts and the one measurement at 1,000 files in sync-bind-mount-observation. Owners sync-watcher and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
-          "test_ids": ["every_lost_history_or_root_change_rebuilds_the_watch", "a_structural_change_among_content_changes_settles_as_structural", "scripts/smoke-containers.sh:sync-compose:linux/arm64", "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64", "sync-listing-bench:bind-mount-1000-files:linux/arm64"]
+          "test_ids": ["a_lost_queue_or_watch_and_a_directory_change_rebuild_the_watch", "an_overflowed_queue_asks_for_a_rescan", "a_watched_directory_that_goes_asks_for_a_new_watch"]
+        },
+        {
+          "id": "sync-native-watch-coverage",
+          "description": "PASS on macOS: the native watch observes nested writes, atomic replacement and directory changes without idle polling, and a write outside the tree behind a symlink is not observed. Only the tree limit bounds how many directories a watch covers: 1,100 directories build with no limit and with a limit of exactly that many, and one fewer fails naming max_sync_entries. Every lost history or root change rebuilds the watch, and a structural change among content changes settles as structural. The Linux part of the symlink test, which refuses a watch past its directory capacity, does not run on macOS and is not claimed by this case. Scope: docs/en/slices/continuous-directory-observation.md.",
+          "result": "PASS",
+          "test_ids": ["native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling", "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity", "a_watch_follows_the_tree_limit_instead_of_a_fixed_directory_count", "every_lost_history_or_root_change_rebuilds_the_watch", "a_structural_change_among_content_changes_settles_as_structural"]
+        },
+        {
+          "id": "sync-bind-mount-observation",
+          "description": "PASS, recorded on 2026-11-20 with Docker Desktop 29.9.3 running linux/arm64 containers on an arm64 macOS host: the container smoke's Compose stage bind-mounts a host directory as compose.sync.yaml documents and, after gcs-mimic sync wait each time, reflects a host create, edit and deletion and an API overwrite without a restart; after compose stop and up --no-recreate, an edit and a deletion made while stopped arrive as an update and a deletion, sync status reports root_change null and the log holds two starts and no sync_root_switched. It passed on the default path and again on the host-user path that Linux takes (docs/en/evidence/sync-bind-mount-containers.txt). One measurement, a fact and not a gate: a bind mount of an APFS directory that folds letter case and normalization, with 1,000 files in one bucket, took 38.59 s from start to healthy, 3.44 s for a first rescan followed by a wait and 2.64 s for a second (docs/en/evidence/sync-listing-attribute-cache.txt). The same script against an image of the sources before the listing changes, equivalent to 41d8a38c, took 155.81 s, 48.85 s and 33.89 s; that run's output is not in the record. No performance claim follows from it.",
+          "result": "PASS",
+          "test_ids": ["scripts/smoke-containers.sh:sync-compose:linux/arm64", "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64", "sync-listing-bench:bind-mount-1000-files:linux/arm64"]
         },
         {
           "id": "CATALOG-INDEX",
@@ -60767,9 +60815,9 @@
         },
         {
           "id": "onboarding-state-sync-benchmark",
-          "description": "Record one full-rescan timing at about 1,000 entries, unchanged and then with one changed file, as a fact without a regression gate after synchronization exists. The unchanged timing on a Docker Desktop bind mount was measured once on 2026-11-20 (sync-bounded-observation, docs/en/evidence/sync-listing-attribute-cache.txt); the timing with one changed file remains unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
-          "result": "PENDING",
-          "test_ids": ["sync-listing-bench:bind-mount-1000-files:linux/arm64"]
+          "description": "PASS: one full-rescan timing at about 1,000 entries, unchanged and then with one changed file, recorded as a fact without a regression gate. Measured once each on 2026-11-20 on a Docker Desktop bind mount, linux/arm64 containers on an arm64 macOS host: a rescan and wait took 3.44 s unchanged (docs/en/evidence/sync-listing-attribute-cache.txt) and 6.31 s after one of the 1,000 files changed (docs/en/evidence/sync-rescan-one-change.txt). No performance claim follows from either run. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "result": "PASS",
+          "test_ids": ["sync-listing-bench:bind-mount-1000-files:linux/arm64", "sync-one-change-bench:bind-mount-1000-files:linux/arm64"]
         },
         {
           "id": "DESIGN-072-MEDIA-SAFETY",
@@ -61133,6 +61181,46 @@
         "scripts/smoke-containers.sh:sync-compose-host-user:linux/arm64",
         "sync-listing-bench:bind-mount-1000-files:linux/arm64",
         "sync-listing-attribute-cache:docker-desktop:linux/arm64",
+        "sync-one-change-bench:bind-mount-1000-files:linux/arm64",
+        "existing_parents_never_create_missing_directories_and_reject_aliases_and_symlinks",
+        "a_tracked_file_replaced_by_a_directory_stops_only_its_own_path",
+        "native_watcher_ingests_external_create_edit_replace_and_rename_without_manual_rescan",
+        "protected_external_deletion_restores_bytes_and_versioned_removal_keeps_history",
+        "an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_external_deletions",
+        "recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes",
+        "threshold_is_root_wide_strictly_above_half_and_has_an_absolute_floor",
+        "frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members",
+        "long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members",
+        "deletion_membership_progress_rolls_back_with_object_failure_and_restart_invalidates_revision",
+        "incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_delete",
+        "an_api_write_keeps_the_revision_only_while_the_members_stay_the_same",
+        "protected_findings_pages_cover_every_target_with_a_final_null_cursor",
+        "credentials_that_work_for_storage_never_confer_sync_administration",
+        "every_credential_class_gets_the_documented_refusal",
+        "refusal_precedes_body_query_method_and_route_validation",
+        "unknown_control_routes_answer_authentication_before_not_found",
+        "a_declared_project_admin_still_reaches_every_control",
+        "strict_control_authority_precedes_body_parsing_and_requires_each_explicit_project_admin",
+        "status_rechecks_the_owner_union_after_admission_authorization",
+        "queued_native_authority_and_condition_errors_keep_their_http_status",
+        "strict_http_conflict_resolution_requires_exact_targets_and_preserves_api_conditions",
+        "live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_errors",
+        "storage_failures_require_capacity_or_access_repairs",
+        "response_limit_counts_the_exact_rendered_bytes",
+        "large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_returned_item",
+        "findings_pages_reject_in_place_changes_and_foreign_sessions",
+        "recovery_http_refreshes_changed_workspace_identity_and_requires_exact_discard_confirmation",
+        "commands_past_the_mirror_queue_wait_their_turn_and_all_succeed",
+        "a_cancelled_command_gives_up_its_place_in_the_mirror_queue",
+        "commands_in_line_end_at_their_own_deadlines",
+        "stopping_the_mirror_wakes_every_command_waiting_in_its_queue",
+        "a_wait_stops_for_every_holdup_the_status_shows",
+        "the_first_condition_that_holds_names_the_holdup",
+        "every_advised_command_parses_as_this_command_line",
+        "a_watch_follows_the_tree_limit_instead_of_a_fixed_directory_count",
+        "a_lost_queue_or_watch_and_a_directory_change_rebuild_the_watch",
+        "an_overflowed_queue_asks_for_a_rescan",
+        "a_watched_directory_that_goes_asks_for_a_new_watch",
         "a_write_back_that_fails_part_way_resumes_on_rescan_and_deletes_nothing",
         "a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wait",
         "deleting_the_object_of_a_failing_member_leaves_it_out_of_the_write_back",
@@ -61813,6 +61901,41 @@
           "test_ids": ["sync-listing-bench:bind-mount-1000-files:linux/arm64"]
         },
         {
+          "command": "docker build --platform linux/arm64 --build-arg CARGO_BUILD_JOBS=8 -t gcs-mimic-onechange:ce74141d .; zsh <temp>/one-change-bench.sh gcs-mimic-onechange:ce74141d run1 (the script and its output are in the record; Docker Desktop 29.9.3 on an arm64 macOS host, 1,000 files in one bucket on a bind mount of an APFS directory, one of them changed once the server is healthy, then one rescan and one wait; one run, not a gate)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/evidence/sync-rescan-one-change.txt",
+          "test_ids": ["sync-one-change-bench:bind-mount-1000-files:linux/arm64"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 sync fsutil source_tree catalog::fault server::protocol_tests server::drain_tests (572 passed, on macOS, at 719e084f)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["existing_parents_never_create_missing_directories_and_reject_aliases_and_symlinks", "a_tracked_file_replaced_by_a_directory_stops_only_its_own_path", "native_watcher_ingests_external_create_edit_replace_and_rename_without_manual_rescan", "protected_external_deletion_restores_bytes_and_versioned_removal_keeps_history", "an_object_the_tree_cannot_hold_neither_holds_back_the_baseline_nor_external_deletions", "a_metadata_change_preserves_an_edit_a_hold_deferred_as_a_conflict", "recovery_foreign_authority_and_changed_body_leave_the_stop_and_bytes", "threshold_is_root_wide_strictly_above_half_and_has_an_absolute_floor", "frozen_root_inventory_pages_and_one_shot_approval_consume_exact_members", "long_name_frozen_pages_obey_byte_cap_and_stale_cursors_then_approve_all_members", "deletion_membership_progress_rolls_back_with_object_failure_and_restart_invalidates_revision", "incomplete_scan_recreated_file_and_api_change_never_authorize_an_old_delete", "delayed_observation_keeps_completed_deletion_status_without_reauthorizing_stale_approval", "an_api_write_keeps_the_revision_only_while_the_members_stay_the_same", "protected_findings_pages_cover_every_target_with_a_final_null_cursor", "unknown_control_routes_answer_authentication_before_not_found", "strict_control_authority_precedes_body_parsing_and_requires_each_explicit_project_admin", "status_rechecks_the_owner_union_after_admission_authorization", "queued_native_authority_and_condition_errors_keep_their_http_status", "strict_http_conflict_resolution_requires_exact_targets_and_preserves_api_conditions", "storage_failures_require_capacity_or_access_repairs", "response_limit_counts_the_exact_rendered_bytes", "large_conflict_pages_fit_rendered_limit_and_resume_after_the_last_returned_item", "findings_pages_reject_in_place_changes_and_foreign_sessions", "recovery_http_refreshes_changed_workspace_identity_and_requires_exact_discard_confirmation", "export_conflicts_render_as_conflicts_and_name_collisions_as_unrepresentable_names", "carried_over_collisions_render_as_conflicts_that_ask_to_observe_the_object_again", "commands_past_the_mirror_queue_wait_their_turn_and_all_succeed", "a_cancelled_command_gives_up_its_place_in_the_mirror_queue", "commands_in_line_end_at_their_own_deadlines", "stopping_the_mirror_wakes_every_command_waiting_in_its_queue", "a_wait_stops_for_every_holdup_the_status_shows", "the_first_condition_that_holds_names_the_holdup", "native_watch_observes_nested_writes_atomic_replacement_and_directory_changes_without_idle_polling", "native_watch_does_not_follow_symlinks_and_refuses_unobserved_capacity", "a_watch_follows_the_tree_limit_instead_of_a_fixed_directory_count", "every_lost_history_or_root_change_rebuilds_the_watch", "a_structural_change_among_content_changes_settles_as_structural"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --bin gcs-mimic -- --test-threads=4 (88 passed, on macOS, at 719e084f)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/sync-cli.md",
+          "test_ids": ["every_advised_command_parses_as_this_command_line"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- --test-threads=4 (50 passed, on macOS, at 719e084f)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "credentials_that_work_for_storage_never_confer_sync_administration", "every_credential_class_gets_the_documented_refusal", "refusal_precedes_body_query_method_and_route_validation", "a_declared_project_admin_still_reaches_every_control", "live_sync_controls_rescan_external_deletions_and_preserve_http_namespace_errors"]
+        },
+        {
+          "command": "GitHub Actions Foundation checks run 44662121301 on commit 57eadc40, job portability (x86_64-unknown-linux-musl, ubuntu-24.04): cargo test --workspace --target \"$TARGET\" --locked --offline --no-fail-fast (lib 2,826 passed; read with gh run view 44662121301 --job 136042597347 --log). Run in the CI musl lane.",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/continuous-directory-observation.md",
+          "test_ids": ["a_lost_queue_or_watch_and_a_directory_change_rebuild_the_watch", "an_overflowed_queue_asks_for_a_rescan", "a_watched_directory_that_goes_asks_for_a_new_watch"]
+        },
+        {
           "command": "zsh <temp>/cache-check.sh (the script and its output are in the record; debian:trixie-slim linux/arm64 under Docker Desktop 29.9.3 with a bind mount of an APFS directory, a case-only rename on the host, then stat with --cached=always, the default and --cached=never)",
           "result": "PASS",
           "verified_at": "2026-11-20",
@@ -61844,7 +61967,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Native continuous observation, conditional create/edit ingestion and revision-bound guarded deletion have scoped macOS evidence. Conflict recovery, strict synchronization and final Linux/SDK/container execution remain under integration; native Windows and physical host-power-loss guarantees are not claimed. A permanent export I/O failure pauses synchronization, and graceful shutdown still interrupts the retry and releases the root. See docs/en/slices/continuous-directory-observation.md and docs/en/slices/external-deletion-controls.md.",
-        "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration, sync and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target.",
+        "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target. The synchronization rescan timing is one Docker Desktop run at 1,000 files, unchanged and after one change (onboarding-state-sync-benchmark), not a native or cgroup measurement.",
         "Shared imported identity, batch/file publication and import journals preserve the declared source subset with conditional publication and restart evidence. Source class/customTime/ACL and memory history extend that subset; see docs/en/slices/source-state-preservation.md and docs/en/slices/source-memory-snapshot.md. Broader source parity and performance are not claimed.",
         "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. Invalid-parent child findings and record suppression remain tested. Walker::root_entries is documented and debug-guarded for use before the first next call.",
@@ -62230,15 +62353,27 @@
         },
         {
           "id": "sync-marker-recovery",
-          "description": "Missing/foreign/malformed markers or wrong mounts stop before bind; verify root/catalog identity, safe missing-marker reinitialization, activation interruption/restart and marker/state durability without interpreting an unobserved tree as deletion; owners sync-mirror and sync-recovery; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive process-kill and host-power-loss boundaries remain PENDING.",
+          "description": "Remaining: the tracked state of a root that the data directory leaves for another directory, kept as an archived root (in progress). Missing, foreign and malformed markers stopping before bind and exact missing-marker reinitialization pass in sync-prebind-marker; root and catalog identity in shared-sync-root-ownership (DESIGN-072); activation interruption and restart in shared-sync-root-recovery; marker durability through failed write, sync and publication and through crash and Fault::PowerLoss snapshots in sync-atomic-root-marker-publication; an unobserved tree never read as deletion in sync-marker-absence-never-deletes. Crash coverage is the stages the fault seam models; other boundaries are excluded (known deviations). Owners sync-mirror and sync-recovery; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
+          "id": "sync-marker-absence-never-deletes",
+          "description": "PASS: activation, baseline completion, reopening and missing-marker reinitialization keep the root's objects and generations. A symlink at a tracked file's path is no deletion candidate and stops only its own path, the file outside stays as it was, and with the marker removed no inventory deletes an object. A directory without a marker that holds files is refused at startup, naming the synchronized directory, and none of its files becomes an object; the synchronized directory then opens as before, with its objects and generations as they were. Scope: docs/en/slices/directory-synchronization.md#marker-and-activation-requirements.",
+          "result": "PASS",
+          "test_ids": ["sync_root_activation_baseline_reopen_and_reinitialize_preserve_data", "unsafe_source_and_missing_marker_never_produce_a_delete", "a_directory_with_files_and_no_marker_is_refused_and_nothing_is_imported"]
+        },
+        {
           "id": "sync-writeback-recovery",
-          "description": "Barrier-kill copy/file-sync/exchange-or-replace/parent-sync/state-commit and conflict-registration windows; Linux validates actual displaced inode/no-replace races including last-check replacement at/exceeding byte/entry quota and ENOSPC before preservation/registration, then kill/restart with workspace-resident bodies must retain original bytes/owner, full quota accounting, inspectable stops and operator retrieval/resumption without automatic cleanup or blind exchange-back; include a 1 TiB + 1 byte sparse body and authorized confirmed pre-registration discard, ENOSPC before durable discard intent retains bytes, kill/restart before/after intent/unlink/parent-sync/completion resumes only that exact operation, idempotent retry never targets another entry and quota/root stop remain until durable completion; foreign-project/stale-revision/identity/unconfirmed requests retain bytes; other OS reports checked-replace limitations and detects observable races; disk-full/ambiguous-commit recovery preserves immutable blobs and catalog microseconds; owners sync-mirror and sync-recovery. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive kill boundaries, 1 TiB sparse recovery and non-Linux conflict guarantees remain PENDING. External deletion/edit/touch between rename and acknowledgement can retain an Armed/Durable recovery stop when both completion paths refuse; sync-conflicts supplies the remedy (PENDING). Obsolete Complete counts as deferred in that pass with baseline incomplete, then Conflicting/external_only on the next reconciliation.",
+          "description": "Remaining: a 1 TiB + 1 byte sparse body that an exchange displaced, kept with its stop until an authorized confirmed pre-registration discard (in progress), and actual displaced-inode and no-replace races on Linux, including a last-check replacement at or past the byte or entry quota and ENOSPC before preservation or registration (runtime race scenarios, deferred). The copy, file sync, exchange or replacement, parent sync, state commit and conflict registration stages pass through crash and Fault::PowerLoss snapshots in sync-native-writeback-fault-recovery, sync-protected-transfer-recovery, sync-conflict-storage-recovery and sync-installation-crash-and-ack-recovery; restart with retained bodies, full charge and inspectable stops in sync-cli-stopped-sparse-recovery and in sync-native-writeback-restart (DESIGN-072); disk-full retries in sync-live-export-retry; an ambiguous commit in sync-cli-lost-committed-response; refused foreign, stale and changed-target discards in sync-conflict-hold-and-recovery-authority (DESIGN-072). Other boundaries are excluded (known deviations), and Windows checked replacement is not claimed. An obsolete completion counts as deferred in its pass with the baseline incomplete, then as Conflicting or external_only on the next reconciliation (shared-sync-writeback-durability). Owners sync-mirror and sync-recovery. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "sync-installation-crash-and-ack-recovery",
+          "description": "PASS: a parent sync that fails inside an installation's rename leaves the rename volatile, and a crash or Fault::PowerLoss snapshot right after the failed attempt recovers on restart to the API state without a conflict, whether the power loss undid the rename or an abort kept it. A tracked body that an overwrite displaced or a removal moved aside, with its bytes unchanged and only its modification time moved, stays protected through restart, as installation would have kept it. Parent directories an export creates survive a crash snapshot, and a power-loss snapshot only after their directory sync. An external deletion or edit between the rename and the acknowledgement, or a touch after the durable record, fails the export when it checks the file again: synchronization pauses as observer-failure and write-back reports RecoveryRequired with a finding that sync resolve --recovery cannot select. The rescan the pause asks for cancels the operation without changing the target and reconciles it: an edit is kept as a registered conflict while the API body is installed, a deleted file gets the API body again and a touched file is tracked, with the API object as written. Scope: docs/en/slices/directory-synchronization.md#live-export-verification.",
+          "result": "PASS",
+          "test_ids": ["a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly", "a_tracked_body_with_another_modification_time_stays_protected_through_restart", "created_parents_survive_crash_and_power_loss_only_after_directory_sync", "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan"]
         },
         {
           "id": "sync-live-export-retry",
@@ -62260,9 +62395,15 @@
         },
         {
           "id": "sync-shutdown-lock",
-          "description": "Drain scans/staging/publication/resolution/write-back on shutdown, clean safe temporary files, and retain exclusive catalog/root ownership until accepted jobs complete; second server cannot acquire the active root even with another catalog, preserving DESIGN-076; owner sync-recovery with Shared state. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive scan/publication/conflict cancellation and ownership boundaries remain PENDING.",
+          "description": "Remaining: a shutdown during conflict resolution, a restore or discard in progress, shown to finish or roll back that resolution before the catalog closes. Draining initial export, live export, ingestion and write-back before catalog close and leaving no workspace entries or unpublished staging pass in sync-graceful-initial-export-stop, sync-live-export-shutdown, sync-ingest-shutdown-restart and sync-shutdown-during-io-retry; exclusive catalog and root ownership until accepted jobs finish, and a second server with another catalog refused the active root, in shared-sync-root-ownership (DESIGN-072), preserving DESIGN-076. Shutdown at interruption points other than those the tests name is excluded (known deviations). Owner sync-recovery with Shared state. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "sync-shutdown-during-io-retry",
+          "description": "PASS: while an API object's export keeps failing at the copy and its write-back stays pending, shutdown interrupts the retry after the operation's owned transition and the mirror finishes within two seconds; the root then opens again on the same catalog. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition"]
         },
         {
           "id": "sync-ingest-shutdown-restart",
@@ -62472,6 +62613,14 @@
         "reclaim_failures_keep_the_armed_export_and_retry_on_restart",
         "a_private_entry_one_byte_off_stays_protected_through_restart",
         "crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart",
+        "a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly",
+        "a_tracked_body_with_another_modification_time_stays_protected_through_restart",
+        "created_parents_survive_crash_and_power_loss_only_after_directory_sync",
+        "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan",
+        "shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition",
+        "sync_root_activation_baseline_reopen_and_reinitialize_preserve_data",
+        "unsafe_source_and_missing_marker_never_produce_a_delete",
+        "a_directory_with_files_and_no_marker_is_refused_and_nothing_is_imported",
         "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
         "sync_root_activation_failure_boundaries_never_publish_partial_markers",
@@ -62668,6 +62817,20 @@
           "verified_at": "2026-11-19",
           "artifact": "docs/en/slices/native-writeback-recovery.md",
           "test_ids": ["installation_crashes_and_power_losses_recover_to_the_api_state","restart_with_a_hard_linked_half_rename_keeps_the_target_and_confirms_nothing","restart_after_arming_a_live_copy_reclaims_the_uninstalled_copy","restart_protects_an_armed_copy_that_is_not_exactly_the_api_copy","reclaim_failures_keep_the_armed_export_and_retry_on_restart","a_private_entry_one_byte_off_stays_protected_through_restart","crashes_while_reclaiming_a_private_entry_recover_on_the_next_restart"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --lib -- --test-threads=4 sync fsutil source_tree catalog::fault server::protocol_tests server::drain_tests (572 passed, on macOS, at 719e084f)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["a_crash_after_a_parent_sync_failed_inside_the_rename_recovers_cleanly", "a_tracked_body_with_another_modification_time_stays_protected_through_restart", "created_parents_survive_crash_and_power_loss_only_after_directory_sync", "an_external_change_before_the_acknowledgement_is_settled_by_a_rescan", "shutdown_interrupts_a_persistent_io_retry_after_its_owned_transition", "sync_root_activation_baseline_reopen_and_reinitialize_preserve_data", "unsafe_source_and_missing_marker_never_produce_a_delete"]
+        },
+        {
+          "command": "CARGO_BUILD_JOBS=4 cargo test --locked --offline --test it_sync -- --test-threads=4 (50 passed, on macOS, at 719e084f)",
+          "result": "PASS",
+          "verified_at": "2026-11-20",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["a_directory_with_files_and_no_marker_is_refused_and_nothing_is_imported"]
         },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
@@ -62887,7 +63050,8 @@
         "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Native batch/mutable-file staging is covered in docs/en/slices/shared-publication-modes.md; exhaustive batch/file crash injection and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
         "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",
         "Shutdown during object-count-proportional recovery waits for completion without a deadline or accelerated second-signal path. Startup measurements are observations, not shutdown latency bounds; recovery internals remain unchanged.",
-        "Root marker/activation, runtime startup, continuous API export, I/O retry and live SIGTERM/restart pass the native subset in docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md. Interrupted-intent/conflict recovery and exhaustive shutdown boundaries remain PENDING. Windows checked replacement and power-loss namespace durability are not claimed.",
+        "Root marker/activation, runtime startup, continuous API export, I/O retry and live SIGTERM/restart pass the native subset in docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md. What stays open in marker, write-back and shutdown recovery is listed in the sync-marker-recovery, sync-writeback-recovery and sync-shutdown-lock rows. Windows checked replacement and power-loss namespace durability are not claimed.",
+        "Synchronization's crash and power-loss cases cover the marker, installation, write-back and conflict stages that the fault seam in src/storage/catalog/fault.rs models with Snapshot and Fault::PowerLoss snapshots, and its shutdown cases cover the interruption points their tests name; a process kill or a shutdown at any other instruction is excluded, not pending.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
