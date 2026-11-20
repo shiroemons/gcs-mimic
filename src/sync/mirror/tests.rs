@@ -32,6 +32,7 @@ mod reevaluation;
 mod rejection;
 mod root_files;
 mod several_roots;
+mod sparse_displacement;
 pub(super) mod state;
 mod wait;
 

@@ -12,14 +12,14 @@ use std::sync::Arc;
 const BODY: &[u8] = b"api\0body";
 
 /// A step of the mirror's file work held until the test changed the tree.
-struct Held {
+pub(super) struct Held {
     entered: tokio::sync::oneshot::Receiver<()>,
     release: std::sync::mpsc::Sender<()>,
 }
 
 impl Held {
     /// Holds the next file work on `tree` at `step`.
-    fn arm(tree: &Path, step: Step) -> Self {
+    pub(super) fn arm(tree: &Path, step: Step) -> Self {
         let (entered, held) = tokio::sync::oneshot::channel();
         let (release, released) = std::sync::mpsc::channel();
         fault::arm(
@@ -50,7 +50,7 @@ impl Held {
 
 /// Runs the wait `sync wait` sends while `held` lets `change` alter the tree, and returns the
 /// wait's answer.
-async fn wait_racing(
+pub(super) async fn wait_racing(
     task: &Task,
     held: Held,
     change: impl FnOnce(),
@@ -65,7 +65,7 @@ async fn wait_racing(
 }
 
 /// Checks that the mirror kept running after a race, with nothing recorded as a pause.
-async fn still_running(task: &Task, root: &RootLease) {
+pub(super) async fn still_running(task: &Task, root: &RootLease) {
     assert_eq!(task.status().state(), MirrorState::Running);
     assert_eq!(root.observation().await.unwrap().paused_reason, None);
 }
