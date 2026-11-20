@@ -161,6 +161,15 @@ impl Started {
         drop(self.root);
         self.catalog.close().await.unwrap();
     }
+
+    /// Starts the next run on the same catalog, with the write-back recovery, ingestion and
+    /// reconciliation that the rescan resuming a paused mirror runs.
+    pub(super) async fn rerun(self) -> Self {
+        let tree = self.config.sync_dir.clone().unwrap();
+        drop(self.live);
+        drop(self.root);
+        Self::start(self.catalog, &self.config.data_dir, &tree).await
+    }
 }
 
 /// Makes the API change, returning the record it leaves, if any.

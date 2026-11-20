@@ -1827,18 +1827,24 @@ impl LiveObject<'_> {
         #[cfg(test)]
         export_checkpoint("before-publish").await;
         let mut preserved = false;
+        // An installed export stops once before it records durability and once before its
+        // acknowledgement, the steps an external change can come between; a retry after
+        // preservation passes them again without stopping, since the hook releases once.
         #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-        let mut durable_checkpoint = false;
+        let (mut durable_checkpoint, mut ack_checkpoint) = (false, false);
         loop {
             match advance_with_retry(writeback, operation.clone()).await? {
                 LiveResult::Pending => {
                     #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-                    if !durable_checkpoint
-                        && writeback::live_pending(&operation).await.phase
-                            == writeback::Phase::Armed
                     {
-                        durable_checkpoint = true;
-                        export_checkpoint("before-durable").await;
+                        let phase = writeback::live_pending(&operation).await.phase;
+                        if phase == writeback::Phase::Armed && !durable_checkpoint {
+                            durable_checkpoint = true;
+                            export_checkpoint("before-durable").await;
+                        } else if phase == writeback::Phase::Durable && !ack_checkpoint {
+                            ack_checkpoint = true;
+                            export_checkpoint("before-ack").await;
+                        }
                     }
                 }
                 LiveResult::Complete => {

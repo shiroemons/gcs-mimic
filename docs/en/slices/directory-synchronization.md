@@ -201,7 +201,18 @@ claiming a synchronized fingerprint or progress. Continuous live export instead
 records the generation/fingerprint actually installed, so a later API generation
 can replace those known bytes. Changed or displaced external bodies still require
 protected recovery, not cancellation.
-External deletion/edit/touch between rename and acknowledgement can make both recovery paths refuse completion, retaining an Armed/Durable root stop; the remedy belongs to sync-conflicts (PENDING).
+An external deletion or edit between the rename and the acknowledgement, or a
+touch after the durable record, fails the export when it checks the file again.
+Synchronization pauses as `observer-failure`, write-back reports
+`RecoveryRequired`, and the operation stays as an armed or durable write-back
+finding without recovery details, which `sync resolve --recovery` cannot select
+and does not need. The rescan that the pause asks for starts a run whose
+write-back recovery cancels the operation without changing the target, and then
+reconciles the target: an edit is kept as a registered conflict while the API
+body is installed, a deleted file that the tree never acknowledged gets the API
+body again, and a touched file is tracked. The API object stays as written
+(`an_external_change_before_the_acknowledgement_is_settled_by_a_rescan`). A
+touch before the durable record changes nothing the export checks.
 An obsolete completion counts as `deferred` in that pass and leaves baseline incomplete; live journal replay or the restart scan reconciles the next API state.
 
 ### Initial-export verification
