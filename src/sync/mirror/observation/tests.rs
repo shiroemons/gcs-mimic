@@ -256,6 +256,36 @@ async fn quiet_zero_candidate_scans_reset_small_repeated_deletions_across_restar
     catalog.close().await.unwrap();
 }
 
+/// Notifications that arrive before a change settles join it: each one counts a generation, and
+/// a structural one stays structural however many content changes follow it, so the pass that
+/// the settled change starts still rebuilds the watch and rescans. A later content change taking
+/// its place would leave a lost queue or a removed directory unobserved.
+#[tokio::test]
+async fn a_structural_change_among_content_changes_settles_as_structural() {
+    let (_data, _tree, catalog, root, _config) = crate::sync::test_support::fixture(None).await;
+    let mut watcher = DirectoryWatch::new(&root).await.unwrap();
+    for change in [Change::Content, Change::Structure, Change::Content] {
+        watcher.record(change).unwrap();
+    }
+    assert_eq!(watcher.generation, 3);
+    let pending = watcher.pending.as_mut().unwrap();
+    assert_eq!(pending.change, Change::Structure);
+    // The last change was recorded one quiet interval before this deadline, so it has passed.
+    pending.quiet -= Duration::from_millis(crate::sync::SETTLE_MS);
+    let settled = tokio::time::timeout(Duration::from_secs(5), watcher.next_observation())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        settled,
+        Observed::Settled(Change::Structure, Quiet::Established)
+    ));
+    assert!(watcher.pending.is_none());
+    drop(watcher);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn native_quiet_deadline_is_capped_and_survives_cancelled_waits() {
     let (_data, _tree, catalog, root, _config) = crate::sync::test_support::fixture(None).await;
