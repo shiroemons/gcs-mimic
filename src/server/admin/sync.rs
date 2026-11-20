@@ -89,9 +89,9 @@ impl Control {
             "/_internal/sync/rescan" => Some(Self::Rescan),
             "/_internal/sync/resolve" => Some(Self::Resolve),
             "/_internal/sync/wait" => Some(Self::Wait),
-            path => Decision::ALL
-                .into_iter()
-                .find(|decision| decision.path() == path)
+            path => path
+                .strip_prefix("/_internal/sync/")
+                .and_then(|name| name.parse().ok())
                 .map(Self::Decide),
         }
     }

@@ -409,9 +409,9 @@ impl Command {
             "wait" => Some(Self::Wait),
             "resolve" => Some(Self::Resolve),
             "conflicts" => Some(Self::List(Listing::Conflicts)),
-            name => Decision::ALL
-                .into_iter()
-                .find(|decision| decision.as_str() == name)
+            name => name
+                .parse()
+                .ok()
                 .map(Self::Decide)
                 .or_else(|| View::parse(name).map(|view| Self::List(Listing::View(view)))),
         }

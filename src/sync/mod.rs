@@ -3,7 +3,7 @@
 
 pub mod advice;
 pub(crate) mod control;
-pub use control::{Decision, UnknownWaitReason, WaitReason};
+pub use control::{Decision, UnknownDecision, UnknownWaitReason, WaitReason};
 mod deletion;
 pub(crate) mod entries;
 mod error;

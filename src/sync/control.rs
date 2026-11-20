@@ -415,7 +415,7 @@ impl Decision {
         }
     }
 
-    /// The control route that takes the decision.
+    /// The control route that takes the decision, which ends with its command.
     pub const fn path(self) -> &'static str {
         match self {
             Self::Approve => "/_internal/sync/approve",
@@ -451,6 +451,30 @@ impl Decision {
 // An accepted decision names itself by its command, so a reader of the answer alone can tell an
 // approval, whose objects go, from a rejection, whose files come back.
 crate::serde_util::serialize_as_str!(Decision);
+
+/// A name that is neither decision's command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownDecision(String);
+
+impl fmt::Display for UnknownDecision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unknown deletion decision {:?}", self.0)
+    }
+}
+
+impl Error for UnknownDecision {}
+
+/// A decision parses from the command that takes it, which its route ends with too.
+impl std::str::FromStr for Decision {
+    type Err = UnknownDecision;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|decision| decision.as_str() == value)
+            .ok_or_else(|| UnknownDecision(value.to_owned()))
+    }
+}
 
 /// The refusal of `decision` on the deletion set `revision`, which `refusal` says what became
 /// of, and what to do instead: a decided set names the status or the wait that follows its
@@ -974,6 +998,26 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// A decision parses from its command, which the control route ends with and the accepted
+    /// answer names it by, and from nothing else.
+    #[test]
+    fn decisions_parse_from_the_command_their_route_ends_with() {
+        for decision in Decision::ALL {
+            assert_eq!(decision.as_str().parse::<Decision>(), Ok(decision));
+            assert_eq!(
+                decision.path(),
+                format!("/_internal/sync/{}", decision.as_str())
+            );
+            assert_eq!(
+                serde_json::to_value(decision).unwrap(),
+                serde_json::Value::from(decision.as_str())
+            );
+        }
+        for name in ["", "Approve", "approved", "/_internal/sync/approve"] {
+            assert!(name.parse::<Decision>().is_err(), "{name}");
         }
     }
 
