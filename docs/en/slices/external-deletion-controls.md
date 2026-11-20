@@ -148,7 +148,14 @@ not `Ready`, and `gcs-mimic sync wait` answers once they are all back. A
 write-back that keeps failing, such as for a missing permission, pauses
 synchronization with the reason the status and the `sync_paused` event name,
 and no deletion is detected meanwhile; correcting the cause and running the
-rescan the remedy names writes the rest back. A stale, approved or
+rescan the remedy names writes the rest back. While files are left, the remedy
+of a wait that pauses or runs out of time, and of the root-stop finding, opens
+with how many remain and points at the `sync_deletions_rejected` log for why
+their write-back stopped; a wait with nothing else changing says that the
+server writes them back itself rather than asking the programs that write in
+the directory to finish. The write-back skips a member whose object changed or
+went, so deleting the object of a file whose write-back keeps failing, through
+the API, leaves that file out, and the remedy says so. A stale, approved or
 already rejected revision returns 409, as approval does. The 409 of a decision
 says what became of the set: approved or rejected already; not the set that
 waits now, which it names with how many of the tracked files are missing in

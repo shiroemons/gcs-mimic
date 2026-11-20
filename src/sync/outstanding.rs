@@ -144,7 +144,9 @@ impl Holdup {
         Some(match self {
             Self::Paused(reason) => pause_remedy(reason, at_hand),
             Self::Writeback(_) | Self::FindingsPending => findings_remedy(at_hand),
-            Self::SourceChanging | Self::Observing => unsettled_remedy(Some(self), None),
+            Self::SourceChanging | Self::Observing => {
+                unsettled_remedy(Some(self), None, at_hand.rejected_writeback)
+            }
             Self::SourceUnrepresentable | Self::SourceUnreadable => {
                 Correction::UnrepresentableEntries.remedy()
             }

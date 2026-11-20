@@ -368,6 +368,22 @@ async fn wait(
     // The mirror answers a paused wait with the reason it paused for, which the catalog may not
     // have recorded, and a wait for approval without the deletion set its remedy names.
     let paused_reason = result.paused_reason();
+    // Files of a rejected set left to write back hold back a wait that pauses or runs out of
+    // time, and its remedy counts them first, since the server writes them itself.
+    let rejected_writeback = match result.reason {
+        WaitReason::Paused | WaitReason::Timeout | WaitReason::SourceChanging => {
+            root.observation_for(authority.clone())
+                .await
+                .map_err(|error| root_error(&error))?
+                .rejected_writeback
+        }
+        WaitReason::Ready
+        | WaitReason::Stopped
+        | WaitReason::JournalChanged
+        | WaitReason::SourceUnrepresentable
+        | WaitReason::DeletionApproval
+        | WaitReason::FindingsPending => 0,
+    };
     let set = if result.reason == WaitReason::DeletionApproval {
         root.deletion_set_for(authority)
             .await
@@ -383,6 +399,7 @@ async fn wait(
     let at_hand = AtHand {
         findings_revision: findings.as_ref().map(|findings| findings.revision.as_str()),
         deletion,
+        rejected_writeback,
     };
     let answer = WaitAnswer {
         remedy: result.remedy(at_hand),
@@ -851,6 +868,7 @@ async fn findings_page(
         let at_hand = AtHand {
             findings_revision: Some(revision),
             deletion: None,
+            rejected_writeback: observation.rejected_writeback,
         };
         let items = items
             .iter()

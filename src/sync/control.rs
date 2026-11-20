@@ -184,6 +184,15 @@ impl Correction {
 /// revisions `at_hand`; a log has none, so its advice lists the findings at the revision the
 /// status reports.
 pub(crate) fn pause_remedy(reason: PauseReason, at_hand: AtHand<'_>) -> String {
+    let remedy = paused_for(reason, at_hand);
+    match rejected_left(at_hand.rejected_writeback) {
+        Some(left) => format!("{left}. {remedy}; {LEAVE_OUT}, before you resume"),
+        None => remedy,
+    }
+}
+
+/// What resumes synchronization after a pause for `reason`, whatever is left to write back.
+fn paused_for(reason: PauseReason, at_hand: AtHand<'_>) -> String {
     let rescan = Advised::Rescan;
     match reason {
         PauseReason::ConflictCapacity => format!(
@@ -327,7 +336,52 @@ pub(crate) fn unmapped_objects_remedy(count: u64, at_hand: AtHand<'_>) -> String
 /// What a wait that ended while work was still under way leaves, and what to run: the same for
 /// a wait whose deadline passed and for one the server answered after its minute, so that the
 /// two read alike. `holdup` is what the wait's last pass ended on, and `pass` that pass.
-pub(crate) fn unsettled_remedy(holdup: Option<Holdup>, pass: Option<&Reconciliation>) -> String {
+/// `rejected` files of a rejected deletion set left to write back come first: the server writes
+/// those itself, so nobody else has anything to finish for them, and their log says why a
+/// write-back stopped.
+pub(crate) fn unsettled_remedy(
+    holdup: Option<Holdup>,
+    pass: Option<&Reconciliation>,
+    rejected: u64,
+) -> String {
+    let wait = Advised::Wait;
+    let writers = |still: &str| {
+        format!(
+            "{still}. Let the programs writing in the directory or through the API finish and wait again, with a longer --timeout if they need more time: {wait}"
+        )
+    };
+    match (rejected_left(rejected), still_changing(holdup, pass)) {
+        (None, still) => writers(
+            still
+                .as_deref()
+                .unwrap_or("The directory was still changing when the wait ended"),
+        ),
+        (Some(left), Some(still)) => format!("{left}. {}; {LEAVE_OUT}", writers(&still)),
+        (Some(left), None) => format!(
+            "{left}. The server writes them back itself; wait again, with a longer --timeout if it needs more time: {wait}; {LEAVE_OUT}"
+        ),
+    }
+}
+
+/// How a member of a rejected set that keeps failing to write back can be left out: the
+/// write-back skips a member whose object went, as it skips one whose object changed.
+const LEAVE_OUT: &str = "if the write-back of a file keeps failing and you no longer need the file, delete its object through the API, which the write-back then skips";
+
+/// The sentence that opens advice while `rejected` files of a rejected deletion set are left to
+/// write back, which holds back every wait; `None` when none are.
+fn rejected_left(rejected: u64) -> Option<String> {
+    let (files, remain, their) = match rejected {
+        0 => return None,
+        1 => ("1 file".to_owned(), "remains", "its"),
+        count => (format!("{count} files"), "remain", "their"),
+    };
+    Some(format!(
+        "{files} of the rejected deletion set {remain} to write back, and the sync_deletions_rejected log names why if {their} write-back stopped"
+    ))
+}
+
+/// What the wait's last pass still saw changing in the tree, if it saw anything.
+fn still_changing(holdup: Option<Holdup>, pass: Option<&Reconciliation>) -> Option<String> {
     let files = |count: u64| {
         if count == 1 {
             "1 file was"
@@ -335,7 +389,7 @@ pub(crate) fn unsettled_remedy(holdup: Option<Holdup>, pass: Option<&Reconciliat
             "files were"
         }
     };
-    let still = match (holdup, pass) {
+    Some(match (holdup, pass) {
         (_, Some(pass)) if pass.still_changing() > 0 => {
             let changing = pass.still_changing();
             let names = pass.deferred_files.first();
@@ -369,12 +423,8 @@ pub(crate) fn unsettled_remedy(holdup: Option<Holdup>, pass: Option<&Reconciliat
         (Some(Holdup::Observing), _) => {
             "The API changed during each pass, so synchronization has not completed its first full comparison yet".to_owned()
         }
-        _ => "The directory was still changing when the wait ended".to_owned(),
-    };
-    format!(
-        "{still}. Let the programs writing in the directory or through the API finish and wait again, with a longer --timeout if they need more time: {}",
-        Advised::Wait
-    )
+        _ => return None,
+    })
 }
 
 impl From<SyncError> for ControlError {
@@ -894,14 +944,16 @@ impl WaitResult {
     pub(crate) fn remedy(&self, at_hand: AtHand<'_>) -> Option<String> {
         let pass = self.reconciliation.as_ref();
         match self.ending {
-            Ending::Held(holdup) if self.reason.is_in_progress() => {
-                Some(unsettled_remedy(Some(holdup), pass))
-            }
+            Ending::Held(holdup) if self.reason.is_in_progress() => Some(unsettled_remedy(
+                Some(holdup),
+                pass,
+                at_hand.rejected_writeback,
+            )),
             Ending::Held(holdup) => holdup.remedy(at_hand),
             Ending::Unfinished {
                 why: Unfinished::Timeout | Unfinished::SourceChanging,
                 last,
-            } => Some(unsettled_remedy(last, pass)),
+            } => Some(unsettled_remedy(last, pass, at_hand.rejected_writeback)),
             Ending::Unfinished {
                 why: Unfinished::Stopped | Unfinished::JournalChanged,
                 ..
@@ -1256,6 +1308,65 @@ mod tests {
         );
     }
 
+    /// Files of a rejected set left to write back open the advice of a wait that ran out of
+    /// time or paused, counted, with the log that says why their write-back stopped. Since the
+    /// server writes them itself, a wait with nothing else changing does not ask the programs
+    /// writing in the directory to finish; what a pass saw changing keeps that request. Each
+    /// says how to leave out a file whose write-back keeps failing, and the pause keeps its own
+    /// remedy after the count.
+    #[test]
+    fn files_left_to_write_back_open_the_advice_of_a_wait() {
+        let left = |rejected| AtHand {
+            rejected_writeback: rejected,
+            ..AtHand::default()
+        };
+        let writers = "Let the programs writing in the directory or through the API finish";
+        let leave_out = "delete its object through the API, which the write-back then skips";
+        for (rejected, opening) in [
+            (
+                1,
+                "1 file of the rejected deletion set remains to write back, and the sync_deletions_rejected log names why if its write-back stopped. ",
+            ),
+            (
+                3,
+                "3 files of the rejected deletion set remain to write back, and the sync_deletions_rejected log names why if their write-back stopped. ",
+            ),
+        ] {
+            let timed_out = WaitResult::timeout().remedy(left(rejected)).unwrap();
+            assert!(timed_out.starts_with(opening), "{timed_out}");
+            assert!(
+                timed_out.contains("The server writes them back itself; wait again"),
+                "{timed_out}"
+            );
+            assert!(!timed_out.contains(writers), "{timed_out}");
+            assert!(timed_out.ends_with(leave_out), "{timed_out}");
+            let observing = WaitResult::held(Holdup::Observing, None, None)
+                .remedy(left(rejected))
+                .unwrap();
+            assert!(observing.starts_with(opening), "{observing}");
+            assert!(observing.contains(writers), "{observing}");
+            assert!(observing.ends_with(leave_out), "{observing}");
+            let pause = pause_remedy(PauseReason::IoFailure, AtHand::default());
+            let paused = WaitResult::held(Holdup::Paused(PauseReason::IoFailure), None, None)
+                .remedy(left(rejected))
+                .unwrap();
+            assert_eq!(
+                paused,
+                format!(
+                    "{opening}{pause}; if the write-back of a file keeps failing and you no longer need the file, {leave_out}, before you resume"
+                )
+            );
+        }
+        let timed_out = WaitResult::timeout().remedy(left(0)).unwrap();
+        assert!(
+            timed_out.starts_with(&format!(
+                "The directory was still changing when the wait ended. {writers}"
+            )),
+            "{timed_out}"
+        );
+        assert!(!timed_out.contains("rejected"), "{timed_out}");
+    }
+
     /// A wait that refuses objects whose names the tree cannot hold ends on them only when it
     /// is otherwise ready and some remain, as FindingsPending with a remedy of their own that
     /// lists them and names nothing else; any other end stays as the mirror decided it.
@@ -1268,7 +1379,7 @@ mod tests {
         assert_eq!(refused.holdup(), Some(Holdup::UnmappedObjects { count: 2 }));
         let at_hand = AtHand {
             findings_revision: Some(super::super::advice::SAMPLE_FINDINGS_REVISION),
-            deletion: None,
+            ..AtHand::default()
         };
         let remedy = refused.remedy(at_hand).unwrap();
         assert!(

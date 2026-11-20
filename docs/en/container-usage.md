@@ -322,7 +322,10 @@ When a deletion set waits for a decision, inspect it with
 - If the files went by mistake, reject the set with
   `gcs-mimic sync reject --deletion-set REVISION`. The objects stay, and the
   files are written back from them; `gcs-mimic sync wait` answers once they are
-  back.
+  back. Until then its advice counts the files left, and the
+  `sync_deletions_rejected` log says why a write-back stopped; if one file keeps
+  failing and you no longer need it, delete its object through the API, and the
+  write-back skips it.
 - If you put the files back yourself, wait again with `gcs-mimic sync wait`.
 - If you deleted the files on purpose, approve the set with
   `gcs-mimic sync approve --deletion-set REVISION` to delete their objects.

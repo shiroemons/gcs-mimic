@@ -162,6 +162,19 @@ async fn a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wai
         remedy.ends_with("gcs-mimic sync rescan --endpoint URL"),
         "{remedy}"
     );
+    // A wait's answer reads the files left from the catalog and counts them first, with the log
+    // that says why their write-back stopped.
+    let counted = waited
+        .remedy(crate::sync::advice::AtHand {
+            rejected_writeback: observation.rejected_writeback,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        counted.starts_with("1 file of the rejected deletion set remains to write back, and the sync_deletions_rejected log names why"),
+        "{counted}"
+    );
+    assert!(counted.contains(&remedy), "{counted}");
     running.task.rescan().await.unwrap();
     written_back(&running.catalog, &tree.0, &bucket).await;
     assert_eq!(
@@ -177,6 +190,47 @@ async fn a_write_back_that_keeps_failing_shows_in_the_status_and_holds_every_wai
         wait_control(&running.task.rescan).await.reason,
         WaitReason::Ready
     );
+    running.finish().await;
+}
+
+/// The write-back of the second member fails until synchronization pauses, and its object is
+/// then deleted through the API, as the advice offers for a file no longer needed. The rescan
+/// skips that member instead of writing it back: its file stays away, the first file is back,
+/// nothing is left to write back and the wait is ready.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_the_object_of_a_failing_member_leaves_it_out_of_the_write_back() {
+    let (data, tree, bucket) = tracked_pair().await;
+    let running = Running::awaiting(&data.0, &tree.0).await;
+    running.reject_failing_at(1).await;
+    let name = ObjectName::new("second".to_owned()).unwrap();
+    let admin = running.catalog.admin(Origin::Api);
+    let record = admin.get_object(&bucket, &name, None).await.unwrap();
+    admin
+        .delete_object(
+            &bucket,
+            &name,
+            GenerationCondition::Is(Generation::new(record.generation).unwrap()),
+        )
+        .await
+        .unwrap();
+    running.task.rescan().await.unwrap();
+    assert_eq!(
+        wait_control(&running.task.rescan).await.reason,
+        WaitReason::Ready
+    );
+    assert_eq!(
+        running
+            .root()
+            .observation()
+            .await
+            .unwrap()
+            .rejected_writeback,
+        0
+    );
+    assert_eq!(fs::read(tree.0.join(BUCKET).join("first")).unwrap(), BODY);
+    assert!(exists(&running.catalog, &bucket, "first").await);
+    assert!(!tree.0.join(BUCKET).join("second").exists());
+    assert!(!exists(&running.catalog, &bucket, "second").await);
     running.finish().await;
 }
 

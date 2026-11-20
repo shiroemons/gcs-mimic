@@ -123,6 +123,9 @@ pub(crate) struct AtHand<'a> {
     pub(crate) findings_revision: Option<&'a str>,
     /// The deletion set that waits for a decision.
     pub(crate) deletion: Option<AwaitingSet<'a>>,
+    /// The files of a rejected deletion set that the server has still to write back, which hold
+    /// back every wait until they are back.
+    pub(crate) rejected_writeback: u64,
 }
 
 /// The deletion set that waits for a decision, as advice names it: its revision, how many of
@@ -211,6 +214,7 @@ pub fn catalog() -> Vec<String> {
         AtHand {
             findings_revision: Some(SAMPLE_FINDINGS_REVISION),
             deletion: Some(SAMPLE_AWAITING_SET),
+            rejected_writeback: 2,
         },
     ];
     let holdups = PauseReason::ALL.into_iter().map(Holdup::Paused).chain([
@@ -312,7 +316,8 @@ pub fn catalog() -> Vec<String> {
                 }),
         )
         .chain([
-            unsettled_remedy(None, None),
+            unsettled_remedy(None, None, 0),
+            unsettled_remedy(Some(Holdup::Observing), None, 2),
             newer_edit_remedy(),
             export_retry_remedy(),
             unclassified_collision_remedy(),

@@ -1688,7 +1688,7 @@ async fn a_wait_reports_names_the_tree_cannot_hold_and_fails_only_when_asked_to(
     // The remedy names the findings view at the revision this answer read its findings at.
     let at_hand = crate::sync::advice::AtHand {
         findings_revision: strict["findings"]["revision"].as_str(),
-        deletion: None,
+        ..Default::default()
     };
     assert_eq!(
         strict["remedy"],

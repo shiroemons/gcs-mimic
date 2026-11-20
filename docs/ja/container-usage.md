@@ -278,7 +278,8 @@ revisionを固定した削除一覧を[`gcs-mimic sync`](sync-cli.md)で確認�
 - マウントが上がらなかった場合は、ほかの操作より先にマウントを直してサーバーを再起動します。ファイルが戻り、承認待ちも外れます。
   マウントが戻る前に却下すると、マウントポイントの下に書き戻し、マウントが戻るとそのファイルは隠れます。
 - 誤って消えた場合は、`gcs-mimic sync reject --deletion-set REVISION`で却下します。オブジェクトは残り、ファイルをオブジェクトから書き戻します。
-  書き戻しの完了は`gcs-mimic sync wait`で待てます。
+  書き戻しの完了は`gcs-mimic sync wait`で待てます。完了までは、その案内が残りの件数を示し、書き戻しが止まった理由は`sync_deletions_rejected`のログに出ます。
+  書き戻しに失敗し続けるファイルが不要なら、そのオブジェクトをAPIで削除すると、書き戻しはそのファイルを飛ばします。
 - 自分でファイルを戻した場合は、`gcs-mimic sync wait`で待ち直します。
 - 意図して消した場合は、`gcs-mimic sync approve --deletion-set REVISION`で承認し、オブジェクトを削除します。
 
