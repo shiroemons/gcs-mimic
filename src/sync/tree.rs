@@ -280,13 +280,16 @@ impl From<io::Error> for ParentError {
     }
 }
 
+/// Whether opening an entry failed because of what the entry is rather than how it could be read.
+/// Opening a socket fails with `ENXIO` on Linux and with `EOPNOTSUPP` on macOS, which would
+/// otherwise fail the whole pass on a socket that a finding should report.
 pub(crate) fn structural_entry_error(error: &io::Error) -> bool {
     matches!(
         error.kind(),
         io::ErrorKind::NotADirectory | io::ErrorKind::IsADirectory | io::ErrorKind::InvalidInput
     ) || matches!(
         error.raw_os_error(),
-        Some(libc::ELOOP | libc::ENXIO | libc::ENODEV)
+        Some(libc::ELOOP | libc::ENXIO | libc::ENODEV | libc::EOPNOTSUPP)
     )
 }
 

@@ -324,6 +324,72 @@ async fn runtime_mapping_reports_length_file_and_symlink_conflicts_without_follo
     catalog.close().await.unwrap();
 }
 
+/// A FIFO or a socket at an object's path, or among the tree's entries, is an unsafe entry that
+/// the pass reports without reading or replacing it: a FIFO no writer opened would stall a
+/// blocking open, a read would take the bytes queued in the other FIFO, and a socket fails an
+/// open with another error on macOS than on Linux.
+#[cfg(unix)]
+#[tokio::test]
+async fn runtime_mapping_reports_fifos_and_sockets_without_reading_or_replacing_them() {
+    use std::io::{Read, Write};
+    use std::os::unix::{ffi::OsStrExt, fs::FileTypeExt, fs::OpenOptionsExt, net::UnixListener};
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let name = bucket(&catalog, "test-bucket", "owner").await;
+    for key in ["fifo", "socket"] {
+        object(&catalog, &name, key, b"api").await;
+    }
+    let directory = tree.0.join("test-bucket");
+    fs::create_dir(&directory).unwrap();
+    for fifo in ["fifo", "queued"] {
+        let path = std::ffi::CString::new(directory.join(fifo).as_os_str().as_bytes()).unwrap();
+        // SAFETY: the terminated path outlives the call, which keeps nothing.
+        #[expect(unsafe_code, reason = "mkfifo has no safe std equivalent")]
+        let made = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
+        assert_eq!(made, 0, "{}", std::io::Error::last_os_error());
+    }
+    let _sockets =
+        ["socket", "listening"].map(|socket| UnixListener::bind(directory.join(socket)).unwrap());
+    // Holding both ends keeps the queued bytes in the pipe for as long as nothing reads them.
+    let mut queued = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(directory.join("queued"))
+        .unwrap();
+    queued.write_all(b"queued").unwrap();
+    let root = sync::preflight(&catalog, &config(&data, &tree))
+        .await
+        .unwrap()
+        .unwrap();
+    let summary = sync::reconcile(&catalog, &root).await.unwrap();
+    assert_eq!(summary.exported, 0);
+    // Each of the four entries is one the scan cannot take in, and two hold objects' paths.
+    assert_eq!(sides(&summary), (2, 4));
+    assert!(!summary.baseline_complete);
+    let findings = root.findings_page(0, 256).await.unwrap();
+    assert!(
+        findings
+            .iter()
+            .all(|finding| format!("{finding:?}").contains("UnsafeEntry")),
+        "{findings:?}"
+    );
+    assert_eq!(reported(&root).await, ["fifo", "socket"]);
+    let kind = |entry: &str| {
+        fs::symlink_metadata(directory.join(entry))
+            .unwrap()
+            .file_type()
+    };
+    assert!(kind("fifo").is_fifo() && kind("queued").is_fifo());
+    assert!(kind("socket").is_socket() && kind("listening").is_socket());
+    let mut left = [0; 16];
+    let read = queued.read(&mut left).unwrap();
+    assert_eq!(&left[..read], b"queued");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// The names of the objects `root` reports, sorted.
 async fn reported(root: &gcs_mimic::storage::sync_state::root::RootLease) -> Vec<String> {
     let mut names = root
