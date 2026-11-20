@@ -140,9 +140,11 @@ and another still missing, a deletion below every threshold. A rejected
 revision is never confirmed, approved or rejected again. The write-back logs
 `sync_deletions_rejected` with how many files it restored, how many paths it
 kept because something was put there meanwhile, and how many it skipped because
-the object changed or went; a write-back that stopped or failed part way logs
-it as a warning with the number of files remaining, and a failure also with its
-reason and what to correct. While files are left, the status counts them as
+the object changed or went. The write-back that brings the last file back logs
+it at the info level with `remaining` 0, which is when the waits it held back
+go on; a write-back that stopped or failed part way logs it as a warning with
+the number of files remaining, and a failure also with its reason and what to
+correct. While files are left, the status counts them as
 `observation.rejected_writeback` and reads the directory as `SourceChanging`,
 not `Ready`, and `gcs-mimic sync wait` answers once they are all back. A
 write-back that keeps failing, such as for a missing permission, pauses
