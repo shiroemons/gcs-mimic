@@ -232,7 +232,7 @@ pub(crate) fn warn_unrepresentable(entry: &UnrepresentableEntry) {
         serde_json::json!({
             "path":path_text(&entry.path),
             "reason":entry.problem.reason(),
-            "remedy":Correction::Entry(entry.problem).remedy(),
+            "remedy":super::advice::logged(&Correction::Entry(entry.problem).remedy()),
         }),
     );
 }

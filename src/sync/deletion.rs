@@ -184,7 +184,7 @@ fn warn_awaiting_approval(set: &DeletionSet) {
         "sync_deletion_approval_required",
         serde_json::json!({
             "revision":set.revision.to_hex(),"candidates":set.candidate_count,
-            "baseline":set.baseline_count,"remedy":deletion_approval_remedy(at_hand),
+            "baseline":set.baseline_count,"remedy":super::advice::logged(&deletion_approval_remedy(at_hand)),
         }),
     );
 }

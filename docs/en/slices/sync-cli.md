@@ -102,8 +102,11 @@ give, such as `docker run IMAGE --scheme https`, which the environment of
 one that timed out, is not sent again. The command asks for `--endpoint` while
 the configuration has errors or gives an origin it cannot reach. An explicit
 `--endpoint` always wins. The commands its own advice names then leave
-`--endpoint` out, since they find the server the same way; the server's log
-events and answers keep the `--endpoint URL` placeholder.
+`--endpoint` out, since they find the server the same way. The server's answers
+keep the `--endpoint URL` placeholder, which the command replaces with the
+options that reached the server; its log events leave the placeholder out,
+since nothing fills it there and a command run beside the server finds it the
+same way, or asks for `--endpoint` when it cannot.
 
 A request that gets no answer the command can read fails with the URL it
 tried, what went wrong and its cause (the name did not resolve, the connection

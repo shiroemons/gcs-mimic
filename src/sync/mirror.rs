@@ -1885,7 +1885,7 @@ impl LiveObject<'_> {
                     diagnostics::emit(
                         LogLevel::Warn,
                         "sync_external_conflict",
-                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":newer_edit_remedy()}),
+                        serde_json::json!({"bucket":bucket.as_str(),"object":name.as_str(),"remedy":super::advice::logged(&newer_edit_remedy())}),
                     );
                     // Ingestion publishes the newer edit only while the tree tracks the API
                     // generation; otherwise the rescan the remedy names runs this export again.
@@ -2073,7 +2073,7 @@ async fn wait_retry(error: &writeback::Error, retry: &mut Backoff, root: &RootLe
         "sync_export_retry",
         serde_json::json!({
             "reason":crate::error::Report(error).to_string(),"retry_seconds":delay.as_secs(),
-            "remedy":export_retry_remedy()
+            "remedy":super::advice::logged(&export_retry_remedy())
         }),
     );
     if let Some(mut stopping) = root.stop_signal() {

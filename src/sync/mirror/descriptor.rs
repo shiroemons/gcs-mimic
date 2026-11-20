@@ -10,7 +10,7 @@ pub(super) fn paused(error: &SyncError, pause: PauseReason) {
         "sync_paused",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":crate::sync::control::pause_remedy(pause,crate::sync::advice::AtHand::default())}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"paused_reason":pause.as_str(),"remedy":crate::sync::advice::logged(&crate::sync::control::pause_remedy(pause,crate::sync::advice::AtHand::default()))}),
         ),
     );
 }
@@ -31,7 +31,7 @@ pub(super) fn resume_failed(error: &SyncError) {
         "sync_resume_failed",
         diagnostic(
             error,
-            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":crate::sync::control::resume_retry_remedy()}),
+            serde_json::json!({"reason":crate::error::Report(error).to_string(),"remedy":crate::sync::advice::logged(&crate::sync::control::resume_retry_remedy())}),
         ),
     );
 }

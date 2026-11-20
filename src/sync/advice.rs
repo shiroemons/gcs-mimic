@@ -77,6 +77,14 @@ pub fn with_connection(advice: &str, connection: &str) -> String {
     }
 }
 
+/// `advice` as a log event gives it: without [`ENDPOINT`], which nothing fills in a log. A
+/// command run beside the server finds it the way the commands the command's own advice names
+/// do, and asks for --endpoint when it cannot; an answer keeps the placeholder, which the
+/// command replaces with the options that reached the server.
+pub(crate) fn logged(advice: &str) -> String {
+    with_connection(advice, "")
+}
+
 /// Objects in the API whose names the tree cannot hold, worded alike wherever a line names
 /// them: the remedy of a wait that refuses them and the warning of a command that reports them.
 /// Its display is the clause that opens such a line, in the singular for one object.

@@ -180,7 +180,7 @@ impl Kept {
                 "path": item.path,
                 "reason": self.as_str(),
                 "error": error,
-                "remedy": self.remedy(),
+                "remedy": crate::sync::advice::logged(&self.remedy()),
             }),
         );
     }

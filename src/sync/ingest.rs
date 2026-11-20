@@ -450,7 +450,7 @@ impl Ingest<'_> {
             "sync_source_deferred",
             serde_json::json!({
                 "path":path_text(path),"reason":kind.to_string(),
-                "remedy":Correction::UnreadableFile.remedy()
+                "remedy":super::advice::logged(&Correction::UnreadableFile.remedy())
             }),
         );
     }
