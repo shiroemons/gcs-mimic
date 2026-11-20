@@ -169,23 +169,21 @@ async fn take_inventory(
 /// it, which a wait gives too. Nothing else reports a guarded set until someone asks for the
 /// status.
 fn warn_awaiting_approval(set: &DeletionSet) {
-    match set.authorization {
-        DeletionAuthorization::Granted | DeletionAuthorization::Rejected => {}
-        DeletionAuthorization::Withheld => {
-            let at_hand = AtHand {
-                deletion: Some(AwaitingSet::from(set)),
-                ..AtHand::default()
-            };
-            diagnostics::emit(
-                LogLevel::Warn,
-                "sync_deletion_approval_required",
-                serde_json::json!({
-                    "revision":set.revision.to_hex(),"candidates":set.candidate_count,
-                    "baseline":set.baseline_count,"remedy":deletion_approval_remedy(at_hand),
-                }),
-            );
-        }
-    }
+    let Some(awaiting) = AwaitingSet::of(set) else {
+        return;
+    };
+    let at_hand = AtHand {
+        deletion: Some(awaiting),
+        ..AtHand::default()
+    };
+    diagnostics::emit(
+        LogLevel::Warn,
+        "sync_deletion_approval_required",
+        serde_json::json!({
+            "revision":set.revision.to_hex(),"candidates":set.candidate_count,
+            "baseline":set.baseline_count,"remedy":deletion_approval_remedy(at_hand),
+        }),
+    );
 }
 
 /// What a deletion set deleted: how many objects, and the paths of the first few, which the log

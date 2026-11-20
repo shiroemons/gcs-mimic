@@ -373,7 +373,7 @@ async fn wait(
             .await
             .map_err(|error| root_error(&error))?
             .as_ref()
-            .map(AwaitingSet::from)
+            .and_then(AwaitingSet::of)
     } else {
         None
     };
@@ -765,9 +765,9 @@ async fn status(
             let mirror = registration.status.state();
             let set = published_set.as_ref();
             let pending = set.map_or(0, |set| set.candidate_count - set.completed_count);
-            let remedy = set.filter(|set| set.awaits_decision()).map(|set| {
+            let remedy = set.and_then(AwaitingSet::of).map(|awaiting| {
                 crate::sync::control::deletion_approval_remedy(AtHand {
-                    deletion: Some(AwaitingSet::from(set)),
+                    deletion: Some(awaiting),
                     ..AtHand::default()
                 })
             });

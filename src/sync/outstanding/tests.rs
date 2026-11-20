@@ -140,12 +140,20 @@ fn only_a_withheld_guarded_deletion_set_waits_for_approval() {
             Holdup::DeletionApproval,
         ),
         (true, DeletionAuthorization::Granted, Holdup::Ready),
+        (true, DeletionAuthorization::Rejected, Holdup::Ready),
         (false, DeletionAuthorization::Granted, Holdup::Ready),
     ] {
         let set = set(guarded, authorization);
         assert_eq!(
             Outstanding::of_status(&summary(), Some(&set)).first(),
             expected,
+            "{set:?}"
+        );
+        // Advice names a decision on exactly the set that waits for one, so a status or a wait
+        // that reads the set just after a decision never offers that decision again.
+        assert_eq!(
+            crate::sync::advice::AwaitingSet::of(&set).is_some(),
+            expected == Holdup::DeletionApproval,
             "{set:?}"
         );
         assert_eq!(

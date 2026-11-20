@@ -127,7 +127,8 @@ pub(crate) struct AtHand<'a> {
 
 /// The deletion set that waits for a decision, as advice names it: its revision, and how many
 /// of the files synchronization tracked are missing, which tells a deliberate deletion of a
-/// few files from a directory that went as a whole.
+/// few files from a directory that went as a whole. Only [`Self::of`] a set that waits makes
+/// one, so advice never names a decision on a set that already took one or never needed one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AwaitingSet {
     pub(crate) revision: OpaqueId,
@@ -137,13 +138,14 @@ pub(crate) struct AwaitingSet {
     pub(crate) tracked: u64,
 }
 
-impl From<&DeletionSet> for AwaitingSet {
-    fn from(set: &DeletionSet) -> Self {
-        Self {
+impl AwaitingSet {
+    /// `set` as advice names it, while it waits for a decision.
+    pub(crate) fn of(set: &DeletionSet) -> Option<Self> {
+        set.awaits_decision().then_some(Self {
             revision: set.revision,
             missing: set.candidate_count,
             tracked: set.baseline_count,
-        }
+        })
     }
 }
 
