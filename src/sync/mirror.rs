@@ -64,6 +64,9 @@ pub(crate) use tests::state::{RescanFault, arm_rescan_fault};
 
 mod descriptor;
 mod findings;
+use super::control::Correction;
+use super::error::superseded;
+use crate::storage::sync_state::findings::alias::Holding;
 use findings::Freeze;
 mod gate;
 mod lifecycle;
@@ -103,6 +106,10 @@ pub struct Reconciliation {
     /// The first of the `deferred` files that this pass names.
     #[serde(skip)]
     pub(crate) deferred_files: gate::DeferredFiles,
+    /// The objects left of an alias that ingestion took an edit of its file in for, whose file
+    /// the same pass settles.
+    #[serde(skip)]
+    pub(crate) heirs: Vec<(BucketName, ObjectName)>,
 }
 
 pub struct Task {
@@ -789,7 +796,7 @@ async fn replay_page_with(
             keys.insert((change.bucket, change.object));
         }
     }
-    let mut changed = std::collections::BTreeSet::new();
+    let mut changed = std::collections::BTreeMap::<BucketName, findings::Changed>::new();
     for (bucket, name) in keys {
         if interrupt.check() != Interrupted::No {
             summary.interrupted = true;
@@ -800,6 +807,8 @@ async fn replay_page_with(
         };
         if let Some(name) = name {
             let name = ObjectName::new(name)?;
+            // Read before the change, which can remove the finding that names it.
+            let spelling = root.alias_group(bucket.clone(), name.clone()).await?;
             let outcome = reconcile_live_object(
                 catalog,
                 root,
@@ -810,8 +819,10 @@ async fn replay_page_with(
                 &mut summary,
             )
             .await?;
-            skipped.record((bucket.clone(), name), outcome);
-            changed.insert(bucket);
+            skipped.record((bucket.clone(), name.clone()), outcome);
+            let changed = changed.entry(bucket).or_default();
+            changed.spellings.extend(spelling);
+            changed.names.push(name);
         } else {
             if !root.remember_sync_bucket(&bucket).await? {
                 summary.count_deferred(Path::new(bucket.as_str()));
@@ -829,9 +840,9 @@ async fn replay_page_with(
         fence: page.fence,
         summary: &mut summary,
     };
-    for bucket in &changed {
+    for (bucket, changed) in &changed {
         skipped
-            .observe_aliases(&mut observing, bucket, interrupt)
+            .observe_changed(&mut observing, bucket, changed, interrupt)
             .await?;
     }
     Ok(summary)
@@ -970,6 +981,14 @@ async fn ingest_external_with(
         super::ingest::rescan_with(catalog, root, config, writeback, interrupt).await?;
     summary.absorb_exports(&observed);
     summary.interrupted |= observed.interrupted;
+    // The deleted object's file goes and the heir gets its own in the pass that took the edit
+    // in, since no API change of another origin than ingestion follows to observe them.
+    let heirs = std::mem::take(&mut summary.heirs);
+    if !heirs.is_empty() {
+        let settled = Box::pin(skipped.observe_heirs(scope, &heirs, interrupt)).await?;
+        summary.absorb_exports(&settled);
+        summary.interrupted |= settled.interrupted;
+    }
     entries.report_pass(&summary);
     baseline.gate = BaselineGate::after_ingest(summary.gate());
     if !baseline.complete
@@ -1696,29 +1715,10 @@ impl LiveObject<'_> {
             Err(error) => return Err(error.into()),
         };
         let Some(record) = record else {
-            let Some(tracked) = tracked else {
-                // Nothing to remove from the tree, but a finding that kept the deleted object
-                // out of it would still count it.
-                unless_superseded(
-                    self.root
-                        .remove_deleted_finding(binding, name.clone())
-                        .await,
-                )?;
-                return Ok(None);
-            };
-            if self.replaced(path).await? {
-                return Ok(None);
-            }
-            return Ok(Some(LivePlan {
-                binding,
-                generation: tracked.generation,
-                tracked: Some(tracked),
-                source: None,
-                content: Content::Changed,
-            }));
+            return self.plan_removal(binding, path, tracked).await;
         };
         let Some(content) = self
-            .check_target(&admin, &record, path, tracked.as_ref())
+            .check_target(&admin, &binding, &record, path, tracked.as_ref())
             .await?
         else {
             return Ok(None);
@@ -1751,6 +1751,52 @@ impl LiveObject<'_> {
             generation,
             source,
             content,
+        }))
+    }
+
+    /// Decides what the deletion of this object through the API does to its file at `path`,
+    /// which the tree tracks as `tracked`, if at all.
+    async fn plan_removal(
+        &mut self,
+        binding: SyncBinding,
+        path: PathBuf,
+        tracked: Option<SyncRecord>,
+    ) -> Result<Option<LivePlan>, SyncError> {
+        let name = self.name;
+        let Some(tracked) = tracked else {
+            // Nothing to remove from the tree, but a finding that kept the deleted object out
+            // of it would still count it.
+            unless_superseded(
+                self.root
+                    .remove_deleted_finding(binding, name.clone())
+                    .await,
+            )?;
+            return Ok(None);
+        };
+        // The file may stand for other objects of an alias, or hold an edit made for the one
+        // left, which ingestion takes in before the file goes.
+        match self
+            .root
+            .alias_holding(binding.clone(), name.clone(), tracked.path.clone())
+            .await
+        {
+            Ok(Holding::Alone) => {}
+            Ok(Holding::Shared | Holding::Edited) => return Ok(None),
+            Err(error) if superseded(&error) => {
+                self.defer();
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        }
+        if self.replaced(path).await? {
+            return Ok(None);
+        }
+        Ok(Some(LivePlan {
+            binding,
+            generation: tracked.generation,
+            tracked: Some(tracked),
+            source: None,
+            content: Content::Changed,
         }))
     }
 
@@ -1797,6 +1843,7 @@ impl LiveObject<'_> {
     async fn check_target(
         &mut self,
         admin: &Admin,
+        binding: &SyncBinding,
         record: &ObjectRecord,
         path: PathBuf,
         tracked: Option<&SyncRecord>,
@@ -1813,31 +1860,22 @@ impl LiveObject<'_> {
             self.finding(record, Reason::Collision).await?;
             return Ok(None);
         }
-        let observed = record.clone();
-        let naming = self.root.naming()?;
-        let lookup = self.root.lookup()?;
-        let target = match self.occasion {
-            Occasion::Change => {
-                file_job_retry(self.root, move |root| {
-                    inspect(root, naming, &lookup, &path, &observed)
-                })
-                .await?
-            }
-            Occasion::Finding => match self
-                .root
-                .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
-                .await
-            {
-                Ok(target) => target,
-                Err(RootError::Admin(AdminError::Io(_) | AdminError::Precondition)) => {
-                    return Ok(None);
-                }
-                Err(error) => return Err(error.into()),
-            },
+        // A frozen file is not read at all, whatever it shows: only an API change ends an alias.
+        let released = match self.hold_alias(binding, record).await? {
+            Freeze::NotAliased => false,
+            Freeze::Held => return Ok(None),
+            Freeze::Released => true,
+        };
+        let Some(target) = self.read_target(record, path).await? else {
+            return Ok(None);
         };
         let content = match target {
+            // A tracked file now listed under another spelling was renamed in the tree, which
+            // the deletion inventory takes as a rename. A released alias whose file is still
+            // listed under the other spelling waits for the deleted object that holds it.
+            Target::Alias(_) if tracked.is_some() || released => return Ok(None),
             Target::Alias(spelling) => {
-                self.alias(record, spelling).await?;
+                self.alias(binding, record, spelling).await?;
                 return Ok(None);
             }
             Target::Directory | Target::Replaced(_) if tracked.is_some() => {
@@ -1852,20 +1890,15 @@ impl LiveObject<'_> {
             Target::Absent => TargetContent::Absent,
             Target::Conflicting | Target::Directory => TargetContent::Changed,
         };
-        let released = match self.hold_alias(record).await? {
-            Freeze::None => false,
-            Freeze::Held => return Ok(None),
-            // The tree already tracks this generation, so a file that differs holds an edit the
-            // freeze kept out, which ingestion takes in now.
-            Freeze::Released
-                if content == TargetContent::Changed
-                    && tracked
-                        .is_some_and(|tracked| tracked.generation.get() == record.generation) =>
-            {
-                return Ok(None);
-            }
-            Freeze::Released => true,
-        };
+        // The tree already tracks this generation, so a file that differs holds an edit, which
+        // ingestion takes in: neither the end of an alias that kept it out nor another look at
+        // a finding exports over it.
+        if (released || self.occasion == Occasion::Finding)
+            && content == TargetContent::Changed
+            && tracked.is_some_and(|tracked| tracked.generation.get() == record.generation)
+        {
+            return Ok(None);
+        }
         match content {
             TargetContent::Identical => Ok(Some(Content::Identical)),
             // A file that went while it stood for several objects tells nothing about this one,
@@ -1876,6 +1909,49 @@ impl LiveObject<'_> {
                 Ok(None)
             }
             TargetContent::Absent | TargetContent::Changed => Ok(Some(Content::Changed)),
+        }
+    }
+
+    /// Reads what the tree holds at `path` for `record`. A change retries a failed read and then
+    /// fails the pass; a finding observed again leaves its row for a later pass, reporting an
+    /// I/O failure, since the scan reports the entry and the object's own changes still come
+    /// through the journal.
+    async fn read_target(
+        &mut self,
+        record: &ObjectRecord,
+        path: PathBuf,
+    ) -> Result<Option<Target>, SyncError> {
+        let observed = record.clone();
+        let naming = self.root.naming()?;
+        let lookup = self.root.lookup()?;
+        match self.occasion {
+            Occasion::Change => Ok(Some(
+                file_job_retry(self.root, move |root| {
+                    inspect(root, naming, &lookup, &path, &observed)
+                })
+                .await?,
+            )),
+            Occasion::Finding => match self
+                .root
+                .file_job(move |root| inspect(root, naming, &lookup, &path, &observed))
+                .await
+            {
+                Ok(target) => Ok(Some(target)),
+                Err(RootError::Admin(AdminError::Precondition)) => Ok(None),
+                Err(RootError::Admin(AdminError::Io(error))) => {
+                    diagnostics::emit(
+                        LogLevel::Warn,
+                        "sync_finding_unreadable",
+                        serde_json::json!({
+                            "bucket":self.bucket.as_str(),"object":self.name.as_str(),
+                            "reason":crate::error::Report(&error).to_string(),
+                            "remedy":Correction::UnreadablePath.remedy()
+                        }),
+                    );
+                    Ok(None)
+                }
+                Err(error) => Err(error.into()),
+            },
         }
     }
 
@@ -2247,8 +2323,8 @@ enum Target {
     /// cannot hold for an object it never tracked, for the reason given.
     Replaced(Reason),
     /// The directory holds a regular file under another letter case or normalization of the
-    /// name, at this path.
-    Alias(PathBuf),
+    /// name, at this path below the root.
+    Alias(String),
 }
 
 /// What an export target that no finding keeps out holds, which an alias that still holds
@@ -2292,10 +2368,18 @@ fn inspect(
         // Without one spelling to name, such as for a file other names link to, the entry
         // stays a collision of this object alone.
         Ok(fsutil::RegularChild::Alias) => {
-            return Ok(match fsutil::listed_spelling(&directory, name)? {
-                Some(spelling) => Target::Alias(path.with_file_name(spelling)),
-                None => Target::Finding(Reason::Collision),
-            });
+            return match fsutil::listed_spelling(&directory, name)? {
+                // The listing the lookup kept is older than this one, which holds the exact
+                // spelling now: a later read decides.
+                Some(spelling) if spelling.as_str() == name => Err(AdminError::Precondition),
+                Some(spelling) => Ok(path
+                    .with_file_name(spelling)
+                    .into_os_string()
+                    .into_string()
+                    // An export path is UTF-8, and so is a spelling the listing returns.
+                    .map_or(Target::Finding(Reason::Collision), Target::Alias)),
+                None => Ok(Target::Finding(Reason::Collision)),
+            };
         }
         Ok(fsutil::RegularChild::Missing) => return Ok(Target::Absent),
         Err(error) if !structural_entry_error(&error) => return Err(error.into()),

@@ -397,11 +397,18 @@ reported as a `directory-occupied` finding. Once its entries, or a symlink or
 file that kept an object out, are moved away, the next `gcs-mimic sync wait` (or
 `rescan`) exports that object without a restart. On a directory that ignores
 letter case or Unicode normalization, as a macOS bind mount usually does, two
-objects such as `Photo.jpg` and `photo.jpg` share one file. Both are reported as
-`alias` findings that name the file, which stays as it is: an edit of it is not
-taken in and stops `gcs-mimic sync wait` as `AliasEdited` (exit status 2), and
-deleting it deletes neither object. Delete or rename one of them through the
-API; the other is then synchronized again without a restart. Object names
+objects such as `Photo.jpg` and `photo.jpg`, or two names that differ only in
+how they encode an accent, as a name in NFC and the same name in NFD do, share
+one file. Both are reported as `alias` findings whose `tree_path` names the
+file, and the log reports them as `sync_alias_frozen`. The file stays as it is
+and `gcs-mimic sync wait` names it among its frozen files: an edit of it is not
+taken in, since it may be meant for either object, and stops
+`gcs-mimic sync wait` as `AliasEdited` (exit status 2, logged as
+`sync_alias_edited`), and deleting or renaming it on the host deletes neither
+object. Delete or rename through the API the object an edit is not meant for;
+the next wait uploads the edit to the object left, which then gets its own file,
+without a restart (logged as `sync_alias_released`). To drop the edit instead,
+put the earlier bytes back or delete the file. Object names
 containing `\`, and other names
 that cannot be mapped to host file names, are skipped without stopping
 synchronization; they stay available through the API. `gcs-mimic sync wait` succeeds

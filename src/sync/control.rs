@@ -13,7 +13,8 @@ use crate::{
         sync_state::{
             OpaqueId,
             deletions::{BucketGone, DeletionSet, Refusal, WaitCause},
-            observation::PauseReason,
+            findings::alias::FrozenFile,
+            observation::{ListedStop, PauseReason},
             root::{RootError, RootLease},
         },
     },
@@ -122,6 +123,10 @@ pub(crate) enum Correction {
     /// `sync_directory_kept` warning name. The wait's own pass exports a renamed object and
     /// takes in a removed entry, as a rescan would.
     UnrepresentableName,
+    /// An object whose path, or a directory of it, another object or a file in the tree needs
+    /// for another kind of entry, which its collision finding names. A file directly in the
+    /// root named like the bucket is one: moving it away is all it takes, and nothing is lost.
+    CollidingName,
     /// An export that met an edited file, which a finding names.
     ExportConflict,
     /// A file that kept changing, which a path stop names.
@@ -138,8 +143,9 @@ pub(crate) enum Correction {
     /// A path whose permissions keep a deletion check from reading it.
     UnreadablePath,
     /// An object whose name the root's file system takes for another object's, which the
-    /// alias findings of both name. Only an API change ends it: renaming the file would make it
-    /// the other object's file, and deleting it deletes no object.
+    /// alias findings of both name. Only an API change ends it: deleting or renaming the file on
+    /// the host deletes neither object, and a file under a new name is ingested as any new file
+    /// is.
     AliasedObjects,
     /// The file of an aliased pair that changed while frozen, which a path stop names.
     EditedAlias,
@@ -159,6 +165,9 @@ impl Correction {
             Self::UnrepresentableName => {
                 "Preserve the source bytes, then use a representable API name or remove the conflicting directory entry"
             }
+            Self::CollidingName => {
+                "If a regular file directly in the sync directory is named like this bucket, it keeps the bucket's directory and every object in it out of the tree: move that file out of the sync directory, and the bucket is exported while the file stays as it is. Otherwise this object's name needs a directory where another object or a file in the bucket's directory is, or the other way round: rename or delete one of the objects through the API, or move the file in the way"
+            }
             Self::ExportConflict => {
                 "Preserve the edited file, then inspect the retained conflicts or restore the previously exported bytes"
             }
@@ -177,10 +186,10 @@ impl Correction {
                 "Restore read and search permissions on this path and its parents"
             }
             Self::AliasedObjects => {
-                "Another object's name differs from this one only in letter case or Unicode normalization, and the directory holds one file for both, under the spelling this finding shows. That file stays as it is: neither object is exported over it or ingested from it, and deleting it deletes neither object. Delete or rename one of the two objects through the API"
+                "This object's name and another object's (partner) differ only in letter case or Unicode normalization, such as NFC and NFD, which this file system takes for one name, so the directory holds one file for both at tree_path (path in the log), with the bytes of the object spelled like it. While both objects exist that file stays as it is: API changes do not overwrite it, edits to it are not uploaded, and renaming or deleting it on the host deletes neither object and does not end this. Delete or rename one of the objects through the API, for example with gcloud storage mv, and the other gets its own file"
             }
             Self::EditedAlias => {
-                "This file changed while it was frozen as the file of two objects whose names differ only in letter case or Unicode normalization, and the edit was not taken in, since it may be meant for either. Keep the file, and delete or rename through the API the object it is not meant for; the edit is then taken in for the other"
+                "The file at tree_path (path in the log) stands for this object and another (partner) whose names differ only in letter case or Unicode normalization, and it changed while frozen. The edit stays in the file and was not uploaded, since it may be meant for either object. To upload it, delete or rename through the API the object it is not meant for, and the next pass uploads it for the other. To drop it, put the earlier bytes back or delete the file, which ends this stop"
             }
         }
     }
@@ -730,12 +739,51 @@ impl From<Unfinished> for WaitReason {
 }
 
 /// The findings a wait leaves behind without stopping, read with the observation it decided on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct WaitFindings {
     /// The objects the API holds whose names the tree cannot.
     pub unmapped: u64,
     /// The observation revision these counts were read at, which binds the findings view.
     pub observation_revision: i64,
+    /// For a wait that ended on findings, the first path stops, which its answer names.
+    pub stops: Listed<ListedStop>,
+    /// For a wait that succeeded, the files that stand for several objects and stay frozen,
+    /// which its answer names, since edits to them are not uploaded.
+    pub frozen: Listed<FrozenFile>,
+}
+
+/// The first items of a listing a wait's answer names, and how many there are in all.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Listed<T> {
+    pub first: Vec<T>,
+    pub total: u64,
+}
+
+impl<T> Default for Listed<T> {
+    fn default() -> Self {
+        Self {
+            first: Vec::new(),
+            total: 0,
+        }
+    }
+}
+
+impl<T> Listed<T> {
+    /// The items a wait's answer names, at most this many; the rest are only counted.
+    pub(crate) const NAMED: usize = 5;
+
+    /// Names the first [`Self::NAMED`] of `items`, of `total` in all.
+    pub(crate) fn of(mut items: Vec<T>, total: u64) -> Self {
+        items.truncate(Self::NAMED);
+        Self {
+            first: items,
+            total,
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.total == 0
+    }
 }
 
 /// Why `sync wait` ended.
@@ -913,8 +961,8 @@ impl WaitResult {
     /// or the server began to stop. What its last pass ended on stays, so that the remedy names
     /// what remained, but no longer decides how the wait ended.
     pub(crate) fn cut_short(self, why: Unfinished) -> Self {
-        let findings = self.findings;
         let last = self.holdup();
+        let findings = self.findings;
         Self::new(
             Ending::Unfinished { why, last },
             self.journal_fence,
@@ -982,12 +1030,12 @@ impl WaitResult {
         let Ending::Held(holdup) = self.ending else {
             return self;
         };
-        let findings = self.findings;
-        let held = holdup.with_unmapped(unmapped, findings.map_or(0, |found| found.unmapped));
+        let found = self.findings.as_ref().map_or(0, |found| found.unmapped);
+        let held = holdup.with_unmapped(unmapped, found);
         if held == holdup {
             return self;
         }
-        Self::held(held, self.journal_fence, self.reconciliation).with_findings(findings)
+        Self::held(held, self.journal_fence, self.reconciliation).with_findings(self.findings)
     }
 }
 
@@ -1460,6 +1508,7 @@ mod tests {
         result.with_findings(Some(WaitFindings {
             unmapped,
             observation_revision: 1,
+            ..WaitFindings::default()
         }))
     }
 

@@ -21,7 +21,8 @@ use crate::{
         Cause, Decision, MirrorState, Reconciliation, UnmappedObjects,
         advice::{AtHand, AwaitingSet},
         control::{
-            Command, ControlError, PauseChange, Registration, Unfinished, WaitReason, WaitResult,
+            Command, ControlError, Listed, PauseChange, Registration, Unfinished, WaitReason,
+            WaitResult,
         },
         entries::{EntryListing, EntryReport},
         handshake,
@@ -173,6 +174,10 @@ struct WaitAnswer<'a> {
     /// For a wait that ended on a deletion set waiting for a decision, what the set would
     /// delete, as the `sync_deletion_approval_required` event names it.
     deletions: Option<WaitDeletions<'a>>,
+    /// For a wait that ended on findings, the first path stops, each with the path it stops.
+    path_stops: Option<Listing<StopEntry<'a>>>,
+    /// For a wait that succeeded, the files that stand for several objects and stay frozen.
+    frozen_files: Option<Listing<FrozenEntry<'a>>>,
     remedy: Option<String>,
 }
 
@@ -194,6 +199,39 @@ impl Serialize for WaitDeletions<'_> {
         fields.serialize_field("removed_buckets_omitted", &self.removed_buckets.omitted)?;
         fields.end()
     }
+}
+
+/// The first items of a wait's listing, and how many the total counts past them, as
+/// `source_entries` lists entries.
+#[derive(Serialize)]
+struct Listing<T> {
+    total: u64,
+    entries: Vec<T>,
+    omitted: u64,
+}
+
+impl<T> Listing<T> {
+    fn of<'a, S>(listed: &'a Listed<S>, entry: impl Fn(&'a S) -> T) -> Option<Self> {
+        let entries: Vec<T> = listed.first.iter().map(entry).collect();
+        let named = u64::try_from(entries.len()).unwrap_or(u64::MAX);
+        (!listed.is_empty()).then(|| Self {
+            total: listed.total,
+            omitted: listed.total.saturating_sub(named),
+            entries,
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct StopEntry<'a> {
+    path: &'a str,
+    reason: &'static str,
+}
+
+#[derive(Serialize)]
+struct FrozenEntry<'a> {
+    path: &'a str,
+    objects: u64,
 }
 
 /// The objects the tree cannot hold, and the findings revision whose view lists them.
@@ -430,9 +468,21 @@ async fn wait(
         },
         None => None,
     };
-    let findings = result.findings.map(|findings| WaitFindingsAnswer {
+    let findings = result.findings.as_ref().map(|findings| WaitFindingsAnswer {
         unmapped: findings.unmapped,
         revision: findings_revision(&registration.session, findings.observation_revision),
+    });
+    let path_stops = result.findings.as_ref().and_then(|findings| {
+        Listing::of(&findings.stops, |stop| StopEntry {
+            path: &stop.path,
+            reason: stop.reason.as_str(),
+        })
+    });
+    let frozen_files = result.findings.as_ref().and_then(|findings| {
+        Listing::of(&findings.frozen, |file| FrozenEntry {
+            path: &file.path,
+            objects: file.objects,
+        })
     });
     let at_hand = AtHand {
         findings_revision: findings.as_ref().map(|findings| findings.revision.as_str()),
@@ -445,6 +495,8 @@ async fn wait(
         paused_reason,
         source_entries: source_entries(&result),
         deletions,
+        path_stops,
+        frozen_files,
         result: &result,
     };
     let mut response = bounded(&super::encode(&answer)?)?;

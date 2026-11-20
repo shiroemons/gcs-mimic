@@ -1,8 +1,8 @@
 use super::*;
-use crate::storage::catalog::sql;
+use crate::storage::catalog::{objects, sql};
 use crate::storage::{
     admin::{BucketName, ObjectName},
-    sync_state::SyncBinding,
+    sync_state::{SyncBinding, SyncPath, findings::alias},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,11 +15,12 @@ pub(crate) enum PathStop {
     /// directory is an entry of its own, which no object can take.
     EntryReplaced,
     /// The file of an object frozen as an alias changed. The edit is not taken in, since it may
-    /// be meant for either object, and the stop holds a wait until the alias goes, when the
-    /// next ingestion takes the edit in.
+    /// be meant for either object, and the stop holds a wait until the alias goes, when
+    /// ingestion takes the edit in for the object left, or until the file holds its earlier
+    /// bytes again or is deleted.
     AliasEdited,
 }
-sql::text_enum!(pub(super) PathStop, "invalid path stop", {
+sql::text_enum!(pub(crate) PathStop, "invalid path stop", {
     ProtectedDeletion => "ProtectedDeletion", SourceChanging => "SourceChanging", IoFailure => "IoFailure",
     EntryReplaced => "EntryReplaced", AliasEdited => "AliasEdited",
 });
@@ -83,38 +84,84 @@ impl RootLease {
             .map_err(RootError::from)
     }
 
-    /// Decides whether ingestion takes in the changed tracked file of `name`: not while its
-    /// object is frozen as an alias, which then holds a [`PathStop::AliasEdited`] stop, and
-    /// otherwise after removing such a stop left from the freeze, since the edit is now taken in.
-    /// Reads only when the stop already says what holds, so an unchanged freeze writes nothing.
+    /// Decides what ingestion does with the changed tracked file of `name` at `path`. While
+    /// another live object stands for the file as well, the edit stays out and holds a
+    /// [`PathStop::AliasEdited`] stop. Once `name` went through the API and one object is left,
+    /// the edit is that object's to take in. Otherwise a stop left from the freeze goes, since
+    /// the edit is now taken in for `name`. Reads only when the stop already says what holds, so
+    /// an unchanged freeze writes nothing.
     pub(crate) async fn observe_alias_edit(
         &self,
         binding: SyncBinding,
         name: ObjectName,
+        path: SyncPath,
     ) -> Result<AliasEdit, RootError> {
+        if !self.may_hold_aliases().await? {
+            return Ok(AliasEdit::Free);
+        }
         let root = self.status().root_id;
         let scope = self.control_scope();
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
             super::super::matching(&tx,&binding,binding.bucket.as_str()).map_err(unavailable)?;
-            let frozen: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_findings f JOIN sync_finding_aliases a ON a.ordinal=f.ordinal WHERE f.root_id=?1 AND f.bucket=?2 AND f.name=?3 AND f.incarnation=?4)", params![root,binding.bucket,name,binding.incarnation])?;
+            let live = objects::lookup(&tx, binding.bucket.as_str(), name.as_str()).map_err(unavailable)?.is_some();
+            let mut others = alias::claimants(&tx, root, &binding, path.as_str(), &name)?;
             let stopped: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5)", params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
-            let edit = match (frozen, stopped) {
-                (true, true) => AliasEdit::Frozen(Transition::Kept),
-                (false, false) => AliasEdit::Free,
-                (true, false) => {
-                    sql::exec(&tx, RECORD_STOP, params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
-                    AliasEdit::Frozen(Transition::New)
+            let partner = others.pop();
+            let edit = match (partner, live || !others.is_empty()) {
+                (Some(heir), false) => return Ok(AliasEdit::HandOver(heir)),
+                (Some(partner), true) => {
+                    let transition = if stopped {
+                        Transition::Kept
+                    } else {
+                        sql::exec(&tx, RECORD_STOP, params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
+                        Transition::New
+                    };
+                    AliasEdit::Frozen { transition, partner }
                 }
-                (false, true) => {
-                    sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
+                (None, _) => {
+                    if stopped {
+                        sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
+                    }
                     AliasEdit::Free
                 }
             };
             tx.commit().map_err(unavailable)?;
             Ok(edit)
         }).await.map_err(RootError::from)
+    }
+}
+
+/// A path stop as a wait that ended on it names it: the tracked file's path, or the object's
+/// bucket and name where the tree tracks no file for it, and the reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ListedStop {
+    pub path: String,
+    pub reason: PathStop,
+}
+
+impl RootLease {
+    /// The first `limit` path stops of this root, in the order they were recorded.
+    pub(crate) async fn first_path_stops(&self, limit: u32) -> Result<Vec<ListedStop>, RootError> {
+        let root = self.status().root_id;
+        let scope = self.control_scope();
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                scope.authorize(&tx)?;
+                tx.prepare_cached("SELECT coalesce(s.path,p.bucket||'/'||p.name),p.reason FROM sync_path_stops p LEFT JOIN sync_objects s ON s.bucket=p.bucket AND s.name=p.name AND s.incarnation=p.incarnation WHERE p.root_id=?1 ORDER BY p.ordinal LIMIT ?2")?
+                    .query_map(params![root, limit], |row| {
+                        Ok(ListedStop {
+                            path: row.get(0)?,
+                            reason: row.get(1)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(unavailable)
+            })
+            .await
+            .map_err(RootError::from)
     }
 }
 
@@ -132,10 +179,17 @@ pub(crate) enum Transition {
 }
 
 /// What ingestion does with the changed tracked file of an object.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AliasEdit {
-    /// The object is frozen as an alias, and its [`PathStop::AliasEdited`] stop holds a wait.
-    Frozen(Transition),
+    /// The file stands for `partner` as well, and the object's [`PathStop::AliasEdited`] stop
+    /// holds a wait.
+    Frozen {
+        transition: Transition,
+        partner: ObjectName,
+    },
+    /// The object went through the API, and the file stands for this one object alone, which
+    /// takes the edit in.
+    HandOver(ObjectName),
     /// The object is not frozen, and ingestion takes the file in.
     Free,
 }

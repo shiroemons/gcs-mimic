@@ -10,7 +10,7 @@ use crate::storage::catalog::Incarnation;
 use crate::storage::catalog::sql;
 use crate::{
     bucket::CatalogError,
-    storage::admin::{AdminError, Generation, ObjectName},
+    storage::admin::{AdminError, BucketName, Generation, ObjectName},
     sync::mapping::Reason,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -31,8 +31,8 @@ PRAGMA user_version = 21;";
 /// Schema 58 gives an export that met an edited file its own finding reason, apart from a name
 /// collision, and gives these findings a revision of their own, which tracked files, stops,
 /// write-backs and conflicts do not advance. The finding reasons also admit `alias` and the
-/// path stops `EntryReplaced` and `AliasEdited`, which no code writes yet, so that the changes
-/// using them need no second rebuild of these tables.
+/// path stops `EntryReplaced` and `AliasEdited` ahead of the later changes that write them, so
+/// that those changes needed no second rebuild of these tables.
 pub(in crate::storage) const REASON_SCHEMA_VERSION: i64 = 58;
 /// Rebuilds `sync_findings` and `sync_path_stops` under the same names, since their checks can
 /// only change with the tables. The rows, the finding owners and both `sqlite_sequence` rows
@@ -489,6 +489,30 @@ impl RootLease {
         }).await.map_err(RootError::from)
     }
 
+    /// The collision findings of `bucket` after `after`, in ordinal order, a page at a time, which
+    /// a replay observes again where it deleted an object above or below their names.
+    pub(crate) async fn collision_findings_page(
+        &self,
+        bucket: BucketName,
+        after: Ordinal,
+    ) -> Result<Vec<NamedFinding>, RootError> {
+        let lease = self.clone();
+        let root = self.status().root_id;
+        self.catalog()
+            .run_admin(move |c| {
+                let tx = c.transaction()?;
+                lease.control_scope().authorize(&tx)?;
+                tx.prepare_cached("SELECT ordinal,name FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND reason=?3 AND ordinal>?4 ORDER BY ordinal LIMIT 256")?
+                    .query_map(params![root, bucket, FindingKind::Unmapped(Reason::Collision), after], |row| {
+                        Ok(NamedFinding { ordinal: row.get(0)?, name: row.get(1)? })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(unavailable)
+            })
+            .await
+            .map_err(RootError::from)
+    }
+
     /// Removal remains possible after deletion, but cannot erase a newer incarnation or observation.
     #[cfg(all(test, unix))]
     pub(crate) async fn remove_finding(&self, finding: Finding) -> Result<bool, RootError> {
@@ -529,6 +553,13 @@ impl RootLease {
             .await
             .map_err(RootError::from)
     }
+}
+
+/// The ordinal and name of a finding, by which a replay observes a few findings again.
+pub(crate) struct NamedFinding {
+    /// Where the finding sits in its page; the next page starts after it.
+    pub ordinal: Ordinal,
+    pub name: ObjectName,
 }
 
 pub(crate) mod alias;

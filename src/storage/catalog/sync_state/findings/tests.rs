@@ -947,6 +947,175 @@ async fn a_deleted_object_stops_counting_before_its_deletion_is_replayed() {
     catalog.close().await.unwrap();
 }
 
+/// The spellings of every alias finding in the catalog.
+async fn alias_spellings(catalog: &Catalog) -> Vec<String> {
+    catalog
+        .run_admin(|connection| {
+            let mut statement = connection
+                .prepare_cached("SELECT spelling FROM sync_finding_aliases ORDER BY spelling")
+                .map_err(unavailable)?;
+            let rows = statement
+                .query_map([], |row| row.get(0))
+                .map_err(unavailable)?;
+            rows.collect::<Result<_, _>>().map_err(unavailable)
+        })
+        .await
+        .unwrap()
+}
+
+/// An alias finding's spelling goes with the `alias` reason: a spelling that changes alone
+/// moves the findings revision once, as the finding itself does, recording the same spelling
+/// again moves nothing, and a finding that takes another reason loses its spelling.
+#[tokio::test]
+async fn an_alias_spelling_moves_the_findings_revision_and_goes_with_its_reason() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let name = ObjectName::new("case").unwrap();
+    let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
+    let alias = |spelling: &str| {
+        lease.record_alias(
+            binding.clone(),
+            name.clone(),
+            generation,
+            spelling.to_owned(),
+        )
+    };
+    let start = revisions(&lease).await;
+
+    assert_eq!(
+        alias("test-bucket/Case").await.unwrap().own,
+        super::alias::Marked::New
+    );
+    let recorded = revisions(&lease).await;
+    assert_eq!(recorded.0, start.0 + 1);
+    assert_eq!(
+        alias("test-bucket/Case").await.unwrap().own,
+        super::alias::Marked::Kept
+    );
+    assert_eq!(revisions(&lease).await, recorded);
+
+    alias("test-bucket/CASE").await.unwrap();
+    let respelled = revisions(&lease).await;
+    assert_eq!(respelled.0, recorded.0 + 1);
+    assert_eq!(alias_spellings(&catalog).await, ["test-bucket/CASE"]);
+
+    lease
+        .record_finding(binding.clone(), name.clone(), generation, Reason::Collision)
+        .await
+        .unwrap();
+    assert_eq!(revisions(&lease).await.0, respelled.0 + 1);
+    assert_eq!(alias_spellings(&catalog).await, Vec::<String>::new());
+    assert_eq!(
+        lease.findings_page(0, 1).await.unwrap()[0].reason,
+        FindingKind::Unmapped(Reason::Collision)
+    );
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
+/// The object the tree tracks at an alias spelling keeps a finding of another reason, such as
+/// the collision a nested name gives it, rather than taking an `alias` finding that the next
+/// look at the collision would take back; the object that met the alias still gets its own,
+/// and recording it again writes nothing.
+#[tokio::test]
+async fn an_alias_partner_keeps_its_finding_of_another_reason() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let catalog = Catalog::open(&data.0).await.unwrap();
+    let bucket = BucketName::new("test-bucket").unwrap();
+    catalog
+        .admin(Origin::Api)
+        .ensure_bucket(BucketDefinition::default_for(&bucket, "owner", &SystemClock).unwrap())
+        .await
+        .unwrap();
+    let lease = catalog
+        .sync_state()
+        .activate_root(&tree.0, super::super::root::Activation::Open)
+        .await
+        .unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    let (holder, name) = (
+        ObjectName::new("Case").unwrap(),
+        ObjectName::new("case").unwrap(),
+    );
+    let held = publish(&catalog, &data, &bucket, holder.as_str()).await;
+    let generation = publish(&catalog, &data, &bucket, name.as_str()).await;
+    let incarnation = binding.incarnation;
+    catalog
+        .run_admin(move |connection| {
+            connection
+                .prepare_cached("INSERT INTO sync_objects VALUES('test-bucket','Case',?1,'test-bucket/Case',?2,0,zeroblob(16),zeroblob(16),zeroblob(8),zeroblob(16),0,0)")
+                .and_then(|mut statement| statement.execute(rusqlite::params![incarnation, held.get()]))
+                .map(drop)
+                .map_err(unavailable)
+        })
+        .await
+        .unwrap();
+    lease
+        .record_finding(binding.clone(), holder.clone(), held, Reason::Collision)
+        .await
+        .unwrap();
+    let alias = || {
+        lease.record_alias(
+            binding.clone(),
+            name.clone(),
+            generation,
+            "test-bucket/Case".to_owned(),
+        )
+    };
+    let recorded = alias().await.unwrap();
+    assert_eq!(
+        (recorded.own, recorded.partner),
+        (
+            super::alias::Marked::New,
+            Some((holder.clone(), super::alias::Marked::Other))
+        )
+    );
+    let reasons = || async {
+        let mut found: Vec<_> = lease
+            .findings_page(0, 8)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|finding| (finding.name, finding.reason))
+            .collect();
+        found.sort_by(|left, right| left.0.cmp(&right.0));
+        found
+    };
+    let expected = [
+        ("Case".to_owned(), FindingKind::Unmapped(Reason::Collision)),
+        ("case".to_owned(), FindingKind::Unmapped(Reason::Alias)),
+    ];
+    assert_eq!(reasons().await, expected);
+    let settled = revisions(&lease).await;
+    let again = alias().await.unwrap();
+    assert_eq!(
+        (again.own, again.partner),
+        (
+            super::alias::Marked::Kept,
+            Some((holder, super::alias::Marked::Other))
+        )
+    );
+    assert_eq!(reasons().await, expected);
+    assert_eq!(revisions(&lease).await, settled);
+    assert_eq!(alias_spellings(&catalog).await, ["test-bucket/Case"]);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
 #[test]
 fn finding_effects_block_export_conflicts_report_names_and_skip_ignored_names() {
     assert_eq!(FindingKind::ExportConflict.effect(), FindingEffect::Blocks);

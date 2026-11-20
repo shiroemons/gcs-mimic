@@ -237,6 +237,31 @@ impl SyncError {
             .unwrap_or(PauseReason::ObserverFailure)
     }
 
+    /// Whether the failure concerns only the path one export was writing: an I/O failure, a
+    /// full disk or a file that changed under the export there. An export that observes a
+    /// finding again keeps that finding for a later pass on such a failure; write-back stops,
+    /// conflict capacity and catalog failures concern every export and still fail the pass.
+    pub(super) fn concerns_one_object(&self) -> bool {
+        match self.causes().find_map(Cause::pause_reason) {
+            Some(PauseReason::IoFailure) => true,
+            Some(
+                PauseReason::ConflictCapacity
+                | PauseReason::RecoveryRequired
+                | PauseReason::ObserverFailure
+                | PauseReason::SourceChanging
+                | PauseReason::SourceUnrepresentable,
+            ) => false,
+            None => self.causes().any(|cause| {
+                matches!(
+                    cause,
+                    Cause::Writeback(
+                        writeback::Error::Conflict(_) | writeback::Error::Displaced(_)
+                    ) | Cause::Conflict(conflicts::Error::TargetChanged)
+                )
+            }),
+        }
+    }
+
     /// Whether a deletion pass met a concurrent change and must start over, not fail.
     pub(super) fn is_stale_deletion(&self) -> bool {
         matches!(self, Self::Root(error) if superseded(error))

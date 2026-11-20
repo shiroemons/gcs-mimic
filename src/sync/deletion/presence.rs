@@ -173,38 +173,84 @@ pub(in crate::sync) async fn presence(
     let limits = root.tree_limits();
     let naming = root.naming()?;
     let lookup = lookup.clone();
-    root.file_job(move |root| {
-        let path = Path::new(&path);
-        if !limits.admits_file(path) {
-            return Ok(Presence::Unobservable(Unobservable::BeyondLimit));
-        }
-        if path.is_absolute()
-            || path
-                .iter()
-                .any(|part| part == "." || part == ".." || !naming.admits(part))
-        {
-            return Ok(Presence::Unobservable(Unobservable::InvalidPath));
-        }
-        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
-            return Ok(Presence::Unobservable(Unobservable::InvalidPath));
-        };
-        let directory = match tree::parent(root, naming, &lookup, parent, ParentOpen::Existing) {
-            Ok(directory) => directory,
-            Err(ParentError::Missing) => return Ok(missing_above(root, &lookup, path)),
-            Err(ParentError::Finding(_)) => {
-                return Ok(Presence::Unobservable(Unobservable::ParentBlocked));
+    let looked = root
+        .file_job(move |root| {
+            let path = Path::new(&path);
+            if !limits.admits_file(path) {
+                return Ok(Looked::At(Presence::Unobservable(
+                    Unobservable::BeyondLimit,
+                )));
             }
-            Err(ParentError::Io(error)) => return Ok(lookup_failure(error)),
-        };
-        Ok(match lookup.regular(&directory, name) {
-            Ok(fsutil::RegularChild::File(_)) => Presence::Present,
-            Ok(fsutil::RegularChild::Missing) => Presence::Absent(Removal::Files),
-            Ok(fsutil::RegularChild::Alias) => Presence::Unobservable(Unobservable::Alias),
-            Err(error) => lookup_failure(error),
+            if path.is_absolute()
+                || path
+                    .iter()
+                    .any(|part| part == "." || part == ".." || !naming.admits(part))
+            {
+                return Ok(Looked::At(Presence::Unobservable(
+                    Unobservable::InvalidPath,
+                )));
+            }
+            let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+                return Ok(Looked::At(Presence::Unobservable(
+                    Unobservable::InvalidPath,
+                )));
+            };
+            let directory = match tree::parent(root, naming, &lookup, parent, ParentOpen::Existing)
+            {
+                Ok(directory) => directory,
+                Err(ParentError::Missing) => {
+                    return Ok(Looked::At(missing_above(root, &lookup, path)));
+                }
+                Err(ParentError::Finding(_)) => {
+                    return Ok(Looked::At(Presence::Unobservable(
+                        Unobservable::ParentBlocked,
+                    )));
+                }
+                Err(ParentError::Io(error)) => return Ok(Looked::At(lookup_failure(error))),
+            };
+            Ok(match lookup.regular(&directory, name) {
+                Ok(fsutil::RegularChild::File(_)) => Looked::At(Presence::Present),
+                Ok(fsutil::RegularChild::Missing) => Looked::At(Presence::Absent(Removal::Files)),
+                Ok(fsutil::RegularChild::Alias) => {
+                    match fsutil::listed_spelling(&directory, name) {
+                        // The listing the lookup kept is older than this one.
+                        Ok(Some(spelling)) if name == spelling.as_str() => {
+                            Looked::At(Presence::Present)
+                        }
+                        Ok(Some(spelling)) => {
+                            match parent.join(spelling).into_os_string().into_string() {
+                                Ok(spelled) => Looked::Spelled(spelled),
+                                Err(_) => Looked::At(Presence::Unobservable(Unobservable::Alias)),
+                            }
+                        }
+                        Ok(None) => Looked::At(Presence::Unobservable(Unobservable::Alias)),
+                        Err(error) => Looked::At(lookup_failure(error)),
+                    }
+                }
+                Err(error) => Looked::At(lookup_failure(error)),
+            })
         })
+        .await?;
+    let spelled = match looked {
+        Looked::At(presence) => return Ok(presence),
+        Looked::Spelled(spelled) => spelled,
+    };
+    // Another object is tracked at the spelling the file is listed under: the file was renamed
+    // to that object's name, which ingestion took in as that object, and this path holds
+    // nothing of its own any more. The rename's deletion side goes through the deletion guard
+    // as any rename's does. Otherwise the file may stand for this object under an alias.
+    Ok(if root.tracked_live_at(spelled).await? {
+        Presence::Absent(Removal::Files)
+    } else {
+        Presence::Unobservable(Unobservable::Alias)
     })
-    .await
-    .map_err(SyncError::from)
+}
+
+/// What a lookup of a path found, before the catalog tells a renamed file from an alias.
+enum Looked {
+    At(Presence),
+    /// A regular file is listed at this path below the root, under another spelling.
+    Spelled(String),
 }
 
 /// The absence of `path`, a directory above which is missing: whether its bucket's whole

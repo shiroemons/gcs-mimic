@@ -55,11 +55,16 @@ pub(super) fn value(
             | Reason::HostRestriction
             | Reason::Reserved
             | Reason::Ignored
-            | Reason::Collision
             | Reason::UnsafeEntry,
         )) => (
             "Unrepresentable",
             Correction::UnrepresentableName.remedy().into(),
+        ),
+        // A file in the root named like the bucket holds every object of it out as a
+        // collision, which only moving that file ends; no API name is at fault then.
+        FindingReason::Mapping(FindingKind::Unmapped(Reason::Collision)) => (
+            "Unrepresentable",
+            Correction::CollidingName.remedy().into(),
         ),
         // The API name is fine here: only the entries in the directory keep the file out.
         FindingReason::Mapping(FindingKind::Unmapped(Reason::DirectoryOccupied)) => (
@@ -113,7 +118,8 @@ pub(super) fn value(
         "bucket":item.bucket,"object":item.object,"bucket_incarnation":item.bucket_incarnation,"generation":item.generation,
         "owner_project":item.owner_project,"detail_code":item.reason,"remedy":remedy,"operation_id":item.operation_id,
         "conflict_id":item.conflict_id,"conflict_revision":item.conflict_revision});
-    // Only an alias finding has a file under another spelling than its object's own path.
+    // Only an alias finding, whose file may have another spelling than its object's own path,
+    // and an edit of that file that stops its path name the file.
     if let Some(tree_path) = &item.tree_path
         && let Some(value) = value.as_object_mut()
     {
@@ -335,15 +341,53 @@ mod tests {
         );
         let remedy = rendered["remedy"].as_str().unwrap();
         assert!(remedy.contains("through the API"), "{remedy}");
-        assert!(remedy.contains("deleting it deletes neither"), "{remedy}");
+        assert!(remedy.contains("gcloud storage mv"), "{remedy}");
+        assert!(
+            remedy.contains("renaming or deleting it on the host deletes neither object"),
+            "{remedy}"
+        );
         let edited = Item {
             category: FindingCategory::PathStop,
             reason: FindingReason::PathStop(PathStop::AliasEdited),
+            tree_path: Some("bucket/Object".into()),
             ..mapping_finding(FindingKind::ExportConflict)
         };
         let rendered = value(&edited, "prefix", None, AtHand::default()).unwrap();
-        assert_eq!(rendered["reason"], json!("AliasEdited"));
-        assert!(rendered.get("tree_path").is_none());
+        assert_eq!(
+            (&rendered["reason"], &rendered["tree_path"]),
+            (&json!("AliasEdited"), &json!("bucket/Object"))
+        );
+        let remedy = rendered["remedy"].as_str().unwrap();
+        assert!(remedy.contains("was not uploaded"), "{remedy}");
+        assert!(remedy.contains("delete the file"), "{remedy}");
+        let plain = value(
+            &mapping_finding(FindingKind::Unmapped(Reason::Collision)),
+            "prefix",
+            None,
+            AtHand::default(),
+        )
+        .unwrap();
+        assert!(plain.get("tree_path").is_none());
+    }
+
+    /// A collision's remedy names the file in the root that holds a whole bucket out, which
+    /// moving away settles with nothing lost, apart from the API change two objects need.
+    #[test]
+    fn a_collision_names_a_root_file_named_like_its_bucket() {
+        let rendered = value(
+            &mapping_finding(FindingKind::Unmapped(Reason::Collision)),
+            "prefix",
+            None,
+            AtHand::default(),
+        )
+        .unwrap();
+        let remedy = rendered["remedy"].as_str().unwrap();
+        assert!(
+            remedy.contains("directly in the sync directory is named like this bucket"),
+            "{remedy}"
+        );
+        assert!(remedy.contains("through the API"), "{remedy}");
+        assert!(!remedy.contains("representable API name"), "{remedy}");
     }
 
     /// A root stop's remedy names the findings view at the revision of the page that lists it,

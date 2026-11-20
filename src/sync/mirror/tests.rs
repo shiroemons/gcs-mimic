@@ -2929,6 +2929,15 @@ async fn wait_from(
     root: &RootLease,
     cursor: JournalFence,
 ) -> crate::sync::control::WaitResult {
+    try_wait_from(catalog, root, cursor).await.unwrap()
+}
+
+/// Like [`wait_from`], returning the error of a pass that failed.
+async fn try_wait_from(
+    catalog: &Catalog,
+    root: &RootLease,
+    cursor: JournalFence,
+) -> Result<crate::sync::control::WaitResult, SyncError> {
     let config = Config::default();
     let mut state = LiveState {
         cursor,
@@ -2951,10 +2960,7 @@ async fn wait_from(
         },
         state: &mut state,
     };
-    control
-        .wait(crate::test_support::hang_deadline())
-        .await
-        .unwrap()
+    control.wait(crate::test_support::hang_deadline()).await
 }
 
 /// Exports `object` with `body` and tracks it as `record` describes; returns the journal fence

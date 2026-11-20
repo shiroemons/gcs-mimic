@@ -64,6 +64,135 @@ async fn an_api_deletion_settles_the_collision_of_the_object_left() {
     catalog.close().await.unwrap();
 }
 
+/// Replays the journal from `cursor` on its own, with no ingestion before it. The write-back
+/// handle goes with the call, since the catalog closes only once nothing holds it.
+async fn replay_alone(catalog: &Catalog, root: &RootLease, cursor: JournalFence) {
+    let fence = catalog.current_fence().await.unwrap();
+    let ChangeRead::Page(page) = catalog
+        .read_changes(cursor, Some(fence), 256)
+        .await
+        .unwrap()
+    else {
+        panic!("the journal kept every change since the cursor");
+    };
+    let writeback = root.default_writeback().await.unwrap();
+    let (_stop, stopping) = tokio::sync::watch::channel(false);
+    replay_page(
+        catalog,
+        root,
+        &writeback,
+        page,
+        &stopping,
+        &mut SkippedExports::default(),
+    )
+    .await
+    .unwrap();
+}
+
+/// The body of `name` that the API holds now.
+async fn api_body(catalog: &Catalog, bucket: &BucketName, name: &str) -> Vec<u8> {
+    let (_, reader) = catalog
+        .admin(Origin::Api)
+        .open_object(bucket, &ObjectName::new(name).unwrap(), None)
+        .await
+        .unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut reader.into_file().unwrap(), &mut bytes).unwrap();
+    bytes
+}
+
+/// Gives the tracked object `a` a collision at the generation the tree tracks: `a/b` arrives
+/// through the API, and a metadata change of `a` is replayed while `a/b` holds it out. Answers
+/// the generation of `a/b`.
+async fn collide_with_a_tracked_file(
+    catalog: &Catalog,
+    bucket: &BucketName,
+    root: &RootLease,
+) -> Generation {
+    publish_named(catalog, bucket, "a", b"file", Origin::Api).await;
+    assert!(reconcile(catalog, root).await.unwrap().baseline_complete);
+    let cursor = catalog.current_fence().await.unwrap();
+    let child = publish_named(catalog, bucket, "a/b", b"child", Origin::Api).await;
+    catalog
+        .update_object_metadata(
+            crate::storage::test_fixtures::live(bucket.as_str(), "a"),
+            Default::default(),
+            crate::object::ObjectMetadataUpdate {
+                content_type: crate::object::Patch::Set("text/plain".into()),
+                ..Default::default()
+            },
+            |_| Ok(()),
+            crate::storage::test_fixtures::PERMISSIVE,
+        )
+        .await
+        .unwrap();
+    replay_from(catalog, root, cursor).await;
+    let collision = FindingKind::Unmapped(Reason::Collision);
+    let mut found = findings(root).await;
+    found.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(found, [("a".into(), collision), ("a/b".into(), collision)]);
+    Generation::new(child.generation).unwrap()
+}
+
+/// Another look at a finding whose object the tree tracks at its current generation finds the
+/// file edited meanwhile, and leaves the edit to ingestion, which uploads it, rather than
+/// exporting the object over it.
+#[tokio::test]
+async fn another_look_at_a_finding_leaves_an_edit_of_its_tracked_file_to_ingestion() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    let child = collide_with_a_tracked_file(&catalog, &bucket, &root).await;
+    let file = tree.0.join("test-bucket/a");
+    fs::write(&file, b"edited file").unwrap();
+    let cursor = catalog.current_fence().await.unwrap();
+    catalog
+        .admin(Origin::Api)
+        .delete_object(
+            &bucket,
+            &ObjectName::new("a/b").unwrap(),
+            GenerationCondition::Is(child),
+        )
+        .await
+        .unwrap();
+    let result = wait_from(&catalog, &root, cursor).await;
+    assert_eq!(
+        (
+            result.reason,
+            result.findings.map(|counted| counted.unmapped)
+        ),
+        (WaitReason::Ready, Some(0))
+    );
+    assert!(findings(&root).await.is_empty());
+    assert_eq!(fs::read(&file).unwrap(), b"edited file");
+    assert_eq!(api_body(&catalog, &bucket, "a").await, b"edited file");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
+/// The replay of an API deletion observes the objects whose names collided with the deleted
+/// one again, so the object left is exported, and its finding goes, before the next ingestion.
+#[tokio::test]
+async fn the_replay_of_a_nested_deletion_settles_the_collision_it_caused() {
+    let (_data, tree, catalog, bucket, root) = live_fixture().await;
+    catalog.enable_change_journal().await.unwrap();
+    let child = collide_with_a_tracked_file(&catalog, &bucket, &root).await;
+    let cursor = catalog.current_fence().await.unwrap();
+    catalog
+        .admin(Origin::Api)
+        .delete_object(
+            &bucket,
+            &ObjectName::new("a/b").unwrap(),
+            GenerationCondition::Is(child),
+        )
+        .await
+        .unwrap();
+    replay_alone(&catalog, &root, cursor).await;
+    assert!(findings(&root).await.is_empty());
+    assert_eq!(fs::read(tree.0.join("test-bucket/a")).unwrap(), b"file");
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// What keeps an object out of the tree may be an entry in its way, which can go without any
 /// API change: a symlink where a directory of the object's path belongs, or a file that keeps
 /// a directory in place of the object's name. Once the entry is removed, the rescan that follows

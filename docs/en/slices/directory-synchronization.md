@@ -619,41 +619,52 @@ are both unrepresentable until the collision is removed.
 
 An export whose file name the directory holds as a regular file under another
 letter case or Unicode normalization meets an alias. The lookup reads the
-spelling the directory lists for that file from a listing, comparing inode
-numbers, on every platform; a file that other names link to, a directory over
-4,096 names or a spelling that is not UTF-8 names no single spelling and leaves
-a `collision` finding for this object alone, as before. Otherwise the object and
-the API object the tree tracks at that spelling both get an `alias` finding
-(catalog schema 62), whose `tree_path` in the findings view names the file by
-its spelling. A third object of the same group joins the same way. The file
-then stays frozen while more than one of these objects lives: no export
-writes over it or removes it for them, an edit of it is not ingested, since it
-may be meant for any of them, and its deletion deletes none of them and writes
-none back. A frozen edit leaves an
-`AliasEdited` path stop on the tracked object, which ends a wait as a
-tree-side `FindingsPending` (exit status 2) until the alias ends or the file
-holds the tracked bytes again or goes. Only an API change ends an alias:
-renaming the file would make it the other object's. Deleting or renaming one
-object through the API releases the object left in the replay of that change,
-and every ingestion observes alias findings again too, so no restart is needed;
-the object left then gets its file back if it went, a frozen edit is ingested
-for the object the file was tracked for, and when the deleted object was that
-one, its unedited file goes and the object left is exported under its own
-spelling. A `sync_alias_frozen` warning names each object as its finding
-begins, with the file's `path`, the `partner` and the remedy; an info
-`sync_alias_released` event names each object as its finding ends; a
-`sync_alias_edited` warning names the file the first time an edit is kept out.
-Repeated observations write and report nothing. An external file at the alias
+spelling the directory lists for that file from a listing, comparing device
+and inode numbers, on every platform, and skipping a listed name it cannot
+inspect; a file that other names link to or a spelling that is not UTF-8 names
+no single spelling and leaves a `collision` finding for this object alone, as
+before. Otherwise the object and the API object the tree tracks at that
+spelling both get an `alias` finding (catalog schema 62), whose `tree_path` in
+the findings view names the file by its spelling. A third object of the same
+group joins the same way. A partner that already has another finding keeps it.
+The file then stays frozen while more than one of these objects lives: no
+export writes over it or removes it for them, an edit of it is not ingested,
+since it may be meant for any of them, and its deletion deletes none of them
+and writes none back. A wait that succeeds names the frozen files in
+`frozen_files`. A frozen edit leaves an `AliasEdited` path stop on the tracked
+object, whose `tree_path` names the file, which ends a wait as a tree-side
+`FindingsPending` (exit status 2) that names it in `path_stops`, until the
+alias ends or the file holds the tracked bytes again or goes. Only an API
+change ends an alias. Renaming the file on the host does not: the old spelling
+counts as the frozen file's deletion, which deletes no object, and the new name
+is ingested as any new file is. Deleting or renaming one object through the API
+releases the object left in the replay of that change, and every ingestion
+observes alias findings again too, so no restart is needed. While three or
+more objects share the file, deleting one keeps it frozen for the others. Once
+one object is left, it gets its file back if it went, and a frozen edit is
+uploaded to it: in place when the file was tracked for it, and otherwise before
+the file goes with the deleted object and the object left is exported under its
+own spelling. The end of an alias is recorded in the transaction of the export
+or upload that settles its file, so a failed export, which keeps the finding and
+is reported as `sync_finding_export_failed`, or a restart in between leaves the
+finding to be observed again and deletes nothing. A `sync_alias_frozen` warning
+names each object as its finding begins, with the file's `path`, the `partner`
+and the remedy; an info `sync_alias_released` event names each object as its
+finding ends and says what follows; a `sync_alias_edited` warning names the
+file and its `partner` the first time an edit is kept out. Repeated
+observations write and report nothing. An external file at the alias
 spelling that no object tracks is ingested under its own name, as any new file
 is, and the next observation pairs it. A directory reached under another
 spelling stays a `collision` finding of the object whose path runs through it.
 
-Renaming a tracked file to another letter case leaves its old path an alias,
-which the deletion inventory takes as no evidence either way: the old object is
-neither deleted nor counted as gone. The renamed spelling is ingested as a new
-object before the inventory runs, so its file counts as present, and a deletion
-made in the same directory at the same time proceeds without approval.
-Reporting the old and the new object as one alias group is PENDING.
+Renaming a tracked file to another letter case is a rename, never an alias. The
+renamed spelling is ingested as a new object before the deletion inventory
+runs, and the old path, which the directory now lists under the spelling that
+new object is tracked at, counts as absent, so the old object is deleted as any
+renamed file's is, and a deletion made in the same directory at the same time
+proceeds without approval. The same holds after a restart. Only a listed
+spelling that no other live object is tracked at leaves the old path no
+evidence either way.
 
 An external directory at an exported object's target name gives way only when
 it holds nothing but Finder's metadata files and nothing the catalog records
@@ -1305,7 +1316,7 @@ without authentication and must be identified as such in status.
 | `POST /_internal/sync/reject` | The same request and answers as approval, with the decision `reject`; it closes the set and writes its files back from their objects instead of deleting them. |
 | `POST /_internal/sync/resolve` | Registered conflict: JSON `conflict_id`, `revision`, `action` (`restore` or `discard`), `expected_generation` (zero means absent) and `operation_id`; generation/incarnation recheck as above. Unregistered recovery: exclusive `recovery_id`, `revision`, `target_identity`, `action: "discard"`, `confirmation` and `operation_id` as defined above; original-owner authority and explicit confirmation precede deletion. |
 | `POST /_internal/sync/rescan` | Empty JSON object; return coalesced scan revision/operation ID. It requests observation, never approval or an override of a stop. |
-| `POST /_internal/sync/wait` | JSON `timeout_ms`, default 10000, `1..=60000`, and an optional boolean `require_no_findings`; capture a requested stable scan plus journal fence and wait for that bounded barrier. Return barrier/revisions/counts with `findings` (`unmapped` and the findings `revision` that lists them, null unless the barrier was observed), `paused_reason` for a pause, `source_entries` (their `total`, the first five `entries` the pass could not take in, each with `path`, U+FFFD for each sequence that is not UTF-8, and `reason`, and the `omitted` count) for `SourceUnrepresentable`, `deletions` (the `paths` of the first ten files of the set that waits, the `omitted` count, the `removed_buckets` that went whole and `removed_buckets_omitted`) for `DeletionApproval`, and the `remedy` for the reason, or an explicit timeout/stopped result. Later unrelated edits do not move the fence forever. |
+| `POST /_internal/sync/wait` | JSON `timeout_ms`, default 10000, `1..=60000`, and an optional boolean `require_no_findings`; capture a requested stable scan plus journal fence and wait for that bounded barrier. Return barrier/revisions/counts with `findings` (`unmapped` and the findings `revision` that lists them, null unless the barrier was observed), `paused_reason` for a pause, `source_entries` (their `total`, the first five `entries` the pass could not take in, each with `path`, U+FFFD for each sequence that is not UTF-8, and `reason`, and the `omitted` count) for `SourceUnrepresentable`, `deletions` (the `paths` of the first ten files of the set that waits, the `omitted` count, the `removed_buckets` that went whole and `removed_buckets_omitted`) for `DeletionApproval`, `path_stops` in the same form as `source_entries`, each entry with the stopped `path` and its `reason`, for `FindingsPending` while path stops hold it, `frozen_files` in that form, each entry with the file's `path` and the number of `objects` it stands for, for `Ready` while a file stands for several objects, and the `remedy` for the reason, or an explicit timeout/stopped result. Later unrelated edits do not move the fence forever. |
 
 CLI `reject --deletion-set ID`, `approve --deletion-set ID` and `resolve --conflict
 ID --revision ID --action restore|discard --expected-generation N --operation-id
@@ -1450,8 +1461,8 @@ Each kind of stop has its own exhaustive type; no single type covers them all:
   `Paused`, `JournalChanged`, `SourceChanging`, `SourceUnrepresentable`,
   `DeletionApproval` or `FindingsPending`.
 - A path finding's `reason` is `Conflict`, `Unrepresentable`,
-  `ProtectedDeletion`, `SourceChanging`, `IoFailure`, `EntryReplaced` or
-  `RecoveryRequired`.
+  `ProtectedDeletion`, `SourceChanging`, `IoFailure`, `EntryReplaced`,
+  `AliasEdited` or `RecoveryRequired`.
 - Status `state` is one of `Starting`, `Retrying`, `Paused`, `Stopped`,
   `ConflictCapacity`, `IoFailure`, `RecoveryRequired`, `ProtectedBody`,
   `SourceChanging`, `SourceUnrepresentable`, `Observing`, `DeletionApproval`,

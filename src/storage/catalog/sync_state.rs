@@ -354,14 +354,19 @@ pub(super) fn record_in_transaction(
             fp.mtime_ns.to_be_bytes(),fp.ctime_ns.to_be_bytes(),fp.inode.to_be_bytes(),fp.md5,fp.crc32c,fp.racy],
     )?;
     if let Some(scope) = &update.binding.control {
+        // The file settles the object's findings, except an alias it still stands for: while
+        // another live object's alias finding names the path, the file is theirs too, and
+        // tracking it again, as a rehash of a racy fingerprint does, ends nothing.
         sql::exec(
             transaction,
-            "DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4",
+            "DELETE FROM sync_findings WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4
+             AND NOT (reason='alias' AND EXISTS(SELECT 1 FROM sync_findings g JOIN sync_finding_aliases a ON a.ordinal=g.ordinal JOIN objects o ON o.bucket=g.bucket AND o.name=g.name AND o.time_deleted IS NULL WHERE g.root_id=?1 AND g.bucket=?2 AND g.incarnation=?4 AND a.spelling=?5 AND g.name!=?3))",
             params![
                 scope.root_id(),
                 record.bucket,
                 record.name,
-                update.binding.incarnation
+                update.binding.incarnation,
+                update.path
             ],
         )?;
     }

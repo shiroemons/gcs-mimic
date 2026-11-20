@@ -46,6 +46,16 @@ struct Candidate {
     live: Option<crate::object::ObjectRecord>,
 }
 
+/// What ingestion does with a changed tracked file that an alias may stand for.
+enum AliasOutcome {
+    /// No alias holds it: the file is taken in for its own object.
+    Free,
+    /// The alias holds it, or a concurrent change defers it: nothing is taken in now.
+    Kept,
+    /// Its object went, and the one object left of the alias takes the edit in.
+    HandOver(ObjectName),
+}
+
 /// What a file's stat observation shows about the body its tracked fingerprint recorded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TrackedCheck {
@@ -536,8 +546,23 @@ impl Ingest<'_> {
                 self.clear_observation(binding, name).await?;
                 return Ok(None);
             }
-            if self.frozen(&binding, &name, &path).await? {
-                return Ok(None);
+            match self.alias_edit(&binding, &name, &path, &key).await? {
+                AliasOutcome::Free => {}
+                AliasOutcome::Kept => return Ok(None),
+                AliasOutcome::HandOver(heir) => {
+                    let holder = Candidate {
+                        path,
+                        key,
+                        identity,
+                        bucket,
+                        name,
+                        binding,
+                        tracked: Some(tracked.clone()),
+                        live: None,
+                    };
+                    self.hand_over(holder, heir).await?;
+                    return Ok(None);
+                }
             }
         }
         let live = match self.admin.get_object(&bucket, &name, None).await {
@@ -760,37 +785,123 @@ impl Ingest<'_> {
         }
     }
 
-    /// Whether the changed tracked file of `name` stands for an alias, whose edit ingestion does
-    /// not take in: it may be meant for either object, and taking it in would pick one silently.
-    /// The edit stops the path until the alias ends or the file goes back, and is reported once.
-    async fn frozen(
+    /// What becomes of the changed tracked file of `name` that an alias may stand for. While it
+    /// does, ingestion leaves the edit out: it may be meant for either object, and taking it in
+    /// would pick one silently. The edit stops the path until the alias ends or the file goes
+    /// back, and is reported once. Once `name` went and one object is left, the edit is that
+    /// object's.
+    async fn alias_edit(
         &mut self,
         binding: &SyncBinding,
         name: &ObjectName,
         path: &std::path::Path,
-    ) -> Result<bool, SyncError> {
+        key: &SyncPath,
+    ) -> Result<AliasOutcome, SyncError> {
         match self
             .root
-            .observe_alias_edit(binding.clone(), name.clone())
+            .observe_alias_edit(binding.clone(), name.clone(), key.clone())
             .await
         {
-            Ok(AliasEdit::Free) => Ok(false),
-            Ok(AliasEdit::Frozen(transition)) => {
+            Ok(AliasEdit::Free) => Ok(AliasOutcome::Free),
+            Ok(AliasEdit::HandOver(heir)) => Ok(AliasOutcome::HandOver(heir)),
+            Ok(AliasEdit::Frozen {
+                transition,
+                partner,
+            }) => {
                 if transition == Transition::New {
                     diagnostics::emit(
                         LogLevel::Warn,
                         "sync_alias_edited",
                         serde_json::json!({
                             "path":path_text(path),"bucket":binding.bucket().as_str(),
-                            "object":name.as_str(),"remedy":Correction::EditedAlias.remedy()
+                            "object":name.as_str(),"partner":partner.as_str(),
+                            "remedy":Correction::EditedAlias.remedy()
                         }),
                     );
                 }
-                Ok(true)
+                Ok(AliasOutcome::Kept)
             }
             Err(error) if super::error::superseded(&error) => {
                 self.summary.count_deferred(path);
-                Ok(true)
+                Ok(AliasOutcome::Kept)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Takes the edit in the file of the deleted object `holder` in for `heir`, the one object
+    /// left of the alias that the file stood for, as the edit's remedy promises: the bytes
+    /// become the heir's next generation, and the holder's record takes the file as staged, so
+    /// that the holder's deletion removes it unless it changed again and the heir gets its own
+    /// file. A file that changed or could not be read waits for the next pass.
+    async fn hand_over(&mut self, holder: Candidate, heir: ObjectName) -> Result<(), SyncError> {
+        let live = match self.admin.get_object(&holder.bucket, &heir, None).await {
+            Ok(record) => record,
+            Err(AdminError::NotFound) => {
+                self.summary.count_deferred(&holder.path);
+                return Ok(());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let staged = match self.stage(holder.path.clone(), holder.identity).await {
+            Ok(staged) => staged,
+            Err(RootError::Admin(AdminError::Io(error)))
+                if error.kind() != io::ErrorKind::NotFound =>
+            {
+                self.defer(&holder.path, error.kind());
+                return Ok(());
+            }
+            Err(RootError::Admin(
+                AdminError::Precondition
+                | AdminError::NotFound
+                | AdminError::SourceChanged { .. }
+                | AdminError::Io(_),
+            )) => {
+                self.summary.count_deferred(&holder.path);
+                return Ok(());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let hashes = staged.hashes();
+        let fingerprint =
+            SyncFingerprint::observed(holder.identity, hashes, self.root.observation_time_ns());
+        if live.size == staged.size() && live.md5 == hashes.md5 && live.crc32c == hashes.crc32c {
+            staged.discard().await?;
+        } else {
+            let condition = GenerationCondition::Is(Generation::new(live.generation)?);
+            self.root.revalidate().await?;
+            let result = self
+                .admin
+                .publish_objects(vec![BatchPublication {
+                    bucket: holder.bucket.clone(),
+                    request: self.publication(&holder.path, condition),
+                    name: heir.clone(),
+                    staged,
+                }])
+                .await?;
+            for result in result.results {
+                match result {
+                    Ok(_) => self.summary.ingested += 1,
+                    Err(AdminError::Precondition | AdminError::NotFound | AdminError::Hold) => {
+                        self.summary.count_deferred(&holder.path);
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        match self
+            .root
+            .hand_over_alias(holder.binding, holder.name, holder.key, fingerprint)
+            .await
+        {
+            Ok(()) => {
+                self.summary.heirs.push((holder.bucket, heir));
+                Ok(())
+            }
+            Err(error) if super::error::superseded(&error) => {
+                self.summary.count_deferred(&holder.path);
+                Ok(())
             }
             Err(error) => Err(error.into()),
         }
@@ -891,6 +1002,27 @@ impl Ingest<'_> {
         Ok(())
     }
 
+    /// The publication of the file at `path` as an object's next generation under `condition`,
+    /// with the content type its name suggests unless the object has one.
+    fn publication(&self, path: &std::path::Path, condition: GenerationCondition) -> Publication {
+        Publication {
+            content_type: self
+                .config
+                .seed_content_type
+                .for_name(
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or_default(),
+                )
+                .into(),
+            metadata: Default::default(),
+            expected: Default::default(),
+            condition: Some(condition),
+            max_bytes: self.config.max_object_bytes,
+            mode: PublishMode::InheritAndSkipIfSameHash,
+        }
+    }
+
     /// Publishes the candidate's staged bytes as the object's next generation and tracks its file.
     async fn publish(
         &mut self,
@@ -910,15 +1042,6 @@ impl Ingest<'_> {
             live,
             ..
         } = candidate;
-        let content_type = self
-            .config
-            .seed_content_type
-            .for_name(
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or_default(),
-            )
-            .into();
         let condition = live
             .as_ref()
             .map_or(Ok(GenerationCondition::Absent), |record| {
@@ -935,14 +1058,7 @@ impl Ingest<'_> {
             .publish_objects(vec![BatchPublication {
                 bucket,
                 name,
-                request: Publication {
-                    content_type,
-                    metadata: Default::default(),
-                    expected: Default::default(),
-                    condition: Some(condition),
-                    max_bytes: self.config.max_object_bytes,
-                    mode: PublishMode::InheritAndSkipIfSameHash,
-                },
+                request: self.publication(&path, condition),
                 staged: staged.with_sync_state(update),
             }])
             .await?;

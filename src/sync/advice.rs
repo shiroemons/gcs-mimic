@@ -259,6 +259,7 @@ pub fn catalog() -> Vec<String> {
         Correction::Entry(EntryProblem::PathCollision),
         Correction::Entry(EntryProblem::DeletedBucket),
         Correction::UnrepresentableName,
+        Correction::CollidingName,
         Correction::ExportConflict,
         Correction::ChangingPath,
         Correction::PathIoFailure,
@@ -280,6 +281,7 @@ pub fn catalog() -> Vec<String> {
             | EntryProblem::DeletedBucket,
         )
         | Correction::UnrepresentableName
+        | Correction::CollidingName
         | Correction::ExportConflict
         | Correction::ChangingPath
         | Correction::PathIoFailure

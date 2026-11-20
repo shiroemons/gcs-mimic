@@ -1,8 +1,8 @@
 //! Findings whose cause can go without a journal change of their own object, such as another
 //! API object or an entry in the tree that stands in its way. Each ingestion observes those
 //! objects again and exports the ones whose cause went; a finding that still holds only reads.
-//! An alias also ends with a change of the other object it names, so a replay observes the
-//! alias findings of the buckets it changed again too.
+//! An API change can remove the cause too: deleting an object ends an alias it belonged to and
+//! a collision with the objects above or below its name, so a replay observes those again.
 use super::{
     LiveObject, LiveScope, MissingFile, Occasion, Reconciliation, SkippedExports, SyncError,
 };
@@ -11,29 +11,36 @@ use crate::{
     object::ObjectRecord,
     storage::{
         Catalog,
-        admin::{BucketName, Generation, ObjectName},
+        admin::{AdminError, BucketName, Generation, ObjectName},
         change_journal::JournalFence,
         sync_state::{
-            MAX_PAGE, Ordinal, findings::alias::AliasHold, observation::Transition,
-            root::RootLease, writeback::Writeback,
+            MAX_PAGE, Ordinal, SyncBinding,
+            findings::{
+                FindingKind,
+                alias::{AliasHold, Marked},
+            },
+            observation::Transition,
+            root::RootLease,
+            writeback::{Stop, Writeback},
         },
     },
     sync::{
         control::Correction,
         error::superseded,
         interrupt::{Interrupt, Interrupted},
+        mapping::Reason,
     },
 };
-use std::path::PathBuf;
+use std::collections::BTreeSet;
 
 /// What an object's alias does to its export.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Freeze {
-    /// The object has no alias finding.
-    None,
-    /// Another object of the alias still lives, so the file stays as it is.
+    /// No alias names the object or its file.
+    NotAliased,
+    /// Another live object stands for the same file, so it stays as it is.
     Held,
-    /// The alias ended with this observation.
+    /// The alias ended, and the export that settles the file removes its finding.
     Released,
 }
 
@@ -46,12 +53,21 @@ pub(super) struct Observing<'a, 'b> {
     pub(super) summary: &'b mut Reconciliation,
 }
 
+/// What a replay changed in one bucket that can end findings of other objects: the alias
+/// spellings of the objects it changed, read before the change, and the names it changed.
+#[derive(Default)]
+pub(super) struct Changed {
+    pub(super) spellings: BTreeSet<String>,
+    pub(super) names: Vec<ObjectName>,
+}
+
 impl SkippedExports {
     /// Observes again every finding that [`observed_again`] admits and exports each object
     /// whose cause went, so that removing what stood in its way needs no restart. A finding
-    /// that cannot be observed now, such as behind a directory the pass may not open, keeps its
-    /// row for a later pass and stops nothing else. Returns the counts of the exports this ran;
-    /// the findings it records again are counted by the pass that first met them.
+    /// that cannot be observed now, such as behind a directory the pass may not open or at a
+    /// path the export fails to write, keeps its row for a later pass and stops nothing else.
+    /// Returns the counts of the exports this ran; the findings it records again are counted by
+    /// the pass that first met them.
     ///
     /// [`observed_again`]: crate::storage::sync_state::findings::FindingKind::observed_again
     pub(super) async fn observe_findings(
@@ -90,7 +106,11 @@ impl SkippedExports {
                 ) else {
                     continue;
                 };
-                self.observe(&mut observing, bucket, name).await?;
+                if finding.reason == FindingKind::Unmapped(Reason::Alias) {
+                    self.observe_alias(&mut observing, &bucket, name).await?;
+                } else {
+                    self.observe(&mut observing, bucket, name).await?;
+                }
             }
             if !full {
                 break;
@@ -99,33 +119,61 @@ impl SkippedExports {
         Ok(observed)
     }
 
-    /// Observes again the alias findings of `bucket`, some of whose objects a replay just
-    /// changed: the object that changed or went may have been the other half of an alias,
-    /// which would otherwise stay frozen until the next ingestion.
-    pub(super) async fn observe_aliases(
+    /// Observes again the findings of `bucket` that what a replay just `changed` there can have
+    /// ended, which would otherwise wait for the next ingestion: the alias findings of the
+    /// spellings it changed, and the collisions of the names above and below those it changed.
+    pub(super) async fn observe_changed(
         &mut self,
         observing: &mut Observing<'_, '_>,
         bucket: &BucketName,
+        changed: &Changed,
         interrupt: Interrupt<'_>,
     ) -> Result<(), SyncError> {
+        for spelling in &changed.spellings {
+            let mut after = Ordinal::default();
+            loop {
+                let page = observing
+                    .root
+                    .alias_findings_page(bucket.clone(), spelling.clone(), after)
+                    .await?;
+                let full = page.len() == MAX_PAGE;
+                for finding in page {
+                    if interrupt.check() != Interrupted::No {
+                        observing.summary.interrupted = true;
+                        return Ok(());
+                    }
+                    after = finding.ordinal;
+                    self.observe_alias(observing, bucket, finding.name).await?;
+                }
+                if !full {
+                    break;
+                }
+            }
+        }
+        if changed.names.is_empty() {
+            return Ok(());
+        }
         let mut after = Ordinal::default();
         loop {
             let page = observing
                 .root
-                .alias_findings_page(bucket.clone(), after)
+                .collision_findings_page(bucket.clone(), after)
                 .await?;
-            let Some(last) = page.last() else {
-                return Ok(());
-            };
-            after = last.ordinal;
             let full = page.len() == MAX_PAGE;
             for finding in page {
                 if interrupt.check() != Interrupted::No {
                     observing.summary.interrupted = true;
                     return Ok(());
                 }
-                self.observe(observing, bucket.clone(), finding.name)
-                    .await?;
+                after = finding.ordinal;
+                if changed
+                    .names
+                    .iter()
+                    .any(|name| nested(name, &finding.name) || nested(&finding.name, name))
+                {
+                    self.observe(observing, bucket.clone(), finding.name)
+                        .await?;
+                }
             }
             if !full {
                 return Ok(());
@@ -133,6 +181,65 @@ impl SkippedExports {
         }
     }
 
+    /// Observes again the `heirs` that ingestion just took an edit in for, each the one object
+    /// left of an alias, with the deleted object whose file it was. Returns the counts of the
+    /// exports this ran.
+    pub(super) async fn observe_heirs(
+        &mut self,
+        scope: LiveScope<'_>,
+        heirs: &[(BucketName, ObjectName)],
+        interrupt: Interrupt<'_>,
+    ) -> Result<Reconciliation, SyncError> {
+        let mut observed = Reconciliation::default();
+        let mut observing = Observing {
+            catalog: scope.catalog,
+            root: scope.root,
+            writeback: scope.writeback,
+            fence: scope.catalog.current_fence().await?,
+            summary: &mut observed,
+        };
+        for (bucket, heir) in heirs {
+            if interrupt.check() != Interrupted::No {
+                observing.summary.interrupted = true;
+                break;
+            }
+            self.observe_alias(&mut observing, bucket, heir.clone())
+                .await?;
+        }
+        Ok(observed)
+    }
+
+    /// Observes the object of an alias finding again, after the deleted object whose record
+    /// still holds the file the finding names: that file goes, or ingestion takes it in, before
+    /// the object left can get its own.
+    async fn observe_alias(
+        &mut self,
+        observing: &mut Observing<'_, '_>,
+        bucket: &BucketName,
+        name: ObjectName,
+    ) -> Result<(), SyncError> {
+        let binding = match observing.root.sync_binding(bucket).await {
+            Ok(binding) => binding,
+            // The bucket changed meanwhile; the replay of that change observes its objects.
+            Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        match observing
+            .root
+            .deleted_alias_holder(binding, name.clone())
+            .await
+        {
+            Ok(Some(holder)) => self.observe(observing, bucket.clone(), holder).await?,
+            Ok(None) => {}
+            Err(error) if superseded(&error) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+        self.observe(observing, bucket.clone(), name).await
+    }
+
+    /// Exports one object observed again, if its cause went. A failure to write its own path
+    /// that leaves no write-back operation behind keeps its finding for a later pass and is
+    /// reported, rather than failing the pass for every other object.
     async fn observe(
         &mut self,
         observing: &mut Observing<'_, '_>,
@@ -148,17 +255,49 @@ impl SkippedExports {
             missing: MissingFile::Inventory,
             occasion: Occasion::Finding,
         };
-        let outcome = match object.plan().await? {
-            Some(plan) => {
+        let outcome = match object.plan().await {
+            Ok(Some(plan)) => {
                 object
                     .export(observing.writeback, observing.fence, plan)
-                    .await?
+                    .await
             }
-            None => None,
+            Ok(None) => Ok(None),
+            Err(error) => Err(error),
         };
-        self.record((bucket, name), outcome);
+        // A failure that left a write-back operation for recovery to finish holds every export
+        // back, so it still fails the pass.
+        let settled = match &outcome {
+            Err(error) if error.concerns_one_object() => {
+                observing.writeback.status().await?.stop() == Stop::Ready
+            }
+            Ok(_) | Err(_) => false,
+        };
+        match outcome {
+            Ok(outcome) => self.record((bucket, name), outcome),
+            Err(error) if settled => {
+                diagnostics::emit(
+                    LogLevel::Warn,
+                    "sync_finding_export_failed",
+                    serde_json::json!({
+                        "bucket":bucket.as_str(),"object":name.as_str(),
+                        "reason":crate::error::Report(&error).to_string(),
+                        "remedy":"The finding stays and the next ingestion observes it again; correct what the reason names at the object's path"
+                    }),
+                );
+            }
+            Err(error) => return Err(error),
+        }
         Ok(())
     }
+}
+
+/// Whether `inner` names an object below `outer`, whose file `outer`'s would have to be a
+/// directory for.
+fn nested(outer: &ObjectName, inner: &ObjectName) -> bool {
+    inner
+        .as_str()
+        .strip_prefix(outer.as_str())
+        .is_some_and(|rest| rest.starts_with('/'))
 }
 
 impl LiveObject<'_> {
@@ -167,18 +306,19 @@ impl LiveObject<'_> {
     /// now. A generation that changed or went since this export read it is the next replay's.
     pub(super) async fn alias(
         &mut self,
+        binding: &SyncBinding,
         record: &ObjectRecord,
-        spelling: PathBuf,
+        spelling: String,
     ) -> Result<(), SyncError> {
-        let spelling = spelling
-            .into_os_string()
-            .into_string()
-            .map_err(|_| SyncError::Invariant("invalid alias path"))?;
-        let binding = self.catalog.sync_state().binding(self.bucket).await?;
         let generation = Generation::new(record.generation)?;
         let recorded = match self
             .root
-            .record_alias(binding, self.name.clone(), generation, spelling.clone())
+            .record_alias(
+                binding.clone(),
+                self.name.clone(),
+                generation,
+                spelling.clone(),
+            )
             .await
         {
             Ok(recorded) => recorded,
@@ -187,10 +327,10 @@ impl LiveObject<'_> {
         };
         self.summary.count_unmapped_object();
         let partner = recorded.partner.as_ref().map(|(name, _)| name.as_str());
-        if recorded.own == Some(Transition::New) {
+        if recorded.own == Marked::New {
             frozen(self.bucket, self.name.as_str(), &spelling, partner);
         }
-        if let Some((name, Some(Transition::New))) = &recorded.partner {
+        if let Some((name, Marked::New)) = &recorded.partner {
             frozen(
                 self.bucket,
                 name.as_str(),
@@ -201,42 +341,56 @@ impl LiveObject<'_> {
         Ok(())
     }
 
-    /// Whether an alias keeps this object, whose path the tree does not hold under another
-    /// spelling, out of the tree, and reports an alias that ended now.
-    pub(super) async fn hold_alias(&mut self, record: &ObjectRecord) -> Result<Freeze, SyncError> {
-        let binding = self.catalog.sync_state().binding(self.bucket).await?;
+    /// Whether an alias keeps this object out of the tree, decided before its file is read, and
+    /// reports an alias that ended now.
+    pub(super) async fn hold_alias(
+        &mut self,
+        binding: &SyncBinding,
+        record: &ObjectRecord,
+    ) -> Result<Freeze, SyncError> {
         let generation = Generation::new(record.generation)?;
         let hold = match self
             .root
-            .hold_alias(binding, self.name.clone(), generation)
+            .hold_alias(binding.clone(), self.name.clone(), generation)
             .await
         {
             Ok(hold) => hold,
-            // The binding changed meanwhile; the replay of that change observes the object.
+            // The binding or the object changed meanwhile; the replay of that change observes
+            // the object.
             Err(error) if superseded(&error) => return Ok(Freeze::Held),
             Err(error) => return Err(error.into()),
         };
         Ok(match hold {
-            AliasHold::NotAliased => Freeze::None,
+            AliasHold::NotAliased => Freeze::NotAliased,
             AliasHold::Held => {
                 self.summary.count_unmapped_object();
                 Freeze::Held
             }
-            AliasHold::Released { spelling } => {
-                diagnostics::emit(
-                    LogLevel::Info,
-                    "sync_alias_released",
-                    serde_json::json!({
-                        "bucket":self.bucket.as_str(),"object":self.name.as_str(),"path":spelling
-                    }),
-                );
+            AliasHold::Released {
+                spelling,
+                transition,
+            } => {
+                if transition == Transition::New {
+                    diagnostics::emit(
+                        LogLevel::Info,
+                        "sync_alias_released",
+                        serde_json::json!({
+                            "bucket":self.bucket.as_str(),"object":self.name.as_str(),"path":spelling,
+                            "next":RELEASED
+                        }),
+                    );
+                }
                 Freeze::Released
             }
         })
     }
 }
 
-/// Reports once that the file at `path` stands for `object` and `partner` and stays frozen.
+/// What follows the end of an alias, which `sync_alias_released` reports.
+const RELEASED: &str = "Only this object is left of the alias. It gets its own file under its own name, after an edit kept out while the file was frozen is uploaded for it, and its alias finding goes once that is done";
+
+/// Reports once that the file at `path` stands for `object` and, where the tree tracks it,
+/// `partner`, and stays frozen.
 fn frozen(bucket: &BucketName, object: &str, path: &str, partner: Option<&str>) {
     diagnostics::emit(
         LogLevel::Warn,

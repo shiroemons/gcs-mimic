@@ -396,6 +396,8 @@ struct Ownership {
     /// What the last inventory of this process that completed the root's set saw of it, keyed
     /// by the set's revision.
     waiting: Mutex<Option<(OpaqueId, Seen)>>,
+    /// Whether the root may hold alias findings, shared by every clone of its lease.
+    aliases: super::findings::alias::AliasPresence,
     _catalog_permit: OwnedSemaphorePermit,
 }
 
@@ -688,6 +690,9 @@ impl RootLease {
             AdminError::Backend("synchronization root naming rules were not probed".into())
         })
     }
+    pub(super) fn alias_presence(&self) -> &super::findings::alias::AliasPresence {
+        &self.ownership.aliases
+    }
     /// Lookups below the pinned root under its probed naming rules, for one pass: they keep the
     /// directory listings they read until the pass drops them.
     pub(crate) fn lookup(&self) -> Result<crate::fsutil::Lookup, AdminError> {
@@ -868,6 +873,7 @@ impl SyncState {
                         naming: OnceLock::new(),
                         emptied_at_start: Mutex::new(None),
                         waiting: Mutex::new(None),
+                        aliases: super::findings::alias::AliasPresence::default(),
                         _catalog_permit: permit,
                     };
                     ownership.validate()?;

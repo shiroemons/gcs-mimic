@@ -40,7 +40,7 @@ PRAGMA user_version = 59;";
 pub(super) mod publication;
 pub(crate) use publication::Publication;
 mod stops;
-pub(crate) use stops::{AliasEdit, PathStop, TransientStop, Transition};
+pub(crate) use stops::{AliasEdit, ListedStop, PathStop, TransientStop, Transition};
 mod types;
 pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 
@@ -134,7 +134,8 @@ pub(crate) struct Item {
     pub recovery: Option<RecoveryDetails>,
     pub conflict_id: Option<OpaqueId>,
     pub conflict_revision: Option<OpaqueId>,
-    /// The path under which the tree holds the file of an alias finding's object.
+    /// The path under which the tree holds the file of an alias finding's object, or the file
+    /// whose edit an `AliasEdited` stop keeps out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree_path: Option<String>,
 }
@@ -451,7 +452,7 @@ const PAGE:&str="SELECT kind,ordinal,category,bucket,name,incarnation,generation
  UNION ALL SELECT 1,w.ordinal,'writeback',w.bucket,w.name,w.incarnation,w.generation,w.phase,w.id,w.owner,r.revision,r.target_identity,r.observation,r.phase,NULL,NULL,NULL FROM sync_writeback_ops w LEFT JOIN sync_recovery_workspaces r ON r.root_id=w.root_id AND r.id=w.id WHERE w.root_id=?1 AND w.phase!=4
  UNION ALL SELECT 2,0,'root-stop',NULL,NULL,NULL,NULL,paused_reason,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND paused_reason IS NOT NULL
  UNION ALL SELECT 2,1,'root-stop',NULL,NULL,NULL,NULL,scan_stop,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_observations WHERE root_id=?1 AND scan_stop IS NOT NULL
- UNION ALL SELECT 3,ordinal,'path-stop',bucket,name,incarnation,generation,reason,NULL,owner_project,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM sync_path_stops WHERE root_id=?1
+ UNION ALL SELECT 3,ordinal,'path-stop',bucket,name,incarnation,generation,reason,NULL,owner_project,NULL,NULL,NULL,NULL,NULL,NULL,CASE WHEN reason='AliasEdited' THEN (SELECT s.path FROM sync_objects s WHERE s.bucket=p.bucket AND s.name=p.name AND s.incarnation=p.incarnation) END FROM sync_path_stops p WHERE root_id=?1
  UNION ALL SELECT 4,ordinal,'conflict',bucket,name,incarnation,generation,state,id,owner,NULL,NULL,NULL,NULL,id,revision,NULL FROM sync_conflicts WHERE root_id=?1 AND state!=2
 ) WHERE kind>?2 OR (kind=?2 AND ordinal>?3) ORDER BY kind,ordinal LIMIT ?4";
 

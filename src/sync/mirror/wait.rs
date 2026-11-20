@@ -1,6 +1,6 @@
 use super::gate::Hold;
 use super::*;
-use crate::sync::control::{Unfinished, WaitFindings, WaitReason, WaitResult};
+use crate::sync::control::{Listed, Unfinished, WaitFindings, WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding, TreeSide};
 
 impl LiveControl<'_> {
@@ -143,9 +143,10 @@ impl LiveControl<'_> {
     ) -> Result<(Decided, WaitFindings), SyncError> {
         let observation = self.scope.root.observation().await?;
         let deletion = self.scope.root.deletion_set().await?;
-        let findings = WaitFindings {
+        let mut findings = WaitFindings {
             unmapped: observation.unmapped_findings,
             observation_revision: observation.revision,
+            ..WaitFindings::default()
         };
         if tokio::time::Instant::now() >= deadline {
             return Ok((Decided::Ended(Unfinished::Timeout), findings));
@@ -162,9 +163,23 @@ impl LiveControl<'_> {
             (_, Some(side)) => side,
         };
         let outstanding = Outstanding::new(&observation, deletion.as_ref(), tree);
-        Ok((Decided::Holdup(outstanding.first()), findings))
+        let holdup = outstanding.first();
+        // Read only for the answer that names them, a wait that ended on findings or succeeded,
+        // and only when the counts say there are any.
+        if holdup == Holdup::FindingsPending && observation.path_stops > 0 {
+            let first = self.scope.root.first_path_stops(LISTED_STOPS).await?;
+            findings.stops = Listed::of(first, observation.path_stops);
+        } else if holdup == Holdup::Ready && observation.unmapped_findings > 1 {
+            let frozen = self.scope.root.frozen_files().await?;
+            let total = u64::try_from(frozen.len()).unwrap_or(u64::MAX);
+            findings.frozen = Listed::of(frozen, total);
+        }
+        Ok((Decided::Holdup(holdup), findings))
     }
 }
+
+/// The path stops a wait's answer names.
+const LISTED_STOPS: u32 = 5;
 
 /// How a wait whose pass finished decided: by the first condition that holds, or because it
 /// ran out of time or the server is stopping.
