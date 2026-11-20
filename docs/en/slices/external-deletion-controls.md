@@ -265,6 +265,17 @@ answer 503 once the mirror is closed or the wait gives up, cap JSON inputs at
 | `POST /_internal/sync/wait` | Empty object or explicit `timeout_ms`; captured source scan and finite journal fence, completed/timeout/stop result without cancelling owned side effects. |
 | `POST /_internal/sync/resolve` | Exact registered-conflict restore/discard, or exact recovery identity with an explicit backup/disposal confirmation; durable operation-ID retries. |
 
+Three shapes stay as they are on purpose. The state and wait reason
+`DeletionApproval` keeps its name although a set may now be rejected, because
+scripts match it and the exit status 2 that comes with it. The status keeps the
+flat `pending_deletion_revision`, `pending_deletion_count` and
+`pending_deletion_remedy` beside the full `deletion_set` instead of one
+`pending_deletion` object, because the CLI and scripts read those fields by
+name. The catalog keeps the separate `complete`, `valid`, `guarded` and
+`authorization` columns of a set instead of one `state` column, because each
+query tests the ones it needs and a migration of stored sets would change no
+behavior.
+
 Startup supports permissive and strict profiles. Strict mode requires the
 normal local registry; missing registry configuration is still rejected.
 The strict control authorization boundary requires a registered
