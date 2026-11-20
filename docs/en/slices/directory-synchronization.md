@@ -1570,9 +1570,11 @@ what has run since. Ordinary runtime slices require no benchmark or
 measurement; a slice whose purpose is performance may record one short run at
 about 1,000 entries as a fact, without a regression gate. The listing fallback
 recorded one: a rescan and wait over 1,000 files on a Docker Desktop bind mount
-took 3.44 s ([evidence](../evidence/sync-listing-attribute-cache.txt)). Bounded
-pages and the stat-first rescan remain design requirements enforced by tests and
-review. No memory improvement is claimed.
+took 3.44 s ([evidence](../evidence/sync-listing-attribute-cache.txt)), against
+48.85 s in one run of the sources before it, and 6.31 s after one of the files
+changed ([evidence](../evidence/sync-rescan-one-change.txt)). Bounded pages and
+the stat-first rescan remain design requirements enforced by tests and review.
+No memory improvement is claimed.
 
 ### Historical contract-only document checks
 

@@ -1,0 +1,102 @@
+The temporary path prefix is replaced with <temp>; other output is unchanged.
+Run on 2026-11-20 on an arm64 macOS host, whose directories lie on APFS, with Docker Desktop
+29.9.3. The build output is not included.
+
+1. One rescan and wait over 1,000 files after one of them changed
+
+The image was built from a clean checkout of commit ce74141d. The script starts the server as
+listing-bench.sh in sync-listing-attribute-cache.txt does, changes one file on the host once the
+server is healthy, and then runs one rescan and one wait. One measurement, not a gate.
+
+$ docker build --platform linux/arm64 --build-arg CARGO_BUILD_JOBS=8 -t gcs-mimic-onechange:ce74141d .
+$ cat <temp>/one-change-bench.sh
+#!/bin/zsh
+# One measurement of `sync rescan` followed by `sync wait` after one of 1,000 files changed on a
+# Docker Desktop bind mount. The start follows listing-bench.sh.
+# Usage: one-change-bench.sh IMAGE RUN   (RUN names a fresh directory)
+set -u
+zmodload zsh/datetime
+image=$1
+scratch=<temp>
+base=$scratch/one-change-bench/$2
+name=gcs-mimic-onechange-bench
+
+mkdir -p "$base/sync/bench-bucket"
+for i in $(seq -w 1 1000); do
+  printf 'object %s\n' "$i" > "$base/sync/bench-bucket/file-$i.txt"
+done
+echo "files: $(ls "$base/sync/bench-bucket" | wc -l)"
+
+# Health turns healthy once the first pass has ingested and exported the tree. Reading the event
+# stream blocks until Docker reports it, so nothing polls.
+since=$(date +%s)
+coproc docker events --since "$since" --filter "container=$name" --filter event=health_status --format '{{.Action}}'
+events=$!
+t0=$EPOCHREALTIME
+docker run -d --name "$name" --platform linux/arm64 \
+  -e GCS_MIMIC_SYNC_DIR=/sync -v "$base/sync:/sync" "$image" >/dev/null || exit 1
+while read -p line; do
+  echo "  event: $line"
+  [[ $line == *": healthy" ]] && break
+done
+t1=$EPOCHREALTIME
+kill $events 2>/dev/null
+printf 'start to healthy: %.2fs\n' $(( t1 - t0 ))
+
+printf 'object 0500 changed\n' > "$base/sync/bench-bucket/file-0500.txt"
+echo "changed: bench-bucket/file-0500.txt"
+rescan_status=0
+wait_status=0
+t0=$EPOCHREALTIME
+docker exec "$name" gcs-mimic sync rescan --timeout 60s >"$base/rescan.out" 2>&1 || rescan_status=$?
+t1=$EPOCHREALTIME
+docker exec "$name" gcs-mimic sync wait --timeout 60m >"$base/wait.out" 2>&1 || wait_status=$?
+t2=$EPOCHREALTIME
+printf 'rescan exit=%s %.2fs, wait exit=%s %.2fs, total %.2fs\n' \
+  "$rescan_status" $(( t1 - t0 )) "$wait_status" $(( t2 - t1 )) $(( t2 - t0 ))
+echo "rescan: $(cat "$base/rescan.out")"
+echo "wait: $(cat "$base/wait.out")"
+
+docker logs "$name" >"$base/server.log" 2>&1
+docker rm -f "$name" >/dev/null
+echo "server log lines: $(wc -l <"$base/server.log")"
+echo "ingestions that took in a file after the start:"
+grep '"event":"sync_ingested"' "$base/server.log" | grep -v '"ingested":0,' | tail -n +2
+$ zsh <temp>/one-change-bench.sh gcs-mimic-onechange:ce74141d run1
+files:     1000
+  event: health_status: healthy
+start to healthy: 40.71s
+changed: bench-bucket/file-0500.txt
+rescan exit=0 4.83s, wait exit=0 1.48s, total 6.31s
+rescan: {"operation_id":"957f1ebeb118f5dade8e7d49c1421585","completed":true,"reason":null,"reconciliation":{"source_changing":false,"interrupted":false,"ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"unreadable":0,"unmapped_objects":0,"unrepresentable_entries":0,"baseline_complete":true,"deferred":0}}
+wait: {"completed":true,"timed_out":false,"journal_fence":{"sequence":1002,"epoch":1},"reconciliation":{"source_changing":false,"interrupted":false,"ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"unreadable":0,"unmapped_objects":0,"unrepresentable_entries":0,"baseline_complete":true,"deferred":0},"reason":"Ready","findings":{"unmapped":0,"revision":"25454f3f23694fbca83e2610ffbde1e5000000000000177a"},"paused_reason":null,"source_entries":null,"remedy":null}
+server log lines:       12
+ingestions that took in a file after the start:
+{"event":"sync_ingested","level":"info","source_changing":false,"interrupted":false,"ingested":1,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"unreadable":0,"unmapped_objects":0,"unrepresentable_entries":0,"baseline_complete":true,"deferred":0}
+
+The rescan answered with a reconciliation that took nothing in, and the server log holds one
+ingestion after the first pass that took in one file: a pass of the running mirror ingested the
+changed file. The wait answered Ready at journal sequence 1002, one more than the 1001 that the
+wait of the unchanged run in section 2 answered. The object's new bytes were not read back
+through the API in this run.
+
+2. The same unchanged measurement before the listing fallback
+
+The image was built from the sources of commit 41d8a38c, before the listing fallback, and run
+with listing-bench.sh as recorded in sync-listing-attribute-cache.txt, whose TAG names the image
+gcs-mimic-listing-fallback:before. This is the fourth run of that image; the timings of the
+earlier runs were not kept. One measurement, not a gate.
+
+$ docker build --platform linux/arm64 --build-arg CARGO_BUILD_JOBS=10 -t gcs-mimic-listing-fallback:before .
+$ zsh <temp>/listing-bench.sh before run4
+files:     1000
+  event: health_status: healthy
+start to healthy: 155.81s
+round 1: rescan exit=0 32.69s, wait exit=0 16.16s, total 48.85s
+round 2: rescan exit=0 16.89s, wait exit=0 17.00s, total 33.89s
+server log lines:       11
+$ cat <temp>/listing-bench/before-run4/wait-1.out
+{"completed":true,"timed_out":false,"journal_fence":{"sequence":1001,"epoch":1},"reconciliation":{"source_changing":false,"interrupted":false,"ingested":0,"blocked_buckets":0,"exported":0,"identical":0,"conflicting":0,"external_only":0,"ignored":0,"unrepresentable":0,"unreadable":0,"unmapped_objects":0,"unrepresentable_entries":0,"baseline_complete":true,"deferred":0},"reason":"Ready","findings":{"unmapped":0,"revision":"b9ac81f603823c6bb306684187eccd03000000000000177a"},"paused_reason":null,"source_entries":null,"remedy":null}
+
+The server log named the probed rules; this build did not probe Unicode normalization yet:
+{"event":"sync_root_naming","level":"info","colon":"accepted","case":"insensitive","name_max":255}
