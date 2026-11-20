@@ -201,3 +201,97 @@ fn structural(mask: u32) -> bool {
                     | libc::IN_ATTRIB)
                 != 0
 }
+
+/// Every way inotify says that events were lost or that a watch no longer covers its directory
+/// makes the next pass rebuild the watch and rescan: a full queue (`IN_Q_OVERFLOW`, which names
+/// no watch), a watched directory deleted or moved away (`IN_DELETE_SELF`, `IN_MOVE_SELF`) and a
+/// watch the kernel dropped (`IN_IGNORED`, which also follows an unmount). So does a directory
+/// created, moved, deleted or changed in access below a watch, which the watch must add or
+/// drop. A file's own events change content only.
+#[test]
+fn a_lost_queue_or_watch_and_a_directory_change_rebuild_the_watch() {
+    for mask in [
+        libc::IN_Q_OVERFLOW,
+        libc::IN_DELETE_SELF,
+        libc::IN_MOVE_SELF,
+        libc::IN_IGNORED,
+    ] {
+        assert!(structural(mask), "{mask:#x}");
+        assert!(structural(mask | libc::IN_ISDIR), "{mask:#x}");
+    }
+    for action in [
+        libc::IN_CREATE,
+        libc::IN_MOVED_TO,
+        libc::IN_MOVED_FROM,
+        libc::IN_DELETE,
+        libc::IN_ATTRIB,
+    ] {
+        assert!(structural(action | libc::IN_ISDIR), "{action:#x}");
+        assert!(!structural(action), "{action:#x}");
+    }
+    for action in [libc::IN_MODIFY, libc::IN_CLOSE_WRITE] {
+        assert!(!structural(action), "{action:#x}");
+    }
+}
+
+/// A watch of `directory` alone, so that only its own events reach the queue. The kernel keeps
+/// the watch on the inode, so the descriptor closes at once and a removal is not deferred until
+/// it closes.
+#[cfg(test)]
+fn watching(directory: &Path) -> Native {
+    let mut native = Native::new(None).unwrap();
+    native.register(&File::open(directory).unwrap()).unwrap();
+    native
+}
+
+/// Past `max_queued_events` the kernel drops further events and queues `IN_Q_OVERFLOW` instead,
+/// which must ask for a rescan: a dropped event may be the only sign of a change. Writing files
+/// changes content only until the queue overflows.
+#[test]
+fn an_overflowed_queue_asks_for_a_rescan() {
+    // Above this the test would take minutes to fill the queue; such a host is not the CI's.
+    const FILES: usize = 1 << 17;
+    let limit: usize = std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events")
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let tree = crate::test_support::TestDir::new();
+    let native = watching(&tree.0);
+    std::fs::write(tree.0.join("first"), b"body").unwrap();
+    assert_eq!(native.drain().unwrap(), Change::Content);
+    // Each write queues the file's creation, its modification and its close, so half the limit
+    // and one more file overflow the queue.
+    let files = limit / 2 + 1;
+    if files > FILES {
+        eprintln!("skipped: max_queued_events {limit} needs {files} files to overflow");
+        return;
+    }
+    for index in 0..files {
+        std::fs::write(tree.0.join(index.to_string()), b"body").unwrap();
+    }
+    assert_eq!(native.drain().unwrap(), Change::Structure);
+}
+
+/// A watched directory deleted takes its watch with it (`IN_DELETE_SELF`, then `IN_IGNORED`), and
+/// one moved away leaves its watch on a directory outside the tree (`IN_MOVE_SELF`). Either asks
+/// for a new watch and a rescan even when nothing watches the parent, whose own event would
+/// otherwise be the only sign; the file deleted first changes content only.
+#[test]
+fn a_watched_directory_that_goes_asks_for_a_new_watch() {
+    let tree = crate::test_support::TestDir::new();
+    let removed = tree.0.join("removed");
+    std::fs::create_dir(&removed).unwrap();
+    let native = watching(&removed);
+    std::fs::write(removed.join("file"), b"body").unwrap();
+    std::fs::remove_file(removed.join("file")).unwrap();
+    assert_eq!(native.drain().unwrap(), Change::Content);
+    std::fs::remove_dir(&removed).unwrap();
+    assert_eq!(native.drain().unwrap(), Change::Structure);
+
+    let moved = tree.0.join("moved");
+    std::fs::create_dir(&moved).unwrap();
+    let native = watching(&moved);
+    std::fs::rename(&moved, tree.0.join("elsewhere")).unwrap();
+    assert_eq!(native.drain().unwrap(), Change::Structure);
+}
