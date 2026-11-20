@@ -123,10 +123,14 @@ rejection first inventory again a set that waits for them, at the current
 journal fence, so neither a native notification nor an API write that left its
 members as they were makes the revision the status named stale. An API write
 that replaced or deleted a member's object, or updated a member's bucket, does:
-the decision answers 409 and names the set that replaced it. A refused decision
-says what became of the set: approved or rejected already; replaced by the set
-it names, with the same command for that set; still waiting after an API write
-raced the decision, which may be sent again; or no set waiting.
+the decision answers 409 and names the set that waits instead. A refused decision
+says what became of the set: approved or rejected already; not the set that
+waits now, which it names and counts without saying why, since a replaced, an
+earlier, a mistyped and another server's revision look the same; still waiting
+after an API write raced the decision, which may be sent again; or no set
+waiting. A refused rejection adds the rejection of the set that waits, which
+deletes nothing. A refused approval names only the view of that set and asks
+to approve its revision after checking it, never a command that approves it.
 During native quiet settling, wait and rescan remain queued inside the actor.
 A wait request observes its original deadline; if quiet has not been established
 at that deadline it reports SourceChanging with HTTP 409, and the CLI asks again

@@ -782,7 +782,11 @@ impl Decided<'_> {
             (
                 decision,
                 self.revision,
-                Refusal::Replaced(replaced.revision)
+                Refusal::Replaced {
+                    revision: replaced.revision,
+                    missing: replaced.candidate_count,
+                    tracked: replaced.baseline_count,
+                }
             )
         );
         assert_eq!(

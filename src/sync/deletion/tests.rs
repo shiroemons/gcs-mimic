@@ -853,7 +853,11 @@ async fn a_refused_decision_reads_what_became_of_its_set() {
     assert_ne!(changed.revision, first.revision);
     assert_eq!(
         root.refusal(first.revision).await.unwrap(),
-        Refusal::Replaced(changed.revision)
+        Refusal::Replaced {
+            revision: changed.revision,
+            missing: changed.candidate_count,
+            tracked: changed.baseline_count,
+        }
     );
     fs::create_dir(tree.0.join("test-bucket")).unwrap();
     fs::write(tree.0.join("test-bucket/0000"), b"immutable").unwrap();

@@ -146,10 +146,16 @@ synchronization with the reason the status and the `sync_paused` event name,
 and no deletion is detected meanwhile; correcting the cause and running the
 rescan the remedy names writes the rest back. A stale, approved or
 already rejected revision returns 409, as approval does. The 409 of a decision
-says what became of the set: approved or rejected already; replaced by the set
-it names, because files came back or went or an API change reached its objects
-or their bucket, with the same decision on that set; still waiting after an
-API write raced the decision, which may be sent again; or no set waiting.
+says what became of the set: approved or rejected already; not the set that
+waits now, which it names with how many of the tracked files are missing in
+it; still waiting after an API write raced the decision, which may be sent
+again; or no set waiting. The root keeps only its latest set, so a revision
+that an inventory replaced, one decided or taken before a restart, a mistyped
+one and another server's one look the same, and the 409 does not say which.
+A refused rejection names the rejection of the set that waits, which deletes
+nothing; a refused approval names the deletion view of that set, the failed
+mount to fix first, and asks to approve its revision only after checking it,
+so a revision nobody inspected never turns into a command that deletes.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,
 with its revision, its counts and a remedy, which the status also gives as

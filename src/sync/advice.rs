@@ -272,14 +272,18 @@ pub fn catalog() -> Vec<String> {
     let refusals = [
         Refusal::Approved,
         Refusal::Rejected,
-        Refusal::Replaced(OpaqueId::SAMPLE),
+        Refusal::Replaced {
+            revision: OpaqueId::SAMPLE,
+            missing: SAMPLE_AWAITING_SET.missing,
+            tracked: SAMPLE_AWAITING_SET.tracked,
+        },
         Refusal::Moved,
         Refusal::Settled,
     ];
     let refusal_listed = |refusal: Refusal| match refusal {
         Refusal::Approved
         | Refusal::Rejected
-        | Refusal::Replaced(_)
+        | Refusal::Replaced { .. }
         | Refusal::Moved
         | Refusal::Settled => refusal,
     };

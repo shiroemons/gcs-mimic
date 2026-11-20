@@ -246,6 +246,18 @@ pub(crate) fn unclassified_collision_remedy() -> String {
     )
 }
 
+/// The step before any decision on a deletion set when a mount failed, as every piece of advice
+/// that names a decision puts it: a failed mount looks like a directory emptied at once.
+pub(crate) const MOUNT_FIRST: &str = "if a mount failed, fix the mount and restart the server, which brings the files back, before anything else: a rejection before the mount returns writes them under the mount point, where the mount then hides them";
+
+/// How many of the files synchronization tracked a deletion set finds missing, as the clause
+/// that opens the advice on it.
+fn missing_of(missing: u64, tracked: u64) -> String {
+    let files = if tracked == 1 { "file" } else { "files" };
+    let are = if missing == 1 { "is" } else { "are" };
+    format!("{missing} of the {tracked} {files} that synchronization tracked {are} missing")
+}
+
 /// What lets external deletions go on once the files the set at hand counts went missing:
 /// inspecting the set, then the ways out that keep the objects before the one that deletes
 /// them, each with the case it is for. A rejection writes the files back from the objects,
@@ -254,7 +266,6 @@ pub(crate) fn unclassified_collision_remedy() -> String {
 /// since a rejection before the mount returns writes the files under the mount point, where the
 /// mount then hides them, and the mount alone brings them back.
 pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
-    const MOUNT: &str = "if a mount failed, fix the mount and restart the server, which brings the files back, before anything else: a rejection before the mount returns writes them under the mount point, where the mount then hides them";
     const REJECT: &str =
         "if the files went by mistake, reject the set to write them back from the objects";
     const RESTORE: &str = "or restore the files yourself and wait again";
@@ -262,18 +273,15 @@ pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
         "if the files were deleted on purpose, approve the set to delete their objects";
     let Some(set) = at_hand.deletion else {
         return format!(
-            "Files that synchronization tracked are missing, and deleting their objects waits for a decision. Inspect the deletion set, whose revision the reject and approve subcommands take as --deletion-set: {}; {MOUNT}; {REJECT}; {RESTORE}: {}; {APPROVE}",
+            "Files that synchronization tracked are missing, and deleting their objects waits for a decision. Inspect the deletion set, whose revision the reject and approve subcommands take as --deletion-set: {}; {MOUNT_FIRST}; {REJECT}; {RESTORE}: {}; {APPROVE}",
             Advised::Deletions(None),
             Advised::Wait
         );
     };
     let revision = set.revision.to_hex();
-    let tracked = if set.tracked == 1 { "file" } else { "files" };
-    let are = if set.missing == 1 { "is" } else { "are" };
     format!(
-        "{} of the {} {tracked} that synchronization tracked {are} missing, and deleting their objects waits for a decision. Inspect the deletion set: {}; {MOUNT}; {REJECT}: {}; {RESTORE}: {}; {APPROVE}: {}",
-        set.missing,
-        set.tracked,
+        "{}, and deleting their objects waits for a decision. Inspect the deletion set: {}; {MOUNT_FIRST}; {REJECT}: {}; {RESTORE}: {}; {APPROVE}: {}",
+        missing_of(set.missing, set.tracked),
         Advised::Deletions(Some(&revision)),
         Advised::Decide(Decision::Reject, &revision),
         Advised::Wait,
@@ -430,14 +438,6 @@ impl Decision {
             Self::Reject => "rejected",
         }
     }
-
-    /// What the decision does, as advice describes it beside the command.
-    const fn effect(self) -> &'static str {
-        match self {
-            Self::Approve => "delete the objects",
-            Self::Reject => "write the files back from the objects",
-        }
-    }
 }
 
 // An accepted decision names itself by its command, so a reader of the answer alone can tell an
@@ -470,8 +470,12 @@ impl std::str::FromStr for Decision {
 
 /// The refusal of `decision` on the deletion set `revision`, which `refusal` says what became
 /// of, and what to do instead: a decided set names the status or the wait that follows its
-/// decision, a replaced one the new set and the same decision on it, and one an API write
-/// raced the same decision again.
+/// decision, and one an API write raced the same decision again. While another set waits, the
+/// refusal says only that the revision is not that set, since the root no longer knows why,
+/// and counts what the other set holds. It never hands over an approval of a set the operator
+/// did not inspect: a revision mistyped, kept from before a restart or read from another
+/// server's log would otherwise turn into a ready command that deletes whatever waits now. A
+/// rejection deletes nothing, so a refused one names the rejection of the set that waits.
 pub(crate) fn stale_decision_remedy(
     decision: Decision,
     revision: OpaqueId,
@@ -480,6 +484,27 @@ pub(crate) fn stale_decision_remedy(
     let past = decision.past();
     let revision = revision.to_hex();
     match refusal {
+        Refusal::Replaced {
+            revision: current,
+            missing,
+            tracked,
+        } => {
+            let current = current.to_hex();
+            let inspect = Advised::Deletions(Some(&current));
+            let not_it = format!(
+                "Deletion set {revision} was not {past}: it is not the deletion set that waits for a decision now (it was replaced, decided before, taken before a restart, or not issued by this server). Deletion set {current} waits instead, and {}",
+                missing_of(missing, tracked)
+            );
+            match decision {
+                Decision::Approve => format!(
+                    "{not_it}; approving it would delete their objects. Inspect it: {inspect}; {MOUNT_FIRST}; approve that revision only after checking that it holds the files you meant to delete"
+                ),
+                Decision::Reject => format!(
+                    "{not_it}. Inspect it: {inspect}; {MOUNT_FIRST}; to write its files back from the objects: {}",
+                    Advised::Decide(Decision::Reject, &current)
+                ),
+            }
+        }
         Refusal::Approved => format!(
             "Deletion set {revision} was already approved, and a deletion set is decided once, so it was not {past} now. The status names any deletion set that waits for a decision: {}",
             Advised::Status
@@ -488,15 +513,6 @@ pub(crate) fn stale_decision_remedy(
             "Deletion set {revision} was already rejected, and a deletion set is decided once, so it was not {past} now. Its files are written back from their objects; wait for that to finish: {}",
             Advised::Wait
         ),
-        Refusal::Replaced(current) => {
-            let current = current.to_hex();
-            format!(
-                "Deletion set {revision} was not {past}: what it holds changed after it was taken, as files came back or went or an API change reached its objects or their bucket, and deletion set {current} replaced it and waits for a decision. Inspect the new set: {}; then, to {}: {}",
-                Advised::Deletions(Some(&current)),
-                decision.effect(),
-                Advised::Decide(decision, &current)
-            )
-        }
         Refusal::Moved => format!(
             "Deletion set {revision} was not {past}: an API write arrived while the decision compared the set with the directory. The set still waits for a decision; send it again: {}",
             Advised::Decide(decision, &revision)
@@ -925,10 +941,13 @@ mod tests {
     }
 
     /// A refused decision names what became of its set and the command that follows: the
-    /// status or the wait for a set decided already, the new set's view and the same decision
-    /// on it for a replaced one, the same decision again for one an API write raced, and the
-    /// status when nothing waits. It names only the decision that was refused, never the
-    /// other one. The sample identifier advice renders is the revision the command samples.
+    /// status or the wait for a set decided already, the same decision again for one an API
+    /// write raced, and the status when nothing waits. While another set waits, it counts that
+    /// set's missing files and names its view and the failed mount to fix first, without saying
+    /// why the refused revision is not that set; a refused rejection names the rejection of
+    /// that set, and a refused approval names no approval at all, so a revision that was never
+    /// the inspected one cannot become a ready command that deletes. A refusal never names the
+    /// other decision. The sample identifier advice renders is the revision the command samples.
     #[test]
     fn a_refused_decision_names_what_became_of_its_set() {
         assert_eq!(
@@ -937,6 +956,38 @@ mod tests {
         );
         let revision: OpaqueId = "0123456789abcdef0123456789abcdef".parse().unwrap();
         let current: OpaqueId = "fedcba9876543210fedcba9876543210".parse().unwrap();
+        let replaced = Refusal::Replaced {
+            revision: current,
+            missing: 650,
+            tracked: 800,
+        };
+        for decision in Decision::ALL {
+            let refused = stale_decision_remedy(decision, revision, replaced);
+            for part in [
+                "it is not the deletion set that waits for a decision now (it was replaced, decided before, taken before a restart, or not issued by this server)".to_owned(),
+                format!("Deletion set {current} waits instead, and 650 of the 800 files that synchronization tracked are missing"),
+                format!("gcs-mimic sync status --view deletions --revision {current} --endpoint URL;"),
+                "if a mount failed, fix the mount and restart the server".to_owned(),
+            ] {
+                assert!(refused.contains(&part), "{decision:?}: {refused}");
+            }
+            assert!(!refused.contains("replaced it"), "{decision:?}: {refused}");
+        }
+        let approval = stale_decision_remedy(Decision::Approve, revision, replaced);
+        assert!(!approval.contains("gcs-mimic sync approve"), "{approval}");
+        assert!(
+            approval.ends_with(
+                "approve that revision only after checking that it holds the files you meant to delete"
+            ),
+            "{approval}"
+        );
+        let rejection = stale_decision_remedy(Decision::Reject, revision, replaced);
+        assert!(
+            rejection.ends_with(&format!(
+                "to write its files back from the objects: gcs-mimic sync reject --deletion-set {current} --endpoint URL"
+            )),
+            "{rejection}"
+        );
         for decision in Decision::ALL {
             let (name, past) = (decision.as_str(), decision.past());
             let same = |set: OpaqueId| format!("gcs-mimic sync {name} --deletion-set {set}");
@@ -958,12 +1009,8 @@ mod tests {
                     ],
                 ),
                 (
-                    Refusal::Replaced(current),
-                    vec![
-                        format!("deletion set {current} replaced it"),
-                        format!("gcs-mimic sync status --view deletions --revision {current}"),
-                        same(current),
-                    ],
+                    replaced,
+                    vec![format!("Deletion set {current} waits instead")],
                 ),
                 (Refusal::Moved, vec![same(revision)]),
                 (

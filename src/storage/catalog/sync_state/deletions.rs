@@ -159,8 +159,15 @@ pub(crate) enum Refusal {
     Approved,
     /// An operator rejected the set already, and its files are written back.
     Rejected,
-    /// The set `0` replaced it, because what it held changed, and waits for a decision now.
-    Replaced(OpaqueId),
+    /// Another set waits for a decision now: `revision`, in which `missing` of the `tracked`
+    /// files are missing. The root keeps only its latest set, so why the refused revision is not
+    /// that set is not known: an inventory may have replaced it, or it was decided before, taken
+    /// before a restart or never issued by this server.
+    Replaced {
+        revision: OpaqueId,
+        missing: u64,
+        tracked: u64,
+    },
     /// The set still waits under its revision: an API write moved the journal while the
     /// decision compared the set with the tree, so the same decision may be sent again.
     Moved,
@@ -546,19 +553,21 @@ impl RootLease {
                 )
                 .optional()
                 .map_err(unavailable)?;
-                let waiting = read_set(&tx, root)?
-                    .filter(DeletionSet::awaits_decision)
-                    .map(|set| set.revision);
+                let waiting = read_set(&tx, root)?.filter(DeletionSet::awaits_decision);
                 Ok(match (decided, waiting) {
                     (Some(DeletionAuthorization::Granted), _) => Refusal::Approved,
                     (Some(DeletionAuthorization::Rejected), _) => Refusal::Rejected,
                     (Some(DeletionAuthorization::Withheld) | None, Some(current))
-                        if current == revision =>
+                        if current.revision == revision =>
                     {
                         Refusal::Moved
                     }
                     (Some(DeletionAuthorization::Withheld) | None, Some(current)) => {
-                        Refusal::Replaced(current)
+                        Refusal::Replaced {
+                            revision: current.revision,
+                            missing: current.candidate_count,
+                            tracked: current.baseline_count,
+                        }
                     }
                     (Some(DeletionAuthorization::Withheld) | None, None) => Refusal::Settled,
                 })

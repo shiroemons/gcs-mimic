@@ -121,9 +121,10 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
 }
 
 /// An API write to a member's object after the status named the set waiting for a decision
-/// makes a decision on that set fail with 409, which names the set that replaced it and the
-/// same decision on it, never the other one. That decision is accepted, and the rejection
-/// writes the file back beside the new object.
+/// makes a decision on that set fail with 409, which counts what the set that waits now holds.
+/// A refused approval names no approval to run, only the view to check that set in; a refused
+/// rejection names the rejection of that set, never an approval. That rejection is accepted,
+/// and writes the file back beside the new object.
 #[test]
 fn live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set() {
     let data = TestDir::new();
@@ -155,16 +156,35 @@ fn live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set
             b"written",
         )
         .expect(200);
+    let refused_approval = server.cli("approve", &["--deletion-set", &old], false);
+    assert_eq!(refused_approval["error"]["code"], 409, "{refused_approval}");
     let refused = server.cli("reject", &["--deletion-set", &old], false);
     assert_eq!(refused["error"]["code"], 409, "{refused}");
     let status = server.cli("status", &[], true);
     assert_eq!(status["pending_deletion_count"], 1, "{status}");
     let new = status["pending_deletion_revision"].as_str().unwrap();
     assert_ne!(new, old);
+    let tracked = &status["deletion_set"]["baseline_count"];
+    let files = if tracked == 1 { "file" } else { "files" };
+    let held = format!(
+        "Deletion set {new} waits instead, and 1 of the {tracked} {files} that synchronization tracked is missing"
+    );
+    let view = format!("gcs-mimic sync status --view deletions --revision {new}");
+    let message = refused_approval["error"]["message"].as_str().unwrap();
+    for part in [
+        &format!("Deletion set {old} was not approved"),
+        &held,
+        &view,
+    ] {
+        assert!(message.contains(part.as_str()), "{message}");
+    }
+    assert!(!message.contains("gcs-mimic sync approve"), "{message}");
+    assert!(!message.contains("gcs-mimic sync reject"), "{message}");
     let message = refused["error"]["message"].as_str().unwrap();
     for part in [
         format!("Deletion set {old} was not rejected"),
-        format!("deletion set {new} replaced it"),
+        held,
+        view,
         format!("gcs-mimic sync reject --deletion-set {new}"),
     ] {
         assert!(message.contains(&part), "{message}");
