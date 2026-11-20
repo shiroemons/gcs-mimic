@@ -190,20 +190,25 @@ What differs from fake-gcs-server:
   would delete host files. `GCS_MIMIC_LIFECYCLE_EXECUTION=enabled` turns them on.
 - **Deletions are applied without asking, up to a guard.** Deleting a file
   deletes its object, and so does a file deleted while the server was stopped,
-  at the next start. Only when at least 100 tracked files, and more than half of
-  all tracked files, would go at once does the server wait for your
-  approval. With several buckets, deleting one bucket's directory usually stays
-  under that half and is applied at once. When the guard does stop a deletion,
-  the API keeps answering. Take the revision from `pending_deletion_revision`,
-  look at the list, then decide. If the files went by mistake,
-  `gcs-mimic sync reject` with the same options keeps the objects and writes
-  the files back; if you deleted them on purpose, approve the set (use your own
-  value for `DELETION_REVISION`):
+  at the next start. The server waits for your decision instead when at least
+  100 tracked files, and more than half of all tracked files, would go at once,
+  and whatever the counts when a bucket's whole directory is missing, or shows
+  none of its tracked files after a start, as a mount that failed or came up
+  empty does. Once a set waits, it keeps waiting, with any files deleted
+  meanwhile, until you decide or every file is back. The API keeps answering
+  while it waits. Take the revision from `pending_deletion_revision` and look at the
+  list. If the files went by mistake, reject the set, which keeps the objects
+  and writes the files back; if you deleted them on purpose, approve it, which
+  deletes the objects (use your own value for `DELETION_REVISION`):
 
   ```sh
   docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443
   docker compose exec gcs gcs-mimic sync status --view deletions \
     --endpoint http://127.0.0.1:4443 --revision DELETION_REVISION
+  # The files went by mistake: keep the objects and write the files back.
+  docker compose exec gcs gcs-mimic sync reject \
+    --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
+  # You deleted them on purpose: delete the objects.
   docker compose exec gcs gcs-mimic sync approve \
     --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
   ```

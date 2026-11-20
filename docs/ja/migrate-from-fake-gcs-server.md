@@ -167,16 +167,20 @@ fake-gcs-serverとの違いは次のとおりです。
   動かすには`GCS_MIMIC_LIFECYCLE_EXECUTION=enabled`を設定します。
 - **削除は、ガードに達するまで確認なしで反映されます。** ファイルを消すとオブジェクトも消えます。
   サーバーを止めている間に消したファイルも、次の起動で削除として扱われます。
-  追跡中のファイルのうち100件以上で、かつ全体の半数を超える数が一度に消えるときだけ、サーバーは承認を待ちます。
-  バケットが複数あると、1つのバケットのディレクトリを消しても、たいてい半数に届かずにそのまま反映されます。
-  ガードが削除を止めたときも、APIは使えたままです。`pending_deletion_revision`のrevisionを取り出し、
-  一覧を確認してから決めます。誤って消えた場合は、同じオプションの`gcs-mimic sync reject`でオブジェクトを残してファイルを書き戻します。
-  意図して消した場合は承認します（`DELETION_REVISION`は自分の値に置き換えます）。
+  ただし、追跡中のファイルのうち100件以上で、かつ全体の半数を超える数が一度に消えるときは、サーバーは削除せずに決定を待ちます。
+  バケットのディレクトリが丸ごと無いときや、起動後に追跡中のファイルが1つも見えないとき（マウントに失敗した、または空のまま上がった場合と同じ状態）は、件数にかかわらず待ちます。
+  いったん待ち始めると、その間に消したファイルも加えて、決めるかすべてのファイルが戻るまで待ち続けます。その間もAPIは使えます。
+  `pending_deletion_revision`のrevisionを取り出し、一覧を確認します。
+  誤って消えた場合は却下します。オブジェクトは残り、ファイルを書き戻します。意図して消した場合は承認し、オブジェクトを削除します（`DELETION_REVISION`は自分の値に置き換えます）。
 
   ```sh
   docker compose exec gcs gcs-mimic sync status --endpoint http://127.0.0.1:4443
   docker compose exec gcs gcs-mimic sync status --view deletions \
     --endpoint http://127.0.0.1:4443 --revision DELETION_REVISION
+  # 誤って消えた場合: オブジェクトを残してファイルを書き戻す
+  docker compose exec gcs gcs-mimic sync reject \
+    --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
+  # 意図して消した場合: オブジェクトを削除する
   docker compose exec gcs gcs-mimic sync approve \
     --endpoint http://127.0.0.1:4443 --deletion-set DELETION_REVISION
   ```

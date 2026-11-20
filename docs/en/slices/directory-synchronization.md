@@ -247,7 +247,7 @@ Collect diagnostics by original source/key with a concrete fix before mutation.
 | JSON key | Default | Validation and effect |
 | --- | --- | --- |
 | `sync_dir` | Unset: disabled | Nonempty existing writable directory, not a symlink. This is the only required setting to enable sync. Canonicalize and reject equality or ancestor/descendant overlap with `data_dir` or `seed_dir`, including aliases. Reserve and revalidate the root identity rather than following a replaced root. A data directory synchronizes one directory: another one takes its place only when it holds this data directory's marker (merged) or no subdirectory (switched); see [marker and activation requirements](#marker-and-activation-requirements). |
-| `sync_delete_guard` | `true` | `false` disables only the count/percentage guard. Marker, complete-scan, incarnation and generation protections remain mandatory. |
+| `sync_delete_guard` | `true` | `false` disables only the count/percentage guard and the decision a bucket directory that is missing or empty after a start waits for. Marker, complete-scan, incarnation and generation protections remain mandatory. |
 | `max_sync_entries` | `0` (unlimited) | `0..=2^64−1`; requires `sync_dir`. Files and directories in `sync_dir`, also the watches Linux may use. A scan keeps one page per directory level, so a larger tree takes longer but holds no more memory. |
 | `max_sync_depth` | `0` (unlimited) | `0..=1024`; requires `sync_dir`. Directory levels below `sync_dir`, counting the bucket. Without a limit a walk stops at 1024. |
 

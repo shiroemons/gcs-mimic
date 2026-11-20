@@ -231,7 +231,7 @@ fn setting_line(setting: Setting) -> Option<(&'static str, &'static str)> {
         ),
         Setting::SyncDeleteGuard => (
             "BOOL",
-            "true (at least 100 deletions that are over half of the tree wait for approval through the sync approve subcommand)",
+            "true (at least 100 deletions that are over half of the tree, or a bucket directory missing or empty, wait for sync reject or sync approve)",
         ),
         Setting::SyncReinitialize => ("ID", "startup only (exact catalog ID; missing marker only)"),
         Setting::MaxSyncEntries => (
@@ -522,7 +522,7 @@ mod tests {
             .collect::<String>();
         assert_eq!(
             digest,
-            "bf9fd68f780ae5da917a57039b5eb00e16ff493548fa6e830fd9ad738393a3c9"
+            "2330d9df8ab8fa0786c120d9a256d4881167f4122eb9bd2a02eb157d0c1fbe4a"
         );
     }
 }
