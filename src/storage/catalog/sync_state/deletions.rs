@@ -123,16 +123,64 @@ pub(crate) struct DeletionSet {
     pub journal_fence: DeletionFence,
     #[serde(skip)]
     pub(crate) authorization: DeletionAuthorization,
-    /// Why the set waits for a decision, as the inventory that took or confirmed it in this
-    /// process found; `None` for a set that does not wait.
+    /// What the inventory that took or confirmed the set in this process saw of it while it
+    /// waits for a decision; nothing for a set that does not wait.
     #[serde(skip)]
+    pub(crate) seen: Seen,
+}
+
+/// What the inventory of this process saw of a set that waits for a decision, which the advice
+/// and the log on it name, so that an operator can tell a mount that failed from deletions made
+/// on purpose. The catalog does not store it: a set waits only within the journal epoch it was
+/// taken in, which a restart ends, so the inventory of this process that took the set always
+/// knew it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Seen {
+    /// Why the set waits.
     pub(crate) cause: Option<WaitCause>,
+    /// The buckets all of whose tracked files went at once, by name.
+    pub(crate) removed_buckets: Named<BucketName>,
+}
+
+/// The first [`Self::LIMIT`] of some items and how many more there were, which a log line or an
+/// answer names, so that it does not grow with a deletion set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Named<T> {
+    pub(crate) names: Vec<T>,
+    pub(crate) omitted: u64,
+}
+
+impl<T> Default for Named<T> {
+    fn default() -> Self {
+        Self {
+            names: Vec::new(),
+            omitted: 0,
+        }
+    }
+}
+
+impl<T> Named<T> {
+    pub(crate) const LIMIT: usize = 10;
+
+    /// Adds `item`, which is only counted once [`Self::LIMIT`] are named.
+    pub(crate) fn push(&mut self, item: T) {
+        if self.names.len() < Self::LIMIT {
+            self.names.push(item);
+        } else {
+            self.omitted += 1;
+        }
+    }
+
+    /// How many items there were, named or not.
+    pub(crate) fn count(&self) -> u64 {
+        u64::try_from(self.names.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(self.omitted)
+    }
 }
 
 /// Why a deletion set waits for a decision rather than running, which the advice on it states
-/// first, so that an operator can tell a mount that failed from deletions made on purpose. The
-/// catalog does not store it: a set waits only within the journal epoch it was taken in, which
-/// a restart ends, so the inventory of this process that took the set always knew it.
+/// first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum WaitCause {
     /// Every tracked file of `bucket` went at once, as `gone` says; the first such bucket.
@@ -391,7 +439,7 @@ pub(super) fn read_set(
     root: RootId,
 ) -> Result<Option<DeletionSet>, CatalogError> {
     sql::row(connection, concat!("SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND ", readable!()), [root],|row|Ok(DeletionSet {
-            revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,cause:None,
+            revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,seen:Seen::default(),
         })).optional().map_err(unavailable)
 }
 
@@ -491,16 +539,48 @@ impl RootLease {
                 read_set(&tx, root)
             })
             .await?;
-        Ok(set.map(|set| self.with_cause(set)))
+        Ok(set.map(|set| self.with_seen(set)))
     }
 
-    /// `set` with the cause the inventory of this process found for it, while it waits for a
-    /// decision.
-    pub(super) fn with_cause(&self, mut set: DeletionSet) -> DeletionSet {
+    /// `set` with what the inventory of this process saw of it, while it waits for a decision.
+    pub(super) fn with_seen(&self, mut set: DeletionSet) -> DeletionSet {
         if set.awaits_decision() {
-            set.cause = self.waiting_cause(set.revision);
+            set.seen = self.seen_waiting(set.revision);
         }
         set
+    }
+
+    pub(crate) async fn named_deletion_paths(
+        &self,
+        set: &DeletionSet,
+    ) -> Result<Named<String>, RootError> {
+        self.named_deletion_paths_for(set, self.authority()).await
+    }
+
+    /// The paths of the first members of `set`, with how many more it holds, which the log and
+    /// a wait name of a set that waits for a decision. A set that can no longer be inspected
+    /// fails as a failed precondition, as a page of the deletions view does.
+    pub(crate) async fn named_deletion_paths_for(
+        &self,
+        set: &DeletionSet,
+        authority: super::authority::ControlAuthority,
+    ) -> Result<Named<String>, RootError> {
+        let root = self.status().root_id;
+        let revision = set.revision;
+        let limit = i64::try_from(Named::<String>::LIMIT).unwrap_or(i64::MAX);
+        let names: Vec<String> = self.catalog().run_admin(move |connection| {
+            let tx=connection.transaction()?;
+            authority.authorize(&tx,root)?;
+            inspectable(&tx,root,revision)?;
+            tx.prepare_cached("SELECT path FROM sync_deletion_members WHERE root_id=?1 AND done=0 ORDER BY ordinal LIMIT ?2")
+                .and_then(|mut statement|statement.query_map(params![root,limit],|row| row.get(0))?.collect()).map_err(unavailable)
+        }).await?;
+        let named = u64::try_from(names.len()).unwrap_or(u64::MAX);
+        let left = set.candidate_count.saturating_sub(set.completed_count);
+        Ok(Named {
+            names,
+            omitted: left.saturating_sub(named),
+        })
     }
 
     pub(crate) async fn deletion_page(

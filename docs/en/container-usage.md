@@ -294,8 +294,10 @@ guard (`GCS_MIMIC_SYNC_DELETE_GUARD`, default `true`) stops until someone
 decides on the exact set: `gcs-mimic sync reject` keeps the objects and writes
 the files back from them, and `gcs-mimic sync approve` deletes the objects. The
 log names such a set once, as `sync_deletion_approval_required`, with its
-revision, how many of the tracked files are missing, and the commands that
-inspect, reject and approve it. Deletions that run are logged as
+revision, how many of the tracked files are missing, the first ten of their
+paths, the buckets that went whole, and the commands that inspect, reject and
+approve it; a wait that ends on the set names the same paths and buckets in
+its `deletions` field. Deletions that run are logged as
 `sync_deletions_applied` with their count and first ten paths, as a warning
 when the first pass after a start or a retry runs them and at the info level
 otherwise. Recent automatic deletions also

@@ -19,7 +19,7 @@ use crate::{
             OpaqueId, Ordinal, PageLimit, SyncBinding,
             deletions::{
                 BucketGone, Candidate, Confirmed, DeletionAuthorization, DeletionSet,
-                EmptiedAtStart, Guard, Inventory, PendingRejection, Recheck, Removal,
+                EmptiedAtStart, Guard, Inventory, Named, PendingRejection, Recheck, Removal,
             },
             observation::PathStop,
             root::{Baseline, RootError, RootLease},
@@ -156,7 +156,7 @@ async fn take_inventory(
             && let Some(set) = root.finish_deletion_inventory(inventory).await?
         {
             if new_set {
-                warn_awaiting_approval(&set);
+                warn_awaiting_approval(root, &set).await?;
             }
             return Ok(Some(set));
         }
@@ -168,25 +168,30 @@ async fn take_inventory(
     }
 }
 
-/// Warns that `set` waits for a decision, with the commands that inspect, reject and approve
-/// it, which a wait gives too. Nothing else reports a guarded set until someone asks for the
-/// status.
-fn warn_awaiting_approval(set: &DeletionSet) {
+/// Warns that `set` waits for a decision, with the paths of its first files, the buckets that
+/// went whole and the commands that inspect, reject and approve it, which a wait gives too.
+/// Nothing else reports a guarded set until someone asks for the status.
+async fn warn_awaiting_approval(root: &RootLease, set: &DeletionSet) -> Result<(), SyncError> {
     let Some(awaiting) = AwaitingSet::of(set) else {
-        return;
+        return Ok(());
     };
+    let paths = root.named_deletion_paths(set).await?;
     let at_hand = AtHand {
         deletion: Some(awaiting),
         ..AtHand::default()
     };
+    let removed = &set.seen.removed_buckets;
     diagnostics::emit(
         LogLevel::Warn,
         "sync_deletion_approval_required",
         serde_json::json!({
             "revision":set.revision.to_hex(),"candidates":set.candidate_count,
-            "baseline":set.baseline_count,"remedy":super::advice::logged(&deletion_approval_remedy(at_hand)),
+            "baseline":set.baseline_count,"paths":paths.names,"omitted":paths.omitted,
+            "removed_buckets":removed.names,"removed_buckets_omitted":removed.omitted,
+            "remedy":super::advice::logged(&deletion_approval_remedy(at_hand)),
         }),
     );
+    Ok(())
 }
 
 /// What a deletion set deleted: how many objects, and the paths of the first few, which the log
@@ -194,41 +199,33 @@ fn warn_awaiting_approval(set: &DeletionSet) {
 #[derive(Debug)]
 pub(super) struct Applied {
     revision: OpaqueId,
-    count: u64,
-    paths: Vec<String>,
+    paths: Named<String>,
 }
 
 impl Applied {
-    /// Paths the log names; the rest are only counted.
-    const NAMED: usize = 10;
-
     fn of(set: &DeletionSet) -> Self {
         Self {
             revision: set.revision,
-            count: 0,
-            paths: Vec::new(),
+            paths: Named::default(),
         }
     }
 
     fn record(&mut self, path: &str) {
-        self.count += 1;
-        if self.paths.len() < Self::NAMED {
-            self.paths.push(path.to_owned());
-        }
+        self.paths.push(path.to_owned());
     }
 
     /// Logs the deletions, if there were any, at `level`.
     pub(super) fn report(&self, level: LogLevel) {
-        if self.count == 0 {
+        let deleted = self.paths.count();
+        if deleted == 0 {
             return;
         }
-        let named = u64::try_from(self.paths.len()).unwrap_or(u64::MAX);
         diagnostics::emit(
             level,
             "sync_deletions_applied",
             serde_json::json!({
-                "revision":self.revision.to_hex(),"deleted":self.count,
-                "paths":self.paths,"omitted":self.count.saturating_sub(named),
+                "revision":self.revision.to_hex(),"deleted":deleted,
+                "paths":self.paths.names,"omitted":self.paths.omitted,
             }),
         );
     }
@@ -536,7 +533,8 @@ pub(super) async fn execute(
 ) -> Result<u64, SyncError> {
     Ok(execute_with(catalog, root, set, Interrupt::new(stopping))
         .await?
-        .count)
+        .paths
+        .count())
 }
 
 /// Deletes the objects of an authorized set whose paths are still empty, and returns what it

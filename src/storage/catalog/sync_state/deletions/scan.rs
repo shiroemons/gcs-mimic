@@ -25,7 +25,9 @@ pub(crate) struct Inventory {
     removal: Removal,
     /// The first bucket all of whose tracked files went at once, which the advice on a set that
     /// waits for that reason names.
-    gone_bucket: Option<(BucketName, BucketGone)>,
+    first_gone: Option<(BucketName, BucketGone)>,
+    /// Every such bucket, which the log and a wait name.
+    removed_buckets: Named<BucketName>,
 }
 
 impl Inventory {
@@ -42,8 +44,9 @@ impl Inventory {
     /// page shows: the pages count across it.
     pub(crate) fn saw_bucket_gone(&mut self, bucket: &BucketName, gone: BucketGone) {
         self.removal = self.removal.and(Removal::Bucket(gone));
-        self.gone_bucket
+        self.first_gone
             .get_or_insert_with(|| (bucket.clone(), gone));
+        self.removed_buckets.push(bucket.clone());
     }
 
     /// An inventory at `fence` that confirms the root's earlier set `revision`.
@@ -57,7 +60,8 @@ impl Inventory {
                 candidates: 0,
             },
             removal: Removal::Files,
-            gone_bucket: None,
+            first_gone: None,
+            removed_buckets: Named::default(),
         }
     }
 }
@@ -263,7 +267,8 @@ impl RootLease {
                     fence: current,
                     draft: Draft::New,
                     removal: Removal::Files,
-                    gone_bucket: None,
+                    first_gone: None,
+                    removed_buckets: Named::default(),
                 }))
             })
             .await?)
@@ -433,7 +438,7 @@ impl RootLease {
             let held=matches!(setting,Guard::Enabled) && held::holds_waiting(&transaction,inventory.root)?;
             let guard=threshold || removed || held;
             // The advice names one cause, the one most likely to be a mistake first.
-            let cause=match &inventory.gone_bucket {
+            let cause=match &inventory.first_gone {
                 Some((bucket,gone)) if removed => Some(WaitCause::Bucket{bucket:bucket.clone(),gone:*gone}),
                 Some(_) | None if threshold => Some(WaitCause::Threshold),
                 Some(_) | None if held => Some(WaitCause::Held),
@@ -455,11 +460,13 @@ impl RootLease {
             }
             let mut snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit()?;
-            snapshot.cause=cause.filter(|_| snapshot.awaits_decision());
+            if snapshot.awaits_decision() {
+                snapshot.seen=Seen{cause,removed_buckets:inventory.removed_buckets};
+            }
             Ok(Some(snapshot))
         }).await?;
         if let Some(set) = &finished {
-            self.keep_waiting_cause(set.revision, set.cause.clone());
+            self.keep_seen(set.revision, set.seen.clone());
         }
         Ok(finished)
     }

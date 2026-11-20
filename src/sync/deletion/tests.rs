@@ -161,13 +161,14 @@ async fn applied_deletions_name_the_first_paths_and_count_the_rest() {
     let applied = execute_with(&catalog, &root, set, Interrupt::new(&stopping))
         .await
         .unwrap();
-    assert_eq!((applied.count, applied.revision), (12, revision));
+    assert_eq!((applied.paths.count(), applied.revision), (12, revision));
     assert_eq!(
-        applied.paths,
-        (0..Applied::NAMED)
+        applied.paths.names,
+        (0..Named::<String>::LIMIT)
             .map(|index| format!("test-bucket/{index:04}"))
             .collect::<Vec<_>>()
     );
+    assert_eq!(applied.paths.omitted, 2);
     drop(root);
     catalog.close().await.unwrap();
 }
@@ -253,7 +254,8 @@ async fn expired_wait_neither_replaces_a_deletion_revision_nor_deletes_a_candida
         execute_with(&catalog, &root, set, deadline)
             .await
             .unwrap()
-            .count,
+            .paths
+            .count(),
         0
     );
     assert!(

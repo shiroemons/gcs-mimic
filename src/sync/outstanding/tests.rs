@@ -132,7 +132,7 @@ fn only_a_withheld_guarded_deletion_set_waits_for_approval() {
             epoch: 1,
         },
         authorization,
-        cause: None,
+        seen: Default::default(),
     };
     for (guarded, authorization, expected) in [
         (

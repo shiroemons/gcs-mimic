@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use std::collections::BTreeSet;
 
 #[test]
@@ -21,6 +22,25 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
     assert_eq!(status["state"], "DeletionApproval", "{status}");
     assert_eq!(status["pending_deletion_count"], 100);
     let old = status["pending_deletion_revision"].as_str().unwrap();
+    // A wait names the first files the set would delete and the bucket that went whole, and its
+    // remedy says first that the bucket's directory is missing.
+    let waited = server.cli("wait", &["--timeout", "10s"], false);
+    assert_eq!(waited["reason"], "DeletionApproval", "{waited}");
+    assert_eq!(
+        waited["deletions"],
+        json!({
+            "paths":(0..10).map(|index| format!("test-bucket/{index:03}")).collect::<Vec<_>>(),
+            "omitted":90,"removed_buckets":["test-bucket"],"removed_buckets_omitted":0,
+        }),
+        "{waited}"
+    );
+    let remedy = waited["remedy"].as_str().unwrap();
+    assert!(
+        remedy.starts_with(
+            "The directory of bucket test-bucket is missing, as it is when a mount did not come up"
+        ),
+        "{remedy}"
+    );
     let first = server.cli("deletions", &["--revision", old, "--limit", "37"], true);
     let cursor = first["next_cursor"].as_str().unwrap();
     server

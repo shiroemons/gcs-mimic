@@ -12,7 +12,7 @@ use crate::{
         lock,
         sync_state::{
             OpaqueId,
-            deletions::{EmptiedAtStart, WaitCause},
+            deletions::{EmptiedAtStart, Seen},
         },
     },
     sync::{
@@ -393,9 +393,9 @@ struct Ownership {
     /// What the deletion inventories of this process found of the buckets emptied while the
     /// server was stopped; `None` until the first of them completed.
     emptied_at_start: Mutex<Option<EmptiedAtStart>>,
-    /// Why the root's set waits for a decision, as the last inventory of this process that
-    /// completed it found, keyed by the set's revision.
-    waiting: Mutex<Option<(OpaqueId, WaitCause)>>,
+    /// What the last inventory of this process that completed the root's set saw of it, keyed
+    /// by the set's revision.
+    waiting: Mutex<Option<(OpaqueId, Seen)>>,
     _catalog_permit: OwnedSemaphorePermit,
 }
 
@@ -621,32 +621,28 @@ impl RootLease {
             .unwrap_or_else(PoisonError::into_inner) = Some(kept);
     }
 
-    /// Records why the set `revision`, which an inventory just completed, waits for a decision;
-    /// `None` for a set that does not wait.
-    pub(in crate::storage::catalog::sync_state) fn keep_waiting_cause(
+    /// Records what an inventory saw of the set `revision`, which it just completed.
+    pub(in crate::storage::catalog::sync_state) fn keep_seen(
         &self,
         revision: OpaqueId,
-        cause: Option<WaitCause>,
+        seen: Seen,
     ) {
         *self
             .ownership
             .waiting
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = cause.map(|cause| (revision, cause));
+            .unwrap_or_else(PoisonError::into_inner) = Some((revision, seen));
     }
 
-    /// Why the set `revision` waits for a decision, if an inventory of this process found it.
-    pub(in crate::storage::catalog::sync_state) fn waiting_cause(
-        &self,
-        revision: OpaqueId,
-    ) -> Option<WaitCause> {
+    /// What an inventory of this process saw of the set `revision`; nothing for another set.
+    pub(in crate::storage::catalog::sync_state) fn seen_waiting(&self, revision: OpaqueId) -> Seen {
         self.ownership
             .waiting
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
             .filter(|(waiting, _)| *waiting == revision)
-            .map(|(_, cause)| cause.clone())
+            .map_or_else(Seen::default, |(_, seen)| seen.clone())
     }
     pub(crate) fn watch_path(&self) -> &Path {
         &self.ownership.path

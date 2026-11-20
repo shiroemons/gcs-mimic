@@ -86,6 +86,6 @@ impl RootLease {
                 Ok((read_summary(&tx, root)?, selected.deletions.clone()))
             })
             .await?;
-        Ok((summary, set.map(|set| self.with_cause(set))))
+        Ok((summary, set.map(|set| self.with_seen(set))))
     }
 }

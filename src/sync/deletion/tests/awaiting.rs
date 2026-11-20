@@ -31,7 +31,8 @@ async fn awaiting(tree: &TestDir, root: &RootLease, config: &Config) -> Deletion
         .unwrap()
         .unwrap();
     assert_eq!((set.candidate_count, set.guarded), (DELETED as u64, true));
-    assert_eq!(set.cause, Some(WaitCause::Threshold));
+    assert_eq!(set.seen.cause, Some(WaitCause::Threshold));
+    assert_eq!(set.seen.removed_buckets.count(), 0);
     set
 }
 
@@ -82,11 +83,20 @@ async fn files_put_back_by_hand_leave_the_rest_waiting() {
     put_back(&tree, 0..40);
     let (set, deleted) = inventory_and_run(&catalog, &root, &config).await;
     assert_eq!((set.candidate_count, set.guarded), (80, true));
-    assert_eq!(set.cause, Some(WaitCause::Held));
+    assert_eq!(set.seen.cause, Some(WaitCause::Held));
     assert_eq!(
-        root.deletion_set().await.unwrap().unwrap().cause,
+        root.deletion_set().await.unwrap().unwrap().seen.cause,
         Some(WaitCause::Held)
     );
+    // The log and a wait name the first members of the set and count the rest.
+    let named = root.named_deletion_paths(&set).await.unwrap();
+    assert_eq!(
+        named.names,
+        (40..50)
+            .map(|index| format!("test-bucket/{index:04}"))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(named.omitted, 70);
     assert_eq!(deleted, 0);
     all_objects_exist(&catalog).await;
     drop(root);
@@ -180,7 +190,7 @@ async fn every_file_back_ends_the_wait() {
     }
     let (set, deleted) = inventory_and_run(&catalog, &root, &config).await;
     assert_eq!((set.candidate_count, set.guarded), (10, false));
-    assert_eq!(set.cause, None);
+    assert_eq!(set.seen, Default::default());
     assert_eq!(deleted, 10);
     drop(root);
     catalog.close().await.unwrap();

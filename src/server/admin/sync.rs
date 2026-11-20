@@ -1,7 +1,10 @@
 //! Live synchronization controls never open a data directory or confer fixture authority.
 
 use crate::json::JsonErrorResponse;
-use crate::storage::{admin::AdminError, failure::BackendCause};
+use crate::storage::{
+    admin::{AdminError, BucketName},
+    failure::BackendCause,
+};
 use crate::{
     api_error::ApiError,
     auth::Identity,
@@ -10,7 +13,7 @@ use crate::{
     storage::sync_state::{
         MAX_PAGE, OpaqueId, Ordinal, PageLimit,
         authority::ControlAuthority,
-        deletions::{Candidate, DeletionFence, DeletionSet},
+        deletions::{Candidate, DeletionFence, DeletionSet, Named},
         observation::{ObservationCursor, PauseReason, Summary},
         root::{RootChange, RootError, RootLease, RootStatus},
     },
@@ -167,7 +170,30 @@ struct WaitAnswer<'a> {
     /// For a wait that ended on source entries no object can take or that could not be read,
     /// the first of them, which its remedy is about, listed as an entry report is.
     source_entries: Option<EntryListing<'a>>,
+    /// For a wait that ended on a deletion set waiting for a decision, what the set would
+    /// delete, as the `sync_deletion_approval_required` event names it.
+    deletions: Option<WaitDeletions<'a>>,
     remedy: Option<String>,
+}
+
+/// The paths of the first files of a set that waits for a decision and the buckets that went
+/// whole, each with how many more there are, so that whoever waited sees what a decision
+/// touches without listing the set.
+struct WaitDeletions<'a> {
+    paths: Named<String>,
+    removed_buckets: &'a Named<BucketName>,
+}
+
+impl Serialize for WaitDeletions<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut fields = serializer.serialize_struct("WaitDeletions", 4)?;
+        fields.serialize_field("paths", &self.paths.names)?;
+        fields.serialize_field("omitted", &self.paths.omitted)?;
+        fields.serialize_field("removed_buckets", &self.removed_buckets.names)?;
+        fields.serialize_field("removed_buckets_omitted", &self.removed_buckets.omitted)?;
+        fields.end()
+    }
 }
 
 /// The objects the tree cannot hold, and the findings revision whose view lists them.
@@ -385,13 +411,25 @@ async fn wait(
         | WaitReason::FindingsPending => 0,
     };
     let set = if result.reason == WaitReason::DeletionApproval {
-        root.deletion_set_for(authority)
+        root.deletion_set_for(authority.clone())
             .await
             .map_err(|error| root_error(&error))?
     } else {
         None
     };
     let deletion = set.as_ref().and_then(AwaitingSet::of);
+    let deletions = match set.as_ref().filter(|set| set.awaits_decision()) {
+        Some(set) => match root.named_deletion_paths_for(set, authority).await {
+            Ok(paths) => Some(WaitDeletions {
+                paths,
+                removed_buckets: &set.seen.removed_buckets,
+            }),
+            // A set replaced since it was read has nothing to name; the remedy names it still.
+            Err(RootError::Admin(AdminError::Precondition)) => None,
+            Err(error) => return Err(root_error(&error)),
+        },
+        None => None,
+    };
     let findings = result.findings.map(|findings| WaitFindingsAnswer {
         unmapped: findings.unmapped,
         revision: findings_revision(&registration.session, findings.observation_revision),
@@ -406,6 +444,7 @@ async fn wait(
         findings,
         paused_reason,
         source_entries: source_entries(&result),
+        deletions,
         result: &result,
     };
     let mut response = bounded(&super::encode(&answer)?)?;

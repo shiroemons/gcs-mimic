@@ -171,7 +171,11 @@ mount to fix first, and asks to approve its revision only after checking it,
 so a revision nobody inspected never turns into a command that deletes.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,
-with its revision, its counts and a remedy, which the status also gives as
+with its revision, its counts, the `paths` of its first ten members in set
+order with the `omitted` count, as `sync_deletions_applied` names them, the
+`removed_buckets` that went whole, the first ten by name with
+`removed_buckets_omitted`, and a remedy. A wait that ends on the set answers
+the same four fields as `deletions`, and the status gives the remedy as
 `pending_deletion_remedy`. The remedy opens with one sentence on why the set
 waits, when the inventory of this process that took or confirmed it saw why:
 the first bucket whose directory is missing or showed none of its tracked files

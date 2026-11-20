@@ -121,6 +121,7 @@ waitは、反映できる変更をすべて反映した時点で成功します�
 全体の件数`total`、そのwait自身の照合で取り込めなかったエントリのうち先頭の5件`entries`（それぞれ`path`と`reason`）、示さなかった件数`omitted`です。
 エラーは対処の前にそれらを示します。例えば`sync wait ended with SourceUnrepresentable (2 source entries: INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`です。
 statusは走査の停止だけを返し、エントリは列挙しません。
+`DeletionApproval`で終わったwaitの応答には`deletions`が入ります。承認待ちの削除一覧の先頭10件のパス`paths`、示さなかった件数`omitted`、丸ごと消えたバケット`removed_buckets`とその省略件数`removed_buckets_omitted`で、`sync_deletion_approval_required`のログと同じです。対処は待っている理由から始まります。
 UTF-8でないパス（走査が取り込めない名前の典型）は、不正なバイト列ごとにU+FFFDに置き換えて示します。応答でも、そのパスを示すログや対処文でも同じです。
 
 サーバーの応答から組み立てる行（エントリ、対処、findingsのリビジョン、エラーメッセージ）は、端末に出す前に制御文字をエスケープします（ESCなら`\u{1b}`）。

@@ -231,7 +231,12 @@ with its `path` and `reason`, and how many it `omitted`. Its error names them
 before the remedy, for
 example `sync wait ended with SourceUnrepresentable (2 source entries:
 INVALID-BUCKET [unmappable-name], INVALID-BUCKET/body [unmappable-name]): ...`.
-The status reports only the scan stop and lists no entries. A path that is not
+The status reports only the scan stop and lists no entries. A wait that ends
+with `DeletionApproval` answers `deletions`: the `paths` of the first ten files
+of the set that waits, how many more it `omitted`, the `removed_buckets` that
+went whole and `removed_buckets_omitted`, as the
+`sync_deletion_approval_required` event names them; its remedy opens with why
+the set waits. A path that is not
 UTF-8, the kind of name a scan cannot take in, shows U+FFFD for each invalid
 sequence, in the answer as in the logs and remedies that name it.
 

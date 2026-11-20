@@ -158,7 +158,7 @@ impl<'a> AwaitingSet<'a> {
             revision: set.revision,
             missing: set.candidate_count,
             tracked: set.baseline_count,
-            cause: set.cause.as_ref(),
+            cause: set.seen.cause.as_ref(),
         })
     }
 }
