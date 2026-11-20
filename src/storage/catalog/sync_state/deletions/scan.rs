@@ -23,6 +23,9 @@ pub(crate) struct Inventory {
     draft: Draft,
     /// What the pages recorded so far saw gone above their candidates.
     removal: Removal,
+    /// The first bucket all of whose tracked files went at once, which the advice on a set that
+    /// waits for that reason names.
+    gone_bucket: Option<(BucketName, BucketGone)>,
 }
 
 impl Inventory {
@@ -35,10 +38,12 @@ impl Inventory {
         }
     }
 
-    /// Adds what the inventory saw gone that no single page shows, such as a bucket all of whose
-    /// tracked files went, which the pages count across.
-    pub(crate) fn saw_gone(&mut self, removal: Removal) {
-        self.removal = self.removal.and(removal);
+    /// Adds a bucket all of whose tracked files went at once, as `gone` says, which no single
+    /// page shows: the pages count across it.
+    pub(crate) fn saw_bucket_gone(&mut self, bucket: &BucketName, gone: BucketGone) {
+        self.removal = self.removal.and(Removal::Bucket(gone));
+        self.gone_bucket
+            .get_or_insert_with(|| (bucket.clone(), gone));
     }
 
     /// An inventory at `fence` that confirms the root's earlier set `revision`.
@@ -52,6 +57,7 @@ impl Inventory {
                 candidates: 0,
             },
             removal: Removal::Files,
+            gone_bucket: None,
         }
     }
 }
@@ -257,6 +263,7 @@ impl RootLease {
                     fence: current,
                     draft: Draft::New,
                     removal: Removal::Files,
+                    gone_bucket: None,
                 }))
             })
             .await?)
@@ -407,7 +414,7 @@ impl RootLease {
     ) -> Result<Option<DeletionSet>, RootError> {
         self.revalidate().await?;
         let scope = self.control_scope();
-        Ok(self.catalog().run_admin(move |connection| {
+        let finished = self.catalog().run_admin(move |connection| {
             let transaction=connection.transaction()?;
             scope.authorize(&transaction)?;
             if fence(&transaction)?!=inventory.fence {return Err(CatalogError::PreconditionFailed)}
@@ -421,9 +428,17 @@ impl RootLease {
             };
             let automatic=history::automatic_count(&transaction,inventory.root)?;
             let setting=Guard::from(enabled);
-            let guard=guarded(setting,baseline+automatic,candidates+automatic)
-                || inventory.removal.guarded(setting)
-                || (matches!(setting,Guard::Enabled) && held::holds_waiting(&transaction,inventory.root)?);
+            let threshold=guarded(setting,baseline+automatic,candidates+automatic);
+            let removed=inventory.removal.guarded(setting);
+            let held=matches!(setting,Guard::Enabled) && held::holds_waiting(&transaction,inventory.root)?;
+            let guard=threshold || removed || held;
+            // The advice names one cause, the one most likely to be a mistake first.
+            let cause=match &inventory.gone_bucket {
+                Some((bucket,gone)) if removed => Some(WaitCause::Bucket{bucket:bucket.clone(),gone:*gone}),
+                Some(_) | None if threshold => Some(WaitCause::Threshold),
+                Some(_) | None if held => Some(WaitCause::Held),
+                Some(_) | None => None,
+            };
             match inventory.draft {
                 Draft::New => {
                     sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,DeletionAuthorization::on_completion(guard)])?;
@@ -438,10 +453,15 @@ impl RootLease {
                     sql::exec(&transaction, "UPDATE sync_deletion_sets SET valid=1,sequence=?3,execution_sequence=?3 WHERE root_id=?1 AND revision=?2 AND (valid=0 OR sequence!=?3)", params![inventory.root,inventory.revision,inventory.fence.sequence])?;
                 }
             }
-            let snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;
+            let mut snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit()?;
+            snapshot.cause=cause.filter(|_| snapshot.awaits_decision());
             Ok(Some(snapshot))
-        }).await?)
+        }).await?;
+        if let Some(set) = &finished {
+            self.keep_waiting_cause(set.revision, set.cause.clone());
+        }
+        Ok(finished)
     }
 }
 

@@ -12,7 +12,7 @@ use crate::{
         change_journal::JournalFence,
         sync_state::{
             OpaqueId,
-            deletions::{DeletionSet, Refusal},
+            deletions::{BucketGone, DeletionSet, Refusal, WaitCause},
             observation::PauseReason,
             root::{RootError, RootLease},
         },
@@ -279,14 +279,38 @@ pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
         );
     };
     let revision = set.revision.to_hex();
+    let cause = set.cause.map_or_else(String::new, wait_cause);
     format!(
-        "{}, and deleting their objects waits for a decision. Inspect the deletion set: {}; {MOUNT_FIRST}; {REJECT}: {}; {RESTORE}: {}; {APPROVE}: {}",
+        "{cause}{}, and deleting their objects waits for a decision. Inspect the deletion set: {}; {MOUNT_FIRST}; {REJECT}: {}; {RESTORE}: {}; {APPROVE}: {}",
         missing_of(set.missing, set.tracked),
         Advised::Deletions(Some(&revision)),
         Advised::Decide(Decision::Reject, &revision),
         Advised::Wait,
         Advised::Decide(Decision::Approve, &revision)
     )
+}
+
+/// The sentence that opens the advice on a set that waits for `cause`, saying what the inventory
+/// saw and not why it happened: a mount that did not come up looks exactly like a directory
+/// deleted on purpose. A set that holds files of an earlier undecided set says that files
+/// deleted meanwhile joined it, since a decision on it covers them too.
+fn wait_cause(cause: &WaitCause) -> String {
+    match cause {
+        WaitCause::Bucket {
+            bucket,
+            gone: BucketGone::Missing,
+        } => format!(
+            "The directory of bucket {bucket} is missing, as it is when a mount did not come up, so its tracked files wait for a decision however few they are. "
+        ),
+        WaitCause::Bucket {
+            bucket,
+            gone: BucketGone::Emptied,
+        } => format!(
+            "The directory of bucket {bucket} has shown none of its tracked files since the server started, as it does when a mount came up empty, so they wait for a decision however few they are. "
+        ),
+        WaitCause::Threshold => "At least 100 tracked files went missing, more than half of those synchronization tracked, counting deletions applied without a decision since the last approval. ".to_owned(),
+        WaitCause::Held => "The set holds files of an earlier deletion set that nobody approved or rejected, so it waits too; files deleted while a set waits join it, and a decision covers them as well. ".to_owned(),
+    }
 }
 
 /// What lets a wait that refuses objects whose names the tree cannot hold succeed while `count`
@@ -918,6 +942,7 @@ mod tests {
             revision: OpaqueId::SAMPLE,
             missing: 150,
             tracked: 200,
+            cause: None,
         };
         let revision = set.revision.to_hex();
         let remedy = deletion_approval_remedy(AtHand {
@@ -975,6 +1000,66 @@ mod tests {
                 "approve the set".to_owned(),
             ],
         );
+    }
+
+    /// The advice on a set that waits opens with the one sentence that says why it waits, when
+    /// the inventory knew: a bucket directory missing or showing none of its files, named, the
+    /// threshold, or files of an earlier undecided set, which also says that files deleted
+    /// meanwhile joined it. It states what was seen, never that the files were deleted, and the
+    /// counts and commands follow unchanged.
+    #[test]
+    fn a_set_awaiting_a_decision_says_first_why_it_waits() {
+        let bucket = crate::storage::admin::BucketName::new("photos").unwrap();
+        let without = deletion_approval_remedy(AtHand {
+            deletion: Some(AwaitingSet {
+                revision: OpaqueId::SAMPLE,
+                missing: 2,
+                tracked: 2,
+                cause: None,
+            }),
+            ..AtHand::default()
+        });
+        for (cause, opening) in [
+            (
+                WaitCause::Bucket {
+                    bucket: bucket.clone(),
+                    gone: BucketGone::Missing,
+                },
+                "The directory of bucket photos is missing, as it is when a mount did not come up,",
+            ),
+            (
+                WaitCause::Bucket {
+                    bucket,
+                    gone: BucketGone::Emptied,
+                },
+                "The directory of bucket photos has shown none of its tracked files since the server started, as it does when a mount came up empty,",
+            ),
+            (
+                WaitCause::Threshold,
+                "At least 100 tracked files went missing",
+            ),
+            (
+                WaitCause::Held,
+                "The set holds files of an earlier deletion set that nobody approved or rejected, so it waits too; files deleted while a set waits join it",
+            ),
+        ] {
+            let remedy = deletion_approval_remedy(AtHand {
+                deletion: Some(AwaitingSet {
+                    revision: OpaqueId::SAMPLE,
+                    missing: 2,
+                    tracked: 2,
+                    cause: Some(&cause),
+                }),
+                ..AtHand::default()
+            });
+            assert!(remedy.starts_with(opening), "{remedy}");
+            assert_eq!(
+                remedy.matches(". ").count(),
+                without.matches(". ").count() + 1
+            );
+            assert!(remedy.ends_with(&without), "{remedy}");
+            assert!(!remedy.contains("deleted while the server"), "{remedy}");
+        }
     }
 
     /// A refused decision names what became of its set and the command that follows: the

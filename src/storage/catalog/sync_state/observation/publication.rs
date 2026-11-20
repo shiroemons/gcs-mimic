@@ -72,7 +72,7 @@ impl RootLease {
     ) -> Result<(Summary, Option<DeletionSet>), RootError> {
         let published = published_lock(&self.published_observation)?.clone();
         let root = self.status().root_id;
-        Ok(self
+        let (summary, set) = self
             .catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
@@ -85,6 +85,7 @@ impl RootLease {
                     .unwrap_or(&current);
                 Ok((read_summary(&tx, root)?, selected.deletions.clone()))
             })
-            .await?)
+            .await?;
+        Ok((summary, set.map(|set| self.with_cause(set))))
     }
 }

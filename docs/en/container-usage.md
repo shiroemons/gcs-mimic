@@ -327,6 +327,16 @@ When a deletion set waits for a decision, inspect it with
 - If you deleted the files on purpose, approve the set with
   `gcs-mimic sync approve --deletion-set REVISION` to delete their objects.
 
+The advice in the log, the status and the wait opens with why the set waits:
+a bucket directory that is missing or shows none of its files, named; at least
+100 files missing; or files of an earlier set that nobody decided. Files
+deleted while a set waits join it: the next pass takes them into the set under
+a new revision, which a decision on the old revision is refused with. A
+rejection then writes all of them back, and an approval deletes all of their
+objects. If the set mixes files that went by mistake with files you deleted on
+purpose, reject it first, then delete the intended files again once they are
+back.
+
 In CI, `gcs-mimic sync wait` exits 2 with `DeletionApproval` while a set waits,
 and its error names these commands with the set's revision, so a run stops there
 instead of going on with files missing.

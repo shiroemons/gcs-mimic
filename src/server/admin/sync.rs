@@ -368,15 +368,14 @@ async fn wait(
     // The mirror answers a paused wait with the reason it paused for, which the catalog may not
     // have recorded, and a wait for approval without the deletion set its remedy names.
     let paused_reason = result.paused_reason();
-    let deletion = if result.reason == WaitReason::DeletionApproval {
+    let set = if result.reason == WaitReason::DeletionApproval {
         root.deletion_set_for(authority)
             .await
             .map_err(|error| root_error(&error))?
-            .as_ref()
-            .and_then(AwaitingSet::of)
     } else {
         None
     };
+    let deletion = set.as_ref().and_then(AwaitingSet::of);
     let findings = result.findings.map(|findings| WaitFindingsAnswer {
         unmapped: findings.unmapped,
         revision: findings_revision(&registration.session, findings.observation_revision),

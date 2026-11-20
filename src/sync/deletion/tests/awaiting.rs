@@ -4,6 +4,7 @@
 //! without anyone deciding.
 
 use super::*;
+use crate::storage::sync_state::deletions::WaitCause;
 
 const FILES: usize = 150;
 const DELETED: usize = 120;
@@ -30,6 +31,7 @@ async fn awaiting(tree: &TestDir, root: &RootLease, config: &Config) -> Deletion
         .unwrap()
         .unwrap();
     assert_eq!((set.candidate_count, set.guarded), (DELETED as u64, true));
+    assert_eq!(set.cause, Some(WaitCause::Threshold));
     set
 }
 
@@ -80,6 +82,11 @@ async fn files_put_back_by_hand_leave_the_rest_waiting() {
     put_back(&tree, 0..40);
     let (set, deleted) = inventory_and_run(&catalog, &root, &config).await;
     assert_eq!((set.candidate_count, set.guarded), (80, true));
+    assert_eq!(set.cause, Some(WaitCause::Held));
+    assert_eq!(
+        root.deletion_set().await.unwrap().unwrap().cause,
+        Some(WaitCause::Held)
+    );
     assert_eq!(deleted, 0);
     all_objects_exist(&catalog).await;
     drop(root);
@@ -173,6 +180,7 @@ async fn every_file_back_ends_the_wait() {
     }
     let (set, deleted) = inventory_and_run(&catalog, &root, &config).await;
     assert_eq!((set.candidate_count, set.guarded), (10, false));
+    assert_eq!(set.cause, None);
     assert_eq!(deleted, 10);
     drop(root);
     catalog.close().await.unwrap();

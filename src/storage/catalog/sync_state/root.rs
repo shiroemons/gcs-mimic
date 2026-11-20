@@ -7,7 +7,14 @@ use crate::storage::failure::{Link, TypedSource};
 use crate::{
     bucket::CatalogError,
     fsutil::{self, FileIdentity, FsError, NodeId},
-    storage::{admin::AdminError, lock, sync_state::deletions::EmptiedAtStart},
+    storage::{
+        admin::AdminError,
+        lock,
+        sync_state::{
+            OpaqueId,
+            deletions::{EmptiedAtStart, WaitCause},
+        },
+    },
     sync::{
         mapping::{MARKER, MARKER_STAGING},
         naming::RootNaming,
@@ -386,6 +393,9 @@ struct Ownership {
     /// What the deletion inventories of this process found of the buckets emptied while the
     /// server was stopped; `None` until the first of them completed.
     emptied_at_start: Mutex<Option<EmptiedAtStart>>,
+    /// Why the root's set waits for a decision, as the last inventory of this process that
+    /// completed it found, keyed by the set's revision.
+    waiting: Mutex<Option<(OpaqueId, WaitCause)>>,
     _catalog_permit: OwnedSemaphorePermit,
 }
 
@@ -610,6 +620,34 @@ impl RootLease {
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(kept);
     }
+
+    /// Records why the set `revision`, which an inventory just completed, waits for a decision;
+    /// `None` for a set that does not wait.
+    pub(in crate::storage::catalog::sync_state) fn keep_waiting_cause(
+        &self,
+        revision: OpaqueId,
+        cause: Option<WaitCause>,
+    ) {
+        *self
+            .ownership
+            .waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = cause.map(|cause| (revision, cause));
+    }
+
+    /// Why the set `revision` waits for a decision, if an inventory of this process found it.
+    pub(in crate::storage::catalog::sync_state) fn waiting_cause(
+        &self,
+        revision: OpaqueId,
+    ) -> Option<WaitCause> {
+        self.ownership
+            .waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .filter(|(waiting, _)| *waiting == revision)
+            .map(|(_, cause)| cause.clone())
+    }
     pub(crate) fn watch_path(&self) -> &Path {
         &self.ownership.path
     }
@@ -833,6 +871,7 @@ impl SyncState {
                         identity,
                         naming: OnceLock::new(),
                         emptied_at_start: Mutex::new(None),
+                        waiting: Mutex::new(None),
                         _catalog_permit: permit,
                     };
                     ownership.validate()?;

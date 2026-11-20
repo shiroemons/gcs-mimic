@@ -10,7 +10,9 @@
 use super::baseline::exists;
 use super::ingest_durability::Started;
 use super::*;
-use crate::storage::sync_state::deletions::{DeletionAuthorization, DeletionSet, Refusal};
+use crate::storage::sync_state::deletions::{
+    BucketGone, DeletionAuthorization, DeletionSet, Refusal, WaitCause,
+};
 use crate::sync::control::{WaitReason, WaitResult};
 use crate::sync::outstanding::{Holdup, Outstanding};
 
@@ -61,6 +63,13 @@ async fn an_object_written_while_stopped_waits_with_its_missing_bucket_directory
     let set = started.root.deletion_set().await.unwrap().unwrap();
     assert_eq!((set.candidate_count, set.guarded), (2, true));
     assert_eq!(set.completed_count, 0);
+    assert_eq!(
+        set.cause,
+        Some(WaitCause::Bucket {
+            bucket: bucket.clone(),
+            gone: BucketGone::Missing
+        })
+    );
     all_exist(&started.catalog, &bucket).await;
     started.close().await;
 
@@ -307,8 +316,14 @@ async fn a_bucket_emptied_while_stopped_waits_for_approval() {
     let set = started.root.deletion_set().await.unwrap().unwrap();
     assert_eq!((set.candidate_count, set.guarded), (2, true));
     assert_eq!(set.completed_count, 0);
+    let emptied = Some(WaitCause::Bucket {
+        bucket: bucket.clone(),
+        gone: BucketGone::Emptied,
+    });
+    assert_eq!(set.cause, emptied);
     let again = inventory_again(&started, &data.0, &tree.0).await;
     assert_eq!((again.candidate_count, again.guarded), (2, true));
+    assert_eq!(again.cause, emptied);
     for name in TRACKED {
         assert!(exists(&started.catalog, &bucket, name).await, "{name}");
     }

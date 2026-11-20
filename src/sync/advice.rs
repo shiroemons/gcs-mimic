@@ -14,7 +14,7 @@ use super::{
 };
 use crate::storage::sync_state::{
     OpaqueId,
-    deletions::{DeletionSet, Refusal},
+    deletions::{DeletionSet, Refusal, WaitCause},
     observation::PauseReason,
     writeback::Halt,
 };
@@ -122,38 +122,42 @@ pub(crate) struct AtHand<'a> {
     /// The findings revision the answer read its findings at.
     pub(crate) findings_revision: Option<&'a str>,
     /// The deletion set that waits for a decision.
-    pub(crate) deletion: Option<AwaitingSet>,
+    pub(crate) deletion: Option<AwaitingSet<'a>>,
 }
 
-/// The deletion set that waits for a decision, as advice names it: its revision, and how many
-/// of the files synchronization tracked are missing, which tells a deliberate deletion of a
-/// few files from a directory that went as a whole. Only [`Self::of`] a set that waits makes
-/// one, so advice never names a decision on a set that already took one or never needed one.
+/// The deletion set that waits for a decision, as advice names it: its revision, how many of
+/// the files synchronization tracked are missing, which tells a deliberate deletion of a few
+/// files from a directory that went as a whole, and why it waits, when the inventory of this
+/// process that took it knew. Only [`Self::of`] a set that waits makes one, so advice never
+/// names a decision on a set that already took one or never needed one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct AwaitingSet {
+pub(crate) struct AwaitingSet<'a> {
     pub(crate) revision: OpaqueId,
     /// The tracked files that are missing, whose objects the set would delete.
     pub(crate) missing: u64,
     /// The files synchronization tracked when the set was taken.
     pub(crate) tracked: u64,
+    pub(crate) cause: Option<&'a WaitCause>,
 }
 
-impl AwaitingSet {
+impl<'a> AwaitingSet<'a> {
     /// `set` as advice names it, while it waits for a decision.
-    pub(crate) fn of(set: &DeletionSet) -> Option<Self> {
+    pub(crate) fn of(set: &'a DeletionSet) -> Option<Self> {
         set.awaits_decision().then_some(Self {
             revision: set.revision,
             missing: set.candidate_count,
             tracked: set.baseline_count,
+            cause: set.cause.as_ref(),
         })
     }
 }
 
 /// The set the catalog renders where an answer would have a real one at hand.
-const SAMPLE_AWAITING_SET: AwaitingSet = AwaitingSet {
+const SAMPLE_AWAITING_SET: AwaitingSet<'static> = AwaitingSet {
     revision: OpaqueId::SAMPLE,
     missing: 150,
     tracked: 200,
+    cause: None,
 };
 
 /// A findings revision and a deletion revision of the shapes the command takes, which the

@@ -159,8 +159,16 @@ so a revision nobody inspected never turns into a command that deletes.
 
 A new set that waits for approval logs `sync_deletion_approval_required` once,
 with its revision, its counts and a remedy, which the status also gives as
-`pending_deletion_remedy`. The remedy says how many of the tracked files are
-missing and names, in this order, the deletion view; fixing a failed mount and
+`pending_deletion_remedy`. The remedy opens with one sentence on why the set
+waits, when the inventory of this process that took or confirmed it saw why:
+the first bucket whose directory is missing or showed none of its tracked files
+since the start, named; the threshold; or members of an earlier set that nobody
+decided, which also says that files deleted meanwhile join the set. It states
+what was seen and not why it happened, since a mount that did not come up and
+a directory deleted on purpose look the same. The catalog does not store the
+cause: a set waits only within the journal epoch it was taken in, so the
+process that took it knew. The remedy then says how many of the tracked files
+are missing and names, in this order, the deletion view; fixing a failed mount and
 restarting before anything else, since a rejection before the mount returns
 writes the files under the mount point, where the mount then hides them;
 rejecting the set for files that went by mistake; restoring the files and

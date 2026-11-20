@@ -114,6 +114,27 @@ pub(crate) struct DeletionSet {
     pub journal_fence: DeletionFence,
     #[serde(skip)]
     pub(crate) authorization: DeletionAuthorization,
+    /// Why the set waits for a decision, as the inventory that took or confirmed it in this
+    /// process found; `None` for a set that does not wait.
+    #[serde(skip)]
+    pub(crate) cause: Option<WaitCause>,
+}
+
+/// Why a deletion set waits for a decision rather than running, which the advice on it states
+/// first, so that an operator can tell a mount that failed from deletions made on purpose. The
+/// catalog does not store it: a set waits only within the journal epoch it was taken in, which
+/// a restart ends, so the inventory of this process that took the set always knew it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WaitCause {
+    /// Every tracked file of `bucket` went at once, as `gone` says; the first such bucket.
+    Bucket {
+        bucket: BucketName,
+        gone: BucketGone,
+    },
+    /// The missing files reach the guard's threshold.
+    Threshold,
+    /// The set holds files of the set that waited before it, which nobody decided.
+    Held,
 }
 
 impl DeletionSet {
@@ -358,7 +379,7 @@ pub(super) fn read_set(
     root: RootId,
 ) -> Result<Option<DeletionSet>, CatalogError> {
     sql::row(connection, concat!("SELECT revision,scan_revision,baseline_count,candidate_count,guard_enabled,guarded,authorization,d.sequence,d.epoch,(SELECT count(*) FROM sync_deletion_members m WHERE m.root_id=d.root_id AND m.done=1) FROM sync_deletion_sets d JOIN change_journal_state j ON j.singleton=1 WHERE d.root_id=?1 AND ", readable!()), [root],|row|Ok(DeletionSet {
-            revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,
+            revision:row.get(0)?,scan_revision:row.get(1)?,baseline_count:row.get(2)?,candidate_count:row.get(3)?,guard_enabled:row.get(4)?,guarded:row.get(5)?,authorization:row.get(6)?,journal_fence:DeletionFence {sequence:row.get(7)?,epoch:row.get(8)?},completed_count:row.get(9)?,cause:None,
         })).optional().map_err(unavailable)
 }
 
@@ -450,14 +471,24 @@ impl RootLease {
         authority: super::authority::ControlAuthority,
     ) -> Result<Option<DeletionSet>, RootError> {
         let root = self.status().root_id;
-        Ok(self
+        let set = self
             .catalog()
             .run_admin(move |connection| {
                 let tx = connection.transaction()?;
                 authority.authorize(&tx, root)?;
                 read_set(&tx, root)
             })
-            .await?)
+            .await?;
+        Ok(set.map(|set| self.with_cause(set)))
+    }
+
+    /// `set` with the cause the inventory of this process found for it, while it waits for a
+    /// decision.
+    pub(super) fn with_cause(&self, mut set: DeletionSet) -> DeletionSet {
+        if set.awaits_decision() {
+            set.cause = self.waiting_cause(set.revision);
+        }
+        set
     }
 
     pub(crate) async fn deletion_page(

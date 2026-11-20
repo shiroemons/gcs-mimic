@@ -366,7 +366,7 @@ impl GoneBuckets {
                 (false, false) => continue,
             };
             warn_bucket_gone(&bucket, gone);
-            inventory.saw_gone(Removal::Bucket(gone));
+            inventory.saw_bucket_gone(&bucket, gone);
             if emptied {
                 kept.insert(bucket, tally.absent);
             }
