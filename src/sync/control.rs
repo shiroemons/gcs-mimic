@@ -506,11 +506,11 @@ pub(crate) fn stale_decision_remedy(
             }
         }
         Refusal::Approved => format!(
-            "Deletion set {revision} was already approved, and a deletion set is decided once, so it was not {past} now. The status names any deletion set that waits for a decision: {}",
+            "Deletion set {revision} was already approved, and its objects are deleted or being deleted; a deletion set is decided once, so it was not {past} now. The status names any deletion set that waits for a decision: {}",
             Advised::Status
         ),
         Refusal::Rejected => format!(
-            "Deletion set {revision} was already rejected, and a deletion set is decided once, so it was not {past} now. Its files are written back from their objects; wait for that to finish: {}",
+            "Deletion set {revision} was already rejected, and a deletion set is decided once, so it was not {past} now. Its files are written back from their objects; wait for that to finish: {}; if you still want them gone, delete the files again after the write-back ends",
             Advised::Wait
         ),
         Refusal::Moved => format!(
@@ -1033,6 +1033,7 @@ mod tests {
                     Refusal::Approved,
                     vec![
                         "was already approved".to_owned(),
+                        "its objects are deleted or being deleted".to_owned(),
                         format!("it was not {past} now"),
                         "gcs-mimic sync status --endpoint URL".to_owned(),
                     ],
@@ -1042,7 +1043,8 @@ mod tests {
                     vec![
                         "was already rejected".to_owned(),
                         format!("it was not {past} now"),
-                        "gcs-mimic sync wait --endpoint URL".to_owned(),
+                        "gcs-mimic sync wait --endpoint URL;".to_owned(),
+                        "if you still want them gone, delete the files again after the write-back ends".to_owned(),
                     ],
                 ),
                 (

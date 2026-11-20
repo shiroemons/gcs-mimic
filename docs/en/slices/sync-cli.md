@@ -36,7 +36,13 @@ fixed deletion page before approval. Supply `--cursor` exactly as returned, with
 the `--revision` of the page that returned it, and
 `--limit 1..256`; the client encodes the cursor once and prints only one page.
 A changed revision or stale approval fails; the CLI never substitutes a fresh
-revision for one given or automatically retries a mutation.
+revision for one given or automatically retries a mutation. An accepted
+approval says on standard error how many objects the server deletes, that their
+buckets stay and that synchronization cannot bring the objects back, and names
+`gcs-mimic sync wait`, which answers once the deletions are done. A decision on
+a set approved already answers 409 saying its objects are deleted or being
+deleted; one on a set rejected already says its files are written back, and to
+delete them again after the write-back if they should go after all.
 
 `reject` is the opposite of approval and takes the same `--deletion-set`
 revision. It closes the set, so nothing approves or runs it, and writes each

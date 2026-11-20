@@ -931,29 +931,38 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     }
 }
 
-/// What the command says once the server accepted `decision` with `answer`. A rejection goes on
-/// writing the set's files back after the answer, so the command counts them and names the wait
-/// that answers once they are back; an approval's answer says all there is.
+/// What the command says once the server accepted `decision` with `answer`. Either decision goes
+/// on after the answer, so the command counts what it touches and names the wait that answers
+/// once it is done: a rejection writes the set's files back, and an approval deletes its
+/// objects, which nothing in synchronization brings back, while their buckets stay.
 fn decided(decision: Decision, answer: &Value, connection: &str) -> Diagnostics {
-    let mut accepted = Diagnostics::default();
-    match decision {
-        Decision::Approve => {}
-        Decision::Reject => {
-            let files = match answer.get("candidate_count").and_then(Value::as_u64) {
-                Some(1) => "1 file".to_owned(),
-                Some(count) => format!("{count} files"),
-                None => "the files".to_owned(),
-            };
-            let wait = advice::with_connection(&advice::Advised::Wait.to_string(), connection);
-            accepted.info.push(diagnostic(
-                "sync-reject",
-                format!(
-                    "The server writes {files} of the rejected deletion set back from the objects; {wait} answers once the write-back is done"
-                ),
-            ));
-        }
+    let count = answer.get("candidate_count").and_then(Value::as_u64);
+    let counted = |one: &str, many: &str, unknown: &str| match count {
+        Some(1) => format!("1 {one}"),
+        Some(count) => format!("{count} {many}"),
+        None => unknown.to_owned(),
+    };
+    let wait = advice::with_connection(&advice::Advised::Wait.to_string(), connection);
+    let line = match decision {
+        Decision::Approve => diagnostic(
+            "sync-approve",
+            format!(
+                "The server deletes {} of the approved deletion set; their buckets stay, and synchronization cannot bring the objects back; {wait} answers once the deletions are done",
+                counted("object", "objects", "the objects")
+            ),
+        ),
+        Decision::Reject => diagnostic(
+            "sync-reject",
+            format!(
+                "The server writes {} of the rejected deletion set back from the objects; {wait} answers once the write-back is done",
+                counted("file", "files", "the files")
+            ),
+        ),
+    };
+    Diagnostics {
+        info: vec![line],
+        ..Diagnostics::default()
     }
-    accepted
 }
 
 /// The message of a failed request's JSON error envelope, `{"error":{"message":..}}`.

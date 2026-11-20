@@ -99,7 +99,13 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
     assert!(approved.success, "{:?}", approved.stderr);
     assert!(approved.answer["operation_id"].is_string());
     assert_eq!(approved.answer["decision"], "approve");
-    assert!(approved.stderr.is_empty(), "{:?}", approved.stderr);
+    assert_eq!(
+        approved.diagnostics("sync-approve"),
+        [format!(
+            "The server deletes 100 objects of the approved deletion set; their buckets stay, and synchronization cannot bring the objects back; gcs-mimic sync wait --endpoint {} answers once the deletions are done",
+            server.endpoint
+        )]
+    );
     assert_eq!(
         server.cli("wait", &["--timeout", "10s"], true)["completed"],
         true

@@ -959,11 +959,12 @@ fn a_wait_keeps_asking_until_its_own_timeout() {
     assert_eq!(requests(&endpoint, server), [60_000, 60_000, 30_000]);
 }
 
-/// An accepted rejection says how many files the server writes back and names the wait that
-/// answers once they are back, with the options that reached the server; an accepted approval
-/// adds nothing to its answer.
+/// An accepted rejection says how many files the server writes back, and an accepted approval
+/// how many objects it deletes, that their buckets stay and that synchronization cannot bring
+/// the objects back; each names the wait that answers once the work is done, with the options
+/// that reached the server.
 #[test]
-fn an_accepted_rejection_counts_the_files_it_writes_back_and_names_the_wait() {
+fn an_accepted_decision_counts_what_it_touches_and_names_the_wait() {
     let connection = "--endpoint http://127.0.0.1:4443";
     let lines = |decision, count: Value| {
         let accepted = decided(decision, &json!({"candidate_count":count}), connection);
@@ -974,24 +975,31 @@ fn an_accepted_rejection_counts_the_files_it_writes_back_and_names_the_wait() {
             .map(|line| (line.key, line.fix))
             .collect::<Vec<_>>()
     };
-    let wait =
-        "gcs-mimic sync wait --endpoint http://127.0.0.1:4443 answers once the write-back is done";
-    for (count, files) in [
-        (json!(2), "2 files"),
-        (json!(1), "1 file"),
-        (Value::Null, "the files"),
+    let wait = "gcs-mimic sync wait --endpoint http://127.0.0.1:4443 answers once";
+    for (count, files, objects) in [
+        (json!(2), "2 files", "2 objects"),
+        (json!(1), "1 file", "1 object"),
+        (Value::Null, "the files", "the objects"),
     ] {
         assert_eq!(
-            lines(Decision::Reject, count),
+            lines(Decision::Reject, count.clone()),
             [(
                 "sync-reject".to_owned(),
                 format!(
-                    "The server writes {files} of the rejected deletion set back from the objects; {wait}"
+                    "The server writes {files} of the rejected deletion set back from the objects; {wait} the write-back is done"
+                )
+            )]
+        );
+        assert_eq!(
+            lines(Decision::Approve, count),
+            [(
+                "sync-approve".to_owned(),
+                format!(
+                    "The server deletes {objects} of the approved deletion set; their buckets stay, and synchronization cannot bring the objects back; {wait} the deletions are done"
                 )
             )]
         );
     }
-    assert_eq!(lines(Decision::Approve, json!(2)), []);
 }
 
 /// A wait that ended on source entries no object can take names the first of them, with how
