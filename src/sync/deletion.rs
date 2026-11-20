@@ -4,7 +4,7 @@ use super::interrupt::{Interrupt, Interrupted};
 use super::{
     SyncError,
     advice::{AtHand, AwaitingSet},
-    control::deletion_approval_remedy,
+    control::{MOUNT_FIRST, deletion_approval_remedy},
     mapping,
     mirror::PassGate,
 };
@@ -378,23 +378,38 @@ impl GoneBuckets {
 /// Reports a bucket whose tracked files all went at once. The inventory takes them to approval
 /// whatever their number; nothing recreates a missing directory meanwhile.
 fn warn_bucket_gone(bucket: &BucketName, gone: BucketGone) {
-    let (event, reason, remedy) = match gone {
-        BucketGone::Missing => (
-            "sync_bucket_directory_missing",
-            "The directory of a bucket with synchronized files is missing",
-            "To keep the objects, put the directory, or the mount that holds it, back, or reject the pending deletion set, which writes the files back from the objects; to delete the objects, approve the set",
-        ),
-        BucketGone::Emptied => (
-            "sync_bucket_directory_emptied",
-            "The directory of a bucket holds none of its synchronized files, which went while the server was stopped",
-            "To keep the objects, put the files, or the mount that holds them, back, or reject the pending deletion set, which writes the files back from the objects; to delete the objects, approve the set",
-        ),
-    };
+    let (event, reason, remedy) = bucket_gone_report(gone);
     diagnostics::emit(
         LogLevel::Warn,
         event,
         serde_json::json!({"bucket":bucket,"path":bucket,"reason":reason,"remedy":remedy}),
     );
+}
+
+/// The event, reason and remedy of the warning on a bucket whose tracked files all went at once.
+/// The reason says what the inventory saw, never when or why the files went: a bind mount that
+/// came up empty or did not come up looks the same as files deleted on purpose. The remedy puts
+/// the steps in the order the advice on the set does, a failed mount before anything else, then
+/// the rejection, restoring by hand, and last the approval that deletes.
+fn bucket_gone_report(gone: BucketGone) -> (&'static str, &'static str, String) {
+    let (event, reason, what, rejection) = match gone {
+        BucketGone::Missing => (
+            "sync_bucket_directory_missing",
+            "The directory of a bucket with synchronized files is missing",
+            "the directory",
+            "recreates the directory and writes the files back into it from the objects",
+        ),
+        BucketGone::Emptied => (
+            "sync_bucket_directory_emptied",
+            "The directory of a bucket has shown none of its synchronized files since the server started",
+            "the files",
+            "writes the files back from the objects",
+        ),
+    };
+    let remedy = format!(
+        "Inspect the pending deletion set first; {MOUNT_FIRST}; if {what} went by mistake, reject the set, which {rejection}; or put {what} back yourself and wait again; if you deleted {what} on purpose, approve the set, which deletes the objects and keeps the bucket"
+    );
+    (event, reason, remedy)
 }
 
 /// Whether nothing may create the directory of `bucket` now: it is missing while the inventory

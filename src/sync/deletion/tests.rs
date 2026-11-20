@@ -937,3 +937,29 @@ async fn a_bucket_directory_gone_as_a_whole_needs_approval_whatever_its_size() {
     drop(root);
     catalog.close().await.unwrap();
 }
+
+/// The warning on a bucket whose tracked files all went names a failed mount before anything
+/// else, in the words every decision remedy uses, and only then the rejection, restoring by hand
+/// and last the approval; it never offers a mount and a rejection as alternatives, and it says
+/// what the inventory saw rather than when the files went.
+#[test]
+fn a_bucket_gone_warning_names_the_mount_before_any_decision() {
+    for gone in [BucketGone::Missing, BucketGone::Emptied] {
+        let (_, reason, remedy) = bucket_gone_report(gone);
+        let at = |step: &str| {
+            remedy
+                .find(step)
+                .unwrap_or_else(|| panic!("{step}: {remedy}"))
+        };
+        let steps = [
+            at("Inspect the pending deletion set"),
+            at(MOUNT_FIRST),
+            at("went by mistake, reject the set"),
+            at("back yourself and wait again"),
+            at("on purpose, approve the set"),
+        ];
+        assert!(steps.is_sorted(), "{remedy}");
+        assert!(!remedy.contains("or reject"), "{remedy}");
+        assert!(!reason.contains("stopped"), "{reason}");
+    }
+}

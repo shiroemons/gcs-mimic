@@ -105,7 +105,11 @@ those files is back. That inventory takes in what changed while the server was
 stopped. A file the bucket gains later, such as the export of an object written
 through the API, does not count, so it neither ends the wait nor is held back.
 A bucket emptied while the server runs, or one with any of those files back, is
-left to the counts. One decision covers both reasons. A disabled
+left to the counts. One decision covers both reasons. Both warnings state
+what the inventory saw, not when or why the files went, and their remedy puts
+the steps in the order of the set's advice: fixing a failed mount before
+anything else, in the same words, then rejecting the set, putting the
+directory or files back by hand, and last approving it. A disabled
 guard changes only these decisions.
 
 Once a set waits for approval, it keeps waiting until it is approved or
