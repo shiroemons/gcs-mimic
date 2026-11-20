@@ -275,9 +275,9 @@ pub(crate) fn deletion_approval_remedy(at_hand: AtHand<'_>) -> String {
         set.missing,
         set.tracked,
         Advised::Deletions(Some(&revision)),
-        Advised::Reject(&revision),
+        Advised::Decide(Decision::Reject, &revision),
         Advised::Wait,
-        Advised::Approve(&revision)
+        Advised::Decide(Decision::Approve, &revision)
     )
 }
 
@@ -438,14 +438,6 @@ impl Decision {
             Self::Reject => "write the files back from the objects",
         }
     }
-
-    /// The command that takes the decision on the set `revision`.
-    const fn advised(self, revision: &str) -> Advised<'_> {
-        match self {
-            Self::Approve => Advised::Approve(revision),
-            Self::Reject => Advised::Reject(revision),
-        }
-    }
 }
 
 // An accepted decision names itself by its command, so a reader of the answer alone can tell an
@@ -502,12 +494,12 @@ pub(crate) fn stale_decision_remedy(
                 "Deletion set {revision} was not {past}: what it holds changed after it was taken, as files came back or went or an API change reached its objects or their bucket, and deletion set {current} replaced it and waits for a decision. Inspect the new set: {}; then, to {}: {}",
                 Advised::Deletions(Some(&current)),
                 decision.effect(),
-                decision.advised(&current)
+                Advised::Decide(decision, &current)
             )
         }
         Refusal::Moved => format!(
             "Deletion set {revision} was not {past}: an API write arrived while the decision compared the set with the directory. The set still waits for a decision; send it again: {}",
-            decision.advised(&revision)
+            Advised::Decide(decision, &revision)
         ),
         Refusal::Settled => format!(
             "Deletion set {revision} was not {past}: no deletion set waits for a decision now, because the missing files came back or a later pass found nothing that needs one. The status shows what synchronization does now: {}",
@@ -898,13 +890,13 @@ mod tests {
             Advised::Deletions(Some(&revision)).to_string(),
             "if a mount failed, fix the mount and restart the server".to_owned(),
             "if the files went by mistake, reject".to_owned(),
-            Advised::Reject(&revision).to_string(),
+            Advised::Decide(Decision::Reject, &revision).to_string(),
             format!(
                 "restore the files yourself and wait again: {}",
                 Advised::Wait
             ),
             "if the files were deleted on purpose, approve".to_owned(),
-            Advised::Approve(&revision).to_string(),
+            Advised::Decide(Decision::Approve, &revision).to_string(),
         ];
         order(&remedy, &steps);
         let one = deletion_approval_remedy(AtHand {

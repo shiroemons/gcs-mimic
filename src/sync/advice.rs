@@ -39,10 +39,9 @@ pub enum Advised<'a> {
     Findings(Option<&'a str>),
     /// The deletion view of the deletion set at this revision, or of the one awaiting approval.
     Deletions(Option<&'a str>),
-    /// The approval of the deletion set at this revision.
-    Approve(&'a str),
-    /// The rejection of the deletion set at this revision, which writes its files back.
-    Reject(&'a str),
+    /// The decision on the deletion set at this revision: an approval deletes its objects, and a
+    /// rejection writes its files back.
+    Decide(Decision, &'a str),
 }
 
 impl fmt::Display for Advised<'_> {
@@ -59,8 +58,9 @@ impl fmt::Display for Advised<'_> {
             Self::Conflicts => f.write_str("conflicts")?,
             Self::Findings(revision) => view(f, "findings", *revision)?,
             Self::Deletions(revision) => view(f, "deletions", *revision)?,
-            Self::Approve(revision) => write!(f, "approve --deletion-set {revision}")?,
-            Self::Reject(revision) => write!(f, "reject --deletion-set {revision}")?,
+            Self::Decide(decision, revision) => {
+                write!(f, "{} --deletion-set {revision}", decision.as_str())?;
+            }
         }
         write!(f, " {ENDPOINT}")
     }
@@ -173,9 +173,9 @@ pub fn commands() -> Vec<String> {
         Advised::Findings(None),
         Advised::Deletions(Some(SAMPLE_DELETION_REVISION)),
         Advised::Deletions(None),
-        Advised::Approve(SAMPLE_DELETION_REVISION),
-        Advised::Reject(SAMPLE_DELETION_REVISION),
-    ];
+    ]
+    .into_iter()
+    .chain(Decision::ALL.map(|decision| Advised::Decide(decision, SAMPLE_DELETION_REVISION)));
     // Naming every variant makes a new one fail to compile here, beside the list it must join.
     let listed = |command: Advised<'_>| match command {
         Advised::Status
@@ -184,10 +184,9 @@ pub fn commands() -> Vec<String> {
         | Advised::Conflicts
         | Advised::Findings(_)
         | Advised::Deletions(_)
-        | Advised::Approve(_)
-        | Advised::Reject(_) => command.to_string(),
+        | Advised::Decide(..) => command.to_string(),
     };
-    all.into_iter().map(listed).collect()
+    all.map(listed).collect()
 }
 
 /// Every piece of advice the server gives that names a command, with [`ENDPOINT`] left in: the
