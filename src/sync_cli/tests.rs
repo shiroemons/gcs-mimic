@@ -139,14 +139,6 @@ fn parse_failures_keep_their_text_and_the_order_they_are_reported_in() {
             "--limit must be 1 through 256",
         ),
         (
-            vec!["approve", "--endpoint", endpoint],
-            "sync approve requires --deletion-set REVISION from an inspected deletion set",
-        ),
-        (
-            vec!["reject", "--endpoint", endpoint],
-            "sync reject requires --deletion-set REVISION from an inspected deletion set",
-        ),
-        (
             vec!["resolve", "--endpoint", endpoint],
             "Resolve requires the inspected --revision",
         ),
@@ -240,7 +232,13 @@ fn approval_requires_an_explicit_exact_revision() {
             refused.errors[0].fix.contains("--deletion-set"),
             "{refused:?}"
         );
-        assert!(parse_cmd(&[command]).is_err(), "{command}");
+        // Without --deletion-set, the decision reads the set the status reports, which only a
+        // rejection then sends (see the test of that plan): an approval still fails.
+        assert_eq!(
+            parse_cmd(&[command]).unwrap().plan,
+            Plan::Waiting(decision),
+            "{command}"
+        );
         assert!(
             parse_cmd(&[command, "--deletion-set", "all"]).is_err(),
             "{command}"
@@ -1503,10 +1501,76 @@ fn wire_client_rejects_oversized_truncated_and_foreign_responses() {
     );
 }
 
+/// A decision given no --deletion-set reads the status first. A rejection then names the set
+/// that waits with its files and sends that revision; the server matches it against the set
+/// that waits then, so a 409 for a set replaced in between is the answer, never retried. With
+/// no set waiting the rejection fails without sending anything. An approval never sends a
+/// revision nobody inspected: it fails, naming the set that waits and the view that lists it,
+/// or that none waits. A set that runs, for which the status gives no remedy, waits for nothing.
+#[test]
+fn a_decision_without_a_revision_reads_the_set_the_status_reports_as_waiting() {
+    let revision = "0123456789abcdef0123456789abcdef";
+    let waiting = json!({"pending_deletion_revision":revision,"pending_deletion_count":150,
+        "pending_deletion_remedy":"150 of the 200 files that synchronization tracked are missing"});
+    let running = json!({"pending_deletion_revision":revision,"pending_deletion_count":150,
+        "pending_deletion_remedy":null});
+    let paths = |answers: &[&str]| -> Vec<String> {
+        answers.iter().map(|answer| (*answer).to_owned()).collect()
+    };
+    let (endpoint, server) = page_server(vec![
+        ("200 OK", waiting.clone()),
+        (
+            "409 Conflict",
+            json!({"error":{"code":409,"message":"replaced"}}),
+        ),
+    ]);
+    let options = parse(&["reject", "--endpoint", &endpoint]).unwrap();
+    assert_eq!(options.plan, Plan::Waiting(Decision::Reject));
+    let reply = options.answer(&options.endpoint).unwrap();
+    assert_eq!(reply.status, StatusCode::CONFLICT);
+    assert_eq!(
+        server.join().unwrap(),
+        paths(&["/_internal/sync", "/_internal/sync/reject"])
+    );
+
+    let refused = |decision: &str, status: Value| {
+        let (endpoint, server) = page_server(vec![("200 OK", status)]);
+        let options = parse(&[decision, "--endpoint", &endpoint]).unwrap();
+        let Err(CliError::Diagnostics(refused)) = options.answer(&options.endpoint) else {
+            panic!("{decision} without a revision must be refused here");
+        };
+        assert_eq!(server.join().unwrap(), paths(&["/_internal/sync"]));
+        (endpoint, refused.errors[0].fix.clone())
+    };
+    for status in [running.clone(), json!({"pending_deletion_revision":null})] {
+        let (endpoint, fix) = refused("reject", status);
+        assert_eq!(
+            fix,
+            format!(
+                "No deletion set waits for a decision, so there is nothing to reject; the status says what synchronization waits for: gcs-mimic sync status --endpoint {endpoint}"
+            )
+        );
+    }
+    let (endpoint, fix) = refused("approve", waiting);
+    assert_eq!(
+        fix,
+        format!(
+            "sync approve requires --deletion-set REVISION from an inspected deletion set. Deletion set {revision} waits for a decision, with 150 files; list it before you approve it: gcs-mimic sync status --view deletions --revision {revision} --endpoint {endpoint}"
+        )
+    );
+    let (_, fix) = refused("approve", running);
+    assert_eq!(
+        fix,
+        "sync approve requires --deletion-set REVISION from an inspected deletion set, and no deletion set waits for a decision now"
+    );
+}
+
 /// The one request `options` plans: its path and body.
 fn once(options: &Options) -> (&str, Option<&Value>) {
     match &options.plan {
         Plan::Once { path, body } => (path, body.as_ref()),
-        plan @ (Plan::Wait(_) | Plan::Latest(_)) => panic!("not one request: {plan:?}"),
+        plan @ (Plan::Wait(_) | Plan::Latest(_) | Plan::Waiting(_)) => {
+            panic!("not one request: {plan:?}")
+        }
     }
 }

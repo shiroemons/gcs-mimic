@@ -16,6 +16,7 @@ gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync reject --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
+gcs-mimic sync reject && gcs-mimic sync wait   # statusが承認待ちと示す削除一覧
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
@@ -37,6 +38,12 @@ findingsは48文字、削除一覧と承認は32文字の小文字16進数です
 受理の応答は`decision`で決定を示し、コマンドは書き戻す件数を標準エラーに出します。書き戻しの完了は`gcs-mimic sync wait`で待てます。残りの件数はstatusの`observation.rejected_writeback`に出ます。
 停止や失敗で途中まで書き戻した場合も、次の起動・再試行・rescanで、削除の検出より先に残りを書き戻します。
 古いrevisionや使用済みのrevisionは、承認と同じく409で失敗します。
+`reject`は`--deletion-set`を省略すると、statusを読んで承認待ちの削除一覧を却下し、標準エラーに`Rejecting deletion set REVISION (N files)`と出します。
+スクリプトでは`gcs-mimic sync reject && gcs-mimic sync wait`と書けます。
+送るのはそのrevisionで、サーバーはその時点で承認待ちの一覧と照合するため、間に一覧が置き換わった場合は確認しないまま却下せず409で失敗します。
+承認待ちの一覧がなければ、何も送らずに失敗します。
+却下は何も削除しないため、一覧を確認せずに実行できます。
+`approve`は常に確認したrevisionを必要とし、`--deletion-set`を省略すると、承認待ちの一覧、その件数、一覧を表示するコマンドを示して失敗します。
 `--cursor`は返された値を変更せず、そのページの`--revision`と一緒に渡します。`--limit`には1～256を指定します。
 
 コマンドとサーバーは同じリリースのものを使います。0.20.0からは、コマンドが`x-gcs-mimic-version`で自分のバージョンを送り、

@@ -168,7 +168,12 @@ impl Server {
         CliRun {
             success: status.success(),
             code: status.code(),
-            answer: serde_json::from_slice(&stdout).unwrap(),
+            // A command refused before any answer prints none.
+            answer: if stdout.is_empty() {
+                Value::Null
+            } else {
+                serde_json::from_slice(&stdout).unwrap()
+            },
             stderr: stderr
                 .split(|byte| *byte == b'\n')
                 .filter(|line| !line.is_empty())

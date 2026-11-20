@@ -31,7 +31,8 @@ const HELP: &str = "Usage: gcs-mimic sync status|rescan|wait [--endpoint http(s)
        gcs-mimic sync wait [--endpoint URL] [--timeout DURATION] [--require-no-findings]
        gcs-mimic sync status [--endpoint URL] --view deletions|findings [--revision REVISION [--cursor CURSOR]] [--limit N]
        gcs-mimic sync deletions|findings [--endpoint URL] [--revision REVISION [--cursor CURSOR]] [--limit N] (the same pages)
-       gcs-mimic sync reject|approve [--endpoint URL] --deletion-set REVISION [OPTIONS]
+       gcs-mimic sync reject [--endpoint URL] [--deletion-set REVISION] [OPTIONS]
+       gcs-mimic sync approve [--endpoint URL] --deletion-set REVISION [OPTIONS]
        gcs-mimic sync conflicts [--endpoint URL] [--revision REVISION] [--cursor CURSOR] [--limit N]
        gcs-mimic sync resolve [--endpoint URL] --conflict ID --revision REV --action restore|discard --expected-generation N --operation-id ID
        gcs-mimic sync resolve [--endpoint URL] --recovery ID --revision REV --target-identity ID --action discard --operation-id ID --confirm-backup-verified ID
@@ -72,11 +73,14 @@ The token file contains one local bearer token (at most 8192 bytes), overriding
 the CLI-only GCSM_SYNC_TOKEN environment variable when set.
 Status and deletions print one bounded JSON page. Without --revision, a view
 reads the status first and lists the page at the revision it reports. Copy
-next_cursor unchanged with the revision of its page; reject and approve require
-the exact inspected revision, and stale revisions fail.
+next_cursor unchanged with the revision of its page; approve requires the exact
+inspected revision, and stale revisions fail.
 Reject keeps the deletion set's objects and writes their files back, recreating
-a missing bucket directory; wait answers once they are back. Approve deletes the
-objects. After a failed mount, fix the mount and restart the server first.
+a missing bucket directory; wait answers once they are back. Without
+--deletion-set it rejects the set that the status reports as waiting, naming it
+on standard error, and fails when none waits, so that a script can run
+sync reject && sync wait. Approve deletes the objects. After a failed mount, fix
+the mount and restart the server first.
 No data directory, ambient proxy or Google credentials are opened; the server
 config file is read only to find the server when --endpoint is not given.
 Rescan, reject and approve are not retried; a timeout may leave accepted work
@@ -336,6 +340,40 @@ impl View {
         }
     }
 }
+
+/// The deletion set that a status answer reports as waiting for a decision. The status gives a
+/// remedy for its pending set only while that set waits, so a set that runs, or ran, is none.
+struct WaitingSet<'a> {
+    revision: &'a str,
+    files: Option<u64>,
+}
+
+impl<'a> WaitingSet<'a> {
+    fn in_status(status: &'a Value) -> Option<Self> {
+        status
+            .get("pending_deletion_remedy")
+            .filter(|remedy| remedy.is_string())?;
+        let revision = status
+            .get("pending_deletion_revision")
+            .and_then(Value::as_str)
+            .filter(|revision| lower_hex(revision, DELETION_REVISION_LEN))?;
+        Some(Self {
+            revision,
+            files: status.get("pending_deletion_count").and_then(Value::as_u64),
+        })
+    }
+
+    fn files(&self) -> String {
+        match self.files {
+            Some(1) => "1 file".to_owned(),
+            Some(count) => format!("{count} files"),
+            None => "its files".to_owned(),
+        }
+    }
+}
+
+/// The length of a deletion set's revision, which a decision takes.
+const DELETION_REVISION_LEN: usize = 32;
 
 /// A view page read at the revision that the status reports when the command runs.
 #[derive(Debug, PartialEq, Eq)]
@@ -875,6 +913,8 @@ enum Plan {
     Wait(UnmappedObjects),
     /// A view page at the revision the status reports when the command runs.
     Latest(LatestPage),
+    /// A decision given no `--deletion-set`, on the set the status reports as waiting.
+    Waiting(Decision),
 }
 
 impl Plan {
@@ -919,13 +959,13 @@ pub(super) fn run(args: &[String]) -> Result<(), CliError> {
     let connection = options.connection(&endpoint);
     match options.plan {
         Plan::Wait(_) => WaitOutcome::read(&reply.body).conclude(reply.status, &connection),
-        Plan::Once { .. } | Plan::Latest(_) if reply.status.is_success() => {
+        Plan::Once { .. } | Plan::Latest(_) | Plan::Waiting(_) if reply.status.is_success() => {
             if let Some(decision) = options.decision {
                 decided(decision, &reply.body, &connection).write(io::stderr().lock())?;
             }
             Ok(())
         }
-        Plan::Once { .. } | Plan::Latest(_) => {
+        Plan::Once { .. } | Plan::Latest(_) | Plan::Waiting(_) => {
             Err(http_failure(reply.status, error_message(&reply.body), &connection).into())
         }
     }
@@ -1311,7 +1351,64 @@ impl Options {
                 self.wait_until_settled(endpoint, *unmapped, || started.elapsed())
             }
             Plan::Latest(page) => self.latest_page(endpoint, page),
+            Plan::Waiting(decision) => self.decide_waiting(endpoint, *decision),
             Plan::Once { path, body } => self.execute(endpoint, path, body.as_ref(), self.timeout),
+        }
+    }
+
+    /// Decides on the set that the status reports as waiting, for a command given no
+    /// `--deletion-set`. A rejection names that set and its files on standard error and sends
+    /// its revision, which the server still matches against the set that waits then, so a set
+    /// replaced in between is refused with 409 as any stale revision is; with no set waiting it
+    /// fails, so that a script does not wait for a write-back that never started. An approval
+    /// deletes, so it is never sent for a revision nobody inspected: it fails, naming the set
+    /// that waits and the view that lists it.
+    fn decide_waiting(&self, endpoint: &Endpoint, decision: Decision) -> Result<Reply, CliError> {
+        let status = self.execute(endpoint, STATUS_PATH, None, self.timeout)?;
+        // A status the command cannot read a set from is the answer, as for a view's page.
+        if !status.status.is_success()
+            || handshake::check(&status.headers, handshake::Peer::Server).is_err()
+        {
+            return Ok(status);
+        }
+        let connection = self.connection(endpoint);
+        let waiting = WaitingSet::in_status(&status.body);
+        let required =
+            "sync approve requires --deletion-set REVISION from an inspected deletion set";
+        match (decision, waiting) {
+            (Decision::Reject, Some(set)) => {
+                let mut rejecting = Diagnostics::default();
+                rejecting.info.push(diagnostic(
+                    "sync-reject",
+                    format!("Rejecting deletion set {} ({})", set.revision, set.files()),
+                ));
+                rejecting.write(io::stderr().lock())?;
+                self.execute(
+                    endpoint,
+                    decision.path(),
+                    Some(&json!({ "deletion_set": set.revision })),
+                    self.timeout,
+                )
+            }
+            (Decision::Reject, None) => Err(fail(format!(
+                "No deletion set waits for a decision, so there is nothing to reject; the status says what synchronization waits for: {}",
+                advice::with_connection(&advice::Advised::Status.to_string(), &connection)
+            ))
+            .into()),
+            (Decision::Approve, Some(set)) => Err(fail(format!(
+                "{required}. Deletion set {} waits for a decision, with {}; list it before you approve it: {}",
+                set.revision,
+                set.files(),
+                advice::with_connection(
+                    &advice::Advised::Deletions(Some(set.revision)).to_string(),
+                    &connection
+                )
+            ))
+            .into()),
+            (Decision::Approve, None) => Err(fail(format!(
+                "{required}, and no deletion set waits for a decision now"
+            ))
+            .into()),
         }
     }
 
@@ -1542,15 +1639,10 @@ fn request(
             "/_internal/sync/resolve",
             Some(resolve_body(revision, flags)?),
         ),
-        (Some(Command::Decide(decision)), revision) => {
-            let revision = revision.ok_or_else(|| {
-                fail(format!(
-                    "sync {} requires --deletion-set REVISION from an inspected deletion set",
-                    decision.as_str()
-                ))
-            })?;
+        (Some(Command::Decide(decision)), Some(revision)) => {
             Plan::once(decision.path(), Some(json!({ "deletion_set": revision })))
         }
+        (Some(Command::Decide(decision)), None) => Plan::Waiting(decision),
         (Some(Command::List(Listing::View(view))), None) => {
             let paging = Paging::read(flags)?;
             // A cursor belongs to the revision of the page that returned it, which the status

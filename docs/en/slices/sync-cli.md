@@ -19,6 +19,7 @@ gcs-mimic sync conflicts --endpoint https://127.0.0.1:4443 --limit 256
 gcs-mimic sync status --view deletions --endpoint https://127.0.0.1:4443 --revision DELETION_REVISION
 gcs-mimic sync rescan --endpoint https://127.0.0.1:4443
 gcs-mimic sync reject --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
+gcs-mimic sync reject && gcs-mimic sync wait   # the set the status reports as waiting
 gcs-mimic sync approve --endpoint https://127.0.0.1:4443 --deletion-set DELETION_REVISION
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443
 gcs-mimic sync wait --endpoint https://127.0.0.1:4443 --timeout 30m --require-no-findings
@@ -56,6 +57,17 @@ once every file is back, and the status counts the files left as
 failure, resumes at the next start, retry or rescan before deletions are looked
 for again.
 A stale or already used revision fails with 409, as approval does.
+
+Without `--deletion-set`, `reject` reads the status and rejects the set it
+reports as waiting for a decision, saying `Rejecting deletion set REVISION (N
+files)` on standard error, so that a script can run
+`gcs-mimic sync reject && gcs-mimic sync wait`. It sends that revision, which
+the server matches against the set that waits then, so a set replaced in
+between is refused with 409 rather than rejected unseen; with no set waiting it
+fails without sending anything. A rejection deletes nothing, which is why it
+may take the set unseen. `approve` always takes the inspected revision: without
+`--deletion-set` it fails, naming the set that waits, its files and the
+deletions view that lists it.
 
 The command and the server must come from the same release. Since 0.20.0 the
 command sends its version in `x-gcs-mimic-version` and the server answers every

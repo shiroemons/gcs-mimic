@@ -167,6 +167,72 @@ fn live_cli_approves_every_frozen_deletion_page_and_rejects_replay_after_restart
 /// A refused approval names no approval to run, only the view to check that set in; a refused
 /// rejection names the rejection of that set, never an approval. That rejection is accepted,
 /// and writes the file back beside the new object.
+/// A script that finds a set waiting can run `sync reject && sync wait` without copying a
+/// revision: the rejection reads the set the status reports as waiting, names it with its files
+/// and writes them back, and the wait answers once they are. An approval without a revision is
+/// refused before anything is sent, naming the set and the view that lists it, and a rejection
+/// with no set waiting fails.
+#[test]
+fn live_cli_rejects_the_waiting_set_without_a_revision() {
+    let data = TestDir::new();
+    let tree = TestDir::new();
+    let bucket = tree.0.join("test-bucket");
+    fs::create_dir(&bucket).unwrap();
+    for name in ["first", "second"] {
+        fs::write(bucket.join(name), b"body").unwrap();
+    }
+    let server = Server::start(&data, Some(&tree));
+    server.cli("rescan", &["--timeout", "60s"], true);
+    assert_eq!(
+        server.cli("wait", &["--timeout", "10s"], true)["completed"],
+        true
+    );
+    fs::remove_dir_all(&bucket).unwrap();
+    server.cli("rescan", &[], true);
+    let status = server.cli("status", &[], true);
+    assert_eq!(status["state"], "DeletionApproval", "{status}");
+    let revision = status["pending_deletion_revision"].as_str().unwrap();
+    let approve = server.cli_run("approve", &[]);
+    assert!(!approve.success);
+    assert_eq!(
+        approve.diagnostics("sync"),
+        [format!(
+            "sync approve requires --deletion-set REVISION from an inspected deletion set. Deletion set {revision} waits for a decision, with 2 files; list it before you approve it: gcs-mimic sync status --view deletions --revision {revision} --endpoint {}",
+            server.endpoint
+        )]
+    );
+    assert_eq!(server.cli("status", &[], true)["state"], "DeletionApproval");
+    let rejected = server.cli_run("reject", &[]);
+    assert!(rejected.success, "{:?}", rejected.stderr);
+    assert_eq!(rejected.answer["operation_id"], revision);
+    assert_eq!(
+        rejected.diagnostics("sync-reject"),
+        [
+            format!("Rejecting deletion set {revision} (2 files)"),
+            format!(
+                "The server writes 2 files of the rejected deletion set back from the objects; gcs-mimic sync wait --endpoint {} answers once the write-back is done",
+                server.endpoint
+            ),
+        ]
+    );
+    assert_eq!(
+        server.cli("wait", &["--timeout", "10s"], true)["completed"],
+        true
+    );
+    for name in ["first", "second"] {
+        assert_eq!(fs::read(bucket.join(name)).unwrap(), b"body", "{name}");
+    }
+    let again = server.cli_run("reject", &[]);
+    assert!(!again.success);
+    assert_eq!(
+        again.diagnostics("sync"),
+        [format!(
+            "No deletion set waits for a decision, so there is nothing to reject; the status says what synchronization waits for: gcs-mimic sync status --endpoint {}",
+            server.endpoint
+        )]
+    );
+}
+
 #[test]
 fn live_cli_refuses_a_decision_after_an_api_write_to_a_member_naming_the_new_set() {
     let data = TestDir::new();
