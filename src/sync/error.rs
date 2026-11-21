@@ -319,7 +319,7 @@ pub(super) fn resource_pressure(error: &AdminError) -> bool {
 }
 
 /// The I/O failures of a whole file system, which no other path written there escapes.
-fn volume_kind(kind: io::ErrorKind) -> bool {
+pub(super) fn volume_kind(kind: io::ErrorKind) -> bool {
     matches!(
         kind,
         io::ErrorKind::StorageFull

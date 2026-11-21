@@ -598,6 +598,45 @@ async fn an_edit_never_replaces_a_generation_written_after_it() {
     }
 }
 
+/// An exhausted quota or a read-only file system while ingestion stages an edit it hands over to
+/// the object left of an alias fails the pass, as a full disk does and as at the stage of any
+/// other file, rather than deferring the edit; the file keeps the edit for a later pass.
+#[tokio::test]
+async fn a_volume_failure_while_an_edit_is_handed_over_fails_the_pass() {
+    for kind in [ErrorKind::QuotaExceeded, ErrorKind::ReadOnlyFilesystem] {
+        for (spelling, names) in cases() {
+            let Some(mut pair) = Pair::frozen(spelling, names).await else {
+                continue;
+            };
+            let context = format!("{spelling:?} {names:?} {kind:?}");
+            let first = pair.first;
+            fs::write(pair.directory().join(first), b"edited file").unwrap();
+            assert_eq!(
+                pair.wait().await.reason,
+                WaitReason::FindingsPending,
+                "{context}"
+            );
+            pair.delete(first).await;
+            // The replay leaves the edit to the next ingestion, the one the wait runs.
+            pair.replay().await;
+            fault::arm(&pair.tree.0, Step::SyncSourceStage, 0, Fault::Io(kind));
+            let failed = pair.try_wait().await;
+            assert_eq!(fault::pending(&pair.tree.0), 0, "{context}");
+            assert!(
+                failed.is_err(),
+                "{context}: {:?}",
+                failed.map(|ended| ended.reason)
+            );
+            assert_eq!(
+                fs::read(pair.directory().join(first)).unwrap(),
+                b"edited file",
+                "{context}"
+            );
+            pair.close().await;
+        }
+    }
+}
+
 /// A crash or a power loss while the start's ingestion hands an edit over to the object left of
 /// an alias, once it published the edit and once the deleted object's record took the file,
 /// followed by a restart: the object left holds the edit from that one publish, its own file

@@ -71,6 +71,10 @@ pub(crate) enum Step {
     /// catalog reaches it once per file, before the file's first sync.
     #[cfg(unix)]
     SyncSourceSync,
+    /// Before ingestion stages a file's bytes, for a changed file and for an edit it hands over
+    /// to the object left of an alias alike.
+    #[cfg(unix)]
+    SyncSourceStage,
     /// After ingestion recorded a file, in the tree and in the catalog.
     #[cfg(unix)]
     SyncSourceRecorded,

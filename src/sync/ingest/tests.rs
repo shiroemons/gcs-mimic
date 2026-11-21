@@ -962,6 +962,37 @@ async fn a_file_that_keeps_failing_to_open_for_ingestion_is_deferred() {
     catalog.close().await.unwrap();
 }
 
+/// An exhausted quota or a read-only file system while ingestion stages a file fails the pass, as
+/// a full disk does: the whole file system fails every later write there as well, so the file is
+/// not deferred as one whose path alone failed.
+#[tokio::test]
+async fn a_volume_failure_while_a_file_is_staged_fails_the_pass() {
+    use crate::storage::fault::{self, Fault, Step};
+    for kind in [
+        std::io::ErrorKind::QuotaExceeded,
+        std::io::ErrorKind::ReadOnlyFilesystem,
+    ] {
+        let (data, tree, catalog, root, config) = fixture().await;
+        fs::create_dir(tree.0.join("test-bucket")).unwrap();
+        fs::write(tree.0.join("test-bucket/object"), b"bytes").unwrap();
+        fault::arm(&data.0, Step::SyncSourceStage, 0, Fault::Io(kind));
+        let (_stop, stopping) = tokio::sync::watch::channel(false);
+        let Err(error) = rescan(&catalog, &root, &config, &stopping).await else {
+            panic!("{kind:?}: the pass deferred the file");
+        };
+        assert_eq!(fault::pending(&data.0), 0, "{kind:?}");
+        assert!(
+            error.causes().any(|cause| matches!(
+                cause,
+                crate::sync::Cause::Admin(AdminError::Io(cause)) if cause.kind() == kind
+            )),
+            "{kind:?}: {error}"
+        );
+        drop(root);
+        catalog.close().await.unwrap();
+    }
+}
+
 /// A bucket directory whose open fails with `ENOENT` for a moment while the root still holds it
 /// is no missing directory: the root keeps the bucket it observed.
 #[tokio::test]

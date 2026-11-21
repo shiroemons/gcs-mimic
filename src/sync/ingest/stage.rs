@@ -89,9 +89,19 @@ impl Ingest<'_> {
         let naming = self.naming;
         let lookup = self.lookup.clone();
         let opening = self.lookup.clone();
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+        let data = self.config.data_dir.clone();
         let (file, directory) = self
             .root
-            .file_job(move |root| open_source(root, naming, &opening, &path, identity))
+            .file_job(move |root| {
+                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+                {
+                    use crate::storage::fault;
+                    fault::hit_io(&fault::descriptor_path(root)?, fault::Step::SyncSourceStage)?;
+                    fault::hit_io(&data, fault::Step::SyncSourceStage)?;
+                }
+                open_source(root, naming, &opening, &path, identity)
+            })
             .await?;
         #[cfg(test)]
         checkpoint("stage").await;
@@ -149,7 +159,11 @@ impl Ingest<'_> {
                 .await?;
                 return Ok(None);
             }
-            Err(RootError::Admin(AdminError::Io(error))) => {
+            // An exhausted quota or a read-only file system is the whole file system's failure,
+            // not this path's, so it fails the pass as a full disk does.
+            Err(RootError::Admin(AdminError::Io(error)))
+                if !crate::sync::error::volume_kind(error.kind()) =>
+            {
                 self.defer(&candidate.path, error.kind());
                 self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
                     .await?;

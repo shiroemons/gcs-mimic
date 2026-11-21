@@ -375,7 +375,11 @@ itself, such as an entry that went away or was busy while the pass read it, is
 deferred to a later pass. One that waiting does not clear, such as a missing
 permission, a full disk or a kind the mirror does not know, holds back the
 baseline and deletions like an entry no object can take, until an operator
-restores the entry.
+restores the entry. A full disk, an exhausted quota or a read-only file system
+while ingestion stages a file, including an edit it hands over to the object
+left of an alias, is no one path's failure: every later write there fails as
+well, so it fails the pass rather than deferring the file, which keeps its
+bytes for the pass after the operator frees the volume.
 
 ### External create/edit verification
 

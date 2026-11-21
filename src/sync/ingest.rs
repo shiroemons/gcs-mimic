@@ -414,18 +414,24 @@ impl Ingest<'_> {
         };
         let staged = match self.stage(holder.path.clone(), holder.identity).await {
             Ok(staged) => staged,
+            // A full disk, an exhausted quota or a read-only file system fails the pass, as at the
+            // stage of any other file.
             Err(RootError::Admin(AdminError::Io(error)))
-                if error.kind() != io::ErrorKind::NotFound =>
+                if error.kind() != io::ErrorKind::NotFound
+                    && !super::error::volume_kind(error.kind()) =>
             {
                 self.defer(&holder.path, error.kind());
                 return Ok(());
             }
             Err(RootError::Admin(
-                AdminError::Precondition
-                | AdminError::NotFound
-                | AdminError::SourceChanged { .. }
-                | AdminError::Io(_),
+                AdminError::Precondition | AdminError::NotFound | AdminError::SourceChanged { .. },
             )) => {
+                self.summary.count_deferred(&holder.path);
+                return Ok(());
+            }
+            Err(RootError::Admin(AdminError::Io(error)))
+                if error.kind() == io::ErrorKind::NotFound =>
+            {
                 self.summary.count_deferred(&holder.path);
                 return Ok(());
             }
