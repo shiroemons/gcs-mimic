@@ -38,7 +38,8 @@ pub(crate) enum FailureClass {
     Volume,
     /// It passes on its own: catalog contention, an admission timeout, an interrupted or
     /// timed-out call, descriptor or memory pressure, or an entry that kept failing to open
-    /// while its name still held it.
+    /// while its name still held it, where a step that finishes what it started met it
+    /// ([`Self::of_unopenable`]).
     Transient,
 }
 
@@ -105,9 +106,22 @@ impl FailureClass {
         }
     }
 
-    /// What an entry that kept failing to open while its name still held one says, wherever a
-    /// step met it: whether the name holds anything is unknown until a later read, so the step
-    /// is tried again.
+    /// What an entry that kept failing to open while its name still held one says to a step that
+    /// finishes what it started: a write-back, a root marker read, a naming probe or a watch
+    /// build. Whether the name holds anything is unknown until a later read, so the step is tried
+    /// again.
+    ///
+    /// A read that only plans a step takes such an entry for a change of the tree instead and
+    /// leaves the path to the next pass, which reads it again before it plans anything: it
+    /// answers `Precondition` or `TargetChanged`, which classify as [`Self::Superseded`]. Those
+    /// reads are:
+    ///
+    /// - the export's read of its target (`export::plan::inspect`), for the target and its
+    ///   parent;
+    /// - the ingestion stage's open of its source (`ingest::stage::open_source`);
+    /// - the conflict capture's read of the file it keeps (`RootLease::capture_path`);
+    /// - the conflict store's reading of a parent chain that does not resolve
+    ///   (`From<ParentError> for conflicts::Error`).
     pub(in crate::sync) fn of_unopenable(_: fsutil::Unopenable) -> Self {
         Self::Transient
     }
