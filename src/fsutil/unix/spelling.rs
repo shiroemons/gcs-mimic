@@ -41,29 +41,36 @@ fn open_entry<T>(
 }
 
 /// Whether `fstatat`, not following a symlink, finds an entry under `name` in `parent`.
+fn holds_entry(parent: &File, name: &OsStr) -> io::Result<bool> {
+    Ok(stat_at(parent, &component(name)?)?.is_some())
+}
+
+/// What `fstatat`, not following a symlink, reports for `name` in `parent`; `None` when it finds
+/// nothing under the name.
 #[expect(
     unsafe_code,
     reason = "fstatat on a pinned descriptor has no safe std equivalent"
 )]
-fn holds_entry(parent: &File, name: &OsStr) -> io::Result<bool> {
-    let component = component(name)?;
+fn stat_at(parent: &File, name: &CStr) -> io::Result<Option<libc::stat>> {
     let mut status = std::mem::MaybeUninit::<libc::stat>::zeroed();
-    // SAFETY: the live descriptor, the terminated component and the writable buffer are valid for
-    // the call, which keeps none of them.
+    // SAFETY: the live descriptor, the terminated name and the writable buffer are valid for the
+    // call, which keeps none of them.
     let result = unsafe {
         libc::fstatat(
             parent.as_raw_fd(),
-            component.as_ptr(),
+            name.as_ptr(),
             status.as_mut_ptr(),
             libc::AT_SYMLINK_NOFOLLOW,
         )
     };
     if result == 0 {
-        return Ok(true);
+        // SAFETY: fstatat succeeded, and the zeroed buffer was valid for every field before it
+        // wrote.
+        return Ok(Some(unsafe { status.assume_init() }));
     }
     let error = io::Error::last_os_error();
     if error.kind() == io::ErrorKind::NotFound {
-        Ok(false)
+        Ok(None)
     } else {
         Err(error)
     }
@@ -163,10 +170,6 @@ pub(crate) fn child_regular(
 /// name that is not UTF-8 and a file no longer listed name no one spelling to report. A listed
 /// entry that cannot be read is skipped: with one link only, it cannot be a second name of the
 /// file, and a spelling found elsewhere is still the file's one.
-#[expect(
-    unsafe_code,
-    reason = "fstatat on a pinned descriptor has no safe std equivalent"
-)]
 fn listed_spelling(parent: &File, file: &File) -> io::Result<ListedSpelling> {
     use std::os::unix::fs::MetadataExt;
     if !super::sole_regular_link(file)? {
@@ -178,23 +181,9 @@ fn listed_spelling(parent: &File, file: &File) -> io::Result<ListedSpelling> {
         let Ok(component) = component(listed) else {
             return Ok(ControlFlow::Continue(()));
         };
-        let mut status = std::mem::MaybeUninit::<libc::stat>::zeroed();
-        // SAFETY: the live descriptor, the terminated component and the writable buffer are valid
-        // for the call, which keeps none of them.
-        let result = unsafe {
-            libc::fstatat(
-                parent.as_raw_fd(),
-                component.as_ptr(),
-                status.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        };
-        if result != 0 {
+        let Ok(Some(status)) = stat_at(parent, &component) else {
             return Ok(ControlFlow::Continue(()));
-        }
-        // SAFETY: fstatat succeeded, and the zeroed buffer was valid for every field before it
-        // wrote.
-        let status = unsafe { status.assume_init() };
+        };
         if status.st_mode & libc::S_IFMT == libc::S_IFREG
             && listed_device(&status) == metadata.dev()
             && status.st_ino == metadata.ino()
