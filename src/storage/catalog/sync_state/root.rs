@@ -304,9 +304,9 @@ fn open_marker(
     match lookup.regular_unconfirmed(directory, name.as_ref()) {
         Ok(fsutil::Opened::Entry(file)) => Ok(Some(file)),
         Ok(fsutil::Opened::Missing(_)) => Ok(None),
-        Ok(fsutil::Opened::Transient) => Err(RootError::at(
+        Ok(fsutil::Opened::Unopenable) => Err(RootError::at(
             Stage::ReadMarker,
-            io::Error::from(fsutil::Unsettled),
+            io::Error::from(fsutil::Unopenable),
         )),
         Err(error) => Err(marker_open_error(error)),
     }

@@ -103,7 +103,7 @@ fn only_typed_transient_io_failures_are_retried() {
 #[test]
 fn a_step_whose_entry_kept_failing_to_open_is_retried_and_does_not_pause() {
     use crate::storage::sync_state::writeback::RaceReason;
-    let unsettled = writeback::Error::Raced(RaceReason::Unsettled);
+    let unsettled = writeback::Error::Raced(RaceReason::Unopenable);
     assert!(retryable(&unsettled));
     assert!(SyncError::from(unsettled).is_transient());
     for reason in [

@@ -28,7 +28,7 @@ pub(super) fn retryable(error: &writeback::Error) -> bool {
     let error = match error {
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
         // An entry that kept failing to open is looked at again; the step is read afresh.
-        writeback::Error::Raced(RaceReason::Unsettled) => return true,
+        writeback::Error::Raced(RaceReason::Unopenable) => return true,
         writeback::Error::Root(
             RootError::InUse
             | RootError::Unsupported { .. }
@@ -146,7 +146,7 @@ pub(in crate::sync) async fn create_directory(
             Err(ParentError::Finding(_) | ParentError::Missing(_)) => {
                 Ok(DirectoryCreation::Finding)
             }
-            Err(ParentError::Transient) => Ok(DirectoryCreation::Deferred),
+            Err(ParentError::Unopenable) => Ok(DirectoryCreation::Deferred),
             Err(ParentError::Io(error)) => Err(error.into()),
         }
     })

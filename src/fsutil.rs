@@ -115,8 +115,8 @@ pub(crate) enum Child {
     },
     Alias,
     Missing(Vacant),
-    /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
-    Transient,
+    /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
+    Unopenable,
 }
 
 #[cfg_attr(
@@ -133,8 +133,8 @@ pub(crate) enum RegularChild {
     /// caller that only needs to know that the spelling differs is not failed by the listing.
     Respelled(io::Result<ListedSpelling>),
     Missing(Vacant),
-    /// The name kept failing to open while an entry stood under it ([`Opened::Transient`]).
-    Transient,
+    /// The name kept failing to open while an entry stood under it ([`Opened::Unopenable`]).
+    Unopenable,
 }
 
 /// What opening a name found, under the rule that only `fstatat` finding nothing shows that the
@@ -158,27 +158,27 @@ pub(crate) enum Opened<T> {
     /// The open kept failing with `ENOENT` while `fstatat` still found an entry under the name,
     /// until the retries ran out. Whether the name holds anything is unknown, and a later read
     /// decides. No error comes with it: the answer is made only that way, so the open's error
-    /// tells nothing the variant does not, and a caller that must fail uses [`Unsettled`].
-    Transient,
+    /// tells nothing the variant does not, and a caller that must fail uses [`Unopenable`].
+    Unopenable,
 }
 
 /// A name that kept failing to open while `fstatat` still found an entry under it
-/// ([`Opened::Transient`]), as the error of a step that fails rather than waits for a later read.
+/// ([`Opened::Unopenable`]), as the error of a step that fails rather than waits for a later read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Unsettled;
+pub(crate) struct Unopenable;
 
-impl std::fmt::Display for Unsettled {
+impl std::fmt::Display for Unopenable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("the entry kept failing to open while its name still held one")
     }
 }
 
-impl std::error::Error for Unsettled {}
+impl std::error::Error for Unopenable {}
 
-impl From<Unsettled> for io::Error {
+impl From<Unopenable> for io::Error {
     /// An error of the kind the open kept failing with, so that callers judge it as they judge
     /// a failed open.
-    fn from(error: Unsettled) -> Self {
+    fn from(error: Unopenable) -> Self {
         Self::new(io::ErrorKind::NotFound, error)
     }
 }
@@ -1192,7 +1192,7 @@ struct FailingOpen {
 #[derive(Clone, Copy)]
 enum OpenFailure {
     /// With `ENOENT`, as a Docker Desktop bind mount answers for a file it is still bringing
-    /// over from the host ([`Opened::Transient`]).
+    /// over from the host ([`Opened::Unopenable`]).
     Vanishing,
     /// With this `errno`, as a file system answers that refuses the name.
     Refused(i32),

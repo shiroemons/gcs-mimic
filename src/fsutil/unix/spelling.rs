@@ -8,7 +8,7 @@ const FIRST_RETRY: Duration = Duration::from_millis(2);
 /// Opens `name` in `parent` with `open`. Only `fstatat`, not following a symlink, finding nothing
 /// under the name makes it [`Opened::Missing`]: an open that fails with `ENOENT` while `fstatat`
 /// still finds an entry is tried again after waits that start short and double, and gives up as
-/// [`Opened::Transient`] once the lookup has no waiting left (`Lookup::pause`). The waits block
+/// [`Opened::Unopenable`] once the lookup has no waiting left (`Lookup::pause`). The waits block
 /// the calling thread and pass on the lookup's clock.
 fn open_entry<T>(
     parent: &File,
@@ -27,7 +27,7 @@ fn open_entry<T>(
             return Ok(Opened::Missing(Vacant::proven()));
         }
         if !lookup.pause(wait) {
-            return Ok(Opened::Transient);
+            return Ok(Opened::Unopenable);
         }
         wait = wait.saturating_mul(2);
     }
@@ -101,7 +101,7 @@ pub(crate) fn child_directory(
             }
             create_child(parent, name)?
         }
-        Opened::Transient => return Ok(Child::Transient),
+        Opened::Unopenable => return Ok(Child::Unopenable),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
         Ok(Child::Directory { file, created })
@@ -140,7 +140,7 @@ pub(crate) fn child_regular(
     let file = match regular_unconfirmed(parent, name, lookup)? {
         Opened::Entry(file) => file,
         Opened::Missing(vacant) => return Ok(RegularChild::Missing(vacant)),
-        Opened::Transient => return Ok(RegularChild::Transient),
+        Opened::Unopenable => return Ok(RegularChild::Unopenable),
     };
     if spelled_as_opened(parent, name, &file, lookup)? {
         return Ok(RegularChild::File(file));

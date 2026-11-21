@@ -253,12 +253,12 @@ impl TreeScan {
                     entry.directory = true;
                 }
                 Ok(Opened::Missing(_)) => continue,
-                Ok(Opened::Transient) => entry.error = Some(io::ErrorKind::NotFound),
+                Ok(Opened::Unopenable) => entry.error = Some(io::ErrorKind::NotFound),
                 Err(error) if !structural_entry_error(&error) => entry.error = Some(error.kind()),
                 Err(_) => match self.lookup.regular_unconfirmed(directory, &name) {
                     Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
                     Ok(Opened::Missing(_)) => continue,
-                    Ok(Opened::Transient) => entry.error = Some(io::ErrorKind::NotFound),
+                    Ok(Opened::Unopenable) => entry.error = Some(io::ErrorKind::NotFound),
                     Err(error) if !structural_entry_error(&error) => {
                         entry.error = Some(error.kind())
                     }
@@ -283,9 +283,9 @@ pub(crate) enum ParentError {
     /// A directory on the path is not there, as the lookup proved.
     Missing(fsutil::Vacant),
     /// A directory on the path kept failing to open while its name still held an entry
-    /// ([`fsutil::Opened::Transient`]), or went while the kind of entry was read: whether it is
+    /// ([`fsutil::Opened::Unopenable`]), or went while the kind of entry was read: whether it is
     /// there is unknown until a later read.
-    Transient,
+    Unopenable,
     Io(io::Error),
 }
 impl From<io::Error> for ParentError {
@@ -373,14 +373,14 @@ pub(crate) fn parent(
             }
             Ok(Child::Alias) => return Err(ParentError::Finding(Obstruction::Collision.into())),
             Ok(Child::Missing(vacant)) => return Err(ParentError::Missing(vacant)),
-            Ok(Child::Transient) => return Err(ParentError::Transient),
+            Ok(Child::Unopenable) => return Err(ParentError::Unopenable),
             Err(error) if !structural_entry_error(&error) => return Err(error.into()),
             Err(_) => {
                 return Err(match lookup.regular_unconfirmed(&directory, component) {
                     Ok(Opened::Entry(_)) => ParentError::Finding(Obstruction::Collision.into()),
                     // The entry that failed to open as a directory is gone or kept failing to
                     // open as a file: the path changed while it was read.
-                    Ok(Opened::Missing(_) | Opened::Transient) => ParentError::Transient,
+                    Ok(Opened::Missing(_) | Opened::Unopenable) => ParentError::Unopenable,
                     Err(_) => ParentError::Finding(Obstruction::UnsafeEntry.into()),
                 });
             }

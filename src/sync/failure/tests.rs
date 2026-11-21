@@ -42,7 +42,7 @@ fn each_io_kind_has_one_class() {
 #[test]
 fn a_write_back_failure_is_classified_by_what_it_says_about_the_step() {
     assert_eq!(
-        Failure::of_writeback(&writeback::Error::Raced(RaceReason::Unsettled)),
+        Failure::of_writeback(&writeback::Error::Raced(RaceReason::Unopenable)),
         Some(Failure::Transient)
     );
     for error in [

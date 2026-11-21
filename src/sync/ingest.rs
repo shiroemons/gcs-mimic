@@ -239,7 +239,7 @@ async fn holds_entries(
                 Ok(fsutil::Opened::Entry(directory)) => directory,
                 Ok(fsutil::Opened::Missing(_)) => return Ok(false),
                 // What a directory that kept failing to open holds is unknown.
-                Ok(fsutil::Opened::Transient) | Err(_) => return Ok(true),
+                Ok(fsutil::Opened::Unopenable) | Err(_) => return Ok(true),
             };
             let mut names = fsutil::DirectoryNames::default();
             loop {
@@ -267,7 +267,7 @@ fn passed_over(
         Ok(fsutil::RegularChild::File(file)) => file,
         // Removed since the listing: it holds nothing any more.
         Ok(fsutil::RegularChild::Missing(_)) => return true,
-        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Transient) | Err(_) => {
+        Ok(fsutil::RegularChild::Respelled(_) | fsutil::RegularChild::Unopenable) | Err(_) => {
             return false;
         }
     };

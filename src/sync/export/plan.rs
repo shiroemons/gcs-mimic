@@ -424,7 +424,7 @@ fn inspect(
             return Err(error.into());
         }
         // The name kept failing to open while it held an entry: a later read decides.
-        PathEntry::Transient => return Err(AdminError::Precondition),
+        PathEntry::Unopenable => return Err(AdminError::Precondition),
     };
     let before = fsutil::stat_identity(&file)?;
     if before.size != record.size {
@@ -449,7 +449,7 @@ fn inspect(
         ParentOpen::Existing,
     )
     .map_err(|error| match error {
-        ParentError::Finding(_) | ParentError::Missing(_) | ParentError::Transient => {
+        ParentError::Finding(_) | ParentError::Missing(_) | ParentError::Unopenable => {
             AdminError::Precondition
         }
         ParentError::Io(error) => error.into(),

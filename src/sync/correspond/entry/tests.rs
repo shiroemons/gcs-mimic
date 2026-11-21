@@ -99,7 +99,7 @@ fn another_kind_of_entry_at_the_path_or_above_it_is_told_apart() {
 /// The second open that tells what kind of entry holds a name, a directory at the path or a file
 /// in the place of a directory above it, follows the rule of the first: one that fails with
 /// `ENOENT` for a moment tells the kind once it opens again, and one that keeps failing leaves
-/// the path transient rather than taken for a symlink or special file.
+/// the path unopenable rather than taken for a symlink or special file.
 #[test]
 fn the_open_that_tells_the_kind_of_entry_is_never_taken_for_a_special_file() {
     let tree = Tree::new();
@@ -112,7 +112,7 @@ fn the_open_that_tells_the_kind_of_entry_is_never_taken_for_a_special_file() {
         |path: &str| observe_path(&tree.root, RootNaming::posix(), &lookup, Path::new(path));
     for (opens, directory, below) in [
         (2, "Directory", "Unplaced(Obstructed(Collision))"),
-        (usize::MAX, "Transient", "Transient"),
+        (usize::MAX, "Unopenable", "Unopenable"),
     ] {
         let failing = fsutil::FailingOpens::vanishing_after(&bucket, "directory", 1, opens);
         let observed = observe("bucket/directory");
@@ -158,10 +158,10 @@ fn a_path_whose_entries_keep_failing_to_open_is_never_absent() {
     let observe =
         |path: &str| observe_path(&tree.root, RootNaming::posix(), &lookup, Path::new(path));
     let file = fsutil::FailingOpens::vanishing(&tree.dir.0.join("bucket"), "file", usize::MAX);
-    assert!(matches!(observe("bucket/file"), PathEntry::Transient));
+    assert!(matches!(observe("bucket/file"), PathEntry::Unopenable));
     drop(file);
     let _bucket = fsutil::FailingOpens::vanishing(&tree.dir.0, "bucket", usize::MAX);
-    assert!(matches!(observe("bucket/file"), PathEntry::Transient));
+    assert!(matches!(observe("bucket/file"), PathEntry::Unopenable));
 }
 
 /// A listing that the lookups kept from before a change that left the directory's timestamps as

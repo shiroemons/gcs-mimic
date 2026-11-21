@@ -55,7 +55,7 @@ fn a_write_back_step_that_met_a_changed_state_answers_as_a_changed_revision() {
     ))));
     assert_eq!(expected.status, StatusCode::CONFLICT);
     for error in [
-        Error::Raced(RaceReason::Unsettled),
+        Error::Raced(RaceReason::Unopenable),
         Error::Obsolete(StaleReason::Completed),
         Error::Obsolete(StaleReason::Root),
         Error::Invariant("broken"),

@@ -50,7 +50,7 @@ pub(super) fn open_source(
         PathEntry::Absent { .. }
         | PathEntry::Unplaced(_)
         | PathEntry::Respelled(_)
-        | PathEntry::Transient => return Err(AdminError::Precondition),
+        | PathEntry::Unopenable => return Err(AdminError::Precondition),
     };
     if fsutil::stat_identity(&file)? != expected {
         return Err(AdminError::Precondition);

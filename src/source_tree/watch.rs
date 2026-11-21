@@ -128,9 +128,9 @@ fn child_directory(
     match lookup.directory(directory, name, DirectoryOpen::Existing) {
         Ok(Child::Directory { file, .. }) => Ok(Some(file)),
         Ok(Child::Missing(_) | Child::Alias) => Ok(None),
-        Ok(Child::Transient) => Err(Error::Io(io::Error::new(
+        Ok(Child::Unopenable) => Err(Error::Io(io::Error::new(
             io::ErrorKind::TimedOut,
-            crate::fsutil::Unsettled,
+            crate::fsutil::Unopenable,
         ))),
         Err(error)
             if error.kind() == io::ErrorKind::NotFound

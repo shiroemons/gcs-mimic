@@ -51,7 +51,7 @@ pub(super) fn observe_target(
         PathEntry::Unplaced(_) => TargetState::Changed(RaceReason::ParentChanged),
         PathEntry::Respelled(_) => TargetState::Changed(RaceReason::Respelled),
         // Read again by the export the race leads to.
-        PathEntry::Transient => TargetState::Changed(RaceReason::Unsettled),
+        PathEntry::Unopenable => TargetState::Changed(RaceReason::Unopenable),
         PathEntry::NameRejected(error) | PathEntry::Unreadable(error) => return Err(error.into()),
     })
 }

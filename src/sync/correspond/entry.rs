@@ -43,9 +43,9 @@ pub(crate) enum PathEntry {
     /// Reading a directory above the entry, or the entry itself, failed.
     Unreadable(io::Error),
     /// The entry, or a directory above it, kept failing to open while its name still held an
-    /// entry ([`fsutil::Opened::Transient`]), or went while the kind of entry was read: what the
+    /// entry ([`fsutil::Opened::Unopenable`]), or went while the kind of entry was read: what the
     /// path holds is unknown until a later read.
-    Transient,
+    Unopenable,
 }
 
 /// How far down the path of an absent entry is there.
@@ -77,7 +77,7 @@ pub(crate) fn observe_path(
             };
         }
         Err(ParentError::Finding(reason)) => return PathEntry::Unplaced(reason),
-        Err(ParentError::Transient) => return PathEntry::Transient,
+        Err(ParentError::Unopenable) => return PathEntry::Unopenable,
         Err(ParentError::Io(error)) => return unreadable(error),
     };
     match lookup.regular(&directory, name) {
@@ -93,7 +93,7 @@ pub(crate) fn observe_path(
             above: Above::Present,
             vacant,
         },
-        Ok(RegularChild::Transient) => PathEntry::Transient,
+        Ok(RegularChild::Unopenable) => PathEntry::Unopenable,
         // `EINVAL` is both a refused name and an error of the kind of entry; the refusal decides,
         // in this one place.
         Err(error) if !name_rejected(&error) && tree::structural_entry_error(&error) => {
@@ -101,7 +101,9 @@ pub(crate) fn observe_path(
                 Ok(fsutil::Opened::Entry(_)) => PathEntry::Directory(error),
                 // The entry that failed to open as a file is gone or kept failing to open as a
                 // directory: the path changed while it was read, and a later read decides.
-                Ok(fsutil::Opened::Missing(_) | fsutil::Opened::Transient) => PathEntry::Transient,
+                Ok(fsutil::Opened::Missing(_) | fsutil::Opened::Unopenable) => {
+                    PathEntry::Unopenable
+                }
                 Err(_) => PathEntry::Special(error),
             }
         }

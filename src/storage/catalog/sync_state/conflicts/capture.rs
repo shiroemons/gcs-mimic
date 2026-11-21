@@ -107,7 +107,7 @@ impl RootLease {
                         PathEntry::Absent { .. }
                         | PathEntry::Unplaced(_)
                         | PathEntry::Respelled(_)
-                        | PathEntry::Transient => Err(Error::TargetChanged),
+                        | PathEntry::Unopenable => Err(Error::TargetChanged),
                         PathEntry::Directory(error)
                         | PathEntry::Special(error)
                         | PathEntry::NameRejected(error)

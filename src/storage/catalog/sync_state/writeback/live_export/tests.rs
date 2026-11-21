@@ -1539,7 +1539,7 @@ async fn an_install_whose_directory_keeps_failing_to_open_is_tried_again_until_i
             .advance_live_export(operation.clone())
             .await;
         assert!(
-            matches!(result, Err(Error::Raced(RaceReason::Unsettled))),
+            matches!(result, Err(Error::Raced(RaceReason::Unopenable))),
             "{result:?}"
         );
     }
@@ -1583,7 +1583,7 @@ async fn an_install_left_by_a_directory_that_kept_failing_to_open_is_settled_by_
         .advance_live_export(operation.clone())
         .await;
     assert!(
-        matches!(result, Err(Error::Raced(RaceReason::Unsettled))),
+        matches!(result, Err(Error::Raced(RaceReason::Unopenable))),
         "{result:?}"
     );
     drop(failing);
@@ -1641,7 +1641,7 @@ async fn an_installed_export_whose_target_keeps_failing_to_open_is_left_to_recov
             .writeback
             .advance_live_export(operation.clone())
             .await,
-        Err(Error::Raced(RaceReason::Unsettled))
+        Err(Error::Raced(RaceReason::Unopenable))
     ));
     assert!(failing.left() < usize::MAX);
     assert_eq!(fixture.writeback.status().await.unwrap().entries, 1);
@@ -1734,7 +1734,7 @@ async fn an_observation_whose_installed_target_keeps_failing_to_open_is_neither_
                 .advance_live_export(operation.clone())
                 .await;
             assert!(
-                matches!(result, Err(Error::Raced(RaceReason::Unsettled))),
+                matches!(result, Err(Error::Raced(RaceReason::Unopenable))),
                 "{stage}: {result:?}"
             );
         }
@@ -1777,11 +1777,11 @@ fn a_workspace_entry_that_keeps_failing_to_open_is_never_empty() {
     let _failing = fsutil::FailingOpens::vanishing(&workspace.0, &id.to_hex(), usize::MAX);
     assert_eq!(
         entry(&directory, &lookup, id).map(|file| file.is_some()),
-        Err(Error::Raced(RaceReason::Unsettled))
+        Err(Error::Raced(RaceReason::Unopenable))
     );
     assert_eq!(
         displaced_entry(&directory, &lookup, id).map(|file| file.is_some()),
-        Err(Error::Raced(RaceReason::Unsettled))
+        Err(Error::Raced(RaceReason::Unopenable))
     );
 }
 
@@ -1827,7 +1827,7 @@ async fn an_observation_whose_target_keeps_failing_to_open_does_not_finish() {
     drop(failing);
     // The step fails, to be tried again, rather than cancelling the observation as a race.
     assert!(
-        matches!(outcome, Err(Error::Raced(RaceReason::Unsettled))),
+        matches!(outcome, Err(Error::Raced(RaceReason::Unopenable))),
         "{outcome:?}"
     );
     assert_eq!(

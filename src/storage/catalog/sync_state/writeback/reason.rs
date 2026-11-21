@@ -12,7 +12,7 @@ pub(crate) enum RaceReason {
     Respelled,
     /// The target, or a directory above it, kept failing to open while its name still held an
     /// entry.
-    Unsettled,
+    Unopenable,
     /// The file at the target is not the one the step read or expects there.
     TargetChanged,
     /// The directory at the target is not the one proved removable.
@@ -24,7 +24,7 @@ impl fmt::Display for RaceReason {
         f.write_str(match self {
             Self::ParentChanged => "a directory above the target changed",
             Self::Respelled => "the target is reached under another spelling",
-            Self::Unsettled => "the target kept failing to open",
+            Self::Unopenable => "the target kept failing to open",
             Self::TargetChanged => "the file at the target changed",
             Self::DirectoryChanged => "the directory at the target changed",
         })

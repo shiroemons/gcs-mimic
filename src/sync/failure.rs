@@ -154,7 +154,7 @@ impl Failure {
                 Some(Self::Superseded)
             }
             writeback::Error::Admin(error) => Self::of_admin(error),
-            writeback::Error::Raced(RaceReason::Unsettled) => Some(Self::Transient),
+            writeback::Error::Raced(RaceReason::Unopenable) => Some(Self::Transient),
             writeback::Error::Raced(
                 RaceReason::ParentChanged
                 | RaceReason::Respelled

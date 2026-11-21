@@ -690,7 +690,7 @@ async fn write_back_members(
                     DirectoryCreation::Deferred => {
                         return Err(SyncError::Writeback(
                             crate::storage::sync_state::writeback::Error::Root(RootError::Admin(
-                                std::io::Error::from(fsutil::Unsettled).into(),
+                                std::io::Error::from(fsutil::Unopenable).into(),
                             )),
                         ));
                     }

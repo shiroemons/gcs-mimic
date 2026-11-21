@@ -121,7 +121,7 @@ impl Error {
     /// path to the target no longer resolving, or an alias in the place of an entry, is a user's
     /// concurrent change, which a new export plans around, not a failure of the root: pausing the
     /// whole root over it would leave every other path unsynchronized until an operator rescans.
-    /// An entry that kept failing to open ([`RaceReason::Unsettled`]) is no such change: the
+    /// An entry that kept failing to open ([`RaceReason::Unopenable`]) is no such change: the
     /// step fails, and its caller tries it again, as after any failure that passes by itself.
     fn changed(&self) -> bool {
         match self {
@@ -142,14 +142,14 @@ impl Error {
             | Self::RecoveryRequired
             | Self::Protected
             | Self::WorkspaceChanged
-            | Self::Raced(RaceReason::Unsettled) => false,
+            | Self::Raced(RaceReason::Unopenable) => false,
         }
     }
 
     /// Whether the tree at the target is not the one the step read, or kept failing to open:
     /// either way the target holds nothing the step can still reach.
     fn unreachable(&self) -> bool {
-        self.changed() || matches!(self, Self::Raced(RaceReason::Unsettled))
+        self.changed() || matches!(self, Self::Raced(RaceReason::Unopenable))
     }
 
     /// Whether the step's operation is moot: [`Self::changed`], or the catalog no longer holds
@@ -267,7 +267,7 @@ impl From<crate::sync::tree::ParentError> for Error {
             }
             // A directory that kept failing to open is read again by the export the race leads
             // to.
-            ParentError::Transient => Self::Raced(RaceReason::Unsettled),
+            ParentError::Unopenable => Self::Raced(RaceReason::Unopenable),
         }
     }
 }
@@ -776,7 +776,7 @@ fn present(opened: io::Result<fsutil::Opened<File>>) -> Result<Option<File>, Err
     match opened? {
         fsutil::Opened::Entry(file) => Ok(Some(file)),
         fsutil::Opened::Missing(_) => Ok(None),
-        fsutil::Opened::Transient => Err(Error::Raced(RaceReason::Unsettled)),
+        fsutil::Opened::Unopenable => Err(Error::Raced(RaceReason::Unopenable)),
     }
 }
 fn verify_workspace(root: &File, workspace: &File) -> Result<(), Error> {

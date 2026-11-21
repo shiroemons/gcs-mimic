@@ -586,7 +586,7 @@ mod open_failure_tests {
         assert_eq!(directory.left(), 0);
     }
 
-    /// An entry whose open keeps failing while the name still holds it is transient, never
+    /// An entry whose open keeps failing while the name still holds it is unopenable, never
     /// missing, once the retries spent a second on the lookup's clock; a name that holds nothing
     /// is missing at once, without a wait.
     #[test]
@@ -596,7 +596,7 @@ mod open_failure_tests {
         let _directory = FailingOpens::vanishing(&entries.dir.0, "directory", usize::MAX);
         assert!(matches!(
             entries.lookup().regular(&entries.parent, "file".as_ref()),
-            Ok(RegularChild::Transient)
+            Ok(RegularChild::Unopenable)
         ));
         assert!(entries.waited() >= Duration::from_secs(1));
         assert!(matches!(
@@ -605,13 +605,13 @@ mod open_failure_tests {
                 "directory".as_ref(),
                 DirectoryOpen::Existing
             ),
-            Ok(Child::Transient)
+            Ok(Child::Unopenable)
         ));
         assert!(matches!(
             entries
                 .lookup()
                 .regular_unconfirmed(&entries.parent, "file".as_ref()),
-            Ok(Opened::Transient)
+            Ok(Opened::Unopenable)
         ));
         let waited = entries.waited();
         assert!(matches!(
@@ -626,7 +626,7 @@ mod open_failure_tests {
 
     /// The waits of one lookup, which a file job is handed, add up to a second at most: once it
     /// has waited that long, an entry that fails to open while its name still holds it is
-    /// transient at once, and a name that holds nothing is still missing. A clone, handed to
+    /// unopenable at once, and a name that holds nothing is still missing. A clone, handed to
     /// another job, waits again.
     #[test]
     fn a_lookup_waits_a_second_at_most_for_all_its_names() {
@@ -636,7 +636,7 @@ mod open_failure_tests {
         let lookup = entries.lookup();
         assert!(matches!(
             lookup.regular(&entries.parent, "file".as_ref()),
-            Ok(RegularChild::Transient)
+            Ok(RegularChild::Unopenable)
         ));
         let spent = entries.waited();
         assert!(spent <= Duration::from_secs(1), "{spent:?}");
@@ -646,7 +646,7 @@ mod open_failure_tests {
                 "directory".as_ref(),
                 DirectoryOpen::Existing
             ),
-            Ok(Child::Transient)
+            Ok(Child::Unopenable)
         ));
         assert!(matches!(
             lookup.regular(&entries.parent, "absent".as_ref()).unwrap(),
@@ -656,13 +656,13 @@ mod open_failure_tests {
         let other = lookup.clone();
         assert!(matches!(
             other.regular_unconfirmed(&entries.parent, "file".as_ref()),
-            Ok(Opened::Transient)
+            Ok(Opened::Unopenable)
         ));
         let waited = entries.waited();
         assert!(waited > spent);
         assert!(matches!(
             lookup.regular_unconfirmed(&entries.parent, "file".as_ref()),
-            Ok(Opened::Transient)
+            Ok(Opened::Unopenable)
         ));
         assert_eq!(entries.waited(), waited);
     }
