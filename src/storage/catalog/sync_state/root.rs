@@ -1,6 +1,10 @@
 //! Root identity, exclusive ownership and fail-closed baseline activation.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+use self::{
+    decide::{Decision, decide},
+    facts::{CatalogFacts, DiskFacts},
+};
 use super::{CatalogId, SyncState, catalog_id};
 use crate::storage::catalog::sql;
 use crate::storage::failure::{Link, TypedSource};
@@ -414,94 +418,6 @@ enum Reservation {
     Replaced(switch::Replaced),
 }
 
-/// Whose marker the selected directory holds.
-#[derive(Clone, Copy)]
-enum Mark {
-    Absent,
-    /// This data directory's marker, for the root it names.
-    Own(RootId),
-    /// Another data directory's.
-    Foreign,
-}
-
-/// What startup does with the selected directory, by the rules [`switch`] describes.
-enum Decision {
-    /// Opens the registered root as it is, with its tracked files and its baseline.
-    Open { root: RootId, complete: bool },
-    /// Builds the baseline of the registered root again, keeping its tracked files.
-    Reinitialize(RootId),
-    /// Registers the data directory's first root.
-    First,
-    /// Changes the synchronized directory to the selected one under the root its marker names,
-    /// or that `--sync-reinitialize` named, forgetting every registered root and tracked file.
-    Rebind {
-        reason: switch::Reason,
-        root: RootId,
-    },
-    /// Switches to the selected directory under a new root when it holds only root files.
-    Replace,
-}
-
-/// The one place that decides how startup takes the selected directory, at `location` with the
-/// identity `node`.
-fn decide(
-    registered: &[switch::Registered],
-    location: &[u8],
-    node: NodeId,
-    mark: Mark,
-    catalog: CatalogId,
-    activation: Activation,
-) -> Result<Decision, RootError> {
-    let at = registered
-        .iter()
-        .find(|root| root.location == location && root.node == node);
-    let near = registered
-        .iter()
-        .any(|root| root.location == location || root.node == node);
-    let alone = registered.len() == 1;
-    match (activation, mark, at) {
-        (_, Mark::Foreign, _) => Err(RootError::ForeignMarker),
-        (Activation::Open, Mark::Own(id), Some(root)) if id == root.root_id && alone => {
-            Ok(Decision::Open {
-                root: id,
-                complete: root.complete,
-            })
-        }
-        (Activation::Open, Mark::Own(id), Some(root)) if id == root.root_id => {
-            Ok(Decision::Rebind {
-                reason: switch::Reason::SeveralRoots,
-                root: id,
-            })
-        }
-        (Activation::Open, Mark::Own(id), _) => Ok(Decision::Rebind {
-            reason: switch::Reason::MarkedDirectory,
-            root: id,
-        }),
-        (Activation::Open, Mark::Absent, Some(_)) => Err(RootError::MissingMarker),
-        (Activation::Open, Mark::Absent, None) if registered.is_empty() => Ok(Decision::First),
-        (Activation::Open, Mark::Absent, None) => Ok(Decision::Replace),
-        (Activation::Reinitialize { catalog_id }, Mark::Absent, Some(root))
-            if catalog_id == catalog && alone =>
-        {
-            Ok(Decision::Reinitialize(root.root_id))
-        }
-        (Activation::Reinitialize { catalog_id }, Mark::Absent, Some(root))
-            if catalog_id == catalog =>
-        {
-            Ok(Decision::Rebind {
-                reason: switch::Reason::SeveralRoots,
-                root: root.root_id,
-            })
-        }
-        (Activation::Reinitialize { .. }, Mark::Absent, None) if near => {
-            Err(RootError::RootChanged)
-        }
-        (Activation::Reinitialize { .. }, Mark::Absent | Mark::Own(_), _) => {
-            Err(RootError::ReinitializeDenied)
-        }
-    }
-}
-
 fn reserve(
     connection: &mut Connection,
     location: &[u8],
@@ -517,37 +433,40 @@ fn reserve(
         return Err(RootError::ForeignMarker);
     }
     let node = identity.node();
-    let registered = switch::registered(&transaction)?;
-    let mark = match marker {
-        None => Mark::Absent,
-        Some(marker) if marker.catalog_id == catalog => Mark::Own(marker.root_id),
-        Some(_) => Mark::Foreign,
+    let disk = DiskFacts {
+        location,
+        node,
+        marker,
     };
-    let (root_id, baseline, change) =
-        match decide(&registered, location, node, mark, catalog, activation)? {
-            Decision::Open { root, complete } => (root, Baseline::from_complete(complete), None),
-            Decision::Reinitialize(root) => {
-                sql::exec(
-                    &transaction,
-                    "UPDATE sync_roots SET complete = 0 WHERE root_id = ?1",
-                    [root.0],
-                )
-                .map_err(super::super::unavailable)?;
-                (root, Baseline::Activating, None)
-            }
-            Decision::First => {
-                let root = RootId::generate()
-                    .map_err(|error| RootError::Admin(AdminError::backend(error)))?;
-                insert_root(&transaction, root, location, node)?;
-                (root, Baseline::Activating, None)
-            }
-            Decision::Rebind { reason, root } => {
-                let change =
-                    switch::rebind(&transaction, reason, registered, root, location, node)?;
-                (root, Baseline::Activating, Some(Box::new(change)))
-            }
-            Decision::Replace => return Ok(Reservation::Replaced(switch::Replaced(registered))),
-        };
+    let facts = CatalogFacts {
+        id: catalog,
+        registered: switch::registered(&transaction)?,
+    };
+    let decision = decide(&disk, &facts, activation)?;
+    let registered = facts.registered;
+    let (root_id, baseline, change) = match decision {
+        Decision::Open { root, complete } => (root, Baseline::from_complete(complete), None),
+        Decision::Reinitialize(root) => {
+            sql::exec(
+                &transaction,
+                "UPDATE sync_roots SET complete = 0 WHERE root_id = ?1",
+                [root.0],
+            )
+            .map_err(super::super::unavailable)?;
+            (root, Baseline::Activating, None)
+        }
+        Decision::First => {
+            let root =
+                RootId::generate().map_err(|error| RootError::Admin(AdminError::backend(error)))?;
+            insert_root(&transaction, root, location, node)?;
+            (root, Baseline::Activating, None)
+        }
+        Decision::Rebind { reason, root } => {
+            let change = switch::rebind(&transaction, reason, registered, root, location, node)?;
+            (root, Baseline::Activating, Some(Box::new(change)))
+        }
+        Decision::Replace => return Ok(Reservation::Replaced(switch::Replaced(registered))),
+    };
     transaction.commit().map_err(super::super::unavailable)?;
     Ok(Reservation::Reserved {
         status: RootStatus {
@@ -956,6 +875,8 @@ impl SyncState {
     }
 }
 
+mod decide;
+mod facts;
 mod switch;
 pub(crate) use switch::RootChange;
 
