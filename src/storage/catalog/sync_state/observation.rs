@@ -41,6 +41,7 @@ pub(super) mod publication;
 pub(crate) use publication::Publication;
 mod stops;
 pub(crate) use stops::{AliasEdit, ListedStop, PathStop, TransientStop, Transition};
+pub(in crate::storage) use stops::{CLEAR_STOP, STOPPED};
 mod types;
 pub(crate) use types::{FindingCategory, FindingReason, PauseReason};
 

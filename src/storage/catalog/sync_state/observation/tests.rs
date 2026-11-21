@@ -227,6 +227,77 @@ async fn findings_count_by_what_each_does_to_a_wait() {
     catalog.close().await.unwrap();
 }
 
+/// A failed export of an object whose finding each ingestion observes again stops its path
+/// once: recording the failure again keeps the stop and moves nothing, the tree scan leaves the
+/// stop to the finding's observation while it clears another object's, and the observation that
+/// no longer fails clears it, writing nothing when there is none.
+#[tokio::test]
+async fn an_export_failure_of_an_object_with_a_finding_stops_its_path_once() {
+    use crate::storage::{
+        admin::{Generation, ObjectName, Origin},
+        sync_state::Ordinal,
+        test_fixtures::{body, publication, seed_bucket},
+    };
+    let (_data, _tree, catalog, root) = fixture().await;
+    seed_bucket(&catalog).await;
+    let bucket = crate::storage::admin::BucketName::new("bucket").unwrap();
+    let (held, other) = (ObjectName::new("a").unwrap(), ObjectName::new("b").unwrap());
+    let record = catalog
+        .admin(Origin::Api)
+        .publish_object(
+            &bucket,
+            &held,
+            publication(1024),
+            body(vec![bytes::Bytes::from_static(b"live")]),
+        )
+        .await
+        .unwrap();
+    let binding = root.sync_binding(&bucket).await.unwrap();
+    let generation = Generation::new(record.generation).unwrap();
+    root.record_finding(
+        binding.clone(),
+        held.clone(),
+        generation,
+        crate::sync::mapping::Reason::Collision,
+    )
+    .await
+    .unwrap();
+    let stopped = || async {
+        let listed = root.first_path_stops(8).await.unwrap();
+        let transient = root.transient_stop_page(Ordinal::START).await.unwrap();
+        let transient: Vec<_> = transient.into_iter().map(|stop| stop.name).collect();
+        (listed, transient)
+    };
+    let revision = || async { root.observation().await.unwrap().revision };
+    let failed = |name: &ObjectName| root.record_export_failure(binding.clone(), name.clone());
+
+    assert_eq!(failed(&held).await.unwrap(), Transition::New);
+    root.record_path_stop(binding.clone(), other.clone(), PathStop::IoFailure)
+        .await
+        .unwrap();
+    let recorded = revision().await;
+    assert_eq!(failed(&held).await.unwrap(), Transition::Kept);
+    assert_eq!(revision().await, recorded);
+    let stop = |name: &str| ListedStop {
+        path: format!("bucket/{name}"),
+        reason: PathStop::IoFailure,
+    };
+    assert_eq!(stopped().await, (vec![stop("a"), stop("b")], vec![other]));
+
+    root.clear_export_failure(binding.clone(), held.clone())
+        .await
+        .unwrap();
+    let cleared = revision().await;
+    assert_ne!(cleared, recorded);
+    assert_eq!(stopped().await.0, [stop("b")]);
+    root.clear_export_failure(binding.clone(), held.clone())
+        .await
+        .unwrap();
+    assert_eq!(revision().await, cleared);
+    drop(root);
+    catalog.close().await.unwrap();
+}
+
 /// The observation revision is the `findings_revision` a client pages the findings view by, so
 /// it stays where it is while nothing that view lists changes. A late directory notification
 /// invalidates the deletion set, and the next inventory confirms or replaces it; a full pass

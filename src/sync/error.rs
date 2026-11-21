@@ -138,6 +138,14 @@ impl<'a> Cause<'a> {
         }
     }
 
+    /// Whether this failure is the file system's rather than one path's: a full disk, an
+    /// exhausted quota or a read-only file system fails every later write there as well.
+    fn concerns_the_volume(self) -> bool {
+        matches!(self, Self::Admin(AdminError::DiskFull(_)))
+            || matches!(self, Self::Admin(AdminError::Io(cause)) if volume_kind(cause.kind()))
+            || matches!(self, Self::Io(error) if volume_kind(error.kind()))
+    }
+
     fn pause_reason(self) -> Option<PauseReason> {
         match self {
             Self::Stop(stop) => Some(match stop {
@@ -237,11 +245,15 @@ impl SyncError {
             .unwrap_or(PauseReason::ObserverFailure)
     }
 
-    /// Whether the failure concerns only the path one export was writing: an I/O failure, a
-    /// full disk or a file that changed under the export there. An export that observes a
-    /// finding again keeps that finding for a later pass on such a failure; write-back stops,
-    /// conflict capacity and catalog failures concern every export and still fail the pass.
+    /// Whether the failure concerns only the path one export was writing: an I/O failure there
+    /// or a file that changed under the export. An export that observes a finding again keeps
+    /// that finding for a later pass on such a failure; a full disk, an exhausted quota, a
+    /// read-only file system, write-back stops, conflict capacity and catalog failures concern
+    /// every export and still fail the pass.
     pub(super) fn concerns_one_object(&self) -> bool {
+        if self.causes().any(Cause::concerns_the_volume) {
+            return false;
+        }
         match self.causes().find_map(Cause::pause_reason) {
             Some(PauseReason::IoFailure) => true,
             Some(
@@ -301,6 +313,16 @@ pub(super) fn resource_pressure(error: &AdminError) -> bool {
     chain(Link::Admin(error))
         .map(Cause::of)
         .any(|cause| matches!(cause, Cause::Io(error) if transient_io(error)))
+}
+
+/// The I/O failures of a whole file system, which no other path written there escapes.
+fn volume_kind(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::StorageFull
+            | io::ErrorKind::QuotaExceeded
+            | io::ErrorKind::ReadOnlyFilesystem
+    )
 }
 
 fn transient_kind(kind: io::ErrorKind) -> bool {

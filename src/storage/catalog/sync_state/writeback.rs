@@ -40,6 +40,7 @@ pub(crate) use live_export::{LiveExport, LiveResult, LiveSource};
 pub(crate) use live_export::{
     inject_failure as inject_live_export_failure,
     inject_failure_after as inject_live_export_failure_after,
+    inject_io_failure as inject_live_export_io_failure,
 };
 
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_writeback_roots (
@@ -316,8 +317,17 @@ pub(crate) struct Status {
     io_failure: bool,
     conflicts: super::conflicts::Usage,
     captured_entries: u64,
+    /// Whether an operation is left unfinished, which [`Self::stop`] does not say by itself
+    /// until recovery is required.
+    unfinished: bool,
 }
 impl Status {
+    /// Whether write-back neither stops nor holds an operation that is left unfinished, so that
+    /// a failed export left nothing for recovery to finish.
+    pub(crate) fn idle(&self) -> bool {
+        self.stop() == Stop::Ready && !self.unfinished
+    }
+
     /// Why write-back is paused, derived from the counters it was read with.
     pub(crate) fn stop(&self) -> Stop {
         if self.io_failure {
@@ -499,7 +509,7 @@ fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
     let row = connection
         .prepare_cached(RootRow::SELECT)?
         .query_row([root], RootRow::read)?;
-    let failed_operation: bool = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root],|r|r.get(0))?;
+    let (unfinished, failed_operation): (bool, bool) = connection.prepare_cached("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4),EXISTS(SELECT 1 FROM sync_writeback_ops WHERE root_id=?1 AND phase!=4 AND io_failure!=0)")?.query_row([root],|r|Ok((r.get(0)?,r.get(1)?)))?;
     let conflicts = super::conflicts::usage(connection, root)?;
     let captured_entries = super::conflicts::captured_entries(connection, root)?;
     if captured_entries > row.entries {
@@ -515,6 +525,7 @@ fn status(connection: &Connection, root: RootId) -> Result<Status, Error> {
         io_failure: row.io_failure || failed_operation,
         conflicts,
         captured_entries,
+        unfinished,
     })
 }
 pub(super) fn observation(

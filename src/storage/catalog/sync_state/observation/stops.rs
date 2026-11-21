@@ -9,6 +9,10 @@ use crate::storage::{
 pub(crate) enum PathStop {
     ProtectedDeletion,
     SourceChanging,
+    /// Ingestion could not read the file, or an export that observed the object's finding again
+    /// could not write it there and left no write-back operation behind. The stop of an object
+    /// that holds a finding goes once an observation of the finding no longer fails, or with
+    /// the finding; any other goes once the path holds the file again or nothing.
     IoFailure,
     /// A directory or special file took the place of a tracked file. Neither an export nor a
     /// deletion reaches through it, and it stops only its own path; a file inside such a
@@ -55,7 +59,10 @@ impl RootLease {
         self.catalog().run_admin(move |connection| {
             let tx=connection.transaction()?;
             scope.authorize(&tx)?;
-            let stops = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure','EntryReplaced','AliasEdited') ORDER BY ordinal LIMIT 256")
+            // An object that holds a finding has its I/O failure cleared by the observation of
+            // that finding: the path an export failed to write holds nothing, which would
+            // otherwise clear the stop at the end of the very pass that recorded it.
+            let stops = tx.prepare_cached("SELECT ordinal,bucket,incarnation,name FROM sync_path_stops p WHERE root_id=?1 AND ordinal>?2 AND reason IN ('SourceChanging','IoFailure','EntryReplaced','AliasEdited') AND NOT (reason='IoFailure' AND EXISTS(SELECT 1 FROM sync_findings f WHERE f.root_id=?1 AND f.bucket=p.bucket AND f.name=p.name AND f.incarnation=p.incarnation)) ORDER BY ordinal LIMIT 256")
                 .and_then(|mut statement| statement.query_map(params![root,after], |row| Ok(TransientStop{ordinal:row.get(0)?,binding:SyncBinding::new(catalog,row.get::<_,BucketName>(1)?,row.get::<_,Incarnation>(2)?).with_control(scope.clone()),name:row.get(3)?}))?.collect::<rusqlite::Result<Vec<_>>>())?;
             Ok(stops)
         }).await.map_err(RootError::from)
@@ -84,13 +91,74 @@ impl RootLease {
             .map_err(RootError::from)
     }
 
+    /// Records that the export of `name`, observing its finding again, failed to write its own
+    /// path, as a [`PathStop::IoFailure`] stop that holds a wait until an observation of the
+    /// finding no longer fails. Returns whether the stop began now, so that the failure is
+    /// reported once rather than on every pass.
+    pub(crate) async fn record_export_failure(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+    ) -> Result<Transition, RootError> {
+        let root = self.status().root_id;
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                super::super::matching(&tx, &binding, binding.bucket.as_str())
+                    .map_err(unavailable)?;
+                let stop = params![
+                    root,
+                    binding.bucket,
+                    name,
+                    binding.incarnation,
+                    PathStop::IoFailure
+                ];
+                if sql::scalar(&tx, STOPPED, stop)? {
+                    return Ok(Transition::Kept);
+                }
+                sql::exec(&tx, RECORD_STOP, stop)?;
+                tx.commit().map_err(unavailable)?;
+                Ok(Transition::New)
+            })
+            .await
+            .map_err(RootError::from)
+    }
+
+    /// Clears the stop that a failed export of `name` left, once an observation of its finding
+    /// no longer fails. Writes only when there is one, since every pass observes the finding.
+    pub(crate) async fn clear_export_failure(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+    ) -> Result<(), RootError> {
+        let root = self.status().root_id;
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                let stop = params![
+                    root,
+                    binding.bucket,
+                    name,
+                    binding.incarnation,
+                    PathStop::IoFailure
+                ];
+                if sql::scalar(&tx, STOPPED, stop)? {
+                    sql::exec(&tx, CLEAR_STOP, stop)?;
+                    tx.commit().map_err(unavailable)?;
+                }
+                Ok(())
+            })
+            .await
+            .map_err(RootError::from)
+    }
+
     /// Decides what ingestion does with the changed tracked file of `name` at `path`. While
     /// another live object stands for the file as well, the edit stays out and holds a
     /// [`PathStop::AliasEdited`] stop, and the stop notes the generation each other object has
-    /// then. Once `name` went through the API and one object is left, the edit is that object's
-    /// to take in over the generation noted for it. Otherwise a stop left from the freeze goes, since
-    /// the edit is now taken in for `name`. Reads only when the stop already says what holds, so
-    /// an unchanged freeze writes nothing.
+    /// then. Once `name` went through the API and one object is left, the edit is that
+    /// object's to take in over the generation noted for it. Otherwise a stop left from the
+    /// freeze goes, since the edit is now taken in for `name`. Reads only when the stop already
+    /// says what holds, so an unchanged freeze writes nothing.
     pub(crate) async fn observe_alias_edit(
         &self,
         binding: SyncBinding,
@@ -102,39 +170,78 @@ impl RootLease {
         }
         let root = self.status().root_id;
         let scope = self.control_scope();
-        self.catalog().run_admin(move |connection| {
-            let tx=connection.transaction()?;
-            scope.authorize(&tx)?;
-            super::super::matching(&tx,&binding,binding.bucket.as_str()).map_err(unavailable)?;
-            let live = objects::lookup(&tx, binding.bucket.as_str(), name.as_str()).map_err(unavailable)?.is_some();
-            let mut others = alias::claimants(&tx, root, &binding, path.as_str(), &name)?;
-            let stopped: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5)", params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
-            let partner = others.pop();
-            let edit = match (partner, live || !others.is_empty()) {
-                (Some(heir), false) => {
-                    let base = alias::edit_base(&tx, root, &binding, &heir)?;
-                    return Ok(AliasEdit::HandOver { heir, base });
-                }
-                (Some(partner), true) => {
-                    let transition = if stopped {
-                        Transition::Kept
-                    } else {
-                        sql::exec(&tx, RECORD_STOP, params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
-                        alias::note_edit_base(&tx, root, &binding, path.as_str(), &name)?;
-                        Transition::New
-                    };
-                    AliasEdit::Frozen { transition, partner }
-                }
-                (None, _) => {
-                    if stopped {
-                        sql::exec(&tx, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root,binding.bucket,name,binding.incarnation,PathStop::AliasEdited])?;
+        self.catalog()
+            .run_admin(move |connection| {
+                let tx = connection.transaction()?;
+                scope.authorize(&tx)?;
+                super::super::matching(&tx, &binding, binding.bucket.as_str())
+                    .map_err(unavailable)?;
+                let live = objects::lookup(&tx, binding.bucket.as_str(), name.as_str())
+                    .map_err(unavailable)?
+                    .is_some();
+                let mut others = alias::claimants(&tx, root, &binding, path.as_str(), &name)?;
+                let stopped: bool = sql::scalar(
+                    &tx,
+                    STOPPED,
+                    params![
+                        root,
+                        binding.bucket,
+                        name,
+                        binding.incarnation,
+                        PathStop::AliasEdited
+                    ],
+                )?;
+                let partner = others.pop();
+                let edit = match (partner, live || !others.is_empty()) {
+                    (Some(heir), false) => {
+                        let base = alias::edit_base(&tx, root, &binding, &heir)?;
+                        return Ok(AliasEdit::HandOver { heir, base });
                     }
-                    AliasEdit::Free
-                }
-            };
-            tx.commit().map_err(unavailable)?;
-            Ok(edit)
-        }).await.map_err(RootError::from)
+                    (Some(partner), true) => {
+                        let transition = if stopped {
+                            Transition::Kept
+                        } else {
+                            sql::exec(
+                                &tx,
+                                RECORD_STOP,
+                                params![
+                                    root,
+                                    binding.bucket,
+                                    name,
+                                    binding.incarnation,
+                                    PathStop::AliasEdited
+                                ],
+                            )?;
+                            alias::note_edit_base(&tx, root, &binding, path.as_str(), &name)?;
+                            Transition::New
+                        };
+                        AliasEdit::Frozen {
+                            transition,
+                            partner,
+                        }
+                    }
+                    (None, _) => {
+                        if stopped {
+                            sql::exec(
+                                &tx,
+                                CLEAR_STOP,
+                                params![
+                                    root,
+                                    binding.bucket,
+                                    name,
+                                    binding.incarnation,
+                                    PathStop::AliasEdited
+                                ],
+                            )?;
+                        }
+                        AliasEdit::Free
+                    }
+                };
+                tx.commit().map_err(unavailable)?;
+                Ok(edit)
+            })
+            .await
+            .map_err(RootError::from)
     }
 }
 
@@ -173,6 +280,13 @@ impl RootLease {
 /// Records one path stop of reason `?5` for the object `?3` of bucket `?2` in incarnation `?4`
 /// under root `?1`, at the object's live generation, else its tracked one.
 const RECORD_STOP: &str = "INSERT INTO sync_path_stops(root_id,bucket,name,owner_project,incarnation,generation,reason) SELECT ?1,?2,?3,b.project,?4,coalesce((SELECT generation FROM objects WHERE bucket=?2 AND name=?3 AND time_deleted IS NULL),(SELECT generation FROM sync_objects WHERE bucket=?2 AND name=?3 AND incarnation=?4),0),?5 FROM buckets b JOIN bucket_incarnations i ON i.bucket=b.name WHERE b.name=?2 AND i.incarnation=?4 ON CONFLICT(root_id,bucket,name,incarnation,reason) DO UPDATE SET generation=excluded.generation WHERE generation!=excluded.generation";
+
+/// Whether the object `?3` of bucket `?2` in incarnation `?4` under root `?1` holds a path stop
+/// of reason `?5`.
+pub(in crate::storage) const STOPPED: &str = "SELECT EXISTS(SELECT 1 FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5)";
+
+/// Clears the path stop that [`STOPPED`] asks about.
+pub(in crate::storage) const CLEAR_STOP: &str = "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5";
 
 /// Whether a state that is reported once, when it begins, began with this observation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

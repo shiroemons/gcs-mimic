@@ -649,9 +649,9 @@ object left had when the edit was first seen, which the alias finding keeps: a
 generation the API wrote since, while the file was frozen or after the other
 object went, stays, and the deleted object's file goes as any deletion of an
 edited file does, keeping the edit as a conflict. The end of an alias is recorded in the transaction of the export
-or upload that settles its file, so a failed export, which keeps the finding and
-is reported as `sync_finding_export_failed`, or a restart in between leaves the
-finding to be observed again and deletes nothing. A `sync_alias_frozen` warning
+or upload that settles its file, so a failed export, which keeps the finding as
+any observed again does, or a restart in between leaves the finding to be
+observed again and deletes nothing. A `sync_alias_frozen` warning
 names each object as its finding begins, with the file's `path`, the `partner`
 and the remedy; an info `sync_alias_released` event names each object as its
 finding ends and says what follows; a `sync_alias_edited` warning names the
@@ -742,7 +742,15 @@ the next wait or rescan exports the object and removes its finding. A finding
 that still holds only reads the catalog, so the findings revision moves only
 when a finding changes. One whose target cannot be read at that moment, such as
 behind a directory without search permission, keeps its row for a later pass
-and holds back nothing else; the scan reports that directory. A regular file
+and holds back nothing else; the scan reports that directory. An export that
+fails to write the object's own path and leaves no write-back operation behind
+keeps the finding too, without failing the pass for the other objects, and
+gives the object an `IoFailure` path stop: a wait ends on it as a tree-side
+`FindingsPending` that names it in `path_stops`, a
+`sync_finding_export_failed` warning names the object when the stop begins, and
+the stop goes once an observation of the finding no longer fails, or with the
+finding. A full disk, an exhausted quota, a read-only file system and a failure
+that left an operation for recovery fail the pass, as any export's do. A regular file
 directly in the root under a bucket's name keeps every object of that bucket
 out as `collision` findings until it is moved away, and the ingestion after the
 move exports them. Other reasons depend only on the object's name and the

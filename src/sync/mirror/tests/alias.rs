@@ -16,7 +16,8 @@ use crate::storage::sync_state::{
     findings::alias::FrozenFile,
     observation::{FindingCategory, ListedStop, ObservationCursor, PathStop},
 };
-use crate::sync::control::WaitReason;
+use crate::sync::control::{WaitReason, WaitResult};
+use std::io::ErrorKind;
 
 /// The pairs of names a folding file system takes for one: by letter case, and by Unicode
 /// normalization (NFC and NFD of `é`).
@@ -741,34 +742,70 @@ impl Pair {
 /// transaction. When that export fails after the frozen file was deleted and the other object
 /// went through the API, the object left keeps its finding, so neither the failed pass nor a
 /// restart takes the missing file for its deletion, and the restart writes the file back. A
-/// failure before the export recorded any operation keeps the finding without failing the
-/// pass; one that left an operation for recovery fails it, as any export's would.
+/// full disk fails the pass at every phase, since every later export fails as well. A failure
+/// at the object's path alone that left no operation for recovery keeps the finding without
+/// failing the pass and stops the path, so the wait ends on it, and on it again after the
+/// next pass fails the same way; one that left an operation fails the pass, as any
+/// export's would.
 #[tokio::test]
 async fn an_export_failing_at_the_end_of_an_alias_deletes_nothing_at_restart() {
     for (spelling, names) in cases() {
-        for phase in ["prepare", "copy"] {
-            let Some(mut pair) = Pair::frozen(spelling, names).await else {
-                continue;
-            };
-            let context = format!("{spelling:?} {names:?} {phase}");
-            fs::remove_file(pair.directory().join(pair.first)).unwrap();
-            assert_eq!(pair.wait().await.reason, WaitReason::Ready, "{context}");
-            let attempts = usize::try_from(EXPORT_RETRIES).unwrap() + 1;
-            crate::storage::sync_state::writeback::inject_live_export_failure(
-                pair.root.status().root_id,
-                phase,
-                attempts,
-            );
-            pair.delete(pair.second).await;
-            let failed = pair.try_wait().await.map(|result| result.reason);
-            assert_eq!(failed.is_ok(), phase == "prepare", "{context}: {failed:?}");
-            assert!(pair.listed().is_empty(), "{context}");
-            assert_eq!(
-                pair.findings().await,
-                pair.aliases_of(&[pair.second]),
-                "{context}"
-            );
-            pair.restarts_with_the_file_of_first(&context).await;
+        for phase in ["prepare", "copy", "install", "durable", "ack"] {
+            for kind in [ErrorKind::StorageFull, ErrorKind::PermissionDenied] {
+                let Some(mut pair) = Pair::frozen(spelling, names).await else {
+                    continue;
+                };
+                let context = format!("{spelling:?} {names:?} {phase} {kind:?}");
+                fs::remove_file(pair.directory().join(pair.first)).unwrap();
+                assert_eq!(pair.wait().await.reason, WaitReason::Ready, "{context}");
+                let attempts = usize::try_from(EXPORT_RETRIES).unwrap() + 1;
+                let root = pair.root.status().root_id;
+                let arm = || {
+                    crate::storage::sync_state::writeback::inject_live_export_io_failure(
+                        root, phase, attempts, kind,
+                    );
+                };
+                arm();
+                pair.delete(pair.second).await;
+                let failed = pair.try_wait().await;
+                let mut left = pair.aliases_of(&[pair.second]);
+                // Only a failure at the path before the export recorded an operation leaves
+                // nothing for recovery to finish.
+                if kind == ErrorKind::PermissionDenied && phase == "prepare" {
+                    let stop = ListedStop {
+                        path: format!("test-bucket/{}", pair.first),
+                        reason: PathStop::IoFailure,
+                    };
+                    let ended = |result: Result<WaitResult, SyncError>| {
+                        result.map(|result| {
+                            let stops = result.findings.map(|counted| counted.stops.first);
+                            (result.reason, stops)
+                        })
+                    };
+                    let stopped = (WaitReason::FindingsPending, Some(vec![stop]));
+                    assert_eq!(ended(failed).ok(), Some(stopped.clone()), "{context}");
+                    left.push((pair.first.to_owned(), "IoFailure".to_owned(), None));
+                    left.sort();
+                    assert_eq!(pair.findings().await, left, "{context}");
+                    arm();
+                    assert_eq!(
+                        ended(pair.try_wait().await).ok(),
+                        Some(stopped),
+                        "{context}"
+                    );
+                } else {
+                    assert!(
+                        failed.is_err(),
+                        "{context}: {:?}",
+                        failed.map(|result| result.reason)
+                    );
+                }
+                assert_eq!(pair.findings().await, left, "{context}");
+                let installed = matches!(phase, "durable" | "ack");
+                let listed: &[&str] = if installed { &[pair.first] } else { &[] };
+                assert_eq!(pair.listed(), listed, "{context}");
+                pair.restarts_with_the_file_of_first(&context).await;
+            }
         }
     }
 }

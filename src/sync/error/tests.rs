@@ -468,3 +468,35 @@ fn a_write_that_a_concurrent_change_made_moot_is_done() {
     assert!(!SyncError::Root(root()).is_stale_deletion());
     assert!(unless_superseded(Err(RootError::InUse)).is_err());
 }
+
+/// A failure at one export's path keeps that object's finding for a later pass, while one of
+/// the whole file system fails the pass, however deep in the chain it sits.
+#[test]
+fn only_a_failure_at_one_path_concerns_one_object() {
+    for one in [
+        SyncError::Admin(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
+        nested(AdminError::Io(io::ErrorKind::PermissionDenied.into())),
+        SyncError::Writeback(writeback::Error::Admin(AdminError::Io(
+            io::ErrorKind::InvalidFilename.into(),
+        ))),
+        SyncError::Conflict(conflicts::Error::TargetChanged),
+    ] {
+        assert!(one.concerns_one_object(), "{one:?}");
+    }
+    for kind in [
+        io::ErrorKind::StorageFull,
+        io::ErrorKind::QuotaExceeded,
+        io::ErrorKind::ReadOnlyFilesystem,
+    ] {
+        for volume in [
+            SyncError::Admin(AdminError::DiskFull(kind.into())),
+            SyncError::Admin(AdminError::Io(kind.into())),
+            nested(io::Error::from(kind)),
+            SyncError::Writeback(writeback::Error::Admin(AdminError::Io(kind.into()))),
+        ] {
+            assert!(!volume.concerns_one_object(), "{volume:?}");
+        }
+    }
+    let capacity = SyncError::Writeback(writeback::Error::Capacity);
+    assert!(!capacity.concerns_one_object());
+}

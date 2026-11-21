@@ -21,12 +21,12 @@ use crate::{
             },
             observation::Transition,
             root::RootLease,
-            writeback::{Stop, Writeback},
+            writeback::Writeback,
         },
     },
     sync::{
         control::Correction,
-        error::superseded,
+        error::{superseded, unless_superseded},
         interrupt::{Interrupt, Interrupted},
         mapping::Reason,
     },
@@ -238,8 +238,9 @@ impl SkippedExports {
     }
 
     /// Exports one object observed again, if its cause went. A failure to write its own path
-    /// that leaves no write-back operation behind keeps its finding for a later pass and is
-    /// reported, rather than failing the pass for every other object.
+    /// that leaves no write-back operation behind keeps its finding for a later pass, rather
+    /// than failing the pass for every other object, and stops the path until an observation
+    /// no longer fails; it is reported when the stop begins.
     async fn observe(
         &mut self,
         observing: &mut Observing<'_, '_>,
@@ -267,28 +268,67 @@ impl SkippedExports {
         // A failure that left a write-back operation for recovery to finish holds every export
         // back, so it still fails the pass.
         let settled = match &outcome {
-            Err(error) if error.concerns_one_object() => {
-                observing.writeback.status().await?.stop() == Stop::Ready
-            }
+            Err(error) if error.concerns_one_object() => observing.writeback.status().await?.idle(),
             Ok(_) | Err(_) => false,
         };
         match outcome {
-            Ok(outcome) => self.record((bucket, name), outcome),
-            Err(error) if settled => {
-                diagnostics::emit(
-                    LogLevel::Warn,
-                    "sync_finding_export_failed",
-                    serde_json::json!({
-                        "bucket":bucket.as_str(),"object":name.as_str(),
-                        "reason":crate::error::Report(&error).to_string(),
-                        "remedy":"The finding stays and the next ingestion observes it again; correct what the reason names at the object's path"
-                    }),
-                );
+            Ok(outcome) => {
+                self.record((bucket.clone(), name.clone()), outcome);
+                export_failure(observing.root, &bucket, name, Failure::Gone).await
             }
-            Err(error) => return Err(error),
+            Err(error) if settled => {
+                let failure = Failure::Kept(&error);
+                export_failure(observing.root, &bucket, name, failure).await
+            }
+            Err(error) => Err(error),
         }
-        Ok(())
     }
+}
+
+/// What the observation of a finding found of a failure to write the object's own path.
+enum Failure<'a> {
+    /// The observation did not fail there.
+    Gone,
+    /// The observation failed there with this error and left no write-back operation behind.
+    Kept(&'a SyncError),
+}
+
+/// Records what the observation of the finding of `name` found of a failure to write its
+/// path: the stop it holds, reported when it begins, or none. A bucket or object that changed
+/// meanwhile is left to the replay of that change.
+async fn export_failure(
+    root: &RootLease,
+    bucket: &BucketName,
+    name: ObjectName,
+    failure: Failure<'_>,
+) -> Result<(), SyncError> {
+    let binding = match root.sync_binding(bucket).await {
+        Ok(binding) => binding,
+        Err(AdminError::NotFound | AdminError::Precondition) => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let error = match failure {
+        Failure::Gone => {
+            unless_superseded(root.clear_export_failure(binding, name).await)?;
+            return Ok(());
+        }
+        Failure::Kept(error) => error,
+    };
+    match root.record_export_failure(binding, name.clone()).await {
+        Ok(Transition::New) => diagnostics::emit(
+            LogLevel::Warn,
+            "sync_finding_export_failed",
+            serde_json::json!({
+                "bucket":bucket.as_str(),"object":name.as_str(),
+                "reason":crate::error::Report(error).to_string(),
+                "remedy":"The finding stays, and the object's path stops the wait as IoFailure until an ingestion observes it again without this failure; correct what the reason names at the object's path"
+            }),
+        ),
+        Ok(Transition::Kept) => {}
+        Err(error) if superseded(&error) => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
 }
 
 /// Whether `inner` names an object below `outer`, whose file `outer`'s would have to be a

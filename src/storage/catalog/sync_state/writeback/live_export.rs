@@ -12,37 +12,63 @@ pub(crate) mod tests;
 use crate::storage::catalog::fault::Step;
 pub(super) use owned::OwnedBody;
 
-/// One armed failure: the root and phase it fires at, the hits it lets pass first, and how many
-/// hits after those it fails.
+/// One armed failure: the root and phase it fires at, the hits it lets pass first, how many
+/// hits after those it fails, and the kind of I/O failure each returns.
 #[cfg(test)]
 struct Armed {
     root: RootId,
     phase: &'static str,
     skip: usize,
     count: usize,
+    kind: std::io::ErrorKind,
 }
 
 #[cfg(test)]
 static FAILURE: std::sync::Mutex<Vec<Armed>> = std::sync::Mutex::new(Vec::new());
 
+/// Fails `count` hits of `phase` for `root` as a full disk.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn inject_failure(root: RootId, phase: &'static str, count: usize) {
     inject_failure_after(root, phase, 0, count);
 }
 
-/// Fails `count` hits of `phase` for `root` after letting the next `skip` pass, so that a test
-/// can fail a later object's export while an earlier one completes.
+/// Fails `count` hits of `phase` for `root` with an I/O failure of `kind`, such as one that
+/// concerns the target path alone rather than the whole file system.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+pub(crate) fn inject_io_failure(
+    root: RootId,
+    phase: &'static str,
+    count: usize,
+    kind: std::io::ErrorKind,
+) {
+    arm(Armed {
+        root,
+        phase,
+        skip: 0,
+        count,
+        kind,
+    });
+}
+
+/// Fails `count` hits of `phase` for `root` as a full disk after letting the next `skip` pass,
+/// so that a test can fail a later object's export while an earlier one completes.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn inject_failure_after(root: RootId, phase: &'static str, skip: usize, count: usize) {
+    arm(Armed {
+        root,
+        phase,
+        skip,
+        count,
+        kind: std::io::ErrorKind::StorageFull,
+    });
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+fn arm(armed: Armed) {
     FAILURE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push(Armed {
-            root,
-            phase,
-            skip,
-            count,
-        });
+        .push(armed);
 }
 
 /// Makes the next `count` staged copies of `root` record an inode number that no later
@@ -56,10 +82,10 @@ pub(crate) fn inject_renumbered_copy(root: RootId, count: usize) {
 #[cfg(test)]
 const RENUMBERED_COPY: &str = "renumbered-copy";
 
-/// Whether a test armed `phase` for `root`; each armed count fires once, after the hits it
-/// skips.
+/// The kind of failure a test armed `phase` for `root` with, if it did; each armed count fires
+/// once, after the hits it skips.
 #[cfg(test)]
-fn armed(root: RootId, phase: &str) -> Result<bool, Error> {
+fn armed(root: RootId, phase: &str) -> Result<Option<std::io::ErrorKind>, Error> {
     let mut failure = FAILURE
         .lock()
         .map_err(|_| AdminError::Backend("live-export failure injection poisoned".into()))?;
@@ -67,27 +93,27 @@ fn armed(root: RootId, phase: &str) -> Result<bool, Error> {
         .iter_mut()
         .find(|armed| armed.root == root && armed.phase == phase && armed.count > 0)
     else {
-        return Ok(false);
+        return Ok(None);
     };
     if armed.skip > 0 {
         armed.skip -= 1;
-        return Ok(false);
+        return Ok(None);
     }
     armed.count -= 1;
-    Ok(true)
+    Ok(Some(armed.kind))
 }
 
 #[cfg(test)]
 fn failure(root: RootId, phase: &str) -> Result<(), Error> {
-    if armed(root, phase)? {
-        return Err(AdminError::DiskFull(std::io::ErrorKind::StorageFull.into()).into());
+    match armed(root, phase)? {
+        Some(kind) => Err(AdminError::from(std::io::Error::from(kind)).into()),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]
 fn renumbered(root: RootId, identity: fsutil::FileIdentity) -> Result<fsutil::FileIdentity, Error> {
-    Ok(if armed(root, RENUMBERED_COPY)? {
+    Ok(if armed(root, RENUMBERED_COPY)?.is_some() {
         fsutil::FileIdentity {
             inode: !identity.inode,
             ..identity

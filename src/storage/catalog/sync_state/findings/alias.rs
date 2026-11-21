@@ -11,7 +11,7 @@ use crate::storage::{
     sync_state::{
         SyncFingerprint,
         durable::Durable,
-        observation::{PathStop, Transition},
+        observation::{CLEAR_STOP, PathStop, STOPPED, Transition},
     },
 };
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -329,7 +329,7 @@ impl RootLease {
                     return Err(AdminError::Precondition);
                 }
                 let left = claimants(&tx, root, &binding, &path, &name).map_err(unavailable)?;
-                let edited: bool = sql::scalar(&tx, "SELECT EXISTS(SELECT 1 FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5)", params![root, binding.bucket, name, binding.incarnation, PathStop::AliasEdited]).map_err(unavailable)?;
+                let edited: bool = sql::scalar(&tx, STOPPED, params![root, binding.bucket, name, binding.incarnation, PathStop::AliasEdited]).map_err(unavailable)?;
                 let holding = match (left.len(), edited) {
                     (0, _) | (1, false) => Holding::Alone,
                     (1, true) => Holding::Edited,
@@ -529,7 +529,18 @@ fn drop_edit_stop(
     binding: &SyncBinding,
     holder: &ObjectName,
 ) -> Result<(), AdminError> {
-    sql::exec(transaction, "DELETE FROM sync_path_stops WHERE root_id=?1 AND bucket=?2 AND name=?3 AND incarnation=?4 AND reason=?5", params![root, binding.bucket, holder, binding.incarnation, PathStop::AliasEdited]).map_err(unavailable)?;
+    sql::exec(
+        transaction,
+        CLEAR_STOP,
+        params![
+            root,
+            binding.bucket,
+            holder,
+            binding.incarnation,
+            PathStop::AliasEdited
+        ],
+    )
+    .map_err(unavailable)?;
     Ok(())
 }
 
