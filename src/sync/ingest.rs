@@ -421,7 +421,7 @@ impl Ingest<'_> {
                 if error.kind() != io::ErrorKind::NotFound
                     && Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
             {
-                self.defer(&holder.path, EntryError::Io(error.kind()));
+                self.defer(&holder.path, EntryError::Io((&error).into()));
                 return Ok(());
             }
             Err(RootError::Admin(

@@ -118,6 +118,55 @@ fn a_step_whose_entry_kept_failing_to_open_is_retried_and_does_not_pause() {
     }
 }
 
+/// An export step is tried again, within its budget, on every failure that passes or is the
+/// whole file system's: contention, and a full disk, an exhausted quota or a read-only file
+/// system that an operator may clear meanwhile. A missing permission is retried as well, so that
+/// a repaired file or parent permission lets the export go on. A conflict or a displaced target
+/// is recovery's whatever failure it carries, and a closed catalog, a refusal or a change that
+/// made the step moot is not retried.
+#[test]
+fn an_export_step_retries_failures_that_pass_or_are_the_volumes() {
+    use crate::storage::sync_state::{conflicts, root::RootError};
+    let io_failure = |kind: io::ErrorKind| AdminError::Io(kind.into());
+    let retried = || {
+        [
+            AdminError::DiskFull(io::ErrorKind::StorageFull.into()),
+            io_failure(io::ErrorKind::StorageFull),
+            io_failure(io::ErrorKind::QuotaExceeded),
+            io_failure(io::ErrorKind::ReadOnlyFilesystem),
+            io_failure(io::ErrorKind::PermissionDenied),
+            io_failure(io::ErrorKind::TimedOut),
+            AdminError::Busy {
+                retry_after: Duration::from_secs(1),
+            },
+        ]
+    };
+    for error in retried() {
+        let error = writeback::Error::Admin(error);
+        assert!(retryable(&error), "{error:?}");
+    }
+    for error in retried() {
+        let error = writeback::Error::Root(RootError::Admin(error));
+        assert!(retryable(&error), "{error:?}");
+    }
+    for error in [
+        writeback::Error::Admin(AdminError::Closed),
+        writeback::Error::Admin(AdminError::Forbidden),
+        writeback::Error::Admin(AdminError::Precondition),
+        writeback::Error::Admin(AdminError::NotFound),
+        writeback::Error::Conflict(conflicts::Error::Admin(AdminError::Busy {
+            retry_after: Duration::from_secs(1),
+        })),
+        writeback::Error::Displaced(Box::new(writeback::Error::Admin(io_failure(
+            io::ErrorKind::TimedOut,
+        )))),
+        writeback::Error::Capacity,
+        writeback::Error::WorkspaceChanged,
+    ] {
+        assert!(!retryable(&error), "{error:?}");
+    }
+}
+
 #[tokio::test]
 async fn retry_repeats_transient_errors_and_keeps_permanent_causes() {
     let (_data, _tree, catalog, _bucket, root) = live_fixture().await;

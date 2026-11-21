@@ -1,13 +1,21 @@
 //! Descriptor-relative traversal shared by synchronization and catalog write-back.
 
 use super::{
+    failure::Failure,
     mapping::{LexicalReason, Obstruction, Unplaced},
     naming::RootNaming,
 };
 use crate::fsutil::{self, Child, DirectoryNames, DirectoryOpen, Lookup, NodeId, Opened};
 pub(crate) use crate::source_tree::TreeLimits;
 use crate::source_tree::{LARGE_TREE_ENTRIES, warn_large_tree};
-use crate::{config::MAX_TREE_DEPTH, fsutil::FileIdentity, storage::admin::AdminError};
+use crate::{
+    config::MAX_TREE_DEPTH,
+    fsutil::FileIdentity,
+    storage::{
+        admin::AdminError,
+        failure::{IoCause, Link, TypedSource},
+    },
+};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fs::File, io, path::Path};
@@ -91,17 +99,61 @@ pub(crate) struct TreeEntry {
 /// Why a scan could not read an entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EntryError {
-    /// Opening it, or listing the directory, failed with this kind.
-    Io(io::ErrorKind),
+    /// Opening it, or listing the directory, failed with this I/O error.
+    Io(EntryIo),
     /// It kept failing to open while its name still held one.
     Unopenable,
 }
 impl std::fmt::Display for EntryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(kind) => std::fmt::Display::fmt(kind, f),
+            Self::Io(error) => std::fmt::Display::fmt(&error.kind(), f),
             Self::Unopenable => std::fmt::Display::fmt(&fsutil::Unopenable, f),
         }
+    }
+}
+/// The I/O failure a scan keeps for an entry: its OS error number where it has one, since
+/// descriptor or memory pressure is told apart only by that number, and its kind otherwise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EntryIo {
+    Os(i32),
+    Kind(io::ErrorKind),
+}
+impl EntryIo {
+    pub(crate) fn kind(self) -> io::ErrorKind {
+        match self {
+            Self::Os(errno) => io::Error::from_raw_os_error(errno).kind(),
+            Self::Kind(kind) => kind,
+        }
+    }
+    /// What the one classification says of the failure, as it says of the error it was.
+    pub(in crate::sync) fn class(self) -> Option<Failure> {
+        Failure::of_io(&match self {
+            Self::Os(errno) => io::Error::from_raw_os_error(errno),
+            Self::Kind(kind) => kind.into(),
+        })
+    }
+}
+impl From<&io::Error> for EntryIo {
+    fn from(error: &io::Error) -> Self {
+        error
+            .raw_os_error()
+            .map_or(Self::Kind(error.kind()), Self::Os)
+    }
+}
+impl From<&IoCause> for EntryIo {
+    /// The I/O error the cause keeps, or the cause's kind when it keeps none.
+    fn from(cause: &IoCause) -> Self {
+        if let Some(Link::Io(error)) = cause.typed_source() {
+            error.into()
+        } else {
+            Self::Kind(cause.kind())
+        }
+    }
+}
+impl From<io::ErrorKind> for EntryIo {
+    fn from(kind: io::ErrorKind) -> Self {
+        Self::Kind(kind)
     }
 }
 /// The directories of the scan's frames, reopened from the root. `lost` is the first frame that
@@ -114,7 +166,7 @@ struct Reopened {
 impl TreeEntry {
     /// A directory of the scan that could not be opened or listed, or was replaced; the scan
     /// reports it with the error and stops descending into it.
-    fn lost_directory(frame: &Frame, error: io::ErrorKind) -> Self {
+    fn lost_directory(frame: &Frame, error: EntryIo) -> Self {
         Self {
             path: frame.path.clone(),
             identity: None,
@@ -169,7 +221,7 @@ impl TreeScan {
             let file = match opened {
                 Ok(file) => file,
                 Err(error) => {
-                    lost = Some(TreeEntry::lost_directory(frame, error.kind()));
+                    lost = Some(TreeEntry::lost_directory(frame, (&error).into()));
                     self.frames.truncate(index);
                     break;
                 }
@@ -181,7 +233,7 @@ impl TreeScan {
             {
                 lost = Some(TreeEntry::lost_directory(
                     frame,
-                    io::ErrorKind::ResourceBusy,
+                    io::ErrorKind::ResourceBusy.into(),
                 ));
                 self.frames.truncate(index);
                 break;
@@ -214,7 +266,7 @@ impl TreeScan {
                     continue;
                 }
                 Err(error) if error.kind() != io::ErrorKind::InvalidData => {
-                    entries.push(TreeEntry::lost_directory(frame, error.kind()));
+                    entries.push(TreeEntry::lost_directory(frame, (&error).into()));
                     self.frames.pop();
                     directories.pop();
                     continue;
@@ -270,14 +322,14 @@ impl TreeScan {
                 Ok(Opened::Missing(_)) => continue,
                 Ok(Opened::Unopenable) => entry.error = Some(EntryError::Unopenable),
                 Err(error) if !structural_entry_error(&error) => {
-                    entry.error = Some(EntryError::Io(error.kind()));
+                    entry.error = Some(EntryError::Io((&error).into()));
                 }
                 Err(_) => match self.lookup.regular_unconfirmed(directory, &name) {
                     Ok(Opened::Entry(file)) => entry.identity = Some(fsutil::stat_identity(&file)?),
                     Ok(Opened::Missing(_)) => continue,
                     Ok(Opened::Unopenable) => entry.error = Some(EntryError::Unopenable),
                     Err(error) if !structural_entry_error(&error) => {
-                        entry.error = Some(EntryError::Io(error.kind()));
+                        entry.error = Some(EntryError::Io((&error).into()));
                     }
                     Err(_) => {}
                 },

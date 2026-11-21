@@ -46,33 +46,35 @@ impl ReadFailure {
 }
 
 impl From<EntryError> for ReadFailure {
+    /// The class the one classification gives the failure decides first; the kinds only a read
+    /// gives a meaning to are decided after it.
     fn from(error: EntryError) -> Self {
         match error {
             EntryError::Unopenable => {
                 Self::of(Failure::of_unopenable(fsutil::Unopenable)).unwrap_or(Self::Unknown)
             }
-            EntryError::Io(kind) => kind.into(),
+            EntryError::Io(cause) => cause
+                .class()
+                .and_then(Self::of)
+                .unwrap_or_else(|| Self::of_read_kind(cause.kind())),
         }
     }
 }
 
-impl From<io::ErrorKind> for ReadFailure {
-    /// The kinds only a read gives a meaning to are decided here, after [`Self::of`].
+impl ReadFailure {
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "io::ErrorKind is non-exhaustive, and a kind this match does not name is unknown"
     )]
-    fn from(kind: io::ErrorKind) -> Self {
-        Failure::of_kind(kind)
-            .and_then(Self::of)
-            .unwrap_or(match kind {
-                // The entry went away or was replaced while the pass read it.
-                io::ErrorKind::NotFound
-                | io::ErrorKind::NotADirectory
-                | io::ErrorKind::IsADirectory => Self::Passing,
-                io::ErrorKind::PermissionDenied => Self::Lasting,
-                _ => Self::Unknown,
-            })
+    fn of_read_kind(kind: io::ErrorKind) -> Self {
+        match kind {
+            // The entry went away or was replaced while the pass read it.
+            io::ErrorKind::NotFound
+            | io::ErrorKind::NotADirectory
+            | io::ErrorKind::IsADirectory => Self::Passing,
+            io::ErrorKind::PermissionDenied => Self::Lasting,
+            _ => Self::Unknown,
+        }
     }
 }
 
@@ -461,7 +463,11 @@ mod tests {
             io::ErrorKind::WouldBlock,
             io::ErrorKind::TimedOut,
         ] {
-            assert_eq!(ReadFailure::from(kind), ReadFailure::Passing, "{kind:?}");
+            assert_eq!(
+                ReadFailure::from(EntryError::Io(kind.into())),
+                ReadFailure::Passing,
+                "{kind:?}"
+            );
         }
         for kind in [
             io::ErrorKind::PermissionDenied,
@@ -469,14 +475,22 @@ mod tests {
             io::ErrorKind::QuotaExceeded,
             io::ErrorKind::ReadOnlyFilesystem,
         ] {
-            assert_eq!(ReadFailure::from(kind), ReadFailure::Lasting, "{kind:?}");
+            assert_eq!(
+                ReadFailure::from(EntryError::Io(kind.into())),
+                ReadFailure::Lasting,
+                "{kind:?}"
+            );
         }
         for kind in [
             io::ErrorKind::InvalidInput,
             io::ErrorKind::Other,
             io::ErrorKind::AlreadyExists,
         ] {
-            assert_eq!(ReadFailure::from(kind), ReadFailure::Unknown, "{kind:?}");
+            assert_eq!(
+                ReadFailure::from(EntryError::Io(kind.into())),
+                ReadFailure::Unknown,
+                "{kind:?}"
+            );
         }
     }
 
@@ -559,7 +573,7 @@ mod tests {
     fn with_unreadable(mut pass: Reconciliation) -> Reconciliation {
         pass.count_read_failure(
             Path::new("bucket/locked"),
-            EntryError::Io(io::ErrorKind::PermissionDenied),
+            EntryError::Io(io::ErrorKind::PermissionDenied.into()),
         );
         pass
     }
@@ -685,7 +699,7 @@ mod tests {
             |pass: &mut Reconciliation| {
                 pass.count_read_failure(
                     Path::new("bucket/locked"),
-                    EntryError::Io(io::ErrorKind::PermissionDenied),
+                    EntryError::Io(io::ErrorKind::PermissionDenied.into()),
                 );
             },
             |pass: &mut Reconciliation| {
@@ -727,6 +741,44 @@ mod tests {
         assert_eq!(Hold::Interrupted.tree_side(), None);
     }
 
+    /// Descriptor or memory pressure, which no I/O kind names, passes for a scan's read as it
+    /// does for every other step: the entry is deferred to a later pass, not counted unreadable.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_scan_read_that_meets_descriptor_or_memory_pressure_is_deferred() {
+        use crate::{
+            fsutil::{self, Lookup},
+            sync::tree::{TreeLimits, TreeScan},
+            test_support::TestDir,
+        };
+        for errno in [libc::EMFILE, libc::ENFILE, libc::ENOMEM] {
+            let tree = TestDir::new();
+            std::fs::create_dir(tree.0.join("bucket")).unwrap();
+            std::fs::write(tree.0.join("bucket/pressed"), b"body").unwrap();
+            let _refused = fsutil::FailingOpens::refusing(&tree.0.join("bucket"), "pressed", errno);
+            let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
+            let mut scan = TreeScan::new(TreeLimits::default(), Lookup::unprobed());
+            let mut pass = Reconciliation {
+                baseline_complete: true,
+                ..Default::default()
+            };
+            while !scan.is_empty() {
+                let (next, page) = scan.page(&root).unwrap();
+                scan = next;
+                for entry in page {
+                    if let Some(error) = entry.error {
+                        pass.count_read_failure(&entry.path, error);
+                    }
+                }
+            }
+            assert_eq!((pass.deferred, pass.unreadable()), (1, 0), "{errno}");
+            assert_eq!(
+                pass.deferred_files.first(),
+                [PathBuf::from("bucket/pressed")]
+            );
+        }
+    }
+
     /// A read that a later pass may repeat is deferred and named among the deferred files; one
     /// only an operator repairs, or of a kind nothing shows waiting clears, is unreadable and
     /// named among the entries, so a wait stops on it instead of spending its timeout.
@@ -738,7 +790,7 @@ mod tests {
         };
         pass.count_read_failure(
             Path::new("bucket/vanished"),
-            EntryError::Io(io::ErrorKind::NotFound),
+            EntryError::Io(io::ErrorKind::NotFound.into()),
         );
         assert_eq!((pass.deferred, pass.unreadable()), (1, 0));
         assert_eq!(
@@ -751,7 +803,7 @@ mod tests {
             (io::ErrorKind::StorageFull, 2),
             (io::ErrorKind::InvalidData, 3),
         ] {
-            pass.count_read_failure(Path::new("bucket/locked"), EntryError::Io(kind));
+            pass.count_read_failure(Path::new("bucket/locked"), EntryError::Io(kind.into()));
             assert_eq!(
                 (pass.deferred, pass.unreadable()),
                 (1, unreadable),
@@ -780,7 +832,7 @@ mod tests {
         reconciled.count_unmapped_object();
         reconciled.count_read_failure(
             Path::new("bucket/locked"),
-            EntryError::Io(io::ErrorKind::PermissionDenied),
+            EntryError::Io(io::ErrorKind::PermissionDenied.into()),
         );
         pass.absorb_hold(&reconciled);
         assert_eq!(pass.gate().hold(), Hold::Unreadable);

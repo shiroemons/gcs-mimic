@@ -7,80 +7,55 @@ use crate::{
     diagnostics::{self, LogLevel},
     storage::{
         admin::AdminError,
+        failure::Link,
         sync_state::{
             root::{RootError, RootLease},
-            writeback::{self, InstallOutcome, LiveExport, RaceReason, Writeback},
+            writeback::{self, InstallOutcome, LiveExport, Writeback},
         },
     },
     sync::{
         SyncError,
+        error::Cause,
         failure::{Failure, transient_below},
         report::remedy::export_retry_remedy,
         tree::{ParentError, ParentOpen, parent},
     },
 };
-use std::{fs::File, future::Future, path::PathBuf, time::Duration};
+use std::{fs::File, future::Future, io, path::PathBuf, time::Duration};
 
 /// A failed export step waits 1 s, then 2 s; a third failure pauses synchronization.
 pub(super) const EXPORT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), RETRY_DELAY_MAX);
 
+/// Whether a failed export step is tried again within [`RetryBudget::EXPORT`]: a failure that
+/// passes, or one of the whole file system, which an operator may clear before the budget runs
+/// out ([`Failure::retries`]). A step that still fails then fails the path as before.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "a variant not named here retries as its class says, and the classification names every variant"
+)]
 pub(super) fn retryable(error: &writeback::Error) -> bool {
-    let error = match error {
-        writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
-        // An entry that kept failing to open is looked at again; the step is read afresh.
-        writeback::Error::Raced(RaceReason::Unopenable)
-        | writeback::Error::Root(RootError::UnopenableMarker) => return true,
-        writeback::Error::Root(
-            RootError::InUse
-            | RootError::Unsupported { .. }
-            | RootError::RootChanged
-            | RootError::MissingMarker
-            | RootError::InvalidMarker
-            | RootError::ForeignMarker
-            | RootError::ReinitializeDenied
-            | RootError::ReplacementOccupied { .. },
-        )
-        // A displaced target belongs to recovery, so neither is retried automatically.
-        | writeback::Error::Conflict(_)
-        | writeback::Error::Displaced(_)
-        | writeback::Error::Capacity
-        | writeback::Error::RecoveryRequired
-        | writeback::Error::Protected
-        | writeback::Error::WorkspaceChanged
-        | writeback::Error::Raced(
-            RaceReason::ParentChanged
-            | RaceReason::Respelled
-            | RaceReason::TargetChanged
-            | RaceReason::DirectoryChanged,
-        )
-        | writeback::Error::Obsolete(_)
-        | writeback::Error::Invariant(_) => return false,
-    };
-    match error {
-        AdminError::DiskFull(_) => true,
-        AdminError::Io(cause) => {
-            matches!(
-                cause.kind(),
-                std::io::ErrorKind::StorageFull | std::io::ErrorKind::PermissionDenied
-            ) || Failure::of_kind(cause.kind()) == Some(Failure::Transient)
-                || transient_below(error)
+    let class = match error {
+        // A conflict or a displaced target belongs to recovery, so neither is retried
+        // automatically, whatever failure it carries.
+        writeback::Error::Conflict(_) | writeback::Error::Displaced(_) => return false,
+        writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => {
+            match error {
+                // A missing permission has no class, since only an operator restores it. An
+                // export step retries it all the same: the operator repairs a file or parent
+                // permission in place, and the step then goes on without recording a mapping
+                // finding or advancing the journal cursor.
+                AdminError::Io(cause) if cause.kind() == io::ErrorKind::PermissionDenied => {
+                    return true;
+                }
+                // Descriptor or memory pressure shows only in the I/O failure below.
+                AdminError::Io(_) if transient_below(error) => Some(Failure::Transient),
+                error => Failure::of_admin(error),
+            }
         }
-        AdminError::Busy { .. }
-        | AdminError::Closed
-        | AdminError::Precondition
-        | AdminError::Hold
-        | AdminError::SeedProjectMismatch
-        | AdminError::SeedMetadataBudget { .. }
-        | AdminError::SourceChanged { .. }
-        | AdminError::Corrupt(_)
-        | AdminError::NotFound
-        | AdminError::Invalid(_)
-        | AdminError::Checksum
-        | AdminError::TooLarge
-        | AdminError::Forbidden
-        | AdminError::BodyAborted(_)
-        | AdminError::Backend(_) => false,
-    }
+        // An entry that kept failing to open is told by the link below the error that met it.
+        error => Cause::chain(Link::Writeback(error)).find_map(Cause::failure),
+    };
+    class.is_some_and(Failure::retries)
 }
 
 pub(super) async fn wait_retry(

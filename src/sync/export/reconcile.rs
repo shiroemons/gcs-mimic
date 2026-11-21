@@ -259,10 +259,12 @@ pub(in crate::sync) async fn external_files(
                 return Ok(());
             }
             match classify(&entry, naming) {
-                EntryClass::Unreadable(EntryError::Io(io::ErrorKind::ResourceBusy)) => {
+                EntryClass::Unreadable(EntryError::Io(cause))
+                    if cause.kind() == io::ErrorKind::ResourceBusy =>
+                {
                     return Err(io::Error::from(io::ErrorKind::ResourceBusy).into());
                 }
-                EntryClass::Unreadable(kind) => counts.count_read_failure(&entry.path, kind),
+                EntryClass::Unreadable(error) => counts.count_read_failure(&entry.path, error),
                 EntryClass::Bucket(_) | EntryClass::Directory => {}
                 EntryClass::Skipped(skip) => counts.count_skipped(&entry.path, skip),
                 EntryClass::Unrepresentable(problem) => {

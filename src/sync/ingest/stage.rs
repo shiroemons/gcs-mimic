@@ -166,7 +166,7 @@ impl Ingest<'_> {
             Err(RootError::Admin(AdminError::Io(error)))
                 if Failure::of_kind(error.kind()) != Some(Failure::Volume) =>
             {
-                self.defer(&candidate.path, EntryError::Io(error.kind()));
+                self.defer(&candidate.path, EntryError::Io((&error).into()));
                 self.record_observation(&candidate.binding, &candidate.name, PathStop::IoFailure)
                     .await?;
                 return Ok(None);
@@ -232,7 +232,7 @@ impl Ingest<'_> {
                 Ok(None)
             }
             Err(NotDurable::Io(error)) => {
-                self.defer(path.as_ref(), EntryError::Io(error.kind()));
+                self.defer(path.as_ref(), EntryError::Io((&error).into()));
                 self.record_observation(binding, name, PathStop::IoFailure)
                     .await?;
                 Ok(None)

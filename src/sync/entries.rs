@@ -468,13 +468,13 @@ mod tests {
             error: None,
         };
         let unreadable = TreeEntry {
-            error: Some(EntryError::Io(io::ErrorKind::PermissionDenied)),
+            error: Some(EntryError::Io(io::ErrorKind::PermissionDenied.into())),
             ..entry("bucket", true, None)
         };
         let cases = [
             (
                 unreadable,
-                EntryClass::Unreadable(EntryError::Io(io::ErrorKind::PermissionDenied)),
+                EntryClass::Unreadable(EntryError::Io(io::ErrorKind::PermissionDenied.into())),
             ),
             (
                 entry(".DS_Store", false, None),

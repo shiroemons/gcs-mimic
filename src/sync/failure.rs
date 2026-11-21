@@ -1,6 +1,8 @@
 //! The one classification of a synchronization failure. The retry, pause, deferral and
-//! plan-again decisions read the class it gives a failure instead of matching error variants of
-//! their own, which had drifted apart: one place deferred what another failed the pass on.
+//! plan-again decisions read the class it gives a failure instead of classifying error variants
+//! of their own, which had drifted apart: one place deferred what another failed the pass on.
+//! A decision that departs from the class, such as an export step retrying a missing permission
+//! or leaving a conflict to recovery, says why where it decides.
 
 use crate::{
     bucket::CatalogError,
@@ -44,6 +46,16 @@ pub(in crate::sync) enum Failure {
 }
 
 impl Failure {
+    /// Whether a step that failed so is tried again within a retry budget: a failure that passes,
+    /// or one of the whole file system, which an operator may clear before the budget runs out.
+    /// A step the budget does not see through fails as it would have without the retries.
+    pub(in crate::sync) fn retries(self) -> bool {
+        match self {
+            Self::Transient | Self::Volume => true,
+            Self::Superseded | Self::PathLocal => false,
+        }
+    }
+
     /// What an I/O failure's kind alone says.
     #[expect(
         clippy::wildcard_enum_match_arm,

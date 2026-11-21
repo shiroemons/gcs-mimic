@@ -107,6 +107,11 @@ impl<'a> Cause<'a> {
         }
     }
 
+    /// The causes of the chain from `link` down.
+    pub(in crate::sync) fn chain(link: Link<'a>) -> impl Iterator<Item = Self> {
+        chain(link).map(Self::of)
+    }
+
     /// The class [`Failure`] gives this link alone. A link that wraps another decides as that
     /// one does, since the chain reaches it next.
     pub(in crate::sync) fn failure(self) -> Option<Failure> {

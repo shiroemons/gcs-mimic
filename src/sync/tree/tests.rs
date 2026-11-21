@@ -2,6 +2,39 @@ use super::*;
 use crate::test_support::TestDir;
 use std::{collections::BTreeSet, fs, num::NonZeroUsize};
 
+/// A scan reads a name the file system refuses as invalid (`EINVAL`) as an entry of a kind it
+/// does not take in, as it reads a special file, and a name refused as such (`EILSEQ`) as a
+/// failed read of the entry.
+#[test]
+fn a_scan_reads_an_invalid_name_as_another_kind_and_a_refused_name_as_a_failed_read() {
+    for (errno, failed) in [(libc::EINVAL, false), (libc::EILSEQ, true)] {
+        let tree = TestDir::new();
+        fs::create_dir(tree.0.join("bucket")).unwrap();
+        fs::write(tree.0.join("bucket/refused"), b"bytes").unwrap();
+        let _refused = fsutil::FailingOpens::refusing(&tree.0.join("bucket"), "refused", errno);
+        let root = fsutil::open_directory_nofollow(&tree.0).unwrap();
+        let mut scan = TreeScan::new(TreeLimits::default(), Lookup::unprobed());
+        let mut refused = Vec::new();
+        while !scan.is_empty() {
+            let (next, page) = scan.page(&root).unwrap();
+            scan = next;
+            refused.extend(
+                page.into_iter()
+                    .filter(|entry| entry.path == Path::new("bucket/refused")),
+            );
+        }
+        let [entry] = refused.as_slice() else {
+            panic!("{errno}: {} entries", refused.len());
+        };
+        assert!(!entry.directory && entry.identity.is_none(), "{errno}");
+        assert_eq!(
+            entry.error,
+            failed.then_some(EntryError::Io(EntryIo::Os(errno))),
+            "{errno}"
+        );
+    }
+}
+
 #[test]
 fn created_parents_survive_crash_and_power_loss_only_after_directory_sync() {
     use crate::storage::fault::{self, Fault, Step};
@@ -207,7 +240,7 @@ fn scans_cross_pages_once_and_reject_replaced_directories() {
     fs::create_dir(tree.0.join("bucket")).unwrap();
     let (_, page) = scan.page(&root).unwrap();
     assert!(page.iter().any(|entry| entry.path == Path::new("bucket")
-        && entry.error == Some(EntryError::Io(io::ErrorKind::ResourceBusy))));
+        && entry.error == Some(EntryError::Io(io::ErrorKind::ResourceBusy.into()))));
 }
 
 /// A scan opens each entry under the name its directory just listed and confirms no spelling

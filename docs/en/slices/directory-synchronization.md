@@ -164,8 +164,10 @@ preserved as a conflict and the file returns to the API bytes (see
 A parent directory removed or moved after prepare also cancels the observation, leaves no pending
 intent and lets other buckets progress; observations do not require that parent
 to remain present for a replacement they never perform. File/ancestor
-permission and transient I/O failures retry inspection without recording a
-permanent mapping finding or advancing the journal cursor. Permission repair
+permission failures, transient I/O failures and catalog contention, and a full
+disk, exhausted quota or read-only file system an operator may clear, retry
+inspection within the export's retry budget without recording a permanent
+mapping finding or advancing the journal cursor. Permission repair
 may change ctime; matching size and stable MD5/CRC32C still prove the
 tracked body before checked replacement. Symlinks, special files and type
 collisions retain their structural findings.
@@ -640,7 +642,8 @@ and the write-back recovery that starts each run settles the operation the step
 left: installed bytes stay at the target, and a copy not installed yet goes.
 The scan follows the same rule for each entry a listing names: it passes over
 only an entry proved gone, and counts one that still fails as a deferred read
-failure. The native watch, which on Linux adds a watch for each directory and
+failure. A read that meets descriptor or memory pressure is deferred the same
+way, as a failure that passes, rather than counted unreadable. The native watch, which on Linux adds a watch for each directory and
 on macOS lists the tree before it subscribes, fails its build on a directory
 that still fails, and the mirror builds it again as after any transient
 failure, so that subtree is not left unwatched. The naming probe fails the same
