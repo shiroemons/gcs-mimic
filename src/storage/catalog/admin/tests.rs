@@ -154,7 +154,9 @@ fn filesystem_failures_convert_as_io_failures() {
 #[test]
 fn synchronization_diagnostics_summarize_wrapped_causes() {
     use crate::storage::sync_state::{
-        conflicts::Error as ConflictError, root::RootError, writeback::Error as WritebackError,
+        conflicts::Error as ConflictError,
+        root::{RootError, Stage},
+        writeback::Error as WritebackError,
     };
     for (error, expected) in [
         (
@@ -162,7 +164,10 @@ fn synchronization_diagnostics_summarize_wrapped_causes() {
             "synchronization root: admin operation failed",
         ),
         (RootError::InUse, "synchronization root: InUse"),
-        (RootError::Unsupported, "synchronization root: Unsupported"),
+        (
+            RootError::at(Stage::PublishMarker)(io::Error::from(io::ErrorKind::Unsupported)),
+            "synchronization root: Unsupported while publishing the marker",
+        ),
         (RootError::RootChanged, "synchronization root: RootChanged"),
         (
             RootError::MissingMarker,

@@ -132,7 +132,7 @@ fn activation_remedy(error: &RootError, catalog: CatalogId) -> String {
         RootError::RootChanged => "sync_dir was replaced while startup checked it, overlaps the data directory, or is not the registered directory that --sync-reinitialize names. Keep sync_dir in place and apart from data_dir, and use --sync-reinitialize only for the registered directory whose marker is missing. Without it, startup takes a directory this data directory synchronized before, or an empty one, in place of the registered directory.".to_owned(),
         RootError::Admin(_)
         | RootError::InUse
-        | RootError::Unsupported
+        | RootError::Unsupported { .. }
         | RootError::MissingMarker
         | RootError::InvalidMarker
         | RootError::ForeignMarker

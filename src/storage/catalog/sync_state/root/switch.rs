@@ -30,9 +30,11 @@
 
 use super::{
     super::{CatalogId, SyncState},
-    Baseline, Marker, MarkerState, Ownership, RootError, RootId, RootStatus, remove_staging,
+    Baseline, Marker, MarkerState, Ownership, RootError, RootId, RootStatus, Stage, remove_staging,
     stage_marker,
 };
+#[cfg(test)]
+use crate::storage::catalog::fault::Step;
 use crate::{
     fsutil::{self, NodeId},
     storage::{
@@ -176,7 +178,8 @@ impl RootFiles {
     /// Lists the directory `owns` holds. One that holds anything else is no proof.
     fn prove(owns: &Ownership) -> Result<Option<Self>, RootError> {
         owns.validate()?;
-        Ok(root_files(owns.lock.file())?.map(|files| Self {
+        let listed = root_files(owns.lock.file()).map_err(RootError::at(Stage::ListRootFiles))?;
+        Ok(listed.map(|files| Self {
             location: owns.path.as_os_str().as_encoded_bytes().to_vec(),
             node: owns.identity.node(),
             files,
@@ -342,10 +345,7 @@ impl SyncState {
                 let proof = RootFiles::prove(&owns)?.ok_or(occupied)?;
                 let staged = stage_marker(&owns, Marker::new(status))?;
                 #[cfg(test)]
-                crate::storage::catalog::fault::hit_io(
-                    &owns.path,
-                    crate::storage::catalog::fault::Step::SyncRootSwitchStaged,
-                )?;
+                super::seam(&owns.path, Step::SyncRootSwitchStaged, Stage::SwitchRoot)?;
                 Ok::<_, RootError>((proof, staged))
             })
             .await?;
@@ -370,13 +370,7 @@ impl SyncState {
             self.0
                 .0
                 .file_workers
-                .run(move || {
-                    crate::storage::catalog::fault::hit_io(
-                        &owns.path,
-                        crate::storage::catalog::fault::Step::SyncRootSwitched,
-                    )
-                    .map_err(RootError::from)
-                })
+                .run(move || super::seam(&owns.path, Step::SyncRootSwitched, Stage::SwitchRoot))
                 .await?;
         }
         Ok((status, MarkerState::Staged(marker), change))
@@ -418,15 +412,17 @@ fn switch(
     )?;
     change.root_files = Some(proof.files);
     #[cfg(test)]
-    crate::storage::catalog::fault::hit_io(
+    super::seam(
         &crate::storage::catalog::fault::database_dir(&transaction),
-        crate::storage::catalog::fault::Step::SyncRootSwitchStaged,
+        Step::SyncRootSwitchStaged,
+        Stage::SwitchRoot,
     )?;
     transaction.commit().map_err(unavailable)?;
     #[cfg(test)]
-    crate::storage::catalog::fault::hit_io(
+    super::seam(
         &crate::storage::catalog::fault::database_dir(connection),
-        crate::storage::catalog::fault::Step::SyncRootSwitched,
+        Step::SyncRootSwitched,
+        Stage::SwitchRoot,
     )?;
     Ok(Switch::Committed(change))
 }

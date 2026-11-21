@@ -83,6 +83,9 @@ pub(crate) enum Step {
     /// file goes with that object, in the tree and in the catalog.
     #[cfg(unix)]
     SyncAliasHandedOver,
+    /// After the catalog registered the selected directory's root, before startup stages or
+    /// publishes its marker, in the tree.
+    SyncMarkerReserved,
     SyncMarkerWrite,
     SyncMarkerSync,
     SyncMarkerPrepared,

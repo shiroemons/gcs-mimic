@@ -30,7 +30,7 @@ pub(in crate::sync) fn retryable(error: &writeback::Error) -> bool {
         writeback::Error::Admin(error) | writeback::Error::Root(RootError::Admin(error)) => error,
         writeback::Error::Root(
             RootError::InUse
-            | RootError::Unsupported
+            | RootError::Unsupported { .. }
             | RootError::RootChanged
             | RootError::MissingMarker
             | RootError::InvalidMarker

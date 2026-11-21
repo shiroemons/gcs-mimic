@@ -1126,7 +1126,7 @@ pub(super) fn root_error(error: &RootError) -> ApiError {
     match error {
         RootError::Admin(error) => admin_error(error).unwrap_or_else(busy),
         RootError::InUse => busy(),
-        RootError::Unsupported => ApiError::new(
+        RootError::Unsupported { .. } => ApiError::new(
             StatusCode::NOT_IMPLEMENTED,
             "notImplemented",
             "Directory synchronization is unsupported on this platform",

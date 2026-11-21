@@ -34,7 +34,7 @@ async fn setup() -> (TestDir, TestDir, Catalog) {
 
 #[test]
 fn unrelated_would_block_keeps_its_io_cause() {
-    let error = RootError::from(io::Error::from_raw_os_error(libc::EAGAIN));
+    let error = RootError::at(Stage::Lock)(io::Error::from_raw_os_error(libc::EAGAIN));
     assert!(
         matches!(error, RootError::Admin(AdminError::Io(ref cause)) if cause.source().and_then(|source| source.downcast_ref::<io::Error>()).and_then(io::Error::raw_os_error) == Some(libc::EAGAIN))
     );
@@ -704,16 +704,17 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
 
 #[tokio::test]
 async fn sync_root_activation_failure_boundaries_never_publish_partial_markers() {
+    use crate::storage::catalog::fault::{self, Fault, Step};
     for phase in [
-        "reserved",
-        "created",
-        "file_synced",
-        "renamed",
-        "directory_synced",
+        Step::SyncMarkerReserved,
+        Step::SyncMarkerWrite,
+        Step::SyncMarkerPrepared,
+        Step::SyncMarkerParentSync,
+        Step::SyncMarkerPublished,
     ] {
         let (data, root, catalog) = setup().await;
         let id = catalog.sync_state().catalog_id().await.unwrap();
-        *FAILURE.lock().unwrap() = Some((root.0.canonicalize().unwrap(), phase));
+        fault::arm(&root.0, phase, 0, Fault::Io(io::ErrorKind::Other));
         assert!(
             catalog
                 .sync_state()
@@ -721,12 +722,11 @@ async fn sync_root_activation_failure_boundaries_never_publish_partial_markers()
                 .await
                 .is_err()
         );
-        *FAILURE.lock().unwrap() = None;
         catalog.close().await.unwrap();
         let catalog = Catalog::open(&data.0).await.unwrap();
         let state = catalog.sync_state();
         match phase {
-            "reserved" | "created" => {
+            Step::SyncMarkerReserved | Step::SyncMarkerWrite => {
                 assert!(!root.0.join(MARKER).exists());
                 assert!(matches!(
                     state.activate_root(&root.0, Activation::Open).await,

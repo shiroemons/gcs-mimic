@@ -15,7 +15,7 @@ use crate::{
         change_journal::{ChangeKind, ChangePage, ChangeRead},
         sync_state::{
             observation::PauseReason,
-            root::{RootError, RootLease},
+            root::{RootError, RootLease, Stage},
             writeback::Writeback,
         },
     },
