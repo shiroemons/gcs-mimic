@@ -21,10 +21,8 @@ pub(crate) struct Inventory {
     root: RootId,
     fence: JournalFence,
     draft: Draft,
-    /// What the pages recorded so far saw gone above their candidates.
-    removal: Removal,
-    /// The first bucket all of whose tracked files went at once, which the advice on a set that
-    /// waits for that reason names.
+    /// The first bucket all of whose tracked files went at once, which takes the set to approval
+    /// whatever the counts and which the advice on a set that waits for that reason names.
     first_gone: Option<(BucketName, BucketGone)>,
     /// Every such bucket, which the log and a wait name.
     removed_buckets: Named<BucketName>,
@@ -43,7 +41,6 @@ impl Inventory {
     /// Adds a bucket all of whose tracked files went at once, as `gone` says, which no single
     /// page shows: the pages count across it.
     pub(crate) fn saw_bucket_gone(&mut self, bucket: &BucketName, gone: BucketGone) {
-        self.removal = self.removal.and(Removal::Bucket(gone));
         self.first_gone
             .get_or_insert_with(|| (bucket.clone(), gone));
         self.removed_buckets.push(bucket.clone());
@@ -59,7 +56,6 @@ impl Inventory {
                 baseline: 0,
                 candidates: 0,
             },
-            removal: Removal::Files,
             first_gone: None,
             removed_buckets: Named::default(),
         }
@@ -266,7 +262,6 @@ impl RootLease {
                     root,
                     fence: current,
                     draft: Draft::New,
-                    removal: Removal::Files,
                     first_gone: None,
                     removed_buckets: Named::default(),
                 }))
@@ -368,10 +363,6 @@ impl RootLease {
         baseline: u64,
         missing: Vec<Missing>,
     ) -> Result<Confirmed, RootError> {
-        inventory.removal = missing
-            .iter()
-            .map(Missing::removal)
-            .fold(inventory.removal, Removal::and);
         let found = missing.len() as u64;
         if found > 256 || baseline > 256 || baseline < found {
             return Err(AdminError::Invalid("invalid deletion inventory page".into()).into());
@@ -431,19 +422,15 @@ impl RootLease {
                 Draft::New => (stored_baseline,stored_candidates),
                 Draft::Confirming { baseline, candidates } => (baseline,candidates),
             };
-            let automatic=history::automatic_count(&transaction,inventory.root)?;
-            let setting=Guard::from(enabled);
-            let threshold=guarded(setting,baseline+automatic,candidates+automatic);
-            let removed=inventory.removal.guarded(setting);
-            let held=matches!(setting,Guard::Enabled) && held::holds_waiting(&transaction,inventory.root)?;
-            let guard=threshold || removed || held;
-            // The advice names one cause, the one most likely to be a mistake first.
-            let cause=match &inventory.first_gone {
-                Some((bucket,gone)) if removed => Some(WaitCause::Bucket{bucket:bucket.clone(),gone:*gone}),
-                Some(_) | None if threshold => Some(WaitCause::Threshold),
-                Some(_) | None if held => Some(WaitCause::Held),
-                Some(_) | None => None,
-            };
+            let decided=verdict(SetFacts {
+                guard: Guard::from(enabled),
+                baseline,
+                candidates,
+                automatic: history::automatic_count(&transaction,inventory.root)?,
+                gone: inventory.first_gone.clone(),
+                held: HeldFiles::from(held::holds_waiting(&transaction,inventory.root)?),
+            });
+            let guard=matches!(decided,SetVerdict::Wait(_));
             match inventory.draft {
                 Draft::New => {
                     sql::exec(&transaction, "UPDATE sync_deletion_sets SET complete=1,valid=1,guarded=?3,authorization=?4 WHERE root_id=?1 AND revision=?2", params![inventory.root,inventory.revision,guard,DeletionAuthorization::on_completion(guard)])?;
@@ -461,6 +448,10 @@ impl RootLease {
             let mut snapshot=read_set(&transaction,inventory.root)?.ok_or(CatalogError::PreconditionFailed)?;
             transaction.commit()?;
             if snapshot.awaits_decision() {
+                let cause=match decided {
+                    SetVerdict::Wait(cause) => Some(cause),
+                    SetVerdict::Run => None,
+                };
                 snapshot.seen=Seen{cause,removed_buckets:inventory.removed_buckets};
             }
             Ok(Some(snapshot))

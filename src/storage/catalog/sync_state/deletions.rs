@@ -69,7 +69,9 @@ macro_rules! rejected_left {
 pub(in crate::storage) mod held;
 pub(in crate::storage) mod history;
 mod scan;
+mod verdict;
 pub(crate) use scan::{Confirmed, Inventory, Recheck};
+use verdict::{HeldFiles, SetFacts, SetVerdict, verdict};
 #[cfg(test)]
 mod tests;
 
@@ -346,26 +348,6 @@ pub(crate) enum BucketGone {
     /// bucket emptied while the mirror runs is a deletion the user made in front of it, which
     /// only the counts take to approval.
     Emptied,
-}
-
-impl Removal {
-    /// Whether this removal alone takes the set to approval under `guard`: the one decision for
-    /// every way a bucket's files go at once, which the reason does not change.
-    fn guarded(self, guard: Guard) -> bool {
-        match (guard, self) {
-            (Guard::Enabled, Self::Bucket(BucketGone::Missing | BucketGone::Emptied)) => true,
-            (Guard::Enabled, Self::Files) | (Guard::Disabled, _) => false,
-        }
-    }
-
-    /// What two observations saw gone together.
-    #[must_use]
-    pub(crate) fn and(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Files, Self::Files) => Self::Files,
-            (Self::Bucket(gone), _) | (_, Self::Bucket(gone)) => Self::Bucket(gone),
-        }
-    }
 }
 
 fn fence(connection: &Connection) -> Result<JournalFence, CatalogError> {
